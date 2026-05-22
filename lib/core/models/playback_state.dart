@@ -48,6 +48,5 @@ class PlaybackState {
           other.duration == duration);
 
   @override
-  int get hashCode =>
-      Object.hash(status, currentTrack, position, duration);
+  int get hashCode => Object.hash(status, currentTrack, position, duration);
 }
