@@ -74,7 +74,11 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         indicatorColor: AppColors.accentMuted.withValues(alpha: 0.35),
         labelTextStyle: WidgetStateProperty.all(
-          TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: onSurface),
+          TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: onSurface,
+          ),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
