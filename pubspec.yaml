@@ -15,6 +15,8 @@ dependencies:
     sdk: flutter
   flutter_riverpod: ^2.6.1
   go_router: ^14.6.2
+  # Cross-platform path parsing for the local file scanner (Dart-team package).
+  path: ^1.9.0
 
 dev_dependencies:
   flutter_lints: ^5.0.0

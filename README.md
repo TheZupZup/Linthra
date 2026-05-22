@@ -14,9 +14,15 @@ project structure, dark-first theming, navigation, the app shell, placeholder
 screens, the core domain models, and the service/repository *interfaces* that
 future features will implement.
 
+The **local library scanning foundation** has now started: `LocalMusicSource`
+(`lib/core/sources/local/`) discovers audio files under a configured folder and
+maps them into `Track`s. It does no tag parsing and isn't wired into the UI yet
+— it's the first concrete `MusicSource` and the seam future metadata parsing
+will extend.
+
 Not built yet (planned, in roughly this order):
 
-- Local music library scanning
+- Local music library scanning — *foundation started; tag parsing & UI pending*
 - Audio playback
 - Playlists
 - User-controlled offline downloads
@@ -48,8 +54,8 @@ codebase.
 | Playback         | `just_audio` + `audio_service` (behind interface) |
 
 Dependencies are added when a feature needs them rather than up front, so
-`pubspec.yaml` stays honest about what the code actually uses. Today that's just
-`flutter_riverpod` and `go_router`.
+`pubspec.yaml` stays honest about what the code actually uses. Today that's
+`flutter_riverpod`, `go_router`, and `path` (for the local file scanner).
 
 ## Architecture
 
@@ -74,6 +80,8 @@ lib/
                             PlaylistRepository, DownloadRepository
     services/               device-facing contracts: PlaybackController,
                             MusicSource, ConnectivityService
+    sources/                concrete MusicSource implementations:
+                            local/ (LocalMusicSource + file scanning)
   features/                 one folder per screen/feature
     library/  player/  playlists/  downloads/  settings/  shell/
   shared/
