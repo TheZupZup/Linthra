@@ -1,0 +1,64 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../features/downloads/presentation/downloads_screen.dart';
+import '../../features/library/presentation/library_screen.dart';
+import '../../features/player/presentation/player_screen.dart';
+import '../../features/playlists/presentation/playlists_screen.dart';
+import '../../features/settings/presentation/settings_screen.dart';
+import '../../features/shell/presentation/home_shell.dart';
+import 'routes.dart';
+
+/// Single source of truth for navigation. Exposed through Riverpod so future
+/// guards (e.g. "onboarding complete?", multi-user) can depend on app state.
+final appRouterProvider = Provider<GoRouter>((ref) {
+  return GoRouter(
+    initialLocation: AppRoutes.library,
+    routes: [
+      // Persistent bottom-nav shell with an independent navigation stack per
+      // tab, so switching tabs preserves scroll position and history.
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) =>
+            HomeShell(navigationShell: navigationShell),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.library,
+                builder: (context, state) => const LibraryScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.playlists,
+                builder: (context, state) => const PlaylistsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.downloads,
+                builder: (context, state) => const DownloadsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.settings,
+                builder: (context, state) => const SettingsScreen(),
+              ),
+            ],
+          ),
+        ],
+      ),
+      GoRoute(
+        path: AppRoutes.player,
+        builder: (context, state) => const PlayerScreen(),
+      ),
+    ],
+  );
+});

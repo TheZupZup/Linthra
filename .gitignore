@@ -1,0 +1,18 @@
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+
+# Native platform scaffolding is generated locally via `flutter create .`
+# (kept out of the repo until we decide which platforms to commit).
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db

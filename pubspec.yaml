@@ -1,0 +1,25 @@
+name: echora
+description: A modern, local-first, privacy-focused music player.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+
+# Dependencies are added as features need them, not speculatively.
+# The planned full stack (just_audio, audio_service, drift, connectivity_plus,
+# permission_handler, ...) is documented in README.md and wired in behind the
+# interfaces under lib/services and lib/storage when each feature lands.
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  go_router: ^14.6.2
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
