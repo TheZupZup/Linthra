@@ -113,6 +113,26 @@ flutter run
 > Note: `flutter create` may regenerate template files such as `main.dart`.
 > If prompted, keep the existing versions in this repo.
 
+## Continuous integration
+
+Every pull request and every push to `main` runs a small Flutter workflow
+(`.github/workflows/ci.yml`). It needs to be green before a change merges.
+
+CI runs the checks below, and you can run the exact same ones locally before
+opening a PR:
+
+```bash
+flutter pub get                      # resolve dependencies
+dart format --set-exit-if-changed .  # code must already match `dart format`
+flutter analyze                      # static analysis + lints
+flutter test                         # widget/unit tests
+```
+
+CI pins **Flutter 3.27.x (stable)** for reproducible results; using a matching
+SDK locally avoids spurious `dart format` diffs from formatter changes in newer
+Dart releases. This is code-quality CI only — there are no native build,
+signing, or store-publishing steps yet.
+
 ## Roadmap (MVP)
 
 1. Local music library scanning
