@@ -20,6 +20,13 @@ maps them into `Track`s. It does no tag parsing and isn't wired into the UI yet
 — it's the first concrete `MusicSource` and the seam future metadata parsing
 will extend.
 
+A temporary `InMemoryMusicLibraryRepository` (`lib/data/repositories/`) now
+implements the `MusicLibraryRepository` contract, so the app and its tests have
+a concrete catalog to read from before storage lands. It keeps tracks, albums,
+and artists in memory, grouped by source — it is **not persistent** and exists
+only for development and testing. Drift/SQLite-backed persistence is planned
+next, once Dart code generation (`build_runner`) can be verified in CI.
+
 Not built yet (planned, in roughly this order):
 
 - Local music library scanning — *foundation started; tag parsing & UI pending*
@@ -82,6 +89,8 @@ lib/
                             MusicSource, ConnectivityService
     sources/                concrete MusicSource implementations:
                             local/ (LocalMusicSource + file scanning)
+  data/                     concrete repository implementations
+    repositories/           in_memory_music_library_repository.dart (dev/tests)
   features/                 one folder per screen/feature
     library/  player/  playlists/  downloads/  settings/  shell/
   shared/
