@@ -1,30 +1,30 @@
-/// A user-created, ordered collection of songs. Stores song IDs rather than
-/// full Song objects so ordering and membership persist cheaply.
+/// A user-created, ordered collection of tracks. Stores track IDs rather than
+/// full Track objects so ordering and membership persist cheaply.
 class Playlist {
   const Playlist({
     required this.id,
     required this.name,
-    this.songIds = const [],
+    this.trackIds = const [],
     this.createdAt,
   });
 
   final String id;
   final String name;
-  final List<String> songIds;
+  final List<String> trackIds;
   final DateTime? createdAt;
 
-  int get length => songIds.length;
+  int get length => trackIds.length;
 
   Playlist copyWith({
     String? id,
     String? name,
-    List<String>? songIds,
+    List<String>? trackIds,
     DateTime? createdAt,
   }) {
     return Playlist(
       id: id ?? this.id,
       name: name ?? this.name,
-      songIds: songIds ?? this.songIds,
+      trackIds: trackIds ?? this.trackIds,
       createdAt: createdAt ?? this.createdAt,
     );
   }

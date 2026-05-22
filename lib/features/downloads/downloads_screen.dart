@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../widgets/empty_state.dart';
+import '../../shared/widgets/empty_state.dart';
 
 /// Manage explicit, user-controlled downloads. Placeholder until the downloads
 /// feature lands. Downloads are always user-initiated — never automatic.

@@ -1,12 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/downloads/presentation/downloads_screen.dart';
-import '../../features/library/presentation/library_screen.dart';
-import '../../features/player/presentation/player_screen.dart';
-import '../../features/playlists/presentation/playlists_screen.dart';
-import '../../features/settings/presentation/settings_screen.dart';
-import '../../features/shell/presentation/home_shell.dart';
+import '../features/downloads/downloads_screen.dart';
+import '../features/library/library_screen.dart';
+import '../features/player/player_screen.dart';
+import '../features/playlists/playlists_screen.dart';
+import '../features/settings/settings_screen.dart';
+import '../features/shell/home_shell.dart';
 import 'routes.dart';
 
 /// Single source of truth for navigation. Exposed through Riverpod so future

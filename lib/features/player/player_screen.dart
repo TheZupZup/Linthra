@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../widgets/empty_state.dart';
+import '../../shared/widgets/empty_state.dart';
 
 /// Full-screen now-playing view. Placeholder until playback is wired to the
-/// AudioController. Pushed above the shell via AppRoutes.player.
+/// PlaybackController. Pushed above the shell via AppRoutes.player.
 class PlayerScreen extends StatelessWidget {
   const PlayerScreen({super.key});
 
@@ -14,7 +14,7 @@ class PlayerScreen extends StatelessWidget {
       body: const EmptyState(
         icon: Icons.music_note_outlined,
         title: 'Nothing playing',
-        message: 'Pick a song to start listening.',
+        message: 'Pick a track to start listening.',
       ),
     );
   }

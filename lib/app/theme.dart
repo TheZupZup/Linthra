@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'app_colors.dart';
-import 'app_dimens.dart';
+import 'colors.dart';
+import 'dimens.dart';
 
-/// Builds the light and dark [ThemeData] for Echora. Both share the same
+/// Builds the light and dark [ThemeData] for Sonara. Both share the same
 /// shape language and accent so the product feels cohesive across modes.
 abstract final class AppTheme {
   static ThemeData get dark => _build(

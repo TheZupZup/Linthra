@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../widgets/empty_state.dart';
+import '../../shared/widgets/empty_state.dart';
 
 /// Create and edit playlists. Placeholder until the playlists feature lands.
 class PlaylistsScreen extends StatelessWidget {

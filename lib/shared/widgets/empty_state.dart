@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../core/theme/app_dimens.dart';
+import '../../app/dimens.dart';
 
 /// A calm, centered placeholder used by screens that have no content yet.
 /// Shared so every feature presents an empty state consistently.

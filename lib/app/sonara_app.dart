@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'core/constants/app_info.dart';
-import 'core/routing/app_router.dart';
-import 'core/theme/app_theme.dart';
+import '../core/app_info.dart';
+import 'router.dart';
+import 'theme.dart';
 
-/// Root widget. Dark mode is the primary experience; light theme follows the
-/// system setting when the user opts out of dark.
-class EchoraApp extends ConsumerWidget {
-  const EchoraApp({super.key});
+/// Root widget. Dark mode is the primary experience; the light theme follows
+/// the system setting when the user opts out of dark.
+class SonaraApp extends ConsumerWidget {
+  const SonaraApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

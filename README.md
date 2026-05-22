@@ -1,11 +1,27 @@
-# Echora
+# Sonara
 
-A modern, **local-first**, privacy-focused music player. Echora is a clean
-alternative to bloated streaming apps — your library lives on your device, and
-downloads are always under your explicit control.
+A modern, **local-first**, privacy-focused music player for people who own
+their music. Sonara is a clean alternative to bloated streaming apps — your
+library lives on your device, and downloads are always under your explicit
+control.
 
-> Status: early foundation. The project scaffold, architecture, theming, and
-> navigation are in place; feature implementations are landing incrementally.
+> **Your music, beautifully yours.**
+
+## Status
+
+**Early-stage. This is the foundation/scaffold only.** What exists today is the
+project structure, dark-first theming, navigation, the app shell, placeholder
+screens, the core domain models, and the service/repository *interfaces* that
+future features will implement.
+
+Not built yet (planned, in roughly this order):
+
+- Local music library scanning
+- Audio playback
+- Playlists
+- User-controlled offline downloads
+
+Self-hosted sources (Jellyfin, WebDAV, NAS) come after the local MVP is solid.
 
 ## Philosophy
 
@@ -16,49 +32,67 @@ downloads are always under your explicit control.
   single interface.
 - **Contributor-friendly** — small focused files, explicit naming, clean layers.
 
+## Target platforms
+
+Android first, Linux desktop later, and possibly Windows — all from one Flutter
+codebase.
+
 ## Tech stack
 
-| Concern           | Choice                                            |
-| ----------------- | ------------------------------------------------- |
-| Framework         | Flutter                                           |
-| State management  | Riverpod                                          |
-| Navigation        | go_router (`StatefulShellRoute` for bottom nav)   |
-| Local metadata    | SQLite (planned via `drift`)                      |
-| Playback          | `just_audio` + `audio_service` (behind interface) |
+| Concern          | Choice                                            |
+| ---------------- | ------------------------------------------------- |
+| Framework        | Flutter                                           |
+| State management | Riverpod                                          |
+| Navigation       | go_router (`StatefulShellRoute` for bottom nav)   |
+| Local metadata   | SQLite (planned via `drift`)                      |
+| Playback         | `just_audio` + `audio_service` (behind interface) |
 
-Dependencies are added when a feature needs them rather than up front, so the
-`pubspec.yaml` stays honest about what the code actually uses.
+Dependencies are added when a feature needs them rather than up front, so
+`pubspec.yaml` stays honest about what the code actually uses. Today that's just
+`flutter_riverpod` and `go_router`.
 
 ## Architecture
 
-Layered and feature-first. Three horizontal layers, sliced vertically by
-feature. The golden rule: **features depend on interfaces, never on concrete
-services or storage.** That seam is what makes the Jellyfin/WebDAV roadmap
-possible without rewriting the UI.
+Layered and feature-first. The golden rule: **features depend on interfaces in
+`core/`, never on concrete services or storage.** That seam is what makes the
+Jellyfin/WebDAV roadmap possible without rewriting the UI.
 
 ```
 lib/
-  core/        cross-cutting: theme, routing, constants
-  models/      immutable domain entities (Song, Album, Artist, Playlist)
-  storage/     persistence contract (MusicRepository) + impls
-  services/    device-facing contracts (MusicSource, AudioController,
-               ConnectivityService) + impls
-  features/    UI + state per feature (library, player, playlists,
-               downloads, settings, shell)
-  widgets/     shared reusable widgets
+  main.dart                 entry point; hosts the Riverpod ProviderScope
+  app/                      app-level wiring
+    sonara_app.dart         root MaterialApp.router widget
+    router.dart             go_router config (Riverpod provider)
+    routes.dart             route path constants
+    theme.dart              dark-first ThemeData
+    colors.dart / dimens.dart  design tokens
+  core/                     framework-free domain layer
+    app_info.dart           static app metadata
+    models/                 immutable entities: Track, Album, Artist,
+                            Playlist, PlaybackState
+    repositories/           persistence contracts: MusicLibraryRepository,
+                            PlaylistRepository, DownloadRepository
+    services/               device-facing contracts: PlaybackController,
+                            MusicSource, ConnectivityService
+  features/                 one folder per screen/feature
+    library/  player/  playlists/  downloads/  settings/  shell/
+  shared/
+    widgets/                reusable UI (e.g. EmptyState)
 ```
 
 ### Key extension points
 
-- **`MusicSource`** (`lib/services/music_source.dart`) — a media backend.
+- **`MusicSource`** (`core/services/music_source.dart`) — a media backend.
   `LocalMusicSource` ships first; `JellyfinMusicSource` / `WebDavMusicSource`
   implement the same contract later.
-- **`MusicRepository`** (`lib/storage/music_repository.dart`) — the local
-  SQLite cache the UI reads from. Sources *sync into* it; the UI never talks to
-  a source directly. This is what keeps the app fast and fully offline.
-- **`AudioController`** (`lib/services/audio_controller.dart`) — playback,
+- **`MusicLibraryRepository`** (`core/repositories/`) — the local SQLite cache
+  the UI reads from. Sources *sync into* it; the UI never talks to a source
+  directly. This is what keeps the app fast and fully offline.
+- **`PlaybackController`** (`core/services/playback_controller.dart`) — playback,
   fully decoupled from `just_audio`. Swappable/wrappable for background audio,
   MPRIS, and Android Auto without touching feature code.
+- **`DownloadRepository`** (`core/repositories/`) — enforces the
+  user-initiated, "Wi-Fi only"-respecting download policy in one place.
 
 ## Getting started
 
@@ -82,7 +116,7 @@ flutter run
 ## Roadmap (MVP)
 
 1. Local music library scanning
-2. Artist / album / song views
+2. Artist / album / track views
 3. Playlist creation & editing
 4. Audio playback
 5. Queue management

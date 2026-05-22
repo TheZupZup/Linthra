@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../widgets/empty_state.dart';
+import '../../shared/widgets/empty_state.dart';
 
-/// Browse songs, albums, and artists from the local catalog.
+/// Browse tracks, albums, and artists from the local catalog.
 /// Placeholder until the library scanning + catalog feature lands.
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key});

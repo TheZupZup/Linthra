@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../widgets/empty_state.dart';
+import '../../shared/widgets/empty_state.dart';
 
 /// Simple, clean settings. Placeholder until the settings feature lands.
 class SettingsScreen extends StatelessWidget {
