@@ -17,11 +17,22 @@ dependencies:
   go_router: ^14.6.2
   # Cross-platform path parsing for the local file scanner (Dart-team package).
   path: ^1.9.0
+  # SQLite-backed local catalog persistence (the offline-first cache the UI
+  # reads from). drift is the typed query layer; sqlite3_flutter_libs bundles
+  # the native SQLite engine on device; path_provider locates the on-device
+  # database file.
+  drift: ^2.18.0
+  sqlite3_flutter_libs: ^0.5.20
+  path_provider: ^2.1.4
 
 dev_dependencies:
   flutter_lints: ^5.0.0
   flutter_test:
     sdk: flutter
+  # Drift code generation. Run via the manual "Generate Drift files" workflow;
+  # produces the *.g.dart files that back SonaraDatabase.
+  drift_dev: ^2.18.0
+  build_runner: ^2.4.13
 
 flutter:
   uses-material-design: true

@@ -20,12 +20,22 @@ maps them into `Track`s. It does no tag parsing and isn't wired into the UI yet
 — it's the first concrete `MusicSource` and the seam future metadata parsing
 will extend.
 
-A temporary `InMemoryMusicLibraryRepository` (`lib/data/repositories/`) now
+A temporary `InMemoryMusicLibraryRepository` (`lib/data/repositories/`) also
 implements the `MusicLibraryRepository` contract, so the app and its tests have
-a concrete catalog to read from before storage lands. It keeps tracks, albums,
-and artists in memory, grouped by source — it is **not persistent** and exists
-only for development and testing. Drift/SQLite-backed persistence is planned
-next, once Dart code generation (`build_runner`) can be verified in CI.
+a concrete catalog to read from. It keeps tracks, albums, and artists in memory,
+grouped by source — it is **not persistent** and exists only for development and
+testing.
+
+**Drift/SQLite persistence** has now landed for tracks.
+`DriftMusicLibraryRepository` (`lib/data/repositories/`) is the persistent
+catalog the UI will read from, backed by `SonaraDatabase`
+(`lib/data/database/`). At schema **v1** only the `tracks` table is persisted:
+`getAllTracks`, `getTrackById`, and `upsertCatalog` are real, while
+`getAllAlbums`/`getAllArtists` return empty lists for now. Domain models
+(`core/models/`) stay separate from Drift rows; conversion lives in small,
+explicit mappers (`lib/data/mappers/`). It is **not yet wired into the UI**.
+The generated `*.g.dart` files are produced by the **Generate Drift files**
+workflow (see below), not committed by hand.
 
 Not built yet (planned, in roughly this order):
 
@@ -57,12 +67,14 @@ codebase.
 | Framework        | Flutter                                           |
 | State management | Riverpod                                          |
 | Navigation       | go_router (`StatefulShellRoute` for bottom nav)   |
-| Local metadata   | SQLite (planned via `drift`)                      |
+| Local metadata   | SQLite via `drift`                                |
 | Playback         | `just_audio` + `audio_service` (behind interface) |
 
 Dependencies are added when a feature needs them rather than up front, so
 `pubspec.yaml` stays honest about what the code actually uses. Today that's
-`flutter_riverpod`, `go_router`, and `path` (for the local file scanner).
+`flutter_riverpod`, `go_router`, `path` (for the local file scanner), and
+`drift` + `sqlite3_flutter_libs` + `path_provider` for SQLite persistence
+(`drift_dev` + `build_runner` are dev-only, for code generation).
 
 ## Architecture
 
@@ -89,8 +101,11 @@ lib/
                             MusicSource, ConnectivityService
     sources/                concrete MusicSource implementations:
                             local/ (LocalMusicSource + file scanning)
-  data/                     concrete repository implementations
-    repositories/           in_memory_music_library_repository.dart (dev/tests)
+  data/                     concrete repository implementations + storage
+    database/               SonaraDatabase (Drift) + tables/ (tracks_table.dart)
+    mappers/                domain <-> Drift row conversion (track_mapper.dart)
+    repositories/           drift_music_library_repository.dart (persistent),
+                            in_memory_music_library_repository.dart (dev/tests)
   features/                 one folder per screen/feature
     library/  player/  playlists/  downloads/  settings/  shell/
   shared/
