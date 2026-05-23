@@ -14,6 +14,7 @@ class FakeJellyfinClient implements JellyfinClient {
     this.serverInfoError,
     this.authError,
     this.itemsError,
+    this.verifyError,
   });
 
   JellyfinServerInfo? serverInfo;
@@ -22,6 +23,7 @@ class FakeJellyfinClient implements JellyfinClient {
   JellyfinException? serverInfoError;
   JellyfinException? authError;
   JellyfinException? itemsError;
+  JellyfinException? verifyError;
 
   // Recorded inputs.
   String? lastBaseUrl;
@@ -29,6 +31,7 @@ class FakeJellyfinClient implements JellyfinClient {
   String? lastPassword;
   String? lastDeviceId;
   final List<JellyfinItemKind> requestedKinds = <JellyfinItemKind>[];
+  int verifyCount = 0;
 
   @override
   Future<JellyfinServerInfo> fetchServerInfo(String baseUrl) async {
@@ -76,5 +79,14 @@ class FakeJellyfinClient implements JellyfinClient {
       throw error;
     }
     return itemsByKind[kind] ?? const <JellyfinItemDto>[];
+  }
+
+  @override
+  Future<void> verifySession(JellyfinSession session) async {
+    verifyCount++;
+    final JellyfinException? error = verifyError;
+    if (error != null) {
+      throw error;
+    }
   }
 }

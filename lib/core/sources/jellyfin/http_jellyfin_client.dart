@@ -111,6 +111,22 @@ class HttpJellyfinClient implements JellyfinClient {
     return items;
   }
 
+  @override
+  Future<void> verifySession(JellyfinSession session) async {
+    // `/Users/Me` is a tiny authenticated call: a 401 means the token is no
+    // longer valid, a transport failure means the server is unreachable. The
+    // body is irrelevant, so it is not parsed.
+    final Uri uri = Uri.parse('${session.baseUrl}/Users/Me');
+    final http.Response response = await _send(
+      () => _client.get(uri, headers: <String, String>{
+        'Accept': 'application/json',
+        'Authorization':
+            JellyfinAuthHeader.forToken(session.deviceId, session.accessToken),
+      }),
+    );
+    _checkStatus(response);
+  }
+
   /// Builds the listing URL for [kind]. Artists have their own endpoint in
   /// Jellyfin; tracks and albums share `/Items` filtered by type.
   Uri _itemsUri(JellyfinSession session, JellyfinItemKind kind) {

@@ -133,6 +133,28 @@ void main() {
       expect(controller.clearCount, 1);
     });
 
+    testWidgets('shows the specific error message on a playback error', (
+      tester,
+    ) async {
+      final controller = FakePlaybackController(
+        initial: const PlaybackState(
+          status: PlaybackStatus.error,
+          currentTrack: Track(
+            id: 't1',
+            title: 'Remote Song',
+            uri: 'jellyfin:t1',
+          ),
+          errorMessage: 'Your Jellyfin session has expired.',
+        ),
+      );
+      await _pumpScreen(tester, controller);
+
+      expect(find.text('Remote Song'), findsOneWidget);
+      expect(find.text('Your Jellyfin session has expired.'), findsOneWidget);
+      // The generic fallback is not shown when a specific message exists.
+      expect(find.text("Couldn't play this track"), findsNothing);
+    });
+
     testWidgets('reacts to state pushed on the stream', (tester) async {
       final controller = FakePlaybackController();
       await _pumpScreen(tester, controller);

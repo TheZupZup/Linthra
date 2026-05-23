@@ -16,6 +16,7 @@ class PlaybackState {
     this.hasPrevious = false,
     this.position = Duration.zero,
     this.duration = Duration.zero,
+    this.errorMessage,
   });
 
   static const PlaybackState idle = PlaybackState();
@@ -34,6 +35,12 @@ class PlaybackState {
 
   final Duration position;
   final Duration duration;
+
+  /// A friendly, secret-free explanation shown when [status] is
+  /// [PlaybackStatus.error]. Deliberately *not* carried by [copyWith]: it is set
+  /// only on a freshly built error state and clears on the next state change, so
+  /// a stale message can never ride along onto a later playing/paused state.
+  final String? errorMessage;
 
   bool get isPlaying => status == PlaybackStatus.playing;
   bool get hasTrack => currentTrack != null;
@@ -66,7 +73,8 @@ class PlaybackState {
           listEquals(other.upNext, upNext) &&
           other.hasPrevious == hasPrevious &&
           other.position == position &&
-          other.duration == duration);
+          other.duration == duration &&
+          other.errorMessage == errorMessage);
 
   @override
   int get hashCode {
@@ -77,6 +85,7 @@ class PlaybackState {
       hasPrevious,
       position,
       duration,
+      errorMessage,
     );
   }
 }

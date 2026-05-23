@@ -5,6 +5,7 @@ import '../../models/track.dart';
 import '../../services/music_source.dart';
 import 'jellyfin_api.dart';
 import 'jellyfin_client.dart';
+import 'jellyfin_stream_source.dart';
 import 'jellyfin_track_mapper.dart';
 
 /// A [MusicSource] backed by a signed-in Jellyfin server.
@@ -16,9 +17,11 @@ import 'jellyfin_track_mapper.dart';
 ///
 /// Like the local source, it does not persist anything itself — the
 /// `MusicLibraryRepository` is what syncs these results into the offline cache
-/// the UI reads from. Wiring that sync (and actual streaming playback) is the
-/// next step; this foundation makes both small to add.
-class JellyfinMusicSource implements MusicSource {
+/// the UI reads from. Streaming playback is wired through
+/// `JellyfinPlayableUriResolver`, which calls [verifyReachable] then
+/// [resolvePlayableUri] at play time so the token is only ever woven into a URL
+/// on demand.
+class JellyfinMusicSource implements MusicSource, JellyfinStreamSource {
   const JellyfinMusicSource({
     required this.session,
     required JellyfinClient client,
@@ -67,6 +70,12 @@ class JellyfinMusicSource implements MusicSource {
         JellyfinTrackMapper.toArtist(item, baseUrl: session.baseUrl),
     ];
   }
+
+  /// Confirms the session is still valid and the server reachable, so the
+  /// player can surface a precise error before attempting to stream. Throws a
+  /// [JellyfinException] on failure; the password and token never appear in it.
+  @override
+  Future<void> verifyReachable() => _client.verifySession(session);
 
   /// Mints the authenticated streaming URL for [track] on demand.
   ///

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
+import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_music_source.dart';
 
 import 'fake_jellyfin_client.dart';
@@ -92,6 +93,25 @@ void main() {
       final uri = await source.resolvePlayableUri(track);
 
       expect(uri!.path, '/Audio/raw-id/universal');
+    });
+
+    test('verifyReachable delegates the check to the client', () async {
+      final client = FakeJellyfinClient();
+
+      await _source(client).verifyReachable();
+
+      expect(client.verifyCount, 1);
+    });
+
+    test('verifyReachable surfaces a client failure', () async {
+      final client = FakeJellyfinClient(
+        verifyError: JellyfinException.unauthorized(),
+      );
+
+      await expectLater(
+        _source(client).verifyReachable(),
+        throwsA(isA<JellyfinException>()),
+      );
     });
   });
 }

@@ -103,10 +103,13 @@ class _TrackInfo extends StatelessWidget {
         ],
         const SizedBox(height: AppSpacing.lg),
         Text(
-          _statusLabel(state.status),
+          _statusText(state),
           style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            color: state.status == PlaybackStatus.error
+                ? theme.colorScheme.error
+                : theme.colorScheme.onSurface.withValues(alpha: 0.6),
           ),
+          textAlign: TextAlign.center,
         ),
         const SizedBox(height: AppSpacing.lg),
         _Controls(state: state),
@@ -211,6 +214,16 @@ class _UpNextTile extends StatelessWidget {
           : Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis),
     );
   }
+}
+
+/// The status line under the track. On error it shows the state's specific,
+/// friendly [PlaybackState.errorMessage] (e.g. "session has expired") when one
+/// is set, falling back to a generic line.
+String _statusText(PlaybackState state) {
+  if (state.status == PlaybackStatus.error) {
+    return state.errorMessage ?? "Couldn't play this track";
+  }
+  return _statusLabel(state.status);
 }
 
 String _statusLabel(PlaybackStatus status) {

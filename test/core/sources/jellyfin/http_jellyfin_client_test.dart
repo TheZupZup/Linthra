@@ -258,4 +258,51 @@ void main() {
       );
     });
   });
+
+  group('verifySession', () {
+    test('calls /Users/Me with the token header', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return http.Response(
+          jsonEncode(<String, dynamic>{'Id': 'user-1'}),
+          200,
+        );
+      }));
+
+      await client.verifySession(_session);
+
+      expect(captured!.method, 'GET');
+      expect(captured!.url.path, '/Users/Me');
+      expect(captured!.headers['Authorization'], contains('Token="tok-abc"'));
+    });
+
+    test('maps a 401 to unauthorized (an expired token)', () async {
+      final client = _client(MockClient((_) async => http.Response('no', 401)));
+
+      await expectLater(
+        client.verifySession(_session),
+        throwsA(isA<JellyfinException>().having(
+          (JellyfinException e) => e.kind,
+          'kind',
+          JellyfinErrorKind.unauthorized,
+        )),
+      );
+    });
+
+    test('maps a transport failure to "not reachable"', () async {
+      final client = _client(
+        MockClient((_) async => throw http.ClientException('offline')),
+      );
+
+      await expectLater(
+        client.verifySession(_session),
+        throwsA(isA<JellyfinException>().having(
+          (JellyfinException e) => e.kind,
+          'kind',
+          JellyfinErrorKind.notReachable,
+        )),
+      );
+    });
+  });
 }
