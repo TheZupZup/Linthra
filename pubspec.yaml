@@ -46,6 +46,12 @@ dependencies:
   # the rest of the app depends on the JellyfinClient interface, never on http
   # directly. The Dart-team package, so it stays small and dependency-light.
   http: ^1.2.0
+  # Runtime permission requests. Used only by
+  # PermissionHandlerNotificationPermission to ask for POST_NOTIFICATIONS on
+  # Android 13+ so the audio_service media notification can appear; the rest of
+  # the app depends on the NotificationPermission interface, never on
+  # permission_handler directly.
+  permission_handler: ^11.3.1
   # Encrypted on-device storage for the Jellyfin session token (Android
   # Keystore / EncryptedSharedPreferences under the hood). Used only by
   # SecureJellyfinSessionStore, behind the JellyfinSessionStore interface, so

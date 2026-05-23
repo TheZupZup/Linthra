@@ -331,15 +331,60 @@ This artifact is an **unsigned debug build for testing only** — it is not
 signed for release, not published to any store or F-Droid, and no GitHub
 release is created.
 
+#### Manual smoke test on a real Android phone
+
+After installing the debug APK on a physical device (most useful on **Android
+13+**, where the runtime notification permission applies), walk this checklist —
+it covers the paths that only behave correctly on real hardware:
+
+1. **First launch & notification prompt.** Cold-start the app. On Android 13+ a
+   **"Allow notifications?"** system prompt should appear shortly after the UI
+   loads. Tap **Allow** (the media notification depends on it). If you tap
+   **Don't allow**, playback still works but no notification appears — re-enable
+   it later under *Settings → Apps → Linthra → Notifications*.
+2. **Pick a folder & scan.** Library tab → folder icon → choose a folder with a
+   few audio files (e.g. `Music`). It should list the tracks. Pick a folder a
+   provider can't traverse (or an empty one) and confirm you get a **clear,
+   friendly message or "No music found"**, never a raw error or an indefinite
+   spinner.
+3. **Play a local track.** Tap a track. It should start, and the **Now Playing**
+   screen should show title/artist and working play/pause/next/stop.
+4. **Background playback & notification.** Background the app (Home button). Audio
+   should keep playing and a **media notification** should show the track with
+   working transport controls. Lock the phone and confirm lock-screen controls
+   work. Headset/Bluetooth play-pause buttons should work too.
+5. **Jellyfin (optional).** Settings → Jellyfin → enter your server URL → **Test
+   connection** → sign in → **Sync library** → play a synced track. Confirm
+   streaming works over the network. Try a wrong URL / offline server and
+   confirm you get a **friendly error** (unreachable / not-a-Jellyfin-server /
+   expired session), not a raw failure.
+6. **Friendly playback errors.** With Jellyfin signed out, try to play a synced
+   Jellyfin track and confirm the Now Playing status line shows a precise,
+   friendly message (e.g. "not signed in"), not an opaque engine error.
+
+See *Testing scanning on Android* below for the SAF-specific detail, and the
+*Limitations still remaining* list at the end of this section.
+
 **Android identity & permissions.** The app ships with a stable application ID
 **`io.github.thezupzup.linthra`** (also the Kotlin/Gradle `namespace`) and the
 display name **Linthra** — both chosen for future F-Droid / GitHub Releases
-distribution. Permissions are kept deliberately minimal: the production
-manifest declares **no** permissions, and `INTERNET` is added only in the
-`debug`/`profile` manifests (Flutter needs it for hot reload). No storage
-permissions are requested — see *Android folder selection & known limitations*
-for why a narrow `READ_MEDIA_AUDIO` flow is a deliberate later step rather than
-a broad "all files" grant.
+distribution. Permissions are kept deliberately minimal. The production manifest
+declares only:
+
+- **`FOREGROUND_SERVICE`** / **`FOREGROUND_SERVICE_MEDIA_PLAYBACK`** — so
+  `audio_service` can keep playing while backgrounded (Android 14+ requires the
+  typed `mediaPlayback` grant).
+- **`POST_NOTIFICATIONS`** — required on Android 13+ for the media notification
+  (and its transport controls) to appear; it is a *runtime* permission the app
+  asks for once on first launch (see *Background playback* below).
+- **`INTERNET`** — needed to reach a self-hosted Jellyfin server (connection
+  test, sign-in, library sync, and streaming). The `debug`/`profile` manifests
+  also add it for Flutter's tooling; the manifest merger de-duplicates.
+
+**No storage permission is requested** — folder access uses the Storage Access
+Framework grant the user picks. See *Android folder selection & known
+limitations* for why a narrow `READ_MEDIA_AUDIO` flow is a deliberate later step
+rather than a broad "all files" grant.
 
 > The `audio_service` native wiring (foreground-service permissions, the
 > playback `<service>`/`<receiver>`, the Android Auto media-app declaration, and
@@ -469,11 +514,19 @@ platform) basic playback still works.
 scaffold so the media session can run as a foreground service and be visible to
 Android Auto:
 
-- `android/app/src/main/AndroidManifest.xml` declares two minimal permissions —
+- `android/app/src/main/AndroidManifest.xml` declares the playback permissions —
   `FOREGROUND_SERVICE` (run the playback service in the foreground so audio
   continues while backgrounded) and `FOREGROUND_SERVICE_MEDIA_PLAYBACK` (the
   typed-foreground grant Android 14+/API 34 requires for a `mediaPlayback`
-  service). No storage or network permissions are added.
+  service) — plus `POST_NOTIFICATIONS` (Android 13+ runtime permission, without
+  which the notification is silently suppressed). `INTERNET` is also declared
+  for Jellyfin; no storage permission is added.
+- **Notification permission prompt.** On Android 13+ the media notification only
+  shows once the user grants `POST_NOTIFICATIONS`. `LinthraApp` asks for it once
+  on first launch (after the first frame, via the `NotificationPermission` seam
+  → `permission_handler`). The request is best-effort: if it's denied, playback
+  still works but the notification / lock-screen controls won't appear until the
+  permission is enabled in system settings.
 - the same manifest declares the audio_service playback `<service>`
   (`com.ryanheise.audioservice.AudioService`, `foregroundServiceType`
   `mediaPlayback`, exposing the `MediaBrowserService` action Android Auto binds
@@ -494,6 +547,10 @@ For reference, the manifest additions are:
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission
       android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+  <!-- Android 13+ runtime permission for the media notification. -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <!-- Reaching a self-hosted Jellyfin server. -->
+  <uses-permission android:name="android.permission.INTERNET" />
 
   <application ...>
     <!-- audio_service playback service -->
