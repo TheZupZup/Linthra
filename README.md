@@ -251,6 +251,33 @@ The debug APK is unsigned and meant for local testing only. **Release signing,
 store-ready bundles, and APK publishing are intentionally out of scope** for
 this stage — there are no native build, signing, or publishing steps in CI.
 
+#### Downloading a debug APK from CI
+
+If you don't have a local Flutter/Android toolchain, the
+**Android Debug APK** workflow (`.github/workflows/android-debug-apk.yml`)
+builds the same `flutter build apk --debug` output on GitHub and attaches it as
+a downloadable artifact.
+
+- **How to run it:** open the repo's **Actions** tab → **Android Debug APK** →
+  **Run workflow** (the `workflow_dispatch` trigger). It also runs
+  automatically on pull requests.
+- **Artifact:** `linthra-debug-apk`, containing
+  `app-debug.apk` (built from `build/app/outputs/flutter-apk/app-debug.apk`).
+- **Download:** open the completed workflow run and grab `linthra-debug-apk`
+  from the run's **Artifacts** section. GitHub serves it as a `.zip`; unzip it
+  to get `app-debug.apk`.
+- **Install manually:** copy the APK to an Android device and open it (you may
+  need to allow "install from unknown sources"), or with the device connected
+  over ADB run:
+
+  ```bash
+  adb install -r app-debug.apk
+  ```
+
+This artifact is an **unsigned debug build for testing only** — it is not
+signed for release, not published to any store or F-Droid, and no GitHub
+release is created.
+
 **Android identity & permissions.** The app ships with a stable application ID
 **`io.github.thezupzup.linthra`** (also the Kotlin/Gradle `namespace`) and the
 display name **Linthra** — both chosen for future F-Droid / GitHub Releases
