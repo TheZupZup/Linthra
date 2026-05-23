@@ -16,9 +16,31 @@ class LibraryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(libraryControllerProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Library')),
+      appBar: AppBar(
+        title: const Text('Library'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.create_new_folder_outlined),
+            tooltip: 'Scan a folder',
+            onPressed: () => _promptScan(context, ref),
+          ),
+        ],
+      ),
       body: _body(ref, state),
     );
+  }
+
+  /// Dev entry point for the scan flow: ask for a folder path and hand it to
+  /// the controller. Deliberately a plain text prompt — a real folder picker
+  /// and runtime permissions land in a later PR.
+  Future<void> _promptScan(BuildContext context, WidgetRef ref) async {
+    final path = await showDialog<String>(
+      context: context,
+      builder: (_) => const _ScanFolderDialog(),
+    );
+    if (path != null && path.isNotEmpty) {
+      await ref.read(libraryControllerProvider.notifier).scanFolder(path);
+    }
   }
 
   Widget _body(WidgetRef ref, LibraryState state) {
@@ -35,7 +57,7 @@ class LibraryScreen extends ConsumerWidget {
           return const EmptyState(
             icon: Icons.library_music_outlined,
             title: 'Your library is empty',
-            message: 'Scan a folder to add your music. Coming soon.',
+            message: 'Tap the folder icon to scan a folder for music.',
           );
         }
         return _TrackList(tracks: state.tracks);
@@ -87,6 +109,50 @@ class _TrackTile extends StatelessWidget {
         track.albumName!,
     ];
     return parts.isEmpty ? track.uri : parts.join(' • ');
+  }
+}
+
+/// Simple prompt for a folder path to scan. Pops the trimmed path, or null
+/// when cancelled. Kept tiny on purpose; a proper picker comes later.
+class _ScanFolderDialog extends StatefulWidget {
+  const _ScanFolderDialog();
+
+  @override
+  State<_ScanFolderDialog> createState() => _ScanFolderDialogState();
+}
+
+class _ScanFolderDialogState extends State<_ScanFolderDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context).pop(_controller.text.trim());
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Scan a folder'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Folder path',
+          hintText: '/storage/emulated/0/Music',
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Scan')),
+      ],
+    );
   }
 }
 

@@ -1,10 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonara/core/models/track.dart';
+import 'package:sonara/core/repositories/music_library_repository.dart';
+import 'package:sonara/data/repositories/in_memory_music_library_repository.dart';
 import 'package:sonara/data/repositories/music_library_repository_provider.dart';
 import 'package:sonara/features/library/library_controller.dart';
+import 'package:sonara/features/library/library_providers.dart';
 import 'package:sonara/features/library/library_state.dart';
 
+import 'fake_audio_file_scanner.dart';
 import 'fake_music_library_repository.dart';
 
 Track _track(String id) => Track(id: id, title: 'Track $id', uri: 'file://$id');
@@ -13,6 +17,20 @@ ProviderContainer _containerWith(FakeMusicLibraryRepository repository) {
   final container = ProviderContainer(
     overrides: [
       musicLibraryRepositoryProvider.overrideWithValue(repository),
+    ],
+  );
+  addTearDown(container.dispose);
+  return container;
+}
+
+ProviderContainer _scanContainer({
+  required MusicLibraryRepository repository,
+  required FakeAudioFileScanner scanner,
+}) {
+  final container = ProviderContainer(
+    overrides: [
+      musicLibraryRepositoryProvider.overrideWithValue(repository),
+      audioFileScannerProvider.overrideWithValue(scanner),
     ],
   );
   addTearDown(container.dispose);
@@ -63,6 +81,47 @@ void main() {
       final state = container.read(libraryControllerProvider);
       expect(state.status, LibraryStatus.error);
       expect(state.errorMessage, contains('boom'));
+    });
+
+    test('scanFolder persists discovered tracks and reloads', () async {
+      final repository = InMemoryMusicLibraryRepository();
+      final scanner = FakeAudioFileScanner(
+        files: <String>[
+          '/music/One.mp3',
+          '/music/Two.flac',
+          '/music/cover.jpg',
+        ],
+      );
+      final container = _scanContainer(
+        repository: repository,
+        scanner: scanner,
+      );
+
+      await container
+          .read(libraryControllerProvider.notifier)
+          .scanFolder('/music');
+
+      final state = container.read(libraryControllerProvider);
+      expect(scanner.requestedFolder, '/music');
+      expect(state.status, LibraryStatus.loaded);
+      // The non-audio file is dropped; the two tracks are persisted.
+      expect(state.tracks.map((t) => t.title), <String>['One', 'Two']);
+      expect(await repository.getAllTracks(), hasLength(2));
+    });
+
+    test('scanFolder surfaces an error when scanning fails', () async {
+      final container = _scanContainer(
+        repository: InMemoryMusicLibraryRepository(),
+        scanner: FakeAudioFileScanner(error: Exception('no such folder')),
+      );
+
+      await container
+          .read(libraryControllerProvider.notifier)
+          .scanFolder('/missing');
+
+      final state = container.read(libraryControllerProvider);
+      expect(state.status, LibraryStatus.error);
+      expect(state.errorMessage, contains('no such folder'));
     });
   });
 }

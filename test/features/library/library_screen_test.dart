@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonara/core/models/track.dart';
+import 'package:sonara/data/repositories/in_memory_music_library_repository.dart';
 import 'package:sonara/data/repositories/music_library_repository_provider.dart';
+import 'package:sonara/features/library/library_providers.dart';
 import 'package:sonara/features/library/library_screen.dart';
 
+import 'fake_audio_file_scanner.dart';
 import 'fake_music_library_repository.dart';
 
 Future<void> _pumpScreen(
@@ -75,6 +78,38 @@ void main() {
 
       expect(find.text("Couldn't load your library"), findsOneWidget);
       expect(find.text('Retry'), findsOneWidget);
+    });
+
+    testWidgets('scanning a folder populates the list from the prompt', (
+      tester,
+    ) async {
+      final scanner = FakeAudioFileScanner(
+        files: <String>['/music/Hello.mp3', '/music/notes.txt'],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            audioFileScannerProvider.overrideWithValue(scanner),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Your library is empty'), findsOneWidget);
+
+      // Open the scan prompt, type a path, and confirm.
+      await tester.tap(find.byTooltip('Scan a folder'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '/music');
+      await tester.tap(find.widgetWithText(FilledButton, 'Scan'));
+      await tester.pumpAndSettle();
+
+      expect(scanner.requestedFolder, '/music');
+      expect(find.text('Hello'), findsOneWidget);
+      expect(find.text('Your library is empty'), findsNothing);
     });
   });
 }

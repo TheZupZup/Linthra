@@ -14,11 +14,26 @@ project structure, dark-first theming, navigation, the app shell, placeholder
 screens, the core domain models, and the service/repository *interfaces* that
 future features will implement.
 
-The **local library scanning foundation** has now started: `LocalMusicSource`
-(`lib/core/sources/local/`) discovers audio files under a configured folder and
-maps them into `Track`s. It does no tag parsing and isn't wired into the UI yet
-— it's the first concrete `MusicSource` and the seam future metadata parsing
-will extend.
+**Library v1 is now wired end to end.** The Library screen can scan a local
+folder, persist the discovered tracks through `MusicLibraryRepository`, and list
+them back. The flow is: `LocalMusicSource` discovers audio files under a folder
+→ `LibraryController` persists them via `MusicLibraryRepository.upsertCatalog`
+→ `LibraryScreen` renders the stored tracks (each as title + uri/path). The
+screen renders four states — loading, empty, populated, and error — and the
+UI only ever talks to `LibraryController`/`LibraryState` and the repository
+abstraction, never to Drift or a source directly.
+
+`LocalMusicSource` (`lib/core/sources/local/`) discovers audio files under a
+configured folder and maps them into `Track`s. It does no tag parsing yet —
+it's the first concrete `MusicSource` and the seam future metadata parsing will
+extend.
+
+Scanning is triggered from a deliberately minimal **dev entry point**: a folder
+icon in the Library app bar opens a small text prompt for a folder path. There
+is no real folder picker or Android runtime-permission flow yet — those come
+later. The scan path is exposed as `LibraryController.scanFolder(path)`, which
+keeps the flow fully testable without a real disk (the file-system seam,
+`audioFileScannerProvider`, is overridden with a fake in tests).
 
 A temporary `InMemoryMusicLibraryRepository` (`lib/data/repositories/`) also
 implements the `MusicLibraryRepository` contract, so the app and its tests have
@@ -33,13 +48,16 @@ catalog the UI will read from, backed by `SonaraDatabase`
 `getAllTracks`, `getTrackById`, and `upsertCatalog` are real, while
 `getAllAlbums`/`getAllArtists` return empty lists for now. Domain models
 (`core/models/`) stay separate from Drift rows; conversion lives in small,
-explicit mappers (`lib/data/mappers/`). It is **not yet wired into the UI**.
-The generated `*.g.dart` files are produced by the **Generate Drift files**
-workflow (see below), not committed by hand.
+explicit mappers (`lib/data/mappers/`). The generated `*.g.dart` files are
+produced by the **Generate Drift files** workflow (see below), not committed by
+hand. The Library v1 flow currently persists through the in-memory repository
+by default (`musicLibraryRepositoryProvider`); the Drift repository implements
+the same contract and can be swapped in without touching any UI code.
 
 Not built yet (planned, in roughly this order):
 
-- Local music library scanning — *foundation started; tag parsing & UI pending*
+- Local music library scanning — *v1 done (scan → persist → list); tag parsing,
+  a real folder picker, and Android permissions still pending*
 - Audio playback
 - Playlists
 - User-controlled offline downloads
