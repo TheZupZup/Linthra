@@ -1,0 +1,19 @@
+Image assets for F-Droid / Fastlane metadata are NOT included yet.
+
+No real screenshots, feature graphic, or store icon have been captured from a
+running build, so none are committed here on purpose (placeholder/mock images
+would misrepresent the app).
+
+When real assets are available, add them in this directory using F-Droid's
+expected layout:
+
+  icon.png                      512x512 (or the launcher icon)
+  featureGraphic.png            1024x500
+  phoneScreenshots/1.png        real screenshots from a device/emulator
+  phoneScreenshots/2.png        (2-8 recommended)
+  ...
+
+See: https://f-droid.org/docs/All_About_Descriptions_Graphics_and_Screenshots/
+
+Until then, this file is the only thing in images/ and can be deleted once the
+real assets land.

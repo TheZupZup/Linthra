@@ -1,0 +1,1 @@
+Open-source, local-first music player for music you own. No forced sync.

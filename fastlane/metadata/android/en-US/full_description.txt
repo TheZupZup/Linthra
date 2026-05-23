@@ -1,0 +1,43 @@
+Linthra is an open-source, local-first music player for people who own their
+music. Your library lives on your device, and you stay in control of it.
+
+Linthra is early-stage software and under active development. The sections
+below clearly separate what works today from what is planned, so nothing here
+overpromises.
+
+What Linthra is about:
+
+* Local-first — your music files stay on your device; the app reads from a
+  local catalog rather than depending on a remote service.
+* User-owned music — Linthra plays the files you already have. There is no
+  store, no account, and no requirement to use anyone's cloud.
+* Privacy-focused — no telemetry and no forced sync. The app does not phone
+  home or upload your library.
+* Open-source — released under the Mozilla Public License 2.0. Anyone can
+  read, audit, build, and contribute to the code.
+
+Working today:
+
+* Pick a folder of music using the native Android folder picker.
+* Scan that folder and build a local catalog of your tracks.
+* The chosen folder and the scanned tracks are saved on the device, so they
+  survive an app restart.
+
+Planned (not finished yet):
+
+* Audio playback with a background media session (notification and lock-screen
+  controls).
+* Browsing by artist and album, plus search and album artwork.
+* Playlist creation and editing.
+* Explicit, user-initiated offline downloads with a "Wi-Fi only" option — never
+  automatic. The groundwork for this download policy already exists in the code,
+  but no remote sources are wired up yet.
+* Additional sources (such as Jellyfin, WebDAV, and NAS) behind a single
+  interface.
+
+Platforms:
+
+* Android first. Linux desktop is planned later, from the same codebase.
+
+Linthra is built to respect the people who use it: no lock-in, no surprise
+network activity, and no downloads you did not ask for.

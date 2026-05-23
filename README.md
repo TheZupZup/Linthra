@@ -594,6 +594,32 @@ branch rather than `main`.
 Later: Jellyfin, WebDAV, NAS, lyrics, ReplayGain, MPRIS, Android Auto, smart
 playlists, and more.
 
+## F-Droid metadata (work in progress)
+
+Linthra is **not** on F-Droid yet, and no submission has been made. As
+groundwork for a possible future submission, the repository now carries
+F-Droid / Fastlane-style store metadata under
+`fastlane/metadata/android/en-US/`:
+
+- `title.txt` — app name.
+- `short_description.txt` — one-line summary (kept under F-Droid's 80-char
+  limit).
+- `full_description.txt` — long description that deliberately separates what
+  works today from what is still planned.
+- `changelogs/1.txt` — placeholder release notes for `versionCode` 1 (the
+  current `0.1.0+1`); replaced with real notes once a published version exists.
+
+**Known missing assets.** No real screenshots, feature graphic, or store icon
+have been captured from a running build, so none are committed. `images/` only
+contains `NEEDED-ASSETS.txt`, which documents the expected F-Droid image layout
+to fill in later. Placeholder/mock images are intentionally avoided so the
+listing never misrepresents the app.
+
+The wording describes only shipped behaviour (folder selection, scanning, and
+persisted listing) as done; playback, playlists, and offline downloads are
+described as planned. There are no claims of F-Droid availability and no
+marketing language that overpromises.
+
 ## License
 
 [MPL-2.0](./LICENSE)

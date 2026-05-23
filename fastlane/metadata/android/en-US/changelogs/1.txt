@@ -1,0 +1,8 @@
+Initial development build (0.1.0).
+
+Early-stage. Working today: select a music folder, scan it, and list the
+discovered tracks; the selection and catalog persist across restarts. Audio
+playback, playlists, and offline downloads are still in progress.
+
+This is a placeholder changelog for the first versionCode and will be replaced
+with real release notes once a published version exists.
