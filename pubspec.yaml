@@ -26,8 +26,13 @@ dependencies:
   path_provider: ^2.1.4
   # Local audio playback engine. Used only by JustAudioPlaybackController in the
   # services layer; the UI depends on the PlaybackController interface, never on
-  # just_audio directly. Background playback (audio_service) lands in a later PR.
+  # just_audio directly.
   just_audio: ^0.9.42
+  # Background playback + platform media session (notification, lock screen,
+  # Android Auto). Used only by SonaraAudioHandler in the services layer, which
+  # forwards session commands to PlaybackController and mirrors its state out.
+  # The UI never depends on audio_service directly.
+  audio_service: ^0.18.15
   # Native folder chooser for selecting a music folder to scan. Used only by
   # FilePickerFolderPickerService; the UI depends on the FolderPickerService
   # interface, never on file_picker directly.
