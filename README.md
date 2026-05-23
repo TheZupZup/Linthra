@@ -285,9 +285,11 @@ flutter run --debug          # hot-reloadable dev session
 flutter install              # installs the last debug build
 ```
 
-The debug APK is unsigned and meant for local testing only. **Release signing,
-store-ready bundles, and APK publishing are intentionally out of scope** for
-this stage — there are no native build, signing, or publishing steps in CI.
+The debug APK is unsigned and meant for local testing only. Release builds and
+optional release signing are handled separately by the manual **Android Release
+Build** workflow (see [Building release artifacts](#building-release-artifacts-android)
+and [docs/release-signing.md](./docs/release-signing.md)); nothing is published
+to a store or F-Droid, and no GitHub Release is created automatically.
 
 #### Downloading a debug APK from CI
 
@@ -343,14 +345,16 @@ F-Droid distribution. It is a build-only foundation:
 
 - **How to run it:** open the repo's **Actions** tab → **Android Release
   Build** → **Run workflow**. It is **manual only** (`workflow_dispatch`) — it
-  never runs on a push or PR.
+  never runs on a push or PR. A `signed` input controls whether the build is
+  release-signed (see [Signing status](#signing-status-important) below).
 - **What it builds:** `flutter build apk --release` and
   `flutter build appbundle --release`.
-- **Artifacts:**
-  - `linthra-release-apk` → `app-release.apk`
-    (`build/app/outputs/flutter-apk/app-release.apk`)
-  - `linthra-release-aab` → `app-release.aab`
-    (`build/app/outputs/bundle/release/app-release.aab`)
+- **Artifacts** (names reflect how the build was signed, so a preview can't be
+  mistaken for a real release):
+  - `signed = false` (default): `linthra-debug-signed-apk` / `linthra-debug-signed-aab`.
+  - `signed = true`: `linthra-release-signed-apk` / `linthra-release-signed-aab`.
+  - Each contains `app-release.apk` (`build/app/outputs/flutter-apk/app-release.apk`)
+    or `app-release.aab` (`build/app/outputs/bundle/release/app-release.aab`).
 - **Download:** open the completed run and grab the artifacts from the run's
   **Artifacts** section (GitHub serves each as a `.zip`; unzip to get the
   APK/AAB).
@@ -365,31 +369,37 @@ flutter build appbundle --release  # → build/app/outputs/bundle/release/app-re
 
 #### Signing status (important)
 
-**These release artifacts are debug-key signed, not release signed.** No
-release signing secrets are configured in this repository, so the release build
-falls back to the debug signing config declared in `android/app/build.gradle`
-(`signingConfig = signingConfigs.debug`). That makes the artifacts useful for
-previewing/smoke-testing a release build, but they are **not** suitable for
-store or F-Droid distribution, and **no signing keys are committed** to the
-repo.
+Release signing is **wired up but not yet provisioned**. `android/app/build.gradle`
+resolves a release signing config from environment variables (used by CI) or a
+git-ignored `android/key.properties` (local). **Only if** complete signing
+material is present does it sign with the release key; otherwise it falls back to
+the **debug** key so `flutter run --release` still works. **No signing keys or
+secrets are committed** to the repo.
 
-Real release signing (a keystore supplied via repository secrets, with the
-`android/app/build.gradle` release `signingConfig` reading those secrets) is
-**intentionally out of scope** for this foundation and is the recommended next
-step — see below.
+- Run the workflow with **`signed = false`** (default) → **debug-key signed**
+  artifacts, labeled `…-debug-signed-…`. Fine for previewing a release build,
+  **not** suitable for store or F-Droid distribution.
+- Run with **`signed = true`** → the workflow decodes a keystore from the
+  `LINTHRA_*` repository secrets and produces **release-signed** artifacts
+  (labeled `…-release-signed-…`). If a required secret is missing, the run
+  **fails fast** rather than silently producing a debug-signed build.
+
+The keystore secrets are not configured in this repository yet, so a real
+release-signed build requires setting them up first. Full details — required
+secrets, how to generate/rotate a keystore, and how this relates to F-Droid (which
+signs its own builds) — are in [docs/release-signing.md](./docs/release-signing.md).
 
 #### Limitations & next steps
 
 - The workflow **does not** create a GitHub release, upload anything to a store,
   or submit to F-Droid. It only produces downloadable build artifacts.
-- It does **not** add release signing; artifacts remain debug-key signed until a
-  signing config backed by secrets is added.
-- **Recommended next PR:** add release signing — provision a release keystore,
-  store it and its credentials as repository secrets, decode it during the
-  workflow, and update the release `signingConfig` in
-  `android/app/build.gradle` to use it. With real signing in place, a separate
-  follow-up can wire **GitHub Releases** publishing and, later, F-Droid
-  readiness.
+- Release signing **secrets are not yet provisioned**, so until they are, builds
+  fall back to the debug key (and are labeled accordingly).
+- **Next steps:** provision the `LINTHRA_*` keystore secrets
+  ([docs/release-signing.md](./docs/release-signing.md)), then follow the manual
+  release/tagging and GitHub-Release flow in
+  [docs/release-process.md](./docs/release-process.md). F-Droid readiness is
+  tracked separately in [docs/fdroid-readiness.md](./docs/fdroid-readiness.md).
 
 ### Background playback & Android Auto
 
@@ -722,8 +732,11 @@ flutter test                         # widget/unit tests
 
 CI pins **Flutter 3.27.x (stable)** for reproducible results; using a matching
 SDK locally avoids spurious `dart format` diffs from formatter changes in newer
-Dart releases. This is code-quality CI only — there are no native build,
-signing, or store-publishing steps yet.
+Dart releases. The automatic `ci.yml` workflow is **code-quality only**. Native
+builds and optional release signing live in **separate, manual** workflows
+(**Android Debug APK**, **Android Release Build**); nothing publishes to a store
+or F-Droid. See [Building release artifacts](#building-release-artifacts-android)
+and [docs/release-process.md](./docs/release-process.md).
 
 ### Generating Drift files in CI
 
@@ -794,12 +807,29 @@ persisted listing) as done; playback, playlists, and offline downloads are
 described as planned. There are no claims of F-Droid availability and no
 marketing language that overpromises.
 
-For the full submission checklist — app identity, build requirements,
-dependency and anti-feature review, release/tagging plan, and remaining
-blockers — see [docs/fdroid-readiness.md](./docs/fdroid-readiness.md). The
-F-Droid build recipe planning (expected metadata fields, build-source/toolchain
-expectations, reproducible-build notes, and a draft recipe snippet) lives in
-[docs/fdroid-build-recipe.md](./docs/fdroid-build-recipe.md).
+### Release & F-Droid documentation
+
+Planning/readiness docs (none of these publish or submit anything):
+
+- [docs/fdroid-readiness.md](./docs/fdroid-readiness.md) — full F-Droid
+  submission checklist: app identity, build requirements, dependency &
+  anti-feature review, release/tagging plan, and remaining blockers.
+- [docs/fdroid-build-recipe.md](./docs/fdroid-build-recipe.md) — F-Droid build
+  recipe planning: expected metadata fields, build-source/toolchain
+  expectations, reproducible-build notes, and a draft recipe snippet.
+- [docs/dependency-license-audit.md](./docs/dependency-license-audit.md) —
+  per-dependency licenses, native/bundled-component review, and the
+  network/anti-feature assessment.
+- [docs/release-process.md](./docs/release-process.md) — canonical versioning,
+  tagging, and (manual) GitHub-Release process.
+- [docs/release-signing.md](./docs/release-signing.md) — how release builds are
+  signed, required CI secrets, and keystore generation/rotation.
+- [docs/listing-assets.md](./docs/listing-assets.md) — store icon, feature
+  graphic, and screenshot checklist with capture instructions.
+
+> **Status:** Linthra is **not** on F-Droid and no submission has been made. The
+> remaining blockers before a submission would be possible are listed in
+> [docs/fdroid-readiness.md §8](./docs/fdroid-readiness.md#8-remaining-blockers-before-submission).
 
 ## License
 

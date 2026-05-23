@@ -55,25 +55,35 @@ Linthra is a Flutter (Dart) application targeting Android.
 Runtime dependencies (from `pubspec.yaml`), all open source and commonly
 accepted on F-Droid:
 
-| Package                  | Purpose                                  | Notes |
-| ------------------------ | ---------------------------------------- | ----- |
-| `flutter_riverpod`       | State management                         | OK |
-| `go_router`              | Navigation                               | OK |
-| `path`                   | Cross-platform path parsing              | OK |
-| `drift`                  | Typed SQLite query layer                 | OK (codegen) |
-| `sqlite3_flutter_libs`   | Native SQLite engine                     | OK (native build) |
-| `path_provider`          | Locates on-device DB file                | OK |
-| `just_audio`             | Local audio playback engine              | OK |
-| `audio_service`          | Background playback / media session      | OK |
-| `file_picker`            | Native folder chooser                    | OK |
-| `shared_preferences`     | Persists selected folder                 | OK |
+| Package                  | Purpose                                  | License | Notes |
+| ------------------------ | ---------------------------------------- | ------- | ----- |
+| `flutter_riverpod`       | State management                         | MIT | OK |
+| `go_router`              | Navigation                               | BSD-3-Clause | OK |
+| `path`                   | Cross-platform path parsing              | BSD-3-Clause | OK |
+| `drift`                  | Typed SQLite query layer                 | MIT | OK (codegen) |
+| `sqlite3_flutter_libs`   | Native SQLite engine                     | MIT | OK (native build; SQLite is public domain) |
+| `path_provider`          | Locates on-device DB file                | BSD-3-Clause | OK |
+| `just_audio`             | Local audio playback engine              | MIT | OK |
+| `audio_service`          | Background playback / media session      | MIT | OK |
+| `file_picker`            | Native folder chooser                    | MIT | OK |
+| `shared_preferences`     | Persists selected folder                 | BSD-3-Clause | OK |
+| `http`                   | HTTP client for the optional Jellyfin source | BSD-3-Clause | OK (network is opt-in; see §5) |
+| `flutter_secure_storage` | Encrypted Jellyfin session-token store   | BSD-3-Clause | OK (Android Keystore; AOSP, not GMS) |
 
 Dev-only dependencies (`flutter_lints`, `flutter_test`, `drift_dev`,
 `build_runner`) are not shipped in the APK.
 
+The full per-package license breakdown, the native/bundled-component review, and
+the methodology live in [docs/dependency-license-audit.md](./dependency-license-audit.md).
+All direct dependencies are permissive (MIT / BSD-3-Clause) and MPL-2.0
+compatible.
+
 **Action items:**
-- Confirm no transitive dependency pulls in Google Play Services, Firebase, or
-  other non-free components (run an audit before submission).
+- **Mechanical transitive audit still pending.** The direct-dependency license
+  review is done (audit doc above); a tool-driven walk of the full transitive
+  tree (`flutter pub deps`, license collector) confirming no Google Play
+  Services / Firebase / proprietary pull-in has not yet been run. See
+  [audit §6 & §9](./dependency-license-audit.md#6-anti-features--non-free-check).
 - Verify each plugin builds cleanly on the F-Droid build server (some Flutter
   plugins need specific recipe tweaks).
 
@@ -86,13 +96,22 @@ where applicable. Current assessment:
 | ------------------------- | -------- | ----- |
 | Ads                       | **No**   | No advertising of any kind. |
 | Tracking / analytics      | **No**   | No telemetry, analytics, or crash reporting SDKs. |
-| Non-free network services | **No**   | Local-first; no required remote services today. |
-| Non-free dependencies     | No (TBC) | To be confirmed by the dependency audit above. |
+| Non-free network services | **No** (optional Jellyfin source — see below) | Local-first core needs no network. The optional Jellyfin source is user-configured and points at free software. |
+| Non-free dependencies     | No (TBC) | Direct deps cleared (all MIT/BSD-3-Clause); transitive walk still to be confirmed by the audit above. |
 
-> **Future caveat:** if optional online providers (e.g. metadata lookup or
-> streaming sources) are added later, each must be reviewed individually and may
-> warrant the `NonFreeNet` anti-feature. The local-first core must remain fully
-> functional without them.
+> **Optional Jellyfin source.** A Jellyfin source foundation has landed (server
+> settings, sign-in, encrypted session token, a library source). It is optional
+> and entirely user-configured — no server is bundled, promoted, or required, and
+> the local-first core works with no network at all. The Jellyfin server is
+> itself free software, and Linthra only speaks HTTP(S) to it via the permissive
+> `http` package, so it does not obviously warrant the `NonFreeNet`
+> anti-feature. This is reviewed in detail in
+> [dependency-license-audit.md §7](./dependency-license-audit.md#7-network-use--the-optional-jellyfin-source).
+>
+> **Future caveat:** any further online provider must be reviewed individually
+> and may warrant `NonFreeNet` if it defaults to or promotes a non-free hosted
+> service. The local-first core must remain fully functional without any remote
+> source.
 
 ### Android storage / permissions status
 
@@ -114,7 +133,9 @@ where applicable. Current assessment:
 
 ## 6. Release / tagging plan
 
-F-Droid builds from a git tag. Plan:
+F-Droid builds from a git tag. Summary (the canonical, step-by-step process —
+including the GitHub-Release flow — is in
+[docs/release-process.md](./release-process.md)):
 
 1. Keep version in `pubspec.yaml` as the single source of truth
    (`version: x.y.z+<versionCode>`; currently `0.1.0+1`).
@@ -156,8 +177,13 @@ step-by-step capture instructions live in
    [docs/release-signing.md](./release-signing.md)). F-Droid signs its own
    builds, so this matters mainly for GitHub-Release artifacts. Remaining work:
    configure the actual release secrets and decide the GitHub-Release flow.
-2. **No image assets.** Icon, feature graphic, and screenshots are missing.
-3. **Dependency audit.** Confirm no non-free / Google-only transitive deps.
+2. **No image assets.** Icon, feature graphic, and screenshots are missing (see
+   [docs/listing-assets.md](./listing-assets.md)).
+3. **Dependency audit (partly done).** The direct-dependency license review is
+   complete — all MIT/BSD-3-Clause, MPL-2.0 compatible
+   ([docs/dependency-license-audit.md](./dependency-license-audit.md)). Still
+   open: a mechanical walk of the full transitive tree confirming no non-free /
+   Google-only components.
 4. **Reproducible build verification.** Confirm the app builds on F-Droid's
    build server, including Drift codegen as a prebuild step.
 5. **No tagged release yet.** A `vX.Y.Z` tag must exist for F-Droid to build.
@@ -166,11 +192,16 @@ step-by-step capture instructions live in
 
 ## 9. Suggested order before F-Droid submission
 
-1. Run the dependency audit (§4) and resolve any non-free findings.
-2. Sort out release signing config (§8.1).
+1. Finish the dependency audit (§4): the direct-dep license review is done
+   ([audit doc](./dependency-license-audit.md)); run the mechanical transitive
+   walk and resolve any non-free findings.
+2. Sort out release signing config (§8.1; see
+   [docs/release-signing.md](./release-signing.md)).
 3. Verify a clean release build, including codegen (§3, §8.4).
-4. Capture and commit real image assets (§7).
-5. Finalize the version and cut a `vX.Y.Z` tag with a matching changelog (§6).
+4. Capture and commit real image assets (§7; see
+   [docs/listing-assets.md](./listing-assets.md)).
+5. Finalize the version and cut a `vX.Y.Z` tag with a matching changelog (§6;
+   full steps in [docs/release-process.md](./release-process.md)).
 6. Prepare the F-Droid `metadata/<appid>.yml` build recipe and submit a merge
    request to [fdroiddata](https://gitlab.com/fdroid/fdroiddata).
 

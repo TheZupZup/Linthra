@@ -57,6 +57,8 @@ Linthra is a Flutter (Dart) application targeting Android.
 | Dart SDK constraint | `>=3.6.0 <4.0.0` (`pubspec.yaml`), satisfied by Flutter 3.27.4. |
 | Java / JDK | **JDK 17** (Temurin in CI) — matches the bundled Gradle wrapper. |
 | Gradle | **8.3**, declared in `android/gradle/wrapper/gradle-wrapper.properties` (`gradle-8.3-all.zip`). |
+| Android Gradle Plugin | **8.1.0**, declared in `android/settings.gradle`. |
+| Kotlin Gradle plugin | **1.8.22**, declared in `android/settings.gradle`. |
 | Android SDK | `compileSdk`, `minSdk`, `targetSdk`, `versionCode`, and `versionName` all come from Flutter (`flutter.*` in `android/app/build.gradle`); they follow the pinned Flutter version rather than being hard-coded. |
 | Gradle wrapper committed? | **Partly.** `gradle-wrapper.properties` is committed; **`gradle-wrapper.jar` is _not_ committed.** F-Droid's build server can regenerate/restore the wrapper jar, but the recipe must account for this (e.g. `gradle` build type, or a prebuild that runs `flutter build` which provisions the wrapper). Worth re-checking before submission. |
 | Generated files committed? | **Yes for Drift.** `lib/data/database/linthra_database.g.dart` is committed. This means `build_runner` is **not** required during the F-Droid build (see §4). |
@@ -97,10 +99,11 @@ the schema at the tagged commit (§4).
    deliberately (it is out of scope for this documentation PR).
 4. **Dependency source review.** Every runtime dependency must be free software
    and buildable from source on F-Droid's infrastructure — no Google Play
-   Services, Firebase, or proprietary blobs. The current dependency list and its
-   open-source status are tracked in
-   [fdroid-readiness.md §4](./fdroid-readiness.md). A transitive-dependency
-   audit is still an open blocker (§6).
+   Services, Firebase, or proprietary blobs. The per-package licenses and the
+   native/bundled-component review are in
+   [dependency-license-audit.md](./dependency-license-audit.md): all direct deps
+   are permissive (MIT/BSD-3-Clause). A mechanical **transitive** audit is still
+   an open blocker (§6).
 5. **Toolchain pinning.** Reproducibility depends on the F-Droid build using the
    same Flutter (3.27.4), Dart (3.6.x), JDK (17), and Gradle (8.3) versions the
    project builds with. Keep the CI pin and any recipe-side pin in sync; a
@@ -109,8 +112,10 @@ the schema at the tagged commit (§4).
 
 ## 5. Release / tagging plan
 
-F-Droid builds from a git tag. The plan (consistent with
-[fdroid-readiness.md §6](./fdroid-readiness.md)):
+F-Droid builds from a git tag. Summary below; the canonical, step-by-step
+process (and the GitHub-Release flow) is in
+[docs/release-process.md](./release-process.md), and it is consistent with
+[fdroid-readiness.md §6](./fdroid-readiness.md):
 
 1. **Single source of truth:** `pubspec.yaml` `version: x.y.z+<versionCode>`
    (currently `0.1.0+1`). `versionName` = `x.y.z`, `versionCode` = the integer
