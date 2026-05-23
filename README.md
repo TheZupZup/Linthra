@@ -68,6 +68,32 @@ so scanned tracks survive a restart, while tests keep the in-memory default
 UI is untouched by the swap — it still reads only `LibraryController`/the
 repository abstraction.
 
+**Offline downloads — foundation landed.** The offline-cache lifecycle now
+works end to end behind `DownloadRepository`. `CacheDownloadRepository`
+(`lib/data/repositories/`) owns the policy in one place and tracks each item's
+`DownloadStatus` (`notDownloaded → queued → downloading → downloaded`, plus
+`failed`). Two promises are enforced here, not scattered through the UI:
+**downloads are only ever user-initiated** (nothing downloads automatically),
+and the **"Wi-Fi only" preference is respected** (a request made off Wi-Fi is
+*queued* rather than run). Only the `downloaded` set is durable; the transient
+states live in memory, so a restart never resurrects a half-finished download.
+
+The durable bit — *which* track IDs are cached — sits behind a small
+`DownloadStore` seam, persisted via `shared_preferences` in the app and held
+in memory in tests (same reasoning as the selected-folder store: a list of IDs
+is the wrong weight for the SQLite catalog). The "Wi-Fi only" switch is a
+`DownloadPreferences` seam, also `shared_preferences`-backed. Connectivity is
+read through a `ConnectivityService` seam; until real remote downloads land,
+the default `OptimisticConnectivityService` reports Wi-Fi (there is no network
+fetch to gate yet), and tests inject a fake to drive the mobile/offline paths.
+The UI never touches file paths: the Library row shows a per-track
+download/remove control and status, and the Downloads tab lists cached tracks
+and hosts the "Wi-Fi only" toggle — both talk only to the repository
+abstraction. **No actual bytes are fetched yet** (the only source is local
+files already on disk); the byte-fetch for remote sources slots into one
+private method without the policy changing. See **Offline downloads & known
+limitations** below.
+
 Not built yet (planned, in roughly this order):
 
 - Local music library scanning — *v1 done (scan → persist → list); native
@@ -75,9 +101,12 @@ Not built yet (planned, in roughly this order):
   are now routed and resolved for external storage; tag parsing,
   content-resolver SAF scanning, and a narrow Android media permission still
   pending*
-- Audio playback
+- Audio playback — *done (local playback + up-next queue)*
 - Playlists
-- User-controlled offline downloads
+- User-controlled offline downloads — *foundation done (status lifecycle,
+  mark/remove offline, Wi-Fi-only seam, UI hooks); real remote byte-fetch and a
+  background download manager still pending*
+- Lyrics
 
 Self-hosted sources (Jellyfin, WebDAV, NAS) come after the local MVP is solid.
 
@@ -166,6 +195,10 @@ lib/
   without touching feature code.
 - **`DownloadRepository`** (`core/repositories/`) — enforces the
   user-initiated, "Wi-Fi only"-respecting download policy in one place.
+  `CacheDownloadRepository` implements it today over a `DownloadStore`
+  (durable cached-ID set), a `DownloadPreferences` ("Wi-Fi only" switch), and a
+  `ConnectivityService`. Remote (Jellyfin/WebDAV) downloads add a real
+  byte-fetch in `_obtainOfflineCopy` without touching the policy or the UI.
 
 ## Getting started
 
@@ -283,6 +316,41 @@ Deliberate gaps the next PRs will close:
 The next PR is expected to be a playlist-editor foundation or Android SAF
 content-resolver folder scanning; a narrow `READ_MEDIA_AUDIO` permission flow
 remains a natural follow-up to this work.
+
+### Offline downloads & known limitations
+
+**How it works now.** Each Library row shows an offline-download control:
+download an absent track, see a spinner while it's in flight, and remove a
+cached one. The Downloads tab lists everything currently cached and hosts the
+**Wi-Fi only** toggle. All of this flows through `DownloadRepository`, which
+centralizes two guarantees:
+
+- **User-initiated only.** A track's status only ever changes in response to an
+  explicit download/remove action — nothing is fetched automatically or in the
+  background.
+- **Wi-Fi only is respected.** With the toggle on, a request made off Wi-Fi is
+  *queued* instead of run; with it off, downloads proceed on any connection.
+
+`downloaded` is the only durable state (persisted as a set of track IDs via
+`shared_preferences`); `queued`/`downloading`/`failed` are in-memory and reset
+on restart.
+
+Deliberate gaps the next PRs will close:
+
+- **No real downloads yet.** The only source is local files already on disk, so
+  "downloading" just records the track as offline-available. Fetching bytes from
+  a remote source (Jellyfin/WebDAV) is the follow-up; it slots into
+  `CacheDownloadRepository._obtainOfflineCopy` without changing the policy.
+- **No background download manager.** Downloads run inline in response to the
+  tap; there is no worker, no Android download/notification service, and no
+  auto-flush of the queue when Wi-Fi returns (re-tap a queued track to retry).
+- **Connectivity is optimistic.** `OptimisticConnectivityService` always reports
+  Wi-Fi until `connectivity_plus` is wired alongside real remote downloads, so
+  the "Wi-Fi only" gate has nothing to block in the current local-only build —
+  the seam and its tests are in place for when it does.
+- **No Drift table for downloads.** Persisting a flat ID set is a key/value job;
+  a `downloads` table (with file paths and byte progress) graduates from the
+  `DownloadStore` seam when real downloads need it.
 
 ## Continuous integration
 

@@ -5,6 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/download_repository.dart';
+import '../../data/repositories/download_repository_provider.dart';
+import '../downloads/download_providers.dart';
 import '../player/player_providers.dart';
 import 'library_controller.dart';
 import 'library_state.dart';
@@ -108,6 +111,7 @@ class _TrackTile extends ConsumerWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
+      trailing: _DownloadAction(trackId: track.id),
       // Play the tapped track and queue the rest of the list behind it, then
       // surface the now-playing screen.
       onTap: () {
@@ -128,6 +132,62 @@ class _TrackTile extends ConsumerWidget {
         track.albumName!,
     ];
     return parts.isEmpty ? track.uri : parts.join(' • ');
+  }
+}
+
+/// The per-row offline-download control. Reflects the track's [DownloadStatus]
+/// and offers the matching user-initiated action — download when absent, remove
+/// when cached. Progress states (queued/downloading) show as non-interactive
+/// indicators; nothing here ever starts a download on its own.
+class _DownloadAction extends ConsumerWidget {
+  const _DownloadAction({required this.trackId});
+
+  final String trackId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asyncStatus = ref.watch(trackDownloadStatusProvider(trackId));
+    final status = asyncStatus.valueOrNull ?? DownloadStatus.notDownloaded;
+    final repository = ref.read(downloadRepositoryProvider);
+    final theme = Theme.of(context);
+
+    switch (status) {
+      case DownloadStatus.notDownloaded:
+        return IconButton(
+          icon: const Icon(Icons.download_outlined),
+          tooltip: 'Download',
+          onPressed: () => repository.requestDownload(trackId),
+        );
+      case DownloadStatus.queued:
+        return IconButton(
+          icon: const Icon(Icons.schedule_outlined),
+          tooltip: 'Queued',
+          onPressed: () => repository.removeDownload(trackId),
+        );
+      case DownloadStatus.downloading:
+        return const SizedBox.square(
+          dimension: 24,
+          child: Padding(
+            padding: EdgeInsets.all(AppSpacing.xs),
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      case DownloadStatus.downloaded:
+        return IconButton(
+          icon: Icon(
+            Icons.download_done_outlined,
+            color: theme.colorScheme.primary,
+          ),
+          tooltip: 'Remove download',
+          onPressed: () => repository.removeDownload(trackId),
+        );
+      case DownloadStatus.failed:
+        return IconButton(
+          icon: Icon(Icons.error_outline, color: theme.colorScheme.error),
+          tooltip: 'Retry download',
+          onPressed: () => repository.requestDownload(trackId),
+        );
+    }
   }
 }
 
