@@ -109,11 +109,15 @@ The Settings UI talks only to `JellyfinSettingsController`/`JellyfinSettingsStat
 — never to HTTP or storage. **Passwords are never stored** (used once to obtain
 a token, then discarded) and **tokens are never logged** (the session redacts
 its token in `toString`, and a track's stored URI is a token-free
-`jellyfin:<id>`; the streaming URL is minted only at play time). What's *not*
-here yet: syncing the Jellyfin catalog into the Library and actual streaming
-playback — the source and a `jellyfinMusicSourceProvider` seam are ready for
-that next step. See **Jellyfin (self-hosted music) — setup & known limitations**
-below.
+`jellyfin:<id>`; the streaming URL is minted only at play time). **Library sync
+now works:** once signed in, a **Sync library** action pulls your Jellyfin
+artists/albums/tracks and upserts them into the same `MusicLibraryRepository`
+the Library reads from, under the stable `jellyfin` source id (driven by
+`JellyfinSyncController`/`JellyfinSyncState` over the existing
+`jellyfinMusicSourceProvider` seam). What's *not* here yet: actual streaming
+playback (Jellyfin tracks sync into the catalog, but routing their playback
+through `resolvePlayableUri` is the next step) and Jellyfin offline downloads.
+See **Jellyfin (self-hosted music) — setup & known limitations** below.
 
 Not built yet (planned, in roughly this order):
 
@@ -136,8 +140,9 @@ Not built yet (planned, in roughly this order):
 
 Self-hosted sources (Jellyfin, WebDAV, NAS) build on the local MVP. The
 **Jellyfin foundation has landed** (settings, connection test, authentication,
-encrypted session persistence, and a library source); wiring it into the
-Library and streaming playback come next.
+encrypted session persistence, and a library source), and **library sync is now
+wired in** — a signed-in user can pull their Jellyfin catalog into the Library.
+Streaming playback of those tracks comes next.
 
 ## Philosophy
 
@@ -594,7 +599,9 @@ Deliberate gaps the next PRs will close:
   empties up next but keeps the current track). When a track finishes, playback
   rolls into the next queued track. Reordering, saved playlists, shuffle, and
   repeat are not part of this foundation yet.
-- **No downloads or remote sources** (Jellyfin/WebDAV) yet.
+- **Jellyfin sync, but no remote playback yet.** A signed-in user can sync their
+  Jellyfin catalog into the Library; streaming those tracks (and WebDAV) is still
+  pending.
 
 ### Testing scanning on Android
 
@@ -669,7 +676,10 @@ including one published over HTTPS through a **Cloudflare** domain or tunnel.
    credentials needed) and shows the server name/version.
 3. **Username + password → Sign in** — authenticates and stores the resulting
    session. The password field has a show/hide toggle.
-4. **Sign out & clear** — forgets the saved session and clears the settings.
+4. **Sync library** — once signed in, pulls your Jellyfin artists/albums/tracks
+   and stores them in the local catalog so they show up in the Library. Shows a
+   spinner while it runs and a friendly result/error line when it's done.
+5. **Sign out & clear** — forgets the saved session and clears the settings.
 
 **Cloudflare notes.** A Cloudflare-proxied or Cloudflare Tunnel (`cloudflared`)
 Jellyfin is just a normal HTTPS endpoint, so it works without any special
@@ -695,19 +705,26 @@ configuration — point the URL at your public domain. Two things to know:
   authenticated streaming URL is minted only at play time, never stored.
 
 **What works now.** Configuring a server, testing the connection, signing in
-with friendly URL/connection/auth errors, and persisting the session across
-restarts. Under the hood, `JellyfinMusicSource` can already list and map
-artists/albums/tracks (and resolve a streaming URL), and is exposed via
-`jellyfinMusicSourceProvider`, but is **not yet wired into the Library UI**.
+with friendly URL/connection/auth errors, persisting the session across
+restarts, and **syncing the library**. The **Sync library** action drives
+`JellyfinSyncController`, which reads the signed-in `JellyfinMusicSource` (via
+`jellyfinMusicSourceProvider`), fetches artists/albums/tracks, and upserts them
+into `MusicLibraryRepository` under the stable `jellyfin` source id — the same
+upsert path local scanning uses. The Library reloads automatically afterward,
+so synced tracks appear alongside local ones. The sync surfaces loading /
+success / error states and friendly messages for being **not signed in**, a
+**server it couldn't reach**, an **expired/invalid session** (prompting a fresh
+sign-in), and an **empty Jellyfin library** (which leaves any existing catalog
+untouched rather than wiping it). It never logs the token and never stores an
+authenticated streaming URL — synced track URIs stay the token-free
+`jellyfin:<id>`.
 
 **Deliberate gaps the next PRs will close:**
 
-- **No Library sync or playback yet.** The source isn't fed into
-  `MusicLibraryRepository`, so Jellyfin tracks don't appear in the Library and
-  remote streaming isn't started from the UI. That's the recommended next PR:
-  add a "Sync Jellyfin library" action that calls
-  `MusicLibraryRepository.upsertCatalog(sourceId: 'jellyfin', …)` and route
-  `resolvePlayableUri` into playback.
+- **No remote streaming playback yet.** Jellyfin tracks now sync into the
+  Library, but tapping one doesn't stream it: `resolvePlayableUri` (which mints
+  the authenticated URL at play time) isn't yet routed into the playback
+  controller. That's the recommended next PR.
 - **No offline downloads from Jellyfin.** Fetching bytes for offline use slots
   into `CacheDownloadRepository._obtainOfflineCopy` later (see above).
 - **Single server only.** One session is stored; multi-server support and
