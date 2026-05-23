@@ -28,31 +28,10 @@ jobs:
         run: flutter pub get
 
       - name: Verify formatting
-        run: |
-          set +e
-          dart format --output=none --set-exit-if-changed . 2>&1 | tee fmt.txt
-          rc=${PIPESTATUS[0]}
-          if [ "$rc" != "0" ]; then
-            echo "::error title=format::$(tr '\n' '~' < fmt.txt | cut -c1-1500)"
-          fi
-          exit "$rc"
+        run: dart format --set-exit-if-changed .
 
       - name: Analyze
-        run: |
-          set +e
-          flutter analyze 2>&1 | tee an.txt
-          rc=${PIPESTATUS[0]}
-          if [ "$rc" != "0" ]; then
-            echo "::error title=analyze::$(tr '\n' '~' < an.txt | cut -c1-1500)"
-          fi
-          exit "$rc"
+        run: flutter analyze
 
       - name: Run tests
-        run: |
-          set +e
-          flutter test 2>&1 | tee test.txt
-          rc=${PIPESTATUS[0]}
-          if [ "$rc" != "0" ]; then
-            echo "::error title=tests::$(grep -iE 'Expected:|Actual:|Which:|\[E\]|failed|\.dart:[0-9]+' test.txt | tail -40 | tr '\n' '~' | cut -c1-1900)"
-          fi
-          exit "$rc"
+        run: flutter test

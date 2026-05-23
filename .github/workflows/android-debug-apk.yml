@@ -38,14 +38,7 @@ jobs:
         run: flutter pub get
 
       - name: Build debug APK
-        run: |
-          set +e
-          flutter build apk --debug 2>&1 | tee build.txt
-          rc=${PIPESTATUS[0]}
-          if [ "$rc" != "0" ]; then
-            echo "::error title=apk::$(grep -iE 'error|exception|e: |failed|\.kt|\.dart|aapt|unresolved' build.txt | tail -30 | tr '\n' '~' | cut -c1-1800)"
-          fi
-          exit "$rc"
+        run: flutter build apk --debug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

@@ -18,12 +18,14 @@ class RoutingPlayableUriResolver implements PlayableUriResolver {
       _resolvers.any((PlayableUriResolver r) => r.handles(track));
 
   @override
-  Future<Uri> resolve(Track track) {
+  Future<Uri> resolve(Track track) async {
     for (final PlayableUriResolver resolver in _resolvers) {
       if (resolver.handles(track)) {
         return resolver.resolve(track);
       }
     }
+    // `async` so this surfaces as a rejected future (like the member
+    // resolvers), not a synchronous throw, for callers that `await`.
     throw const PlaybackResolutionException(
       "This track can't be played right now.",
       kind: PlaybackResolutionErrorKind.streamUnavailable,
