@@ -63,6 +63,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- Declares Linthra to Android Auto as a media app so it's listed in
+             the car launcher and Auto binds to the MediaBrowserService above to
+             load the browsable tree (Library / Queue). Points at
+             res/xml/automotive_app_desc.xml, which claims only the "media"
+             capability. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

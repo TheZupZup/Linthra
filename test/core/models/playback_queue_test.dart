@@ -52,6 +52,26 @@ void main() {
       expect(queue.next(), same(queue));
     });
 
+    test('previous() steps back to the prior track', () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c')],
+        startIndex: 2,
+      );
+
+      final stepped = queue.previous();
+
+      expect(stepped.current, _track('b'));
+      expect(stepped.hasPrevious, isTrue);
+      expect(stepped.upNext, [_track('c')]);
+    });
+
+    test('previous() at the start returns the same queue', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')]);
+
+      expect(queue.hasPrevious, isFalse);
+      expect(queue.previous(), same(queue));
+    });
+
     test('enqueueNext() inserts right after the current track', () {
       final queue = PlaybackQueue.of([_track('a'), _track('c')]);
 

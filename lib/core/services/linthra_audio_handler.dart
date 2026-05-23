@@ -4,6 +4,8 @@ import 'package:audio_service/audio_service.dart' as audio;
 
 import '../models/playback_state.dart';
 import '../models/track.dart';
+import '../repositories/music_library_repository.dart';
+import 'media_browser_tree.dart';
 import 'playback_controller.dart';
 
 /// Bridges the app's [PlaybackController] to the platform media session via
@@ -14,10 +16,13 @@ import 'playback_controller.dart';
 /// engine: it forwards media-session commands (play/pause/stop/skip) to the
 /// controller and mirrors the controller's [PlaybackState] back out as
 /// audio_service playback state + media item, so the notification, lock screen,
-/// and Android Auto reflect what is playing. The controller stays the single
-/// source of truth and owns `just_audio`; the UI never touches this class.
+/// and Android Auto reflect what is playing. For Android Auto it also exposes a
+/// browsable tree (Library / Queue) built by [MediaBrowserTree] and turns a
+/// selected item into a [PlaybackController.playTracks] call. The controller
+/// stays the single source of truth and owns `just_audio`; the UI never touches
+/// this class.
 class LinthraAudioHandler extends audio.BaseAudioHandler {
-  LinthraAudioHandler(this._controller) {
+  LinthraAudioHandler(this._controller, this._tree) {
     _subscription = _controller.stateStream.listen(_broadcast);
     // Seed the session from the latest known state so a freshly attached
     // notification/Android Auto isn't blank before the first stream event.
@@ -25,6 +30,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   }
 
   final PlaybackController _controller;
+  final MediaBrowserTree _tree;
   late final StreamSubscription<PlaybackState> _subscription;
 
   @override
@@ -43,21 +49,68 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   Future<void> skipToNext() => _controller.skipToNext();
 
   @override
+  Future<void> skipToPrevious() => _controller.skipToPrevious();
+
+  @override
   Future<void> seek(Duration position) => _controller.seek(position);
+
+  // --- Android Auto / media browser ---------------------------------------
+
+  @override
+  Future<List<audio.MediaItem>> getChildren(
+    String parentMediaId, [
+    Map<String, dynamic>? options,
+  ]) async {
+    final nodes = await _tree.childrenOf(parentMediaId, _controller.state);
+    return nodes.map(_mediaItemForNode).toList();
+  }
+
+  @override
+  Future<void> playFromMediaId(
+    String mediaId, [
+    Map<String, dynamic>? extras,
+  ]) async {
+    final request = await _tree.resolve(mediaId, _controller.state);
+    if (request == null) return;
+    await _controller.playTracks(request.tracks,
+        startIndex: request.startIndex);
+  }
+
+  // ------------------------------------------------------------------------
 
   void _broadcast(PlaybackState state) {
     final track = state.currentTrack;
-    mediaItem.add(track == null ? null : _mediaItemFor(track, state));
+    mediaItem.add(
+      track == null
+          ? null
+          : _trackMediaItem(track, id: track.id, live: state.duration),
+    );
     playbackState.add(_playbackStateFor(state));
   }
 
-  audio.MediaItem _mediaItemFor(Track track, PlaybackState state) {
-    // Prefer the live duration the engine reported; fall back to the track's
-    // catalog duration, and omit it entirely when unknown.
-    final live = state.duration;
+  audio.MediaItem _mediaItemForNode(MediaNode node) {
+    final track = node.track;
+    if (node.playable && track != null) {
+      return _trackMediaItem(track, id: node.id);
+    }
+    return audio.MediaItem(
+      id: node.id,
+      title: node.title,
+      playable: false,
+      displaySubtitle: node.subtitle,
+    );
+  }
+
+  audio.MediaItem _trackMediaItem(
+    Track track, {
+    required String id,
+    Duration live = Duration.zero,
+  }) {
+    // Prefer the live duration the engine reported (now-playing); fall back to
+    // the track's catalog duration, and omit it entirely when unknown.
     final duration = live > Duration.zero ? live : track.duration;
     return audio.MediaItem(
-      id: track.id,
+      id: id,
       title: track.title,
       artist: track.artistName,
       album: track.albumName,
@@ -69,7 +122,11 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   audio.PlaybackState _playbackStateFor(PlaybackState state) {
     return audio.PlaybackState(
       controls: _controlsFor(state),
-      systemActions: const <audio.MediaAction>{audio.MediaAction.seek},
+      systemActions: const <audio.MediaAction>{
+        audio.MediaAction.seek,
+        audio.MediaAction.skipToNext,
+        audio.MediaAction.skipToPrevious,
+      },
       processingState: _processingStateFor(state.status),
       playing: state.isPlaying,
       updatePosition: state.position,
@@ -78,6 +135,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 
   List<audio.MediaControl> _controlsFor(PlaybackState state) {
     return <audio.MediaControl>[
+      if (state.hasPrevious) audio.MediaControl.skipToPrevious,
       state.isPlaying ? audio.MediaControl.pause : audio.MediaControl.play,
       audio.MediaControl.stop,
       if (state.hasNext) audio.MediaControl.skipToNext,
@@ -105,7 +163,8 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 }
 
 /// Registers [controller] with the platform media session so playback appears
-/// in the notification / lock screen and is reachable from Android Auto.
+/// in the notification / lock screen and is reachable from Android Auto, with a
+/// browsable tree backed by [library].
 ///
 /// Best-effort by design: returns `null` when `audio_service` can't initialise
 /// (a platform without the native setup, or a test environment). Playback still
@@ -113,10 +172,11 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 /// breaks basic playback.
 Future<LinthraAudioHandler?> connectMediaSession(
   PlaybackController controller,
+  MusicLibraryRepository library,
 ) async {
   try {
     return await audio.AudioService.init(
-      builder: () => LinthraAudioHandler(controller),
+      builder: () => LinthraAudioHandler(controller, MediaBrowserTree(library)),
       config: const audio.AudioServiceConfig(
         androidNotificationChannelId: 'com.linthra.audio',
         androidNotificationChannelName: 'Linthra playback',

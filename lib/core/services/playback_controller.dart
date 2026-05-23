@@ -31,6 +31,10 @@ abstract interface class PlaybackController {
   /// has no upcoming tracks.
   Future<void> skipToNext();
 
+  /// Steps back to the previous track in the queue, if any. A no-op when the
+  /// current track is the first one.
+  Future<void> skipToPrevious();
+
   /// Empties the up-next queue, leaving the current track playing.
   void clearQueue();
 

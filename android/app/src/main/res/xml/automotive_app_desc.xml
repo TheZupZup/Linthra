@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declares Linthra as an Android Auto *media* app. Referenced from the
+     manifest via the com.google.android.gms.car.application meta-data; without
+     it Android Auto won't list the app or bind to its MediaBrowserService, so
+     the browsable tree (Library / Queue) would never appear in the car UI.
+     "media" is the only capability we claim — no messaging or other car APIs. -->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

@@ -24,6 +24,7 @@ class FakePlaybackController implements PlaybackController {
   int pauseCount = 0;
   int stopCount = 0;
   int skipCount = 0;
+  int previousCount = 0;
   int clearCount = 0;
   final List<Duration> seeks = <Duration>[];
 
@@ -63,10 +64,18 @@ class FakePlaybackController implements PlaybackController {
   }
 
   @override
+  Future<void> skipToPrevious() async {
+    previousCount++;
+    if (!_queue.hasPrevious) return;
+    _queue = _queue.previous();
+    _playCurrent();
+  }
+
+  @override
   void clearQueue() {
     clearCount++;
     _queue = _queue.cleared();
-    emit(_state.copyWith(upNext: _queue.upNext));
+    emit(_state.copyWith(upNext: _queue.upNext, hasPrevious: false));
   }
 
   void _playCurrent() {
@@ -77,6 +86,7 @@ class FakePlaybackController implements PlaybackController {
       status: PlaybackStatus.playing,
       currentTrack: track,
       upNext: _queue.upNext,
+      hasPrevious: _queue.hasPrevious,
     );
     emit(playing);
   }
