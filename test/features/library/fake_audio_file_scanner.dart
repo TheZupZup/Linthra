@@ -1,4 +1,4 @@
-import 'package:sonara/core/sources/local/audio_file_scanner.dart';
+import 'package:halcyon/core/sources/local/audio_file_scanner.dart';
 
 /// Returns a fixed list of file paths, or throws [error] when one is set, so a
 /// scan can be driven without a real file system.

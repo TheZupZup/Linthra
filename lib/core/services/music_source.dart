@@ -2,7 +2,7 @@ import '../models/album.dart';
 import '../models/artist.dart';
 import '../models/track.dart';
 
-/// A backend that *provides* media to Sonara.
+/// A backend that *provides* media to Halcyon.
 ///
 /// This is the core extension point for the project's roadmap. The MVP ships a
 /// `LocalMusicSource` (scans on-device files); future `JellyfinMusicSource`,

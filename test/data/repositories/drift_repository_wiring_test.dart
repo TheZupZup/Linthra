@@ -1,24 +1,24 @@
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/models/album.dart';
-import 'package:sonara/core/models/artist.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/data/database/sonara_database.dart';
-import 'package:sonara/data/database/sonara_database_provider.dart';
-import 'package:sonara/data/repositories/drift_music_library_repository.dart';
-import 'package:sonara/data/repositories/music_library_repository_provider.dart';
-import 'package:sonara/features/library/library_controller.dart';
-import 'package:sonara/features/library/library_state.dart';
+import 'package:halcyon/core/models/album.dart';
+import 'package:halcyon/core/models/artist.dart';
+import 'package:halcyon/core/models/track.dart';
+import 'package:halcyon/data/database/halcyon_database.dart';
+import 'package:halcyon/data/database/halcyon_database_provider.dart';
+import 'package:halcyon/data/repositories/drift_music_library_repository.dart';
+import 'package:halcyon/data/repositories/music_library_repository_provider.dart';
+import 'package:halcyon/features/library/library_controller.dart';
+import 'package:halcyon/features/library/library_state.dart';
 
 void main() {
   group('driftMusicLibraryRepositoryOverride', () {
     test('binds the repository provider to the Drift implementation', () {
-      final db = SonaraDatabase.forTesting(NativeDatabase.memory());
+      final db = HalcyonDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
       final container = ProviderContainer(
         overrides: [
-          sonaraDatabaseProvider.overrideWithValue(db),
+          halcyonDatabaseProvider.overrideWithValue(db),
           driftMusicLibraryRepositoryOverride,
         ],
       );
@@ -32,11 +32,11 @@ void main() {
 
     test('catalog persists through the controller via the Drift binding',
         () async {
-      final db = SonaraDatabase.forTesting(NativeDatabase.memory());
+      final db = HalcyonDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
       final container = ProviderContainer(
         overrides: [
-          sonaraDatabaseProvider.overrideWithValue(db),
+          halcyonDatabaseProvider.overrideWithValue(db),
           driftMusicLibraryRepositoryOverride,
         ],
       );

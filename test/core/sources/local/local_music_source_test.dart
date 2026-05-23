@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/sources/local/audio_file_scanner.dart';
-import 'package:sonara/core/sources/local/local_music_source.dart';
+import 'package:halcyon/core/sources/local/audio_file_scanner.dart';
+import 'package:halcyon/core/sources/local/local_music_source.dart';
 
 /// Returns a fixed list of paths and records the folder it was asked to scan,
 /// so the source can be tested without touching a real file system.

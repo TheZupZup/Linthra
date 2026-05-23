@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:sonara/core/models/playback_queue.dart';
-import 'package:sonara/core/models/playback_state.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/core/services/playback_controller.dart';
+import 'package:halcyon/core/models/playback_queue.dart';
+import 'package:halcyon/core/models/playback_state.dart';
+import 'package:halcyon/core/models/track.dart';
+import 'package:halcyon/core/services/playback_controller.dart';
 
 /// In-memory [PlaybackController] for widget/provider tests.
 ///

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/models/playback_queue.dart';
-import 'package:sonara/core/models/track.dart';
+import 'package:halcyon/core/models/playback_queue.dart';
+import 'package:halcyon/core/models/track.dart';
 
 Track _track(String id) => Track(id: id, title: 'Song $id', uri: '/$id.mp3');
 

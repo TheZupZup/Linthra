@@ -16,8 +16,8 @@ import 'playback_controller.dart';
 /// audio_service playback state + media item, so the notification, lock screen,
 /// and Android Auto reflect what is playing. The controller stays the single
 /// source of truth and owns `just_audio`; the UI never touches this class.
-class SonaraAudioHandler extends audio.BaseAudioHandler {
-  SonaraAudioHandler(this._controller) {
+class HalcyonAudioHandler extends audio.BaseAudioHandler {
+  HalcyonAudioHandler(this._controller) {
     _subscription = _controller.stateStream.listen(_broadcast);
     // Seed the session from the latest known state so a freshly attached
     // notification/Android Auto isn't blank before the first stream event.
@@ -111,15 +111,15 @@ class SonaraAudioHandler extends audio.BaseAudioHandler {
 /// (a platform without the native setup, or a test environment). Playback still
 /// works through the controller in that case, so a missing media session never
 /// breaks basic playback.
-Future<SonaraAudioHandler?> connectMediaSession(
+Future<HalcyonAudioHandler?> connectMediaSession(
   PlaybackController controller,
 ) async {
   try {
     return await audio.AudioService.init(
-      builder: () => SonaraAudioHandler(controller),
+      builder: () => HalcyonAudioHandler(controller),
       config: const audio.AudioServiceConfig(
-        androidNotificationChannelId: 'com.sonara.audio',
-        androidNotificationChannelName: 'Sonara playback',
+        androidNotificationChannelId: 'com.halcyon.audio',
+        androidNotificationChannelName: 'Halcyon playback',
         androidNotificationOngoing: true,
       ),
     );

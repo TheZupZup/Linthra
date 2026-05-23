@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/repositories/download_repository.dart';
-import 'package:sonara/core/services/connectivity_service.dart';
-import 'package:sonara/data/repositories/cache_download_repository.dart';
-import 'package:sonara/data/repositories/in_memory_download_preferences.dart';
-import 'package:sonara/data/repositories/in_memory_download_store.dart';
+import 'package:halcyon/core/repositories/download_repository.dart';
+import 'package:halcyon/core/services/connectivity_service.dart';
+import 'package:halcyon/data/repositories/cache_download_repository.dart';
+import 'package:halcyon/data/repositories/in_memory_download_preferences.dart';
+import 'package:halcyon/data/repositories/in_memory_download_store.dart';
 
 /// A connectivity stand-in whose reported status the test can flip at will.
 class _FakeConnectivity implements ConnectivityService {

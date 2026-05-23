@@ -77,7 +77,7 @@ class ContentUriAudioFileScanner implements AudioFileScanner {
     if (path == null) {
       throw FolderScanException(
         "This folder can't be scanned yet. It was shared through Android's "
-        'Storage Access Framework, which Sonara cannot walk directly on this '
+        'Storage Access Framework, which Halcyon cannot walk directly on this '
         'device. Try selecting a folder on your phone or SD card storage.',
         folder: folder,
       );

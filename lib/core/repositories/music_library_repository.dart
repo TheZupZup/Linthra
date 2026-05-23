@@ -6,7 +6,7 @@ import '../models/track.dart';
 ///
 /// Critical separation of concerns: the UI always reads from the repository
 /// (backed by SQLite), never directly from a [MusicSource]. Sources *sync into*
-/// the repository on demand. This is what makes Sonara work fully offline and
+/// the repository on demand. This is what makes Halcyon work fully offline and
 /// keeps remote latency out of the render path.
 ///
 /// The concrete implementation (e.g. a `drift`-backed one) is added when the

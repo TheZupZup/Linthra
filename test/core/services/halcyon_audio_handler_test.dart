@@ -1,8 +1,8 @@
 import 'package:audio_service/audio_service.dart' as audio;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/models/playback_state.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/core/services/sonara_audio_handler.dart';
+import 'package:halcyon/core/models/playback_state.dart';
+import 'package:halcyon/core/models/track.dart';
+import 'package:halcyon/core/services/halcyon_audio_handler.dart';
 
 import '../../features/player/fake_playback_controller.dart';
 
@@ -21,13 +21,13 @@ Track _track(String id) {
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
 void main() {
-  group('SonaraAudioHandler', () {
+  group('HalcyonAudioHandler', () {
     late FakePlaybackController controller;
-    late SonaraAudioHandler handler;
+    late HalcyonAudioHandler handler;
 
     setUp(() {
       controller = FakePlaybackController();
-      handler = SonaraAudioHandler(controller);
+      handler = HalcyonAudioHandler(controller);
     });
 
     tearDown(() async {

@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'tables/tracks_table.dart';
 
-part 'sonara_database.g.dart';
+part 'halcyon_database.g.dart';
 
 /// The app's local SQLite database — the offline-first catalog the UI reads
 /// from. Kept deliberately outside the UI and feature layers; repositories in
@@ -17,12 +17,12 @@ part 'sonara_database.g.dart';
 /// [schemaVersion] and add a `MigrationStrategy`; we are not pre-building that
 /// machinery while there is nothing to migrate from.
 @DriftDatabase(tables: [Tracks])
-class SonaraDatabase extends _$SonaraDatabase {
-  SonaraDatabase() : super(_openConnection());
+class HalcyonDatabase extends _$HalcyonDatabase {
+  HalcyonDatabase() : super(_openConnection());
 
   /// Builds a database over a caller-supplied executor. Used by tests to run
   /// against an in-memory SQLite instance (`NativeDatabase.memory()`).
-  SonaraDatabase.forTesting(super.executor);
+  HalcyonDatabase.forTesting(super.executor);
 
   @override
   int get schemaVersion => 1;
@@ -31,7 +31,7 @@ class SonaraDatabase extends _$SonaraDatabase {
 QueryExecutor _openConnection() {
   return LazyDatabase(() async {
     final Directory dir = await getApplicationDocumentsDirectory();
-    final File file = File(p.join(dir.path, 'sonara.sqlite'));
+    final File file = File(p.join(dir.path, 'halcyon.sqlite'));
     return NativeDatabase.createInBackground(file);
   });
 }

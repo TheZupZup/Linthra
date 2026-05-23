@@ -1,7 +1,7 @@
-import 'package:sonara/core/models/album.dart';
-import 'package:sonara/core/models/artist.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/core/repositories/music_library_repository.dart';
+import 'package:halcyon/core/models/album.dart';
+import 'package:halcyon/core/models/artist.dart';
+import 'package:halcyon/core/models/track.dart';
+import 'package:halcyon/core/repositories/music_library_repository.dart';
 
 /// A minimal [MusicLibraryRepository] for driving controller/widget tests.
 ///

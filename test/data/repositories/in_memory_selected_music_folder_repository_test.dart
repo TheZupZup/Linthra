@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/data/repositories/in_memory_selected_music_folder_repository.dart';
+import 'package:halcyon/data/repositories/in_memory_selected_music_folder_repository.dart';
 
 void main() {
   group('InMemorySelectedMusicFolderRepository', () {

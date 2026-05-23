@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/data/repositories/in_memory_download_store.dart';
+import 'package:halcyon/data/repositories/in_memory_download_store.dart';
 
 void main() {
   group('InMemoryDownloadStore', () {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/sources/local/saf_tree_uri_resolver.dart';
+import 'package:halcyon/core/sources/local/saf_tree_uri_resolver.dart';
 
 void main() {
   const resolver = SafTreeUriResolver();

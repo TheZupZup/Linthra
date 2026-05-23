@@ -1,14 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/sources/local/audio_file_scanner.dart';
+import 'package:halcyon/core/sources/local/audio_file_scanner.dart';
 
 void main() {
   group('IoAudioFileScanner', () {
     late Directory root;
 
     setUp(() async {
-      root = await Directory.systemTemp.createTemp('sonara_scan_test');
+      root = await Directory.systemTemp.createTemp('halcyon_scan_test');
     });
 
     tearDown(() async {

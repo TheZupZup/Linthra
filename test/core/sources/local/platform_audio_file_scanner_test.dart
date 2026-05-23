@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/sources/local/audio_file_scanner.dart';
+import 'package:halcyon/core/sources/local/audio_file_scanner.dart';
 
 /// Records that it was called and with which folder, so we can assert the
 /// router picked this backend.

@@ -1,4 +1,4 @@
-name: sonara
+name: halcyon
 description: A modern, local-first, privacy-focused music player.
 publish_to: "none"
 version: 0.1.0+1
@@ -29,7 +29,7 @@ dependencies:
   # just_audio directly.
   just_audio: ^0.9.42
   # Background playback + platform media session (notification, lock screen,
-  # Android Auto). Used only by SonaraAudioHandler in the services layer, which
+  # Android Auto). Used only by HalcyonAudioHandler in the services layer, which
   # forwards session commands to PlaybackController and mirrors its state out.
   # The UI never depends on audio_service directly.
   audio_service: ^0.18.15
@@ -47,7 +47,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   # Drift code generation. Run via the manual "Generate Drift files" workflow;
-  # produces the *.g.dart files that back SonaraDatabase.
+  # produces the *.g.dart files that back HalcyonDatabase.
   drift_dev: ^2.18.0
   build_runner: ^2.4.13
 

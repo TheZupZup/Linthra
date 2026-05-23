@@ -4,7 +4,7 @@ import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/music_library_repository.dart';
-import '../database/sonara_database.dart';
+import '../database/halcyon_database.dart';
 import '../mappers/track_mapper.dart';
 
 /// SQLite-backed [MusicLibraryRepository] using Drift. This is the persistent
@@ -16,7 +16,7 @@ import '../mappers/track_mapper.dart';
 class DriftMusicLibraryRepository implements MusicLibraryRepository {
   DriftMusicLibraryRepository(this._db);
 
-  final SonaraDatabase _db;
+  final HalcyonDatabase _db;
 
   @override
   Future<List<Track>> getAllTracks() async {

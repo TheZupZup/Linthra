@@ -1,13 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/core/repositories/music_library_repository.dart';
-import 'package:sonara/core/sources/local/audio_file_scanner.dart';
-import 'package:sonara/data/repositories/in_memory_music_library_repository.dart';
-import 'package:sonara/data/repositories/music_library_repository_provider.dart';
-import 'package:sonara/features/library/library_controller.dart';
-import 'package:sonara/features/library/library_providers.dart';
-import 'package:sonara/features/library/library_state.dart';
+import 'package:halcyon/core/models/track.dart';
+import 'package:halcyon/core/repositories/music_library_repository.dart';
+import 'package:halcyon/core/sources/local/audio_file_scanner.dart';
+import 'package:halcyon/data/repositories/in_memory_music_library_repository.dart';
+import 'package:halcyon/data/repositories/music_library_repository_provider.dart';
+import 'package:halcyon/features/library/library_controller.dart';
+import 'package:halcyon/features/library/library_providers.dart';
+import 'package:halcyon/features/library/library_state.dart';
 
 import 'fake_audio_file_scanner.dart';
 import 'fake_music_library_repository.dart';

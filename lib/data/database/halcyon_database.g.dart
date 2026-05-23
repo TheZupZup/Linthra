@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'sonara_database.dart';
+part of 'halcyon_database.dart';
 
 // ignore_for_file: type=lint
 class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
@@ -482,9 +482,9 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
   }
 }
 
-abstract class _$SonaraDatabase extends GeneratedDatabase {
-  _$SonaraDatabase(QueryExecutor e) : super(e);
-  $SonaraDatabaseManager get managers => $SonaraDatabaseManager(this);
+abstract class _$HalcyonDatabase extends GeneratedDatabase {
+  _$HalcyonDatabase(QueryExecutor e) : super(e);
+  $HalcyonDatabaseManager get managers => $HalcyonDatabaseManager(this);
   late final $TracksTable tracks = $TracksTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -519,7 +519,7 @@ typedef $$TracksTableUpdateCompanionBuilder = TracksCompanion Function({
 });
 
 class $$TracksTableFilterComposer
-    extends Composer<_$SonaraDatabase, $TracksTable> {
+    extends Composer<_$HalcyonDatabase, $TracksTable> {
   $$TracksTableFilterComposer({
     required super.$db,
     required super.$table,
@@ -556,7 +556,7 @@ class $$TracksTableFilterComposer
 }
 
 class $$TracksTableOrderingComposer
-    extends Composer<_$SonaraDatabase, $TracksTable> {
+    extends Composer<_$HalcyonDatabase, $TracksTable> {
   $$TracksTableOrderingComposer({
     required super.$db,
     required super.$table,
@@ -593,7 +593,7 @@ class $$TracksTableOrderingComposer
 }
 
 class $$TracksTableAnnotationComposer
-    extends Composer<_$SonaraDatabase, $TracksTable> {
+    extends Composer<_$HalcyonDatabase, $TracksTable> {
   $$TracksTableAnnotationComposer({
     required super.$db,
     required super.$table,
@@ -630,7 +630,7 @@ class $$TracksTableAnnotationComposer
 }
 
 class $$TracksTableTableManager extends RootTableManager<
-    _$SonaraDatabase,
+    _$HalcyonDatabase,
     $TracksTable,
     TrackRow,
     $$TracksTableFilterComposer,
@@ -638,10 +638,10 @@ class $$TracksTableTableManager extends RootTableManager<
     $$TracksTableAnnotationComposer,
     $$TracksTableCreateCompanionBuilder,
     $$TracksTableUpdateCompanionBuilder,
-    (TrackRow, BaseReferences<_$SonaraDatabase, $TracksTable, TrackRow>),
+    (TrackRow, BaseReferences<_$HalcyonDatabase, $TracksTable, TrackRow>),
     TrackRow,
     PrefetchHooks Function()> {
-  $$TracksTableTableManager(_$SonaraDatabase db, $TracksTable table)
+  $$TracksTableTableManager(_$HalcyonDatabase db, $TracksTable table)
       : super(TableManagerState(
           db: db,
           table: table,
@@ -707,7 +707,7 @@ class $$TracksTableTableManager extends RootTableManager<
 }
 
 typedef $$TracksTableProcessedTableManager = ProcessedTableManager<
-    _$SonaraDatabase,
+    _$HalcyonDatabase,
     $TracksTable,
     TrackRow,
     $$TracksTableFilterComposer,
@@ -715,13 +715,13 @@ typedef $$TracksTableProcessedTableManager = ProcessedTableManager<
     $$TracksTableAnnotationComposer,
     $$TracksTableCreateCompanionBuilder,
     $$TracksTableUpdateCompanionBuilder,
-    (TrackRow, BaseReferences<_$SonaraDatabase, $TracksTable, TrackRow>),
+    (TrackRow, BaseReferences<_$HalcyonDatabase, $TracksTable, TrackRow>),
     TrackRow,
     PrefetchHooks Function()>;
 
-class $SonaraDatabaseManager {
-  final _$SonaraDatabase _db;
-  $SonaraDatabaseManager(this._db);
+class $HalcyonDatabaseManager {
+  final _$HalcyonDatabase _db;
+  $HalcyonDatabaseManager(this._db);
   $$TracksTableTableManager get tracks =>
       $$TracksTableTableManager(_db, _db.tracks);
 }
