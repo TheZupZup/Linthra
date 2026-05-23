@@ -9,19 +9,22 @@ control.
 
 ## Status
 
-**Early-stage. This is the foundation/scaffold only.** What exists today is the
-project structure, dark-first theming, navigation, the app shell, placeholder
-screens, the core domain models, and the service/repository *interfaces* that
-future features will implement.
+**Early-stage, but Library v1 is wired end to end.** Alongside the project
+structure, dark-first theming, navigation, app shell, core domain models, and
+the service/repository *interfaces*, the Library feature now works as a real
+vertical slice.
 
-**Library v1 is now wired end to end.** The Library screen can scan a local
-folder, persist the discovered tracks through `MusicLibraryRepository`, and list
-them back. The flow is: `LocalMusicSource` discovers audio files under a folder
-→ `LibraryController` persists them via `MusicLibraryRepository.upsertCatalog`
-→ `LibraryScreen` renders the stored tracks (each as title + uri/path). The
-screen renders four states — loading, empty, populated, and error — and the
-UI only ever talks to `LibraryController`/`LibraryState` and the repository
-abstraction, never to Drift or a source directly.
+**Library v1.** The Library screen can scan a local folder, persist the
+discovered tracks through `MusicLibraryRepository`, and list them back. The
+flow is: `LocalMusicSource` discovers audio files under a folder →
+`LibraryController` persists them via `MusicLibraryRepository.upsertCatalog`
+→ `LibraryScreen` renders the stored tracks (each as title + artist/album, or
+the uri/path when no tags exist). The screen renders four states — **loading,
+empty, populated, and error** (with retry) — and the UI only ever talks to
+`LibraryController`/`LibraryState` and the repository abstraction, never to
+Drift or a `MusicSource` directly. Scanning, persistence, and UI state stay in
+separate, individually testable layers. See **Android readiness & known
+limitations** below for what is intentionally deferred.
 
 `LocalMusicSource` (`lib/core/sources/local/`) discovers audio files under a
 configured folder and maps them into `Track`s. It does no tag parsing yet —
@@ -147,7 +150,8 @@ lib/
 ## Getting started
 
 This repository currently contains the Dart/Flutter source and config. Native
-platform folders are generated locally (they're git-ignored for now):
+platform folders (`android/`, `linux/`, …) are **not committed** — they're
+generated locally so the repo stays focused on the cross-platform Dart code.
 
 ```bash
 # 1. Generate platform scaffolding (preserves lib/, pubspec.yaml, etc.)
@@ -156,12 +160,57 @@ flutter create --platforms=android,linux .
 # 2. Fetch dependencies
 flutter pub get
 
-# 3. Run
+# 3. Run on a connected device or emulator
 flutter run
 ```
 
 > Note: `flutter create` may regenerate template files such as `main.dart`.
 > If prompted, keep the existing versions in this repo.
+
+### Building a debug APK (Android)
+
+To install and test Sonara on an Android phone:
+
+```bash
+# Generate the Android scaffold (skip if android/ already exists locally)
+flutter create --platforms=android .
+
+flutter pub get
+
+# Build an unsigned debug APK
+flutter build apk --debug
+# → build/app/outputs/flutter-apk/app-debug.apk
+
+# Or build and install straight onto a connected device
+flutter run --debug          # hot-reloadable dev session
+flutter install              # installs the last debug build
+```
+
+The debug APK is unsigned and meant for local testing only. **Release signing,
+store-ready bundles, and APK publishing are intentionally out of scope** for
+this stage — there are no native build, signing, or publishing steps in CI.
+
+### Android readiness & known limitations
+
+Library v1 is built to be exercisable on an Android device, with a few
+deliberate gaps that the next PRs will close:
+
+- **No folder picker yet.** Scanning is driven by a minimal dev prompt that
+  takes a folder *path* (e.g. `/storage/emulated/0/Music`). A real
+  system folder picker (Storage Access Framework) is not wired up.
+- **No runtime storage permissions yet.** The scan reads whatever paths the OS
+  already grants; `READ_MEDIA_AUDIO` / `MANAGE_EXTERNAL_STORAGE` request flows
+  are not implemented, so on modern Android you may need to point the scan at a
+  directory the app can already read.
+- **No playback.** Tapping a track is a no-op; `just_audio`/`audio_service`
+  are not added yet.
+- **No tag/metadata parsing.** Tracks show their title (derived from the file
+  name) and fall back to the file path when artist/album tags are absent.
+- **No queue, playlists, downloads, or remote sources** (Jellyfin/WebDAV) yet.
+
+The next PR is expected to add the Android folder picker + storage-permission
+flow, or basic playback with `just_audio` — whichever is more stable once this
+lands.
 
 ## Continuous integration
 
