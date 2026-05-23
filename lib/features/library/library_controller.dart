@@ -20,9 +20,8 @@ class LibraryController extends Notifier<LibraryState> {
   Future<void> _load() async {
     state = const LibraryState.loading();
     try {
-      final tracks = await ref
-          .read(musicLibraryRepositoryProvider)
-          .getAllTracks();
+      final tracks =
+          await ref.read(musicLibraryRepositoryProvider).getAllTracks();
       state = LibraryState.loaded(tracks);
     } catch (error) {
       state = LibraryState.error(error.toString());
