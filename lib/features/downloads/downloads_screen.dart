@@ -22,22 +22,26 @@ class DownloadsScreen extends ConsumerWidget {
         children: [
           const _WifiOnlyToggle(),
           const Divider(height: 1),
-          Expanded(
-            child: downloaded.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
-              error: (error, _) => Center(child: Text('$error')),
-              data: (tracks) => tracks.isEmpty
-                  ? const EmptyState(
-                      icon: Icons.download_outlined,
-                      title: 'Nothing downloaded',
-                      message: 'Downloads you start will appear here.',
-                    )
-                  : _DownloadedList(tracks: tracks),
-            ),
-          ),
+          Expanded(child: _list(downloaded)),
         ],
       ),
+    );
+  }
+
+  Widget _list(AsyncValue<List<Track>> downloaded) {
+    return downloaded.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, _) => Center(child: Text('$error')),
+      data: (tracks) {
+        if (tracks.isEmpty) {
+          return const EmptyState(
+            icon: Icons.download_outlined,
+            title: 'Nothing downloaded',
+            message: 'Downloads you start will appear here.',
+          );
+        }
+        return _DownloadedList(tracks: tracks);
+      },
     );
   }
 }
@@ -53,12 +57,12 @@ class _WifiOnlyToggle extends ConsumerWidget {
       title: const Text('Wi-Fi only'),
       subtitle: const Text('Queue downloads until Wi-Fi is available'),
       value: wifiOnly.valueOrNull ?? false,
-      onChanged: wifiOnly.isLoading
-          ? null
-          : (value) => ref
-              .read(wifiOnlyControllerProvider.notifier)
-              .setWifiOnly(value),
+      onChanged: wifiOnly.isLoading ? null : (value) => _set(ref, value),
     );
+  }
+
+  void _set(WidgetRef ref, bool value) {
+    ref.read(wifiOnlyControllerProvider.notifier).setWifiOnly(value);
   }
 }
 
@@ -80,13 +84,7 @@ class _DownloadedList extends ConsumerWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          subtitle: track.artistName == null || track.artistName!.isEmpty
-              ? null
-              : Text(
-                  track.artistName!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+          subtitle: _subtitle(track),
           trailing: IconButton(
             icon: const Icon(Icons.delete_outline),
             tooltip: 'Remove download',
@@ -97,5 +95,11 @@ class _DownloadedList extends ConsumerWidget {
         );
       },
     );
+  }
+
+  static Widget? _subtitle(Track track) {
+    final artist = track.artistName;
+    if (artist == null || artist.isEmpty) return null;
+    return Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis);
   }
 }

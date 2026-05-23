@@ -24,11 +24,13 @@ void main() {
     late InMemoryDownloadPreferences preferences;
     late _FakeConnectivity connectivity;
 
-    CacheDownloadRepository build() => CacheDownloadRepository(
-          store: store,
-          connectivity: connectivity,
-          preferences: preferences,
-        );
+    CacheDownloadRepository build() {
+      return CacheDownloadRepository(
+        store: store,
+        connectivity: connectivity,
+        preferences: preferences,
+      );
+    }
 
     setUp(() {
       store = InMemoryDownloadStore();
