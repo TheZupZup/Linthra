@@ -15,8 +15,24 @@ abstract interface class PlaybackController {
   /// The latest known state, for synchronous reads on first build.
   PlaybackState get state;
 
-  /// Loads [track] (resolving its playable URI) and begins playback.
+  /// Loads [track] (resolving its playable URI) and begins playback, replacing
+  /// any existing queue with just this track.
   Future<void> playTrack(Track track);
+
+  /// Replaces the queue with [tracks] and starts playback at [startIndex]. The
+  /// tracks after it become the up-next queue.
+  Future<void> playTracks(List<Track> tracks, {int startIndex = 0});
+
+  /// Inserts [track] so it plays immediately after the current one
+  /// ("play next") without interrupting what is playing now.
+  void playNext(Track track);
+
+  /// Advances to the next track in the queue, if any. A no-op when the queue
+  /// has no upcoming tracks.
+  Future<void> skipToNext();
+
+  /// Empties the up-next queue, leaving the current track playing.
+  void clearQueue();
 
   Future<void> play();
   Future<void> pause();

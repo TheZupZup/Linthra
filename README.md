@@ -157,9 +157,13 @@ lib/
 - **`MusicLibraryRepository`** (`core/repositories/`) — the local SQLite cache
   the UI reads from. Sources *sync into* it; the UI never talks to a source
   directly. This is what keeps the app fast and fully offline.
-- **`PlaybackController`** (`core/services/playback_controller.dart`) — playback,
-  fully decoupled from `just_audio`. Swappable/wrappable for background audio,
-  MPRIS, and Android Auto without touching feature code.
+- **`PlaybackController`** (`core/services/playback_controller.dart`) — playback
+  *and* the up-next queue, fully decoupled from `just_audio`. It owns a pure
+  [`PlaybackQueue`](lib/core/models/playback_queue.dart) model (current track +
+  upcoming tracks) and exposes `playTracks`, `playNext`, `skipToNext`, and
+  `clearQueue`; the UI reads the queue from `PlaybackState` and never edits it
+  directly. Swappable/wrappable for background audio, MPRIS, and Android Auto
+  without touching feature code.
 - **`DownloadRepository`** (`core/repositories/`) — enforces the
   user-initiated, "Wi-Fi only"-respecting download policy in one place.
 
@@ -255,7 +259,13 @@ Deliberate gaps the next PRs will close:
   already read, or use the content-resolver follow-up above.
 - **No tag/metadata parsing.** Tracks show their title (derived from the file
   name) and fall back to the file path when artist/album tags are absent.
-- **No queue, playlists, downloads, or remote sources** (Jellyfin/WebDAV) yet.
+- **Basic up-next queue, no playlists.** Tapping a track in the Library plays it
+  and queues the rest of the visible list behind it; the Now Playing screen shows
+  the current track, an **Up next** list, a **Next** button, and **Clear** (which
+  empties up next but keeps the current track). When a track finishes, playback
+  rolls into the next queued track. Reordering, saved playlists, shuffle, and
+  repeat are not part of this foundation yet.
+- **No downloads or remote sources** (Jellyfin/WebDAV) yet.
 
 ### Testing scanning on Android
 
@@ -270,9 +280,9 @@ Deliberate gaps the next PRs will close:
    a cloud "Documents" provider) is expected to show the Library error state
    with a clear message — that's the documented limitation, not a crash.
 
-The next PR is expected to be queue polish or a playlist-editor foundation;
-content-resolver SAF scanning and a narrow `READ_MEDIA_AUDIO` permission flow
-remain the natural follow-ups to this work.
+The next PR is expected to be a playlist-editor foundation or Android SAF
+content-resolver folder scanning; a narrow `READ_MEDIA_AUDIO` permission flow
+remains a natural follow-up to this work.
 
 ## Continuous integration
 

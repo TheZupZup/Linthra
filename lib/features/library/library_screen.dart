@@ -85,18 +85,21 @@ class _TrackList extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.builder(
       itemCount: tracks.length,
-      itemBuilder: (context, index) => _TrackTile(track: tracks[index]),
+      itemBuilder: (context, index) => _TrackTile(tracks: tracks, index: index),
     );
   }
 }
 
 class _TrackTile extends ConsumerWidget {
-  const _TrackTile({required this.track});
+  const _TrackTile({required this.tracks, required this.index});
 
-  final Track track;
+  /// The whole visible list, so tapping one track queues the rest after it.
+  final List<Track> tracks;
+  final int index;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final track = tracks[index];
     return ListTile(
       leading: const Icon(Icons.music_note_outlined),
       title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -105,9 +108,11 @@ class _TrackTile extends ConsumerWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      // Start playback, then surface the now-playing screen.
+      // Play the tapped track and queue the rest of the list behind it, then
+      // surface the now-playing screen.
       onTap: () {
-        ref.read(playbackControllerProvider).playTrack(track);
+        final controller = ref.read(playbackControllerProvider);
+        controller.playTracks(tracks, startIndex: index);
         context.push(AppRoutes.player);
       },
     );

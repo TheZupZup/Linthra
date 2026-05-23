@@ -75,6 +75,64 @@ void main() {
       expect(controller.stopCount, 1);
     });
 
+    testWidgets('shows the Up next list and an enabled Next button', (
+      tester,
+    ) async {
+      final controller = FakePlaybackController(
+        initial: const PlaybackState(
+          status: PlaybackStatus.playing,
+          currentTrack: Track(id: '1', title: 'Song One', uri: '/1.mp3'),
+          upNext: <Track>[
+            Track(id: '2', title: 'Song Two', uri: '/2.mp3'),
+            Track(id: '3', title: 'Song Three', uri: '/3.mp3'),
+          ],
+        ),
+      );
+      await _pumpScreen(tester, controller);
+
+      expect(find.text('Up next'), findsOneWidget);
+      expect(find.text('Song Two'), findsOneWidget);
+      expect(find.text('Song Three'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Next'));
+      expect(controller.skipCount, 1);
+    });
+
+    testWidgets('hides Up next and disables Next when the queue is empty', (
+      tester,
+    ) async {
+      final controller = FakePlaybackController(
+        initial: const PlaybackState(
+          status: PlaybackStatus.playing,
+          currentTrack: Track(id: '1', title: 'Only Song', uri: '/1.mp3'),
+        ),
+      );
+      await _pumpScreen(tester, controller);
+
+      expect(find.text('Up next'), findsNothing);
+      final next = tester.widget<IconButton>(
+        find.ancestor(
+          of: find.byIcon(Icons.skip_next),
+          matching: find.byType(IconButton),
+        ),
+      );
+      expect(next.onPressed, isNull);
+    });
+
+    testWidgets('Clear delegates to the controller', (tester) async {
+      final controller = FakePlaybackController(
+        initial: const PlaybackState(
+          status: PlaybackStatus.playing,
+          currentTrack: Track(id: '1', title: 'Song One', uri: '/1.mp3'),
+          upNext: <Track>[Track(id: '2', title: 'Song Two', uri: '/2.mp3')],
+        ),
+      );
+      await _pumpScreen(tester, controller);
+
+      await tester.tap(find.text('Clear'));
+      expect(controller.clearCount, 1);
+    });
+
     testWidgets('reacts to state pushed on the stream', (tester) async {
       final controller = FakePlaybackController();
       await _pumpScreen(tester, controller);
