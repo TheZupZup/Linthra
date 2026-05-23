@@ -613,7 +613,10 @@ F-Droid / Fastlane-style store metadata under
 have been captured from a running build, so none are committed. `images/` only
 contains `NEEDED-ASSETS.txt`, which documents the expected F-Droid image layout
 to fill in later. Placeholder/mock images are intentionally avoided so the
-listing never misrepresents the app.
+listing never misrepresents the app — and the default Flutter launcher icons are
+not real Linthra branding, so they are not reused as the store icon. The full
+asset checklist, exact sizes, and screenshot-capture steps are in
+[docs/listing-assets.md](./docs/listing-assets.md).
 
 The wording describes only shipped behaviour (folder selection, scanning, and
 persisted listing) as done; playback, playlists, and offline downloads are

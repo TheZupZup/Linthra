@@ -1,19 +1,26 @@
-Image assets for F-Droid / Fastlane metadata are NOT included yet.
+No image assets are committed yet (on purpose).
 
-No real screenshots, feature graphic, or store icon have been captured from a
-running build, so none are committed here on purpose (placeholder/mock images
-would misrepresent the app).
+No real app icon, feature graphic, or screenshots have been captured from a
+running build, so none are included here. Placeholder/mock images are avoided so
+the listing never misrepresents the app. (The default Flutter launcher icons
+under android/app/src/main/res/mipmap-* are NOT real Linthra branding and must
+not be reused as the store icon.)
 
-When real assets are available, add them in this directory using F-Droid's
-expected layout:
+Expected F-Droid / Fastlane layout to fill in later (paths relative to this
+images/ directory):
 
-  icon.png                      512x512 (or the launcher icon)
-  featureGraphic.png            1024x500
-  phoneScreenshots/1.png        real screenshots from a device/emulator
-  phoneScreenshots/2.png        (2-8 recommended)
+  icon.png                       512x512 real Linthra app icon
+  featureGraphic.png             1024x500
+  phoneScreenshots/1.png         real screenshots from a device/emulator
+  phoneScreenshots/2.png         (2-8 recommended, numbered sequentially)
   ...
+  sevenInchScreenshots/1.png     optional 7-inch tablet screenshots
+  tenInchScreenshots/1.png       optional 10-inch tablet screenshots
 
-See: https://f-droid.org/docs/All_About_Descriptions_Graphics_and_Screenshots/
+Full asset checklist, exact sizes, and step-by-step screenshot capture
+instructions: docs/listing-assets.md
 
-Until then, this file is the only thing in images/ and can be deleted once the
-real assets land.
+F-Droid reference:
+https://f-droid.org/docs/All_About_Descriptions_Graphics_and_Screenshots/
+
+Delete this file once the real assets land.
