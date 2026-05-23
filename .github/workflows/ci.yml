@@ -28,10 +28,24 @@ jobs:
         run: flutter pub get
 
       - name: Verify formatting
-        run: dart format --set-exit-if-changed .
+        run: |
+          set +e
+          dart format --output=none --set-exit-if-changed . 2>&1 | tee fmt.txt
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" != "0" ]; then
+            echo "::error title=format::$(tr '\n' '~' < fmt.txt | cut -c1-1500)"
+          fi
+          exit "$rc"
 
       - name: Analyze
-        run: flutter analyze
+        run: |
+          set +e
+          flutter analyze 2>&1 | tee an.txt
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" != "0" ]; then
+            echo "::error title=analyze::$(tr '\n' '~' < an.txt | cut -c1-1500)"
+          fi
+          exit "$rc"
 
       - name: Run tests
         run: flutter test
