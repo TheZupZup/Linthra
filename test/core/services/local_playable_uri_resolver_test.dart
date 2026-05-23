@@ -23,7 +23,9 @@ void main() {
       final uri = await resolver.resolve(track);
 
       expect(uri.scheme, 'content');
-      expect(uri.toString(), raw);
+      // Compare parsed URIs (not strings) so the assertion doesn't depend on
+      // Dart's percent-encoding normalization of the content URI.
+      expect(uri, Uri.parse(raw));
     });
 
     test('handles on-device tracks but not Jellyfin tracks', () {

@@ -15,9 +15,9 @@ import java.util.ArrayDeque
  * This is the scoped-storage way to read a chosen folder: it uses only the
  * access the system granted when the user picked the tree, so it needs no
  * storage permission and never touches MANAGE_EXTERNAL_STORAGE. Filtering to
- * audio is intentionally generous (mime `audio/*` or a known extension); the
- * Dart layer re-filters by its own supported-types list, keeping that list in
- * one place.
+ * audio is intentionally generous (an "audio/" MIME type or a known
+ * extension); the Dart layer re-filters by its own supported-types list,
+ * keeping that list in one place.
  */
 class SafDocumentScanner(private val context: Context) {
 

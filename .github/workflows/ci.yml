@@ -48,4 +48,11 @@ jobs:
           exit "$rc"
 
       - name: Run tests
-        run: flutter test
+        run: |
+          set +e
+          flutter test 2>&1 | tee test.txt
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" != "0" ]; then
+            echo "::error title=tests::$(grep -iE 'Expected:|Actual:|Which:|\[E\]|failed|\.dart:[0-9]+' test.txt | tail -40 | tr '\n' '~' | cut -c1-1900)"
+          fi
+          exit "$rc"
