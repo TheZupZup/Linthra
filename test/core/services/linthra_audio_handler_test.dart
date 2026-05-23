@@ -3,7 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/linthra_audio_handler.dart';
+import 'package:linthra/core/services/media_browser_tree.dart';
 
+import '../../features/library/fake_music_library_repository.dart';
 import '../../features/player/fake_playback_controller.dart';
 
 Track _track(String id) {
@@ -16,6 +18,8 @@ Track _track(String id) {
   );
 }
 
+final List<Track> _library = <Track>[_track('a'), _track('b'), _track('c')];
+
 /// Lets the broadcast from the controller's stream reach the handler's
 /// listener before assertions read the mirrored session state.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
@@ -27,7 +31,8 @@ void main() {
 
     setUp(() {
       controller = FakePlaybackController();
-      handler = LinthraAudioHandler(controller);
+      final library = FakeMusicLibraryRepository(tracks: _library);
+      handler = LinthraAudioHandler(controller, MediaBrowserTree(library));
     });
 
     tearDown(() async {
@@ -39,12 +44,14 @@ void main() {
       await handler.play();
       await handler.pause();
       await handler.skipToNext();
+      await handler.skipToPrevious();
       await handler.stop();
       await handler.seek(const Duration(seconds: 12));
 
       expect(controller.playCount, 1);
       expect(controller.pauseCount, 1);
       expect(controller.skipCount, 1);
+      expect(controller.previousCount, 1);
       expect(controller.stopCount, 1);
       expect(controller.seeks, [const Duration(seconds: 12)]);
     });
@@ -81,6 +88,22 @@ void main() {
       expect(state.controls, isNot(contains(audio.MediaControl.skipToNext)));
     });
 
+    test('exposes skipToPrevious only once a previous track exists', () async {
+      await controller.playTracks([_track('a'), _track('b')]);
+      await _settle();
+      expect(
+        handler.playbackState.value.controls,
+        isNot(contains(audio.MediaControl.skipToPrevious)),
+      );
+
+      await controller.skipToNext();
+      await _settle();
+      expect(
+        handler.playbackState.value.controls,
+        contains(audio.MediaControl.skipToPrevious),
+      );
+    });
+
     test('clears the media item when playback goes idle', () async {
       await controller.playTracks([_track('a')]);
       await _settle();
@@ -95,6 +118,68 @@ void main() {
         handler.playbackState.value.processingState,
         audio.AudioProcessingState.idle,
       );
+    });
+
+    group('media browser', () {
+      test('root lists Library and Queue as browsable categories', () async {
+        final children = await handler.getChildren(MediaId.root);
+
+        expect(children.map((i) => i.id), [MediaId.library, MediaId.queue]);
+        expect(children.every((i) => i.playable == false), isTrue);
+      });
+
+      test('library lists every catalog track as a playable leaf', () async {
+        final children = await handler.getChildren(MediaId.library);
+
+        expect(children.map((i) => i.id), [
+          MediaId.libraryTrack('a'),
+          MediaId.libraryTrack('b'),
+          MediaId.libraryTrack('c'),
+        ]);
+        expect(children.first.title, 'Song a');
+        expect(children.first.playable, isTrue);
+      });
+
+      test('queue reflects the controller current track and up-next', () async {
+        await controller.playTracks(_library, startIndex: 1);
+        await _settle();
+
+        final children = await handler.getChildren(MediaId.queue);
+
+        // current (b) followed by up-next (c).
+        expect(children.map((i) => i.title), ['Song b', 'Song c']);
+        expect(children.map((i) => i.id), [
+          MediaId.queueItem(0),
+          MediaId.queueItem(1),
+        ]);
+      });
+
+      test('selecting a library track plays it and queues the rest', () async {
+        await handler.playFromMediaId(MediaId.libraryTrack('b'));
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'b');
+        expect(controller.state.upNext.map((t) => t.id), ['c']);
+      });
+
+      test('selecting a queue item plays from that position', () async {
+        await controller.playTracks(_library);
+        await _settle();
+
+        await handler.playFromMediaId(MediaId.queueItem(2));
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'c');
+        expect(controller.state.hasNext, isFalse);
+      });
+
+      test('an unknown media id is a no-op', () async {
+        await handler.playFromMediaId('library/missing');
+        await handler.playFromMediaId('bogus');
+        await _settle();
+
+        expect(controller.playedTracks, isEmpty);
+      });
     });
   });
 }

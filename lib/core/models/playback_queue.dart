@@ -50,6 +50,9 @@ class PlaybackQueue {
   /// Whether there is at least one track after the current one.
   bool get hasNext => currentIndex >= 0 && currentIndex < tracks.length - 1;
 
+  /// Whether there is at least one track before the current one.
+  bool get hasPrevious => currentIndex > 0;
+
   bool get isEmpty => current == null;
 
   /// Advances to the next track. Returns this queue unchanged when there is no
@@ -57,6 +60,13 @@ class PlaybackQueue {
   PlaybackQueue next() {
     if (!hasNext) return this;
     return PlaybackQueue(tracks: tracks, currentIndex: currentIndex + 1);
+  }
+
+  /// Steps back to the previous track. Returns this queue unchanged when the
+  /// current track is the first, so callers can branch on [hasPrevious].
+  PlaybackQueue previous() {
+    if (!hasPrevious) return this;
+    return PlaybackQueue(tracks: tracks, currentIndex: currentIndex - 1);
   }
 
   /// Inserts [track] immediately after the current one ("play next"). With an

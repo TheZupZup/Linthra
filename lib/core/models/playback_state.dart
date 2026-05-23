@@ -13,6 +13,7 @@ class PlaybackState {
     this.status = PlaybackStatus.idle,
     this.currentTrack,
     this.upNext = const <Track>[],
+    this.hasPrevious = false,
     this.position = Duration.zero,
     this.duration = Duration.zero,
   });
@@ -26,6 +27,11 @@ class PlaybackState {
   /// queue holds only the current track.
   final List<Track> upNext;
 
+  /// Whether a previous track exists to step back to. Stored as a flag (unlike
+  /// [hasNext], which reads off [upNext]) because the state carries no played
+  /// history — the controller derives it from the queue's current position.
+  final bool hasPrevious;
+
   final Duration position;
   final Duration duration;
 
@@ -37,6 +43,7 @@ class PlaybackState {
     PlaybackStatus? status,
     Track? currentTrack,
     List<Track>? upNext,
+    bool? hasPrevious,
     Duration? position,
     Duration? duration,
   }) {
@@ -44,6 +51,7 @@ class PlaybackState {
       status: status ?? this.status,
       currentTrack: currentTrack ?? this.currentTrack,
       upNext: upNext ?? this.upNext,
+      hasPrevious: hasPrevious ?? this.hasPrevious,
       position: position ?? this.position,
       duration: duration ?? this.duration,
     );
@@ -56,6 +64,7 @@ class PlaybackState {
           other.status == status &&
           other.currentTrack == currentTrack &&
           listEquals(other.upNext, upNext) &&
+          other.hasPrevious == hasPrevious &&
           other.position == position &&
           other.duration == duration);
 
@@ -65,6 +74,7 @@ class PlaybackState {
       status,
       currentTrack,
       Object.hashAll(upNext),
+      hasPrevious,
       position,
       duration,
     );

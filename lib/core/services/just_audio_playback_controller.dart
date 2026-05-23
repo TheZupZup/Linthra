@@ -99,9 +99,16 @@ class JustAudioPlaybackController implements PlaybackController {
   }
 
   @override
+  Future<void> skipToPrevious() async {
+    if (!_queue.hasPrevious) return;
+    _queue = _queue.previous();
+    await _playCurrent();
+  }
+
+  @override
   void clearQueue() {
     _queue = _queue.cleared();
-    _emit(_state.copyWith(upNext: _queue.upNext));
+    _emit(_state.copyWith(upNext: _queue.upNext, hasPrevious: false));
   }
 
   /// Loads and plays the queue's current track, surfacing its up-next list.
@@ -114,6 +121,7 @@ class JustAudioPlaybackController implements PlaybackController {
       status: PlaybackStatus.loading,
       currentTrack: track,
       upNext: _queue.upNext,
+      hasPrevious: _queue.hasPrevious,
     );
     _emit(loading);
     try {
@@ -142,6 +150,7 @@ class JustAudioPlaybackController implements PlaybackController {
     final stopped = PlaybackState(
       currentTrack: _state.currentTrack,
       upNext: _queue.upNext,
+      hasPrevious: _queue.hasPrevious,
     );
     _emit(stopped);
   }

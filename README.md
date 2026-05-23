@@ -101,11 +101,12 @@ Not built yet (planned, in roughly this order):
   are now routed and resolved for external storage; tag parsing,
   content-resolver SAF scanning, and a narrow Android media permission still
   pending*
-- Audio playback — *done (local playback + up-next queue); background playback
-  + media session via `audio_service` now wired in Dart **and** with the native
-  Android setup applied (foreground-service permissions, playback service,
-  media-button receiver, `AudioServiceActivity`) — Android Auto ready, not yet a
-  full car UI*
+- Audio playback — *done (local playback + up-next queue with skip
+  next/previous); background playback + media session via `audio_service` wired
+  in Dart **and** with the native Android setup applied (foreground-service
+  permissions, playback service, media-button receiver, `AudioServiceActivity`,
+  Android Auto media-app declaration); Android Auto now **browsable** (Library /
+  Queue nodes, tap-to-play) — not yet a full car UI*
 - Playlists
 - User-controlled offline downloads — *foundation done (status lifecycle,
   mark/remove offline, Wi-Fi-only seam, UI hooks); real remote byte-fetch and a
@@ -291,11 +292,12 @@ for why a narrow `READ_MEDIA_AUDIO` flow is a deliberate later step rather than
 a broad "all files" grant.
 
 > The `audio_service` native wiring (foreground-service permissions, the
-> playback `<service>`/`<receiver>`, and `MainActivity` extending
-> `AudioServiceActivity`) documented under *Background playback & Android Auto*
-> is now **applied** to the committed scaffold. `connectMediaSession` still
-> falls back gracefully if the session can't initialise (e.g. an unsupported
-> platform or a test environment), so basic playback never depends on it.
+> playback `<service>`/`<receiver>`, the Android Auto media-app declaration, and
+> `MainActivity` extending `AudioServiceActivity`) documented under *Background
+> playback & Android Auto* is now **applied** to the committed scaffold.
+> `connectMediaSession` still falls back gracefully if the session can't
+> initialise (e.g. an unsupported platform or a test environment), so basic
+> playback never depends on it.
 
 ### Building release artifacts (Android)
 
@@ -364,21 +366,46 @@ playback survives backgrounding and shows up where the OS expects it:
   **skip-next** (the skip control only appears when the up-next queue has a
   track). Position updates flow through so scrubbing/seek work from the system
   UI.
-- **Android Auto readiness.** The same session is what Android Auto and other
+- **Skip controls.** Transport exposes **skip-previous** and **skip-next**
+  alongside play/pause/stop. Each skip button only appears when the queue has a
+  track in that direction (`hasPrevious` / `hasNext`), so the controls match what
+  the queue can actually do.
+- **Android Auto — browsable.** The same session is what Android Auto and other
   media browsers attach to, so the now-playing card and transport controls are
-  reachable from the car head unit. This PR lays the **foundation** — it does
-  *not* yet ship a browsable media library (folders/albums/playlists in the car
-  UI). That polish is a later PR.
+  reachable from the car head unit. On top of that, Linthra now serves a
+  **browsable media library** so you can pick what to play from the car screen
+  (see the tree below). Selecting a track starts it and queues the rest behind
+  it, exactly like tapping a track in the in-app library.
+
+**Media tree.** The browsable hierarchy served to Android Auto is intentionally
+shallow:
+
+```
+root
+├── Library   → every catalog track (tap to play; the rest of the library
+│               becomes up-next)
+└── Queue     → the current track followed by the up-next list (tap to jump)
+```
+
+Nodes are addressed by stable IDs: the `Library` and `Queue` categories, and
+leaf IDs `library/<trackId>` and `queue/<index>` that a selection is resolved
+back through. Playlists are **not** a node yet — there is no persisted playlist
+store, so adding one would not be "safe/simple" (see limitations).
 
 **Architecture.** `audio_service` is a pure infrastructure layer.
 `LinthraAudioHandler` (`lib/core/services/linthra_audio_handler.dart`) is the
 only file that imports it: it forwards session commands
 (play/pause/stop/skip/seek) to the `PlaybackController` and mirrors the
 controller's `PlaybackState` back out as the session's playback state + media
-item. The controller (still `just_audio`-backed) stays the single source of
-truth, and **the UI continues to depend only on `PlaybackController`** — never
-on `audio_service`. Attaching the session in `main.dart` is best-effort: if it
-fails to initialise (e.g. an unsupported platform) basic playback still works.
+item. The browse tree itself is **pure Dart** — `MediaBrowserTree`
+(`lib/core/services/media_browser_tree.dart`) builds neutral `MediaNode`s from
+the `MusicLibraryRepository` (catalog) and a `PlaybackState` snapshot (the live
+queue), and the handler maps those onto `audio_service` media items. So library
+data still flows only through `MusicLibraryRepository`, playback still flows only
+through `PlaybackController`, and **the UI continues to depend only on
+`PlaybackController`** — never on `audio_service`. Attaching the session in
+`main.dart` is best-effort: if it fails to initialise (e.g. an unsupported
+platform) basic playback still works.
 
 **Native setup (applied).** The required Android wiring lives in the committed
 scaffold so the media session can run as a foreground service and be visible to
@@ -394,6 +421,11 @@ Android Auto:
   `mediaPlayback`, exposing the `MediaBrowserService` action Android Auto binds
   to) and the `<receiver>` (`com.ryanheise.audioservice.MediaButtonReceiver`)
   that handles hardware/Bluetooth/Android Auto media-button intents.
+- the manifest also declares the `com.google.android.gms.car.application`
+  meta-data pointing at `res/xml/automotive_app_desc.xml` (`<uses name="media"/>`),
+  which is what lets Android Auto list Linthra as a media app and bind to the
+  browser service to load the tree. Without it the session works but the app
+  never appears in the car's browse UI.
 - `android/app/.../MainActivity.kt` extends `AudioServiceActivity` (instead of
   the default `FlutterActivity`) so the Flutter activity binds to the session.
 
@@ -424,6 +456,11 @@ For reference, the manifest additions are:
         <action android:name="android.intent.action.MEDIA_BUTTON" />
       </intent-filter>
     </receiver>
+
+    <!-- Marks Linthra as an Android Auto media app -->
+    <meta-data
+        android:name="com.google.android.gms.car.application"
+        android:resource="@xml/automotive_app_desc" />
   </application>
 </manifest>
 ```
@@ -433,14 +470,19 @@ The notification channel id/name are configured in `connectMediaSession`
 
 **Limitations (this PR).**
 
-- No browsable car/media-browser tree yet (no folder/album/playlist nodes in
-  Android Auto) — only the now-playing session.
-- No previous-track / skip-to-previous control (the queue model is forward-only
-  for now).
-- No advanced queue editing from the session.
+- The browse tree is **flat**: `Library` is a single flat track list (no
+  album/artist/folder grouping) and there is no search-from-Auto. Large
+  libraries are not paged.
+- **No Playlists node.** Playlists have a model and a repository *interface* but
+  no persisted implementation yet, so exposing them would not be safe/simple —
+  deferred to a later PR.
+- Queue browsing is **read + jump only**: you can play from a queue position,
+  but reordering/removing queue items from the car isn't supported.
+- The car experience is **basic browsing**, not a polished/custom car UI
+  (no tabs, content style hints, or now-playing artwork tuning).
 - No MPRIS (Linux desktop media keys) yet.
-- Lock-screen artwork depends on `Track.artworkUri`, which local scanning does
-  not populate yet.
+- Lock-screen / car artwork depends on `Track.artworkUri`, which local scanning
+  does not populate yet.
 
 ### Android folder selection & known limitations
 
