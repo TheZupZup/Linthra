@@ -53,9 +53,12 @@ catalog the UI will read from, backed by `SonaraDatabase`
 (`core/models/`) stay separate from Drift rows; conversion lives in small,
 explicit mappers (`lib/data/mappers/`). The generated `*.g.dart` files are
 produced by the **Generate Drift files** workflow (see below), not committed by
-hand. The Library v1 flow currently persists through the in-memory repository
-by default (`musicLibraryRepositoryProvider`); the Drift repository implements
-the same contract and can be swapped in without touching any UI code.
+hand. The running app now persists through the Drift repository: `main`
+applies `driftMusicLibraryRepositoryOverride` over `musicLibraryRepositoryProvider`
+so scanned tracks survive a restart, while tests keep the in-memory default
+(no `path_provider`/SQLite needed) unless they opt into the Drift binding. The
+UI is untouched by the swap — it still reads only `LibraryController`/the
+repository abstraction.
 
 Not built yet (planned, in roughly this order):
 
