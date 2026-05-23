@@ -41,9 +41,10 @@ interfaces: the UI talks only to `SelectedFolderController` and
 The scan itself is still exposed as `LibraryController.scanFolder(path)` and runs
 through `LocalMusicSource`, so the flow stays fully testable without a real disk
 or OS dialog (the picker, the file-system seam, and the selected-folder store are
-each overridden with a fake/in-memory binding in tests). See **Android folder
-selection & known limitations** below for what still needs care on modern
-Android.
+each overridden with a fake/in-memory binding in tests). The scan seam now also
+routes Android `content://` Storage Access Framework selections to a SAF-aware
+scanner rather than assuming a filesystem path. See **Android folder selection &
+known limitations** below for what still needs care on modern Android.
 
 A temporary `InMemoryMusicLibraryRepository` (`lib/data/repositories/`) also
 implements the `MusicLibraryRepository` contract, so the app and its tests have
@@ -70,8 +71,10 @@ repository abstraction.
 Not built yet (planned, in roughly this order):
 
 - Local music library scanning — *v1 done (scan → persist → list); native
-  folder picker + persisted selection now done; tag parsing and Android
-  runtime storage permissions still pending*
+  folder picker + persisted selection now done; Android `content://` tree URIs
+  are now routed and resolved for external storage; tag parsing,
+  content-resolver SAF scanning, and a narrow Android media permission still
+  pending*
 - Audio playback
 - Playlists
 - User-controlled offline downloads
@@ -213,27 +216,63 @@ playable is found it shows that folder and offers **Rescan folder** / **Change
 folder**. On Linux/desktop the same flow uses the GTK/Win32 directory dialog and
 returns a real filesystem path, which `LocalMusicSource` scans directly.
 
-Library scanning is exercisable on an Android device, with a few deliberate gaps
-the next PRs will close:
+**How content:// folders are scanned.** On modern Android the folder chooser
+hands back a `content://…/tree/…` URI under the Storage Access Framework rather
+than a filesystem path. Scanning now routes each selection through a single seam
+(`PlatformAudioFileScanner`):
 
-- **Android returns a SAF tree URI, not always a filesystem path.** On modern
-  Android the system folder chooser hands back a `content://…/tree/…` URI under
-  Storage Access Framework. The current `dart:io`-based scanner
-  (`IoAudioFileScanner`) reads real filesystem paths, so it can scan folders the
-  app can already reach by path but cannot yet walk a raw SAF tree URI.
-  Document-tree traversal (or resolving the URI to a path) is a planned
-  follow-up; the picker + persistence seam is in place for it.
-- **No runtime storage permissions yet.** No `READ_MEDIA_AUDIO` /
-  `MANAGE_EXTERNAL_STORAGE` request flow is wired up, so on modern Android you
-  may need to point the scan at a directory the app can already read. We are
-  intentionally not requesting broad storage permissions in this PR.
+- **Filesystem paths** (desktop/Linux, and any path Android hands back) go to
+  `IoAudioFileScanner` — the existing `dart:io` walk, unchanged.
+- **`content://` tree URIs** go to `ContentUriAudioFileScanner`, which uses
+  `SafTreeUriResolver` to map an external-storage tree URI to a real path
+  (`primary:Music` → `/storage/emulated/0/Music`, named SD-card volumes →
+  `/storage/<volume>/…`, and `raw:` ids that already carry an absolute path),
+  then walks that path. Folders selected this way are stored as ordinary file
+  paths, so playback resolution is unchanged.
+
+How a selection is addressed (path vs `content://`) is decided once by
+`FolderLocation`; nothing downstream re-parses the string, and the UI never
+sees any of it.
+
+Deliberate gaps the next PRs will close:
+
+- **Scoped storage / content-resolver scanning.** `SafTreeUriResolver` covers
+  the common `com.android.externalstorage.documents` provider. Other SAF
+  providers (downloads, media, cloud/document providers) don't expose a stable
+  path, so a selection from one of those surfaces a clear `FolderScanException`
+  in the Library error state instead of a silent empty list. The full
+  follow-up is reading a SAF tree through Android's content resolver (via a
+  native plugin), which also covers devices where scoped storage hides a
+  resolved path behind the framework. The routing and error seams are in place
+  for it.
+- **No runtime storage permissions yet.** No `READ_MEDIA_AUDIO` request flow is
+  wired up, and **`MANAGE_EXTERNAL_STORAGE` is intentionally *not* requested** —
+  it is an "all files access" permission Google restricts on the Play Store and
+  it is the opposite of the scoped-storage approach this project prefers. On
+  Android 11+ a resolved path can still be unreadable without a media
+  permission; granting `READ_MEDIA_AUDIO` (a narrow, audio-only permission) is
+  the natural next step. Until then, point the scan at a folder the app can
+  already read, or use the content-resolver follow-up above.
 - **No tag/metadata parsing.** Tracks show their title (derived from the file
   name) and fall back to the file path when artist/album tags are absent.
 - **No queue, playlists, downloads, or remote sources** (Jellyfin/WebDAV) yet.
 
+### Testing scanning on Android
+
+1. Build and install a debug APK (see *Building a debug APK* above) on a device
+   or emulator.
+2. Put a few audio files under a folder on shared storage, e.g.
+   `/storage/emulated/0/Music`.
+3. In **Library**, tap the folder icon and pick that folder. The chooser
+   returns a `content://…/tree/primary:Music` URI; Sonara resolves it to the
+   path and scans it.
+4. Picking a folder from a provider that has no filesystem mapping (for example
+   a cloud "Documents" provider) is expected to show the Library error state
+   with a clear message — that's the documented limitation, not a crash.
+
 The next PR is expected to be queue polish or a playlist-editor foundation;
-SAF document-tree scanning and Android runtime storage permissions remain the
-natural follow-ups to this folder-selection work.
+content-resolver SAF scanning and a narrow `READ_MEDIA_AUDIO` permission flow
+remain the natural follow-ups to this work.
 
 ## Continuous integration
 

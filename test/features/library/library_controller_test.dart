@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonara/core/models/track.dart';
 import 'package:sonara/core/repositories/music_library_repository.dart';
+import 'package:sonara/core/sources/local/audio_file_scanner.dart';
 import 'package:sonara/data/repositories/in_memory_music_library_repository.dart';
 import 'package:sonara/data/repositories/music_library_repository_provider.dart';
 import 'package:sonara/features/library/library_controller.dart';
@@ -25,7 +26,7 @@ ProviderContainer _containerWith(FakeMusicLibraryRepository repository) {
 
 ProviderContainer _scanContainer({
   required MusicLibraryRepository repository,
-  required FakeAudioFileScanner scanner,
+  required AudioFileScanner scanner,
 }) {
   final container = ProviderContainer(
     overrides: [
@@ -122,6 +123,55 @@ void main() {
       final state = container.read(libraryControllerProvider);
       expect(state.status, LibraryStatus.error);
       expect(state.errorMessage, contains('no such folder'));
+    });
+
+    test('scanFolder routes a content URI through the Android scanner',
+        () async {
+      final repository = InMemoryMusicLibraryRepository();
+      // A filesystem fake stands in for the on-device walk; the real routing +
+      // SAF tree-URI resolution runs in front of it.
+      final filesystem = FakeAudioFileScanner(
+        files: <String>['/storage/emulated/0/Music/One.mp3'],
+      );
+      // Wire the fake into the content scanner's walk: a content URI routes to
+      // ContentUriAudioFileScanner, which resolves the URI to a path and then
+      // delegates that path to its filesystem scanner.
+      final contentScanner =
+          ContentUriAudioFileScanner(filesystemScanner: filesystem);
+      final container = _scanContainer(
+        repository: repository,
+        scanner: PlatformAudioFileScanner(contentUriScanner: contentScanner),
+      );
+
+      const folderUri = 'content://com.android.externalstorage.documents/tree/'
+          'primary%3AMusic';
+      await container
+          .read(libraryControllerProvider.notifier)
+          .scanFolder(folderUri);
+
+      // The content URI was resolved to a path before the walk.
+      expect(filesystem.requestedFolder, '/storage/emulated/0/Music');
+      final state = container.read(libraryControllerProvider);
+      expect(state.status, LibraryStatus.loaded);
+      expect(state.tracks.map((t) => t.title), <String>['One']);
+    });
+
+    test('scanFolder surfaces a clean error for an unscannable content URI',
+        () async {
+      final container = _scanContainer(
+        repository: InMemoryMusicLibraryRepository(),
+        scanner: const PlatformAudioFileScanner(),
+      );
+
+      const folderUri = 'content://com.android.providers.downloads.documents/'
+          'tree/raw%3A';
+      await container
+          .read(libraryControllerProvider.notifier)
+          .scanFolder(folderUri);
+
+      final state = container.read(libraryControllerProvider);
+      expect(state.status, LibraryStatus.error);
+      expect(state.errorMessage, contains('Storage Access Framework'));
     });
   });
 }
