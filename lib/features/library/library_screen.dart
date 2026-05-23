@@ -85,8 +85,7 @@ class _TrackList extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.builder(
       itemCount: tracks.length,
-      itemBuilder: (context, index) =>
-          _TrackTile(tracks: tracks, index: index),
+      itemBuilder: (context, index) => _TrackTile(tracks: tracks, index: index),
     );
   }
 }
