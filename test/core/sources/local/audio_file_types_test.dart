@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/sources/local/audio_file_types.dart';
+import 'package:linthra/core/sources/local/audio_file_types.dart';
 
 void main() {
   group('AudioFileTypes.isSupported', () {

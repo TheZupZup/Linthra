@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'app/sonara_app.dart';
+import 'app/linthra_app.dart';
 import 'core/services/just_audio_playback_controller.dart';
-import 'core/services/sonara_audio_handler.dart';
+import 'core/services/linthra_audio_handler.dart';
 import 'data/repositories/download_repository_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
@@ -39,7 +39,7 @@ Future<void> main() async {
         sharedPreferencesDownloadStoreOverride,
         sharedPreferencesDownloadPreferencesOverride,
       ],
-      child: const SonaraApp(),
+      child: const LinthraApp(),
     ),
   );
 }

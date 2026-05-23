@@ -1,6 +1,6 @@
 import 'package:path/path.dart' as p;
 
-/// The audio file extensions Sonara's local scanner recognizes.
+/// The audio file extensions Linthra's local scanner recognizes.
 ///
 /// Kept small and centralized on purpose: supporting a new container format
 /// later is a one-line change here that the rest of the scanner picks up for

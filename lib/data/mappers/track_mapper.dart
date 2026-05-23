@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 
 import '../../core/models/track.dart';
-import '../database/sonara_database.dart';
+import '../database/linthra_database.dart';
 
 /// Explicit, one-way conversions between the [Track] domain model and its
 /// persisted form. Kept tiny and dumb on purpose: no IO, no defaults beyond

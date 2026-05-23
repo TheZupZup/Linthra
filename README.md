@@ -1,7 +1,7 @@
-# Sonara
+# Linthra
 
 A modern, **local-first**, privacy-focused music player for people who own
-their music. Sonara is a clean alternative to bloated streaming apps — your
+their music. Linthra is a clean alternative to bloated streaming apps — your
 library lives on your device, and downloads are always under your explicit
 control.
 
@@ -54,7 +54,7 @@ testing.
 
 **Drift/SQLite persistence** has now landed for tracks.
 `DriftMusicLibraryRepository` (`lib/data/repositories/`) is the persistent
-catalog the UI will read from, backed by `SonaraDatabase`
+catalog the UI will read from, backed by `LinthraDatabase`
 (`lib/data/database/`). At schema **v1** only the `tracks` table is persisted:
 `getAllTracks`, `getTrackById`, and `upsertCatalog` are real, while
 `getAllAlbums`/`getAllArtists` return empty lists for now. Domain models
@@ -155,7 +155,7 @@ Jellyfin/WebDAV roadmap possible without rewriting the UI.
 lib/
   main.dart                 entry point; hosts the Riverpod ProviderScope
   app/                      app-level wiring
-    sonara_app.dart         root MaterialApp.router widget
+    linthra_app.dart         root MaterialApp.router widget
     router.dart             go_router config (Riverpod provider)
     routes.dart             route path constants
     theme.dart              dark-first ThemeData
@@ -171,7 +171,7 @@ lib/
     sources/                concrete MusicSource implementations:
                             local/ (LocalMusicSource + file scanning)
   data/                     concrete repository implementations + storage
-    database/               SonaraDatabase (Drift) + tables/ (tracks_table.dart)
+    database/               LinthraDatabase (Drift) + tables/ (tracks_table.dart)
     mappers/                domain <-> Drift row conversion (track_mapper.dart)
     repositories/           drift_music_library_repository.dart (persistent),
                             in_memory_music_library_repository.dart (dev/tests)
@@ -194,7 +194,7 @@ lib/
   [`PlaybackQueue`](lib/core/models/playback_queue.dart) model (current track +
   upcoming tracks) and exposes `playTracks`, `playNext`, `skipToNext`, and
   `clearQueue`; the UI reads the queue from `PlaybackState` and never edits it
-  directly. `SonaraAudioHandler` wraps it for background audio / the platform
+  directly. `LinthraAudioHandler` wraps it for background audio / the platform
   media session (notification, lock screen, Android Auto) without touching
   feature code; MPRIS can attach the same way later.
 - **`DownloadRepository`** (`core/repositories/`) — enforces the
@@ -226,7 +226,7 @@ flutter run
 
 ### Building a debug APK (Android)
 
-To install and test Sonara on an Android phone:
+To install and test Linthra on an Android phone:
 
 ```bash
 # Generate the Android scaffold (skip if android/ already exists locally)
@@ -249,7 +249,7 @@ this stage — there are no native build, signing, or publishing steps in CI.
 
 ### Background playback & Android Auto
 
-Sonara registers a platform **media session** through `audio_service` so
+Linthra registers a platform **media session** through `audio_service` so
 playback survives backgrounding and shows up where the OS expects it:
 
 - **Notification & lock screen.** A media notification mirrors the current
@@ -264,7 +264,7 @@ playback survives backgrounding and shows up where the OS expects it:
   UI). That polish is a later PR.
 
 **Architecture.** `audio_service` is a pure infrastructure layer.
-`SonaraAudioHandler` (`lib/core/services/sonara_audio_handler.dart`) is the
+`LinthraAudioHandler` (`lib/core/services/linthra_audio_handler.dart`) is the
 only file that imports it: it forwards session commands
 (play/pause/stop/skip/seek) to the `PlaybackController` and mirrors the
 controller's `PlaybackState` back out as the session's playback state + media
@@ -308,7 +308,7 @@ Android Auto, add to `android/app/src/main/AndroidManifest.xml`:
 
 The main activity should extend `AudioServiceActivity` (per the `audio_service`
 README) so the session binds correctly. The notification channel id/name are
-configured in `connectMediaSession` (`com.sonara.audio` / "Sonara playback").
+configured in `connectMediaSession` (`com.linthra.audio` / "Linthra playback").
 
 **Limitations (this PR).**
 
@@ -385,7 +385,7 @@ Deliberate gaps the next PRs will close:
 2. Put a few audio files under a folder on shared storage, e.g.
    `/storage/emulated/0/Music`.
 3. In **Library**, tap the folder icon and pick that folder. The chooser
-   returns a `content://…/tree/primary:Music` URI; Sonara resolves it to the
+   returns a `content://…/tree/primary:Music` URI; Linthra resolves it to the
    path and scans it.
 4. Picking a folder from a provider that has no filesystem mapping (for example
    a cloud "Documents" provider) is expected to show the Library error state

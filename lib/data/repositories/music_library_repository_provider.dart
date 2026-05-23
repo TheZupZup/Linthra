@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/repositories/music_library_repository.dart';
-import '../database/sonara_database_provider.dart';
+import '../database/linthra_database_provider.dart';
 import 'drift_music_library_repository.dart';
 import 'in_memory_music_library_repository.dart';
 
@@ -17,8 +17,8 @@ final musicLibraryRepositoryProvider = Provider<MusicLibraryRepository>((ref) {
 
 /// Production binding: a Drift/SQLite-backed repository so scanned tracks
 /// survive app restarts. Applied in `main`; tests can apply it over an
-/// in-memory database by also overriding [sonaraDatabaseProvider].
+/// in-memory database by also overriding [linthraDatabaseProvider].
 final driftMusicLibraryRepositoryOverride =
     musicLibraryRepositoryProvider.overrideWith(
-  (ref) => DriftMusicLibraryRepository(ref.watch(sonaraDatabaseProvider)),
+  (ref) => DriftMusicLibraryRepository(ref.watch(linthraDatabaseProvider)),
 );

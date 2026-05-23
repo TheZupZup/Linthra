@@ -7,8 +7,8 @@ import 'theme.dart';
 
 /// Root widget. Dark mode is the primary experience; the light theme follows
 /// the system setting when the user opts out of dark.
-class SonaraApp extends ConsumerWidget {
-  const SonaraApp({super.key});
+class LinthraApp extends ConsumerWidget {
+  const LinthraApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/models/album.dart';
-import 'package:sonara/core/models/artist.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/data/repositories/in_memory_music_library_repository.dart';
+import 'package:linthra/core/models/album.dart';
+import 'package:linthra/core/models/artist.dart';
+import 'package:linthra/core/models/track.dart';
+import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 
 Track _track(String id) => Track(id: id, title: 'Track $id', uri: id);
 

@@ -3,7 +3,7 @@ enum DownloadStatus { notDownloaded, queued, downloading, downloaded, failed }
 
 /// Tracks which library items are available offline.
 ///
-/// Downloads in Sonara are always *explicit and user-initiated* — never
+/// Downloads in Linthra are always *explicit and user-initiated* — never
 /// automatic. Implementations must also honor the user's "Wi-Fi only" pref
 /// (queueing rather than downloading over mobile data when set), so that
 /// promise is enforced in one place rather than scattered through the UI.

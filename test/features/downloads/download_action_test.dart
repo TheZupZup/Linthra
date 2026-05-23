@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/data/repositories/music_library_repository_provider.dart';
-import 'package:sonara/features/library/library_screen.dart';
+import 'package:linthra/core/models/track.dart';
+import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/features/library/library_screen.dart';
 
 import '../library/fake_music_library_repository.dart';
 

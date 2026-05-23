@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/sources/local/local_track_mapper.dart';
+import 'package:linthra/core/sources/local/local_track_mapper.dart';
 
 void main() {
   group('LocalTrackMapper.fromPath', () {
