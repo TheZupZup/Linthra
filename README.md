@@ -150,6 +150,29 @@ SDK locally avoids spurious `dart format` diffs from formatter changes in newer
 Dart releases. This is code-quality CI only — there are no native build,
 signing, or store-publishing steps yet.
 
+### Generating Drift files in CI
+
+Drift/SQLite persistence relies on `build_runner` code generation, which can be
+unreliable to run locally. The **Generate Drift files** workflow
+(`.github/workflows/generate-drift.yml`) runs that generation in CI and commits
+the result back to the chosen branch. It is **manual only** (`workflow_dispatch`)
+— it never runs on a normal push or PR, and it neither builds nor publishes
+anything. It uses the same Flutter version as the main CI workflow, runs
+`flutter pub get`, `dart run build_runner build --delete-conflicting-outputs`,
+and `dart format .`, then commits **only if** something actually changed.
+
+To regenerate Drift files on a PR:
+
+1. Open the Drift PR.
+2. Go to the **Actions** tab.
+3. Select the **Generate Drift files** workflow.
+4. Click **Run workflow** and choose the PR branch.
+5. Wait for the bot to push the generated commit (`Generate Drift files`).
+6. Let normal CI run against the updated branch.
+
+The workflow pushes to whichever branch you launch it on, so run it on the PR
+branch rather than `main`.
+
 ## Roadmap (MVP)
 
 1. Local music library scanning
