@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:sonara/core/models/playback_queue.dart';
-import 'package:sonara/core/models/playback_state.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/core/services/playback_controller.dart';
+import 'package:linthra/core/models/playback_queue.dart';
+import 'package:linthra/core/models/playback_state.dart';
+import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/playback_controller.dart';
 
 /// In-memory [PlaybackController] for widget/provider tests.
 ///

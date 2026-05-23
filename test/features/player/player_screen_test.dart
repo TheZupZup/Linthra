@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/models/playback_state.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/core/services/playback_controller.dart';
-import 'package:sonara/features/player/player_providers.dart';
-import 'package:sonara/features/player/player_screen.dart';
+import 'package:linthra/core/models/playback_state.dart';
+import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/playback_controller.dart';
+import 'package:linthra/features/player/player_providers.dart';
+import 'package:linthra/features/player/player_screen.dart';
 
 import 'fake_playback_controller.dart';
 

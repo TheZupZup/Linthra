@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:sonara/app/routes.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/data/repositories/music_library_repository_provider.dart';
-import 'package:sonara/features/library/library_screen.dart';
-import 'package:sonara/features/player/player_providers.dart';
-import 'package:sonara/features/player/player_screen.dart';
+import 'package:linthra/app/routes.dart';
+import 'package:linthra/core/models/track.dart';
+import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/features/library/library_screen.dart';
+import 'package:linthra/features/player/player_providers.dart';
+import 'package:linthra/features/player/player_screen.dart';
 
 import '../player/fake_playback_controller.dart';
 import 'fake_music_library_repository.dart';

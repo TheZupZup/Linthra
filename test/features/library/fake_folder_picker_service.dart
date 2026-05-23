@@ -1,4 +1,4 @@
-import 'package:sonara/core/services/folder_picker_service.dart';
+import 'package:linthra/core/services/folder_picker_service.dart';
 
 /// Returns a fixed folder (or `null` to simulate cancellation) so the
 /// pick-and-scan flow can be driven without a real OS folder dialog.

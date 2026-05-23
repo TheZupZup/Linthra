@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/sources/local/audio_file_scanner.dart';
-import 'package:sonara/core/sources/local/folder_scan_exception.dart';
+import 'package:linthra/core/sources/local/audio_file_scanner.dart';
+import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 
 /// Records the folder it was asked to scan and returns a fixed list, so we can
 /// assert the content scanner resolved the URI to a path before delegating.

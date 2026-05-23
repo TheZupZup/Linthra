@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/models/track.dart';
+import 'package:linthra/core/models/track.dart';
 
 import 'fake_playback_controller.dart';
 

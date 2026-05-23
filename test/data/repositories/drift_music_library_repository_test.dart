@@ -1,10 +1,10 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/core/models/album.dart';
-import 'package:sonara/core/models/artist.dart';
-import 'package:sonara/core/models/track.dart';
-import 'package:sonara/data/database/sonara_database.dart';
-import 'package:sonara/data/repositories/drift_music_library_repository.dart';
+import 'package:linthra/core/models/album.dart';
+import 'package:linthra/core/models/artist.dart';
+import 'package:linthra/core/models/track.dart';
+import 'package:linthra/data/database/linthra_database.dart';
+import 'package:linthra/data/repositories/drift_music_library_repository.dart';
 
 Track _track(String id, {int durationMs = 0, String? artworkUri}) => Track(
       id: id,
@@ -19,11 +19,11 @@ Track _track(String id, {int durationMs = 0, String? artworkUri}) => Track(
 
 void main() {
   group('DriftMusicLibraryRepository', () {
-    late SonaraDatabase db;
+    late LinthraDatabase db;
     late DriftMusicLibraryRepository repository;
 
     setUp(() {
-      db = SonaraDatabase.forTesting(NativeDatabase.memory());
+      db = LinthraDatabase.forTesting(NativeDatabase.memory());
       repository = DriftMusicLibraryRepository(db);
     });
 
