@@ -6,13 +6,15 @@ import 'package:sonara/core/services/sonara_audio_handler.dart';
 
 import '../../features/player/fake_playback_controller.dart';
 
-Track _track(String id) => Track(
-      id: id,
-      title: 'Song $id',
-      uri: '/$id.mp3',
-      artistName: 'Artist $id',
-      albumName: 'Album $id',
-    );
+Track _track(String id) {
+  return Track(
+    id: id,
+    title: 'Song $id',
+    uri: '/$id.mp3',
+    artistName: 'Artist $id',
+    albumName: 'Album $id',
+  );
+}
 
 /// Lets the broadcast from the controller's stream reach the handler's
 /// listener before assertions read the mirrored session state.
