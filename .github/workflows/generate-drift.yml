@@ -1,0 +1,54 @@
+name: Generate Drift files
+
+# Manually run Dart code generation (Drift / build_runner) on a chosen branch
+# and commit the generated files back to that same branch. Intended for PR
+# branches where local generation is unreliable. This NEVER runs automatically:
+# it only triggers on workflow_dispatch, and it pushes to whatever branch you
+# select when launching it (so it only touches main if you deliberately run it
+# on main). It does not build, sign, or publish anything.
+on:
+  workflow_dispatch:
+
+# Needed so the job can push the generated commit back to the selected branch.
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    name: Generate Drift files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Match the Flutter version pinned by CI (.github/workflows/ci.yml) so the
+      # generated output matches what CI then validates.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.27.4
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate code
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Format
+        run: dart format .
+
+      - name: Commit generated files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first so newly generated files (e.g. *.g.dart) are detected;
+          # a bare `git diff` ignores untracked files.
+          git add .
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit."
+            exit 0
+          fi
+          git commit -m "Generate Drift files"
+          git push
