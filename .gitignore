@@ -5,8 +5,9 @@
 .packages
 build/
 
-# Native platform scaffolding is generated locally via `flutter create .`
-# (kept out of the repo until we decide which platforms to commit).
+# The android/ platform scaffold is committed. Other native platforms
+# (linux/, windows/, …) are still generated locally via `flutter create .`
+# until we decide to commit them.
 
 # IDE
 .idea/

@@ -206,19 +206,20 @@ lib/
 
 ## Getting started
 
-This repository currently contains the Dart/Flutter source and config. Native
-platform folders (`android/`, `linux/`, …) are **not committed** — they're
-generated locally so the repo stays focused on the cross-platform Dart code.
+This repository contains the Dart/Flutter source plus the committed **Android**
+platform scaffold (`android/`). Other native platform folders (`linux/`, …)
+are **not committed** — generate them locally when you need them so the repo
+stays focused on the cross-platform Dart code.
 
 ```bash
-# 1. Generate platform scaffolding (preserves lib/, pubspec.yaml, etc.)
-flutter create --platforms=android,linux .
-
-# 2. Fetch dependencies
+# 1. Fetch dependencies
 flutter pub get
 
-# 3. Run on a connected device or emulator
+# 2. Run on a connected Android device or emulator
 flutter run
+
+# (Optional) generate scaffolding for another platform, e.g. Linux desktop:
+flutter create --platforms=linux .
 ```
 
 > Note: `flutter create` may regenerate template files such as `main.dart`.
@@ -226,12 +227,15 @@ flutter run
 
 ### Building a debug APK (Android)
 
+The `android/` scaffold is committed, so no `flutter create` step is needed.
+You do need a working Android SDK (`ANDROID_HOME`/`ANDROID_SDK_ROOT` set) and a
+JDK that matches the bundled Gradle wrapper — **JDK 17** is the safe choice
+for the Gradle 8.3 / Android Gradle Plugin 8.1 the scaffold ships with. Run
+`flutter doctor` to confirm your toolchain.
+
 To install and test Linthra on an Android phone:
 
 ```bash
-# Generate the Android scaffold (skip if android/ already exists locally)
-flutter create --platforms=android .
-
 flutter pub get
 
 # Build an unsigned debug APK
@@ -246,6 +250,23 @@ flutter install              # installs the last debug build
 The debug APK is unsigned and meant for local testing only. **Release signing,
 store-ready bundles, and APK publishing are intentionally out of scope** for
 this stage — there are no native build, signing, or publishing steps in CI.
+
+**Android identity & permissions.** The app ships with a stable application ID
+**`io.github.thezupzup.linthra`** (also the Kotlin/Gradle `namespace`) and the
+display name **Linthra** — both chosen for future F-Droid / GitHub Releases
+distribution. Permissions are kept deliberately minimal: the production
+manifest declares **no** permissions, and `INTERNET` is added only in the
+`debug`/`profile` manifests (Flutter needs it for hot reload). No storage
+permissions are requested — see *Android folder selection & known limitations*
+for why a narrow `READ_MEDIA_AUDIO` flow is a deliberate later step rather than
+a broad "all files" grant.
+
+> The `audio_service` native wiring (foreground-service permissions, the
+> playback `<service>`/`<receiver>`, and `MainActivity` extending
+> `AudioServiceActivity`) documented under *Background playback & Android Auto*
+> is **not yet applied** to the committed scaffold. `connectMediaSession` falls
+> back gracefully when it is absent, so the debug build still runs and basic
+> playback works; wiring the media session is the recommended next PR.
 
 ### Background playback & Android Auto
 
