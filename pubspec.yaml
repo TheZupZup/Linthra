@@ -41,6 +41,17 @@ dependencies:
   # only by SharedPreferencesSelectedMusicFolderRepository, behind the
   # SelectedMusicFolderRepository interface.
   shared_preferences: ^2.3.3
+  # HTTP client for talking to a Jellyfin server (including HTTPS Cloudflare-
+  # proxied domains). Used only by HttpJellyfinClient in the Jellyfin source;
+  # the rest of the app depends on the JellyfinClient interface, never on http
+  # directly. The Dart-team package, so it stays small and dependency-light.
+  http: ^1.2.0
+  # Encrypted on-device storage for the Jellyfin session token (Android
+  # Keystore / EncryptedSharedPreferences under the hood). Used only by
+  # SecureJellyfinSessionStore, behind the JellyfinSessionStore interface, so
+  # the token never lands in plaintext and tests stay plugin-free on the
+  # in-memory default. Passwords are never persisted at all.
+  flutter_secure_storage: ^9.2.2
 
 dev_dependencies:
   flutter_lints: ^5.0.0

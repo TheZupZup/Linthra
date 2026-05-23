@@ -94,6 +94,27 @@ files already on disk); the byte-fetch for remote sources slots into one
 private method without the policy changing. See **Offline downloads & known
 limitations** below.
 
+**Jellyfin (self-hosted) — foundation landed.** The first remote source is
+wired from the Settings screen through to a `MusicSource`. A user can enter
+their server URL, **test the connection**, **sign in**, and **clear** their
+settings; the session token is then persisted in encrypted on-device storage
+(`flutter_secure_storage`) so it survives restarts. HTTPS **Cloudflare-proxied**
+domains are a first-class case. The layering mirrors local scanning and keeps
+the three concerns apart: all networking sits behind `JellyfinClient`
+(`HttpJellyfinClient` is the only place that builds URLs, sets the auth header,
+and parses JSON); `JellyfinAuthenticator` validates the URL and produces a
+session; `JellyfinSessionStore` persists it; and `JellyfinMusicSource` lists
+and maps artists/albums/tracks into Linthra's `Track`/`Album`/`Artist` models.
+The Settings UI talks only to `JellyfinSettingsController`/`JellyfinSettingsState`
+— never to HTTP or storage. **Passwords are never stored** (used once to obtain
+a token, then discarded) and **tokens are never logged** (the session redacts
+its token in `toString`, and a track's stored URI is a token-free
+`jellyfin:<id>`; the streaming URL is minted only at play time). What's *not*
+here yet: syncing the Jellyfin catalog into the Library and actual streaming
+playback — the source and a `jellyfinMusicSourceProvider` seam are ready for
+that next step. See **Jellyfin (self-hosted music) — setup & known limitations**
+below.
+
 Not built yet (planned, in roughly this order):
 
 - Local music library scanning — *v1 done (scan → persist → list); native
@@ -113,7 +134,10 @@ Not built yet (planned, in roughly this order):
   background download manager still pending*
 - Lyrics
 
-Self-hosted sources (Jellyfin, WebDAV, NAS) come after the local MVP is solid.
+Self-hosted sources (Jellyfin, WebDAV, NAS) build on the local MVP. The
+**Jellyfin foundation has landed** (settings, connection test, authentication,
+encrypted session persistence, and a library source); wiring it into the
+Library and streaming playback come next.
 
 ## Philosophy
 
@@ -138,6 +162,8 @@ codebase.
 | Navigation       | go_router (`StatefulShellRoute` for bottom nav)   |
 | Local metadata   | SQLite via `drift`                                |
 | Playback         | `just_audio` + `audio_service` (behind interface) |
+| Remote sources   | `http` (behind `JellyfinClient`)                  |
+| Secrets at rest  | `flutter_secure_storage` (Jellyfin session token) |
 
 Dependencies are added when a feature needs them rather than up front, so
 `pubspec.yaml` stays honest about what the code actually uses. Today that's
@@ -145,8 +171,10 @@ Dependencies are added when a feature needs them rather than up front, so
 `drift` + `sqlite3_flutter_libs` + `path_provider` for SQLite persistence,
 `just_audio` for playback, `audio_service` for the background media session
 (notification / lock screen / Android Auto), `file_picker` for the native
-folder chooser, and `shared_preferences` for remembering the selected folder
-(`drift_dev` + `build_runner` are dev-only, for code generation).
+folder chooser, `shared_preferences` for remembering the selected folder,
+`http` for talking to a Jellyfin server (behind `JellyfinClient`), and
+`flutter_secure_storage` for keeping the Jellyfin session token encrypted at
+rest (`drift_dev` + `build_runner` are dev-only, for code generation).
 
 ## Architecture
 
@@ -168,18 +196,21 @@ lib/
     models/                 immutable entities: Track, Album, Artist,
                             Playlist, PlaybackState
     repositories/           persistence contracts: MusicLibraryRepository,
-                            PlaylistRepository, DownloadRepository
+                            PlaylistRepository, DownloadRepository,
+                            JellyfinSessionStore
     services/               device-facing contracts: PlaybackController,
                             MusicSource, ConnectivityService
     sources/                concrete MusicSource implementations:
-                            local/ (LocalMusicSource + file scanning)
+                            local/ (LocalMusicSource + file scanning),
+                            jellyfin/ (JellyfinClient + auth + source + mapper)
   data/                     concrete repository implementations + storage
     database/               LinthraDatabase (Drift) + tables/ (tracks_table.dart)
     mappers/                domain <-> Drift row conversion (track_mapper.dart)
     repositories/           drift_music_library_repository.dart (persistent),
-                            in_memory_music_library_repository.dart (dev/tests)
+                            in_memory_music_library_repository.dart (dev/tests),
+                            secure_jellyfin_session_store.dart (encrypted token)
   features/                 one folder per screen/feature
-    library/  player/  playlists/  downloads/  settings/  shell/
+    library/  player/  playlists/  downloads/  settings/ (+ jellyfin/)  shell/
   shared/
     widgets/                reusable UI (e.g. EmptyState)
 ```
@@ -187,8 +218,12 @@ lib/
 ### Key extension points
 
 - **`MusicSource`** (`core/services/music_source.dart`) — a media backend.
-  `LocalMusicSource` ships first; `JellyfinMusicSource` / `WebDavMusicSource`
-  implement the same contract later.
+  `LocalMusicSource` shipped first; `JellyfinMusicSource`
+  (`core/sources/jellyfin/`) now implements the same contract over a
+  `JellyfinClient` (HTTP behind one interface), with `JellyfinAuthenticator`
+  for sign-in and `JellyfinSessionStore` for the encrypted token —
+  authentication, persistence, and library fetching kept separate.
+  `WebDavMusicSource` slots in the same way later.
 - **`MusicLibraryRepository`** (`core/repositories/`) — the local SQLite cache
   the UI reads from. Sources *sync into* it; the UI never talks to a source
   directly. This is what keeps the app fast and fully offline.
@@ -608,6 +643,68 @@ Deliberate gaps the next PRs will close:
   a `downloads` table (with file paths and byte progress) graduates from the
   `DownloadStore` seam when real downloads need it.
 
+### Jellyfin (self-hosted music) — setup & known limitations
+
+Linthra can connect to your own [Jellyfin](https://jellyfin.org) server,
+including one published over HTTPS through a **Cloudflare** domain or tunnel.
+
+**Setup.** Open **Settings → Jellyfin** and:
+
+1. **Server URL** — enter your server address, e.g. `https://music.example.com`.
+   A bare host gets `https://` automatically (the Cloudflare-proxied default);
+   a `http://host:8096` on your LAN works too, and a reverse-proxy subpath like
+   `https://example.com/jellyfin` is preserved.
+2. **Test connection** — checks the address is reachable and is really a
+   Jellyfin server (it reads the public `/System/Info/Public` endpoint, no
+   credentials needed) and shows the server name/version.
+3. **Username + password → Sign in** — authenticates and stores the resulting
+   session. The password field has a show/hide toggle.
+4. **Sign out & clear** — forgets the saved session and clears the settings.
+
+**Cloudflare notes.** A Cloudflare-proxied or Cloudflare Tunnel (`cloudflared`)
+Jellyfin is just a normal HTTPS endpoint, so it works without any special
+configuration — point the URL at your public domain. Two things to know:
+
+- If the domain returns a Cloudflare **error page** (HTML / a 5xx like 521/522)
+  or a challenge, Linthra reports a friendly "doesn't look like a Jellyfin
+  server" / "couldn't reach the server" message rather than a raw failure —
+  usually it means the tunnel is down or the domain isn't pointed at Jellyfin.
+- **Cloudflare Access / Zero Trust** (an extra auth layer *in front of*
+  Jellyfin) is **not** supported yet; Linthra speaks only to Jellyfin's own
+  auth. Use a hostname that reaches Jellyfin directly.
+
+**Security.** This integration is built so secrets don't leak:
+
+- **Passwords are never persisted.** The password is sent once to obtain a
+  token and then discarded; it's cleared from the form as soon as sign-in
+  succeeds and never enters app state.
+- **The token is encrypted at rest.** It's stored via `flutter_secure_storage`
+  (Android Keystore-backed), not in plaintext `shared_preferences`.
+- **Nothing logs the token or password.** `JellyfinSession.toString()` redacts
+  the token, and a track's cached URI is a token-free `jellyfin:<id>` — the
+  authenticated streaming URL is minted only at play time, never stored.
+
+**What works now.** Configuring a server, testing the connection, signing in
+with friendly URL/connection/auth errors, and persisting the session across
+restarts. Under the hood, `JellyfinMusicSource` can already list and map
+artists/albums/tracks (and resolve a streaming URL), and is exposed via
+`jellyfinMusicSourceProvider`, but is **not yet wired into the Library UI**.
+
+**Deliberate gaps the next PRs will close:**
+
+- **No Library sync or playback yet.** The source isn't fed into
+  `MusicLibraryRepository`, so Jellyfin tracks don't appear in the Library and
+  remote streaming isn't started from the UI. That's the recommended next PR:
+  add a "Sync Jellyfin library" action that calls
+  `MusicLibraryRepository.upsertCatalog(sourceId: 'jellyfin', …)` and route
+  `resolvePlayableUri` into playback.
+- **No offline downloads from Jellyfin.** Fetching bytes for offline use slots
+  into `CacheDownloadRepository._obtainOfflineCopy` later (see above).
+- **Single server only.** One session is stored; multi-server support and
+  richer transcoding/streaming parameters come later.
+- **No Android Auto browsing, lyrics, or sync-conflict handling** for Jellyfin
+  in this foundation.
+
 ## Continuous integration
 
 Every pull request and every push to `main` runs a small Flutter workflow
@@ -664,8 +761,9 @@ branch rather than `main`.
 9. "Wi-Fi only downloads" option
 10. Settings
 
-Later: Jellyfin, WebDAV, NAS, lyrics, ReplayGain, MPRIS, Android Auto, smart
-playlists, and more.
+Later: Jellyfin (foundation landed — settings, auth, encrypted session, and a
+library source; Library sync + streaming next), WebDAV, NAS, lyrics, ReplayGain,
+MPRIS, Android Auto, smart playlists, and more.
 
 ## F-Droid metadata (work in progress)
 

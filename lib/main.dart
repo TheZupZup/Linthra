@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/linthra_app.dart';
 import 'core/services/linthra_audio_handler.dart';
 import 'data/repositories/download_repository_provider.dart';
+import 'data/repositories/jellyfin_session_store_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'features/player/player_providers.dart';
@@ -17,13 +18,15 @@ Future<void> main() async {
   // notification / lock screen reflect the real controller. The running app
   // persists its catalog to SQLite (Drift override) and its chosen folder,
   // offline-download set, and Wi-Fi-only preference via shared_preferences;
-  // tests keep the in-memory defaults unless they opt into these bindings.
+  // the Jellyfin session token is persisted in encrypted on-device storage.
+  // Tests keep the in-memory defaults unless they opt into these bindings.
   final container = ProviderContainer(
     overrides: [
       driftMusicLibraryRepositoryOverride,
       sharedPreferencesSelectedMusicFolderRepositoryOverride,
       sharedPreferencesDownloadStoreOverride,
       sharedPreferencesDownloadPreferencesOverride,
+      secureJellyfinSessionStoreOverride,
     ],
   );
 
