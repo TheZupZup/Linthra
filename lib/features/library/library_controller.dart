@@ -28,6 +28,7 @@ class LibraryController extends Notifier<LibraryState> {
       final source = LocalMusicSource(
         folderPath: folderPath,
         scanner: ref.read(audioFileScannerProvider),
+        safDocumentLister: ref.read(safDocumentListerProvider),
       );
       final tracks = await source.fetchTracks();
       final albums = await source.fetchAlbums();

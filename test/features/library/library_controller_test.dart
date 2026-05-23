@@ -4,12 +4,14 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
+import 'package:linthra/core/sources/local/saf_document_lister.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/features/library/library_controller.dart';
 import 'package:linthra/features/library/library_providers.dart';
 import 'package:linthra/features/library/library_state.dart';
 
+import '../../core/sources/local/fake_saf_document_lister.dart';
 import 'fake_audio_file_scanner.dart';
 import 'fake_music_library_repository.dart';
 
@@ -138,6 +140,37 @@ void main() {
       final state = container.read(libraryControllerProvider);
       expect(state.status, LibraryStatus.error);
       expect(state.errorMessage, contains('no such folder'));
+    });
+
+    test('scanFolder scans a content URI through the SAF lister', () async {
+      final repository = InMemoryMusicLibraryRepository();
+      final saf = FakeSafDocumentLister(
+        documents: const <SafAudioDocument>[
+          SafAudioDocument(uri: 'content://doc/1', name: 'One.mp3'),
+        ],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          musicLibraryRepositoryProvider.overrideWithValue(repository),
+          // The filesystem scanner must not run when SAF traversal works.
+          audioFileScannerProvider.overrideWithValue(
+            FakeAudioFileScanner(error: Exception('should not scan files')),
+          ),
+          safDocumentListerProvider.overrideWithValue(saf),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      const folderUri =
+          'content://com.android.externalstorage.documents/tree/x';
+      await container
+          .read(libraryControllerProvider.notifier)
+          .scanFolder(folderUri);
+
+      expect(saf.requestedTreeUri, folderUri);
+      final state = container.read(libraryControllerProvider);
+      expect(state.status, LibraryStatus.loaded);
+      expect(state.tracks.map((t) => t.title), <String>['One']);
     });
 
     test('scanFolder routes a content URI through the Android scanner',

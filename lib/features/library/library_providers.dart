@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/services/file_picker_folder_picker_service.dart';
 import '../../core/services/folder_picker_service.dart';
 import '../../core/sources/local/audio_file_scanner.dart';
+import '../../core/sources/local/method_channel_saf_document_lister.dart';
+import '../../core/sources/local/saf_document_lister.dart';
 
 /// The storage seam the library scan uses to discover audio files.
 ///
@@ -22,4 +26,14 @@ final audioFileScannerProvider = Provider<AudioFileScanner>((ref) {
 /// it with a fake so the pick-and-scan flow runs without a real OS dialog.
 final folderPickerServiceProvider = Provider<FolderPickerService>((ref) {
   return const FilePickerFolderPickerService();
+});
+
+/// The SAF traversal seam used to scan an Android `content://` folder through
+/// the content resolver. Native content-resolver traversal is Android-only, so
+/// elsewhere (desktop, tests) the unsupported binding makes a content-URI scan
+/// fall back to filesystem path resolution. Tests override it with a fake.
+final safDocumentListerProvider = Provider<SafDocumentLister>((ref) {
+  return Platform.isAndroid
+      ? const MethodChannelSafDocumentLister()
+      : const UnsupportedSafDocumentLister();
 });
