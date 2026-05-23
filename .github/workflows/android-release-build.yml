@@ -5,15 +5,28 @@ name: Android Release Build
 # F-Droid distribution: it does NOT create a GitHub release, publish to any
 # store, or submit to F-Droid, and it runs only when you trigger it manually.
 #
-# Signing status: no release signing secrets are configured in this repo, so
-# the release build falls back to the debug signing config declared in
-# android/app/build.gradle (`signingConfig = signingConfigs.debug`). The
-# resulting artifacts are therefore DEBUG-KEY SIGNED, not release signed — fine
-# for previews and smoke-testing a release build, but NOT suitable for store or
-# F-Droid distribution. Wiring real release signing (via repository secrets) is
-# the recommended next step and is intentionally out of scope here.
+# Signing: this workflow can produce either a real release-signed build or a
+# debug-key build, controlled by the `signed` input below.
+#
+#   * signed = false (default): no signing secrets are read; the release build
+#     falls back to the debug signing config in android/app/build.gradle. The
+#     artifacts are DEBUG-KEY SIGNED — fine for previews and smoke-testing a
+#     release build, but NOT suitable for store or F-Droid distribution. They
+#     are uploaded with a `-debug-signed` name so they cannot be mistaken for a
+#     real release.
+#
+#   * signed = true: the workflow decodes a keystore from the LINTHRA_KEYSTORE_*
+#     repository secrets and signs the build with it. If any required secret is
+#     missing the run fails fast with a clear error (it does NOT silently fall
+#     back to the debug key). See docs/release-signing.md for the required
+#     secrets and how to generate / rotate the keystore.
 on:
   workflow_dispatch:
+    inputs:
+      signed:
+        description: "Sign with the release keystore (requires LINTHRA_* secrets). If false, builds are debug-signed and labeled as such."
+        type: boolean
+        default: false
 
 # Read-only is all this needs: artifacts are shared via upload-artifact rather
 # than by writing to the repo or creating a release.
@@ -24,9 +37,43 @@ jobs:
   build-release:
     name: Build release APK + AAB
     runs-on: ubuntu-latest
+    # These are harmless when empty (unsigned builds): the Gradle config treats
+    # absent/empty values as "no release signing" and falls back to the debug
+    # key. The keystore file path (LINTHRA_KEYSTORE_PATH) is only exported by the
+    # decode step below, and only when signing is requested.
+    env:
+      LINTHRA_KEYSTORE_PASSWORD: ${{ secrets.LINTHRA_KEYSTORE_PASSWORD }}
+      LINTHRA_KEY_ALIAS: ${{ secrets.LINTHRA_KEY_ALIAS }}
+      LINTHRA_KEY_PASSWORD: ${{ secrets.LINTHRA_KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate signing secrets
+        if: ${{ inputs.signed }}
+        env:
+          LINTHRA_KEYSTORE_BASE64: ${{ secrets.LINTHRA_KEYSTORE_BASE64 }}
+        run: |
+          missing=()
+          [ -z "$LINTHRA_KEYSTORE_BASE64" ] && missing+=("LINTHRA_KEYSTORE_BASE64")
+          [ -z "$LINTHRA_KEYSTORE_PASSWORD" ] && missing+=("LINTHRA_KEYSTORE_PASSWORD")
+          [ -z "$LINTHRA_KEY_ALIAS" ] && missing+=("LINTHRA_KEY_ALIAS")
+          [ -z "$LINTHRA_KEY_PASSWORD" ] && missing+=("LINTHRA_KEY_PASSWORD")
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Signed release requested but these secrets are missing: ${missing[*]}. See docs/release-signing.md."
+            exit 1
+          fi
+          echo "All required signing secrets are present."
+
+      - name: Decode release keystore
+        if: ${{ inputs.signed }}
+        env:
+          LINTHRA_KEYSTORE_BASE64: ${{ secrets.LINTHRA_KEYSTORE_BASE64 }}
+        run: |
+          keystore_path="$RUNNER_TEMP/linthra-release.keystore"
+          echo "$LINTHRA_KEYSTORE_BASE64" | base64 -d > "$keystore_path"
+          echo "LINTHRA_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
+          echo "Release keystore decoded to a temporary path."
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -51,16 +98,50 @@ jobs:
       - name: Build release AAB
         run: flutter build appbundle --release
 
+      # Distinguish real release-signed artifacts from debug-signed previews so
+      # the wrong build can never be mistaken for a publishable release.
+      - name: Determine artifact label
+        id: label
+        run: |
+          if [ "${{ inputs.signed }}" = "true" ]; then
+            echo "suffix=release-signed" >> "$GITHUB_OUTPUT"
+          else
+            echo "suffix=debug-signed" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: linthra-release-apk
+          name: linthra-${{ steps.label.outputs.suffix }}-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
       - name: Upload release AAB
         uses: actions/upload-artifact@v4
         with:
-          name: linthra-release-aab
+          name: linthra-${{ steps.label.outputs.suffix }}-aab
           path: build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+
+      - name: Build summary
+        run: |
+          if [ "${{ inputs.signed }}" = "true" ]; then
+            {
+              echo "## Linthra release build"
+              echo ""
+              echo "**Signing:** release-signed with the configured keystore."
+              echo ""
+              echo "Artifacts: \`linthra-release-signed-apk\`, \`linthra-release-signed-aab\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## Linthra release build"
+              echo ""
+              echo "**Signing:** DEBUG-KEY signed (not a real release)."
+              echo ""
+              echo "Re-run with \`signed = true\` and the LINTHRA_* secrets configured to"
+              echo "produce a release-signed build. See docs/release-signing.md."
+              echo ""
+              echo "Artifacts: \`linthra-debug-signed-apk\`, \`linthra-debug-signed-aab\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

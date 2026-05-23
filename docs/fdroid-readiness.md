@@ -132,10 +132,12 @@ step-by-step capture instructions live in
 
 ## 8. Remaining blockers before submission
 
-1. **Release signing.** `android/app/build.gradle` still signs release builds
-   with the debug key (`signingConfig = signingConfigs.debug`). F-Droid signs
-   its own builds, but the project should remove the debug-key fallback / set up
-   a proper release signing story before publishing.
+1. **Release signing.** Release signing can now be supplied via env vars /
+   `android/key.properties`, with CI decoding a keystore from secrets; builds
+   fall back to the debug key only when no signing material is present (see
+   [docs/release-signing.md](./release-signing.md)). F-Droid signs its own
+   builds, so this matters mainly for GitHub-Release artifacts. Remaining work:
+   configure the actual release secrets and decide the GitHub-Release flow.
 2. **No image assets.** Icon, feature graphic, and screenshots are missing.
 3. **Dependency audit.** Confirm no non-free / Google-only transitive deps.
 4. **Reproducible build verification.** Confirm the app builds on F-Droid's

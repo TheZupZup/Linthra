@@ -5,6 +5,44 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+// Release signing material is NEVER committed (see android/.gitignore). It is
+// supplied at build time via either:
+//   * environment variables — used by CI, which decodes a keystore from the
+//     LINTHRA_KEYSTORE_BASE64 secret and sets LINTHRA_KEYSTORE_PATH, or
+//   * a git-ignored android/key.properties file — for local release builds.
+// Environment variables take precedence over key.properties. If no complete
+// signing config is found, release builds fall back to the debug key so that
+// `flutter run --release` keeps working. Debug-signed artifacts are NOT real
+// releases and must not be distributed as such. See docs/release-signing.md.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
+def resolveSigningValue = { String envKey, String propKey ->
+    def value = System.getenv(envKey)
+    if (value == null || value.isEmpty()) {
+        value = keystoreProperties.getProperty(propKey)
+    }
+    return value
+}
+
+def releaseStoreFilePath = resolveSigningValue("LINTHRA_KEYSTORE_PATH", "storeFile")
+def releaseStorePassword = resolveSigningValue("LINTHRA_KEYSTORE_PASSWORD", "storePassword")
+def releaseKeyAlias = resolveSigningValue("LINTHRA_KEY_ALIAS", "keyAlias")
+def releaseKeyPassword = resolveSigningValue("LINTHRA_KEY_PASSWORD", "keyPassword")
+
+def hasReleaseSigning = releaseStoreFilePath != null && !releaseStoreFilePath.isEmpty() &&
+    file(releaseStoreFilePath).exists() && releaseStorePassword != null &&
+    releaseKeyAlias != null && releaseKeyPassword != null
+
+if (hasReleaseSigning) {
+    logger.lifecycle("Linthra: release build will be signed with the configured release keystore.")
+} else {
+    logger.lifecycle("Linthra: no release signing config found; release build falls back to the DEBUG key (not a real release).")
+}
+
 android {
     namespace = "io.github.thezupzup.linthra"
     compileSdk = flutter.compileSdkVersion
@@ -28,11 +66,24 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile = file(releaseStoreFilePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            // Use the real release signing config when complete signing material
+            // is available (env vars or key.properties); otherwise fall back to
+            // the debug key so `flutter run --release` still works. Debug-signed
+            // release builds are clearly labeled by CI and must not be shipped.
+            signingConfig = hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
         }
     }
 }
