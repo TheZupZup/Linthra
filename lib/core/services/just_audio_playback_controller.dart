@@ -154,7 +154,9 @@ class JustAudioPlaybackController implements PlaybackController {
     }
 
     try {
-      await _player.setAudioSource(AudioSource.uri(uri));
+      // setUrl handles file://, content:// (Android), and https:// URIs alike,
+      // so local files, SAF documents, and Jellyfin streams share one path.
+      await _player.setUrl(uri.toString());
       // play()'s future completes when playback ends, so we don't await it.
       unawaited(_player.play());
     } catch (_) {
