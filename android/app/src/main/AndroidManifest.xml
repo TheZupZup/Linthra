@@ -1,4 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Background playback / media-session permissions for audio_service.
+         Kept deliberately minimal: only what a foreground media-playback
+         service needs. No storage or network permissions are added here.
+
+         FOREGROUND_SERVICE: lets audio_service run its playback service in the
+         foreground so audio keeps playing while the app is backgrounded.
+         FOREGROUND_SERVICE_MEDIA_PLAYBACK: the typed-foreground-service grant
+         required on Android 14+ (API 34) for a service of type
+         "mediaPlayback"; without it the service cannot start on new devices. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
     <application
         android:label="Linthra"
         android:name="${applicationName}"
@@ -25,6 +38,31 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- audio_service playback service. Runs as a foreground service of
+             type "mediaPlayback" so audio survives backgrounding, and exposes
+             the MediaBrowserService action that Android Auto / other media
+             browsers bind to. The class is provided by the audio_service
+             plugin; we only declare it. -->
+        <service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+        <!-- Media button receiver (also provided by audio_service). Handles
+             hardware/Bluetooth/headset transport buttons and the media-button
+             intents Android Auto and the system route to the session. -->
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

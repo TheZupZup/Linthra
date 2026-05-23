@@ -102,8 +102,10 @@ Not built yet (planned, in roughly this order):
   content-resolver SAF scanning, and a narrow Android media permission still
   pending*
 - Audio playback — *done (local playback + up-next queue); background playback
-  + media session foundation via `audio_service` now wired (Android Auto
-  readiness, not yet a full car UI)*
+  + media session via `audio_service` now wired in Dart **and** with the native
+  Android setup applied (foreground-service permissions, playback service,
+  media-button receiver, `AudioServiceActivity`) — Android Auto ready, not yet a
+  full car UI*
 - Playlists
 - User-controlled offline downloads — *foundation done (status lifecycle,
   mark/remove offline, Wi-Fi-only seam, UI hooks); real remote byte-fetch and a
@@ -291,9 +293,9 @@ a broad "all files" grant.
 > The `audio_service` native wiring (foreground-service permissions, the
 > playback `<service>`/`<receiver>`, and `MainActivity` extending
 > `AudioServiceActivity`) documented under *Background playback & Android Auto*
-> is **not yet applied** to the committed scaffold. `connectMediaSession` falls
-> back gracefully when it is absent, so the debug build still runs and basic
-> playback works; wiring the media session is the recommended next PR.
+> is now **applied** to the committed scaffold. `connectMediaSession` still
+> falls back gracefully if the session can't initialise (e.g. an unsupported
+> platform or a test environment), so basic playback never depends on it.
 
 ### Building release artifacts (Android)
 
@@ -378,9 +380,24 @@ truth, and **the UI continues to depend only on `PlaybackController`** — never
 on `audio_service`. Attaching the session in `main.dart` is best-effort: if it
 fails to initialise (e.g. an unsupported platform) basic playback still works.
 
-**Required native setup** (the `android/` folder is generated locally, see
-above). For the media session to run as a foreground service and be visible to
-Android Auto, add to `android/app/src/main/AndroidManifest.xml`:
+**Native setup (applied).** The required Android wiring lives in the committed
+scaffold so the media session can run as a foreground service and be visible to
+Android Auto:
+
+- `android/app/src/main/AndroidManifest.xml` declares two minimal permissions —
+  `FOREGROUND_SERVICE` (run the playback service in the foreground so audio
+  continues while backgrounded) and `FOREGROUND_SERVICE_MEDIA_PLAYBACK` (the
+  typed-foreground grant Android 14+/API 34 requires for a `mediaPlayback`
+  service). No storage or network permissions are added.
+- the same manifest declares the audio_service playback `<service>`
+  (`com.ryanheise.audioservice.AudioService`, `foregroundServiceType`
+  `mediaPlayback`, exposing the `MediaBrowserService` action Android Auto binds
+  to) and the `<receiver>` (`com.ryanheise.audioservice.MediaButtonReceiver`)
+  that handles hardware/Bluetooth/Android Auto media-button intents.
+- `android/app/.../MainActivity.kt` extends `AudioServiceActivity` (instead of
+  the default `FlutterActivity`) so the Flutter activity binds to the session.
+
+For reference, the manifest additions are:
 
 ```xml
 <manifest ...>
@@ -411,9 +428,8 @@ Android Auto, add to `android/app/src/main/AndroidManifest.xml`:
 </manifest>
 ```
 
-The main activity should extend `AudioServiceActivity` (per the `audio_service`
-README) so the session binds correctly. The notification channel id/name are
-configured in `connectMediaSession` (`com.linthra.audio` / "Linthra playback").
+The notification channel id/name are configured in `connectMediaSession`
+(`com.linthra.audio` / "Linthra playback").
 
 **Limitations (this PR).**
 
