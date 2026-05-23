@@ -4,12 +4,14 @@ This document describes the **image assets** a Linthra store/repository listing
 needs (app icon, feature graphic, screenshots), the exact paths and sizes they
 go in, and how to capture them from a real build.
 
-> **No real listing assets exist yet.** Nothing in this document claims an asset
-> is present. The Android launcher icons under `android/app/src/main/res/mipmap-*`
-> are still the **default Flutter placeholder icon**, not Linthra branding, so
-> they must **not** be reused as the store icon. Capture/produce real assets
-> before a listing or F-Droid submission. See also
-> [docs/fdroid-readiness.md](./fdroid-readiness.md).
+> **Status:** the real Linthra **app icon and feature graphic now exist**, and
+> the Android launcher icons under `android/app/src/main/res/mipmap-*` are the
+> real Linthra mark (adaptive + legacy), no longer the default Flutter icon. All
+> of these are generated deterministically from one source design by
+> [`tool/branding/generate_icons.py`](../tool/branding/generate_icons.py)
+> (vector source: `tool/branding/linthra_icon.svg`). **Screenshots are the only
+> remaining listing asset** and must be captured from a real build — never
+> mocked. See also [docs/fdroid-readiness.md](./fdroid-readiness.md).
 
 ## 1. Where assets live
 
@@ -22,9 +24,9 @@ fastlane/metadata/android/en-US/
 ├── full_description.txt          (present)
 ├── changelogs/1.txt              (present)
 └── images/
-    ├── icon.png                  (MISSING)
-    ├── featureGraphic.png        (MISSING)
-    ├── phoneScreenshots/         (MISSING)
+    ├── icon.png                  (present, 512×512)
+    ├── featureGraphic.png        (present, 1024×500)
+    ├── phoneScreenshots/         (MISSING — capture from a real build)
     │   ├── 1.png
     │   ├── 2.png
     │   └── …
@@ -41,8 +43,8 @@ embeds, Releases page), so they only need to be produced once.
 
 | Asset            | Path                                                   | Required | Status  |
 | ---------------- | ------------------------------------------------------ | -------- | ------- |
-| App icon         | `images/icon.png`                                      | Yes      | Missing |
-| Feature graphic  | `images/featureGraphic.png`                            | Yes      | Missing |
+| App icon         | `images/icon.png`                                      | Yes      | Present |
+| Feature graphic  | `images/featureGraphic.png`                            | Yes      | Present |
 | Phone screenshots| `images/phoneScreenshots/1.png` … (2–8)                | Yes      | Missing |
 | 7-inch tablet    | `images/sevenInchScreenshots/1.png` …                  | Optional | Missing |
 | 10-inch tablet   | `images/tenInchScreenshots/1.png` …                    | Optional | Missing |
@@ -119,27 +121,36 @@ debug or release build.
 For an emulator, the same `adb exec-out screencap` command works while the
 emulator is running.
 
-## 5. How to produce the icon and feature graphic
+## 5. How the icon and feature graphic are produced
 
-- **App icon (`icon.png`, 512×512):** design a real Linthra icon. Once it
-  exists, it should also replace the default Flutter launcher icons under
-  `android/app/src/main/res/mipmap-*` (e.g. via `flutter_launcher_icons`) so the
-  installed app and the store listing match. That launcher-icon change is a
-  separate app/branding PR, not part of this listing-readiness step.
-- **Feature graphic (`featureGraphic.png`, 1024×500):** a simple branded banner
-  (logo + name on a solid/gradient background) is enough. Keep important content
-  away from the edges.
+Both are generated from one source design, so they never drift:
 
-## 6. Once assets exist
+- **Source:** `tool/branding/linthra_icon.svg` is the canonical vector mark
+  (four rounded white equalizer bars on the brand violet gradient).
+- **Generator:** [`tool/branding/generate_icons.py`](../tool/branding/generate_icons.py)
+  rasterises it (standard library only, no Pillow) into:
+  - the legacy launcher icons (`mipmap-*/ic_launcher.png`) and the adaptive
+    foreground (`mipmap-*/ic_launcher_foreground.png`);
+  - `images/icon.png` (512×512) and `images/featureGraphic.png` (1024×500).
+  The adaptive background is the vector gradient
+  `android/app/src/main/res/drawable/ic_launcher_background.xml`.
+- **Regenerate** after editing the design: `python3 tool/branding/generate_icons.py`
+  (run from the repo root). Edit the SVG and the generator's constants together.
 
-When real assets are committed under `images/`:
+To evolve the brand, change the palette/bar constants in the generator (and the
+matching values in `lib/app/colors.dart` / the gradient drawable) and re-run.
 
-1. Delete `images/NEEDED-ASSETS.txt` (its only purpose is to document the gap).
-2. Tick the image rows in
+## 6. Remaining: screenshots
+
+The icon and feature graphic are committed. The only missing listing assets are
+**screenshots**, which must be captured from a real build (§4) — they are
+intentionally left out rather than faked. Once real screenshots are committed:
+
+1. Update `images/NEEDED-ASSETS.txt` (or delete it once screenshots also land).
+2. Tick the screenshot row in
    [docs/fdroid-readiness.md](./fdroid-readiness.md) §7 (metadata checklist) and
-   clear the "No image assets" blocker in §8.
-3. Update the README "F-Droid metadata" section so it no longer lists the assets
-   as missing.
+   clear the remaining image blocker in §8.
+3. Update the README "F-Droid metadata" section accordingly.
 
 ## 7. Related docs
 
