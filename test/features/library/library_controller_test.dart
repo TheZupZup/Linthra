@@ -133,9 +133,14 @@ void main() {
       final filesystem = FakeAudioFileScanner(
         files: <String>['/storage/emulated/0/Music/One.mp3'],
       );
+      // Wire the fake into the content scanner's walk: a content URI routes to
+      // ContentUriAudioFileScanner, which resolves the URI to a path and then
+      // delegates that path to its filesystem scanner.
+      final contentScanner =
+          ContentUriAudioFileScanner(filesystemScanner: filesystem);
       final container = _scanContainer(
         repository: repository,
-        scanner: PlatformAudioFileScanner(filesystemScanner: filesystem),
+        scanner: PlatformAudioFileScanner(contentUriScanner: contentScanner),
       );
 
       const folderUri = 'content://com.android.externalstorage.documents/tree/'
