@@ -59,8 +59,7 @@ void main() {
       expect(item.album, 'Album a');
     });
 
-    test('reports playing state with pause/stop/skip controls when a queue '
-        'exists', () async {
+    test('queue: state is ready with pause, stop and skip controls', () async {
       await controller.playTracks([_track('a'), _track('b')]);
       await _settle();
 

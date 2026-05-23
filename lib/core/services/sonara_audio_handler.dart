@@ -54,8 +54,9 @@ class SonaraAudioHandler extends audio.BaseAudioHandler {
   audio.MediaItem _mediaItemFor(Track track, PlaybackState state) {
     // Prefer the live duration the engine reported; fall back to the track's
     // catalog duration, and omit it entirely when unknown.
-    final duration =
-        state.duration > Duration.zero ? state.duration : track.duration;
+    final duration = state.duration > Duration.zero
+        ? state.duration
+        : track.duration;
     return audio.MediaItem(
       id: track.id,
       title: track.title,
