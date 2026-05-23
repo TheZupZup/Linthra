@@ -11,7 +11,8 @@ void main() {
     // The persistent shell and its bottom navigation render.
     expect(find.byType(NavigationBar), findsOneWidget);
 
-    // The initial route is the Library tab, showing its empty state.
-    expect(find.text('Your library is empty'), findsOneWidget);
+    // The initial route is the Library tab. With no folder selected yet, the
+    // empty state invites the user to choose one.
+    expect(find.text('No music folder selected'), findsOneWidget);
   });
 }

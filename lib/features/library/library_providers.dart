@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/services/file_picker_folder_picker_service.dart';
+import '../../core/services/folder_picker_service.dart';
 import '../../core/sources/local/audio_file_scanner.dart';
 
 /// The file-system seam the library scan uses to discover audio files.
@@ -11,4 +13,11 @@ import '../../core/sources/local/audio_file_scanner.dart';
 /// `libraryControllerProvider`).
 final audioFileScannerProvider = Provider<AudioFileScanner>((ref) {
   return const IoAudioFileScanner();
+});
+
+/// The folder-chooser seam the Library uses to let the user pick a music
+/// folder. Defaults to the `file_picker`-backed implementation; tests override
+/// it with a fake so the pick-and-scan flow runs without a real OS dialog.
+final folderPickerServiceProvider = Provider<FolderPickerService>((ref) {
+  return const FilePickerFolderPickerService();
 });
