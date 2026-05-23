@@ -26,9 +26,9 @@ class DriftMusicLibraryRepository implements MusicLibraryRepository {
 
   @override
   Future<Track?> getTrackById(String id) async {
-    final TrackRow? row =
-        await (_db.select(_db.tracks)..where((t) => t.id.equals(id)))
-            .getSingleOrNull();
+    final TrackRow? row = await (_db.select(_db.tracks)
+          ..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
     return row == null ? null : trackFromRow(row);
   }
 
