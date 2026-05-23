@@ -55,7 +55,7 @@ All paths are relative to `fastlane/metadata/android/en-US/`.
 | ---------------- | --------- | --------------------------------------------------------------- |
 | App icon         | PNG       | 512×512, square. Real Linthra icon, not the default Flutter logo. |
 | Feature graphic  | PNG/JPG   | 1024×500 exactly. No essential text near edges (gets cropped).  |
-| Screenshots      | PNG/JPG   | Each side 320–3840 px; portrait phone capture is fine as-is.    |
+| Screenshots      | PNG/JPG   | Each side 320–3840 px; aspect ratio between 1:2 and 2:1; portrait phone capture is fine as-is. |
 
 Screenshot notes:
 
@@ -63,8 +63,12 @@ Screenshot notes:
   upscaled placeholders.
 - 2–8 phone screenshots is the practical range; show the flows that actually
   work today (folder selection, scan, the persisted track list).
+- F-Droid rejects screenshots whose aspect ratio is outside 1:2–2:1, so a raw
+  capture from an unusually tall/narrow device may need cropping (not stretching).
 - Keep filenames numeric and sequential (`1.png`, `2.png`, …); ordering on the
-  listing follows the filename sort order.
+  listing follows the filename **string** sort order, so `10.png` sorts before
+  `2.png`. Stay under 10 screenshots, or zero-pad (`01.png`, `02.png`, …) to keep
+  the intended order.
 - Tablet screenshots are optional. Only add them if the layout is genuinely
   worth showing on a larger screen — otherwise omit those folders entirely
   rather than padding them with stretched phone captures.
