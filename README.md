@@ -620,6 +620,10 @@ persisted listing) as done; playback, playlists, and offline downloads are
 described as planned. There are no claims of F-Droid availability and no
 marketing language that overpromises.
 
+For the full submission checklist — app identity, build requirements,
+dependency and anti-feature review, release/tagging plan, and remaining
+blockers — see [docs/fdroid-readiness.md](./docs/fdroid-readiness.md).
+
 ## License
 
 [MPL-2.0](./LICENSE)
