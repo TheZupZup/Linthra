@@ -21,7 +21,7 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
   const MethodChannelSafDocumentLister();
 
   static const String _channelName = 'io.github.thezupzup.linthra/saf';
-  static final MethodChannel _channel = MethodChannel(_channelName);
+  static const MethodChannel _channel = MethodChannel(_channelName);
 
   @override
   Future<List<SafAudioDocument>> listAudioDocuments(String treeUri) async {
