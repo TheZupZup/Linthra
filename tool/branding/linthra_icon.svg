@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Canonical Linthra app-icon source: four rounded white equalizer bars on the
+     brand violet gradient. generate_icons.py rasterises this same design into
+     the launcher mipmaps and the F-Droid icon/feature graphic; edit both
+     together so they never drift. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"
+     viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9C8DF8" />
+      <stop offset="1" stop-color="#6750C8" />
+    </linearGradient>
+  </defs>
+  <rect x="30.7" y="30.7" width="450.6" height="450.6" rx="101.4" ry="101.4"
+        fill="url(#brand)" />
+  <g fill="#FFFFFF">
+    <rect x="71.2" y="183.9" width="58.6" height="207.3" rx="29.3" ry="29.3" />
+    <rect x="174.8" y="75.8" width="58.6" height="315.4" rx="29.3" ry="29.3" />
+    <rect x="278.5" y="138.9" width="58.6" height="252.3" rx="29.3" ry="29.3" />
+    <rect x="382.1" y="238.0" width="58.6" height="153.2" rx="29.3" ry="29.3" />
+  </g>
+</svg>

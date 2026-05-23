@@ -163,9 +163,10 @@ final jellyfinSettingsControllerProvider =
 /// The Jellyfin library source for the current session, or `null` when not
 /// connected.
 ///
-/// This is the seam a future PR uses to sync the Jellyfin catalog into the
-/// `MusicLibraryRepository` (and to resolve streaming URLs). It rebuilds when
-/// the connection toggles, reading the live session from the controller.
+/// This is the seam that syncs the Jellyfin catalog into the
+/// `MusicLibraryRepository` (via `JellyfinSyncController`) and that the playback
+/// resolver reads to mint streaming URLs at play time. It rebuilds when the
+/// connection toggles, reading the live session from the controller.
 final jellyfinMusicSourceProvider = Provider<JellyfinMusicSource?>((ref) {
   final bool connected = ref.watch(
     jellyfinSettingsControllerProvider.select((s) => s.isConnected),

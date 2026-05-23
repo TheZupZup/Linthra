@@ -5,6 +5,8 @@ import 'package:just_audio/just_audio.dart';
 import '../models/playback_queue.dart';
 import '../models/playback_state.dart';
 import '../models/track.dart';
+import 'local_playable_uri_resolver.dart';
+import 'playable_uri_resolver.dart';
 import 'playback_controller.dart';
 
 /// [PlaybackController] backed by `just_audio`.
@@ -14,13 +16,23 @@ import 'playback_controller.dart';
 /// single immutable [PlaybackState] the UI renders from. Swapping the engine or
 /// wrapping it for background playback later means replacing this class, not
 /// the feature code.
+///
+/// It opens whatever URI a [PlayableUriResolver] returns rather than assuming a
+/// local file path, so local files, Android SAF content URIs, and remote
+/// (Jellyfin) streams all play through the same path. The default resolver
+/// handles only on-device tracks; remote resolution is composed in at the
+/// provider layer, keeping this class free of any source-specific knowledge.
 class JustAudioPlaybackController implements PlaybackController {
-  JustAudioPlaybackController({AudioPlayer? player})
-      : _player = player ?? AudioPlayer() {
+  JustAudioPlaybackController({
+    AudioPlayer? player,
+    PlayableUriResolver resolver = const LocalPlayableUriResolver(),
+  })  : _player = player ?? AudioPlayer(),
+        _resolver = resolver {
     _wire();
   }
 
   final AudioPlayer _player;
+  final PlayableUriResolver _resolver;
   final StreamController<PlaybackState> _states =
       StreamController<PlaybackState>.broadcast();
   final List<StreamSubscription<void>> _subscriptions =
@@ -112,6 +124,11 @@ class JustAudioPlaybackController implements PlaybackController {
   }
 
   /// Loads and plays the queue's current track, surfacing its up-next list.
+  ///
+  /// Resolution (local path / content URI / remote stream) happens through the
+  /// [PlayableUriResolver]. A resolution failure carries its own friendly,
+  /// secret-free message; a load failure after a successful resolve falls back
+  /// to a generic one.
   Future<void> _playCurrent() async {
     final track = _queue.current;
     if (track == null) return;
@@ -124,15 +141,41 @@ class JustAudioPlaybackController implements PlaybackController {
       hasPrevious: _queue.hasPrevious,
     );
     _emit(loading);
+
+    final Uri uri;
     try {
-      // Track.uri is a local file path (see LocalTrackMapper); remote sources
-      // arrive in a later PR.
-      await _player.setFilePath(track.uri);
+      uri = await _resolver.resolve(track);
+    } on PlaybackResolutionException catch (error) {
+      _emitError(track, error.message);
+      return;
+    } catch (_) {
+      _emitError(track, _genericPlaybackError);
+      return;
+    }
+
+    try {
+      // setUrl handles file://, content:// (Android), and https:// URIs alike,
+      // so local files, SAF documents, and Jellyfin streams share one path.
+      await _player.setUrl(uri.toString());
       // play()'s future completes when playback ends, so we don't await it.
       unawaited(_player.play());
     } catch (_) {
-      _emit(_state.copyWith(status: PlaybackStatus.error));
+      _emitError(track, _genericPlaybackError);
     }
+  }
+
+  static const String _genericPlaybackError = "Couldn't play this track.";
+
+  /// Emits an error state for [track] carrying a friendly [message], preserving
+  /// the queue context so the UI keeps showing the right track and up-next.
+  void _emitError(Track track, String message) {
+    _emit(PlaybackState(
+      status: PlaybackStatus.error,
+      currentTrack: track,
+      upNext: _queue.upNext,
+      hasPrevious: _queue.hasPrevious,
+      errorMessage: message,
+    ));
   }
 
   @override

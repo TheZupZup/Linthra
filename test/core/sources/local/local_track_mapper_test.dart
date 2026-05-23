@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/local/local_track_mapper.dart';
+import 'package:linthra/core/sources/local/saf_document_lister.dart';
 
 void main() {
   group('LocalTrackMapper.fromPath', () {
@@ -38,6 +39,21 @@ void main() {
       final a = LocalTrackMapper.fromPath('/music/song.mp3');
       final b = LocalTrackMapper.fromPath('/music/song.mp3');
       expect(a, b);
+    });
+  });
+
+  group('LocalTrackMapper.fromSafDocument', () {
+    test('uses the display name without extension as the title', () {
+      const doc = SafAudioDocument(uri: 'content://x/1', name: 'Holocene.mp3');
+      final track = LocalTrackMapper.fromSafDocument(doc);
+      expect(track.title, 'Holocene');
+    });
+
+    test('keeps the content URI as both id and uri', () {
+      const doc = SafAudioDocument(uri: 'content://x/1', name: 'Song.flac');
+      final track = LocalTrackMapper.fromSafDocument(doc);
+      expect(track.id, 'content://x/1');
+      expect(track.uri, 'content://x/1');
     });
   });
 }

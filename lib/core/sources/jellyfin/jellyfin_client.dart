@@ -34,4 +34,13 @@ abstract interface class JellyfinClient {
     JellyfinSession session, {
     required JellyfinItemKind kind,
   });
+
+  /// Confirms [session] is still accepted by the server — the token is valid
+  /// and the server is reachable — without fetching anything large.
+  ///
+  /// Backs the pre-stream check the playback resolver runs so it can report an
+  /// expired session or an unreachable server precisely. Throws a
+  /// [JellyfinException] ([JellyfinErrorKind.unauthorized] for an expired token,
+  /// [JellyfinErrorKind.notReachable] when offline, …) on failure.
+  Future<void> verifySession(JellyfinSession session);
 }

@@ -114,24 +114,31 @@ now works:** once signed in, a **Sync library** action pulls your Jellyfin
 artists/albums/tracks and upserts them into the same `MusicLibraryRepository`
 the Library reads from, under the stable `jellyfin` source id (driven by
 `JellyfinSyncController`/`JellyfinSyncState` over the existing
-`jellyfinMusicSourceProvider` seam). What's *not* here yet: actual streaming
-playback (Jellyfin tracks sync into the catalog, but routing their playback
-through `resolvePlayableUri` is the next step) and Jellyfin offline downloads.
-See **Jellyfin (self-hosted music) — setup & known limitations** below.
+`jellyfinMusicSourceProvider` seam). **Streaming playback now works too:**
+tapping a synced Jellyfin track plays it. Playback resolves through a
+`PlayableUriResolver` seam — a `JellyfinPlayableUriResolver` verifies the
+session and mints the authenticated stream URL *at play time*, so the token is
+never stored on the track, in the catalog, in logs, or in player state. The
+player shows precise, secret-free errors (not signed in / expired session /
+unreachable server / unavailable stream). What's *not* here yet: Jellyfin
+offline downloads. See **Jellyfin (self-hosted music) — setup & known
+limitations** below.
 
 Not built yet (planned, in roughly this order):
 
 - Local music library scanning — *v1 done (scan → persist → list); native
   folder picker + persisted selection now done; Android `content://` tree URIs
-  are now routed and resolved for external storage; tag parsing,
-  content-resolver SAF scanning, and a narrow Android media permission still
-  pending*
-- Audio playback — *done (local playback + up-next queue with skip
-  next/previous); background playback + media session via `audio_service` wired
-  in Dart **and** with the native Android setup applied (foreground-service
-  permissions, playback service, media-button receiver, `AudioServiceActivity`,
-  Android Auto media-app declaration); Android Auto now **browsable** (Library /
-  Queue nodes, tap-to-play) — not yet a full car UI*
+  are now routed and resolved for external storage, **and SAF folders are now
+  scanned through the content resolver** (native `DocumentsContract` traversal,
+  scoped-storage friendly, no broad permission); tag parsing and a narrow
+  Android media permission still pending*
+- Audio playback — *done (local + **Jellyfin streaming** playback, behind a
+  `PlayableUriResolver`, plus an up-next queue with skip next/previous);
+  background playback + media session via `audio_service` wired in Dart **and**
+  with the native Android setup applied (foreground-service permissions,
+  playback service, media-button receiver, `AudioServiceActivity`, Android Auto
+  media-app declaration); Android Auto now **browsable** (Library / Queue nodes,
+  tap-to-play) — not yet a full car UI*
 - Playlists
 - User-controlled offline downloads — *foundation done (status lifecycle,
   mark/remove offline, Wi-Fi-only seam, UI hooks); real remote byte-fetch and a
@@ -140,9 +147,10 @@ Not built yet (planned, in roughly this order):
 
 Self-hosted sources (Jellyfin, WebDAV, NAS) build on the local MVP. The
 **Jellyfin foundation has landed** (settings, connection test, authentication,
-encrypted session persistence, and a library source), and **library sync is now
-wired in** — a signed-in user can pull their Jellyfin catalog into the Library.
-Streaming playback of those tracks comes next.
+encrypted session persistence, and a library source), **library sync is wired
+in**, and **streaming playback now works** — a signed-in user can pull their
+Jellyfin catalog into the Library and play it. Offline downloads from Jellyfin
+come next.
 
 ## Philosophy
 
@@ -545,44 +553,51 @@ folder**. On Linux/desktop the same flow uses the GTK/Win32 directory dialog and
 returns a real filesystem path, which `LocalMusicSource` scans directly.
 
 **How content:// folders are scanned.** On modern Android the folder chooser
-hands back a `content://…/tree/…` URI under the Storage Access Framework rather
-than a filesystem path. Scanning now routes each selection through a single seam
-(`PlatformAudioFileScanner`):
+hands back a `content://…/tree/…` URI under the Storage Access Framework (SAF)
+rather than a filesystem path. `LocalMusicSource` handles such a selection in
+two ways, in order:
 
-- **Filesystem paths** (desktop/Linux, and any path Android hands back) go to
-  `IoAudioFileScanner` — the existing `dart:io` walk, unchanged.
-- **`content://` tree URIs** go to `ContentUriAudioFileScanner`, which uses
-  `SafTreeUriResolver` to map an external-storage tree URI to a real path
-  (`primary:Music` → `/storage/emulated/0/Music`, named SD-card volumes →
-  `/storage/<volume>/…`, and `raw:` ids that already carry an absolute path),
-  then walks that path. Folders selected this way are stored as ordinary file
-  paths, so playback resolution is unchanged.
+1. **Content-resolver traversal (preferred).** A `SafDocumentLister` walks the
+   picked tree through Android's content resolver (`DocumentsContract`) in
+   native code (`MethodChannelSafDocumentLister` → `SafDocumentScanner.kt`) and
+   returns the `content://` document URIs of the audio files it finds. This is
+   the scoped-storage-correct path: it uses only the access the system granted
+   when the user picked the folder, needs **no** storage permission, and never
+   touches `MANAGE_EXTERNAL_STORAGE`. Tracks found this way are stored as their
+   `content://` document URIs (titled from the SAF display name) and play back
+   directly through that URI.
+2. **Filesystem-path fallback.** When native SAF traversal isn't available on
+   the build (desktop, or the channel isn't registered), the scan falls back to
+   the earlier behaviour: `ContentUriAudioFileScanner` maps an external-storage
+   tree URI to a real path via `SafTreeUriResolver` (`primary:Music` →
+   `/storage/emulated/0/Music`, named SD-card volumes → `/storage/<volume>/…`,
+   `raw:` absolute ids), probes it for readability (`DirectoryReadability`), and
+   either walks it or raises a clear `FolderScanException` when scoped storage
+   blocks the read.
 
-  Before walking, the scanner probes the resolved path for readability
-  (`DirectoryReadability`). On Android 11+ a path the SAF URI resolves to is
-  often **not** readable through `dart:io` — picking a folder in the system
-  chooser does not by itself grant read access under scoped storage. When the
-  path resolves but cannot be listed, the scan now raises a clear
-  `FolderScanException` ("Android is not letting it read that location…")
-  instead of returning an empty list that would look like "no music found".
+Desktop/Linux selections are real filesystem paths and always take the
+`IoAudioFileScanner` `dart:io` walk, unchanged. How a selection is addressed
+(path vs `content://`) is decided once by `FolderLocation`; nothing downstream
+re-parses the string, SAF traversal stays behind the `SafDocumentLister` seam,
+and the UI never sees a platform channel.
 
-How a selection is addressed (path vs `content://`) is decided once by
-`FolderLocation`; nothing downstream re-parses the string, and the UI never
-sees any of it.
+> **Native verification note.** The Dart side of SAF traversal — the lister
+> seam, routing, content-URI track mapping, and playback — is fully unit-tested
+> with fakes. The native `DocumentsContract` walk compiles in the debug-APK
+> workflow but is runtime-verifiable only on a real device/emulator (see the
+> manual checklist below). The folder grant is taken best-effort
+> (`takePersistableUriPermission`), so a folder picked once can be re-scanned
+> after a restart when the picker granted persistable access.
 
 Deliberate gaps the next PRs will close:
 
-- **Scoped storage / content-resolver scanning.** `SafTreeUriResolver` covers
-  the common `com.android.externalstorage.documents` provider. Other SAF
-  providers (downloads, media, cloud/document providers) don't expose a stable
-  path, so a selection from one of those surfaces a clear `FolderScanException`
-  in the Library error state instead of a silent empty list. On Android 11+,
-  even an external-storage path that resolves cleanly may be unreadable under
-  scoped storage; the `DirectoryReadability` probe now turns that into the same
-  clear error rather than a silent empty library. The full follow-up is reading
-  a SAF tree through Android's content resolver (via a native plugin), which is
-  what actually lifts the scoped-storage restriction for picked folders. The
-  routing, readability, and error seams are all in place for it.
+- **Content-resolver SAF scanning — landed.** The native `DocumentsContract`
+  traversal above reads a picked folder the scoped-storage-correct way, so
+  external-storage *and* other document-provider trees can be scanned without a
+  filesystem path or a broad permission. The filesystem-path fallback (with its
+  `DirectoryReadability` probe and friendly error) remains for builds without
+  the native channel. Cross-restart access depends on the picker having granted
+  a *persistable* URI permission; if it didn't, re-pick the folder.
 - **No runtime storage permissions yet.** No `READ_MEDIA_AUDIO` request flow is
   wired up, and **`MANAGE_EXTERNAL_STORAGE` is intentionally *not* requested** —
   it is an "all files access" permission Google restricts on the Play Store and
@@ -599,9 +614,9 @@ Deliberate gaps the next PRs will close:
   empties up next but keeps the current track). When a track finishes, playback
   rolls into the next queued track. Reordering, saved playlists, shuffle, and
   repeat are not part of this foundation yet.
-- **Jellyfin sync, but no remote playback yet.** A signed-in user can sync their
-  Jellyfin catalog into the Library; streaming those tracks (and WebDAV) is still
-  pending.
+- **Jellyfin streaming works; WebDAV pending.** A signed-in user can sync their
+  Jellyfin catalog into the Library and stream it (see the Jellyfin section
+  below). Other remote sources (WebDAV/NAS) are still pending.
 
 ### Testing scanning on Android
 
@@ -610,20 +625,19 @@ Deliberate gaps the next PRs will close:
 2. Put a few audio files under a folder on shared storage, e.g.
    `/storage/emulated/0/Music`.
 3. In **Library**, tap the folder icon and pick that folder. The chooser
-   returns a `content://…/tree/primary:Music` URI; Linthra resolves it to a
-   path and, if that path is readable on the device, scans it.
-4. On Android 11+ the resolved path is frequently **not** readable under scoped
-   storage (the system chooser grants access to the SAF tree, not to the
-   underlying filesystem path). In that case the Library shows a clear error
-   explaining Android blocked the read — that's the documented limitation, not
-   a crash or a silent empty library.
-5. Picking a folder from a provider that has no filesystem mapping (for example
-   a cloud "Documents" provider) likewise shows the Library error state with a
-   clear message.
+   returns a `content://…/tree/primary:Music` URI; Linthra walks that tree
+   through the content resolver and lists the audio files it finds — no path
+   resolution or storage permission needed.
+4. Tapping a scanned track plays it directly from its `content://` document URI.
+5. Picking a folder a document provider can enumerate (including cloud/document
+   providers that expose their tree) is scanned the same way. If a provider
+   can't be traversed at all, or the build has no native SAF channel and the
+   filesystem fallback can't read the resolved path under scoped storage, the
+   Library shows a clear, secret-free error instead of a silent empty list.
 
-The next PR is expected to be a playlist-editor foundation or Android SAF
-content-resolver folder scanning; a narrow `READ_MEDIA_AUDIO` permission flow
-remains a natural follow-up to this work.
+This SAF traversal is the native step the earlier `content://` routing work set
+up. A narrow `READ_MEDIA_AUDIO` permission flow (only relevant to the
+filesystem fallback) and a playlist-editor foundation remain natural follow-ups.
 
 ### Offline downloads & known limitations
 
@@ -706,25 +720,35 @@ configuration — point the URL at your public domain. Two things to know:
 
 **What works now.** Configuring a server, testing the connection, signing in
 with friendly URL/connection/auth errors, persisting the session across
-restarts, and **syncing the library**. The **Sync library** action drives
-`JellyfinSyncController`, which reads the signed-in `JellyfinMusicSource` (via
-`jellyfinMusicSourceProvider`), fetches artists/albums/tracks, and upserts them
-into `MusicLibraryRepository` under the stable `jellyfin` source id — the same
-upsert path local scanning uses. The Library reloads automatically afterward,
-so synced tracks appear alongside local ones. The sync surfaces loading /
-success / error states and friendly messages for being **not signed in**, a
-**server it couldn't reach**, an **expired/invalid session** (prompting a fresh
-sign-in), and an **empty Jellyfin library** (which leaves any existing catalog
-untouched rather than wiping it). It never logs the token and never stores an
-authenticated streaming URL — synced track URIs stay the token-free
-`jellyfin:<id>`.
+restarts, **syncing the library**, and **streaming playback**. The **Sync
+library** action drives `JellyfinSyncController`, which reads the signed-in
+`JellyfinMusicSource` (via `jellyfinMusicSourceProvider`), fetches
+artists/albums/tracks, and upserts them into `MusicLibraryRepository` under the
+stable `jellyfin` source id — the same upsert path local scanning uses. The
+Library reloads automatically afterward, so synced tracks appear alongside local
+ones. The sync surfaces loading / success / error states and friendly messages
+for being **not signed in**, a **server it couldn't reach**, an
+**expired/invalid session** (prompting a fresh sign-in), and an **empty Jellyfin
+library** (which leaves any existing catalog untouched rather than wiping it).
+
+**Streaming playback** routes through a `PlayableUriResolver` seam, so the
+playback controller opens whatever URI it's given rather than assuming a local
+file. A `JellyfinPlayableUriResolver` reads the live signed-in source, verifies
+the session (a tiny `GET /Users/Me` check), then asks the source to mint the
+authenticated `/Audio/<id>/universal` URL **at play time**. The player surfaces
+precise, friendly errors — **not signed in**, **expired session**, **server
+unreachable**, **stream unavailable** — branched on a typed error kind, not
+message text. Local file playback is untouched (it never enters the Jellyfin
+resolver).
+
+**Token safety holds end to end.** A track's stored URI stays the token-free
+`jellyfin:<id>`; the authenticated stream URL is built only on demand and is
+never stored on the track, written to the catalog, logged, shown in the UI, or
+placed in player state. `JellyfinSession.toString()` redacts the token, and the
+playback error messages are asserted in tests to contain no token.
 
 **Deliberate gaps the next PRs will close:**
 
-- **No remote streaming playback yet.** Jellyfin tracks now sync into the
-  Library, but tapping one doesn't stream it: `resolvePlayableUri` (which mints
-  the authenticated URL at play time) isn't yet routed into the playback
-  controller. That's the recommended next PR.
 - **No offline downloads from Jellyfin.** Fetching bytes for offline use slots
   into `CacheDownloadRepository._obtainOfflineCopy` later (see above).
 - **Single server only.** One session is stored; multi-server support and
@@ -791,9 +815,9 @@ branch rather than `main`.
 9. "Wi-Fi only downloads" option
 10. Settings
 
-Later: Jellyfin (foundation landed — settings, auth, encrypted session, and a
-library source; Library sync + streaming next), WebDAV, NAS, lyrics, ReplayGain,
-MPRIS, Android Auto, smart playlists, and more.
+Later: Jellyfin (landed — settings, auth, encrypted session, a library source,
+Library sync, and streaming playback; offline downloads next), WebDAV, NAS,
+lyrics, ReplayGain, MPRIS, Android Auto, smart playlists, and more.
 
 ## F-Droid metadata (work in progress)
 
@@ -810,17 +834,27 @@ F-Droid / Fastlane-style store metadata under
 - `changelogs/1.txt` — placeholder release notes for `versionCode` 1 (the
   current `0.1.0+1`); replaced with real notes once a published version exists.
 
-**Known missing assets.** No real screenshots, feature graphic, or store icon
-have been captured from a running build, so none are committed. `images/` only
-contains `NEEDED-ASSETS.txt`, which documents the expected F-Droid image layout
-to fill in later. Placeholder/mock images are intentionally avoided so the
-listing never misrepresents the app — and the default Flutter launcher icons are
-not real Linthra branding, so they are not reused as the store icon. The full
-asset checklist, exact sizes, and screenshot-capture steps are in
+**Branding (real, committed).** Linthra now has a genuine app icon — four
+rounded white equalizer bars on the brand violet gradient — generated
+deterministically from one source design (`tool/branding/linthra_icon.svg` via
+`tool/branding/generate_icons.py`, standard library only). That same mark backs:
+
+- the Android launcher icons: regenerated legacy `mipmap-*/ic_launcher.png` plus
+  an **adaptive icon** (`mipmap-anydpi-v26/ic_launcher.xml`) with a white-bars
+  foreground over a vector gradient background — no longer the default Flutter
+  icon;
+- the listing graphics: real `images/icon.png` (512×512) and
+  `images/featureGraphic.png` (1024×500).
+
+**Still missing: screenshots.** No real screenshots have been captured from a
+running build, so none are committed — `images/` carries them as a documented
+gap only (`NEEDED-ASSETS.txt`). Placeholder/mock screenshots are intentionally
+avoided so the listing never misrepresents the app. The full asset checklist,
+exact sizes, and screenshot-capture steps are in
 [docs/listing-assets.md](./docs/listing-assets.md).
 
-The wording describes only shipped behaviour (folder selection, scanning, and
-persisted listing) as done; playback, playlists, and offline downloads are
+The wording describes only shipped behaviour (folder selection, scanning,
+playback, persisted listing) as done; playlists and offline downloads are
 described as planned. There are no claims of F-Droid availability and no
 marketing language that overpromises.
 
