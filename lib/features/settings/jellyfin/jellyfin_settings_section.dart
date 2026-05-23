@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/dimens.dart';
 import 'jellyfin_settings_controller.dart';
 import 'jellyfin_settings_state.dart';
+import 'jellyfin_sync_controller.dart';
+import 'jellyfin_sync_state.dart';
 
 /// The Jellyfin connection card on the Settings screen.
 ///
@@ -78,10 +80,16 @@ class _JellyfinSettingsSectionState
     _passwordController.clear();
   }
 
+  Future<void> _sync() async {
+    await ref.read(jellyfinSyncControllerProvider.notifier).sync();
+  }
+
   @override
   Widget build(BuildContext context) {
     final JellyfinSettingsState state =
         ref.watch(jellyfinSettingsControllerProvider);
+    final JellyfinSyncState syncState =
+        ref.watch(jellyfinSyncControllerProvider);
     final ThemeData theme = Theme.of(context);
 
     return Card(
@@ -109,7 +117,10 @@ class _JellyfinSettingsSectionState
             if (state.isConnected)
               _ConnectedView(
                 state: state,
-                onSignOut: state.isBusy ? null : _signOut,
+                syncState: syncState,
+                onSync: (state.isBusy || syncState.isSyncing) ? null : _sync,
+                onSignOut:
+                    (state.isBusy || syncState.isSyncing) ? null : _signOut,
               )
             else
               _buildForm(theme, state),
@@ -211,9 +222,16 @@ class _JellyfinSettingsSectionState
 /// The summary shown once a session exists: which server/user, plus the action
 /// to sign out and clear the saved settings.
 class _ConnectedView extends StatelessWidget {
-  const _ConnectedView({required this.state, required this.onSignOut});
+  const _ConnectedView({
+    required this.state,
+    required this.syncState,
+    required this.onSync,
+    required this.onSignOut,
+  });
 
   final JellyfinSettingsState state;
+  final JellyfinSyncState syncState;
+  final VoidCallback? onSync;
   final VoidCallback? onSignOut;
 
   @override
@@ -256,6 +274,21 @@ class _ConnectedView extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.md),
+        FilledButton.tonalIcon(
+          onPressed: onSync,
+          icon: syncState.isSyncing
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.sync_outlined),
+          label: Text(syncState.isSyncing ? 'Syncing…' : 'Sync library'),
+        ),
+        if (syncState.message != null && !syncState.isSyncing) ...[
+          const SizedBox(height: AppSpacing.sm),
+          _StatusLine(message: syncState.message!, isError: syncState.isError),
+        ],
+        const SizedBox(height: AppSpacing.sm),
         OutlinedButton.icon(
           onPressed: onSignOut,
           icon: const Icon(Icons.logout_outlined),
