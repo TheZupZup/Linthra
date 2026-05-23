@@ -14,9 +14,10 @@ availability.
   downloads are still planned.
 - **Distribution:** none yet. No tagged release, no published APK, no F-Droid
   metadata submission.
-- **Groundwork in place:** stable application ID, MPL-2.0 license, and
-  Fastlane-style store metadata under `fastlane/metadata/android/en-US/`
-  (text only — no image assets yet).
+- **Groundwork in place:** stable application ID, MPL-2.0 license, a real
+  Linthra app/launcher icon, and Fastlane-style store metadata under
+  `fastlane/metadata/android/en-US/` (text plus a real icon and feature
+  graphic; screenshots still pending).
 - **Not ready to submit.** See [Remaining blockers](#8-remaining-blockers-before-submission).
 
 ## 2. App identity
@@ -155,16 +156,18 @@ Stored under `fastlane/metadata/android/en-US/`:
 - [x] `short_description.txt` — one-line summary (under F-Droid's 80-char limit).
 - [x] `full_description.txt` — long description (separates shipped vs. planned).
 - [x] `changelogs/1.txt` — placeholder notes for `versionCode` 1.
-- [ ] `images/icon.png` — 512×512 real Linthra store icon (the launcher icons
-  under `android/app/src/main/res/mipmap-*` are still the default Flutter
-  placeholder and must not be reused here).
-- [ ] `images/featureGraphic.png` — 1024×500.
+- [x] `images/icon.png` — 512×512 real Linthra store icon. The launcher icons
+  under `android/app/src/main/res/mipmap-*` are now the same real mark (adaptive
+  + legacy), generated from `tool/branding/` — no longer the default Flutter
+  placeholder.
+- [x] `images/featureGraphic.png` — 1024×500, the Linthra brand banner.
 - [ ] `images/phoneScreenshots/*.png` — 2–8 real screenshots from a device.
 - [ ] `images/sevenInchScreenshots/*.png` / `images/tenInchScreenshots/*.png` —
   optional tablet screenshots (only if the larger layout is worth showing).
 
-No placeholder/mock images are committed on purpose; `images/` currently holds
-only `NEEDED-ASSETS.txt` documenting the expected layout. Exact sizes and
+The icon and feature graphic are committed (generated deterministically from
+`tool/branding/linthra_icon.svg`). No placeholder/mock **screenshots** are
+committed on purpose; they must be captured from a real build. Exact sizes and
 step-by-step capture instructions live in
 [docs/listing-assets.md](./listing-assets.md); see also F-Droid's
 [descriptions, graphics & screenshots guide](https://f-droid.org/docs/All_About_Descriptions_Graphics_and_Screenshots/).
@@ -177,7 +180,8 @@ step-by-step capture instructions live in
    [docs/release-signing.md](./release-signing.md)). F-Droid signs its own
    builds, so this matters mainly for GitHub-Release artifacts. Remaining work:
    configure the actual release secrets and decide the GitHub-Release flow.
-2. **No image assets.** Icon, feature graphic, and screenshots are missing (see
+2. **Screenshots missing.** The real icon and feature graphic are committed;
+   only screenshots remain, and must be captured from a real build (see
    [docs/listing-assets.md](./listing-assets.md)).
 3. **Dependency audit (partly done).** The direct-dependency license review is
    complete — all MIT/BSD-3-Clause, MPL-2.0 compatible
@@ -198,8 +202,8 @@ step-by-step capture instructions live in
 2. Sort out release signing config (§8.1; see
    [docs/release-signing.md](./release-signing.md)).
 3. Verify a clean release build, including codegen (§3, §8.4).
-4. Capture and commit real image assets (§7; see
-   [docs/listing-assets.md](./listing-assets.md)).
+4. Capture and commit real screenshots (§7; the icon and feature graphic are
+   already done — see [docs/listing-assets.md](./listing-assets.md)).
 5. Finalize the version and cut a `vX.Y.Z` tag with a matching changelog (§6;
    full steps in [docs/release-process.md](./release-process.md)).
 6. Prepare the F-Droid `metadata/<appid>.yml` build recipe and submit a merge
