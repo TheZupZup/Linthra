@@ -1,0 +1,66 @@
+name: Android Release Build
+
+# Builds the Android release artifacts (APK + AAB) and attaches them to the
+# workflow run. This is a build-only foundation for future GitHub Releases /
+# F-Droid distribution: it does NOT create a GitHub release, publish to any
+# store, or submit to F-Droid, and it runs only when you trigger it manually.
+#
+# Signing status: no release signing secrets are configured in this repo, so
+# the release build falls back to the debug signing config declared in
+# android/app/build.gradle (`signingConfig = signingConfigs.debug`). The
+# resulting artifacts are therefore DEBUG-KEY SIGNED, not release signed — fine
+# for previews and smoke-testing a release build, but NOT suitable for store or
+# F-Droid distribution. Wiring real release signing (via repository secrets) is
+# the recommended next step and is intentionally out of scope here.
+on:
+  workflow_dispatch:
+
+# Read-only is all this needs: artifacts are shared via upload-artifact rather
+# than by writing to the repo or creating a release.
+permissions:
+  contents: read
+
+jobs:
+  build-release:
+    name: Build release APK + AAB
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Keep this Flutter version in sync with .github/workflows/ci.yml.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.27.4
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Build release AAB
+        run: flutter build appbundle --release
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: linthra-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      - name: Upload release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: linthra-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error

@@ -295,6 +295,63 @@ a broad "all files" grant.
 > back gracefully when it is absent, so the debug build still runs and basic
 > playback works; wiring the media session is the recommended next PR.
 
+### Building release artifacts (Android)
+
+The **Android Release Build** workflow
+(`.github/workflows/android-release-build.yml`) builds the Android **release**
+artifacts so we can validate a release build ahead of any GitHub Releases /
+F-Droid distribution. It is a build-only foundation:
+
+- **How to run it:** open the repo's **Actions** tab → **Android Release
+  Build** → **Run workflow**. It is **manual only** (`workflow_dispatch`) — it
+  never runs on a push or PR.
+- **What it builds:** `flutter build apk --release` and
+  `flutter build appbundle --release`.
+- **Artifacts:**
+  - `linthra-release-apk` → `app-release.apk`
+    (`build/app/outputs/flutter-apk/app-release.apk`)
+  - `linthra-release-aab` → `app-release.aab`
+    (`build/app/outputs/bundle/release/app-release.aab`)
+- **Download:** open the completed run and grab the artifacts from the run's
+  **Artifacts** section (GitHub serves each as a `.zip`; unzip to get the
+  APK/AAB).
+
+Build the same artifacts locally with:
+
+```bash
+flutter pub get
+flutter build apk --release        # → build/app/outputs/flutter-apk/app-release.apk
+flutter build appbundle --release  # → build/app/outputs/bundle/release/app-release.aab
+```
+
+#### Signing status (important)
+
+**These release artifacts are debug-key signed, not release signed.** No
+release signing secrets are configured in this repository, so the release build
+falls back to the debug signing config declared in `android/app/build.gradle`
+(`signingConfig = signingConfigs.debug`). That makes the artifacts useful for
+previewing/smoke-testing a release build, but they are **not** suitable for
+store or F-Droid distribution, and **no signing keys are committed** to the
+repo.
+
+Real release signing (a keystore supplied via repository secrets, with the
+`android/app/build.gradle` release `signingConfig` reading those secrets) is
+**intentionally out of scope** for this foundation and is the recommended next
+step — see below.
+
+#### Limitations & next steps
+
+- The workflow **does not** create a GitHub release, upload anything to a store,
+  or submit to F-Droid. It only produces downloadable build artifacts.
+- It does **not** add release signing; artifacts remain debug-key signed until a
+  signing config backed by secrets is added.
+- **Recommended next PR:** add release signing — provision a release keystore,
+  store it and its credentials as repository secrets, decode it during the
+  workflow, and update the release `signingConfig` in
+  `android/app/build.gradle` to use it. With real signing in place, a separate
+  follow-up can wire **GitHub Releases** publishing and, later, F-Droid
+  readiness.
+
 ### Background playback & Android Auto
 
 Linthra registers a platform **media session** through `audio_service` so
