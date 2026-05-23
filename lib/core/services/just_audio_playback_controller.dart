@@ -1,0 +1,112 @@
+import 'dart:async';
+
+import 'package:just_audio/just_audio.dart';
+
+import '../models/playback_state.dart';
+import '../models/track.dart';
+import 'playback_controller.dart';
+
+/// [PlaybackController] backed by `just_audio`.
+///
+/// This is the only file in the app that knows `just_audio` exists. It adapts
+/// the player's separate event streams (state, position, duration) into the
+/// single immutable [PlaybackState] the UI renders from. Swapping the engine or
+/// wrapping it for background playback later means replacing this class, not
+/// the feature code.
+class JustAudioPlaybackController implements PlaybackController {
+  JustAudioPlaybackController({AudioPlayer? player})
+      : _player = player ?? AudioPlayer() {
+    _wire();
+  }
+
+  final AudioPlayer _player;
+  final StreamController<PlaybackState> _states =
+      StreamController<PlaybackState>.broadcast();
+  final List<StreamSubscription<void>> _subscriptions =
+      <StreamSubscription<void>>[];
+
+  PlaybackState _state = PlaybackState.idle;
+
+  @override
+  PlaybackState get state => _state;
+
+  @override
+  Stream<PlaybackState> get stateStream => _states.stream;
+
+  void _wire() {
+    _subscriptions.add(_player.playerStateStream.listen((playerState) {
+      _emit(_state.copyWith(status: _statusFor(playerState)));
+    }));
+    _subscriptions.add(_player.positionStream.listen((position) {
+      _emit(_state.copyWith(position: position));
+    }));
+    _subscriptions.add(_player.durationStream.listen((duration) {
+      if (duration != null) _emit(_state.copyWith(duration: duration));
+    }));
+  }
+
+  static PlaybackStatus _statusFor(PlayerState playerState) {
+    switch (playerState.processingState) {
+      case ProcessingState.idle:
+        return PlaybackStatus.idle;
+      case ProcessingState.loading:
+      case ProcessingState.buffering:
+        return PlaybackStatus.loading;
+      case ProcessingState.ready:
+        return playerState.playing
+            ? PlaybackStatus.playing
+            : PlaybackStatus.paused;
+      case ProcessingState.completed:
+        return PlaybackStatus.completed;
+    }
+  }
+
+  void _emit(PlaybackState next) {
+    if (next == _state) return;
+    _state = next;
+    if (!_states.isClosed) _states.add(next);
+  }
+
+  @override
+  Future<void> playTrack(Track track) async {
+    // Reset position/duration up front so the UI doesn't show the previous
+    // track's progress while the new one loads.
+    _emit(PlaybackState(status: PlaybackStatus.loading, currentTrack: track));
+    try {
+      // Track.uri is a local file path (see LocalTrackMapper); remote sources
+      // arrive in a later PR.
+      await _player.setFilePath(track.uri);
+      // play()'s future completes when playback ends, so we don't await it.
+      unawaited(_player.play());
+    } catch (_) {
+      _emit(_state.copyWith(status: PlaybackStatus.error));
+    }
+  }
+
+  @override
+  Future<void> play() async {
+    // play()'s future completes when playback ends, so we don't await it.
+    unawaited(_player.play());
+  }
+
+  @override
+  Future<void> pause() => _player.pause();
+
+  @override
+  Future<void> stop() async {
+    await _player.stop();
+    _emit(PlaybackState(currentTrack: _state.currentTrack));
+  }
+
+  @override
+  Future<void> seek(Duration position) => _player.seek(position);
+
+  @override
+  Future<void> dispose() async {
+    for (final subscription in _subscriptions) {
+      await subscription.cancel();
+    }
+    await _states.close();
+    await _player.dispose();
+  }
+}
