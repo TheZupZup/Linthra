@@ -5,48 +5,54 @@ import 'package:go_router/go_router.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../core/models/track.dart';
-import '../../shared/widgets/empty_state.dart';
 import '../player/player_providers.dart';
 import 'library_controller.dart';
 import 'library_state.dart';
+import 'selected_folder_controller.dart';
 
 /// Browse tracks from the local catalog. Reads entirely from
-/// [libraryControllerProvider]; it has no knowledge of where tracks are stored.
+/// [libraryControllerProvider] and [selectedFolderControllerProvider]; it has
+/// no knowledge of where tracks are stored or which plugin picks the folder.
 class LibraryScreen extends ConsumerWidget {
   const LibraryScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(libraryControllerProvider);
+    final selectedFolder = ref.watch(selectedFolderControllerProvider);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Library'),
         actions: [
           IconButton(
             icon: const Icon(Icons.create_new_folder_outlined),
-            tooltip: 'Scan a folder',
-            onPressed: () => _promptScan(context, ref),
+            tooltip: 'Select music folder',
+            onPressed: () => _pickAndScan(ref),
           ),
         ],
       ),
-      body: _body(ref, state),
+      body: _body(ref, state, selectedFolder.valueOrNull),
     );
   }
 
-  /// Dev entry point for the scan flow: ask for a folder path and hand it to
-  /// the controller. Deliberately a plain text prompt — a real folder picker
-  /// and runtime permissions land in a later PR.
-  Future<void> _promptScan(BuildContext context, WidgetRef ref) async {
-    final path = await showDialog<String>(
-      context: context,
-      builder: (_) => const _ScanFolderDialog(),
-    );
-    if (path != null && path.isNotEmpty) {
+  /// Open the system folder picker, persist the choice, then scan it. A
+  /// cancelled pick leaves everything untouched. The UI only talks to the two
+  /// controllers — never to a picker plugin or the file system directly.
+  Future<void> _pickAndScan(WidgetRef ref) async {
+    final path = await ref
+        .read(selectedFolderControllerProvider.notifier)
+        .pickAndPersist();
+    if (path != null) {
       await ref.read(libraryControllerProvider.notifier).scanFolder(path);
     }
   }
 
-  Widget _body(WidgetRef ref, LibraryState state) {
+  /// Re-scan the folder the user already selected, without opening the picker.
+  Future<void> _rescan(WidgetRef ref, String folder) {
+    return ref.read(libraryControllerProvider.notifier).scanFolder(folder);
+  }
+
+  Widget _body(WidgetRef ref, LibraryState state, String? selectedFolder) {
     switch (state.status) {
       case LibraryStatus.loading:
         return const Center(child: CircularProgressIndicator());
@@ -57,10 +63,12 @@ class LibraryScreen extends ConsumerWidget {
         );
       case LibraryStatus.loaded:
         if (state.isEmpty) {
-          return const EmptyState(
-            icon: Icons.library_music_outlined,
-            title: 'Your library is empty',
-            message: 'Tap the folder icon to scan a folder for music.',
+          return _LibraryEmpty(
+            selectedFolder: selectedFolder,
+            onPick: () => _pickAndScan(ref),
+            onRescan: selectedFolder == null
+                ? null
+                : () => _rescan(ref, selectedFolder),
           );
         }
         return _TrackList(tracks: state.tracks);
@@ -118,46 +126,74 @@ class _TrackTile extends ConsumerWidget {
   }
 }
 
-/// Simple prompt for a folder path to scan. Pops the trimmed path, or null
-/// when cancelled. Kept tiny on purpose; a proper picker comes later.
-class _ScanFolderDialog extends StatefulWidget {
-  const _ScanFolderDialog();
+/// The empty state, split by whether a folder has been selected yet so the
+/// user always sees the right next step:
+///  - no folder chosen → invite them to pick one;
+///  - folder chosen but nothing found → show the folder and offer a re-scan or
+///    a change of folder.
+class _LibraryEmpty extends StatelessWidget {
+  const _LibraryEmpty({
+    required this.selectedFolder,
+    required this.onPick,
+    this.onRescan,
+  });
 
-  @override
-  State<_ScanFolderDialog> createState() => _ScanFolderDialogState();
-}
-
-class _ScanFolderDialogState extends State<_ScanFolderDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _submit() => Navigator.of(context).pop(_controller.text.trim());
+  final String? selectedFolder;
+  final VoidCallback onPick;
+  final VoidCallback? onRescan;
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Scan a folder'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: const InputDecoration(
-          labelText: 'Folder path',
-          hintText: '/storage/emulated/0/Music',
+    final theme = Theme.of(context);
+    final hasFolder = selectedFolder != null;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              hasFolder
+                  ? Icons.library_music_outlined
+                  : Icons.folder_off_outlined,
+              size: 48,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              hasFolder ? 'No music found' : 'No music folder selected',
+              style: theme.textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              hasFolder
+                  ? 'Nothing playable turned up in:\n$selectedFolder'
+                  : 'Choose a folder on your device to scan for music.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            if (hasFolder) ...[
+              FilledButton.tonal(
+                onPressed: onRescan,
+                child: const Text('Rescan folder'),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextButton(
+                onPressed: onPick,
+                child: const Text('Change folder'),
+              ),
+            ] else
+              FilledButton(
+                onPressed: onPick,
+                child: const Text('Select a folder'),
+              ),
+          ],
         ),
-        onSubmitted: (_) => _submit(),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(onPressed: _submit, child: const Text('Scan')),
-      ],
     );
   }
 }

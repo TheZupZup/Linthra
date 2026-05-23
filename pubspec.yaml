@@ -28,6 +28,14 @@ dependencies:
   # services layer; the UI depends on the PlaybackController interface, never on
   # just_audio directly. Background playback (audio_service) lands in a later PR.
   just_audio: ^0.9.42
+  # Native folder chooser for selecting a music folder to scan. Used only by
+  # FilePickerFolderPickerService; the UI depends on the FolderPickerService
+  # interface, never on file_picker directly.
+  file_picker: ^8.1.4
+  # Persists the single selected music folder path/URI across restarts. Used
+  # only by SharedPreferencesSelectedMusicFolderRepository, behind the
+  # SelectedMusicFolderRepository interface.
+  shared_preferences: ^2.3.3
 
 dev_dependencies:
   flutter_lints: ^5.0.0

@@ -31,12 +31,19 @@ configured folder and maps them into `Track`s. It does no tag parsing yet —
 it's the first concrete `MusicSource` and the seam future metadata parsing will
 extend.
 
-Scanning is triggered from a deliberately minimal **dev entry point**: a folder
-icon in the Library app bar opens a small text prompt for a folder path. There
-is no real folder picker or Android runtime-permission flow yet — those come
-later. The scan path is exposed as `LibraryController.scanFolder(path)`, which
-keeps the flow fully testable without a real disk (the file-system seam,
-`audioFileScannerProvider`, is overridden with a fake in tests).
+**Folder selection now uses the native picker.** The folder icon in the Library
+app bar opens the OS folder chooser (Android Storage Access Framework / desktop
+GTK) via a `FolderPickerService` seam, persists the chosen folder through a
+`SelectedMusicFolderRepository`, and then scans it. The choice survives restarts
+(`shared_preferences` in the app; in-memory in tests). All of this stays behind
+interfaces: the UI talks only to `SelectedFolderController` and
+`LibraryController`, never to `file_picker` or `shared_preferences` directly.
+The scan itself is still exposed as `LibraryController.scanFolder(path)` and runs
+through `LocalMusicSource`, so the flow stays fully testable without a real disk
+or OS dialog (the picker, the file-system seam, and the selected-folder store are
+each overridden with a fake/in-memory binding in tests). See **Android folder
+selection & known limitations** below for what still needs care on modern
+Android.
 
 A temporary `InMemoryMusicLibraryRepository` (`lib/data/repositories/`) also
 implements the `MusicLibraryRepository` contract, so the app and its tests have
@@ -62,8 +69,9 @@ repository abstraction.
 
 Not built yet (planned, in roughly this order):
 
-- Local music library scanning — *v1 done (scan → persist → list); tag parsing,
-  a real folder picker, and Android permissions still pending*
+- Local music library scanning — *v1 done (scan → persist → list); native
+  folder picker + persisted selection now done; tag parsing and Android
+  runtime storage permissions still pending*
 - Audio playback
 - Playlists
 - User-controlled offline downloads
@@ -96,9 +104,11 @@ codebase.
 
 Dependencies are added when a feature needs them rather than up front, so
 `pubspec.yaml` stays honest about what the code actually uses. Today that's
-`flutter_riverpod`, `go_router`, `path` (for the local file scanner), and
-`drift` + `sqlite3_flutter_libs` + `path_provider` for SQLite persistence
-(`drift_dev` + `build_runner` are dev-only, for code generation).
+`flutter_riverpod`, `go_router`, `path` (for the local file scanner),
+`drift` + `sqlite3_flutter_libs` + `path_provider` for SQLite persistence,
+`just_audio` for playback, `file_picker` for the native folder chooser, and
+`shared_preferences` for remembering the selected folder (`drift_dev` +
+`build_runner` are dev-only, for code generation).
 
 ## Architecture
 
@@ -193,27 +203,37 @@ The debug APK is unsigned and meant for local testing only. **Release signing,
 store-ready bundles, and APK publishing are intentionally out of scope** for
 this stage — there are no native build, signing, or publishing steps in CI.
 
-### Android readiness & known limitations
+### Android folder selection & known limitations
 
-Library v1 is built to be exercisable on an Android device, with a few
-deliberate gaps that the next PRs will close:
+**How scanning works now.** Tap the folder icon in the Library app bar → the
+native folder chooser opens → the chosen folder is persisted and immediately
+scanned. The selection survives restarts, and the empty state adapts: when no
+folder is chosen it invites you to pick one; when a folder is chosen but nothing
+playable is found it shows that folder and offers **Rescan folder** / **Change
+folder**. On Linux/desktop the same flow uses the GTK/Win32 directory dialog and
+returns a real filesystem path, which `LocalMusicSource` scans directly.
 
-- **No folder picker yet.** Scanning is driven by a minimal dev prompt that
-  takes a folder *path* (e.g. `/storage/emulated/0/Music`). A real
-  system folder picker (Storage Access Framework) is not wired up.
-- **No runtime storage permissions yet.** The scan reads whatever paths the OS
-  already grants; `READ_MEDIA_AUDIO` / `MANAGE_EXTERNAL_STORAGE` request flows
-  are not implemented, so on modern Android you may need to point the scan at a
-  directory the app can already read.
-- **No playback.** Tapping a track is a no-op; `just_audio`/`audio_service`
-  are not added yet.
+Library scanning is exercisable on an Android device, with a few deliberate gaps
+the next PRs will close:
+
+- **Android returns a SAF tree URI, not always a filesystem path.** On modern
+  Android the system folder chooser hands back a `content://…/tree/…` URI under
+  Storage Access Framework. The current `dart:io`-based scanner
+  (`IoAudioFileScanner`) reads real filesystem paths, so it can scan folders the
+  app can already reach by path but cannot yet walk a raw SAF tree URI.
+  Document-tree traversal (or resolving the URI to a path) is a planned
+  follow-up; the picker + persistence seam is in place for it.
+- **No runtime storage permissions yet.** No `READ_MEDIA_AUDIO` /
+  `MANAGE_EXTERNAL_STORAGE` request flow is wired up, so on modern Android you
+  may need to point the scan at a directory the app can already read. We are
+  intentionally not requesting broad storage permissions in this PR.
 - **No tag/metadata parsing.** Tracks show their title (derived from the file
   name) and fall back to the file path when artist/album tags are absent.
 - **No queue, playlists, downloads, or remote sources** (Jellyfin/WebDAV) yet.
 
-The next PR is expected to add the Android folder picker + storage-permission
-flow, or basic playback with `just_audio` — whichever is more stable once this
-lands.
+The next PR is expected to be queue polish or a playlist-editor foundation;
+SAF document-tree scanning and Android runtime storage permissions remain the
+natural follow-ups to this folder-selection work.
 
 ## Continuous integration
 

@@ -8,6 +8,7 @@ import 'package:sonara/features/library/library_providers.dart';
 import 'package:sonara/features/library/library_screen.dart';
 
 import 'fake_audio_file_scanner.dart';
+import 'fake_folder_picker_service.dart';
 import 'fake_music_library_repository.dart';
 
 Future<void> _pumpScreen(
@@ -35,13 +36,17 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    testWidgets('shows the empty state when there are no tracks', (
+    testWidgets('prompts to select a folder when none is chosen', (
       tester,
     ) async {
       await _pumpScreen(tester, FakeMusicLibraryRepository());
       await tester.pumpAndSettle();
 
-      expect(find.text('Your library is empty'), findsOneWidget);
+      expect(find.text('No music folder selected'), findsOneWidget);
+      expect(
+        find.widgetWithText(FilledButton, 'Select a folder'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('lists tracks with title and subtitle', (tester) async {
@@ -80,7 +85,7 @@ void main() {
       expect(find.text('Retry'), findsOneWidget);
     });
 
-    testWidgets('scanning a folder populates the list from the prompt', (
+    testWidgets('picking a folder scans it and populates the list', (
       tester,
     ) async {
       final scanner = FakeAudioFileScanner(
@@ -93,23 +98,48 @@ void main() {
               InMemoryMusicLibraryRepository(),
             ),
             audioFileScannerProvider.overrideWithValue(scanner),
+            folderPickerServiceProvider.overrideWithValue(
+              FakeFolderPickerService(folder: '/music'),
+            ),
           ],
           child: const MaterialApp(home: LibraryScreen()),
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Your library is empty'), findsOneWidget);
+      expect(find.text('No music folder selected'), findsOneWidget);
 
-      // Open the scan prompt, type a path, and confirm.
-      await tester.tap(find.byTooltip('Scan a folder'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '/music');
-      await tester.tap(find.widgetWithText(FilledButton, 'Scan'));
+      // Tap the folder action: the fake picker returns '/music', which is then
+      // scanned.
+      await tester.tap(find.byTooltip('Select music folder'));
       await tester.pumpAndSettle();
 
       expect(scanner.requestedFolder, '/music');
       expect(find.text('Hello'), findsOneWidget);
-      expect(find.text('Your library is empty'), findsNothing);
+      expect(find.text('No music folder selected'), findsNothing);
+    });
+
+    testWidgets('cancelling the picker leaves the empty state untouched', (
+      tester,
+    ) async {
+      final picker = FakeFolderPickerService(folder: null);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            folderPickerServiceProvider.overrideWithValue(picker),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Select music folder'));
+      await tester.pumpAndSettle();
+
+      expect(picker.pickCount, 1);
+      expect(find.text('No music folder selected'), findsOneWidget);
     });
   });
 }
