@@ -116,12 +116,18 @@ Stored under `fastlane/metadata/android/en-US/`:
 - [x] `short_description.txt` — one-line summary (under F-Droid's 80-char limit).
 - [x] `full_description.txt` — long description (separates shipped vs. planned).
 - [x] `changelogs/1.txt` — placeholder notes for `versionCode` 1.
-- [ ] `images/icon.png` — 512×512 launcher/store icon.
+- [ ] `images/icon.png` — 512×512 real Linthra store icon (the launcher icons
+  under `android/app/src/main/res/mipmap-*` are still the default Flutter
+  placeholder and must not be reused here).
 - [ ] `images/featureGraphic.png` — 1024×500.
 - [ ] `images/phoneScreenshots/*.png` — 2–8 real screenshots from a device.
+- [ ] `images/sevenInchScreenshots/*.png` / `images/tenInchScreenshots/*.png` —
+  optional tablet screenshots (only if the larger layout is worth showing).
 
 No placeholder/mock images are committed on purpose; `images/` currently holds
-only `NEEDED-ASSETS.txt` documenting the expected layout. See F-Droid's
+only `NEEDED-ASSETS.txt` documenting the expected layout. Exact sizes and
+step-by-step capture instructions live in
+[docs/listing-assets.md](./listing-assets.md); see also F-Droid's
 [descriptions, graphics & screenshots guide](https://f-droid.org/docs/All_About_Descriptions_Graphics_and_Screenshots/).
 
 ## 8. Remaining blockers before submission
