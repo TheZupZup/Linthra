@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:just_audio/just_audio.dart';
 
+import '../models/playback_queue.dart';
 import '../models/playback_state.dart';
 import '../models/track.dart';
 import 'playback_controller.dart';
@@ -26,6 +27,7 @@ class JustAudioPlaybackController implements PlaybackController {
       <StreamSubscription<void>>[];
 
   PlaybackState _state = PlaybackState.idle;
+  PlaybackQueue _queue = PlaybackQueue.empty;
 
   @override
   PlaybackState get state => _state;
@@ -35,7 +37,13 @@ class JustAudioPlaybackController implements PlaybackController {
 
   void _wire() {
     _subscriptions.add(_player.playerStateStream.listen((playerState) {
-      _emit(_state.copyWith(status: _statusFor(playerState)));
+      final status = _statusFor(playerState);
+      // When a track finishes, roll into the next one if the queue has more.
+      if (status == PlaybackStatus.completed && _queue.hasNext) {
+        skipToNext();
+        return;
+      }
+      _emit(_state.copyWith(status: status));
     }));
     _subscriptions.add(_player.positionStream.listen((position) {
       _emit(_state.copyWith(position: position));
@@ -68,10 +76,45 @@ class JustAudioPlaybackController implements PlaybackController {
   }
 
   @override
-  Future<void> playTrack(Track track) async {
+  Future<void> playTrack(Track track) => playTracks(<Track>[track]);
+
+  @override
+  Future<void> playTracks(List<Track> tracks, {int startIndex = 0}) {
+    _queue = PlaybackQueue.of(tracks, startIndex: startIndex);
+    return _playCurrent();
+  }
+
+  @override
+  void playNext(Track track) {
+    _queue = _queue.enqueueNext(track);
+    // The current track keeps playing; only the up-next list changes.
+    _emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  Future<void> skipToNext() async {
+    if (!_queue.hasNext) return;
+    _queue = _queue.next();
+    await _playCurrent();
+  }
+
+  @override
+  void clearQueue() {
+    _queue = _queue.cleared();
+    _emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  /// Loads and plays the queue's current track, surfacing its up-next list.
+  Future<void> _playCurrent() async {
+    final track = _queue.current;
+    if (track == null) return;
     // Reset position/duration up front so the UI doesn't show the previous
     // track's progress while the new one loads.
-    _emit(PlaybackState(status: PlaybackStatus.loading, currentTrack: track));
+    _emit(PlaybackState(
+      status: PlaybackStatus.loading,
+      currentTrack: track,
+      upNext: _queue.upNext,
+    ));
     try {
       // Track.uri is a local file path (see LocalTrackMapper); remote sources
       // arrive in a later PR.
@@ -95,7 +138,10 @@ class JustAudioPlaybackController implements PlaybackController {
   @override
   Future<void> stop() async {
     await _player.stop();
-    _emit(PlaybackState(currentTrack: _state.currentTrack));
+    _emit(PlaybackState(
+      currentTrack: _state.currentTrack,
+      upNext: _queue.upNext,
+    ));
   }
 
   @override
