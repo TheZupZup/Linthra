@@ -24,6 +24,10 @@ dependencies:
   drift: ^2.18.0
   sqlite3_flutter_libs: ^0.5.20
   path_provider: ^2.1.4
+  # Local audio playback engine. Used only by JustAudioPlaybackController in the
+  # services layer; the UI depends on the PlaybackController interface, never on
+  # just_audio directly. Background playback (audio_service) lands in a later PR.
+  just_audio: ^0.9.42
 
 dev_dependencies:
   flutter_lints: ^5.0.0

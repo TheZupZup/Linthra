@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/dimens.dart';
+import '../../app/routes.dart';
 import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../player/player_providers.dart';
 import 'library_controller.dart';
 import 'library_state.dart';
 
@@ -79,13 +82,13 @@ class _TrackList extends StatelessWidget {
   }
 }
 
-class _TrackTile extends StatelessWidget {
+class _TrackTile extends ConsumerWidget {
   const _TrackTile({required this.track});
 
   final Track track;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
       leading: const Icon(Icons.music_note_outlined),
       title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -94,8 +97,11 @@ class _TrackTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      // Playback lands in a later PR; tapping is a no-op for now.
-      onTap: () {},
+      // Start playback, then surface the now-playing screen.
+      onTap: () {
+        ref.read(playbackControllerProvider).playTrack(track);
+        context.push(AppRoutes.player);
+      },
     );
   }
 
