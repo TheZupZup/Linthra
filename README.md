@@ -450,6 +450,14 @@ than a filesystem path. Scanning now routes each selection through a single seam
   then walks that path. Folders selected this way are stored as ordinary file
   paths, so playback resolution is unchanged.
 
+  Before walking, the scanner probes the resolved path for readability
+  (`DirectoryReadability`). On Android 11+ a path the SAF URI resolves to is
+  often **not** readable through `dart:io` — picking a folder in the system
+  chooser does not by itself grant read access under scoped storage. When the
+  path resolves but cannot be listed, the scan now raises a clear
+  `FolderScanException` ("Android is not letting it read that location…")
+  instead of returning an empty list that would look like "no music found".
+
 How a selection is addressed (path vs `content://`) is decided once by
 `FolderLocation`; nothing downstream re-parses the string, and the UI never
 sees any of it.
@@ -460,11 +468,13 @@ Deliberate gaps the next PRs will close:
   the common `com.android.externalstorage.documents` provider. Other SAF
   providers (downloads, media, cloud/document providers) don't expose a stable
   path, so a selection from one of those surfaces a clear `FolderScanException`
-  in the Library error state instead of a silent empty list. The full
-  follow-up is reading a SAF tree through Android's content resolver (via a
-  native plugin), which also covers devices where scoped storage hides a
-  resolved path behind the framework. The routing and error seams are in place
-  for it.
+  in the Library error state instead of a silent empty list. On Android 11+,
+  even an external-storage path that resolves cleanly may be unreadable under
+  scoped storage; the `DirectoryReadability` probe now turns that into the same
+  clear error rather than a silent empty library. The full follow-up is reading
+  a SAF tree through Android's content resolver (via a native plugin), which is
+  what actually lifts the scoped-storage restriction for picked folders. The
+  routing, readability, and error seams are all in place for it.
 - **No runtime storage permissions yet.** No `READ_MEDIA_AUDIO` request flow is
   wired up, and **`MANAGE_EXTERNAL_STORAGE` is intentionally *not* requested** —
   it is an "all files access" permission Google restricts on the Play Store and
@@ -490,11 +500,16 @@ Deliberate gaps the next PRs will close:
 2. Put a few audio files under a folder on shared storage, e.g.
    `/storage/emulated/0/Music`.
 3. In **Library**, tap the folder icon and pick that folder. The chooser
-   returns a `content://…/tree/primary:Music` URI; Linthra resolves it to the
-   path and scans it.
-4. Picking a folder from a provider that has no filesystem mapping (for example
-   a cloud "Documents" provider) is expected to show the Library error state
-   with a clear message — that's the documented limitation, not a crash.
+   returns a `content://…/tree/primary:Music` URI; Linthra resolves it to a
+   path and, if that path is readable on the device, scans it.
+4. On Android 11+ the resolved path is frequently **not** readable under scoped
+   storage (the system chooser grants access to the SAF tree, not to the
+   underlying filesystem path). In that case the Library shows a clear error
+   explaining Android blocked the read — that's the documented limitation, not
+   a crash or a silent empty library.
+5. Picking a folder from a provider that has no filesystem mapping (for example
+   a cloud "Documents" provider) likewise shows the Library error state with a
+   clear message.
 
 The next PR is expected to be a playlist-editor foundation or Android SAF
 content-resolver folder scanning; a narrow `READ_MEDIA_AUDIO` permission flow
