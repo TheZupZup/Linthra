@@ -110,11 +110,12 @@ class JustAudioPlaybackController implements PlaybackController {
     if (track == null) return;
     // Reset position/duration up front so the UI doesn't show the previous
     // track's progress while the new one loads.
-    _emit(PlaybackState(
+    final loading = PlaybackState(
       status: PlaybackStatus.loading,
       currentTrack: track,
       upNext: _queue.upNext,
-    ));
+    );
+    _emit(loading);
     try {
       // Track.uri is a local file path (see LocalTrackMapper); remote sources
       // arrive in a later PR.
@@ -138,10 +139,11 @@ class JustAudioPlaybackController implements PlaybackController {
   @override
   Future<void> stop() async {
     await _player.stop();
-    _emit(PlaybackState(
+    final stopped = PlaybackState(
       currentTrack: _state.currentTrack,
       upNext: _queue.upNext,
-    ));
+    );
+    _emit(stopped);
   }
 
   @override

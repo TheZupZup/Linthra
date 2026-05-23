@@ -112,9 +112,8 @@ class _TrackTile extends ConsumerWidget {
       // Play the tapped track and queue the rest of the list behind it, then
       // surface the now-playing screen.
       onTap: () {
-        ref
-            .read(playbackControllerProvider)
-            .playTracks(tracks, startIndex: index);
+        final controller = ref.read(playbackControllerProvider);
+        controller.playTracks(tracks, startIndex: index);
         context.push(AppRoutes.player);
       },
     );

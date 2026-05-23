@@ -73,11 +73,12 @@ class FakePlaybackController implements PlaybackController {
     final track = _queue.current;
     if (track == null) return;
     playedTracks.add(track);
-    emit(PlaybackState(
+    final playing = PlaybackState(
       status: PlaybackStatus.playing,
       currentTrack: track,
       upNext: _queue.upNext,
-    ));
+    );
+    emit(playing);
   }
 
   @override

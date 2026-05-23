@@ -34,14 +34,18 @@ class PlaybackQueue {
   final int currentIndex;
 
   /// The track playing now, or null when the queue is empty.
-  Track? get current => currentIndex < 0 || currentIndex >= tracks.length
-      ? null
-      : tracks[currentIndex];
+  Track? get current {
+    if (currentIndex < 0 || currentIndex >= tracks.length) return null;
+    return tracks[currentIndex];
+  }
 
   /// The tracks queued after the current one, in play order.
-  List<Track> get upNext => currentIndex < 0 || currentIndex >= tracks.length
-      ? const <Track>[]
-      : tracks.sublist(currentIndex + 1);
+  List<Track> get upNext {
+    if (currentIndex < 0 || currentIndex >= tracks.length) {
+      return const <Track>[];
+    }
+    return tracks.sublist(currentIndex + 1);
+  }
 
   /// Whether there is at least one track after the current one.
   bool get hasNext => currentIndex >= 0 && currentIndex < tracks.length - 1;
@@ -50,9 +54,10 @@ class PlaybackQueue {
 
   /// Advances to the next track. Returns this queue unchanged when there is no
   /// next track, so callers can branch on [hasNext] before playing.
-  PlaybackQueue next() => hasNext
-      ? PlaybackQueue(tracks: tracks, currentIndex: currentIndex + 1)
-      : this;
+  PlaybackQueue next() {
+    if (!hasNext) return this;
+    return PlaybackQueue(tracks: tracks, currentIndex: currentIndex + 1);
+  }
 
   /// Inserts [track] immediately after the current one ("play next"). With an
   /// empty queue it becomes the current track.

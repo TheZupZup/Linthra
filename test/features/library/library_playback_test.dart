@@ -12,39 +12,28 @@ import 'package:sonara/features/player/player_screen.dart';
 import '../player/fake_playback_controller.dart';
 import 'fake_music_library_repository.dart';
 
-void main() {
-  GoRouter _router() => GoRouter(
-        initialLocation: AppRoutes.library,
-        routes: [
-          GoRoute(
-            path: AppRoutes.library,
-            builder: (_, __) => const LibraryScreen(),
-          ),
-          GoRoute(
-            path: AppRoutes.player,
-            builder: (_, __) => const PlayerScreen(),
-          ),
-        ],
-      );
+GoRouter _libraryRouter() {
+  return GoRouter(
+    initialLocation: AppRoutes.library,
+    routes: [
+      GoRoute(
+        path: AppRoutes.library,
+        builder: (_, __) => const LibraryScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.player,
+        builder: (_, __) => const PlayerScreen(),
+      ),
+    ],
+  );
+}
 
+void main() {
   testWidgets('tapping a track plays it and opens the player', (tester) async {
     final controller = FakePlaybackController();
     final repository = FakeMusicLibraryRepository(
       tracks: const <Track>[
         Track(id: '1', title: 'Song One', uri: '/music/song1.mp3'),
-      ],
-    );
-    final router = GoRouter(
-      initialLocation: AppRoutes.library,
-      routes: [
-        GoRoute(
-          path: AppRoutes.library,
-          builder: (_, __) => const LibraryScreen(),
-        ),
-        GoRoute(
-          path: AppRoutes.player,
-          builder: (_, __) => const PlayerScreen(),
-        ),
       ],
     );
 
@@ -54,7 +43,7 @@ void main() {
           musicLibraryRepositoryProvider.overrideWithValue(repository),
           playbackControllerProvider.overrideWithValue(controller),
         ],
-        child: MaterialApp.router(routerConfig: router),
+        child: MaterialApp.router(routerConfig: _libraryRouter()),
       ),
     );
     await tester.pumpAndSettle();
@@ -86,7 +75,7 @@ void main() {
           musicLibraryRepositoryProvider.overrideWithValue(repository),
           playbackControllerProvider.overrideWithValue(controller),
         ],
-        child: MaterialApp.router(routerConfig: _router()),
+        child: MaterialApp.router(routerConfig: _libraryRouter()),
       ),
     );
     await tester.pumpAndSettle();
