@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/sources/local/folder_scan_exception.dart';
 import '../../core/sources/local/local_music_source.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
 import 'library_providers.dart';
@@ -41,10 +42,21 @@ class LibraryController extends Notifier<LibraryState> {
         artists: artists,
       );
       await _load();
-    } catch (error) {
-      state = LibraryState.error(error.toString());
+    } on FolderScanException catch (error) {
+      // The scanning layer already phrased a clear, secret-free message
+      // (unreachable SAF tree, unreadable scoped-storage path, …); show it.
+      state = LibraryState.error(error.message);
+    } catch (_) {
+      // Anything else is an unexpected scan failure — a raw `dart:io`
+      // permission error or a plugin fault. Don't leak its text (errno codes,
+      // paths) to the user; show one friendly, actionable line instead.
+      state = const LibraryState.error(_scanFailedMessage);
     }
   }
+
+  static const String _scanFailedMessage =
+      "Couldn't scan that folder. Try selecting it again, or pick a different "
+      'folder.';
 
   Future<void> _load() async {
     state = const LibraryState.loading();

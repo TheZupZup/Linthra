@@ -12,6 +12,22 @@
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
+    <!-- POST_NOTIFICATIONS: required on Android 13+ (API 33) for the
+         audio_service media notification (and its transport controls) to appear
+         at all. It is a runtime permission the user must grant; the app asks
+         once on first launch (see NotificationPermission). Without it the
+         service still runs but the notification / lock-screen controls are
+         silently suppressed on modern devices. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- INTERNET: needed to reach a self-hosted Jellyfin server (connection
+         test, sign-in, library sync, and streaming). Declared here so a
+         release build can stream too; the debug/profile manifests also add it
+         for Flutter's tooling, and the manifest merger de-duplicates. No
+         storage permission is declared — folder access uses the Storage Access
+         Framework grant the user picks. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:label="Linthra"
         android:name="${applicationName}"

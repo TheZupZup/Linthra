@@ -4,6 +4,7 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
+import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 import 'package:linthra/core/sources/local/saf_document_lister.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
@@ -127,10 +128,15 @@ void main() {
       expect(await repository.getAllTracks(), hasLength(2));
     });
 
-    test('scanFolder surfaces an error when scanning fails', () async {
+    test('scanFolder shows a friendly message for an unexpected scan failure',
+        () async {
+      // A raw scanner failure (a dart:io permission error on device, say) must
+      // not leak its text — the user sees one clean, actionable line instead.
       final container = _scanContainer(
         repository: InMemoryMusicLibraryRepository(),
-        scanner: FakeAudioFileScanner(error: Exception('no such folder')),
+        scanner: FakeAudioFileScanner(
+          error: Exception('FileSystemException: errno = 13'),
+        ),
       );
 
       await container
@@ -139,7 +145,36 @@ void main() {
 
       final state = container.read(libraryControllerProvider);
       expect(state.status, LibraryStatus.error);
-      expect(state.errorMessage, contains('no such folder'));
+      expect(state.errorMessage, contains("Couldn't scan that folder"));
+      // The raw exception text never reaches the UI.
+      expect(state.errorMessage, isNot(contains('errno')));
+      expect(state.errorMessage, isNot(contains('Exception')));
+    });
+
+    test('scanFolder surfaces a FolderScanException message verbatim',
+        () async {
+      // A typed scan error already carries a curated, secret-free message, so
+      // it should pass through unchanged rather than be replaced by the generic
+      // fallback.
+      final container = _scanContainer(
+        repository: InMemoryMusicLibraryRepository(),
+        scanner: FakeAudioFileScanner(
+          error: const FolderScanException(
+            'This folder is on a provider Linthra cannot read yet.',
+          ),
+        ),
+      );
+
+      await container
+          .read(libraryControllerProvider.notifier)
+          .scanFolder('/missing');
+
+      final state = container.read(libraryControllerProvider);
+      expect(state.status, LibraryStatus.error);
+      expect(
+        state.errorMessage,
+        'This folder is on a provider Linthra cannot read yet.',
+      );
     });
 
     test('scanFolder scans a content URI through the SAF lister', () async {
