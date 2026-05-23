@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'directory_readability.dart';
 import 'folder_location.dart';
 import 'folder_scan_exception.dart';
 import 'saf_tree_uri_resolver.dart';
@@ -56,29 +57,51 @@ class IoAudioFileScanner implements AudioFileScanner {
 ///
 /// This is the Android-capable scanner. It does not touch `dart:io` itself: it
 /// resolves the URI with a [SafTreeUriResolver] and hands the resulting path to
-/// an injected [AudioFileScanner] (the real one is [IoAudioFileScanner]). When
-/// the URI maps to no reachable path, it throws [FolderScanException] so the
-/// user sees a clear message instead of an empty library. Walking SAF trees
-/// that scoped storage only exposes through the content resolver is the
-/// documented native follow-up.
+/// an injected [AudioFileScanner] (the real one is [IoAudioFileScanner]).
+///
+/// Two cases throw [FolderScanException] so the user sees a clear message
+/// instead of a silently empty library:
+///
+/// 1. The URI maps to no reachable path at all (cloud/document providers).
+/// 2. The URI resolves to a path that this app is not allowed to read on this
+///    device — the Android 11+ scoped-storage case, detected up front with a
+///    [DirectoryReadability] probe. Without the probe a `dart:io` walk of an
+///    unreadable directory just returns nothing, which looks like "no music
+///    found" rather than the permission problem it is.
+///
+/// Walking SAF trees that scoped storage only exposes through the content
+/// resolver is the documented native follow-up.
 class ContentUriAudioFileScanner implements AudioFileScanner {
   const ContentUriAudioFileScanner({
     AudioFileScanner filesystemScanner = const IoAudioFileScanner(),
     SafTreeUriResolver resolver = const SafTreeUriResolver(),
+    DirectoryReadability readability = const IoDirectoryReadability(),
   })  : _filesystemScanner = filesystemScanner,
-        _resolver = resolver;
+        _resolver = resolver,
+        _readability = readability;
 
   final AudioFileScanner _filesystemScanner;
   final SafTreeUriResolver _resolver;
+  final DirectoryReadability _readability;
 
   @override
-  Future<List<String>> listFiles(String folder) {
+  Future<List<String>> listFiles(String folder) async {
     final String? path = _resolver.resolveToPath(folder);
     if (path == null) {
       throw FolderScanException(
         "This folder can't be scanned yet. It was shared through Android's "
         'Storage Access Framework, which Linthra cannot walk directly on this '
         'device. Try selecting a folder on your phone or SD card storage.',
+        folder: folder,
+      );
+    }
+    if (!await _readability.canList(path)) {
+      throw FolderScanException(
+        'Linthra resolved this folder to "$path", but Android is not letting '
+        'it read that location. Picking a folder through the system chooser '
+        'does not by itself grant read access on Android 11+, where shared '
+        'storage is sandboxed. Choose a folder the app can already read, or '
+        'wait for the upcoming Storage Access Framework support.',
         folder: folder,
       );
     }

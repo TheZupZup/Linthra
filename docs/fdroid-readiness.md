@@ -94,6 +94,24 @@ where applicable. Current assessment:
 > warrant the `NonFreeNet` anti-feature. The local-first core must remain fully
 > functional without them.
 
+### Android storage / permissions status
+
+- **No storage permissions are declared** in `AndroidManifest.xml`. Folder
+  selection uses the Storage Access Framework via the system folder chooser
+  (`file_picker`'s `ACTION_OPEN_DOCUMENT_TREE`), which needs no manifest
+  permission.
+- **`MANAGE_EXTERNAL_STORAGE` is intentionally not used.** It is an
+  "all files access" permission Google restricts and F-Droid users distrust; it
+  is the opposite of the scoped-storage approach this project prefers. It must
+  not be added without an explicit, documented justification.
+- **Known limitation:** a SAF folder is resolved to a filesystem path and walked
+  with `dart:io`. On Android 11+ that path is frequently unreadable under scoped
+  storage; the scanner now surfaces a clear in-app error in that case
+  (`DirectoryReadability` probe + `FolderScanException`) rather than a silent
+  empty library. Lifting the restriction needs content-resolver SAF traversal
+  (native plugin); a narrow `READ_MEDIA_AUDIO` request is a separate future
+  option. Neither permission is requested today.
+
 ## 6. Release / tagging plan
 
 F-Droid builds from a git tag. Plan:

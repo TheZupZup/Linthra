@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
+import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/features/library/library_controller.dart';
@@ -13,6 +14,20 @@ import 'fake_audio_file_scanner.dart';
 import 'fake_music_library_repository.dart';
 
 Track _track(String id) => Track(id: id, title: 'Track $id', uri: 'file://$id');
+
+/// Reports every resolved SAF path as readable, standing in for the on-device
+/// scoped-storage probe so the content-URI walk runs in tests.
+class _AlwaysReadable implements DirectoryReadability {
+  @override
+  Future<bool> canList(String path) async => true;
+}
+
+/// Reports every resolved SAF path as unreadable, simulating Android 11+ scoped
+/// storage blocking a folder the SAF URI resolved to.
+class _NeverReadable implements DirectoryReadability {
+  @override
+  Future<bool> canList(String path) async => false;
+}
 
 ProviderContainer _containerWith(FakeMusicLibraryRepository repository) {
   final container = ProviderContainer(
@@ -135,9 +150,12 @@ void main() {
       );
       // Wire the fake into the content scanner's walk: a content URI routes to
       // ContentUriAudioFileScanner, which resolves the URI to a path and then
-      // delegates that path to its filesystem scanner.
-      final contentScanner =
-          ContentUriAudioFileScanner(filesystemScanner: filesystem);
+      // delegates that path to its filesystem scanner. A fake readability probe
+      // stands in for the on-device scoped-storage check.
+      final contentScanner = ContentUriAudioFileScanner(
+        filesystemScanner: filesystem,
+        readability: _AlwaysReadable(),
+      );
       final container = _scanContainer(
         repository: repository,
         scanner: PlatformAudioFileScanner(contentUriScanner: contentScanner),
@@ -172,6 +190,34 @@ void main() {
       final state = container.read(libraryControllerProvider);
       expect(state.status, LibraryStatus.error);
       expect(state.errorMessage, contains('Storage Access Framework'));
+    });
+
+    test(
+        'scanFolder surfaces a clean error when a resolved content URI is '
+        'unreadable', () async {
+      // The external-storage URI resolves to a real path, but scoped storage
+      // blocks reading it. The Library should show a clear, actionable error
+      // rather than an empty "no music found" library.
+      final contentScanner = ContentUriAudioFileScanner(
+        filesystemScanner: FakeAudioFileScanner(
+          files: <String>['/storage/emulated/0/Music/One.mp3'],
+        ),
+        readability: _NeverReadable(),
+      );
+      final container = _scanContainer(
+        repository: InMemoryMusicLibraryRepository(),
+        scanner: PlatformAudioFileScanner(contentUriScanner: contentScanner),
+      );
+
+      const folderUri = 'content://com.android.externalstorage.documents/tree/'
+          'primary%3AMusic';
+      await container
+          .read(libraryControllerProvider.notifier)
+          .scanFolder(folderUri);
+
+      final state = container.read(libraryControllerProvider);
+      expect(state.status, LibraryStatus.error);
+      expect(state.errorMessage, contains('not letting it read'));
     });
   });
 }
