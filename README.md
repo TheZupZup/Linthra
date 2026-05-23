@@ -101,7 +101,9 @@ Not built yet (planned, in roughly this order):
   are now routed and resolved for external storage; tag parsing,
   content-resolver SAF scanning, and a narrow Android media permission still
   pending*
-- Audio playback — *done (local playback + up-next queue)*
+- Audio playback — *done (local playback + up-next queue); background playback
+  + media session foundation via `audio_service` now wired (Android Auto
+  readiness, not yet a full car UI)*
 - Playlists
 - User-controlled offline downloads — *foundation done (status lifecycle,
   mark/remove offline, Wi-Fi-only seam, UI hooks); real remote byte-fetch and a
@@ -138,9 +140,10 @@ Dependencies are added when a feature needs them rather than up front, so
 `pubspec.yaml` stays honest about what the code actually uses. Today that's
 `flutter_riverpod`, `go_router`, `path` (for the local file scanner),
 `drift` + `sqlite3_flutter_libs` + `path_provider` for SQLite persistence,
-`just_audio` for playback, `file_picker` for the native folder chooser, and
-`shared_preferences` for remembering the selected folder (`drift_dev` +
-`build_runner` are dev-only, for code generation).
+`just_audio` for playback, `audio_service` for the background media session
+(notification / lock screen / Android Auto), `file_picker` for the native
+folder chooser, and `shared_preferences` for remembering the selected folder
+(`drift_dev` + `build_runner` are dev-only, for code generation).
 
 ## Architecture
 
@@ -191,8 +194,9 @@ lib/
   [`PlaybackQueue`](lib/core/models/playback_queue.dart) model (current track +
   upcoming tracks) and exposes `playTracks`, `playNext`, `skipToNext`, and
   `clearQueue`; the UI reads the queue from `PlaybackState` and never edits it
-  directly. Swappable/wrappable for background audio, MPRIS, and Android Auto
-  without touching feature code.
+  directly. `SonaraAudioHandler` wraps it for background audio / the platform
+  media session (notification, lock screen, Android Auto) without touching
+  feature code; MPRIS can attach the same way later.
 - **`DownloadRepository`** (`core/repositories/`) — enforces the
   user-initiated, "Wi-Fi only"-respecting download policy in one place.
   `CacheDownloadRepository` implements it today over a `DownloadStore`
@@ -242,6 +246,80 @@ flutter install              # installs the last debug build
 The debug APK is unsigned and meant for local testing only. **Release signing,
 store-ready bundles, and APK publishing are intentionally out of scope** for
 this stage — there are no native build, signing, or publishing steps in CI.
+
+### Background playback & Android Auto
+
+Sonara registers a platform **media session** through `audio_service` so
+playback survives backgrounding and shows up where the OS expects it:
+
+- **Notification & lock screen.** A media notification mirrors the current
+  track (title / artist / album) and exposes **play/pause**, **stop**, and
+  **skip-next** (the skip control only appears when the up-next queue has a
+  track). Position updates flow through so scrubbing/seek work from the system
+  UI.
+- **Android Auto readiness.** The same session is what Android Auto and other
+  media browsers attach to, so the now-playing card and transport controls are
+  reachable from the car head unit. This PR lays the **foundation** — it does
+  *not* yet ship a browsable media library (folders/albums/playlists in the car
+  UI). That polish is a later PR.
+
+**Architecture.** `audio_service` is a pure infrastructure layer.
+`SonaraAudioHandler` (`lib/core/services/sonara_audio_handler.dart`) is the
+only file that imports it: it forwards session commands
+(play/pause/stop/skip/seek) to the `PlaybackController` and mirrors the
+controller's `PlaybackState` back out as the session's playback state + media
+item. The controller (still `just_audio`-backed) stays the single source of
+truth, and **the UI continues to depend only on `PlaybackController`** — never
+on `audio_service`. Attaching the session in `main.dart` is best-effort: if it
+fails to initialise (e.g. an unsupported platform) basic playback still works.
+
+**Required native setup** (the `android/` folder is generated locally, see
+above). For the media session to run as a foreground service and be visible to
+Android Auto, add to `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<manifest ...>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission
+      android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+  <application ...>
+    <!-- audio_service playback service -->
+    <service
+        android:name="com.ryanheise.audioservice.AudioService"
+        android:foregroundServiceType="mediaPlayback"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="android.media.browse.MediaBrowserService" />
+      </intent-filter>
+    </service>
+
+    <!-- Media button + Android Auto receiver -->
+    <receiver
+        android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MEDIA_BUTTON" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>
+```
+
+The main activity should extend `AudioServiceActivity` (per the `audio_service`
+README) so the session binds correctly. The notification channel id/name are
+configured in `connectMediaSession` (`com.sonara.audio` / "Sonara playback").
+
+**Limitations (this PR).**
+
+- No browsable car/media-browser tree yet (no folder/album/playlist nodes in
+  Android Auto) — only the now-playing session.
+- No previous-track / skip-to-previous control (the queue model is forward-only
+  for now).
+- No advanced queue editing from the session.
+- No MPRIS (Linux desktop media keys) yet.
+- Lock-screen artwork depends on `Track.artworkUri`, which local scanning does
+  not populate yet.
 
 ### Android folder selection & known limitations
 
