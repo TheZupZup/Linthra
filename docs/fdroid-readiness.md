@@ -153,3 +153,7 @@ step-by-step capture instructions live in
 5. Finalize the version and cut a `vX.Y.Z` tag with a matching changelog (§6).
 6. Prepare the F-Droid `metadata/<appid>.yml` build recipe and submit a merge
    request to [fdroiddata](https://gitlab.com/fdroid/fdroiddata).
+
+The build recipe itself — expected metadata fields, build-source and toolchain
+expectations, reproducibility notes, and a draft `metadata/<appid>.yml` snippet
+— is planned in [docs/fdroid-build-recipe.md](./fdroid-build-recipe.md).

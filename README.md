@@ -625,7 +625,10 @@ marketing language that overpromises.
 
 For the full submission checklist — app identity, build requirements,
 dependency and anti-feature review, release/tagging plan, and remaining
-blockers — see [docs/fdroid-readiness.md](./docs/fdroid-readiness.md).
+blockers — see [docs/fdroid-readiness.md](./docs/fdroid-readiness.md). The
+F-Droid build recipe planning (expected metadata fields, build-source/toolchain
+expectations, reproducible-build notes, and a draft recipe snippet) lives in
+[docs/fdroid-build-recipe.md](./docs/fdroid-build-recipe.md).
 
 ## License
 
