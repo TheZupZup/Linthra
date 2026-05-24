@@ -35,7 +35,7 @@ final trackDownloadProgressProvider = StreamProvider.autoDispose
 });
 
 /// The catalog tracks that are fully available offline, recomputed whenever the
-/// download status map changes. Powers the Downloads screen list.
+/// download status map changes. Powers the Downloads screen's finished list.
 final downloadedTracksProvider = StreamProvider<List<Track>>((ref) async* {
   final repository = ref.watch(downloadRepositoryProvider);
   final library = ref.watch(musicLibraryRepositoryProvider);
@@ -48,6 +48,61 @@ final downloadedTracksProvider = StreamProvider<List<Track>>((ref) async* {
     yield tracks.where((t) => downloadedIds.contains(t.id)).toList();
   }
 });
+
+/// A track that is in flight or needs attention — queued, downloading, or
+/// failed — paired with its live status.
+typedef ActiveDownload = ({Track track, DownloadStatus status});
+
+/// The catalog tracks that are queued, downloading, or failed — i.e. not yet
+/// finished — recomputed whenever the status map changes. Ordered downloading →
+/// queued → failed (then by id) so active work sits on top and the order is
+/// stable across rebuilds. Powers the Downloads screen's "In progress" section,
+/// which makes the bounded-parallel caching visible (and cancel/retry reachable)
+/// in one place; finished downloads come from [downloadedTracksProvider].
+final activeDownloadsProvider =
+    StreamProvider<List<ActiveDownload>>((ref) async* {
+  final repository = ref.watch(downloadRepositoryProvider);
+  final library = ref.watch(musicLibraryRepositoryProvider);
+  await for (final statuses in repository.statusStream) {
+    // notDownloaded is never present in the map, so "not downloaded *yet*" is
+    // exactly queued/downloading/failed.
+    final active = <String, DownloadStatus>{
+      for (final entry in statuses.entries)
+        if (entry.value != DownloadStatus.downloaded) entry.key: entry.value,
+    };
+    if (active.isEmpty) {
+      yield const <ActiveDownload>[];
+      continue;
+    }
+    final tracks = await library.getAllTracks();
+    final byId = <String, Track>{for (final t in tracks) t.id: t};
+    yield <ActiveDownload>[
+      for (final entry in active.entries)
+        if (byId[entry.key] != null)
+          (track: byId[entry.key]!, status: entry.value),
+    ]..sort(_compareActiveDownloads);
+  }
+});
+
+int _activeStatusRank(DownloadStatus status) {
+  switch (status) {
+    case DownloadStatus.downloading:
+      return 0;
+    case DownloadStatus.queued:
+      return 1;
+    case DownloadStatus.failed:
+      return 2;
+    case DownloadStatus.downloaded:
+    case DownloadStatus.notDownloaded:
+      return 3;
+  }
+}
+
+int _compareActiveDownloads(ActiveDownload a, ActiveDownload b) {
+  final int byStatus =
+      _activeStatusRank(a.status).compareTo(_activeStatusRank(b.status));
+  return byStatus != 0 ? byStatus : a.track.id.compareTo(b.track.id);
+}
 
 /// Live offline-cache usage + per-track metadata (size, pinned, timestamps),
 /// re-emitted whenever the cache changes. Powers the Settings cache card and
