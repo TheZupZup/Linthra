@@ -9,6 +9,7 @@ import 'data/repositories/music_library_repository_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'features/downloads/download_providers.dart';
 import 'features/player/player_providers.dart';
+import 'features/settings/jellyfin/jellyfin_settings_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,6 +43,20 @@ Future<void> main() async {
     container.read(playbackControllerProvider),
     container.read(musicLibraryRepositoryProvider),
   );
+
+  // Warm the persisted Jellyfin session before the first frame so a synced
+  // remote track can stream on the first tap — without it, playback would race
+  // the background session load and could fail with "not signed in", making
+  // streaming look like it required downloading first. Best-effort: the loader
+  // already swallows storage errors, but guard here too so a failure never
+  // blocks launch. No token is read into the UI or logged.
+  try {
+    await container
+        .read(jellyfinSettingsControllerProvider.notifier)
+        .ensureLoaded();
+  } catch (_) {
+    // Ignore: the user can still connect in Settings.
+  }
 
   runApp(
     UncontrolledProviderScope(

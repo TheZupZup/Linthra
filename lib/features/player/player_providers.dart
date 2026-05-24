@@ -35,11 +35,22 @@ final playableUriResolverProvider = Provider<PlayableUriResolver>((ref) {
 ///
 /// Defaults to the `just_audio`-backed implementation, wired with the routing
 /// resolver above. Tests override it with a fake so playback can be exercised
-/// without the audio plugin. Disposed with the provider scope so native
-/// resources are released on shutdown.
+/// without the audio plugin. Disposed with the provider scope (i.e. on app
+/// shutdown) so native resources are released.
+///
+/// Lifecycle: this is pinned for the whole app session. It reads its resolver
+/// once with [Ref.read] rather than [Ref.watch], so a rebuild of the resolver,
+/// the offline-cache locator, or the download stores can never tear the
+/// controller down. That matters because the live `AudioPlayer` and the
+/// `audio_service` media session are both bound to *this* instance: recreating
+/// it mid-playback would dispose the player (cutting the music) and leave the
+/// notification mirroring a dead controller. Navigating between tabs and
+/// changing settings touch none of that, so playback survives them. The
+/// resolver still reads the live signed-in Jellyfin source lazily at play time,
+/// so sign-in/out is picked up without rebuilding the controller.
 final playbackControllerProvider = Provider<PlaybackController>((ref) {
   final controller = JustAudioPlaybackController(
-    resolver: ref.watch(playableUriResolverProvider),
+    resolver: ref.read(playableUriResolverProvider),
   );
   ref.onDispose(controller.dispose);
   return controller;

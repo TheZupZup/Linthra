@@ -113,7 +113,42 @@ class _TrackInfo extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.lg),
         _Controls(state: state),
+        const SizedBox(height: AppSpacing.md),
+        const _LyricsButton(),
       ],
+    );
+  }
+}
+
+/// Visible entry point for lyrics. Lyrics aren't sourced yet, so tapping opens a
+/// calm empty state rather than nothing — the button stays put for when a real
+/// lyrics source lands in a later change. No lyrics are fetched or scraped.
+class _LyricsButton extends StatelessWidget {
+  const _LyricsButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: () => _showLyrics(context),
+      icon: const Icon(Icons.lyrics_outlined),
+      label: const Text('Lyrics'),
+    );
+  }
+
+  void _showLyrics(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => const SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(bottom: AppSpacing.xl),
+          child: EmptyState(
+            icon: Icons.lyrics_outlined,
+            title: 'No lyrics available yet.',
+            message: 'Lyrics support is coming in a future update.',
+          ),
+        ),
+      ),
     );
   }
 }

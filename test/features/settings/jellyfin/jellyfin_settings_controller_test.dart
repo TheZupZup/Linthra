@@ -53,6 +53,27 @@ void main() {
       );
     });
 
+    test('ensureLoaded readies the signed-in source before first play',
+        () async {
+      // Mirrors what `main` awaits at startup: after ensureLoaded() resolves,
+      // the persisted session is live and the Jellyfin source is available, so
+      // the first remote track can stream without racing the background load
+      // (the bug that made streaming look like it required downloading first).
+      final container = _container(
+        store: InMemoryJellyfinSessionStore(initialSession: _session),
+      );
+
+      await container
+          .read(jellyfinSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      expect(
+        container.read(jellyfinSettingsControllerProvider).phase,
+        JellyfinConnectionPhase.connected,
+      );
+      expect(container.read(jellyfinMusicSourceProvider), isNotNull);
+    });
+
     test('loads a persisted session as connected', () async {
       final container = _container(
         store: InMemoryJellyfinSessionStore(initialSession: _session),

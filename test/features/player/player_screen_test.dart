@@ -155,6 +155,27 @@ void main() {
       expect(find.text("Couldn't play this track"), findsNothing);
     });
 
+    testWidgets('shows a Lyrics entry that opens a calm empty state', (
+      tester,
+    ) async {
+      final controller = FakePlaybackController(
+        initial: const PlaybackState(
+          status: PlaybackStatus.playing,
+          currentTrack: Track(id: '1', title: 'Song One', uri: '/s.mp3'),
+        ),
+      );
+      await _pumpScreen(tester, controller);
+
+      // The entry point is visible on the player.
+      expect(find.text('Lyrics'), findsOneWidget);
+
+      await tester.tap(find.text('Lyrics'));
+      await tester.pumpAndSettle();
+
+      // No lyrics source yet, so it shows a calm placeholder rather than blank.
+      expect(find.text('No lyrics available yet.'), findsOneWidget);
+    });
+
     testWidgets('reacts to state pushed on the stream', (tester) async {
       final controller = FakePlaybackController();
       await _pumpScreen(tester, controller);

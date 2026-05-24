@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../player/mini_player.dart';
+
 /// The persistent app frame: hosts the active tab and the bottom navigation
 /// bar. Tab state is owned by go_router's [StatefulNavigationShell], so each
 /// tab keeps its own stack and scroll position across switches.
@@ -44,10 +46,19 @@ class HomeShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: navigationShell,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: navigationShell.currentIndex,
-        onDestinationSelected: _onDestinationSelected,
-        destinations: _destinations,
+      // The mini-player rides just above the navigation bar so it stays visible
+      // on every tab (and collapses to nothing when no track is loaded). The
+      // full PlayerScreen is pushed above this shell, so the two never overlap.
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const MiniPlayer(),
+          NavigationBar(
+            selectedIndex: navigationShell.currentIndex,
+            onDestinationSelected: _onDestinationSelected,
+            destinations: _destinations,
+          ),
+        ],
       ),
     );
   }
