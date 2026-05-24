@@ -1,0 +1,17 @@
+Linthra 0.1.0-alpha.9 — cumulative alpha since alpha.1.
+
+New since the first alpha:
+- Working shuffle and repeat playback controls.
+- Chromecast / cast foundation.
+- Smart offline cache manager with a user-configurable size limit.
+- Brand & theme refresh (violet + warm orange identity, refined equalizer
+  icon).
+- Library alphabet fast-scroller fix (no longer overlaps track rows).
+- Disk preloading for smoother playback, Jellyfin-synced favorites, and
+  working lyrics.
+
+Fixed:
+- Settings/About now reports the correct version (it was stuck at alpha.1
+  through earlier alpha builds).
+
+Still an alpha — expect rough edges. Not on F-Droid yet.

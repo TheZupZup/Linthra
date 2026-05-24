@@ -4,20 +4,21 @@ This is the canonical reference for how Linthra cuts a release: versioning,
 git tagging, changelogs, and the (manual) GitHub-Release flow. The F-Droid
 docs reference this document rather than restating the plan.
 
-> **No release has been cut and nothing here publishes to a store.** Linthra
-> has no tagged release yet, is **not** on F-Droid, and no APK/AAB has been
-> published. Pushing a `v*` tag now builds the release artifacts automatically.
-> For **alpha/beta/rc** tags the build can create a GitHub **pre-release** and
-> attach the APK/AAB to it; for **stable** tags it only attaches to a Release you
-> created. **Writing the release notes stays manual** — and nothing is published
-> to any store or to F-Droid. This document describes the intended process.
+> **Sideloadable alphas only; nothing here publishes to a store.** Linthra has
+> tagged pre-release alphas (latest `v0.1.0-alpha.9`) attached to GitHub
+> Releases as sideloadable APKs/AABs, but is **not** on F-Droid. Pushing a `v*`
+> tag builds the release artifacts automatically. For **alpha/beta/rc** tags the
+> build can create a GitHub **pre-release** and attach the APK/AAB to it; for
+> **stable** tags it only attaches to a Release you created. **Writing the
+> release notes stays manual** — and nothing is published to any store or to
+> F-Droid.
 
 ## 1. Versioning model
 
 `pubspec.yaml` is the **single source of truth** for the version:
 
 ```
-version: x.y.z+<versionCode>      # currently 0.1.0-alpha.1+1
+version: x.y.z+<versionCode>      # currently 0.1.0-alpha.9+9
 ```
 
 - **`versionName` = `x.y.z`** — the human-facing [SemVer](https://semver.org/)
@@ -26,7 +27,19 @@ version: x.y.z+<versionCode>      # currently 0.1.0-alpha.1+1
 
 Android reads both from Flutter (`flutter.versionName` / `flutter.versionCode`
 in `android/app/build.gradle`); they are **not** hard-coded in Gradle, so
-bumping `pubspec.yaml` is enough.
+bumping `pubspec.yaml` is enough for the installed APK's version.
+
+**The in-app version display has its own copy.** The Settings/About screen and
+the Jellyfin client-version header read `AppInfo.version` in
+`lib/core/app_info.dart`, a `const` string. It must mirror the `versionName`
+part of `pubspec.yaml` (without the `+versionCode`). This second copy is what
+drifted in earlier alphas — the APK shipped `alpha.9` while Settings still said
+`alpha.1`. To keep it honest, `test/core/app_info_version_test.dart` reads
+`pubspec.yaml` and **fails CI if `AppInfo.version` does not match**, so the two
+must be bumped together in the same commit. (Runtime package-metadata lookup via
+a plugin was deliberately not used: `AppInfo.version` is a `const` consumed
+synchronously, and a test-guarded mirror keeps the change small and dependency-
+free.)
 
 **Rules:**
 
@@ -61,22 +74,31 @@ F-Droid (and our own release tracking) builds from a **git tag**.
 Before creating a release tag:
 
 1. **Bump the version** in `pubspec.yaml` (`versionName` and `versionCode`).
-2. **Add a changelog** for the new `versionCode` at
+   The `versionCode` **must** be strictly greater than every previous build's
+   (the current release is `+9`, so the next is `+10`).
+2. **Sync the in-app version.** Set `AppInfo.version` in
+   `lib/core/app_info.dart` to the new `versionName` (no `+versionCode`). The
+   drift test (`test/core/app_info_version_test.dart`) fails CI if you forget,
+   so do this in the same commit as step 1.
+3. **Add a changelog** for the new `versionCode` at
    `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` (e.g.
-   `1.txt` for `0.1.0-alpha.1+1`). Keep it short and factual; this is what
-   F-Droid shows. A longer GitHub-Release body can live under
+   `9.txt` for `0.1.0-alpha.9+9`). Keep it short and factual; this is what
+   F-Droid shows. A longer GitHub-Release body lives under
    `docs/release-notes/vX.Y.Z*.md` (see the
-   [v0.1.0-alpha.1 draft](./release-notes/v0.1.0-alpha.1.md)).
-3. **Regenerate committed generated files** (Drift `*.g.dart`) so they match the
+   [v0.1.0-alpha.9 notes](./release-notes/v0.1.0-alpha.9.md)). The
+   `vX.Y.Z` in the file name and the version inside it must match the tag and
+   `pubspec.yaml`.
+4. **Regenerate committed generated files** (Drift `*.g.dart`) so they match the
    schema at the tagged commit — run the
    [Generate Drift files workflow](../README.md#generating-drift-files-in-ci) or
    `dart run build_runner build --delete-conflicting-outputs` locally, and commit
    the result. The committed output means the F-Droid build needs no `build_runner`
    prebuild (see [fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
-4. **CI is green** (`flutter analyze`, `flutter test`, formatting) on the commit.
-5. **Confirm licensing** is still accurate if dependencies changed — re-run the
+5. **CI is green** (`flutter analyze`, `flutter test`, formatting) on the
+   commit — this includes the version-drift test from step 2.
+6. **Confirm licensing** is still accurate if dependencies changed — re-run the
    [dependency & license audit](./dependency-license-audit.md).
-6. Create the annotated tag (§2).
+7. Create the annotated tag (§2).
 
 ## 4. GitHub Releases (notes manual, artifact build & attachment automatic)
 
@@ -188,7 +210,8 @@ Release, writes production notes, signs a store build, or submits to F-Droid.
    GitHub-Release artifact is wanted — see
    [release-signing.md](./release-signing.md). (Not needed for F-Droid itself,
    which signs its own builds.)
-2. **A `vX.Y.Z` tag** exists — none does yet.
+2. **A `vX.Y.Z` tag** exists — alpha tags through `v0.1.0-alpha.9` have been
+   cut; F-Droid submission itself is still pending the other blockers.
 3. **Decide the `pubspec.lock` policy** for reproducible release builds
    ([fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
 4. **Feature-maturity call — made for the alpha.** `0.1.0-alpha.1` ships local
