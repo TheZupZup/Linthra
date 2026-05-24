@@ -1,9 +1,8 @@
 Linthra is an open-source, local-first music player for people who own their
 music. Your library lives on your device, and you stay in control of it.
 
-Linthra is early-stage software and under active development. The sections
-below clearly separate what works today from what is planned, so nothing here
-overpromises.
+Linthra is early-stage software in its first alpha. The sections below clearly
+separate what works today from what is planned, so nothing here overpromises.
 
 What Linthra is about:
 
@@ -12,28 +11,32 @@ What Linthra is about:
 * User-owned music — Linthra plays the files you already have. There is no
   store, no account, and no requirement to use anyone's cloud.
 * Privacy-focused — no telemetry and no forced sync. The app does not phone
-  home or upload your library.
+  home or upload your library, and offline downloads only ever happen when you
+  ask for them.
 * Open-source — released under the Mozilla Public License 2.0. Anyone can
   read, audit, build, and contribute to the code.
 
 Working today:
 
-* Pick a folder of music using the native Android folder picker.
-* Scan that folder and build a local catalog of your tracks.
-* The chosen folder and the scanned tracks are saved on the device, so they
-  survive an app restart.
+* Pick a folder of music using the native Android folder picker, scan it, and
+  list your tracks. The chosen folder and the scanned catalog survive a
+  restart.
+* Play your local tracks, with an up-next queue.
+* Background playback with a media notification and lock-screen, Bluetooth, and
+  wired-headset controls.
+* Android Auto: browse your Library and Queue from the car screen.
+* Connect to your own Jellyfin server, sign in, sync your library, and stream
+  tracks. The session token is stored encrypted and passwords are never saved.
+* Explicit, user-initiated offline downloads of Jellyfin tracks, with a
+  "Wi-Fi only" option — never automatic.
 
 Planned (not finished yet):
 
-* Audio playback with a background media session (notification and lock-screen
-  controls).
-* Browsing by artist and album, plus search and album artwork.
-* Playlist creation and editing.
-* Explicit, user-initiated offline downloads with a "Wi-Fi only" option — never
-  automatic. The groundwork for this download policy already exists in the code,
-  but no remote sources are wired up yet.
-* Additional sources (such as Jellyfin, WebDAV, and NAS) behind a single
-  interface.
+* Tag/metadata parsing and album artwork (tracks currently show file names).
+* Browsing by artist and album, plus search.
+* Playlist creation and editing, plus queue reorder/shuffle/repeat.
+* Album- and playlist-level "download all" and a background download manager.
+* Additional sources (such as WebDAV and NAS) behind the same interface.
 
 Platforms:
 
