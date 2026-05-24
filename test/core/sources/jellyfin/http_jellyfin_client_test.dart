@@ -305,4 +305,69 @@ void main() {
       );
     });
   });
+
+  group('probeStream', () {
+    final streamUrl =
+        Uri.parse('$_base/Audio/t1/stream?static=true&api_key=tok');
+
+    test('sends a tiny ranged GET and reports status + content type', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return http.Response('', 206, headers: <String, String>{
+          'content-type': 'audio/mpeg',
+        });
+      }));
+
+      final probe = await client.probeStream(streamUrl);
+
+      expect(probe.statusCode, 206);
+      expect(probe.contentType, 'audio/mpeg');
+      expect(probe.isAudio, isTrue);
+      expect(probe.isHtml, isFalse);
+      expect(captured!.method, 'GET');
+      // A bounded range, so the whole track isn't downloaded just to check it.
+      expect(captured!.headers['Range'], 'bytes=0-1');
+      // Auth rides in the URL (mirroring the engine); no Authorization header.
+      expect(captured!.headers.containsKey('Authorization'), isFalse);
+    });
+
+    test('returns a non-2xx status instead of throwing', () async {
+      final client = _client(MockClient((_) async => http.Response('no', 401)));
+
+      final probe = await client.probeStream(streamUrl);
+
+      expect(probe.statusCode, 401);
+    });
+
+    test('reports an HTML content type (a Cloudflare page)', () async {
+      final client = _client(MockClient((_) async => http.Response(
+            '<html>Attention Required</html>',
+            200,
+            headers: <String, String>{
+              'content-type': 'text/html; charset=utf-8'
+            },
+          )));
+
+      final probe = await client.probeStream(streamUrl);
+
+      expect(probe.isHtml, isTrue);
+      expect(probe.isAudio, isFalse);
+    });
+
+    test('maps a transport failure to "not reachable"', () async {
+      final client = _client(
+        MockClient((_) async => throw http.ClientException('offline')),
+      );
+
+      await expectLater(
+        client.probeStream(streamUrl),
+        throwsA(isA<JellyfinException>().having(
+          (JellyfinException e) => e.kind,
+          'kind',
+          JellyfinErrorKind.notReachable,
+        )),
+      );
+    });
+  });
 }

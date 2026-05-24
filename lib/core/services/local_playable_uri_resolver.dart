@@ -1,6 +1,7 @@
 import '../models/playback_source.dart';
 import '../models/track.dart';
 import 'playable_uri_resolver.dart';
+import 'playback_diagnostics.dart';
 
 /// Resolves on-device tracks — local file paths and Android SAF `content://`
 /// document URIs — to a URI the audio engine can open.
@@ -22,6 +23,11 @@ class LocalPlayableUriResolver implements PlayableUriResolver {
 
   @override
   Future<ResolvedPlayable> resolve(Track track) async {
+    PlaybackDiagnostics.resolved(
+      source: 'local',
+      resolver: 'LocalPlayableUriResolver',
+      itemId: track.id,
+    );
     return ResolvedPlayable(
       playableUriFor(track.uri),
       PlaybackSource.localFile,

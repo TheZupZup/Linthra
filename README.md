@@ -932,11 +932,25 @@ library** (which leaves any existing catalog untouched rather than wiping it).
 playback controller opens whatever URI it's given rather than assuming a local
 file. A `JellyfinPlayableUriResolver` reads the live signed-in source, verifies
 the session (a tiny `GET /Users/Me` check), then asks the source to mint the
-authenticated `/Audio/<id>/universal` URL **at play time**. The player surfaces
-precise, friendly errors — **not signed in**, **expired session**, **server
-unreachable**, **stream unavailable** — branched on a typed error kind, not
-message text. Local file playback is untouched (it never enters the Jellyfin
-resolver).
+authenticated **direct-play** stream URL — `/Audio/<id>/stream?static=true` —
+**at play time**. `static=true` serves the original file bytes (the reliable
+"direct streaming" path the engine can open), rather than a negotiated
+transcode/HLS variant ExoPlayer may reject; auth rides in the `api_key` **query**
+(not a header), because that is what the engine itself fetches with and query
+auth survives the redirects a stripped header would not. Before the URL reaches
+the engine the source **probes** it (a one-byte ranged GET, following any
+Cloudflare/Jellyfin redirects) and checks the status + content type, so a
+Cloudflare page, an expired token, or a non-audio response becomes a precise
+message instead of the engine's opaque "couldn't play". The player surfaces
+friendly errors — **not signed in**, **expired session**, **server
+unreachable**, **a web page instead of audio (Cloudflare/Jellyfin access)**,
+**not an audio stream**, and a generic **couldn't stream** — branched on a typed
+error kind, not message text. Local and `content://` file playback are untouched
+(they never enter the Jellyfin resolver), and a downloaded track still plays from
+its cached copy; a cache miss falls straight through to streaming. Debug builds
+emit a secret-free `PlaybackDiagnostics` line (source, resolver, HTTP status,
+content type, hashed item id) to make field failures diagnosable — never the
+token, password, full URL, or `Authorization` header.
 
 **Offline downloads** let a signed-in user mark individual Jellyfin tracks for
 offline use; the bytes are fetched from Jellyfin's `/Items/<id>/Download`
@@ -956,8 +970,11 @@ tokenized URL).
 
 - **Track-level downloads only.** Album/playlist "download all" is deferred; the
   per-track seam already composes for it (see offline-downloads section above).
-- **Single server only.** One session is stored; multi-server support and
-  richer transcoding/streaming parameters come later.
+- **Single server only.** One session is stored; multi-server support comes
+  later.
+- **Direct play only (no transcoding fallback yet).** Streaming serves the
+  original file (`static=true`), which the engine decodes for the common
+  containers; a server-side transcode fallback for exotic formats is deferred.
 - **No Android Auto browsing, lyrics, or sync-conflict handling** for Jellyfin
   in this foundation.
 

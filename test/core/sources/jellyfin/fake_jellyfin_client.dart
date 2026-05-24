@@ -15,6 +15,8 @@ class FakeJellyfinClient implements JellyfinClient {
     this.authError,
     this.itemsError,
     this.verifyError,
+    this.streamProbe,
+    this.probeError,
   });
 
   JellyfinServerInfo? serverInfo;
@@ -25,6 +27,13 @@ class FakeJellyfinClient implements JellyfinClient {
   JellyfinException? itemsError;
   JellyfinException? verifyError;
 
+  /// Canned result for [probeStream]; defaults to a healthy `audio/mpeg` 200 so
+  /// tests that only care about the minted URL don't have to set it.
+  JellyfinStreamProbe? streamProbe;
+
+  /// A transport failure for [probeStream] to throw instead of returning.
+  JellyfinException? probeError;
+
   // Recorded inputs.
   String? lastBaseUrl;
   String? lastUsername;
@@ -32,6 +41,10 @@ class FakeJellyfinClient implements JellyfinClient {
   String? lastDeviceId;
   final List<JellyfinItemKind> requestedKinds = <JellyfinItemKind>[];
   int verifyCount = 0;
+
+  /// The last URL [probeStream] was asked about, so a test can prove the probe
+  /// ran against the minted stream URL.
+  Uri? lastProbedUrl;
 
   @override
   Future<JellyfinServerInfo> fetchServerInfo(String baseUrl) async {
@@ -88,5 +101,16 @@ class FakeJellyfinClient implements JellyfinClient {
     if (error != null) {
       throw error;
     }
+  }
+
+  @override
+  Future<JellyfinStreamProbe> probeStream(Uri url) async {
+    lastProbedUrl = url;
+    final JellyfinException? error = probeError;
+    if (error != null) {
+      throw error;
+    }
+    return streamProbe ??
+        const JellyfinStreamProbe(statusCode: 200, contentType: 'audio/mpeg');
   }
 }

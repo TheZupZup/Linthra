@@ -2,6 +2,7 @@ import '../models/playback_source.dart';
 import '../models/track.dart';
 import 'cached_track_locator.dart';
 import 'playable_uri_resolver.dart';
+import 'playback_diagnostics.dart';
 
 /// A [PlayableUriResolver] that prefers a track's offline-cached file and falls
 /// back to another resolver (streaming) when there isn't one.
@@ -30,11 +31,18 @@ class OfflineFirstPlayableUriResolver implements PlayableUriResolver {
   Future<ResolvedPlayable> resolve(Track track) async {
     final String? cachedPath = await _locator.cachedFilePath(track);
     if (cachedPath != null) {
+      PlaybackDiagnostics.resolved(
+        source: 'offlineCache',
+        resolver: 'OfflineFirstPlayableUriResolver',
+        itemId: track.id,
+      );
       return ResolvedPlayable(
         Uri.file(cachedPath),
         PlaybackSource.offlineCache,
       );
     }
+    // A cache miss falls straight through to streaming (or the on-device
+    // resolver) — it is never treated as "offline/unavailable" on its own.
     return _fallback.resolve(track);
   }
 }

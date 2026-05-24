@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:just_audio/just_audio.dart';
 
 import '../models/playback_queue.dart';
+import '../models/playback_source.dart';
 import '../models/playback_state.dart';
 import '../models/track.dart';
 import 'local_playable_uri_resolver.dart';
@@ -146,10 +147,12 @@ class JustAudioPlaybackController implements PlaybackController {
     try {
       resolved = await _resolver.resolve(track);
     } on PlaybackResolutionException catch (error) {
+      // A resolver failure carries its own friendly, secret-free message.
       _emitError(track, error.message);
       return;
     } catch (_) {
-      _emitError(track, _genericPlaybackError);
+      // An unexpected error before we even know the source: stay generic.
+      _emitError(track, "Couldn't play this track.");
       return;
     }
 
@@ -160,16 +163,27 @@ class JustAudioPlaybackController implements PlaybackController {
 
     try {
       // setUrl handles file://, content:// (Android), and https:// URIs alike,
-      // so local files, SAF documents, and Jellyfin streams share one path.
+      // so local files, SAF documents, and Jellyfin streams share one path. The
+      // resolver guarantees this is never a bare `jellyfin:<id>` — that scheme
+      // is turned into an authenticated stream URL (or a friendly error) before
+      // it ever reaches here.
       await _player.setUrl(resolved.uri.toString());
       // play()'s future completes when playback ends, so we don't await it.
       unawaited(_player.play());
     } catch (_) {
-      _emitError(track, _genericPlaybackError);
+      // The URL resolved and (for streams) probed OK, so a failure here is the
+      // engine itself. Word it for the source the listener can see on the badge.
+      _emitError(track, _loadErrorFor(resolved.source));
     }
   }
 
-  static const String _genericPlaybackError = "Couldn't play this track.";
+  /// The generic message for an engine load failure *after* a successful
+  /// resolve, worded for the resolved [source] (a direct stream "couldn't
+  /// stream", an on-device/cached file "couldn't play").
+  static String _loadErrorFor(PlaybackSource source) =>
+      source == PlaybackSource.streamingDirect
+          ? "Couldn't stream this track."
+          : "Couldn't play this track.";
 
   /// Emits an error state for [track] carrying a friendly [message], preserving
   /// the queue context so the UI keeps showing the right track and up-next.

@@ -70,19 +70,27 @@ void main() {
       );
     });
 
-    test('resolvePlayableUri mints a stream URL with the token at play time',
-        () async {
-      final source = _source(FakeJellyfinClient());
+    test(
+        'resolvePlayableUri mints a direct-stream URL with the token at play '
+        'time', () async {
+      final client = FakeJellyfinClient();
+      final source = _source(client);
       const track = Track(id: 't1', title: 'One', uri: 'jellyfin:t1');
 
       final uri = await source.resolvePlayableUri(track);
 
       expect(uri, isNotNull);
-      expect(uri!.path, '/Audio/t1/universal');
+      // The direct-play stream endpoint (static=true serves the original file),
+      // not the download or universal/transcode endpoint.
+      expect(uri!.path, '/Audio/t1/stream');
+      expect(uri.queryParameters['static'], 'true');
       expect(uri.host, 'music.example.com');
       expect(uri.queryParameters['api_key'], 'secret-token');
       expect(uri.queryParameters['UserId'], 'user-1');
       expect(uri.queryParameters['DeviceId'], 'device-1');
+      // The stream URL is probed before it is returned (and the probe sees the
+      // tokenized URL the engine will fetch).
+      expect(client.lastProbedUrl, uri);
     });
 
     test('resolvePlayableUri falls back to the track id when uri is unprefixed',
@@ -92,7 +100,89 @@ void main() {
 
       final uri = await source.resolvePlayableUri(track);
 
-      expect(uri!.path, '/Audio/raw-id/universal');
+      expect(uri!.path, '/Audio/raw-id/stream');
+    });
+
+    group('resolvePlayableUri probes the stream before returning it', () {
+      const track = Track(id: 't1', title: 'One', uri: 'jellyfin:t1');
+
+      test('an HTML/Cloudflare page maps to a web-page error', () async {
+        final source = _source(FakeJellyfinClient(
+          streamProbe: const JellyfinStreamProbe(
+              statusCode: 200, contentType: 'text/html'),
+        ));
+
+        await expectLater(
+          source.resolvePlayableUri(track),
+          throwsA(isA<JellyfinException>().having(
+            (JellyfinException e) => e.kind,
+            'kind',
+            JellyfinErrorKind.webPage,
+          )),
+        );
+      });
+
+      test('a 401 maps to unauthorized (an expired token)', () async {
+        final source = _source(FakeJellyfinClient(
+          streamProbe: const JellyfinStreamProbe(statusCode: 401),
+        ));
+
+        await expectLater(
+          source.resolvePlayableUri(track),
+          throwsA(isA<JellyfinException>().having(
+            (JellyfinException e) => e.kind,
+            'kind',
+            JellyfinErrorKind.unauthorized,
+          )),
+        );
+      });
+
+      test('a non-audio content type maps to "not an audio stream"', () async {
+        final source = _source(FakeJellyfinClient(
+          streamProbe: const JellyfinStreamProbe(
+            statusCode: 200,
+            contentType: 'application/json',
+          ),
+        ));
+
+        await expectLater(
+          source.resolvePlayableUri(track),
+          throwsA(isA<JellyfinException>().having(
+            (JellyfinException e) => e.kind,
+            'kind',
+            JellyfinErrorKind.notAudioStream,
+          )),
+        );
+      });
+
+      test('a 206 audio response is accepted and the URL returned', () async {
+        final source = _source(FakeJellyfinClient(
+          streamProbe: const JellyfinStreamProbe(
+            statusCode: 206,
+            contentType: 'audio/flac',
+          ),
+        ));
+
+        final uri = await source.resolvePlayableUri(track);
+
+        expect(uri, isNotNull);
+        expect(uri!.path, '/Audio/t1/stream');
+      });
+
+      test('a transport failure during the probe propagates', () async {
+        final source = _source(FakeJellyfinClient(
+          probeError: JellyfinException.notReachable(),
+        ));
+
+        await expectLater(
+          source.resolvePlayableUri(track),
+          throwsA(isA<JellyfinException>().having(
+            (JellyfinException e) => e.kind,
+            'kind',
+            JellyfinErrorKind.notReachable,
+          )),
+        );
+      });
     });
 
     test('resolveDownloadUri mints a download URL with the token on demand',

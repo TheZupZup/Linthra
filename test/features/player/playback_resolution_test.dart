@@ -123,6 +123,48 @@ void main() {
       expect(source.verifyCount, 0);
       expect(source.resolveCount, 0);
     });
+
+    test('plays a content:// local track from its document URI', () async {
+      const contentTrack = Track(
+        id: 'c1',
+        title: 'SAF One',
+        uri: 'content://media/external/audio/media/42',
+      );
+      final source = _FakeStreamSource(Uri.parse('https://stream/x'));
+      final resolver = _resolver(
+        locator: StoreCachedTrackLocator(
+          InMemoryDownloadStore(),
+          InMemoryOfflineFileStore(),
+        ),
+        source: source,
+      );
+
+      final resolved = await resolver.resolve(contentTrack);
+
+      expect(resolved.uri.scheme, 'content');
+      expect(resolved.uri, Uri.parse(contentTrack.uri));
+      expect(resolved.source, PlaybackSource.localFile);
+    });
+
+    test('never hands a bare jellyfin:<id> URI to the engine', () async {
+      // The controller plays `resolved.uri.toString()`; this proves that string
+      // is always a real, openable URL — never the opaque `jellyfin:` scheme.
+      final source = _FakeStreamSource(
+        Uri.parse('https://music.example.com/Audio/t1/stream?static=true'),
+      );
+      final resolver = _resolver(
+        locator: StoreCachedTrackLocator(
+          InMemoryDownloadStore(),
+          InMemoryOfflineFileStore(),
+        ),
+        source: source,
+      );
+
+      final resolved = await resolver.resolve(_jellyfinTrack);
+
+      expect(resolved.uri.scheme, 'https');
+      expect(resolved.uri.toString(), isNot(startsWith('jellyfin:')));
+    });
   });
 
   group('Jellyfin token safety', () {

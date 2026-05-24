@@ -21,6 +21,17 @@ enum JellyfinErrorKind {
   /// The Jellyfin server reported a server-side error (HTTP 5xx).
   serverError,
 
+  /// A stream URL was probed and the server returned an HTML page (a Cloudflare
+  /// challenge/block, a login page, a reverse-proxy error page) where audio was
+  /// expected. Distinct from [notJellyfin] so playback can tell the user the
+  /// problem is in front of Jellyfin, not the address itself.
+  webPage,
+
+  /// A stream URL was probed and the server answered, but not with audio (an
+  /// unexpected content type or a non-2xx that isn't auth/transport/5xx). The
+  /// item likely can't be direct-streamed in its current form.
+  notAudioStream,
+
   /// Any other unexpected failure.
   unexpected,
 }
@@ -72,6 +83,17 @@ class JellyfinException implements Exception {
         'Try again in a moment.',
         kind: JellyfinErrorKind.serverError,
         statusCode: statusCode,
+      );
+
+  factory JellyfinException.webPage() => const JellyfinException(
+        'Your server returned a web page instead of audio. Check your '
+        'Cloudflare/Jellyfin access.',
+        kind: JellyfinErrorKind.webPage,
+      );
+
+  factory JellyfinException.notAudioStream() => const JellyfinException(
+        "Jellyfin didn't return an audio stream for this track.",
+        kind: JellyfinErrorKind.notAudioStream,
       );
 
   factory JellyfinException.unexpected(int statusCode) => JellyfinException(

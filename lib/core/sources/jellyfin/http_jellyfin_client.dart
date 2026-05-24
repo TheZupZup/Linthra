@@ -127,6 +127,31 @@ class HttpJellyfinClient implements JellyfinClient {
     _checkStatus(response);
   }
 
+  @override
+  Future<JellyfinStreamProbe> probeStream(Uri url) async {
+    // A one-byte ranged GET: enough to see the real status and content type the
+    // engine will get, without downloading the track. Jellyfin honours Range on
+    // its media endpoints (it powers seeking), so this returns `206` with two
+    // bytes rather than the whole file.
+    //
+    // Auth rides in the URL's `api_key` query — exactly how the engine will
+    // fetch it — so no `Authorization` header is added here: the probe must
+    // mirror what `just_audio`/ExoPlayer actually sends, and query auth also
+    // survives the redirects (e.g. Cloudflare) a stripped header would not. The
+    // status is returned, not checked, so the caller can tell auth / web-page /
+    // non-audio apart; only a transport failure throws.
+    final http.Response response = await _send(
+      () => _client.get(url, headers: const <String, String>{
+        'Accept': '*/*',
+        'Range': 'bytes=0-1',
+      }),
+    );
+    return JellyfinStreamProbe(
+      statusCode: response.statusCode,
+      contentType: response.headers['content-type'],
+    );
+  }
+
   /// Builds the listing URL for [kind]. Artists have their own endpoint in
   /// Jellyfin; tracks and albums share `/Items` filtered by type.
   Uri _itemsUri(JellyfinSession session, JellyfinItemKind kind) {

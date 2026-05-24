@@ -7,12 +7,14 @@ import 'package:linthra/core/sources/jellyfin/jellyfin_playable_uri_resolver.dar
 import 'package:linthra/core/sources/jellyfin/jellyfin_stream_source.dart';
 
 /// A configurable [JellyfinStreamSource] that drives each playback outcome
-/// without a real server: verification can throw, and the minted URI can be
-/// canned or absent.
+/// without a real server: verification can throw, minting can throw (as it does
+/// when the play-time stream probe rejects the response), and the minted URI can
+/// be canned or absent.
 class _FakeStreamSource implements JellyfinStreamSource {
-  _FakeStreamSource({this.verifyError, this.streamUri});
+  _FakeStreamSource({this.verifyError, this.streamError, this.streamUri});
 
   final JellyfinException? verifyError;
+  final JellyfinException? streamError;
   final Uri? streamUri;
   int verifyCount = 0;
 
@@ -26,7 +28,13 @@ class _FakeStreamSource implements JellyfinStreamSource {
   }
 
   @override
-  Future<Uri?> resolvePlayableUri(Track track) async => streamUri;
+  Future<Uri?> resolvePlayableUri(Track track) async {
+    final JellyfinException? error = streamError;
+    if (error != null) {
+      throw error;
+    }
+    return streamUri;
+  }
 }
 
 const _jellyfinTrack = Track(id: 't1', title: 'One', uri: 'jellyfin:t1');
@@ -45,13 +53,16 @@ void main() {
 
     test('mints the stream URL when the session verifies', () async {
       final source = _FakeStreamSource(
-        streamUri: Uri.parse('https://music.example.com/Audio/t1/universal'),
+        streamUri: Uri.parse('https://music.example.com/Audio/t1/stream'),
       );
       final resolver = JellyfinPlayableUriResolver(() => source);
 
       final resolved = await resolver.resolve(_jellyfinTrack);
 
-      expect(resolved.uri.path, '/Audio/t1/universal');
+      expect(resolved.uri.path, '/Audio/t1/stream');
+      // The URI handed to the engine is a real https URL, never `jellyfin:<id>`.
+      expect(resolved.uri.scheme, 'https');
+      expect(resolved.uri.toString(), isNot(startsWith('jellyfin:')));
       // A minted Jellyfin URL is reported as a direct stream.
       expect(resolved.source, PlaybackSource.streamingDirect);
       // The session is verified before the URL is handed to the engine.
@@ -123,6 +134,82 @@ void main() {
           ),
         ),
       );
+    });
+
+    test('reports a web-page error when the probe sees HTML (Cloudflare)',
+        () async {
+      final source =
+          _FakeStreamSource(streamError: JellyfinException.webPage());
+      final resolver = JellyfinPlayableUriResolver(() => source);
+
+      await expectLater(
+        resolver.resolve(_jellyfinTrack),
+        throwsA(
+          isA<PlaybackResolutionException>().having(
+            (PlaybackResolutionException e) => e.kind,
+            'kind',
+            PlaybackResolutionErrorKind.serverReturnedWebPage,
+          ),
+        ),
+      );
+    });
+
+    test('reports an invalid stream when the probe sees a non-audio response',
+        () async {
+      final source =
+          _FakeStreamSource(streamError: JellyfinException.notAudioStream());
+      final resolver = JellyfinPlayableUriResolver(() => source);
+
+      await expectLater(
+        resolver.resolve(_jellyfinTrack),
+        throwsA(
+          isA<PlaybackResolutionException>().having(
+            (PlaybackResolutionException e) => e.kind,
+            'kind',
+            PlaybackResolutionErrorKind.invalidStream,
+          ),
+        ),
+      );
+    });
+
+    test('error messages match the friendly, secret-free wording', () async {
+      Future<String> messageFor(JellyfinException verifyError) async {
+        final resolver = JellyfinPlayableUriResolver(
+          () => _FakeStreamSource(verifyError: verifyError),
+        );
+        try {
+          await resolver.resolve(_jellyfinTrack);
+          fail('expected a PlaybackResolutionException');
+        } on PlaybackResolutionException catch (e) {
+          return e.message;
+        }
+      }
+
+      expect(
+        await messageFor(JellyfinException.unauthorized()),
+        'Your Jellyfin session expired. Sign in again.',
+      );
+      expect(
+        await messageFor(JellyfinException.notReachable()),
+        "Couldn't reach your Jellyfin server.",
+      );
+      expect(
+        await messageFor(JellyfinException.notAudioStream()),
+        'Jellyfin did not return an audio stream.',
+      );
+      expect(
+        await messageFor(JellyfinException.webPage()),
+        'Your server returned a web page instead of audio. Check '
+        'Cloudflare/Jellyfin access.',
+      );
+
+      final notSignedIn = JellyfinPlayableUriResolver(() => null);
+      try {
+        await notSignedIn.resolve(_jellyfinTrack);
+        fail('expected a PlaybackResolutionException');
+      } on PlaybackResolutionException catch (e) {
+        expect(e.message, 'Sign in to Jellyfin before streaming this track.');
+      }
     });
 
     test('no error message exposes the token', () async {

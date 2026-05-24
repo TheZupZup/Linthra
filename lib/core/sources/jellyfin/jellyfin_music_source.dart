@@ -3,9 +3,11 @@ import '../../models/artist.dart';
 import '../../models/jellyfin_session.dart';
 import '../../models/track.dart';
 import '../../services/music_source.dart';
+import '../../services/playback_diagnostics.dart';
 import 'jellyfin_api.dart';
 import 'jellyfin_client.dart';
 import 'jellyfin_download_source.dart';
+import 'jellyfin_exception.dart';
 import 'jellyfin_stream_source.dart';
 import 'jellyfin_track_mapper.dart';
 
@@ -79,22 +81,67 @@ class JellyfinMusicSource
   @override
   Future<void> verifyReachable() => _client.verifySession(session);
 
-  /// Mints the authenticated streaming URL for [track] on demand.
+  /// Mints the authenticated streaming URL for [track] on demand, then probes
+  /// it so a Cloudflare page, an expired token, or a non-audio response becomes
+  /// a precise error instead of an opaque engine failure.
   ///
   /// The token is woven in here, at play time, rather than stored on the track,
-  /// so it never reaches the persisted catalog. Kept intentionally minimal
-  /// (direct play / server-chosen container); richer transcoding parameters are
-  /// a later refinement.
+  /// so it never reaches the persisted catalog. The URL targets the direct-play
+  /// stream endpoint (`/Audio/<id>/stream` with `static=true`) so the server
+  /// returns the original file bytes — what `just_audio`/ExoPlayer can open
+  /// directly — rather than negotiating a transcode/HLS variant the engine may
+  /// reject. Auth rides in the `api_key` query (not a header) because that is
+  /// what the engine fetches with, and query auth survives the redirects a
+  /// stripped header would not.
   @override
   Future<Uri?> resolvePlayableUri(Track track) async {
-    return Uri.parse('${session.baseUrl}/Audio/${_itemId(track)}/universal')
-        .replace(
-      queryParameters: <String, String>{
-        'api_key': session.accessToken,
-        'UserId': session.userId,
-        'DeviceId': session.deviceId,
-      },
+    final Uri url = _streamUri(track);
+    final JellyfinStreamProbe probe = await _client.probeStream(url);
+    // Log the (non-secret) probe outcome before classifying, so a rejected
+    // stream is still diagnosable from a debug log.
+    PlaybackDiagnostics.resolved(
+      source: 'jellyfin',
+      resolver: 'JellyfinPlayableUriResolver',
+      itemId: _itemId(track),
+      statusCode: probe.statusCode,
+      contentType: probe.contentType,
     );
+    _ensurePlayableAudio(probe);
+    return url;
+  }
+
+  /// The direct-play stream URL for [track]. `static=true` asks Jellyfin to
+  /// serve the original file as-is (no transcode), which is the reliable
+  /// "stream directly" path for an audio engine that already decodes the common
+  /// containers.
+  Uri _streamUri(Track track) =>
+      Uri.parse('${session.baseUrl}/Audio/${_itemId(track)}/stream').replace(
+        queryParameters: <String, String>{
+          'static': 'true',
+          'api_key': session.accessToken,
+          'UserId': session.userId,
+          'DeviceId': session.deviceId,
+        },
+      );
+
+  /// Turns a stream [probe] into a typed [JellyfinException] when the response
+  /// isn't playable audio, so the resolver can map it to a friendly message.
+  /// HTML is checked first: a Cloudflare/login/error page is never audio
+  /// whatever its status, and Jellyfin's own auth responses aren't HTML.
+  void _ensurePlayableAudio(JellyfinStreamProbe probe) {
+    if (probe.isHtml) {
+      throw JellyfinException.webPage();
+    }
+    final int code = probe.statusCode;
+    if (code == 401 || code == 403) {
+      throw JellyfinException.unauthorized();
+    }
+    if (code >= 500) {
+      throw JellyfinException.serverError(code);
+    }
+    if (!probe.isSuccess || !probe.isAudio) {
+      throw JellyfinException.notAudioStream();
+    }
   }
 
   /// Mints the authenticated URL to download [track]'s original file on demand.

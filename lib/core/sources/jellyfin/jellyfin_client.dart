@@ -43,4 +43,16 @@ abstract interface class JellyfinClient {
   /// [JellyfinException] ([JellyfinErrorKind.unauthorized] for an expired token,
   /// [JellyfinErrorKind.notReachable] when offline, …) on failure.
   Future<void> verifySession(JellyfinSession session);
+
+  /// Probes a minted stream [url] with a tiny ranged request to confirm the
+  /// server returns playable audio *before* the URL is handed to the audio
+  /// engine, returning the observed status and content type. Redirects (e.g.
+  /// from Cloudflare) are followed, so the result reflects the final response.
+  ///
+  /// Throws a [JellyfinException] only for transport failures
+  /// ([JellyfinErrorKind.notReachable]); a non-2xx status is returned in the
+  /// [JellyfinStreamProbe] for the caller to classify, not thrown. The [url]
+  /// carries the session token, so it must never be logged or placed in a
+  /// thrown error.
+  Future<JellyfinStreamProbe> probeStream(Uri url);
 }

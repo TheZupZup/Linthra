@@ -33,50 +33,65 @@ class JellyfinPlayableUriResolver implements PlayableUriResolver {
     final JellyfinStreamSource? source = _source();
     if (source == null) {
       throw const PlaybackResolutionException(
-        "You're not signed in to Jellyfin. Connect to your server in Settings "
-        'to play this track.',
+        'Sign in to Jellyfin before streaming this track.',
         kind: PlaybackResolutionErrorKind.notSignedIn,
       );
     }
 
-    // Confirm the session still works before streaming, turning a 401 / network
-    // failure into a precise message rather than a generic playback error.
+    // Confirm the session still works, then mint and probe the stream URL —
+    // both can throw a typed [JellyfinException], which becomes a precise,
+    // secret-free message rather than the engine's opaque "couldn't play".
+    final Uri? uri;
     try {
       await source.verifyReachable();
+      uri = await source.resolvePlayableUri(track);
     } on JellyfinException catch (error) {
-      throw _mapVerifyFailure(error);
+      throw _mapFailure(error);
     }
 
-    final Uri? uri = await source.resolvePlayableUri(track);
     if (uri == null) {
       throw const PlaybackResolutionException(
-        "This Jellyfin track can't be streamed right now. Try syncing your "
-        'library again.',
+        "Couldn't stream this track.",
         kind: PlaybackResolutionErrorKind.streamUnavailable,
       );
     }
     return ResolvedPlayable(uri, PlaybackSource.streamingDirect);
   }
 
-  /// Maps a verification failure to a friendly, secret-free playback error.
-  /// Branches on [JellyfinErrorKind] so wording can change without breaking it.
-  PlaybackResolutionException _mapVerifyFailure(JellyfinException error) {
+  /// Maps a Jellyfin failure (from the session check or the stream probe) to a
+  /// friendly, secret-free playback error. Branches on [JellyfinErrorKind] so
+  /// wording can change without breaking it, and so a new kind is a compile
+  /// error here rather than a silent generic message.
+  PlaybackResolutionException _mapFailure(JellyfinException error) {
     switch (error.kind) {
       case JellyfinErrorKind.unauthorized:
         return const PlaybackResolutionException(
-          'Your Jellyfin session has expired. Sign out and sign in again in '
-          'Settings to keep playing.',
+          'Your Jellyfin session expired. Sign in again.',
           kind: PlaybackResolutionErrorKind.sessionExpired,
         );
-      case JellyfinErrorKind.notReachable:
+      case JellyfinErrorKind.webPage:
       case JellyfinErrorKind.notJellyfin:
+        return const PlaybackResolutionException(
+          'Your server returned a web page instead of audio. Check '
+          'Cloudflare/Jellyfin access.',
+          kind: PlaybackResolutionErrorKind.serverReturnedWebPage,
+        );
+      case JellyfinErrorKind.notAudioStream:
+        return const PlaybackResolutionException(
+          'Jellyfin did not return an audio stream.',
+          kind: PlaybackResolutionErrorKind.invalidStream,
+        );
+      case JellyfinErrorKind.notReachable:
       case JellyfinErrorKind.serverError:
+        return const PlaybackResolutionException(
+          "Couldn't reach your Jellyfin server.",
+          kind: PlaybackResolutionErrorKind.serverUnreachable,
+        );
       case JellyfinErrorKind.invalidUrl:
       case JellyfinErrorKind.unexpected:
         return const PlaybackResolutionException(
-          "Couldn't reach your Jellyfin server. Check your connection and that "
-          'the server is online.',
-          kind: PlaybackResolutionErrorKind.serverUnreachable,
+          "Couldn't stream this track.",
+          kind: PlaybackResolutionErrorKind.streamUnavailable,
         );
     }
   }

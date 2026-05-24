@@ -31,6 +31,14 @@ enum PlaybackResolutionErrorKind {
   /// The source could not be reached (offline, server down, bad address).
   serverUnreachable,
 
+  /// The source answered, but with something that isn't an audio stream (an
+  /// unexpected content type or status when the stream URL was probed).
+  invalidStream,
+
+  /// The source returned an HTML page (a Cloudflare challenge/block, login, or
+  /// reverse-proxy error page) where audio was expected.
+  serverReturnedWebPage,
+
   /// The source is reachable and authorized, but no playable URL is available
   /// for this track right now.
   streamUnavailable,

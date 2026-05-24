@@ -12,6 +12,55 @@ library;
 /// query string.
 enum JellyfinItemKind { audio, album, artist }
 
+/// What a tiny pre-flight request to a minted stream URL observed.
+///
+/// The playback source probes the stream URL before handing it to the audio
+/// engine so a Cloudflare page, an expired token, or a non-audio response
+/// becomes a precise, friendly error instead of an opaque engine failure. Only
+/// the (non-secret) HTTP status and content type are carried — never the URL or
+/// the token woven into it. The classification getters keep the "is this
+/// playable audio?" rules in one pure, testable place.
+class JellyfinStreamProbe {
+  const JellyfinStreamProbe({required this.statusCode, this.contentType});
+
+  /// The HTTP status the probe saw (after following any redirects).
+  final int statusCode;
+
+  /// The response's `Content-Type`, when present (parameters like `; charset`
+  /// are ignored by the classifiers below).
+  final String? contentType;
+
+  /// A 2xx response (covers `206 Partial Content` from the ranged probe).
+  bool get isSuccess => statusCode >= 200 && statusCode < 300;
+
+  /// The server answered with an HTML page — a Cloudflare challenge/block, a
+  /// login page, or a reverse-proxy error page — where audio was expected.
+  bool get isHtml {
+    final String? type = _mimeType;
+    return type != null && type.startsWith('text/html');
+  }
+
+  /// The body looks like something the audio engine can open: an `audio/*`
+  /// type, the generic binary `application/octet-stream` some servers use for
+  /// media, or a missing content type (lenient — the engine sniffs the
+  /// container itself, and a 2xx with bytes is almost certainly the file).
+  bool get isAudio {
+    final String? type = _mimeType;
+    if (type == null) return true;
+    return type.startsWith('audio/') ||
+        type.startsWith('video/') ||
+        type == 'application/octet-stream';
+  }
+
+  /// The bare MIME type, lower-cased and without parameters.
+  String? get _mimeType {
+    final String? raw = contentType;
+    if (raw == null) return null;
+    final String type = raw.split(';').first.trim().toLowerCase();
+    return type.isEmpty ? null : type;
+  }
+}
+
 /// Public server info from `GET /System/Info/Public` — enough to confirm the
 /// address is a Jellyfin server and to show the user which one they reached.
 class JellyfinServerInfo {

@@ -89,11 +89,13 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
         return 'Your Jellyfin session has expired. Sign out and sign in again '
             'to refresh it.';
       case JellyfinErrorKind.notJellyfin:
+      case JellyfinErrorKind.webPage:
         return "That server didn't respond like Jellyfin. Double-check the "
             'server address in Settings.';
       case JellyfinErrorKind.serverError:
         return 'Your Jellyfin server reported an error. Try again in a moment.';
       case JellyfinErrorKind.invalidUrl:
+      case JellyfinErrorKind.notAudioStream:
       case JellyfinErrorKind.unexpected:
         return error.message;
     }
