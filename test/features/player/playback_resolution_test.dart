@@ -129,7 +129,8 @@ void main() {
     const baseUrl = 'https://music.example.com';
     const token = 'super-secret-token';
 
-    test('no token leaks into the track uri, artwork, source label, or cache '
+    test(
+        'no token leaks into the track uri, artwork, source label, or cache '
         'filename', () async {
       // The mapped track is the persisted identity the UI and database see.
       final track = JellyfinTrackMapper.toTrack(

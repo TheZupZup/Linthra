@@ -52,9 +52,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.playedTracks.single.id, '1');
-    // The now-playing screen is shown for the tapped track.
+    // The now-playing screen is shown for the tapped track, reflecting the
+    // playing state with a Pause control.
     expect(find.text('Now Playing'), findsOneWidget);
-    expect(find.text('Playing'), findsOneWidget);
+    expect(find.byTooltip('Pause'), findsOneWidget);
   });
 
   testWidgets('tapping a track queues the rest of the list as up next', (
@@ -88,7 +89,11 @@ void main() {
       controller.state.upNext.map((t) => t.id).toList(),
       ['2', '3'],
     );
-    // The player surfaces the queued tracks in its Up next section.
+    // The player surfaces the queued tracks in its Up next queue sheet.
+    await tester.tap(find.byTooltip('Queue'));
+    await tester.pumpAndSettle();
     expect(find.text('Up next'), findsOneWidget);
+    expect(find.text('Song Two'), findsOneWidget);
+    expect(find.text('Song Three'), findsOneWidget);
   });
 }
