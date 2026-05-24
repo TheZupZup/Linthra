@@ -3,6 +3,10 @@
 abstract final class AppRoutes {
   static const String library = '/library';
   static const String playlists = '/playlists';
+
+  /// Liked tracks, reached from the Playlists tab. A child of [playlists] so it
+  /// keeps the bottom nav and pops back into that tab.
+  static const String favorites = '/playlists/favorites';
   static const String downloads = '/downloads';
   static const String settings = '/settings';
 
