@@ -6,10 +6,11 @@ docs reference this document rather than restating the plan.
 
 > **No release has been cut and nothing here publishes to a store.** Linthra
 > has no tagged release yet, is **not** on F-Droid, and no APK/AAB has been
-> published. Pushing a `v*` tag now builds the release artifacts automatically
-> (and attaches them to a matching GitHub Release if one exists), but **creating
-> the Release and writing its notes stays manual** — and nothing is published to
-> any store or to F-Droid. This document describes the intended process.
+> published. Pushing a `v*` tag now builds the release artifacts automatically.
+> For **alpha/beta/rc** tags the build can create a GitHub **pre-release** and
+> attach the APK/AAB to it; for **stable** tags it only attaches to a Release you
+> created. **Writing the release notes stays manual** — and nothing is published
+> to any store or to F-Droid. This document describes the intended process.
 
 ## 1. Versioning model
 
@@ -77,51 +78,73 @@ Before creating a release tag:
    [dependency & license audit](./dependency-license-audit.md).
 6. Create the annotated tag (§2).
 
-## 4. GitHub Releases (notes manual, artifact build automatic)
+## 4. GitHub Releases (notes manual, artifact build & attachment automatic)
 
-Publishing a GitHub Release — and **writing its notes** — stays **manual and
-operator-initiated**. No workflow creates a Release or authors notes for you.
-
-What *is* automated is the **artifact build**: the **Android Release Build**
-workflow (`.github/workflows/android-release-build.yml`) runs automatically when
-a `v*` tag is pushed, builds the APK/AAB, and — if the build is release-signed
-and a GitHub Release already exists for that tag — attaches the signed APK/AAB
-to it. It never creates a Release, writes notes, publishes to a store, or
-submits to F-Droid. The workflow listens only to the tag `push` (not to
-`release: published`), so a tag builds exactly once. See
+Pushing a `v*` tag starts the build. The **Android Release Build** workflow
+(`.github/workflows/android-release-build.yml`) runs automatically on a `v*`
+tag, builds the APK/AAB, and attaches them to a GitHub Release. **Writing the
+release notes stays manual** — the workflow never authors production notes,
+publishes to a store, or submits to F-Droid. It listens only to the tag `push`
+(not to `release: published`), so a tag builds exactly once. See
 [docs/release-signing.md](./release-signing.md) for the signing details.
 
-### Recommended flow (notes written first, build attaches automatically)
+The attachment behavior depends on whether the tag is a **pre-release**:
+
+- **Alpha/beta/rc tags** (any tag containing `alpha`, `beta`, or `rc`, e.g.
+  `v0.1.0-alpha.1`) may attach **debug-signed** *or* **release-signed**
+  artifacts to a GitHub **pre-release**. If no Release exists for the tag yet,
+  the workflow **creates one as a pre-release** with placeholder notes (edit
+  them afterwards). Debug-signed artifacts are clearly named and labeled as
+  **testing-only** builds — never as a production release.
+- **Stable tags** (e.g. `v1.0.0`) **require release signing**. If the
+  `LINTHRA_*` secrets are missing, the tag build **fails fast** rather than
+  shipping a debug-signed build. Stable assets are only uploaded to a Release
+  that **already exists**; the workflow does not auto-create stable Releases.
+
+Artifacts are named with the version and signing label, e.g.
+`linthra-v0.1.0-alpha.1-debug-signed.apk` or
+`linthra-v0.1.0-alpha.1-release-signed.aab`.
+
+### Recommended flow for an alpha/beta/rc pre-release (fully automatic)
 
 1. Ensure generated files are current (§3) and `pubspec.yaml` matches the tag.
-2. Make sure the `LINTHRA_*` keystore secrets are configured (see
-   [release-signing.md §2](./release-signing.md#2-required-github-secrets-ci)),
-   otherwise the tag build will fall back to debug-signed artifacts that are
-   **not** attached to the Release.
-3. In the GitHub UI, **create the Release** against a **new** tag `vX.Y.Z`,
-   write the notes (the Fastlane changelog from §3 is a good basis), and mark it
-   **pre-release** for `-alpha`/`-beta` tags. Creating the Release on a new tag
-   also creates and pushes that tag.
+2. (Optional but recommended) configure the `LINTHRA_*` keystore secrets (see
+   [release-signing.md §2](./release-signing.md#2-required-github-secrets-ci))
+   so the attached artifacts are release-signed. Without them, the pre-release
+   gets clearly-labeled **debug-signed** artifacts for testing only.
+3. Push the annotated tag (§2), e.g. `v0.1.0-alpha.1`. The build runs, and a
+   GitHub **pre-release** is created (if absent) with the APK/AAB attached.
+4. Edit the auto-created pre-release notes (the Fastlane changelog from §3 is a
+   good basis). Done.
+
+### Recommended flow for a stable release (notes written first)
+
+1. Ensure generated files are current (§3) and `pubspec.yaml` matches the tag.
+2. Configure the `LINTHRA_*` keystore secrets — **required** for stable tags
+   (the tag build fails without them).
+3. In the GitHub UI, **create the Release** against a **new** stable tag
+   `vX.Y.Z`, write the notes. Creating the Release on a new tag also creates and
+   pushes that tag.
 4. That tag push triggers **Android Release Build** automatically. When it
-   finishes, the **release-signed** `app-release.apk` / `app-release.aab` are
-   attached to the Release. Done.
+   finishes, the **release-signed** APK/AAB are attached to the Release. Done.
 
 ### Alternative flow (tag from git first)
 
-1. Push the annotated tag from git (§2). The build starts automatically and the
-   **release-signed** artifacts are produced as workflow artifacts. Because no
-   Release exists yet, nothing is attached.
+1. Push the annotated tag from git (§2). For a stable tag with no Release yet,
+   the **release-signed** artifacts are produced as workflow artifacts but
+   nothing is attached.
 2. Create the GitHub Release for the tag and write its notes, then either
    **re-run** the workflow for that tag (it will now find the Release and
    attach) or download the artifacts from the original run and attach them
    manually.
 
 > A `signed = false` manual run, or any build without the signing secrets,
-> produces **`linthra-debug-signed-*`** artifacts. Those are previews only and
-> **must never** be attached to a Release.
+> produces **debug-signed** artifacts. Those are previews/testing builds only.
+> They may be attached to an alpha/beta/rc **pre-release** (clearly labeled), but
+> **must never** be attached to a stable Release.
 
-Manual `workflow_dispatch` runs remain available for ad-hoc test builds and are
-unchanged.
+Manual `workflow_dispatch` runs remain available for ad-hoc test builds; they
+never touch any GitHub Release.
 
 > **Signature note.** A GitHub-Release APK is signed with **our** release key,
 > while an F-Droid build of the same version is signed with **F-Droid's** key.
@@ -147,15 +170,17 @@ F-Droid does **not** consume our signed artifacts. When/if Linthra is submitted:
 | Quality CI (analyze/test/format) on PRs & `main` | **Automatic** (`ci.yml`). |
 | Debug APK build | Manual (`workflow_dispatch`) + on PRs (`android-debug-apk.yml`). |
 | Release APK/AAB build | **Manual** (`workflow_dispatch`) **and automatic on `v*` tags** (`android-release-build.yml`). |
-| Attaching signed APK/AAB to a Release | **Automatic** on a `v*` tag build, **only if** the build is release-signed and a Release already exists. |
+| Attaching APK/AAB to a Release | **Automatic** on a `v*` tag build. Alpha/beta/rc tags attach (debug- or release-signed) to a **pre-release**; stable tags attach **release-signed** assets to an existing Release only. |
+| Creating a GitHub **pre-release** (alpha/beta/rc) | **Automatic** on the tag build if no Release exists yet (placeholder notes; edit afterwards). |
+| Creating a stable GitHub Release | **Manual** (operator, §4); never auto-created. |
 | Drift code generation | **Manual only** (`generate-drift.yml`, `workflow_dispatch`). |
 | Creating a git tag | **Manual** (operator runs `git tag`, or creates a Release on a new tag). |
-| Creating a GitHub Release / writing notes | **Manual** (operator, §4). |
+| Writing production release notes | **Manual** (operator, §4). |
 | Publishing to a store / F-Droid | **Not done by this repo.** |
 
-CI builds release artifacts on a tag and can attach them to a Release you
-created, but it never creates a Release, writes notes, signs a store build, or
-submits to F-Droid.
+CI builds release artifacts on a tag and attaches them: it can auto-create a
+**pre-release** for alpha/beta/rc tags, but it never auto-creates a stable
+Release, writes production notes, signs a store build, or submits to F-Droid.
 
 ## 7. Remaining blockers before a first release
 

@@ -2,44 +2,56 @@ name: Android Release Build
 
 # Builds the Android release artifacts (APK + AAB) and makes them available as
 # workflow artifacts. When triggered by a version tag, it can additionally
-# attach the *release-signed* artifacts to a matching GitHub Release (if one
-# already exists). It never creates a GitHub Release, writes release notes,
-# publishes to a store, or submits to F-Droid.
+# attach the built artifacts to a matching GitHub Release. It never publishes to
+# a store or submits to F-Droid, and it never writes production release notes.
 #
 # Triggers:
 #
 #   * workflow_dispatch (manual): produces test builds. The `signed` input
 #     chooses real release signing vs. a debug-key build, exactly as before.
+#     Manual runs never touch any GitHub Release.
 #
 #   * push of a tag matching `v*` (e.g. v0.1.0-alpha.1): an automatic release
-#     build. Tag builds attempt release signing and, if the signing secrets are
-#     present, attach the signed APK/AAB to an existing GitHub Release for that
-#     tag.
+#     build. There is exactly one build per tag (we listen only to the tag push,
+#     not to `release: published`, so the same commit is never built twice).
 #
-# Why not also `release: [published]`? Creating a Release in the GitHub UI on a
-# new tag also pushes that tag, which already fires the `push` trigger above.
-# Listening to both would build the same commit twice. We listen only to the
-# tag push and look up the Release from inside that run, so there is exactly one
-# build per tag and release notes stay manually authored.
+# Tag behavior (alpha/pre-release vs. stable):
 #
-# Signing (unchanged behavior for manual runs):
+#   * Pre-release tags — any tag containing `alpha`, `beta`, or `rc`
+#     (e.g. v0.1.0-alpha.1): attach the built APK/AAB to a GitHub *pre-release*.
+#     If no Release exists for the tag yet, one is CREATED as a pre-release.
+#     These tags may attach release-signed OR clearly-labeled debug-signed
+#     artifacts — debug-signed builds are for TESTING ONLY and are named and
+#     described as such (never passed off as a production release).
+#
+#   * Stable tags — e.g. v1.0.0 (no alpha/beta/rc): REQUIRE release signing.
+#     If the LINTHRA_* signing secrets are missing the run FAILS fast rather
+#     than attaching a debug-signed build. Stable assets are only attached to a
+#     Release that already exists (notes stay manually authored); the workflow
+#     does not auto-create stable Releases.
+#
+# Signing:
 #
 #   * Manual run, signed = false (default): no signing secrets are read; the
 #     build falls back to the debug signing config in android/app/build.gradle.
 #     Artifacts are DEBUG-KEY SIGNED — fine for previews, NOT for distribution —
-#     and are uploaded with a `-debug-signed` name.
+#     and are labeled `-debug-signed`.
 #
 #   * Manual run, signed = true: decodes the keystore from the LINTHRA_KEYSTORE_*
 #     secrets and signs with it. If any required secret is missing the run fails
 #     fast (it does NOT silently fall back to the debug key).
 #
-#   * Tag push: signed if the LINTHRA_* secrets are configured (-> release-signed,
-#     eligible for Release attachment). If the secrets are missing, the run does
-#     NOT pretend to be a real release: it builds DEBUG-KEY signed artifacts,
-#     labels them `-debug-signed`, emits a loud warning, and does NOT attach them
-#     to any Release.
+#   * Tag push: signed if the LINTHRA_* secrets are configured (-> release-signed).
+#     If the secrets are missing: a pre-release tag degrades to clearly-labeled
+#     debug-signed artifacts (for testing only); a stable tag fails fast.
 #
-# See docs/release-signing.md for the required secrets and keystore handling.
+# Artifact naming carries both the version (tag) and the signing label so a
+# debug-signed build can never be mistaken for a production release, e.g.
+#   linthra-v0.1.0-alpha.1-debug-signed.apk / .aab
+#   linthra-v0.1.0-alpha.1-release-signed.apk / .aab
+#
+# See docs/release-signing.md for the required secrets and keystore handling,
+# and docs/release-process.md for the overall release flow.
 on:
   workflow_dispatch:
     inputs:
@@ -53,7 +65,7 @@ on:
 
 # Default to read-only. Building and sharing artifacts via upload-artifact needs
 # nothing more. The separate attach-release job below requests `contents: write`
-# only for itself, and only to upload assets to an existing GitHub Release.
+# only for itself, and only to create a pre-release / upload Release assets.
 permissions:
   contents: read
 
@@ -72,16 +84,24 @@ jobs:
     outputs:
       signing: ${{ steps.mode.outputs.signing }}
       trigger: ${{ steps.mode.outputs.trigger }}
+      prerelease: ${{ steps.mode.outputs.prerelease }}
+      asset_base: ${{ steps.mode.outputs.asset_base }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Decide, in one place, how this run should sign and how to label it.
-      #   trigger: manual | tag
-      #   signing: release-signed | debug-signed
+      # Decide, in one place, how this run should sign, whether the tag is a
+      # pre-release, and how to label/name the artifacts.
+      #   trigger:    manual | tag
+      #   signing:    release-signed | debug-signed
+      #   prerelease: true | false  (only meaningful for tag builds)
+      #   asset_base: file-name stem for the produced APK/AAB
+      #
       # Manual signed=true with missing secrets fails fast (preserves the old
-      # behavior). A tag with missing secrets degrades to clearly-labeled
-      # debug-signed artifacts (never silently passed off as a real release).
+      # behavior). A STABLE tag with missing secrets also fails fast. A
+      # PRE-RELEASE tag (alpha/beta/rc) with missing secrets degrades to
+      # clearly-labeled debug-signed artifacts (never passed off as a real
+      # production release).
       - name: Determine build mode
         id: mode
         env:
@@ -92,12 +112,18 @@ jobs:
             [ -z "$v" ] && have_secrets=false
           done
 
+          prerelease=false
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             trigger=manual
             want_signed="${{ inputs.signed }}"
           else
             trigger=tag
             want_signed=true
+            tag="${{ github.ref_name }}"
+            # A SemVer pre-release: any tag containing alpha, beta, or rc.
+            if printf '%s' "$tag" | grep -qiE '(alpha|beta|rc)'; then
+              prerelease=true
+            fi
           fi
 
           if [ "$want_signed" = "true" ]; then
@@ -106,17 +132,28 @@ jobs:
             elif [ "$trigger" = "manual" ]; then
               echo "::error::Signed release requested but signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). See docs/release-signing.md."
               exit 1
-            else
-              echo "::warning::Tag build but signing secrets are missing; producing DEBUG-KEY signed artifacts (labeled -debug-signed). These are NOT a real release and will NOT be attached to any GitHub Release. Configure the LINTHRA_* secrets to get release-signed builds. See docs/release-signing.md."
+            elif [ "$prerelease" = "true" ]; then
+              echo "::warning::Pre-release tag but signing secrets are missing; producing DEBUG-KEY signed artifacts (labeled -debug-signed). These are FOR TESTING ONLY, not a production release, and will be attached to a GitHub PRE-RELEASE labeled as such. Configure the LINTHRA_* secrets to get release-signed builds. See docs/release-signing.md."
               signing=debug-signed
+            else
+              echo "::error::Stable tag '${{ github.ref_name }}' requires release signing, but the signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). Stable releases must not ship debug-signed artifacts. Configure the secrets, or use an alpha/beta/rc tag for a testing pre-release. See docs/release-signing.md."
+              exit 1
             fi
           else
             signing=debug-signed
           fi
 
+          if [ "$trigger" = "tag" ]; then
+            asset_base="linthra-${{ github.ref_name }}-${signing}"
+          else
+            asset_base="linthra-${signing}"
+          fi
+
           echo "trigger=$trigger" >> "$GITHUB_OUTPUT"
           echo "signing=$signing" >> "$GITHUB_OUTPUT"
-          echo "Trigger: $trigger | Signing: $signing"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "asset_base=$asset_base" >> "$GITHUB_OUTPUT"
+          echo "Trigger: $trigger | Signing: $signing | Pre-release: $prerelease | Asset base: $asset_base"
 
       - name: Decode release keystore
         if: ${{ steps.mode.outputs.signing == 'release-signed' }}
@@ -151,20 +188,29 @@ jobs:
       - name: Build release AAB
         run: flutter build appbundle --release
 
-      # The artifact name carries the signing label so a debug-signed build can
-      # never be mistaken for a publishable release.
+      # Give the outputs descriptive, self-documenting names that carry the
+      # version (tag) and the signing label, so a debug-signed build can never
+      # be mistaken for a production release once downloaded or attached.
+      - name: Stage named artifacts
+        run: |
+          mkdir -p dist
+          base="${{ steps.mode.outputs.asset_base }}"
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/${base}.apk"
+          cp build/app/outputs/bundle/release/app-release.aab "dist/${base}.aab"
+          ls -l dist
+
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: linthra-${{ steps.mode.outputs.signing }}-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: dist/${{ steps.mode.outputs.asset_base }}.apk
           if-no-files-found: error
 
       - name: Upload release AAB
         uses: actions/upload-artifact@v4
         with:
           name: linthra-${{ steps.mode.outputs.signing }}-aab
-          path: build/app/outputs/bundle/release/app-release.aab
+          path: dist/${{ steps.mode.outputs.asset_base }}.aab
           if-no-files-found: error
 
       - name: Build summary
@@ -174,33 +220,45 @@ jobs:
             echo ""
             echo "**Trigger:** ${{ steps.mode.outputs.trigger }}${{ github.event_name == 'push' && format(' (tag {0})', github.ref_name) || '' }}"
             echo ""
+            echo "**Artifacts:** \`${{ steps.mode.outputs.asset_base }}.apk\`, \`${{ steps.mode.outputs.asset_base }}.aab\`"
+            echo ""
             if [ "${{ steps.mode.outputs.signing }}" = "release-signed" ]; then
               echo "**Signing:** release-signed with the configured keystore."
-              echo ""
-              echo "Artifacts: \`linthra-release-signed-apk\`, \`linthra-release-signed-aab\`."
               if [ "${{ steps.mode.outputs.trigger }}" = "tag" ]; then
                 echo ""
-                echo "These signed artifacts will be attached to the GitHub Release for this tag if one exists."
+                if [ "${{ steps.mode.outputs.prerelease }}" = "true" ]; then
+                  echo "These release-signed artifacts will be attached to a GitHub **pre-release** for this tag (created if it does not exist)."
+                else
+                  echo "These release-signed artifacts will be attached to the GitHub Release for this tag if one exists."
+                fi
               fi
             else
-              echo "**Signing:** DEBUG-KEY signed (NOT a real release)."
+              echo "**Signing:** DEBUG-KEY signed — FOR TESTING ONLY, NOT a production release."
               echo ""
-              echo "Artifacts: \`linthra-debug-signed-apk\`, \`linthra-debug-signed-aab\`."
-              echo ""
+              if [ "${{ steps.mode.outputs.trigger }}" = "tag" ] && [ "${{ steps.mode.outputs.prerelease }}" = "true" ]; then
+                echo "These debug-signed artifacts will be attached to a GitHub **pre-release** for this tag (created if it does not exist), clearly labeled as testing-only builds."
+                echo ""
+              fi
               echo "Configure the LINTHRA_* secrets (and, for manual runs, set \`signed = true\`) to"
               echo "produce a release-signed build. See docs/release-signing.md."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Attaches the release-signed artifacts to an EXISTING GitHub Release for the
-  # pushed tag. This is the only job that needs write access, so it is the only
-  # one granted `contents: write`. It never creates a Release and never writes
-  # release notes — if no Release exists yet, it leaves a notice and the signed
-  # artifacts remain downloadable from the build job.
+  # Attaches the built artifacts to a GitHub Release for the pushed tag. This is
+  # the only job that needs write access, so it is the only one granted
+  # `contents: write`.
+  #
+  #   * Pre-release tags (alpha/beta/rc): CREATE a pre-release if none exists,
+  #     then upload/replace the APK/AAB. Debug-signed artifacts are attached with
+  #     a clear "testing only" label and the Release is marked as a pre-release.
+  #
+  #   * Stable tags: only attach (upload/replace) to a Release that already
+  #     exists. The workflow never auto-creates a stable Release or writes its
+  #     production notes.
   attach-release:
-    name: Attach signed artifacts to GitHub Release
+    name: Attach artifacts to GitHub Release
     needs: build-release
-    if: ${{ github.event_name == 'push' && needs.build-release.outputs.signing == 'release-signed' }}
+    if: ${{ github.event_name == 'push' && (needs.build-release.outputs.signing == 'release-signed' || needs.build-release.outputs.prerelease == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -210,17 +268,67 @@ jobs:
         with:
           path: artifacts
 
-      - name: Attach to GitHub Release (if one exists)
+      - name: Attach to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          SIGNING: ${{ needs.build-release.outputs.signing }}
+          PRERELEASE: ${{ needs.build-release.outputs.prerelease }}
         run: |
-          apk="artifacts/linthra-release-signed-apk/app-release.apk"
-          aab="artifacts/linthra-release-signed-aab/app-release.aab"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "GitHub Release '$TAG' exists; uploading signed artifacts."
-            gh release upload "$TAG" "$apk" "$aab" --clobber --repo "$GITHUB_REPOSITORY"
-            echo "Attached release-signed APK/AAB to Release '$TAG'."
-          else
-            echo "::notice::No GitHub Release exists for tag '$TAG' yet, so nothing was attached. The release-signed APK/AAB are available as workflow artifacts. Create the Release (with your own notes) and re-run this workflow, or attach the artifacts manually."
+          set -euo pipefail
+
+          apk="$(find artifacts -name '*.apk' -print -quit)"
+          aab="$(find artifacts -name '*.aab' -print -quit)"
+          if [ -z "$apk" ] || [ -z "$aab" ]; then
+            echo "::error::Could not locate built APK/AAB among downloaded artifacts."
+            exit 1
           fi
+          echo "APK: $apk"
+          echo "AAB: $aab"
+
+          release_exists=false
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            release_exists=true
+          fi
+
+          if [ "$release_exists" = "true" ]; then
+            echo "GitHub Release '$TAG' exists; uploading/replacing assets."
+            gh release upload "$TAG" "$apk" "$aab" --clobber --repo "$GITHUB_REPOSITORY"
+            echo "Attached $SIGNING APK/AAB to Release '$TAG'."
+            exit 0
+          fi
+
+          if [ "$PRERELEASE" != "true" ]; then
+            # Stable tag with no Release yet: do not auto-create. Notes are manual.
+            echo "::notice::No GitHub Release exists for stable tag '$TAG' yet, so nothing was attached. The release-signed APK/AAB are available as workflow artifacts. Create the Release (with your own notes) and re-run this workflow, or attach the artifacts manually."
+            exit 0
+          fi
+
+          # Pre-release tag with no Release yet: create one (marked pre-release)
+          # with a clear, honest body and attach the artifacts. Notes are
+          # written to a file (no heredocs, to keep this YAML block valid).
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          if [ "$SIGNING" = "debug-signed" ]; then
+            {
+              printf '%s\n\n' '> **Pre-release / testing build — DEBUG-SIGNED.**'
+              printf '%s\n' 'The attached APK/AAB are **DEBUG-KEY signed** and are **for testing only**.'
+              printf '%s\n\n' 'They are **not** a production release, **not** release-signed, and must **not** be distributed as such.'
+            } > "$notes_file"
+          else
+            {
+              printf '%s\n\n' '**Pre-release build — release-signed.**'
+              printf '%s\n\n' 'The attached APK/AAB are release-signed with the project keystore. This is a pre-release for testing / early access.'
+            } > "$notes_file"
+          fi
+          {
+            printf '%s\n' 'This Release was created automatically by the Android Release Build workflow on a pre-release tag. Edit these notes to describe the build.'
+            printf '%s\n' 'Nothing here is published to the Play Store or F-Droid (F-Droid builds and signs separately).'
+          } >> "$notes_file"
+
+          echo "No GitHub Release for pre-release tag '$TAG'; creating one (pre-release)."
+          gh release create "$TAG" "$apk" "$aab" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --prerelease \
+            --notes-file "$notes_file"
+          echo "Created pre-release '$TAG' and attached $SIGNING APK/AAB."

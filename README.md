@@ -322,7 +322,8 @@ optional release signing are handled separately by the **Android Release
 Build** workflow — manual for test builds, automatic on `v*` tags (see
 [Building release artifacts](#building-release-artifacts-android) and
 [docs/release-signing.md](./docs/release-signing.md)); nothing is published to a
-store or F-Droid, and no GitHub Release is created or written automatically.
+store or F-Droid. Alpha/beta/rc tags may auto-create a GitHub **pre-release** and
+attach artifacts to it, but production release notes are never written for you.
 
 #### Downloading a debug APK from CI
 
@@ -444,13 +445,13 @@ The **Android Release Build** workflow
 artifacts. It runs **manually** for test builds and **automatically on version
 tags** so a tagged release builds its APK/AAB without anyone clicking *Run
 workflow*. It still never publishes to a store or F-Droid and never writes
-release notes.
+production release notes.
 
 - **Manual test builds:** open the repo's **Actions** tab → **Android Release
   Build** → **Run workflow** (`workflow_dispatch`). A `signed` input controls
   whether the build is release-signed (see
-  [Signing status](#signing-status-important) below). This behavior is
-  unchanged.
+  [Signing status](#signing-status-important) below). Manual runs never touch
+  any GitHub Release.
 - **Automatic tag builds:** pushing a tag matching `v*` (e.g. `v0.1.0-alpha.1`)
   triggers the workflow automatically:
 
@@ -465,20 +466,28 @@ release notes.
   tag push (not to `release: published`) so a tag never builds twice.
 - **What it builds:** `flutter build apk --release` and
   `flutter build appbundle --release`.
-- **Artifacts** (names reflect how the build was signed, so a preview can't be
-  mistaken for a real release):
-  - Manual `signed = false` (default), or any build where signing secrets are
-    absent: `linthra-debug-signed-apk` / `linthra-debug-signed-aab`.
-  - Manual `signed = true`, or a tag build with the signing secrets present:
-    `linthra-release-signed-apk` / `linthra-release-signed-aab`.
-  - Each contains `app-release.apk` (`build/app/outputs/flutter-apk/app-release.apk`)
-    or `app-release.aab` (`build/app/outputs/bundle/release/app-release.aab`).
-- **Release attachment (tag builds only):** when a tag build is
-  **release-signed** *and* a GitHub Release already exists for that tag, the
-  signed APK/AAB are attached to the Release automatically. The workflow never
-  creates a Release or writes notes — those stay manual. If no Release exists
-  yet, nothing is attached and the signed artifacts remain downloadable from the
-  run.
+- **Artifacts** are named with both the version (tag) and the signing label, so
+  a debug-signed preview can never be mistaken for a production release:
+  - Tag builds: `linthra-<tag>-<signing>.apk` / `.aab`, e.g.
+    `linthra-v0.1.0-alpha.1-debug-signed.apk` or
+    `linthra-v0.1.0-alpha.1-release-signed.aab`.
+  - Manual builds (no tag): `linthra-<signing>.apk` / `.aab`.
+  - The build job uploads each as a workflow artifact
+    (`linthra-<signing>-apk` / `linthra-<signing>-aab`) from
+    `build/app/outputs/flutter-apk/app-release.apk` and
+    `build/app/outputs/bundle/release/app-release.aab`.
+- **Release attachment (tag builds only):**
+  - **Pre-release tags** — any tag containing `alpha`, `beta`, or `rc` — attach
+    their APK/AAB to a GitHub **pre-release**. If no Release exists for the tag,
+    one is **created as a pre-release** automatically. These tags may attach
+    release-signed *or* clearly-labeled **debug-signed** artifacts; debug-signed
+    builds are for **testing only** and are named and described as such.
+  - **Stable tags** — e.g. `v1.0.0` — **require release signing**. If the
+    `LINTHRA_*` secrets are missing the run **fails fast** rather than attaching
+    a debug-signed build. Stable assets are only uploaded to a Release that
+    **already exists** (notes stay manual); stable Releases are never
+    auto-created.
+  - When a Release already exists, assets are uploaded/replaced (`--clobber`).
 - **Download:** open the completed run and grab the artifacts from the run's
   **Artifacts** section (GitHub serves each as a `.zip`; unzip to get the
   APK/AAB). For a published Release, download the attached APK/AAB directly from
@@ -511,12 +520,19 @@ secrets are committed** to the repo.
 - **Tag build** (`v*` push) → attempts release signing automatically:
   - If the `LINTHRA_*` secrets are present → **release-signed** artifacts,
     eligible for Release attachment.
-  - If the secrets are missing → the run does **not** pretend to be a real
-    release: it emits a loud warning, builds **debug-key signed** artifacts
-    labeled `…-debug-signed-…`, and does **not** attach them to any Release.
+  - If the secrets are missing on a **pre-release** tag (`alpha`/`beta`/`rc`) →
+    the run does **not** pretend to be a production release: it emits a loud
+    warning and builds **debug-key signed** artifacts labeled `…-debug-signed`,
+    which are attached to a GitHub **pre-release** clearly marked as
+    testing-only.
+  - If the secrets are missing on a **stable** tag (e.g. `v1.0.0`) → the run
+    **fails fast**. Stable releases must be release-signed; debug-signed
+    artifacts are never attached to a stable Release.
 
 The keystore secrets are not configured in this repository yet, so until they
-are, tag builds fall back to debug-signed artifacts. Configure them (see
+are, **pre-release** tag builds fall back to clearly-labeled debug-signed
+artifacts (attached to a pre-release for testing), and **stable** tag builds
+fail until signing is provisioned. Configure the secrets (see
 [docs/release-signing.md](./docs/release-signing.md)) to get release-signed tag
 builds. Full details — required
 secrets, how to generate/rotate a keystore, and how this relates to F-Droid (which
@@ -524,13 +540,14 @@ signs its own builds) — are in [docs/release-signing.md](./docs/release-signin
 
 #### Limitations & next steps
 
-- The workflow **does not** create a GitHub Release, write release notes, upload
-  anything to a store, or submit to F-Droid. It produces downloadable build
-  artifacts and, for a release-signed tag build, attaches them to a Release you
-  created manually.
-- Release signing **secrets are not yet provisioned**, so until they are, builds
-  (including tag builds) fall back to the debug key (and are labeled
-  accordingly).
+- The workflow **does not** upload anything to a store or submit to F-Droid, and
+  it does **not** write production release notes. For **pre-release** tags it can
+  create a GitHub pre-release and attach (debug- or release-signed) artifacts to
+  it, with auto-generated placeholder notes you should edit. For **stable** tags
+  it only attaches release-signed artifacts to a Release you created manually.
+- Release signing **secrets are not yet provisioned**, so until they are,
+  pre-release tag builds fall back to clearly-labeled debug-signed artifacts
+  (for testing only) and stable tag builds fail until signing is configured.
 - **Next steps:** provision the `LINTHRA_*` keystore secrets
   ([docs/release-signing.md](./docs/release-signing.md)), then follow the manual
   release/tagging and GitHub-Release flow in
