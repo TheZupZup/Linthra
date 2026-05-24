@@ -35,6 +35,20 @@ class Lyrics {
   /// Whether any line carries a timestamp (time-synced rather than plain text).
   bool get isSynced => lines.any((LyricLine line) => line.start != null);
 
+  /// The index of the line active at [position]: the last timed line whose
+  /// [LyricLine.start] is at or before [position]. Returns -1 before the first
+  /// timed line begins, and always -1 for plain (untimed) lyrics — which are
+  /// shown without highlighting. Assumes lines are in ascending time order, as
+  /// Jellyfin returns them.
+  int activeLineIndex(Duration position) {
+    int index = -1;
+    for (int i = 0; i < lines.length; i++) {
+      final Duration? start = lines[i].start;
+      if (start != null && start <= position) index = i;
+    }
+    return index;
+  }
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||

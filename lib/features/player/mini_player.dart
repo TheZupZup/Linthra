@@ -7,6 +7,7 @@ import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/services/playback_controller.dart';
+import 'cast/cast_providers.dart';
 import 'player_providers.dart';
 import 'widgets/album_artwork.dart';
 
@@ -37,6 +38,9 @@ class MiniPlayer extends ConsumerWidget {
 
     final theme = Theme.of(context);
     final track = state.currentTrack!;
+    final bool isCasting = ref.watch(
+      castStateProvider.select((s) => s.valueOrNull?.isConnected ?? false),
+    );
     final subtitle = _subtitle(state);
 
     return Material(
@@ -92,6 +96,14 @@ class MiniPlayer extends ConsumerWidget {
                           ],
                         ),
                       ),
+                      if (isCasting) ...[
+                        Icon(
+                          Icons.cast_connected,
+                          size: 18,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                      ],
                       const SizedBox(width: AppSpacing.sm),
                       _PlayPauseButton(state: state, controller: controller),
                     ],

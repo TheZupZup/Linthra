@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../models/cast_playback_status.dart';
 import '../../models/cast_state.dart';
 import 'cast_service.dart';
 
@@ -22,6 +23,13 @@ class UnavailableCastService implements CastService {
       Stream<CastState>.value(state).asBroadcastStream();
 
   @override
+  CastPlaybackStatus get playbackStatus => CastPlaybackStatus.idle;
+
+  @override
+  Stream<CastPlaybackStatus> get playbackStream =>
+      const Stream<CastPlaybackStatus>.empty();
+
+  @override
   Future<void> startDiscovery() async {}
 
   @override
@@ -32,6 +40,18 @@ class UnavailableCastService implements CastService {
 
   @override
   Future<void> disconnect() async {}
+
+  @override
+  Future<void> play() async {}
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> seek(Duration position) async {}
+
+  @override
+  Future<void> refresh() async {}
 
   @override
   Future<void> dispose() async {

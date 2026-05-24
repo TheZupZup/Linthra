@@ -40,9 +40,13 @@ final castMediaResolverProvider = Provider<CastMediaResolver>((ref) {
 /// Production binding: the real Chromecast backend, applied in `main`.
 ///
 /// It wires [DefaultCastService] to the live [ChromecastCastTransport] and to
-/// the playback controller — reading the current track, mirroring track
-/// changes, and pausing/resuming local playback around a handoff. Only Android
-/// and iOS get it; every other platform keeps the unavailable default so the
+/// the local engine — reading the current track and mirroring track changes
+/// onto the receiver. It does *not* pause or resume local playback itself: the
+/// `ActivePlaybackController` owns that, suspending the engine on handoff and
+/// resuming it paused when a session ends, so casting never surprise-starts the
+/// phone. Reading [localPlaybackControllerProvider] (the queue owner) rather
+/// than the routing controller keeps the dependency graph acyclic. Only Android
+/// and iOS get this; every other platform keeps the unavailable default so the
 /// app never claims a cast ability the platform lacks. Tests don't apply this,
 /// so they keep the inert default unless they override the service themselves.
 final chromecastCastServiceOverride = castServiceProvider.overrideWith((ref) {
@@ -54,16 +58,12 @@ final chromecastCastServiceOverride = castServiceProvider.overrideWith((ref) {
     return fallback;
   }
 
-  final controller = ref.read(playbackControllerProvider);
+  final local = ref.read(localPlaybackControllerProvider);
   final service = DefaultCastService(
     transport: ChromecastCastTransport(),
     mediaResolver: ref.read(castMediaResolverProvider),
-    currentTrack: () => controller.state.currentTrack,
-    trackChanges: controller.stateStream.map((s) => s.currentTrack).distinct(),
-    // Silence the local engine while the receiver plays, and resume it when
-    // casting ends, so the device recovers where it left off.
-    onCastingStarted: () => controller.pause(),
-    onCastingStopped: () => controller.play(),
+    currentTrack: () => local.state.currentTrack,
+    trackChanges: local.stateStream.map((s) => s.currentTrack).distinct(),
   );
   ref.onDispose(service.dispose);
   return service;

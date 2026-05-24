@@ -13,6 +13,17 @@ void main() {
       expect(state.hasError, isFalse);
       expect(state.devices, isEmpty);
       expect(state.message, isNull);
+      expect(state.isCasting, isFalse);
+    });
+
+    test('isCasting marks an active handoff and rides copyWith/equality', () {
+      const idle = CastState(availability: CastAvailability.connected);
+      final casting = idle.copyWith(isCasting: true);
+      expect(idle.isCasting, isFalse);
+      expect(casting.isCasting, isTrue);
+      // Differing only by isCasting must break equality, so the controller
+      // sees the handoff transition.
+      expect(casting, isNot(equals(idle)));
     });
 
     test('availability helpers map to the right value', () {

@@ -1,49 +1,55 @@
 import 'dart:async';
 
 import '../../models/cast_media.dart';
+import '../../models/cast_playback_status.dart';
 import '../../models/cast_state.dart';
+import '../../models/playback_state.dart';
 import '../../models/track.dart';
 import 'cast_media_resolver.dart';
 import 'cast_service.dart';
 import 'cast_transport.dart';
 
-/// The real [CastService]: it owns cast *state* and the playback *handoff*,
-/// delegating only the network-touching plumbing (discovery, the cast session)
-/// to a [CastTransport]. That split is deliberate — every decision this class
-/// makes is unit-tested with a fake transport, while the one untestable adapter
+/// The real [CastService]: it owns cast *state*, the playback *handoff*, and the
+/// receiver's reported playback status, delegating only the network-touching
+/// plumbing (discovery, the cast session, transport commands) to a
+/// [CastTransport]. That split is deliberate — every decision this class makes
+/// is unit-tested with a fake transport, while the one untestable adapter
 /// ([ChromecastCastTransport]) stays thin.
 ///
-/// Handoff model (kept simple on purpose, since transport controls aren't yet
-/// routed to the receiver):
+/// Handoff model:
 ///  - On connect, and whenever the playing track changes while connected, it
 ///    resolves the current track to a reachable URL *at that moment* via
-///    [CastMediaResolver] and asks the receiver to play it, then pauses local
-///    playback so audio isn't heard twice.
+///    [CastMediaResolver] and asks the receiver to play it. On success it marks
+///    [CastState.isCasting] true; the `ActivePlaybackController` watches that to
+///    silence the local engine so audio isn't heard twice.
 ///  - A track with no castable URL (an on-device file) is reported as a clear,
-///    non-fatal limitation in [CastState.message]; local playback is left
-///    untouched.
-///  - On disconnect (or if the receiver drops the session) local playback
-///    resumes, so the device recovers exactly where casting left off.
+///    non-fatal limitation in [CastState.message] with [CastState.isCasting]
+///    false, so local playback is left untouched.
+///  - While casting it forwards the receiver's media status out on
+///    [playbackStream] (position / play-state / duration) and routes
+///    play/pause/seek/refresh to the session.
+///
+/// It no longer pauses or resumes the local engine itself: that decision belongs
+/// to the [ActivePlaybackController], which reacts to [CastState.isCasting]. In
+/// particular it never auto-starts local playback when a session ends — the
+/// device returns to a paused, in-sync state instead of surprise-playing.
 ///
 /// Security: the resolved URL — which may embed a Jellyfin token — lives only on
 /// the [CastMedia] passed to the transport for this one load. It is never
-/// logged, never written to [CastState], and never persisted.
+/// logged, never written to [CastState] or [CastPlaybackStatus], and never
+/// persisted.
 class DefaultCastService implements CastService {
   DefaultCastService({
     required CastTransport transport,
     required CastMediaResolver mediaResolver,
     required Track? Function() currentTrack,
     required Stream<Track?> trackChanges,
-    Future<void> Function()? onCastingStarted,
-    Future<void> Function()? onCastingStopped,
     Duration discoveryTimeout = const Duration(seconds: 5),
     Duration connectTimeout = const Duration(seconds: 12),
   })  : _transport = transport,
         _mediaResolver = mediaResolver,
         _currentTrack = currentTrack,
         _trackChanges = trackChanges,
-        _onCastingStarted = onCastingStarted,
-        _onCastingStopped = onCastingStopped,
         _discoveryTimeout = discoveryTimeout,
         _connectTimeout = connectTimeout;
 
@@ -55,26 +61,24 @@ class DefaultCastService implements CastService {
   final CastMediaResolver _mediaResolver;
   final Track? Function() _currentTrack;
   final Stream<Track?> _trackChanges;
-  final Future<void> Function()? _onCastingStarted;
-  final Future<void> Function()? _onCastingStopped;
   final Duration _discoveryTimeout;
   final Duration _connectTimeout;
 
   final StreamController<CastState> _states =
       StreamController<CastState>.broadcast();
+  final StreamController<CastPlaybackStatus> _playback =
+      StreamController<CastPlaybackStatus>.broadcast();
 
   // A real backend is present, so the starting point is idle (ready, nothing
   // discovered yet) rather than unavailable.
   CastState _state = const CastState(availability: CastAvailability.idle);
+  CastPlaybackStatus _playbackStatus = CastPlaybackStatus.idle;
 
   CastSessionHandle? _handle;
   StreamSubscription<bool>? _readySub;
+  StreamSubscription<CastPlaybackStatus>? _statusSub;
   StreamSubscription<Track?>? _trackSub;
   bool _discovering = false;
-
-  // Set only while local playback has been paused for an active handoff, so
-  // disconnect resumes it exactly once and only when it was actually paused.
-  bool _handedOff = false;
 
   @override
   CastState get state => _state;
@@ -82,10 +86,21 @@ class DefaultCastService implements CastService {
   @override
   Stream<CastState> get stateStream => _states.stream;
 
+  @override
+  CastPlaybackStatus get playbackStatus => _playbackStatus;
+
+  @override
+  Stream<CastPlaybackStatus> get playbackStream => _playback.stream;
+
   void _emit(CastState next) {
     if (next == _state) return;
     _state = next;
     if (!_states.isClosed) _states.add(next);
+  }
+
+  void _emitPlayback(CastPlaybackStatus next) {
+    _playbackStatus = next;
+    if (!_playback.isClosed) _playback.add(next);
   }
 
   @override
@@ -129,7 +144,7 @@ class DefaultCastService implements CastService {
   @override
   Future<void> connect(CastDevice device) async {
     // Tear down any prior session first so we never leak one.
-    await _teardownSession(resumeLocal: false);
+    await _teardownSession();
     _emit(CastState(
       availability: CastAvailability.connecting,
       devices: _state.devices,
@@ -170,19 +185,27 @@ class DefaultCastService implements CastService {
       onDone: _onSessionLost,
       cancelOnError: false,
     );
+    // Mirror the receiver's media status out for the unified playback state.
+    _statusSub = handle.statusStream.listen(
+      _emitPlayback,
+      onError: (_) {},
+      cancelOnError: false,
+    );
     // Cast the current track now, and re-cast whenever it changes.
     _trackSub = _trackChanges.listen((Track? track) => _handOff(device, track));
     await _handOff(device, _currentTrack());
   }
 
-  /// Resolves [track] to castable media and hands it to the receiver, pausing
-  /// local playback on success. A non-castable (on-device) track is surfaced as
-  /// a clear limitation without disturbing local playback.
+  /// Resolves [track] to castable media and hands it to the receiver. On success
+  /// it marks [CastState.isCasting] true so the engine can be silenced. A
+  /// non-castable (on-device) track is surfaced as a clear limitation without
+  /// claiming a handoff.
   Future<void> _handOff(CastDevice device, Track? track) async {
     final CastSessionHandle? handle = _handle;
     if (handle == null) return; // disconnected mid-flight
 
     if (track == null) {
+      _emitPlayback(CastPlaybackStatus.idle);
       _emit(CastState(
         availability: CastAvailability.connected,
         devices: _state.devices,
@@ -192,6 +215,7 @@ class DefaultCastService implements CastService {
     }
 
     if (!_mediaResolver.canCast(track)) {
+      _emitPlayback(CastPlaybackStatus.idle);
       _emit(CastState(
         availability: CastAvailability.connected,
         devices: _state.devices,
@@ -205,6 +229,7 @@ class DefaultCastService implements CastService {
     try {
       media = await _mediaResolver.resolve(track);
     } on CastMediaException catch (error) {
+      _emitPlayback(CastPlaybackStatus.idle);
       _emit(CastState(
         availability: CastAvailability.connected,
         devices: _state.devices,
@@ -213,6 +238,7 @@ class DefaultCastService implements CastService {
       ));
       return;
     } catch (_) {
+      _emitPlayback(CastPlaybackStatus.idle);
       _emit(CastState(
         availability: CastAvailability.connected,
         devices: _state.devices,
@@ -228,6 +254,7 @@ class DefaultCastService implements CastService {
     try {
       await handle.loadMedia(media);
     } catch (_) {
+      _emitPlayback(CastPlaybackStatus.idle);
       _emit(CastState(
         availability: CastAvailability.connected,
         devices: _state.devices,
@@ -237,33 +264,48 @@ class DefaultCastService implements CastService {
       return;
     }
 
-    // Playing on the receiver now: silence the local engine so audio isn't
-    // heard twice, and remember to resume it on disconnect.
-    if (!_handedOff) {
-      _handedOff = true;
-      await _onCastingStarted?.call();
+    // Playing on the receiver now. Marking isCasting true is the signal the
+    // ActivePlaybackController uses to silence the local engine; we report a
+    // loading status until the receiver's first MEDIA_STATUS arrives.
+    if (!_playbackStatus.isPlaying) {
+      _emitPlayback(_playbackStatus.copyWith(status: PlaybackStatus.loading));
     }
     _emit(CastState(
       availability: CastAvailability.connected,
       devices: _state.devices,
       connectedDevice: device,
+      isCasting: true,
     ));
   }
 
   @override
   Future<void> disconnect() async {
-    await _teardownSession(resumeLocal: true);
+    await _teardownSession();
     _emit(CastState(
       availability: CastAvailability.idle,
       devices: _state.devices,
     ));
   }
 
-  /// The receiver ended the session on its own (closed, network drop). Recover
-  /// to local playback and reflect that we're no longer connected.
+  @override
+  Future<void> play() async => _handle?.play();
+
+  @override
+  Future<void> pause() async => _handle?.pause();
+
+  @override
+  Future<void> seek(Duration position) async => _handle?.seek(position);
+
+  @override
+  Future<void> refresh() async => _handle?.requestStatus();
+
+  /// The receiver ended the session on its own (closed, network drop). Reflect
+  /// that we're no longer connected; the [ActivePlaybackController] reacts to
+  /// the dropped [CastState.isCasting] and returns to a paused local state
+  /// (never surprise-starting playback).
   void _onSessionLost() {
     if (_handle == null) return;
-    unawaited(_teardownSession(resumeLocal: true).then((_) {
+    unawaited(_teardownSession().then((_) {
       _emit(CastState(
         availability: CastAvailability.idle,
         devices: _state.devices,
@@ -271,20 +313,19 @@ class DefaultCastService implements CastService {
     }));
   }
 
-  /// Cancels the session listeners, closes the handle, and resumes local
-  /// playback if we had paused it for casting.
-  Future<void> _teardownSession({required bool resumeLocal}) async {
+  /// Cancels the session listeners, closes the handle, and resets the reported
+  /// playback status to idle.
+  Future<void> _teardownSession() async {
     await _readySub?.cancel();
     _readySub = null;
+    await _statusSub?.cancel();
+    _statusSub = null;
     await _trackSub?.cancel();
     _trackSub = null;
     final CastSessionHandle? handle = _handle;
     _handle = null;
     if (handle != null) await _safeClose(handle);
-    if (resumeLocal && _handedOff) {
-      await _onCastingStopped?.call();
-    }
-    _handedOff = false;
+    _emitPlayback(CastPlaybackStatus.idle);
   }
 
   Future<void> _safeClose(CastSessionHandle handle) async {
@@ -297,7 +338,8 @@ class DefaultCastService implements CastService {
 
   @override
   Future<void> dispose() async {
-    await _teardownSession(resumeLocal: false);
+    await _teardownSession();
     await _states.close();
+    await _playback.close();
   }
 }

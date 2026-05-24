@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
-import '../../../core/models/lyrics.dart';
 import '../../../core/models/track.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../favorites_providers.dart';
-import '../lyrics_providers.dart';
 import '../player_providers.dart';
+import 'lyrics_view.dart';
 
 /// Bottom action row on the now-playing screen: favorite · queue · lyrics.
 ///
@@ -72,24 +71,21 @@ class NowPlayingActions extends ConsumerWidget {
   }
 }
 
-/// The lyrics sheet. It follows the *currently playing* track rather than a
-/// captured one, so skipping to the next song updates the lines in place; while
-/// the new track's lyrics load it shows a spinner (never the previous song),
-/// then either the lines, a calm "no lyrics" placeholder, or a friendly
-/// "couldn't load" message on a fetch failure.
-class _LyricsSheet extends ConsumerWidget {
+/// The lyrics sheet: a tall, premium synced-lyrics panel. It follows the
+/// *currently playing* track rather than a captured one, so skipping updates the
+/// lines in place; the heavy lifting (loading / empty / plain / synced
+/// highlighting + auto-scroll) lives in [LyricsView]. Opening it only reads
+/// playback state — it never starts or restarts playback.
+class _LyricsSheet extends StatelessWidget {
   const _LyricsSheet();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final AsyncValue<Lyrics?> lyrics = ref.watch(currentTrackLyricsProvider);
 
     return SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
-        ),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.85,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.lg,
@@ -98,74 +94,21 @@ class _LyricsSheet extends ConsumerWidget {
             AppSpacing.lg,
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Lyrics', style: theme.textTheme.titleMedium),
+              Row(
+                children: [
+                  Icon(Icons.lyrics_outlined, color: theme.colorScheme.primary),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text('Lyrics', style: theme.textTheme.titleMedium),
+                ],
+              ),
               const SizedBox(height: AppSpacing.sm),
-              Flexible(child: _content(lyrics)),
+              const Expanded(child: LyricsView()),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _content(AsyncValue<Lyrics?> lyrics) {
-    return lyrics.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
-        child: Center(child: CircularProgressIndicator()),
-      ),
-      // Never surface raw error text (it can carry transport detail); show one
-      // calm, friendly line instead.
-      error: (_, __) => const Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
-        child: EmptyState(
-          icon: Icons.lyrics_outlined,
-          title: "Couldn't load lyrics",
-          message: 'Check your connection and try again.',
-        ),
-      ),
-      data: (value) {
-        if (value == null || value.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
-            child: EmptyState(
-              icon: Icons.lyrics_outlined,
-              title: 'No lyrics available yet.',
-              message: "They'll appear here when your server has them.",
-            ),
-          );
-        }
-        return _LyricsList(lyrics: value);
-      },
-    );
-  }
-}
-
-class _LyricsList extends StatelessWidget {
-  const _LyricsList({required this.lyrics});
-
-  final Lyrics lyrics;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return ListView.builder(
-      shrinkWrap: true,
-      itemCount: lyrics.lines.length,
-      itemBuilder: (context, index) {
-        final String text = lyrics.lines[index].text;
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-          // A blank line keeps its vertical rhythm rather than collapsing.
-          child: Text(
-            text.isEmpty ? ' ' : text,
-            style: theme.textTheme.bodyLarge,
-          ),
-        );
-      },
     );
   }
 }

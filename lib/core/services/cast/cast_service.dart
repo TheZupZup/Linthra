@@ -1,3 +1,4 @@
+import '../../models/cast_playback_status.dart';
 import '../../models/cast_state.dart';
 
 /// The only cast contract the UI knows about, mirroring how [PlaybackController]
@@ -19,6 +20,13 @@ abstract interface class CastService {
   /// The latest known state, for synchronous reads on first build.
   CastState get state;
 
+  /// Position/play-state of the active receiver, for the unified playback state
+  /// to follow while casting. Emits [CastPlaybackStatus.idle] when not casting.
+  Stream<CastPlaybackStatus> get playbackStream;
+
+  /// The latest known cast playback status, for synchronous reads.
+  CastPlaybackStatus get playbackStatus;
+
   /// Begins scanning for nearby cast targets. A no-op when casting is
   /// unavailable.
   Future<void> startDiscovery();
@@ -31,6 +39,19 @@ abstract interface class CastService {
 
   /// Tears down the current session and returns playback to this device.
   Future<void> disconnect();
+
+  /// Resumes playback on the receiver. A no-op when not casting.
+  Future<void> play();
+
+  /// Pauses playback on the receiver. A no-op when not casting.
+  Future<void> pause();
+
+  /// Seeks the receiver to [position]. A no-op when not casting.
+  Future<void> seek(Duration position);
+
+  /// Asks the receiver for a fresh status, to re-sync position (e.g. when the
+  /// app returns from the background). A no-op when not casting.
+  Future<void> refresh();
 
   /// Releases any resources/listeners. Call on app shutdown.
   Future<void> dispose();
