@@ -7,6 +7,7 @@ import 'data/repositories/download_repository_provider.dart';
 import 'data/repositories/jellyfin_session_store_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
+import 'features/downloads/download_providers.dart';
 import 'features/player/player_providers.dart';
 
 Future<void> main() async {
@@ -18,14 +19,18 @@ Future<void> main() async {
   // notification / lock screen reflect the real controller. The running app
   // persists its catalog to SQLite (Drift override) and its chosen folder,
   // offline-download set, and Wi-Fi-only preference via shared_preferences;
-  // the Jellyfin session token is persisted in encrypted on-device storage.
-  // Tests keep the in-memory defaults unless they opt into these bindings.
+  // downloaded audio is written to an app-private directory on disk; and the
+  // Jellyfin session token is persisted in encrypted on-device storage. The
+  // Jellyfin downloader override makes remote tracks downloadable for offline
+  // use. Tests keep the in-memory defaults unless they opt into these bindings.
   final container = ProviderContainer(
     overrides: [
       driftMusicLibraryRepositoryOverride,
       sharedPreferencesSelectedMusicFolderRepositoryOverride,
       sharedPreferencesDownloadStoreOverride,
       sharedPreferencesDownloadPreferencesOverride,
+      fileSystemOfflineFileStoreOverride,
+      jellyfinRemoteTrackDownloaderOverride,
       secureJellyfinSessionStoreOverride,
     ],
   );

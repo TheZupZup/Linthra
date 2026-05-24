@@ -111,7 +111,7 @@ class _TrackTile extends ConsumerWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: _DownloadAction(trackId: track.id),
+      trailing: _DownloadAction(track: track),
       // Play the tapped track and queue the rest of the list behind it, then
       // surface the now-playing screen.
       onTap: () {
@@ -140,13 +140,13 @@ class _TrackTile extends ConsumerWidget {
 /// when cached. Progress states (queued/downloading) show as non-interactive
 /// indicators; nothing here ever starts a download on its own.
 class _DownloadAction extends ConsumerWidget {
-  const _DownloadAction({required this.trackId});
+  const _DownloadAction({required this.track});
 
-  final String trackId;
+  final Track track;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final asyncStatus = ref.watch(trackDownloadStatusProvider(trackId));
+    final asyncStatus = ref.watch(trackDownloadStatusProvider(track.id));
     final status = asyncStatus.valueOrNull ?? DownloadStatus.notDownloaded;
     final repository = ref.read(downloadRepositoryProvider);
     final theme = Theme.of(context);
@@ -156,13 +156,13 @@ class _DownloadAction extends ConsumerWidget {
         return IconButton(
           icon: const Icon(Icons.download_outlined),
           tooltip: 'Download',
-          onPressed: () => repository.requestDownload(trackId),
+          onPressed: () => repository.requestDownload(track),
         );
       case DownloadStatus.queued:
         return IconButton(
           icon: const Icon(Icons.schedule_outlined),
           tooltip: 'Queued',
-          onPressed: () => repository.removeDownload(trackId),
+          onPressed: () => repository.removeDownload(track.id),
         );
       case DownloadStatus.downloading:
         return const SizedBox.square(
@@ -179,13 +179,13 @@ class _DownloadAction extends ConsumerWidget {
             color: theme.colorScheme.primary,
           ),
           tooltip: 'Remove download',
-          onPressed: () => repository.removeDownload(trackId),
+          onPressed: () => repository.removeDownload(track.id),
         );
       case DownloadStatus.failed:
         return IconButton(
           icon: Icon(Icons.error_outline, color: theme.colorScheme.error),
           tooltip: 'Retry download',
-          onPressed: () => repository.requestDownload(trackId),
+          onPressed: () => repository.requestDownload(track),
         );
     }
   }

@@ -1,0 +1,73 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/data/repositories/file_system_offline_file_store.dart';
+
+void main() {
+  group('FileSystemOfflineFileStore', () {
+    late Directory tempDir;
+    late FileSystemOfflineFileStore store;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('linthra_offline_test');
+      store = FileSystemOfflineFileStore(directory: () async => tempDir);
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    test('writes bytes and resolves the file back', () async {
+      final String fileName =
+          await store.write('t1', const <int>[1, 2, 3, 4], extension: 'mp3');
+
+      expect(fileName, 't1.mp3');
+      final String? path = await store.pathFor(fileName);
+      expect(path, isNotNull);
+      expect(await File(path!).readAsBytes(), <int>[1, 2, 3, 4]);
+    });
+
+    test('the file name is derived from the id and carries no separators',
+        () async {
+      // An id with unsafe characters must not escape the offline directory.
+      final String fileName = await store.write(
+        'weird/../id with spaces',
+        const <int>[0],
+        extension: 'flac',
+      );
+
+      expect(fileName, isNot(contains('/')));
+      expect(fileName, isNot(contains(' ')));
+      expect(fileName, endsWith('.flac'));
+      // The written file lives directly under the offline directory.
+      final String? path = await store.pathFor(fileName);
+      expect(path, isNotNull);
+      expect(File(path!).parent.path, tempDir.path);
+    });
+
+    test('omits the extension when none is given', () async {
+      final String fileName = await store.write('t2', const <int>[9]);
+      expect(fileName, 't2');
+    });
+
+    test('pathFor returns null for a file that was never written', () async {
+      expect(await store.pathFor('missing.mp3'), isNull);
+    });
+
+    test('delete removes the cached file', () async {
+      final String fileName =
+          await store.write('t1', const <int>[1], extension: 'mp3');
+      expect(await store.pathFor(fileName), isNotNull);
+
+      await store.delete(fileName);
+
+      expect(await store.pathFor(fileName), isNull);
+    });
+
+    test('delete is a no-op for a missing file', () async {
+      await store.delete('missing.mp3');
+    });
+  });
+}

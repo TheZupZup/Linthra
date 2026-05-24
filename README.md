@@ -68,31 +68,40 @@ so scanned tracks survive a restart, while tests keep the in-memory default
 UI is untouched by the swap — it still reads only `LibraryController`/the
 repository abstraction.
 
-**Offline downloads — foundation landed.** The offline-cache lifecycle now
-works end to end behind `DownloadRepository`. `CacheDownloadRepository`
-(`lib/data/repositories/`) owns the policy in one place and tracks each item's
-`DownloadStatus` (`notDownloaded → queued → downloading → downloaded`, plus
-`failed`). Two promises are enforced here, not scattered through the UI:
-**downloads are only ever user-initiated** (nothing downloads automatically),
-and the **"Wi-Fi only" preference is respected** (a request made off Wi-Fi is
-*queued* rather than run). Only the `downloaded` set is durable; the transient
-states live in memory, so a restart never resurrects a half-finished download.
+**Offline downloads — Jellyfin downloads now real (Plexamp-style).** The
+offline-cache lifecycle works end to end behind `DownloadRepository`, and
+**Jellyfin tracks are now actually fetched and cached for offline playback** —
+the model is Plexamp/Plex Pass-style but open-source and fully user-controlled:
+the whole library stays visible and streamable, and you mark exactly the tracks
+you want offline. `CacheDownloadRepository` (`lib/data/repositories/`) owns the
+policy in one place and tracks each item's `DownloadStatus`
+(`notDownloaded → queued → downloading → downloaded`, plus `failed`). Three
+promises are enforced here, not scattered through the UI:
+**downloads are only ever user-initiated** (nothing downloads automatically — no
+full-library sync), the policy is **source-aware** (a Jellyfin track has its
+bytes fetched and cached; an on-device track is already local, so it's recorded
+as available offline with no network fetch), and the **"Wi-Fi only" preference
+is respected** for remote downloads (a request made off Wi-Fi is *queued* rather
+than run). Only the `downloaded` set is durable; the transient states live in
+memory, so a restart never resurrects a half-finished download.
 
-The durable bit — *which* track IDs are cached — sits behind a small
-`DownloadStore` seam, persisted via `shared_preferences` in the app and held
-in memory in tests (same reasoning as the selected-folder store: a list of IDs
-is the wrong weight for the SQLite catalog). The "Wi-Fi only" switch is a
-`DownloadPreferences` seam, also `shared_preferences`-backed. Connectivity is
-read through a `ConnectivityService` seam; until real remote downloads land,
-the default `OptimisticConnectivityService` reports Wi-Fi (there is no network
-fetch to gate yet), and tests inject a fake to drive the mobile/offline paths.
-The UI never touches file paths: the Library row shows a per-track
-download/remove control and status, and the Downloads tab lists cached tracks
-and hosts the "Wi-Fi only" toggle — both talk only to the repository
-abstraction. **No actual bytes are fetched yet** (the only source is local
-files already on disk); the byte-fetch for remote sources slots into one
-private method without the policy changing. See **Offline downloads & known
-limitations** below.
+The durable bit — *which* tracks are cached and the file holding each one — sits
+behind a small `DownloadStore` seam (a `CachedTrack` record: non-secret track id
++ a track-id-derived file name), persisted via `shared_preferences` in the app
+and held in memory in tests. The bytes themselves live behind an
+`OfflineFileStore` seam, written to an app-private directory on disk
+(`path_provider`'s application-support location) in the app and faked in tests.
+The remote byte-fetch is a `RemoteTrackDownloader` seam, implemented for Jellyfin
+by `JellyfinTrackDownloader`, which mints the authenticated download URL **only
+at fetch time** and never stores or logs it. The "Wi-Fi only" switch is a
+`DownloadPreferences` seam, and connectivity a `ConnectivityService` seam
+(`OptimisticConnectivityService` reports Wi-Fi by default; tests inject a fake to
+drive the mobile/offline paths). The UI never touches file paths: the Library
+row shows a per-track download/remove/retry control and status, the Downloads
+tab lists cached tracks and hosts the "Wi-Fi only" toggle, and **playback
+prefers the cached file** (via an `OfflineFirstPlayableUriResolver`) before
+streaming — all talking only to download-state and resolver abstractions. See
+**Offline downloads & known limitations** below.
 
 **Jellyfin (self-hosted) — foundation landed.** The first remote source is
 wired from the Settings screen through to a `MusicSource`. A user can enter
@@ -120,9 +129,9 @@ tapping a synced Jellyfin track plays it. Playback resolves through a
 session and mints the authenticated stream URL *at play time*, so the token is
 never stored on the track, in the catalog, in logs, or in player state. The
 player shows precise, secret-free errors (not signed in / expired session /
-unreachable server / unavailable stream). What's *not* here yet: Jellyfin
-offline downloads. See **Jellyfin (self-hosted music) — setup & known
-limitations** below.
+unreachable server / unavailable stream). **Jellyfin offline downloads now work
+too** — see the offline-downloads section above and **Jellyfin (self-hosted
+music) — setup & known limitations** below.
 
 Not built yet (planned, in roughly this order):
 
@@ -140,17 +149,18 @@ Not built yet (planned, in roughly this order):
   media-app declaration); Android Auto now **browsable** (Library / Queue nodes,
   tap-to-play) — not yet a full car UI*
 - Playlists
-- User-controlled offline downloads — *foundation done (status lifecycle,
-  mark/remove offline, Wi-Fi-only seam, UI hooks); real remote byte-fetch and a
-  background download manager still pending*
+- User-controlled offline downloads — *done for tracks (Plexamp-style explicit
+  downloads: real Jellyfin byte-fetch, app-private cache, cache-first playback,
+  remove/retry); album/playlist-level "download all" and a background download
+  manager still pending*
 - Lyrics
 
 Self-hosted sources (Jellyfin, WebDAV, NAS) build on the local MVP. The
 **Jellyfin foundation has landed** (settings, connection test, authentication,
 encrypted session persistence, and a library source), **library sync is wired
-in**, and **streaming playback now works** — a signed-in user can pull their
-Jellyfin catalog into the Library and play it. Offline downloads from Jellyfin
-come next.
+in**, **streaming playback works**, and **explicit offline downloads now work**
+— a signed-in user can pull their Jellyfin catalog into the Library, play it,
+and mark individual tracks for offline use.
 
 ## Philosophy
 
@@ -698,38 +708,73 @@ filesystem fallback) and a playlist-editor foundation remain natural follow-ups.
 
 ### Offline downloads & known limitations
 
+Linthra's offline model is **Plexamp/Plex Pass-style, but open-source and fully
+user-controlled**:
+
+- **The full library stays visible.** Syncing Jellyfin shows your whole catalog;
+  nothing is hidden behind a download.
+- **Downloads are explicit.** You mark the tracks you want offline. There is **no
+  automatic full-library sync** and no surprise downloads.
+- **Streaming is the default.** An un-downloaded Jellyfin track streams normally
+  when you're online and signed in.
+- **Cached items are playable offline.** Once a track is downloaded, playback
+  **prefers the local cached file**; if it isn't cached and you're offline, the
+  player shows a friendly "couldn't reach your server" message rather than
+  failing opaquely.
+
 **How it works now.** Each Library row shows an offline-download control:
-download an absent track, see a spinner while it's in flight, and remove a
-cached one. The Downloads tab lists everything currently cached and hosts the
-**Wi-Fi only** toggle. All of this flows through `DownloadRepository`, which
-centralizes two guarantees:
+download an absent track, see a spinner while it's in flight, remove a cached
+one, or retry a failed one. The Downloads tab lists everything currently cached
+and hosts the **Wi-Fi only** toggle. All of this flows through
+`DownloadRepository`, which centralizes three guarantees:
 
 - **User-initiated only.** A track's status only ever changes in response to an
   explicit download/remove action — nothing is fetched automatically or in the
   background.
-- **Wi-Fi only is respected.** With the toggle on, a request made off Wi-Fi is
-  *queued* instead of run; with it off, downloads proceed on any connection.
+- **Source-aware.** A **Jellyfin** track has its bytes fetched (via
+  `RemoteTrackDownloader` → `JellyfinTrackDownloader`) and written to an
+  app-private offline directory (`OfflineFileStore`); an **on-device** track is
+  already local, so it's recorded as available offline with no network fetch and
+  no managed file.
+- **Wi-Fi only is respected.** For remote downloads, with the toggle on a request
+  made off Wi-Fi is *queued* instead of run; with it off, downloads proceed on
+  any connection. (Local tracks are never queued — there are no bytes to fetch.)
 
-`downloaded` is the only durable state (persisted as a set of track IDs via
-`shared_preferences`); `queued`/`downloading`/`failed` are in-memory and reset
-on restart.
+**Storage & playback.** Downloaded bytes live in an app-controlled directory
+(`path_provider`'s application-support location, not the OS cache that can be
+reclaimed). The durable metadata is a small `CachedTrack` set (track id + cache
+file name) behind `DownloadStore`, persisted via `shared_preferences`. Playback
+goes through an `OfflineFirstPlayableUriResolver`: it asks a `CachedTrackLocator`
+for a local copy first and, on a miss, falls back to the source router (Jellyfin
+streaming, or the on-device file). `downloaded` is the only durable state;
+`queued`/`downloading`/`failed` are in-memory and reset on restart.
+
+**Security (token handling).** The Jellyfin access token is **never** stored on
+`Track.uri`, in the `DownloadStore` metadata, in a cache file name, in a log, or
+in a user-facing error. A track's stored URI stays the token-free `jellyfin:<id>`;
+the authenticated **download** URL is minted only at fetch time inside
+`JellyfinTrackDownloader` (mirroring how the **stream** URL is minted at play
+time), and a transport failure is re-raised as a generic message so a
+`ClientException` carrying the tokenized URL can't escape. Cache file names are
+derived only from the non-secret track id, sanitized to filename-safe characters.
 
 Deliberate gaps the next PRs will close:
 
-- **No real downloads yet.** The only source is local files already on disk, so
-  "downloading" just records the track as offline-available. Fetching bytes from
-  a remote source (Jellyfin/WebDAV) is the follow-up; it slots into
-  `CacheDownloadRepository._obtainOfflineCopy` without changing the policy.
+- **Track-level only.** Album- and playlist-level "download all" is intentionally
+  out of scope for this PR. The seam is ready — `requestDownload(Track)` plus the
+  `RemoteTrackDownloader` compose per-track — so a batch action is additive UI
+  over the existing policy, with no architectural change.
 - **No background download manager.** Downloads run inline in response to the
-  tap; there is no worker, no Android download/notification service, and no
-  auto-flush of the queue when Wi-Fi returns (re-tap a queued track to retry).
+  tap; there is no worker, no Android download/notification service, no resume of
+  a partial transfer, and no auto-flush of the queue when Wi-Fi returns (re-tap a
+  queued track to retry).
 - **Connectivity is optimistic.** `OptimisticConnectivityService` always reports
-  Wi-Fi until `connectivity_plus` is wired alongside real remote downloads, so
-  the "Wi-Fi only" gate has nothing to block in the current local-only build —
+  Wi-Fi until `connectivity_plus` is wired in, so the "Wi-Fi only" gate currently
+  blocks only when a test (or a future real detector) reports mobile/offline —
   the seam and its tests are in place for when it does.
-- **No Drift table for downloads.** Persisting a flat ID set is a key/value job;
-  a `downloads` table (with file paths and byte progress) graduates from the
-  `DownloadStore` seam when real downloads need it.
+- **No Drift table for downloads.** Persisting a small `CachedTrack` set is a
+  key/value job; a `downloads` table (with byte progress) graduates from the
+  `DownloadStore` seam when background/resumable downloads need it.
 
 ### Jellyfin (self-hosted music) — setup & known limitations
 
@@ -772,8 +817,12 @@ configuration — point the URL at your public domain. Two things to know:
 - **The token is encrypted at rest.** It's stored via `flutter_secure_storage`
   (Android Keystore-backed), not in plaintext `shared_preferences`.
 - **Nothing logs the token or password.** `JellyfinSession.toString()` redacts
-  the token, and a track's cached URI is a token-free `jellyfin:<id>` — the
-  authenticated streaming URL is minted only at play time, never stored.
+  the token, and a track's cached URI is a token-free `jellyfin:<id>` — both the
+  authenticated streaming URL (at play time) and the download URL (at fetch time)
+  are minted only on demand, never stored.
+- **Offline downloads inherit the same handling.** A downloaded track's cache
+  file name is derived only from the non-secret track id; the token never lands
+  in the file name, the `DownloadStore` metadata, a log, or a download error.
 
 **What works now.** Configuring a server, testing the connection, signing in
 with friendly URL/connection/auth errors, persisting the session across
@@ -798,16 +847,24 @@ unreachable**, **stream unavailable** — branched on a typed error kind, not
 message text. Local file playback is untouched (it never enters the Jellyfin
 resolver).
 
+**Offline downloads** let a signed-in user mark individual Jellyfin tracks for
+offline use; the bytes are fetched from Jellyfin's `/Items/<id>/Download`
+endpoint and cached on disk, and playback then prefers the local copy. The full
+flow, storage, and token handling are covered in **Offline downloads & known
+limitations** above.
+
 **Token safety holds end to end.** A track's stored URI stays the token-free
-`jellyfin:<id>`; the authenticated stream URL is built only on demand and is
-never stored on the track, written to the catalog, logged, shown in the UI, or
-placed in player state. `JellyfinSession.toString()` redacts the token, and the
-playback error messages are asserted in tests to contain no token.
+`jellyfin:<id>`; the authenticated stream/download URLs are built only on demand
+and are never stored on the track, written to the catalog, logged, shown in the
+UI, or placed in player state. `JellyfinSession.toString()` redacts the token,
+and both the playback error messages and the download path are asserted in tests
+to contain no token (including when a transport error would otherwise echo the
+tokenized URL).
 
 **Deliberate gaps the next PRs will close:**
 
-- **No offline downloads from Jellyfin.** Fetching bytes for offline use slots
-  into `CacheDownloadRepository._obtainOfflineCopy` later (see above).
+- **Track-level downloads only.** Album/playlist "download all" is deferred; the
+  per-track seam already composes for it (see offline-downloads section above).
 - **Single server only.** One session is stored; multi-server support and
   richer transcoding/streaming parameters come later.
 - **No Android Auto browsing, lyrics, or sync-conflict handling** for Jellyfin
@@ -873,8 +930,9 @@ branch rather than `main`.
 10. Settings
 
 Later: Jellyfin (landed — settings, auth, encrypted session, a library source,
-Library sync, and streaming playback; offline downloads next), WebDAV, NAS,
-lyrics, ReplayGain, MPRIS, Android Auto, smart playlists, and more.
+Library sync, streaming playback, and explicit per-track offline downloads;
+album/playlist "download all" and a background download manager next), WebDAV,
+NAS, lyrics, ReplayGain, MPRIS, Android Auto, smart playlists, and more.
 
 ## F-Droid metadata (work in progress)
 

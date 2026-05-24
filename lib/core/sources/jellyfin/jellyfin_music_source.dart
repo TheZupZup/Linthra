@@ -5,6 +5,7 @@ import '../../models/track.dart';
 import '../../services/music_source.dart';
 import 'jellyfin_api.dart';
 import 'jellyfin_client.dart';
+import 'jellyfin_download_source.dart';
 import 'jellyfin_stream_source.dart';
 import 'jellyfin_track_mapper.dart';
 
@@ -21,7 +22,8 @@ import 'jellyfin_track_mapper.dart';
 /// `JellyfinPlayableUriResolver`, which calls [verifyReachable] then
 /// [resolvePlayableUri] at play time so the token is only ever woven into a URL
 /// on demand.
-class JellyfinMusicSource implements MusicSource, JellyfinStreamSource {
+class JellyfinMusicSource
+    implements MusicSource, JellyfinStreamSource, JellyfinDownloadSource {
   const JellyfinMusicSource({
     required this.session,
     required JellyfinClient client,
@@ -85,10 +87,8 @@ class JellyfinMusicSource implements MusicSource, JellyfinStreamSource {
   /// a later refinement.
   @override
   Future<Uri?> resolvePlayableUri(Track track) async {
-    final String itemId = track.uri.startsWith(JellyfinTrackMapper.uriScheme)
-        ? track.uri.substring(JellyfinTrackMapper.uriScheme.length)
-        : track.id;
-    return Uri.parse('${session.baseUrl}/Audio/$itemId/universal').replace(
+    return Uri.parse('${session.baseUrl}/Audio/${_itemId(track)}/universal')
+        .replace(
       queryParameters: <String, String>{
         'api_key': session.accessToken,
         'UserId': session.userId,
@@ -96,4 +96,26 @@ class JellyfinMusicSource implements MusicSource, JellyfinStreamSource {
       },
     );
   }
+
+  /// Mints the authenticated URL to download [track]'s original file on demand.
+  ///
+  /// Uses Jellyfin's `/Items/<id>/Download` endpoint so the cached copy is the
+  /// real source file rather than a transcode. Like [resolvePlayableUri], the
+  /// token is woven in here, at download time, and never stored on the track.
+  @override
+  Future<Uri?> resolveDownloadUri(Track track) async {
+    return Uri.parse('${session.baseUrl}/Items/${_itemId(track)}/Download')
+        .replace(
+      queryParameters: <String, String>{
+        'api_key': session.accessToken,
+      },
+    );
+  }
+
+  /// The Jellyfin item id behind [track]: the part after the `jellyfin:` scheme,
+  /// falling back to the track id for an unprefixed value.
+  String _itemId(Track track) =>
+      track.uri.startsWith(JellyfinTrackMapper.uriScheme)
+          ? track.uri.substring(JellyfinTrackMapper.uriScheme.length)
+          : track.id;
 }
