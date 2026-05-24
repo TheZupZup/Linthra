@@ -58,6 +58,16 @@ dependencies:
   # the token never lands in plaintext and tests stay plugin-free on the
   # in-memory default. Passwords are never persisted at all.
   flutter_secure_storage: ^9.2.2
+  # Real Chromecast support, used ONLY by ChromecastCastTransport behind the
+  # CastTransport/CastService interfaces; the UI and the rest of the app never
+  # touch it directly. This is a pure-Dart implementation of the Google Cast v2
+  # protocol (mDNS discovery via `bonsoir`, a TLS socket, protobuf framing) — it
+  # does NOT use the proprietary Google Cast SDK or Google Play Services, so it
+  # stays F-Droid/open-source compatible (MIT). `bonsoir` is pinned to 5.x for
+  # Dart 3.6 compatibility (6.x+ needs Dart >=3.8). See
+  # docs/dependency-license-audit.md §"Cast" and docs/fdroid-readiness.md.
+  cast: ^2.1.0
+  bonsoir: ^5.1.11
 
 dev_dependencies:
   flutter_lints: ^5.0.0

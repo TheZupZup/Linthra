@@ -11,6 +11,7 @@ import 'data/repositories/jellyfin_session_store_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'features/downloads/download_providers.dart';
+import 'features/player/cast/cast_providers.dart';
 import 'features/player/favorites_providers.dart';
 import 'features/player/lyrics_providers.dart';
 import 'features/player/player_providers.dart';
@@ -42,6 +43,8 @@ Future<void> main() async {
       sharedPreferencesFavoritesStoreOverride,
       jellyfinFavoritesOverride,
       jellyfinLyricsOverride,
+      // Real Chromecast backend (Android/iOS only); see cast_providers.dart.
+      chromecastCastServiceOverride,
     ],
   );
 

@@ -50,7 +50,7 @@ void main() {
       await tester.tap(find.byType(CastButton));
       await tester.pumpAndSettle();
 
-      expect(find.text('Casting isn\'t available yet'), findsOneWidget);
+      expect(find.text('Casting isn\'t available here'), findsOneWidget);
     });
 
     testWidgets('shows the connected glyph when connected', (tester) async {

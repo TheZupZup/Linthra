@@ -157,8 +157,12 @@ Not built yet (planned, in roughly this order):
   applied (foreground-service permissions, playback service, media-button
   receiver, `AudioServiceActivity`, Android Auto media-app declaration); Android
   Auto now **browsable** (Library / Queue nodes, tap-to-play) — not yet a full
-  car UI. A **cast/Chromecast control** is present in Now Playing as a UI +
-  architecture-seam foundation (no live device handoff yet — see below)*
+  car UI. **Real Chromecast casting** is wired behind `CastService` on
+  Android/iOS — device discovery, connect/disconnect, and handing off the
+  current Jellyfin track to the receiver — using a pure-Dart Cast protocol (no
+  Google Play Services / Cast SDK, so it stays F-Droid-friendly). On-device
+  files can't be cast (a receiver can't reach them) and show a clear limitation;
+  see below*
 - Playlists
 - User-controlled offline downloads — *done for tracks (Plexamp-style explicit
   downloads: real Jellyfin byte-fetch, app-private cache, cache-first playback,
@@ -274,12 +278,18 @@ lib/
   Android Auto), mirroring shuffle/repeat into the session, without touching
   feature code; MPRIS can attach the same way later.
 - **`CastService`** (`core/services/cast/cast_service.dart`) — the seam for
-  remote playback handoff (Chromecast/Cast SDK, AirPlay, …). The UI renders a
-  `CastState` and drives discovery/connection through this interface, never a
-  cast SDK directly — mirroring how the audio engine is hidden behind
-  `PlaybackController`. The shipped `UnavailableCastService` reports
-  "unavailable" and no-ops, so the cast button is honest today; a live backend
-  slots in by overriding one provider, with no player-UI changes.
+  remote playback handoff (Chromecast). The UI renders a `CastState` and drives
+  discovery/connection through this interface, never a cast SDK directly —
+  mirroring how the audio engine is hidden behind `PlaybackController`. Android
+  and iOS get the real `DefaultCastService`, which owns cast state and the
+  playback handoff (resolve the current track's stream URL **at cast time**,
+  load it on the receiver, pause local audio; resume on disconnect) while
+  delegating the wire protocol to a thin `ChromecastCastTransport` over the
+  pure-Dart `cast` package (no Google Play Services / Cast SDK). Other platforms
+  keep `UnavailableCastService`, so the button stays honest. The
+  network-touching transport is isolated so all of casting's decision-making is
+  unit-tested with a fake; the resolved URL (with any token) is never logged or
+  persisted.
 - **`DownloadRepository`** (`core/repositories/`) — enforces the
   user-initiated, "Wi-Fi only"-respecting download policy in one place.
   `CacheDownloadRepository` implements it today over a `DownloadStore`
@@ -749,19 +759,26 @@ own.
   local track, or being signed out shows a calm "No lyrics available" placeholder
   (and a fetch failure a friendly "couldn't load" line) — never a blank sheet. A
   local `.lrc`/tag reader can slot in behind the same seam later.
-- **Cast / Chromecast — UI placeholder with architecture seam (not live yet).**
-  A cast control sits in the Now Playing header. **Casting is *not* implemented
-  in this build** and the app never pretends otherwise: the shipped
-  `UnavailableCastService` reports `CastAvailability.unavailable`, the button is
-  shown but visibly muted ("Cast (coming soon)"), and opening it shows an honest
-  "Casting isn't available yet" sheet rather than a fake or empty device list.
-  What *is* here is the full seam for a future backend — a `CastService`
-  interface, a `CastState` model (availability / discovered devices / connected
-  device), a provider, and a device-picker sheet that already handles discovery,
-  connect, and disconnect. Wiring real Chromecast support later (e.g. a Cast SDK
-  package) means implementing `CastService` and overriding one provider, with **no
-  changes to the player UI**. No cast SDK dependency is added in this PR, keeping
-  the build safe and small.
+- **Cast / Chromecast (working on Android/iOS).** The cast control in the Now
+  Playing header opens a device sheet that drives **real Chromecast**: mDNS
+  discovery of devices on the network, connect/disconnect, and handing the
+  current track off to the receiver. It's built on the pure-Dart `cast` package
+  (Google Cast **v2 protocol** over a TLS socket, `bonsoir` for discovery) — **no
+  Google Play Services or proprietary Cast SDK**, so the F-Droid build keeps
+  casting (see [docs](docs/dependency-license-audit.md#casting-chromecast--real-cast-without-google-play-services)).
+  The handoff resolves the current track's stream URL **only at cast time**
+  (Jellyfin's authenticated URL, token woven in on demand and **never logged or
+  persisted**), tells the receiver to fetch it, and pauses local audio so it
+  isn't heard twice; disconnecting (or the receiver dropping) resumes local
+  playback. **On-device files can't be cast** — a receiver can't reach a
+  `file://` path — so those surface a clear limitation in the sheet rather than
+  failing silently. The sheet shows every state honestly: searching, available
+  devices, connecting, connected, the local-file notice, and error/no-devices.
+  Architecturally the UI still only touches `CastService`/`CastState`; the real
+  `DefaultCastService` owns state + handoff and is fully unit-tested behind a
+  faked `CastTransport`, while the thin `ChromecastCastTransport` (the only code
+  that opens a socket) is verified by analysis and on-device testing. Platforms
+  without a cast stack keep the honest `UnavailableCastService`.
 
 Both shuffle and repeat are also mirrored into the `audio_service` media session
 (`shuffleMode`/`repeatMode`), and the session forwards the system's
@@ -1193,8 +1210,9 @@ Library sync, streaming playback, explicit per-track offline downloads,
 preloading of upcoming tracks, server-synced favourites, and lyrics;
 album/playlist "download all" and a background download manager next), Android
 Auto (foundation landed — browsable Library/Queue; album/artist grouping and
-search next), Chromecast/casting (UI + `CastService` architecture seam landed;
-live device discovery and playback handoff next), WebDAV, NAS, local-file lyrics
+search next), Chromecast/casting (real device discovery + connect/disconnect +
+Jellyfin-stream handoff landed on Android/iOS via a pure-Dart Cast protocol;
+local-file casting and receiver transport controls next), WebDAV, NAS, local-file lyrics
 (`.lrc`/tags), ReplayGain, MPRIS, smart playlists, and more.
 
 ## F-Droid metadata (work in progress)

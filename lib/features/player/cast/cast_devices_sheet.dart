@@ -86,53 +86,107 @@ class _CastDevicesSheetState extends ConsumerState<CastDevicesSheet> {
 class _Body extends ConsumerWidget {
   const _Body({required this.state});
 
+  static const EdgeInsets _pad = EdgeInsets.fromLTRB(
+    AppSpacing.lg,
+    AppSpacing.sm,
+    AppSpacing.lg,
+    AppSpacing.xl,
+  );
+
   final CastState state;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (!state.isAvailable) {
       return const Padding(
-        padding: EdgeInsets.fromLTRB(
-          AppSpacing.lg,
-          AppSpacing.sm,
-          AppSpacing.lg,
-          AppSpacing.xl,
-        ),
+        padding: _pad,
         child: EmptyState(
           icon: Icons.cast,
-          title: 'Casting isn\'t available yet',
-          message: 'Streaming to Chromecast and other cast devices is on the '
-              'roadmap. The control is here; the device handoff lands in a '
-              'future update.',
+          title: 'Casting isn\'t available here',
+          message: 'Streaming to Chromecast needs Android or iOS. The control '
+              'is here; pick a device on a supported platform to cast.',
+        ),
+      );
+    }
+
+    if (state.hasError) {
+      final service = ref.read(castServiceProvider);
+      return Padding(
+        padding: _pad,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            EmptyState(
+              icon: Icons.cast,
+              title: 'No cast devices',
+              message: state.message ??
+                  'Make sure a cast device is on the same Wi-Fi network.',
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextButton.icon(
+              onPressed: service.startDiscovery,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Search again'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (state.isConnecting) {
+      final String name = state.connectedDevice?.name ?? 'device';
+      return Padding(
+        padding: _pad,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: AppSpacing.md),
+            const CircularProgressIndicator(),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Connecting to $name…',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final devices = state.devices;
+    if (devices.isEmpty) {
+      if (state.isDiscovering) {
+        return const Padding(
+          padding: _pad,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(height: AppSpacing.md),
+              CircularProgressIndicator(),
+              SizedBox(height: AppSpacing.md),
+              Text('Searching for devices…', textAlign: TextAlign.center),
+            ],
+          ),
+        );
+      }
+      return const Padding(
+        padding: _pad,
+        child: EmptyState(
+          icon: Icons.cast,
+          title: 'No devices found',
+          message: 'Make sure a cast device is on the same Wi-Fi network.',
         ),
       );
     }
 
     final service = ref.read(castServiceProvider);
-    final devices = state.devices;
-    if (devices.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg,
-          AppSpacing.sm,
-          AppSpacing.lg,
-          AppSpacing.xl,
-        ),
-        child: EmptyState(
-          icon: Icons.cast,
-          title: state.isDiscovering
-              ? 'Searching for devices…'
-              : 'No devices found',
-          message: state.isDiscovering
-              ? 'Looking for cast devices on your network.'
-              : 'Make sure a cast device is on the same network.',
-        ),
-      );
-    }
-
     return ListView(
       shrinkWrap: true,
       children: [
+        // A non-fatal notice while connected (e.g. the current track is a local
+        // file that can't be cast).
+        if (state.isConnected && state.message != null)
+          _Notice(message: state.message!),
         for (final device in devices)
           ListTile(
             leading: Icon(
@@ -152,6 +206,51 @@ class _Body extends ConsumerWidget {
                 : () => service.connect(device),
           ),
       ],
+    );
+  }
+}
+
+/// A calm inline banner for a non-fatal cast notice (e.g. the local-file
+/// casting limitation) shown above the device list while connected.
+class _Notice extends StatelessWidget {
+  const _Notice({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.xs,
+        AppSpacing.lg,
+        AppSpacing.sm,
+      ),
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.info_outline,
+            size: 18,
+            color: theme.colorScheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

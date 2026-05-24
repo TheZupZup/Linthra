@@ -340,7 +340,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.cast));
       await tester.pumpAndSettle();
 
-      expect(find.text('Casting isn\'t available yet'), findsOneWidget);
+      expect(find.text('Casting isn\'t available here'), findsOneWidget);
     });
   });
 }

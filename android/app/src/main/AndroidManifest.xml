@@ -28,6 +28,18 @@
          Framework grant the user picks. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- CHANGE_WIFI_MULTICAST_STATE: lets the app receive multicast Wi-Fi
+         packets so mDNS (`_googlecast._tcp`) discovery can find Chromecast
+         devices on the local network. Required by the `bonsoir` discovery
+         plugin (which uses Android's AOSP NsdManager, not Google Play
+         Services) and merged from it; declared here explicitly so the
+         permission set stays auditable in one place. It grants no internet or
+         storage access of its own — only local-network service discovery. The
+         cast session itself connects over the already-declared INTERNET
+         permission. No proprietary/GMS cast dependency is used; see
+         docs/fdroid-readiness.md. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
     <application
         android:label="Linthra"
         android:name="${applicationName}"

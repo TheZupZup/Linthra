@@ -68,10 +68,15 @@ compatible with MPL-2.0 and acceptable to F-Droid.
 | `shared_preferences`     | `^2.3.3`     | flutter.dev         | BSD-3-Clause   | Persists the selected folder. |
 | `http`                   | `^1.2.0`     | dart.dev            | BSD-3-Clause   | HTTP client for the optional Jellyfin source (§7). |
 | `flutter_secure_storage` | `^9.2.2`     | (juliansteenbakker) | BSD-3-Clause   | Encrypted store for the Jellyfin session token (§7). |
+| `cast`                   | `^2.1.0`     | (johnvuko)          | MIT            | Pure-Dart Google Cast v2 protocol for real Chromecast — **no** Google Play Services / proprietary Cast SDK. See §5 (Casting). |
+| `bonsoir`                | `^5.1.11`    | (Skyost)            | MIT            | mDNS/Bonjour service discovery used by `cast`; Android side is AOSP `NsdManager`, not GMS. Pinned to 5.x for Dart 3.6 (6.x+ needs Dart ≥3.8). See §5 (Casting). |
 
 > The `http` and `flutter_secure_storage` entries were added with the Jellyfin
-> source foundation and are the two newest runtime dependencies; both are
-> permissive (BSD-3-Clause) Dart/Flutter-ecosystem packages.
+> source foundation; `cast` and `bonsoir` were added with real Chromecast
+> support (§5, Casting). All four are permissive (MIT / BSD-3-Clause) Dart/Flutter-
+> ecosystem packages. `cast` pulls in one transitive runtime package, `protobuf`
+> (`^3.1.0`, dart.dev, **BSD-3-Clause**), used only to frame cast-channel
+> messages — also free software, no GMS.
 
 ## 4. Dev / build-only dependencies (NOT shipped in the APK)
 
@@ -103,6 +108,44 @@ source (no prebuilt proprietary blobs).
   `media-session` APIs from `audio_service` (AOSP media APIs), not a proprietary
   car SDK. _(Confirm there is no transitive GMS pull-in as part of §6.)_
 
+### Casting (Chromecast) — real Cast without Google Play Services
+
+Real Chromecast support is implemented **without** the official Google Cast
+SDK, which is the important F-Droid distinction:
+
+- **Why not the official SDK.** Google's Cast SDK for Android
+  (`com.google.android.gms.cast.*`) is part of **Google Play Services** —
+  proprietary and not buildable from source. Depending on it would introduce a
+  GMS requirement and almost certainly warrant the `NonFreeDep` anti-feature, so
+  it was **rejected**.
+- **What is used instead.** The pure-Dart `cast` package speaks the Google Cast
+  **v2 wire protocol** directly: mDNS discovery (via `bonsoir`), a TLS socket to
+  the device, and `protobuf`-framed messages to the device's *Default Media
+  Receiver*. No Google library is linked.
+  - `cast` — **MIT**, pure Dart.
+  - `bonsoir` (+ `bonsoir_android`, `bonsoir_platform_interface`, …) — **MIT**.
+    The Android implementation uses **`android.net.nsd.NsdManager`**, an **AOSP**
+    API, not GMS. Its `build.gradle` pulls in only Kotlin stdlib and test-only
+    libraries (no `com.google.android.gms`/`play-services`). Pinned to `5.x`
+    because `6.x`+ require Dart ≥3.8 while the project targets Dart 3.6.
+  - `protobuf` — **BSD-3-Clause** (dart.dev), transitive via `cast`, used only to
+    encode/decode cast-channel frames.
+- **New permission.** `bonsoir` adds **`CHANGE_WIFI_MULTICAST_STATE`** (declared
+  explicitly in `AndroidManifest.xml` for auditability). It is an **AOSP**
+  permission allowing receipt of multicast Wi-Fi packets for mDNS discovery; it
+  grants no internet or storage access. The cast session itself uses the
+  existing `INTERNET` permission to reach the device on the LAN.
+- **No secrets leave the device improperly.** A castable URL (which, for
+  Jellyfin, embeds the access token in its query) is resolved **on demand at
+  cast time**, handed straight to the cast session for the device to fetch, and
+  **never persisted or logged** (`CastMedia.toString()` redacts the query, like
+  `JellyfinSession`). On-device files have no reachable URL and are surfaced as a
+  clear limitation rather than cast.
+- **F-Droid verdict.** Casting introduces **no proprietary/GMS dependency and no
+  anti-feature**, so it can ship in the F-Droid build. (As always, the mechanical
+  transitive walk in §6 should confirm no GMS pull-in; the manual review of
+  `bonsoir_android`'s `build.gradle` above already shows none.)
+
 ## 6. Anti-features / non-free check
 
 Mapped to F-Droid's [anti-features](https://f-droid.org/docs/Anti-Features/):
@@ -111,7 +154,7 @@ Mapped to F-Droid's [anti-features](https://f-droid.org/docs/Anti-Features/):
 | -------------------------- | ------ | ----- |
 | Ads                        | None   | No advertising libraries or code. |
 | Tracking / analytics       | None   | No telemetry, analytics, or crash-reporting SDK is present. |
-| Proprietary dependencies   | None found in **direct** deps | All direct deps are MIT/BSD-3-Clause; transitive set still to be confirmed mechanically (§2). |
+| Proprietary dependencies   | None found in **direct** deps | All direct deps are MIT/BSD-3-Clause; transitive set still to be confirmed mechanically (§2). Chromecast deliberately avoids the GMS Cast SDK (pure-Dart `cast` + AOSP `NsdManager` via `bonsoir`); see §5 (Casting). |
 | Non-free network services  | See §7 | Local-first core needs no network; Jellyfin is optional and user-configured. |
 
 ## 7. Network use & the optional Jellyfin source

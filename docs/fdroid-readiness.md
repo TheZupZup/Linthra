@@ -70,6 +70,8 @@ accepted on F-Droid:
 | `shared_preferences`     | Persists selected folder                 | BSD-3-Clause | OK |
 | `http`                   | HTTP client for the optional Jellyfin source | BSD-3-Clause | OK (network is opt-in; see §5) |
 | `flutter_secure_storage` | Encrypted Jellyfin session-token store   | BSD-3-Clause | OK (Android Keystore; AOSP, not GMS) |
+| `cast`                   | Real Chromecast (pure-Dart Cast v2 protocol) | MIT | OK — **no** GMS / Google Cast SDK; see [audit §5 (Casting)](./dependency-license-audit.md#casting-chromecast--real-cast-without-google-play-services) |
+| `bonsoir`                | mDNS discovery used by `cast`            | MIT | OK — Android side is AOSP `NsdManager`, not GMS; pinned to 5.x for Dart 3.6 |
 
 Dev-only dependencies (`flutter_lints`, `flutter_test`, `drift_dev`,
 `build_runner`) are not shipped in the APK.
@@ -124,6 +126,15 @@ where applicable. Current assessment:
   "all files access" permission Google restricts and F-Droid users distrust; it
   is the opposite of the scoped-storage approach this project prefers. It must
   not be added without an explicit, documented justification.
+- **`CHANGE_WIFI_MULTICAST_STATE` (added for Chromecast discovery).** Real cast
+  discovery must receive multicast Wi-Fi packets for mDNS (`_googlecast._tcp`).
+  This **AOSP** permission (merged from the `bonsoir` plugin and declared
+  explicitly in the manifest for auditability) enables only local-network
+  service discovery — no internet or storage access of its own; the cast session
+  reaches the device over the existing `INTERNET` permission. Casting uses **no**
+  Google Play Services / Cast SDK (pure-Dart `cast` + AOSP `NsdManager`), so it
+  adds no anti-feature — see
+  [audit §5 (Casting)](./dependency-license-audit.md#casting-chromecast--real-cast-without-google-play-services).
 - **Known limitation:** a SAF folder is resolved to a filesystem path and walked
   with `dart:io`. On Android 11+ that path is frequently unreadable under scoped
   storage; the scanner now surfaces a clear in-app error in that case
