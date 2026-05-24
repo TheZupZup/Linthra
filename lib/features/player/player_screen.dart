@@ -5,6 +5,7 @@ import '../../app/dimens.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
+import 'cast/cast_button.dart';
 import 'player_providers.dart';
 import 'widgets/album_artwork.dart';
 import 'widgets/now_playing_actions.dart';
@@ -52,8 +53,8 @@ class PlayerScreen extends ConsumerWidget {
   }
 }
 
-/// Top bar: a collapse affordance and a calm "Now Playing" caption. Transparent
-/// so the blurred artwork shows through.
+/// Top bar: a collapse affordance, a calm "Now Playing" caption, and the cast
+/// button. Transparent so the blurred artwork shows through.
 class _Header extends StatelessWidget {
   const _Header();
 
@@ -79,8 +80,9 @@ class _Header extends StatelessWidget {
               ),
             ),
           ),
-          // Balances the leading button so the title stays centered.
-          const SizedBox(width: 48),
+          // Trailing cast control; ~48dp wide, balancing the leading button so
+          // the title stays centered.
+          const CastButton(),
         ],
       ),
     );

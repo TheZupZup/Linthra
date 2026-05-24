@@ -1,6 +1,7 @@
 import 'package:audio_service/audio_service.dart' as audio;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_state.dart';
+import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/linthra_audio_handler.dart';
 import 'package:linthra/core/services/media_browser_tree.dart';
@@ -179,6 +180,45 @@ void main() {
         await _settle();
 
         expect(controller.playedTracks, isEmpty);
+      });
+    });
+
+    group('shuffle & repeat', () {
+      test('forwards setShuffleMode to the controller', () async {
+        await handler.setShuffleMode(audio.AudioServiceShuffleMode.all);
+        expect(controller.state.shuffleEnabled, isTrue);
+
+        await handler.setShuffleMode(audio.AudioServiceShuffleMode.none);
+        expect(controller.state.shuffleEnabled, isFalse);
+      });
+
+      test('forwards setRepeatMode to the controller', () async {
+        await handler.setRepeatMode(audio.AudioServiceRepeatMode.all);
+        expect(controller.state.repeatMode, RepeatMode.all);
+
+        await handler.setRepeatMode(audio.AudioServiceRepeatMode.one);
+        expect(controller.state.repeatMode, RepeatMode.one);
+
+        await handler.setRepeatMode(audio.AudioServiceRepeatMode.none);
+        expect(controller.state.repeatMode, RepeatMode.off);
+      });
+
+      test('mirrors the controller shuffle/repeat into the session', () async {
+        await controller.playTracks([_track('a'), _track('b')]);
+        controller.setShuffleEnabled(true);
+        controller.setRepeatMode(RepeatMode.one);
+        await _settle();
+
+        final state = handler.playbackState.value;
+        expect(state.shuffleMode, audio.AudioServiceShuffleMode.all);
+        expect(state.repeatMode, audio.AudioServiceRepeatMode.one);
+        expect(
+          state.systemActions,
+          containsAll(<audio.MediaAction>{
+            audio.MediaAction.setShuffleMode,
+            audio.MediaAction.setRepeatMode,
+          }),
+        );
       });
     });
   });

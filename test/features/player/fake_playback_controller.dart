@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:linthra/core/models/playback_queue.dart';
 import 'package:linthra/core/models/playback_state.dart';
+import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/playback_controller.dart';
 
@@ -18,6 +20,11 @@ class FakePlaybackController implements PlaybackController {
       StreamController<PlaybackState>.broadcast();
   PlaybackState _state;
   PlaybackQueue _queue = PlaybackQueue.empty;
+  bool _shuffleEnabled = false;
+  RepeatMode _repeatMode = RepeatMode.off;
+
+  /// Seeded so shuffle is deterministic across test runs.
+  final Random _random = Random(1);
 
   final List<Track> playedTracks = <Track>[];
   int playCount = 0;
@@ -46,7 +53,9 @@ class FakePlaybackController implements PlaybackController {
 
   @override
   Future<void> playTracks(List<Track> tracks, {int startIndex = 0}) async {
-    _queue = PlaybackQueue.of(tracks, startIndex: startIndex);
+    var queue = PlaybackQueue.of(tracks, startIndex: startIndex);
+    if (_shuffleEnabled) queue = queue.shuffled(_random);
+    _queue = queue;
     _playCurrent();
   }
 
@@ -79,6 +88,44 @@ class FakePlaybackController implements PlaybackController {
     emit(_state.copyWith(upNext: _queue.upNext, hasPrevious: false));
   }
 
+  @override
+  void setShuffleEnabled(bool enabled) {
+    if (enabled == _shuffleEnabled) return;
+    _shuffleEnabled = enabled;
+    _queue = enabled ? _queue.shuffled(_random) : _queue.unshuffled();
+    emit(_state.copyWith(
+      upNext: _queue.upNext,
+      hasPrevious: _queue.hasPrevious,
+      shuffleEnabled: _shuffleEnabled,
+    ));
+  }
+
+  @override
+  void setRepeatMode(RepeatMode mode) {
+    if (mode == _repeatMode) return;
+    _repeatMode = mode;
+    emit(_state.copyWith(repeatMode: _repeatMode));
+  }
+
+  /// Test seam mirroring the production controller's completion handling: drives
+  /// what plays when the current track finishes, honouring the repeat mode.
+  void completeCurrent() {
+    switch (_repeatMode) {
+      case RepeatMode.one:
+        _playCurrent();
+      case RepeatMode.all:
+        _queue = _queue.hasNext ? _queue.next() : _queue.restarted();
+        _playCurrent();
+      case RepeatMode.off:
+        if (_queue.hasNext) {
+          _queue = _queue.next();
+          _playCurrent();
+        } else {
+          emit(_state.copyWith(status: PlaybackStatus.completed));
+        }
+    }
+  }
+
   void _playCurrent() {
     final track = _queue.current;
     if (track == null) return;
@@ -88,6 +135,8 @@ class FakePlaybackController implements PlaybackController {
       currentTrack: track,
       upNext: _queue.upNext,
       hasPrevious: _queue.hasPrevious,
+      shuffleEnabled: _shuffleEnabled,
+      repeatMode: _repeatMode,
     );
     emit(playing);
   }

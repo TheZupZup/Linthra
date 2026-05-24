@@ -151,12 +151,14 @@ Not built yet (planned, in roughly this order):
   scoped-storage friendly, no broad permission); tag parsing and a narrow
   Android media permission still pending*
 - Audio playback — *done (local + **Jellyfin streaming** playback, behind a
-  `PlayableUriResolver`, plus an up-next queue with skip next/previous);
-  background playback + media session via `audio_service` wired in Dart **and**
-  with the native Android setup applied (foreground-service permissions,
-  playback service, media-button receiver, `AudioServiceActivity`, Android Auto
-  media-app declaration); Android Auto now **browsable** (Library / Queue nodes,
-  tap-to-play) — not yet a full car UI*
+  `PlayableUriResolver`, plus an up-next queue with skip next/previous and
+  **working shuffle and repeat (off / all / one)**); background playback + media
+  session via `audio_service` wired in Dart **and** with the native Android setup
+  applied (foreground-service permissions, playback service, media-button
+  receiver, `AudioServiceActivity`, Android Auto media-app declaration); Android
+  Auto now **browsable** (Library / Queue nodes, tap-to-play) — not yet a full
+  car UI. A **cast/Chromecast control** is present in Now Playing as a UI +
+  architecture-seam foundation (no live device handoff yet — see below)*
 - Playlists
 - User-controlled offline downloads — *done for tracks (Plexamp-style explicit
   downloads: real Jellyfin byte-fetch, app-private cache, cache-first playback,
@@ -262,11 +264,22 @@ lib/
 - **`PlaybackController`** (`core/services/playback_controller.dart`) — playback
   *and* the up-next queue, fully decoupled from `just_audio`. It owns a pure
   [`PlaybackQueue`](lib/core/models/playback_queue.dart) model (current track +
-  upcoming tracks) and exposes `playTracks`, `playNext`, `skipToNext`, and
-  `clearQueue`; the UI reads the queue from `PlaybackState` and never edits it
-  directly. `LinthraAudioHandler` wraps it for background audio / the platform
-  media session (notification, lock screen, Android Auto) without touching
+  upcoming tracks) and exposes `playTracks`, `playNext`, `skipToNext`,
+  `clearQueue`, and the **shuffle/repeat modes** (`setShuffleEnabled`,
+  `setRepeatMode`); shuffle reorders the queue in place (keeping the current
+  track playing) and repeat (off / all / one) is consulted when a track
+  finishes. The UI reads the queue, `shuffleEnabled`, and `repeatMode` from
+  `PlaybackState` and never edits them directly. `LinthraAudioHandler` wraps it
+  for background audio / the platform media session (notification, lock screen,
+  Android Auto), mirroring shuffle/repeat into the session, without touching
   feature code; MPRIS can attach the same way later.
+- **`CastService`** (`core/services/cast/cast_service.dart`) — the seam for
+  remote playback handoff (Chromecast/Cast SDK, AirPlay, …). The UI renders a
+  `CastState` and drives discovery/connection through this interface, never a
+  cast SDK directly — mirroring how the audio engine is hidden behind
+  `PlaybackController`. The shipped `UnavailableCastService` reports
+  "unavailable" and no-ops, so the cast button is honest today; a live backend
+  slots in by overriding one provider, with no player-UI changes.
 - **`DownloadRepository`** (`core/repositories/`) — enforces the
   user-initiated, "Wi-Fi only"-respecting download policy in one place.
   `CacheDownloadRepository` implements it today over a `DownloadStore`
@@ -700,6 +713,47 @@ The notification channel id/name are configured in `connectMediaSession`
 - Lock-screen / car artwork depends on `Track.artworkUri`, which local scanning
   does not populate yet.
 
+### Now Playing controls — shuffle, repeat & casting
+
+The Now Playing screen drives every transport action through
+`PlaybackController`/`PlaybackState`; the widgets hold no playback logic of their
+own.
+
+- **Shuffle (working).** The shuffle button toggles a playback *mode* on the
+  controller. Turning it on reorders the current queue with the playing track
+  kept at the front (so the music never skips), and remembers the original order;
+  turning it off restores that order with the current track still current. The
+  mode persists, so a queue loaded while shuffle is on starts shuffled. State
+  lives in `PlaybackState.shuffleEnabled`, and the button shows its on/off state
+  with the accent colour + selected styling. The reordering itself is a pure
+  `PlaybackQueue.shuffled()`/`unshuffled()` transform, unit-tested without an
+  audio engine.
+- **Repeat / loop (working).** The repeat button cycles **off → repeat all →
+  repeat one → off**. When a track finishes the controller consults
+  `PlaybackState.repeatMode`: *off* plays to the end and stops, *all* wraps from
+  the last track back to the first, and *one* replays the current track (from the
+  start, without re-resolving its URL — so a stream isn't re-fetched each loop).
+  Next/previous keep working normally in every mode. The glyph switches to
+  `repeat_one` for repeat-one and is tinted/selected whenever repeat is active.
+- **Cast / Chromecast — UI placeholder with architecture seam (not live yet).**
+  A cast control sits in the Now Playing header. **Casting is *not* implemented
+  in this build** and the app never pretends otherwise: the shipped
+  `UnavailableCastService` reports `CastAvailability.unavailable`, the button is
+  shown but visibly muted ("Cast (coming soon)"), and opening it shows an honest
+  "Casting isn't available yet" sheet rather than a fake or empty device list.
+  What *is* here is the full seam for a future backend — a `CastService`
+  interface, a `CastState` model (availability / discovered devices / connected
+  device), a provider, and a device-picker sheet that already handles discovery,
+  connect, and disconnect. Wiring real Chromecast support later (e.g. a Cast SDK
+  package) means implementing `CastService` and overriding one provider, with **no
+  changes to the player UI**. No cast SDK dependency is added in this PR, keeping
+  the build safe and small.
+
+Both shuffle and repeat are also mirrored into the `audio_service` media session
+(`shuffleMode`/`repeatMode`), and the session forwards the system's
+shuffle/repeat actions back to the controller, so the modes stay coherent
+between the in-app screen, the notification, and Android Auto.
+
 ### Android folder selection & known limitations
 
 **How scanning works now.** Tap the folder icon in the Library app bar → the
@@ -766,12 +820,14 @@ Deliberate gaps the next PRs will close:
   already read, or use the content-resolver follow-up above.
 - **No tag/metadata parsing.** Tracks show their title (derived from the file
   name) and fall back to the file path when artist/album tags are absent.
-- **Basic up-next queue, no playlists.** Tapping a track in the Library plays it
-  and queues the rest of the visible list behind it; the Now Playing screen shows
-  the current track, an **Up next** list, a **Next** button, and **Clear** (which
-  empties up next but keeps the current track). When a track finishes, playback
-  rolls into the next queued track. Reordering, saved playlists, shuffle, and
-  repeat are not part of this foundation yet.
+- **Up-next queue with shuffle & repeat, no playlists.** Tapping a track in the
+  Library plays it and queues the rest of the visible list behind it; the Now
+  Playing screen shows the current track, an **Up next** list, a **Next** button,
+  **Clear** (which empties up next but keeps the current track), and working
+  **shuffle** and **repeat** controls. When a track finishes, playback follows
+  the repeat mode (roll into the next track, wrap the queue, or replay the
+  current one). Manual reordering and saved playlists are not part of this
+  foundation yet.
 - **Jellyfin streaming works; WebDAV pending.** A signed-in user can sync their
   Jellyfin catalog into the Library and stream it (see the Jellyfin section
   below). Other remote sources (WebDAV/NAS) are still pending.
@@ -1042,7 +1098,9 @@ Later: Jellyfin (landed — settings, auth, encrypted session, a library source,
 Library sync, streaming playback, and explicit per-track offline downloads;
 album/playlist "download all" and a background download manager next), Android
 Auto (foundation landed — browsable Library/Queue; album/artist grouping and
-search next), WebDAV, NAS, lyrics, ReplayGain, MPRIS, smart playlists, and more.
+search next), Chromecast/casting (UI + `CastService` architecture seam landed;
+live device discovery and playback handoff next), WebDAV, NAS, lyrics,
+ReplayGain, MPRIS, smart playlists, and more.
 
 ## F-Droid metadata (work in progress)
 

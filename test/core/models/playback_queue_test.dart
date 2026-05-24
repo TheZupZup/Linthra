@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_queue.dart';
 import 'package:linthra/core/models/track.dart';
@@ -109,6 +111,107 @@ void main() {
       expect(a, b);
       expect(a.hashCode, b.hashCode);
       expect(a, isNot(b.next()));
+    });
+
+    test('restarted() wraps back to the first track keeping the queue', () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c')],
+        startIndex: 2,
+      );
+
+      final restarted = queue.restarted();
+
+      expect(restarted.current, _track('a'));
+      expect(restarted.upNext, [_track('b'), _track('c')]);
+      expect(restarted.hasPrevious, isFalse);
+    });
+
+    test('restarted() on an empty queue stays empty', () {
+      expect(PlaybackQueue.empty.restarted(), PlaybackQueue.empty);
+    });
+  });
+
+  group('PlaybackQueue shuffle', () {
+    test('shuffled() keeps the current track current and shuffles the rest',
+        () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c'), _track('d')],
+        startIndex: 1,
+      );
+
+      // A fixed seed keeps this deterministic across runs.
+      final shuffled = queue.shuffled(Random(7));
+
+      // The track that was playing keeps playing and moves to the front.
+      expect(shuffled.current, _track('b'));
+      expect(shuffled.currentIndex, 0);
+      expect(shuffled.isShuffled, isTrue);
+      expect(shuffled.hasPrevious, isFalse);
+      // Every track is preserved, just reordered.
+      expect(
+        shuffled.tracks.toSet(),
+        {_track('a'), _track('b'), _track('c'), _track('d')},
+      );
+      expect(shuffled.tracks.length, 4);
+    });
+
+    test('shuffled() on an empty queue is a no-op', () {
+      expect(PlaybackQueue.empty.shuffled(Random(1)), PlaybackQueue.empty);
+      expect(PlaybackQueue.empty.isShuffled, isFalse);
+    });
+
+    test('unshuffled() restores the original order, keeping the current track',
+        () {
+      final original = [_track('a'), _track('b'), _track('c'), _track('d')];
+      final queue = PlaybackQueue.of(original, startIndex: 2);
+
+      final restored = queue.shuffled(Random(3)).unshuffled();
+
+      expect(restored.isShuffled, isFalse);
+      expect(restored.tracks, original);
+      // 'c' was current before shuffling and is still current after restoring.
+      expect(restored.current, _track('c'));
+      expect(restored.currentIndex, 2);
+    });
+
+    test('unshuffled() on a non-shuffled queue returns the same queue', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')]);
+
+      expect(queue.unshuffled(), same(queue));
+    });
+
+    test('next()/previous() preserve the shuffled order', () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c')],
+      ).shuffled(Random(5));
+
+      final advanced = queue.next();
+      expect(advanced.isShuffled, isTrue);
+      expect(advanced.tracks, queue.tracks);
+
+      final back = advanced.previous();
+      expect(back.isShuffled, isTrue);
+      expect(back.current, queue.current);
+    });
+
+    test('enqueueNext() while shuffled survives a later unshuffle', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')])
+          .shuffled(Random(2))
+          .enqueueNext(_track('z'));
+
+      final restored = queue.unshuffled();
+
+      // The queued track is still present once the original order is restored.
+      expect(restored.tracks, contains(_track('z')));
+    });
+
+    test('equality distinguishes a shuffled queue from a plain one', () {
+      final plain = PlaybackQueue.of([_track('a'), _track('b')]);
+      final shuffled = plain.shuffled(Random(1));
+
+      // A single-front-track + remembered original order is not the plain queue.
+      expect(shuffled, isNot(plain));
+      expect(shuffled.isShuffled, isTrue);
     });
   });
 }

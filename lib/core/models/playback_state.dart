@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'playback_source.dart';
+import 'repeat_mode.dart';
 import 'track.dart';
 
 /// High-level playback status, deliberately decoupled from any audio package.
@@ -18,6 +19,8 @@ class PlaybackState {
     this.position = Duration.zero,
     this.duration = Duration.zero,
     this.source,
+    this.shuffleEnabled = false,
+    this.repeatMode = RepeatMode.off,
     this.errorMessage,
   });
 
@@ -44,6 +47,16 @@ class PlaybackState {
   final Duration position;
   final Duration duration;
 
+  /// Whether shuffle is on. A playback *mode* owned by the controller, so it
+  /// persists across track changes and is re-applied to any new queue — not a
+  /// property of a single track. The UI renders the shuffle button from this.
+  final bool shuffleEnabled;
+
+  /// The active repeat behaviour (off / repeat all / repeat one). Like
+  /// [shuffleEnabled] this is a controller-owned mode the UI renders the repeat
+  /// button from; the controller consults it when a track finishes.
+  final RepeatMode repeatMode;
+
   /// A friendly, secret-free explanation shown when [status] is
   /// [PlaybackStatus.error]. Deliberately *not* carried by [copyWith]: it is set
   /// only on a freshly built error state and clears on the next state change, so
@@ -62,6 +75,8 @@ class PlaybackState {
     Duration? position,
     Duration? duration,
     PlaybackSource? source,
+    bool? shuffleEnabled,
+    RepeatMode? repeatMode,
   }) {
     return PlaybackState(
       status: status ?? this.status,
@@ -71,6 +86,8 @@ class PlaybackState {
       position: position ?? this.position,
       duration: duration ?? this.duration,
       source: source ?? this.source,
+      shuffleEnabled: shuffleEnabled ?? this.shuffleEnabled,
+      repeatMode: repeatMode ?? this.repeatMode,
     );
   }
 
@@ -85,6 +102,8 @@ class PlaybackState {
           other.position == position &&
           other.duration == duration &&
           other.source == source &&
+          other.shuffleEnabled == shuffleEnabled &&
+          other.repeatMode == repeatMode &&
           other.errorMessage == errorMessage);
 
   @override
@@ -97,6 +116,8 @@ class PlaybackState {
       position,
       duration,
       source,
+      shuffleEnabled,
+      repeatMode,
       errorMessage,
     );
   }
