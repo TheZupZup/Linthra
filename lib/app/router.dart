@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/downloads/downloads_screen.dart';
+import '../features/favorites/favorites_screen.dart';
 import '../features/library/library_screen.dart';
 import '../features/player/player_screen.dart';
 import '../features/playlists/playlists_screen.dart';
@@ -34,6 +35,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.playlists,
                 builder: (context, state) => const PlaylistsScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'favorites',
+                    builder: (context, state) => const FavoritesScreen(),
+                  ),
+                ],
               ),
             ],
           ),
