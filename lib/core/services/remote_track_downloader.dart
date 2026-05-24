@@ -32,5 +32,14 @@ abstract interface class RemoteTrackDownloader {
   /// Fetches [track]'s bytes for offline caching, resolving the authenticated
   /// URL on demand. Throws when the track can't be downloaded (not signed in,
   /// server unreachable, …); the error never carries the URL or token.
-  Future<RemoteTrackData> fetch(Track track);
+  ///
+  /// [onProgress] is invoked as bytes arrive, with the running [received] count
+  /// and the [total] size when the server reported one (otherwise `null`,
+  /// meaning indeterminate). It carries byte counts only — never a URL or
+  /// token — so it is safe to surface in the UI. Implementations may omit it
+  /// (a one-shot fetch simply never calls it).
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  });
 }

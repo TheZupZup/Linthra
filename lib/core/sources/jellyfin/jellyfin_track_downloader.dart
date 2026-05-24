@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -32,7 +33,10 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
       track.uri.startsWith(JellyfinTrackMapper.uriScheme);
 
   @override
-  Future<RemoteTrackData> fetch(Track track) async {
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
     final JellyfinDownloadSource? source = _source();
     if (source == null) {
       throw StateError('Not signed in to Jellyfin.');
@@ -47,23 +51,45 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
       throw StateError('No Jellyfin download URL for this track.');
     }
 
-    final http.Response response;
     try {
-      response = await _client.get(uri).timeout(_timeout);
+      // Stream the body so progress can be reported as bytes arrive. The
+      // request carries the token in its URL, but the URL never leaves this
+      // method, is never logged, and any transport error below is replaced
+      // with a generic message so it can't escape either.
+      final http.StreamedResponse response =
+          await _client.send(http.Request('GET', uri)).timeout(_timeout);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        await response.stream.drain<void>();
+        throw StateError(
+            'Jellyfin download failed (HTTP ${response.statusCode}).');
+      }
+
+      final int? total =
+          (response.contentLength != null && response.contentLength! > 0)
+              ? response.contentLength
+              : null;
+      final BytesBuilder builder = BytesBuilder(copy: false);
+      int received = 0;
+      onProgress?.call(received, total);
+      await for (final List<int> chunk in response.stream.timeout(_timeout)) {
+        builder.add(chunk);
+        received += chunk.length;
+        onProgress?.call(received, total);
+      }
+
+      return RemoteTrackData(
+        bytes: builder.takeBytes(),
+        fileExtension: _extensionFor(response.headers['content-type']),
+      );
+    } on StateError {
+      // Our own friendly, token-free messages (bad status / not signed in):
+      // surface them as-is.
+      rethrow;
     } on Exception {
-      // Never rethrow the original error: a ClientException/SocketException can
-      // embed the tokenized URL in its message.
+      // Never rethrow the original error: a ClientException/SocketException (or
+      // a TimeoutException) can embed the tokenized URL in its message.
       throw StateError('Jellyfin download failed.');
     }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError(
-          'Jellyfin download failed (HTTP ${response.statusCode}).');
-    }
-
-    return RemoteTrackData(
-      bytes: response.bodyBytes,
-      fileExtension: _extensionFor(response.headers['content-type']),
-    );
   }
 
   /// Maps a response content type to a cache-file extension. Returns `null` for

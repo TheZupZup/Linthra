@@ -47,6 +47,14 @@ class TrackTile extends ConsumerWidget {
         ref.watch(trackDownloadStatusProvider(track.id)).valueOrNull ??
             DownloadStatus.notDownloaded;
     final isRemote = ref.watch(remoteTrackDownloaderProvider).isRemote(track);
+    // Only the actively-downloading row watches byte progress, so idle rows add
+    // no subscription. Null total (or not downloading) leaves the ring spinning.
+    final double? downloadFraction = status == DownloadStatus.downloading
+        ? ref
+            .watch(trackDownloadProgressProvider(track.id))
+            .valueOrNull
+            ?.fraction
+        : null;
 
     return ListTile(
       leading: SizedBox.square(
@@ -75,7 +83,11 @@ class TrackTile extends ConsumerWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _StatusGlyph(status: status, isRemote: isRemote),
+          _StatusGlyph(
+            status: status,
+            isRemote: isRemote,
+            progress: downloadFraction,
+          ),
           _OverflowMenu(
             track: track,
             status: status,
@@ -108,10 +120,18 @@ class TrackTile extends ConsumerWidget {
 /// overflow menu. Nothing here is tappable — it only mirrors state so the row
 /// stays quiet. Only meaningful for remote tracks; local tracks render nothing.
 class _StatusGlyph extends StatelessWidget {
-  const _StatusGlyph({required this.status, required this.isRemote});
+  const _StatusGlyph({
+    required this.status,
+    required this.isRemote,
+    this.progress,
+  });
 
   final DownloadStatus status;
   final bool isRemote;
+
+  /// Download completion in the range 0.0–1.0 when known; `null` shows an
+  /// indeterminate (spinning) ring while downloading.
+  final double? progress;
 
   @override
   Widget build(BuildContext context) {
@@ -126,9 +146,9 @@ class _StatusGlyph extends StatelessWidget {
           semanticLabel: 'Downloaded',
         );
       case DownloadStatus.downloading:
-        return const SizedBox.square(
+        return SizedBox.square(
           dimension: 16,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          child: CircularProgressIndicator(strokeWidth: 2, value: progress),
         );
       case DownloadStatus.queued:
         return Icon(

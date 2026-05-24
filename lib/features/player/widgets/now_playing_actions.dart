@@ -67,23 +67,23 @@ class NowPlayingActions extends ConsumerWidget {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => _LyricsSheet(track: track),
+      builder: (_) => const _LyricsSheet(),
     );
   }
 }
 
-/// The lyrics sheet: fetches the current track's lyrics and renders the lines,
-/// a calm "no lyrics" placeholder when there are none, or a friendly "couldn't
-/// load" line on a fetch failure.
+/// The lyrics sheet. It follows the *currently playing* track rather than a
+/// captured one, so skipping to the next song updates the lines in place; while
+/// the new track's lyrics load it shows a spinner (never the previous song),
+/// then either the lines, a calm "no lyrics" placeholder, or a friendly
+/// "couldn't load" message on a fetch failure.
 class _LyricsSheet extends ConsumerWidget {
-  const _LyricsSheet({required this.track});
-
-  final Track track;
+  const _LyricsSheet();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
-    final AsyncValue<Lyrics?> lyrics = ref.watch(trackLyricsProvider(track));
+    final AsyncValue<Lyrics?> lyrics = ref.watch(currentTrackLyricsProvider);
 
     return SafeArea(
       child: ConstrainedBox(
@@ -133,9 +133,8 @@ class _LyricsSheet extends ConsumerWidget {
             padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
             child: EmptyState(
               icon: Icons.lyrics_outlined,
-              title: 'No lyrics available',
-              message: 'This track has no lyrics, or none are synced from your '
-                  'server yet.',
+              title: 'No lyrics available yet.',
+              message: "They'll appear here when your server has them.",
             ),
           );
         }

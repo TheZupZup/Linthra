@@ -1,3 +1,4 @@
+import '../models/download_progress.dart';
 import '../models/track.dart';
 
 /// Where a track stands in the offline-download lifecycle.
@@ -40,6 +41,13 @@ abstract interface class DownloadRepository {
   Stream<Map<String, DownloadStatus>> get statusStream;
 
   Future<DownloadStatus> statusFor(String trackId);
+
+  /// Emits per-track byte progress for in-flight downloads, keyed by track id.
+  /// An entry appears while a track is downloading and is removed once it
+  /// finishes, fails, or is canceled. Best-effort: a track whose server didn't
+  /// report a content length has a null total ([DownloadProgress.fraction] is
+  /// `null`), so the UI shows an indeterminate spinner rather than a bar.
+  Stream<Map<String, DownloadProgress>> get progressStream;
 
   /// Queues an explicit download for [track]. For remote tracks this is subject
   /// to the user's connectivity preferences; on-device tracks are recorded as
