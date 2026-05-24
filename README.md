@@ -1,181 +1,244 @@
 # Linthra
 
-A modern, **local-first**, privacy-focused music player for people who own
-their music. Linthra is a clean alternative to bloated streaming apps — your
-library lives on your device, and downloads are always under your explicit
-control.
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-brightgreen.svg)](./LICENSE)
+[![Platform: Android](https://img.shields.io/badge/platform-Android-3ddc84.svg)](#install)
+[![Built with Flutter](https://img.shields.io/badge/built%20with-Flutter-02569B.svg)](https://flutter.dev)
+[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#project-status)
+[![Releases](https://img.shields.io/badge/download-releases-blue.svg)](https://github.com/thezupzup/linthra/releases)
+
+![Linthra](fastlane/metadata/android/en-US/images/featureGraphic.png)
+
+**Linthra is an open-source Android music player for people who own their
+music** — with Jellyfin streaming, a smart offline cache, Android Auto, a
+Chromecast foundation, synced lyrics, and **no surprise downloads**. Your
+library lives on your device, the app reads from a local catalog, and anything
+that touches the network is something you asked for.
 
 > **Your music, beautifully yours.**
 
-## Status
+Linthra is **early-stage alpha software**. The sections below honestly separate
+what works today from what is still planned — nothing here overpromises, and
+Linthra is **not on F-Droid** and **not production-stable** yet.
 
-**First alpha: `0.1.0-alpha.1`.** Linthra is now a manually testable Android
-build. Local scanning, local playback, background playback with a media
-notification, an Android Auto browse foundation, Jellyfin connect/sync/stream,
-and explicit user-initiated offline downloads all work end to end. It is still
-early software with honest, documented limitations — see the per-feature
-"known limitations" sections below and the
-[v0.1.0-alpha.1 release notes](./docs/release-notes/v0.1.0-alpha.1.md). It is
-**not** on F-Droid yet, and nothing is published automatically.
+- [Screenshots](#screenshots)
+- [What works today](#what-works-today)
+- [Known limitations](#known-limitations)
+- [Install](#install)
+- [Connect your Jellyfin server](#connect-your-jellyfin-server)
+- [Privacy &amp; security](#privacy--security)
+- [Roadmap](#roadmap)
+- [Project status](#project-status)
+- [Contributing &amp; deeper docs](#contributing--deeper-docs)
 
-**Library v1 and beyond, wired end to end.** Alongside the project
-structure, dark-first theming, navigation, app shell, core domain models, and
-the service/repository *interfaces*, the Library feature works as a real
-vertical slice.
+## Screenshots
 
-**Library v1.** The Library screen can scan a local folder, persist the
-discovered tracks through `MusicLibraryRepository`, and list them back. The
-flow is: `LocalMusicSource` discovers audio files under a folder →
-`LibraryController` persists them via `MusicLibraryRepository.upsertCatalog`
-→ `LibraryScreen` renders the stored tracks (each as title + artist/album, or
-the uri/path when no tags exist). The screen renders four states — **loading,
-empty, populated, and error** (with retry) — and the UI only ever talks to
-`LibraryController`/`LibraryState` and the repository abstraction, never to
-Drift or a `MusicSource` directly. Scanning, persistence, and UI state stay in
-separate, individually testable layers. See **Android readiness & known
-limitations** below for what is intentionally deferred.
+Linthra ships with real branding — an equalizer mark carrying the brand's
+violet→orange gradient — generated from a single source design (not mockups):
 
-`LocalMusicSource` (`lib/core/sources/local/`) discovers audio files under a
-configured folder and maps them into `Track`s. It does no tag parsing yet —
-it's the first concrete `MusicSource` and the seam future metadata parsing will
-extend.
+| App icon | Feature graphic |
+| --- | --- |
+| ![Linthra icon](fastlane/metadata/android/en-US/images/icon.png) | ![Linthra feature graphic](fastlane/metadata/android/en-US/images/featureGraphic.png) |
 
-**Folder selection now uses the native picker.** The folder icon in the Library
-app bar opens the OS folder chooser (Android Storage Access Framework / desktop
-GTK) via a `FolderPickerService` seam, persists the chosen folder through a
-`SelectedMusicFolderRepository`, and then scans it. The choice survives restarts
-(`shared_preferences` in the app; in-memory in tests). All of this stays behind
-interfaces: the UI talks only to `SelectedFolderController` and
-`LibraryController`, never to `file_picker` or `shared_preferences` directly.
-The scan itself is still exposed as `LibraryController.scanFolder(path)` and runs
-through `LocalMusicSource`, so the flow stays fully testable without a real disk
-or OS dialog (the picker, the file-system seam, and the selected-folder store are
-each overridden with a fake/in-memory binding in tests). The scan seam now also
-routes Android `content://` Storage Access Framework selections to a SAF-aware
-scanner rather than assuming a filesystem path. See **Android folder selection &
-known limitations** below for what still needs care on modern Android.
+> **In-app screenshots are not committed yet.** Rather than ship placeholder or
+> mock images, no screenshots from a running build are included until real ones
+> are captured. The capture checklist and exact sizes live in
+> [docs/listing-assets.md](./docs/listing-assets.md).
 
-A temporary `InMemoryMusicLibraryRepository` (`lib/data/repositories/`) also
-implements the `MusicLibraryRepository` contract, so the app and its tests have
-a concrete catalog to read from. It keeps tracks, albums, and artists in memory,
-grouped by source — it is **not persistent** and exists only for development and
-testing.
+## What works today
 
-**Drift/SQLite persistence** has now landed for tracks.
-`DriftMusicLibraryRepository` (`lib/data/repositories/`) is the persistent
-catalog the UI will read from, backed by `LinthraDatabase`
-(`lib/data/database/`). At schema **v1** only the `tracks` table is persisted:
-`getAllTracks`, `getTrackById`, and `upsertCatalog` are real, while
-`getAllAlbums`/`getAllArtists` return empty lists for now. Domain models
-(`core/models/`) stay separate from Drift rows; conversion lives in small,
-explicit mappers (`lib/data/mappers/`). The generated `*.g.dart` files are
-produced by the **Generate Drift files** workflow (see below), not committed by
-hand. The running app now persists through the Drift repository: `main`
-applies `driftMusicLibraryRepositoryOverride` over `musicLibraryRepositoryProvider`
-so scanned tracks survive a restart, while tests keep the in-memory default
-(no `path_provider`/SQLite needed) unless they opt into the Drift binding. The
-UI is untouched by the swap — it still reads only `LibraryController`/the
-repository abstraction.
+Everything below works end to end on a real Android device in the current alpha
+(`0.1.0-alpha.9`):
 
-**Offline downloads — Jellyfin downloads now real (Plexamp-style).** The
-offline-cache lifecycle works end to end behind `DownloadRepository`, and
-**Jellyfin tracks are now actually fetched and cached for offline playback** —
-the model is Plexamp/Plex Pass-style but open-source and fully user-controlled:
-the whole library stays visible and streamable, and you mark exactly the tracks
-you want offline. `CacheDownloadRepository` (`lib/data/repositories/`) owns the
-policy in one place and tracks each item's `DownloadStatus`
-(`notDownloaded → queued → downloading → downloaded`, plus `failed`). Three
-promises are enforced here, not scattered through the UI:
-**downloads are only ever user-initiated** (nothing downloads automatically — no
-full-library sync), the policy is **source-aware** (a Jellyfin track has its
-bytes fetched and cached; an on-device track is already local, so it's recorded
-as available offline with no network fetch), and the **"Wi-Fi only" preference
-is respected** for remote downloads (a request made off Wi-Fi is *queued* rather
-than run). Only the `downloaded` set is durable; the transient states live in
-memory, so a restart never resurrects a half-finished download.
+- **Local library** — pick a folder with the native Android picker (Storage
+  Access Framework), scan it, and list your tracks. The chosen folder and the
+  scanned catalog survive a restart. No broad storage permission is requested.
+- **Playback** — play local tracks with an up-next queue, plus working
+  **shuffle** and **repeat** (off / all / one).
+- **Background playback** — a media notification with lock-screen, Bluetooth,
+  and wired-headset transport controls.
+- **Android Auto** — browse your Library and Queue from the car screen and
+  tap to play.
+- **Jellyfin (self-hosted)** — connect to your own server, test the connection,
+  sign in, sync your library, and **stream** tracks. Works with HTTPS /
+  Cloudflare-proxied domains.
+- **Smart offline cache** — mark individual Jellyfin tracks for offline use
+  (Plexamp-style explicit downloads), with a **"Wi-Fi only"** option, a
+  configurable cache size limit, "Keep offline" pinning, and optional smart
+  pre-caching of upcoming tracks. Cached tracks play fully offline.
+- **Synced lyrics** — fetch a Jellyfin track's lyrics into a sheet; favorites
+  also sync with your Jellyfin server.
+- **Chromecast foundation** — discover Cast devices, connect, and hand off the
+  current Jellyfin stream to the receiver, using a pure-Dart Cast protocol (no
+  Google Play Services).
 
-The durable bit — *which* tracks are cached and the file holding each one — sits
-behind a small `DownloadStore` seam (a `CachedTrack` record: non-secret track id
-+ a track-id-derived file name), persisted via `shared_preferences` in the app
-and held in memory in tests. The bytes themselves live behind an
-`OfflineFileStore` seam, written to an app-private directory on disk
-(`path_provider`'s application-support location) in the app and faked in tests.
-The remote byte-fetch is a `RemoteTrackDownloader` seam, implemented for Jellyfin
-by `JellyfinTrackDownloader`, which mints the authenticated download URL **only
-at fetch time** and never stores or logs it. The "Wi-Fi only" switch is a
-`DownloadPreferences` seam, and connectivity a `ConnectivityService` seam
-(`OptimisticConnectivityService` reports Wi-Fi by default; tests inject a fake to
-drive the mobile/offline paths). The UI never touches file paths: the Library
-row shows a per-track download/remove/retry control and status, the Downloads
-tab lists cached tracks and hosts the "Wi-Fi only" toggle, and **playback
-prefers the cached file** (via an `OfflineFirstPlayableUriResolver`) before
-streaming — all talking only to download-state and resolver abstractions. See
-**Offline downloads & known limitations** below.
+## Known limitations
 
-**Jellyfin (self-hosted) — foundation landed.** The first remote source is
-wired from the Settings screen through to a `MusicSource`. A user can enter
-their server URL, **test the connection**, **sign in**, and **clear** their
-settings; the session token is then persisted in encrypted on-device storage
-(`flutter_secure_storage`) so it survives restarts. HTTPS **Cloudflare-proxied**
-domains are a first-class case. The layering mirrors local scanning and keeps
-the three concerns apart: all networking sits behind `JellyfinClient`
-(`HttpJellyfinClient` is the only place that builds URLs, sets the auth header,
-and parses JSON); `JellyfinAuthenticator` validates the URL and produces a
-session; `JellyfinSessionStore` persists it; and `JellyfinMusicSource` lists
-and maps artists/albums/tracks into Linthra's `Track`/`Album`/`Artist` models.
-The Settings UI talks only to `JellyfinSettingsController`/`JellyfinSettingsState`
-— never to HTTP or storage. **Passwords are never stored** (used once to obtain
-a token, then discarded) and **tokens are never logged** (the session redacts
-its token in `toString`, and a track's stored URI is a token-free
-`jellyfin:<id>`; the streaming URL is minted only at play time). **Library sync
-now works:** once signed in, a **Sync library** action pulls your Jellyfin
-artists/albums/tracks and upserts them into the same `MusicLibraryRepository`
-the Library reads from, under the stable `jellyfin` source id (driven by
-`JellyfinSyncController`/`JellyfinSyncState` over the existing
-`jellyfinMusicSourceProvider` seam). **Streaming playback now works too:**
-tapping a synced Jellyfin track plays it. Playback resolves through a
-`PlayableUriResolver` seam — a `JellyfinPlayableUriResolver` verifies the
-session and mints the authenticated stream URL *at play time*, so the token is
-never stored on the track, in the catalog, in logs, or in player state. The
-player shows precise, secret-free errors (not signed in / expired session /
-unreachable server / unavailable stream). **Jellyfin offline downloads now work
-too** — see the offline-downloads section above and **Jellyfin (self-hosted
-music) — setup & known limitations** below.
+This is an alpha — expect rough edges. The honest gaps today:
 
-Not built yet (planned, in roughly this order):
+- **No tag/metadata parsing yet** — tracks show their file name, and there is
+  no album artwork.
+- **No browse-by-artist/album and no search** in the in-app library yet.
+- **No saved playlists** — there is an up-next queue, but no playlist creation,
+  editing, or reordering.
+- **Downloads are track-level only** — no album/playlist "download all" and no
+  background download manager (downloads run inline; no resume).
+- **Single Jellyfin server** — one session at a time; no multi-server support.
+- **Direct play only** — no server-side transcoding fallback for exotic
+  formats; Cloudflare Access / Zero Trust in front of Jellyfin is not supported.
+- **On-device files can't be cast** — a Cast receiver can't reach a local file,
+  so only Jellyfin streams hand off.
+- **Connectivity is optimistic** — the "Wi-Fi only" gate relies on a placeholder
+  detector for now.
+- **Android only today** — Linux desktop is planned later from the same codebase.
+- **Release signing not yet provisioned** — alpha APKs may be debug-signed (see
+  [Install](#install)).
 
-- Local music library scanning — *v1 done (scan → persist → list); native
-  folder picker + persisted selection now done; Android `content://` tree URIs
-  are now routed and resolved for external storage, **and SAF folders are now
-  scanned through the content resolver** (native `DocumentsContract` traversal,
-  scoped-storage friendly, no broad permission); tag parsing and a narrow
-  Android media permission still pending*
-- Audio playback — *done (local + **Jellyfin streaming** playback, behind a
-  `PlayableUriResolver`, plus an up-next queue with skip next/previous and
-  **working shuffle and repeat (off / all / one)**); background playback + media
-  session via `audio_service` wired in Dart **and** with the native Android setup
-  applied (foreground-service permissions, playback service, media-button
-  receiver, `AudioServiceActivity`, Android Auto media-app declaration); Android
-  Auto now **browsable** (Library / Queue nodes, tap-to-play) — not yet a full
-  car UI. **Real Chromecast casting** is wired behind `CastService` on
-  Android/iOS — device discovery, connect/disconnect, and handing off the
-  current Jellyfin track to the receiver — using a pure-Dart Cast protocol (no
-  Google Play Services / Cast SDK, so it stays F-Droid-friendly). On-device
-  files can't be cast (a receiver can't reach them) and show a clear limitation;
-  see below*
-- Playlists
-- User-controlled offline downloads — *done for tracks (Plexamp-style explicit
-  downloads: real Jellyfin byte-fetch, app-private cache, cache-first playback,
-  remove/retry); album/playlist-level "download all" and a background download
-  manager still pending*
-- Lyrics
+## Install
 
-Self-hosted sources (Jellyfin, WebDAV, NAS) build on the local MVP. The
-**Jellyfin foundation has landed** (settings, connection test, authentication,
-encrypted session persistence, and a library source), **library sync is wired
-in**, **streaming playback works**, and **explicit offline downloads now work**
-— a signed-in user can pull their Jellyfin catalog into the Library, play it,
-and mark individual tracks for offline use.
+> Linthra is **not on Google Play or F-Droid**. It is distributed as a
+> sideloadable APK from **GitHub Releases**. Alpha releases are GitHub
+> **pre-releases**.
+
+### Obtainium (recommended)
+
+[Obtainium](https://github.com/ImranR98/Obtainium) installs apps straight from
+GitHub Releases and keeps them updated — a great fit for alpha sideloading.
+
+1. Install Obtainium (from its
+   [GitHub Releases](https://github.com/ImranR98/Obtainium/releases) or F-Droid).
+2. Tap **Add App** and paste the repository URL:
+   `https://github.com/thezupzup/linthra`
+3. Because alphas are **pre-releases**, open the app's settings in Obtainium and
+   enable **"Include prereleases"** so it picks up the latest alpha APK.
+4. Tap **Add**, then **Install**. Obtainium will notify you when a newer alpha
+   is published.
+
+> **Heads up:** until release signing is provisioned, some alpha APKs may be
+> **debug-signed**. If a signature changes between builds, Obtainium may ask you
+> to uninstall and reinstall before updating.
+
+### Manual APK sideload
+
+1. Open the [Releases page](https://github.com/thezupzup/linthra/releases) and
+   download the `app-release.apk` (or `.apk`) attached to the latest alpha.
+2. On your device, open the APK and allow **"install from unknown sources"** if
+   prompted. Or, with the phone connected over ADB:
+   ```bash
+   adb install -r app-release.apk
+   ```
+3. On first launch (Android 13+), tap **Allow** on the notification prompt so
+   the media notification and its controls can appear.
+
+### Build it yourself
+
+Linthra is a standard Flutter app (the committed `android/` scaffold means no
+`flutter create` step is needed):
+
+```bash
+flutter pub get
+flutter build apk --debug   # → build/app/outputs/flutter-apk/app-debug.apk
+# or run on a connected device / emulator
+flutter run
+```
+
+Full build, CI, and release details — including the GitHub **Android Debug APK**
+workflow you can use without a local toolchain — are in
+[Getting started](#getting-started) and
+[Building release artifacts](#building-release-artifacts-android) below.
+
+## Connect your Jellyfin server
+
+Linthra can connect to your own [Jellyfin](https://jellyfin.org) server,
+including one published over HTTPS through a Cloudflare domain or tunnel.
+
+1. **Settings → Jellyfin → Server URL** — enter your address, e.g.
+   `https://music.example.com` (a bare host gets `https://`; a LAN
+   `http://host:8096` and reverse-proxy subpaths also work).
+2. **Test connection** — confirms the address is reachable and really is a
+   Jellyfin server, and shows its name/version.
+3. **Username + password → Sign in** — authenticates and stores the resulting
+   session encrypted on-device. Your **password is never saved**.
+4. **Sync library** — pulls your artists/albums/tracks into the local catalog so
+   they appear in the Library.
+5. Tap a synced track to **stream** it, or use the download control to keep it
+   **offline**.
+
+Cloudflare-proxied domains and tunnels work out of the box. **Cloudflare Access
+/ Zero Trust** (an extra auth layer in front of Jellyfin) is not supported yet.
+Full setup notes, supported endpoints, compatibility, and troubleshooting are in
+[Jellyfin (self-hosted music) — setup &amp; known limitations](#jellyfin-self-hosted-music--setup--known-limitations)
+and [docs/jellyfin-compatibility.md](docs/jellyfin-compatibility.md).
+
+## Privacy &amp; security
+
+Linthra is built to respect the people who use it:
+
+- **No telemetry, no analytics, no phoning home.** The app never uploads your
+  library or reports usage.
+- **No forced sync and no surprise downloads.** Offline downloads are always
+  user-initiated; there is no automatic full-library sync, and a "Wi-Fi only"
+  option is respected for remote downloads.
+- **Minimal Android permissions.** Just foreground-service + notification (for
+  background playback) and internet (to reach your Jellyfin server). **No broad
+  storage permission** — folder access uses the Storage Access Framework grant
+  you pick.
+- **Your Jellyfin secrets stay safe.** The password is used once to obtain a
+  token and then discarded — it is **never stored**. The session token is
+  encrypted at rest (`flutter_secure_storage`, Android Keystore-backed), is
+  **never logged** or shown in the UI, and authenticated stream/download URLs are
+  minted only on demand. Diagnostics are secret-free by construction.
+
+More detail lives in the
+[Jellyfin security notes](#jellyfin-self-hosted-music--setup--known-limitations)
+and the offline-downloads section below.
+
+## Roadmap
+
+**Working now:** local scanning + playback, background playback & media session,
+Android Auto browsing, shuffle/repeat, Jellyfin connect/sync/stream, explicit
+offline downloads with a smart cache, synced favorites & lyrics, and a
+Chromecast foundation.
+
+**Next up (roughly in order):**
+
+1. Tag/metadata parsing and album artwork.
+2. Browse by artist/album, and search.
+3. Playlist creation, editing, and queue reordering.
+4. Album/playlist "download all" and a background download manager.
+5. Real connectivity detection for the "Wi-Fi only" gate.
+6. More sources behind the same interface — WebDAV, NAS.
+
+**Later:** local-file lyrics (`.lrc`/tags), ReplayGain, MPRIS, smart playlists,
+Linux desktop, and richer Android Auto (album/artist grouping, search) and
+casting (local-file casting, receiver transport controls).
+
+See [Roadmap (MVP)](#roadmap-mvp) below for the full breakdown.
+
+## Project status
+
+**Current alpha: `0.1.0-alpha.9`.** Linthra is a manually testable Android build
+with several rounds of features and fixes since the first alpha. It is still
+early software with honest, documented limitations — see
+[Known limitations](#known-limitations) and the
+[release notes](./docs/release-notes/v0.1.0-alpha.9.md). It is **not** on
+F-Droid, **not** on Google Play, and nothing is published automatically. Release
+signing is wired up but not yet provisioned, so some alpha APKs may be
+debug-signed (and clearly labeled as such).
+
+## Contributing &amp; deeper docs
+
+Linthra aims to be contributor-friendly: small focused files, explicit naming,
+and clean layers (features depend on interfaces in `core/`, never on concrete
+services or storage). If you find Linthra useful, a **GitHub star** helps others
+discover it.
+
+- **Architecture & extension points:** [Architecture](#architecture)
+- **Run it / build it:** [Getting started](#getting-started)
+- **Feature deep-dives:** background playback & Android Auto, Now Playing
+  controls, folder selection, offline downloads, and Jellyfin — all detailed in
+  the sections below.
+- **Release & F-Droid planning:** [docs/](./docs) (release process, signing,
+  F-Droid readiness, dependency/license audit, Jellyfin compatibility).
 
 ## Philosophy
 
