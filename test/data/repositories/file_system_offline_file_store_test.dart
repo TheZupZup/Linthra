@@ -56,6 +56,25 @@ void main() {
       expect(await store.pathFor('missing.mp3'), isNull);
     });
 
+    test('sizeFor returns the byte length on disk', () async {
+      final String fileName =
+          await store.write('t1', const <int>[1, 2, 3, 4, 5], extension: 'mp3');
+
+      expect(await store.sizeFor(fileName), 5);
+    });
+
+    test('sizeFor returns null for a file that was never written', () async {
+      expect(await store.sizeFor('missing.mp3'), isNull);
+    });
+
+    test('sizeFor returns null after the file is deleted', () async {
+      final String fileName =
+          await store.write('t1', const <int>[1, 2], extension: 'mp3');
+      await store.delete(fileName);
+
+      expect(await store.sizeFor(fileName), isNull);
+    });
+
     test('delete removes the cached file', () async {
       final String fileName =
           await store.write('t1', const <int>[1], extension: 'mp3');

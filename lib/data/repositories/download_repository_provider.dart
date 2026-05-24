@@ -7,6 +7,7 @@ import '../../core/repositories/download_store.dart';
 import '../../core/repositories/offline_file_store.dart';
 import '../../core/services/cached_track_locator.dart';
 import '../../core/services/connectivity_service.dart';
+import '../../core/services/offline_cache_manager.dart';
 import '../../core/services/optimistic_connectivity_service.dart';
 import '../../core/services/remote_track_downloader.dart';
 import 'cache_download_repository.dart';
@@ -54,19 +55,42 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   return const OptimisticConnectivityService();
 });
 
-/// The single [DownloadRepository] the app drives offline downloads through.
-/// It composes the seams above and centralizes the user-initiated,
-/// source-aware, Wi-Fi-respecting cache policy.
-final downloadRepositoryProvider = Provider<DownloadRepository>((ref) {
+/// Supplies the id of the currently playing track so the cache policy never
+/// evicts it. The data layer defaults to "nothing playing" (keeping it free of
+/// any playback dependency); the app overrides this to read the live
+/// [PlaybackController] (see `currentlyPlayingTrackIdOverride`). The closure is
+/// read lazily at eviction time, so wiring it never rebuilds the repository.
+final currentlyPlayingTrackIdProvider =
+    Provider<String? Function()?>((ref) => null);
+
+/// The single [CacheDownloadRepository] the app drives offline downloads
+/// through. It composes the seams above and centralizes the user-initiated,
+/// source-aware, Wi-Fi-respecting, limit-bounded cache policy. Held as the
+/// concrete type so the cache-manager provider can expose the same instance.
+final _cacheDownloadRepositoryProvider =
+    Provider<CacheDownloadRepository>((ref) {
   final repository = CacheDownloadRepository(
     store: ref.watch(downloadStoreProvider),
     files: ref.watch(offlineFileStoreProvider),
     downloader: ref.watch(remoteTrackDownloaderProvider),
     connectivity: ref.watch(connectivityServiceProvider),
     preferences: ref.watch(downloadPreferencesProvider),
+    currentlyPlayingTrackId: ref.watch(currentlyPlayingTrackIdProvider),
   );
   ref.onDispose(repository.dispose);
   return repository;
+});
+
+/// The download lifecycle surface (request/remove/status) the UI uses.
+final downloadRepositoryProvider = Provider<DownloadRepository>((ref) {
+  return ref.watch(_cacheDownloadRepositoryProvider);
+});
+
+/// The cache-maintenance surface (usage stream, pin, clear, note-played),
+/// backed by the *same* instance as [downloadRepositoryProvider] so a cleared
+/// or pinned track stays consistent with download status.
+final offlineCacheManagerProvider = Provider<OfflineCacheManager>((ref) {
+  return ref.watch(_cacheDownloadRepositoryProvider);
 });
 
 /// Resolves a track to its cached-on-disk file when one exists. Read by the

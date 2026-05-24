@@ -36,6 +36,9 @@ class InMemoryOfflineFileStore implements OfflineFileStore {
       _files.containsKey(fileName) ? '$_baseDirectory/$fileName' : null;
 
   @override
+  Future<int?> sizeFor(String fileName) async => _files[fileName]?.length;
+
+  @override
   Future<void> delete(String fileName) async {
     _files.remove(fileName);
   }

@@ -23,6 +23,11 @@ abstract interface class OfflineFileStore {
   /// streaming rather than open a missing file.
   Future<String?> pathFor(String fileName);
 
+  /// The size in bytes of [fileName] on disk, or `null` when it no longer
+  /// exists — used to total cache usage and to detect (and prune) metadata
+  /// pointing at a file the OS reclaimed.
+  Future<int?> sizeFor(String fileName);
+
   /// Deletes the cache file [fileName] if it exists; a no-op when it doesn't.
   Future<void> delete(String fileName);
 }

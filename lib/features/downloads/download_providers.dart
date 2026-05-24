@@ -1,7 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/cache_size.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/download_repository.dart';
+import '../../core/repositories/download_store.dart';
+import '../../core/services/offline_cache_manager.dart';
 import '../../core/sources/jellyfin/jellyfin_track_downloader.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
@@ -32,6 +35,42 @@ final downloadedTracksProvider = StreamProvider<List<Track>>((ref) async* {
     yield tracks.where((t) => downloadedIds.contains(t.id)).toList();
   }
 });
+
+/// Live offline-cache usage + per-track metadata (size, pinned, timestamps),
+/// re-emitted whenever the cache changes. Powers the Settings cache card and
+/// the per-row size/pin affordances on the Downloads screen.
+final cacheSnapshotProvider = StreamProvider<CacheSnapshot>((ref) {
+  return ref.watch(offlineCacheManagerProvider).cacheStream;
+});
+
+/// The cached-track metadata keyed by track id, for quick per-row lookups.
+final cacheEntriesByIdProvider = Provider<Map<String, CachedTrack>>((ref) {
+  final snapshot = ref.watch(cacheSnapshotProvider).valueOrNull;
+  if (snapshot == null) return const <String, CachedTrack>{};
+  return <String, CachedTrack>{
+    for (final entry in snapshot.entries) entry.trackId: entry,
+  };
+});
+
+/// Owns the "Maximum cache size" limit: loads the persisted value and writes
+/// changes back through [DownloadPreferences]. Clamped to the supported range.
+class MaxCacheBytesController extends AsyncNotifier<int> {
+  @override
+  Future<int> build() {
+    return ref.read(downloadPreferencesProvider).maxCacheBytes();
+  }
+
+  Future<void> setLimit(int bytes) async {
+    final int clamped = CacheSize.clamp(bytes);
+    await ref.read(downloadPreferencesProvider).setMaxCacheBytes(clamped);
+    state = AsyncData<int>(clamped);
+  }
+}
+
+final maxCacheBytesControllerProvider =
+    AsyncNotifierProvider<MaxCacheBytesController, int>(
+  MaxCacheBytesController.new,
+);
 
 /// Owns the "Wi-Fi only downloads" switch: loads the persisted value and writes
 /// changes back through [DownloadPreferences].

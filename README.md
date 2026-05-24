@@ -868,12 +868,22 @@ user-controlled**:
   **prefers the local cached file**; if it isn't cached and you're offline, the
   player shows a friendly "couldn't reach your server" message rather than
   failing opaquely.
+- **The cache stays under a size limit.** You set a maximum (presets of 1, 2, 4,
+  8, 16 GB or a custom value; **4 GB by default**), so Linthra never fills your
+  phone unexpectedly. When a new download would exceed the limit, it frees space
+  by removing the **least-recently-played, unpinned, not-currently-playing**
+  tracks first. Pin a track ("Keep offline") to protect it. If nothing safe can
+  be freed, the download is refused with a friendly "not enough cache space"
+  message instead of deleting something you wanted.
 
 **How it works now.** Each Library row shows an offline-download control:
 download an absent track, see a spinner while it's in flight, remove a cached
-one, or retry a failed one. The Downloads tab lists everything currently cached
-and hosts the **Wi-Fi only** toggle. All of this flows through
-`DownloadRepository`, which centralizes three guarantees:
+one, or retry a failed one. The **Downloads** tab lists everything currently
+cached — with each track's **size** and a **Keep offline** pin — shows how much
+of the limit is in use, and hosts the **Wi-Fi only** toggle. **Settings →
+Offline cache** shows used / max / free space and the **Change limit** and
+**Clear cache** (clear unpinned, or clear all) actions. The download lifecycle
+flows through `DownloadRepository`, which centralizes three guarantees:
 
 - **User-initiated only.** A track's status only ever changes in response to an
   explicit download/remove action — nothing is fetched automatically or in the
@@ -889,12 +899,30 @@ and hosts the **Wi-Fi only** toggle. All of this flows through
 
 **Storage & playback.** Downloaded bytes live in an app-controlled directory
 (`path_provider`'s application-support location, not the OS cache that can be
-reclaimed). The durable metadata is a small `CachedTrack` set (track id + cache
-file name) behind `DownloadStore`, persisted via `shared_preferences`. Playback
-goes through an `OfflineFirstPlayableUriResolver`: it asks a `CachedTrackLocator`
-for a local copy first and, on a miss, falls back to the source router (Jellyfin
-streaming, or the on-device file). `downloaded` is the only durable state;
+reclaimed). The durable metadata is a small `CachedTrack` set behind
+`DownloadStore`, persisted via `shared_preferences`; each record carries the
+non-secret track id, the id-derived cache file name, the source's URI scheme,
+the byte size, `cachedAt`/`lastAccessedAt` timestamps, and a `pinned` flag — the
+signals the cache manager cleans up by. Playback goes through an
+`OfflineFirstPlayableUriResolver`: it asks a `CachedTrackLocator` for a local
+copy first and, on a miss, falls back to the source router (Jellyfin streaming,
+or the on-device file); a cache **hit refreshes `lastAccessedAt`** so eviction
+keeps what you actually listen to. `downloaded` is the only durable state;
 `queued`/`downloading`/`failed` are in-memory and reset on restart.
+
+**Smart cache management.** The limit and eviction live in one place. The
+`CacheDownloadRepository` also implements an `OfflineCacheManager` (usage stream,
+pin, note-played, clear), and delegates the *what to evict* decision to a pure,
+exhaustively tested `CacheEvictionPolicy` — never the UI, which only calls the
+manager. What can and can't be deleted is a hard line: only **app-managed cache
+files** in the offline directory are ever removed (by id-derived file name);
+the user's **local source files** in their music folder are never passed to the
+file store, so they can't be touched. The **currently playing** track and
+**pinned** tracks are never auto-evicted. A managed file the OS reclaimed is
+detected on load — its stale metadata is pruned and playback falls back to
+streaming rather than opening a missing file. "Clear all" removes everything
+(pinned included); "Clear unpinned" keeps what you pinned. The maximum size is a
+`DownloadPreferences` value (also `shared_preferences`), clamped to a sane range.
 
 **Security (token handling).** The Jellyfin access token is **never** stored on
 `Track.uri`, in the `DownloadStore` metadata, in a cache file name, in a log, or
@@ -904,6 +932,9 @@ the authenticated **download** URL is minted only at fetch time inside
 time), and a transport failure is re-raised as a generic message so a
 `ClientException` carrying the tokenized URL can't escape. Cache file names are
 derived only from the non-secret track id, sanitized to filename-safe characters.
+The richer metadata the cache manager adds is likewise non-secret: the stored
+**source type is the bare URI scheme** (`jellyfin` / `file`), never the full URL,
+and the "not enough cache space" error carries no path, URL, or token.
 
 Deliberate gaps the next PRs will close:
 
@@ -915,6 +946,10 @@ Deliberate gaps the next PRs will close:
   tap; there is no worker, no Android download/notification service, no resume of
   a partial transfer, and no auto-flush of the queue when Wi-Fi returns (re-tap a
   queued track to retry).
+- **Eviction is inline, not a background sweeper.** Space is freed only when a
+  new download needs it (and stale metadata only on load); there is no periodic
+  reconciliation against the directory's actual on-disk size, and a remote track
+  larger than the whole limit can't be cached at all.
 - **Connectivity is optimistic.** `OptimisticConnectivityService` always reports
   Wi-Fi until `connectivity_plus` is wired in, so the "Wi-Fi only" gate currently
   blocks only when a test (or a future real detector) reports mobile/offline —

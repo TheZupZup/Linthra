@@ -166,7 +166,7 @@ class _OverflowMenu extends ConsumerWidget {
     return PopupMenuButton<_TrackAction>(
       icon: const Icon(Icons.more_vert),
       tooltip: 'More actions',
-      onSelected: (action) => _run(ref, action),
+      onSelected: (action) => _run(context, ref, action),
       itemBuilder: (context) => _menuItems(),
     );
   }
@@ -212,16 +212,33 @@ class _OverflowMenu extends ConsumerWidget {
     );
   }
 
-  void _run(WidgetRef ref, _TrackAction action) {
+  Future<void> _run(
+    BuildContext context,
+    WidgetRef ref,
+    _TrackAction action,
+  ) async {
     switch (action) {
       case _TrackAction.playNext:
         ref.read(playbackControllerProvider).playNext(track);
       case _TrackAction.download:
       case _TrackAction.retryDownload:
-        ref.read(downloadRepositoryProvider).requestDownload(track);
+        await _download(context, ref);
       case _TrackAction.removeOffline:
       case _TrackAction.cancel:
-        ref.read(downloadRepositoryProvider).removeDownload(track.id);
+        await ref.read(downloadRepositoryProvider).removeDownload(track.id);
+    }
+  }
+
+  /// Starts the download, surfacing the one user-facing failure that isn't a
+  /// transient "failed" status: a full cache with nothing safe to evict. The
+  /// message is friendly and secret-free; other errors fall through to the
+  /// row's "failed" indicator (with a retry action).
+  Future<void> _download(BuildContext context, WidgetRef ref) async {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(downloadRepositoryProvider).requestDownload(track);
+    } on CacheStorageException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
     }
   }
 }
