@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/playback_state.dart';
@@ -28,6 +30,12 @@ final playableUriResolverProvider = Provider<PlayableUriResolver>((ref) {
   return OfflineFirstPlayableUriResolver(
     locator: ref.watch(cachedTrackLocatorProvider),
     fallback: fallback,
+    // On a cache hit, refresh the track's least-recently-used position so
+    // eviction keeps what's actually listened to. Read lazily (no build-time
+    // dependency on the cache manager) and never awaited — a metadata write
+    // must not block or break playback.
+    onCacheHit: (trackId) =>
+        unawaited(ref.read(offlineCacheManagerProvider).notePlayed(trackId)),
   );
 });
 
@@ -62,3 +70,13 @@ final playbackStateProvider = StreamProvider<PlaybackState>((ref) {
   final controller = ref.watch(playbackControllerProvider);
   return controller.stateStream;
 });
+
+/// Production binding: lets the cache eviction policy see the currently playing
+/// track so it's never deleted to make room. The closure reads the controller's
+/// latest state lazily at eviction time, so applying this override doesn't tie
+/// the download repository to the controller's lifecycle. Applied in `main`;
+/// tests keep the data-layer default (nothing playing).
+final currentlyPlayingTrackIdOverride =
+    currentlyPlayingTrackIdProvider.overrideWith(
+  (ref) => () => ref.read(playbackControllerProvider).state.currentTrack?.id,
+);

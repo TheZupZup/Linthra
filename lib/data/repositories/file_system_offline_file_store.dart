@@ -51,6 +51,13 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
   }
 
   @override
+  Future<int?> sizeFor(String fileName) async {
+    final Directory dir = await _directory();
+    final File file = File(p.join(dir.path, fileName));
+    return await file.exists() ? await file.length() : null;
+  }
+
+  @override
   Future<void> delete(String fileName) async {
     final Directory dir = await _directory();
     final File file = File(p.join(dir.path, fileName));

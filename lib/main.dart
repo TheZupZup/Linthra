@@ -32,6 +32,7 @@ Future<void> main() async {
       sharedPreferencesDownloadPreferencesOverride,
       fileSystemOfflineFileStoreOverride,
       jellyfinRemoteTrackDownloaderOverride,
+      currentlyPlayingTrackIdOverride,
       secureJellyfinSessionStoreOverride,
     ],
   );

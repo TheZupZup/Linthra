@@ -72,6 +72,32 @@ void main() {
       expect(fallback.resolved, isNull);
     });
 
+    test('notifies onCacheHit with the track id on a cache hit', () async {
+      final hits = <String>[];
+      final resolver = OfflineFirstPlayableUriResolver(
+        locator: _FakeLocator('/offline_audio/t1.mp3'),
+        fallback: _RecordingResolver(Uri.parse('https://stream/t1')),
+        onCacheHit: hits.add,
+      );
+
+      await resolver.resolve(_track);
+
+      expect(hits, <String>['t1']);
+    });
+
+    test('does not notify onCacheHit on a cache miss', () async {
+      final hits = <String>[];
+      final resolver = OfflineFirstPlayableUriResolver(
+        locator: _FakeLocator(null),
+        fallback: _RecordingResolver(Uri.parse('https://stream/t1')),
+        onCacheHit: hits.add,
+      );
+
+      await resolver.resolve(_track);
+
+      expect(hits, isEmpty);
+    });
+
     test('streams via the fallback on a cache miss', () async {
       final fallback = _RecordingResolver(
         Uri.parse('https://music.example.com/Audio/t1/universal'),
