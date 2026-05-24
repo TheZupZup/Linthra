@@ -1,4 +1,5 @@
 import '../models/playback_state.dart';
+import '../models/repeat_mode.dart';
 import '../models/track.dart';
 
 /// The only playback contract the UI knows about.
@@ -37,6 +38,16 @@ abstract interface class PlaybackController {
 
   /// Empties the up-next queue, leaving the current track playing.
   void clearQueue();
+
+  /// Turns shuffle on or off. Shuffle is a playback mode, not a one-shot: it
+  /// reorders the current queue (keeping the current track playing) and stays in
+  /// effect for any queue loaded afterwards. The new state is reflected in
+  /// [PlaybackState.shuffleEnabled].
+  void setShuffleEnabled(bool enabled);
+
+  /// Sets the repeat behaviour (off / repeat all / repeat one). Consulted when a
+  /// track finishes; the new mode is reflected in [PlaybackState.repeatMode].
+  void setRepeatMode(RepeatMode mode);
 
   Future<void> play();
   Future<void> pause();

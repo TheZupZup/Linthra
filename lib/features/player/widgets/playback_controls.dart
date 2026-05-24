@@ -3,13 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
 import '../../../core/models/playback_state.dart';
+import '../../../core/models/repeat_mode.dart';
 import '../../../core/services/playback_controller.dart';
 import '../player_providers.dart';
 
 /// The transport row: shuffle · previous · play/pause · next · repeat.
 ///
-/// Shuffle and repeat are deliberately disabled placeholders — they hold their
-/// place in the layout for when those modes land, but never pretend to work.
+/// Shuffle and repeat are live, controller-driven modes (read from
+/// [PlaybackState], toggled/cycled through the [PlaybackController]); the active
+/// state is shown with the accent colour and the button's selected styling.
 /// Previous/next reflect the live queue (disabled at the ends) and delegate to
 /// the existing queue controls; play/pause forwards straight to the controller
 /// and shows a spinner while a track loads.
@@ -25,12 +27,7 @@ class PlaybackControls extends ConsumerWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        // Disabled placeholder until shuffle lands; holds its place in the row.
-        const IconButton(
-          onPressed: null,
-          icon: Icon(Icons.shuffle),
-          tooltip: 'Shuffle',
-        ),
+        _ShuffleButton(state: state, controller: controller),
         IconButton(
           iconSize: 36,
           onPressed: state.hasPrevious ? controller.skipToPrevious : null,
@@ -44,14 +41,67 @@ class PlaybackControls extends ConsumerWidget {
           icon: const Icon(Icons.skip_next),
           tooltip: 'Next',
         ),
-        // Disabled placeholder until repeat lands.
-        const IconButton(
-          onPressed: null,
-          icon: Icon(Icons.repeat),
-          tooltip: 'Repeat',
-        ),
+        _RepeatButton(state: state, controller: controller),
       ],
     );
+  }
+}
+
+/// Toggles shuffle. Tinted with the accent colour and shown selected while on,
+/// so the active state reads at a glance.
+class _ShuffleButton extends StatelessWidget {
+  const _ShuffleButton({required this.state, required this.controller});
+
+  final PlaybackState state;
+  final PlaybackController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final enabled = state.shuffleEnabled;
+    return IconButton(
+      onPressed: () => controller.setShuffleEnabled(!enabled),
+      icon: const Icon(Icons.shuffle),
+      isSelected: enabled,
+      color: enabled ? theme.colorScheme.primary : null,
+      tooltip: enabled ? 'Shuffle on' : 'Shuffle',
+    );
+  }
+}
+
+/// Cycles repeat off → all → one → off. The glyph switches to repeat-one in
+/// that mode, and the button is tinted/selected whenever repeat is active.
+class _RepeatButton extends StatelessWidget {
+  const _RepeatButton({required this.state, required this.controller});
+
+  final PlaybackState state;
+  final PlaybackController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final mode = state.repeatMode;
+    final active = mode != RepeatMode.off;
+    return IconButton(
+      onPressed: () => controller.setRepeatMode(mode.next),
+      icon: Icon(
+        mode == RepeatMode.one ? Icons.repeat_one : Icons.repeat,
+      ),
+      isSelected: active,
+      color: active ? theme.colorScheme.primary : null,
+      tooltip: _tooltipFor(mode),
+    );
+  }
+
+  static String _tooltipFor(RepeatMode mode) {
+    switch (mode) {
+      case RepeatMode.off:
+        return 'Repeat';
+      case RepeatMode.all:
+        return 'Repeat all';
+      case RepeatMode.one:
+        return 'Repeat one';
+    }
   }
 }
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
+import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/playback_controller.dart';
 import 'package:linthra/features/player/player_providers.dart';
@@ -242,6 +243,88 @@ void main() {
 
       expect(find.text('Live Track'), findsOneWidget);
       expect(find.byTooltip('Pause'), findsOneWidget);
+    });
+
+    testWidgets('shuffle button reflects state and toggles it', (tester) async {
+      final controller = _playing();
+      await _pumpScreen(tester, controller);
+
+      // Off by default.
+      expect(
+        tester
+            .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.shuffle))
+            .isSelected,
+        isFalse,
+      );
+
+      await tester.tap(find.byIcon(Icons.shuffle));
+      await tester.pumpAndSettle();
+
+      // The state flipped and the button now reads as selected.
+      expect(controller.state.shuffleEnabled, isTrue);
+      expect(
+        tester
+            .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.shuffle))
+            .isSelected,
+        isTrue,
+      );
+    });
+
+    testWidgets('repeat button cycles off -> all -> one -> off',
+        (tester) async {
+      final controller = _playing();
+      await _pumpScreen(tester, controller);
+
+      // Off: plain repeat glyph, not selected.
+      expect(find.byIcon(Icons.repeat), findsOneWidget);
+      expect(find.byIcon(Icons.repeat_one), findsNothing);
+      expect(
+        tester
+            .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.repeat))
+            .isSelected,
+        isFalse,
+      );
+
+      // -> repeat all: still the repeat glyph, now selected.
+      await tester.tap(find.byIcon(Icons.repeat));
+      await tester.pumpAndSettle();
+      expect(controller.state.repeatMode, RepeatMode.all);
+      expect(
+        tester
+            .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.repeat))
+            .isSelected,
+        isTrue,
+      );
+
+      // -> repeat one: glyph switches to repeat_one.
+      await tester.tap(find.byIcon(Icons.repeat));
+      await tester.pumpAndSettle();
+      expect(controller.state.repeatMode, RepeatMode.one);
+      expect(find.byIcon(Icons.repeat_one), findsOneWidget);
+
+      // -> off: back to the plain glyph.
+      await tester.tap(find.byIcon(Icons.repeat_one));
+      await tester.pumpAndSettle();
+      expect(controller.state.repeatMode, RepeatMode.off);
+      expect(find.byIcon(Icons.repeat), findsOneWidget);
+    });
+
+    testWidgets('renders the cast button in the header', (tester) async {
+      await _pumpScreen(tester, _playing());
+
+      // Default cast backend is unavailable, so the (honest) cast glyph shows.
+      expect(find.byIcon(Icons.cast), findsOneWidget);
+      expect(find.byTooltip('Cast (coming soon)'), findsOneWidget);
+    });
+
+    testWidgets('cast button opens an honest unavailable sheet',
+        (tester) async {
+      await _pumpScreen(tester, _playing());
+
+      await tester.tap(find.byIcon(Icons.cast));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Casting isn\'t available yet'), findsOneWidget);
     });
   });
 }

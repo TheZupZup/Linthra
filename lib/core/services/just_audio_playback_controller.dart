@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:just_audio/just_audio.dart';
 
 import '../models/playback_queue.dart';
 import '../models/playback_source.dart';
 import '../models/playback_state.dart';
+import '../models/repeat_mode.dart';
 import '../models/track.dart';
 import 'local_playable_uri_resolver.dart';
 import 'playable_uri_resolver.dart';
@@ -27,13 +29,16 @@ class JustAudioPlaybackController implements PlaybackController {
   JustAudioPlaybackController({
     AudioPlayer? player,
     PlayableUriResolver resolver = const LocalPlayableUriResolver(),
+    Random? random,
   })  : _player = player ?? AudioPlayer(),
-        _resolver = resolver {
+        _resolver = resolver,
+        _random = random ?? Random() {
     _wire();
   }
 
   final AudioPlayer _player;
   final PlayableUriResolver _resolver;
+  final Random _random;
   final StreamController<PlaybackState> _states =
       StreamController<PlaybackState>.broadcast();
   final List<StreamSubscription<void>> _subscriptions =
@@ -41,6 +46,12 @@ class JustAudioPlaybackController implements PlaybackController {
 
   PlaybackState _state = PlaybackState.idle;
   PlaybackQueue _queue = PlaybackQueue.empty;
+
+  // Shuffle and repeat are session-wide playback modes owned here (not by the
+  // engine, which only ever has one source loaded at a time). They persist
+  // across track changes and are mirrored onto every emitted state.
+  bool _shuffleEnabled = false;
+  RepeatMode _repeatMode = RepeatMode.off;
 
   @override
   PlaybackState get state => _state;
@@ -51,9 +62,9 @@ class JustAudioPlaybackController implements PlaybackController {
   void _wire() {
     _subscriptions.add(_player.playerStateStream.listen((playerState) {
       final status = _statusFor(playerState);
-      // When a track finishes, roll into the next one if the queue has more.
-      if (status == PlaybackStatus.completed && _queue.hasNext) {
-        skipToNext();
+      // When a track finishes, what happens next depends on the repeat mode.
+      if (status == PlaybackStatus.completed) {
+        _onCompleted();
         return;
       }
       _emit(_state.copyWith(status: status));
@@ -93,7 +104,11 @@ class JustAudioPlaybackController implements PlaybackController {
 
   @override
   Future<void> playTracks(List<Track> tracks, {int startIndex = 0}) {
-    _queue = PlaybackQueue.of(tracks, startIndex: startIndex);
+    var queue = PlaybackQueue.of(tracks, startIndex: startIndex);
+    // Shuffle is a persistent mode: a queue loaded while it's on starts
+    // shuffled, with the chosen track kept as the one that plays first.
+    if (_shuffleEnabled) queue = queue.shuffled(_random);
+    _queue = queue;
     return _playCurrent();
   }
 
@@ -124,6 +139,58 @@ class JustAudioPlaybackController implements PlaybackController {
     _emit(_state.copyWith(upNext: _queue.upNext, hasPrevious: false));
   }
 
+  @override
+  void setShuffleEnabled(bool enabled) {
+    if (enabled == _shuffleEnabled) return;
+    _shuffleEnabled = enabled;
+    // Reorder in place: the current track keeps playing; only the up-next list
+    // (and whether a previous track now exists) changes — no reload.
+    _queue = enabled ? _queue.shuffled(_random) : _queue.unshuffled();
+    _emit(_state.copyWith(
+      upNext: _queue.upNext,
+      hasPrevious: _queue.hasPrevious,
+      shuffleEnabled: _shuffleEnabled,
+    ));
+  }
+
+  @override
+  void setRepeatMode(RepeatMode mode) {
+    if (mode == _repeatMode) return;
+    _repeatMode = mode;
+    _emit(_state.copyWith(repeatMode: _repeatMode));
+  }
+
+  /// Decides what to play when the current track finishes, per [_repeatMode]:
+  /// repeat-one replays the same track, repeat-all advances (wrapping past the
+  /// end), and off advances until the queue runs out and then settles on
+  /// [PlaybackStatus.completed].
+  void _onCompleted() {
+    switch (_repeatMode) {
+      case RepeatMode.one:
+        unawaited(_replayCurrent());
+      case RepeatMode.all:
+        if (_queue.hasNext) {
+          skipToNext();
+        } else {
+          _queue = _queue.restarted();
+          unawaited(_playCurrent());
+        }
+      case RepeatMode.off:
+        if (_queue.hasNext) {
+          skipToNext();
+        } else {
+          _emit(_state.copyWith(status: PlaybackStatus.completed));
+        }
+    }
+  }
+
+  /// Replays the current track from the start without re-resolving its URI, so
+  /// repeat-one never re-mints a stream URL or re-hits the cache each loop.
+  Future<void> _replayCurrent() async {
+    await _player.seek(Duration.zero);
+    unawaited(_player.play());
+  }
+
   /// Loads and plays the queue's current track, surfacing its up-next list.
   ///
   /// Resolution (local path / content URI / remote stream) happens through the
@@ -140,6 +207,8 @@ class JustAudioPlaybackController implements PlaybackController {
       currentTrack: track,
       upNext: _queue.upNext,
       hasPrevious: _queue.hasPrevious,
+      shuffleEnabled: _shuffleEnabled,
+      repeatMode: _repeatMode,
     );
     _emit(loading);
 
@@ -193,6 +262,8 @@ class JustAudioPlaybackController implements PlaybackController {
       currentTrack: track,
       upNext: _queue.upNext,
       hasPrevious: _queue.hasPrevious,
+      shuffleEnabled: _shuffleEnabled,
+      repeatMode: _repeatMode,
       errorMessage: message,
     ));
   }
@@ -213,6 +284,8 @@ class JustAudioPlaybackController implements PlaybackController {
       currentTrack: _state.currentTrack,
       upNext: _queue.upNext,
       hasPrevious: _queue.hasPrevious,
+      shuffleEnabled: _shuffleEnabled,
+      repeatMode: _repeatMode,
     );
     _emit(stopped);
   }

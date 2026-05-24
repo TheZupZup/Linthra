@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:audio_service/audio_service.dart' as audio;
 
 import '../models/playback_state.dart';
+import '../models/repeat_mode.dart';
 import '../models/track.dart';
 import '../repositories/music_library_repository.dart';
 import 'media_browser_tree.dart';
@@ -53,6 +54,17 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 
   @override
   Future<void> seek(Duration position) => _controller.seek(position);
+
+  @override
+  Future<void> setShuffleMode(audio.AudioServiceShuffleMode shuffleMode) async {
+    _controller
+        .setShuffleEnabled(shuffleMode != audio.AudioServiceShuffleMode.none);
+  }
+
+  @override
+  Future<void> setRepeatMode(audio.AudioServiceRepeatMode repeatMode) async {
+    _controller.setRepeatMode(_repeatModeFrom(repeatMode));
+  }
 
   // --- Android Auto / media browser ---------------------------------------
 
@@ -126,11 +138,40 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
         audio.MediaAction.seek,
         audio.MediaAction.skipToNext,
         audio.MediaAction.skipToPrevious,
+        audio.MediaAction.setShuffleMode,
+        audio.MediaAction.setRepeatMode,
       },
       processingState: _processingStateFor(state.status),
       playing: state.isPlaying,
       updatePosition: state.position,
+      shuffleMode: state.shuffleEnabled
+          ? audio.AudioServiceShuffleMode.all
+          : audio.AudioServiceShuffleMode.none,
+      repeatMode: _repeatModeTo(state.repeatMode),
     );
+  }
+
+  static RepeatMode _repeatModeFrom(audio.AudioServiceRepeatMode mode) {
+    switch (mode) {
+      case audio.AudioServiceRepeatMode.none:
+        return RepeatMode.off;
+      case audio.AudioServiceRepeatMode.one:
+        return RepeatMode.one;
+      case audio.AudioServiceRepeatMode.all:
+      case audio.AudioServiceRepeatMode.group:
+        return RepeatMode.all;
+    }
+  }
+
+  static audio.AudioServiceRepeatMode _repeatModeTo(RepeatMode mode) {
+    switch (mode) {
+      case RepeatMode.off:
+        return audio.AudioServiceRepeatMode.none;
+      case RepeatMode.all:
+        return audio.AudioServiceRepeatMode.all;
+      case RepeatMode.one:
+        return audio.AudioServiceRepeatMode.one;
+    }
   }
 
   List<audio.MediaControl> _controlsFor(PlaybackState state) {
