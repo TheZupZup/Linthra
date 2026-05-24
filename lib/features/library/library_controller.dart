@@ -58,14 +58,20 @@ class LibraryController extends Notifier<LibraryState> {
       "Couldn't scan that folder. Try selecting it again, or pick a different "
       'folder.';
 
+  static const String _loadFailedMessage =
+      "Couldn't open your music library. Try again, or rescan your music "
+      'folder.';
+
   Future<void> _load() async {
     state = const LibraryState.loading();
     try {
       final tracks =
           await ref.read(musicLibraryRepositoryProvider).getAllTracks();
       state = LibraryState.loaded(tracks);
-    } catch (error) {
-      state = LibraryState.error(error.toString());
+    } catch (_) {
+      // Don't leak raw store/exception text (file paths, SQL, errno) to the
+      // UI; show one friendly, actionable line instead.
+      state = const LibraryState.error(_loadFailedMessage);
     }
   }
 }
