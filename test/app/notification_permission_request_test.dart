@@ -2,6 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/linthra_app.dart';
 import 'package:linthra/core/services/notification_permission.dart';
+import 'package:linthra/features/player/player_providers.dart';
+
+import '../features/player/fake_playback_controller.dart';
 
 /// Records how many times the app asked for the notification permission, so a
 /// test can assert the first-launch request fires exactly once without a real
@@ -23,6 +26,8 @@ void main() {
       ProviderScope(
         overrides: [
           notificationPermissionProvider.overrideWithValue(permission),
+          playbackControllerProvider
+              .overrideWithValue(FakePlaybackController()),
         ],
         child: const LinthraApp(),
       ),

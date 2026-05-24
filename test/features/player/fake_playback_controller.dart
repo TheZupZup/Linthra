@@ -26,6 +26,7 @@ class FakePlaybackController implements PlaybackController {
   int skipCount = 0;
   int previousCount = 0;
   int clearCount = 0;
+  bool disposed = false;
   final List<Duration> seeks = <Duration>[];
 
   /// Pushes [next] to listeners and updates the synchronous [state].
@@ -113,6 +114,7 @@ class FakePlaybackController implements PlaybackController {
 
   @override
   Future<void> dispose() async {
+    disposed = true;
     await _states.close();
   }
 }

@@ -21,6 +21,7 @@ import 'jellyfin_settings_state.dart';
 /// the password handed to [signIn] is forwarded once and never retained.
 class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
   JellyfinSession? _session;
+  late final Future<void> _initialLoad;
 
   /// The live signed-in session, or `null` when not connected. Used to build a
   /// [JellyfinMusicSource]; callers must not log it.
@@ -29,14 +30,30 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
   @override
   JellyfinSettingsState build() {
     // Load any persisted session in the background; until it lands the UI shows
-    // the disconnected state, then flips to connected if one is found.
-    _loadPersisted();
+    // the disconnected state, then flips to connected if one is found. The
+    // future is retained so startup can await it (see [ensureLoaded]).
+    _initialLoad = _loadPersisted();
     return const JellyfinSettingsState();
   }
 
+  /// Completes once the persisted session has been loaded (or confirmed absent).
+  ///
+  /// `main` awaits this at startup so the signed-in source is ready *before* the
+  /// user can tap play. Without it, the first Jellyfin stream after launch could
+  /// race the background load, see no session, and fail with "not signed in" —
+  /// which made streaming look like it required a prior download. Idempotent:
+  /// repeated calls return the same in-flight/completed load.
+  Future<void> ensureLoaded() => _initialLoad;
+
   Future<void> _loadPersisted() async {
-    final JellyfinSession? saved =
-        await ref.read(jellyfinSessionStoreProvider).read();
+    final JellyfinSession? saved;
+    try {
+      saved = await ref.read(jellyfinSessionStoreProvider).read();
+    } catch (_) {
+      // A storage hiccup must not break startup or playback; stay disconnected
+      // and let the user reconnect in Settings. No secret is involved here.
+      return;
+    }
     if (saved == null) {
       return;
     }
