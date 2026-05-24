@@ -95,6 +95,21 @@ void main() {
       expect(uri!.path, '/Audio/raw-id/universal');
     });
 
+    test('resolveDownloadUri mints a download URL with the token on demand',
+        () async {
+      final source = _source(FakeJellyfinClient());
+      const track = Track(id: 't1', title: 'One', uri: 'jellyfin:t1');
+
+      final uri = await source.resolveDownloadUri(track);
+
+      expect(uri, isNotNull);
+      expect(uri!.path, '/Items/t1/Download');
+      expect(uri.host, 'music.example.com');
+      expect(uri.queryParameters['api_key'], 'secret-token');
+      // The track's own uri stays the token-free jellyfin id.
+      expect(track.uri, 'jellyfin:t1');
+    });
+
     test('verifyReachable delegates the check to the client', () async {
       final client = FakeJellyfinClient();
 

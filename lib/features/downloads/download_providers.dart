@@ -2,8 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/track.dart';
 import '../../core/repositories/download_repository.dart';
+import '../../core/sources/jellyfin/jellyfin_track_downloader.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
+import '../settings/jellyfin/jellyfin_settings_controller.dart';
 
 /// The live download status of a single track, for the Library row indicator.
 /// Defaults to [DownloadStatus.notDownloaded] until the repository reports
@@ -47,3 +49,17 @@ class WifiOnlyController extends AsyncNotifier<bool> {
 
 final wifiOnlyControllerProvider =
     AsyncNotifierProvider<WifiOnlyController, bool>(WifiOnlyController.new);
+
+/// Production binding: makes Jellyfin tracks downloadable for offline use by
+/// wiring the remote downloader to the live signed-in source (read through
+/// [jellyfinMusicSourceProvider], so sign-in/out is picked up without a
+/// rebuild). The token-bearing download URL is minted only at fetch time inside
+/// the downloader; nothing here stores it. Applied in `main`; tests override
+/// [remoteTrackDownloaderProvider] with their own fake.
+final jellyfinRemoteTrackDownloaderOverride =
+    remoteTrackDownloaderProvider.overrideWith((ref) {
+  // Read (not watch) the live source lazily at fetch time, mirroring the
+  // playback resolver — so the downloader is built once and signing in/out
+  // doesn't rebuild it (which would reset in-flight download state).
+  return JellyfinTrackDownloader(() => ref.read(jellyfinMusicSourceProvider));
+});
