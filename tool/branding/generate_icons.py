@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Generate Linthra's launcher icons and store graphics from one source design.
 
-Linthra's mark is a small equalizer — four rounded white bars on the brand
-violet gradient — echoing a now-playing visualizer. This script is the single
-source of truth for that mark: it renders every raster asset the app and the
-F-Droid/Fastlane listing need, so the icon never drifts between sizes and can be
-regenerated deterministically.
+Linthra's mark is a small equalizer — four rounded bars carrying a single
+violet→orange gradient (the brand's two colours) on a dark, premium squircle,
+echoing a now-playing visualizer. This script is the single source of truth for
+that mark: it renders every raster asset the app and the F-Droid/Fastlane
+listing need, so the icon never drifts between sizes and can be regenerated
+deterministically.
 
 It is a *developer tool*, not part of the app build, and depends only on the
 Python standard library (no Pillow / native image tools required): it rasterises
@@ -19,7 +20,8 @@ Outputs (paths relative to the repo root):
   - fastlane/metadata/android/en-US/images/featureGraphic.png (1024x500)
 
 The adaptive background is a vector gradient drawable (ic_launcher_background.xml)
-and is not generated here. Run from the repo root:  python3 tool/branding/generate_icons.py
+and is not generated here. Run from the repo root:
+  python3 tool/branding/generate_icons.py
 """
 
 from __future__ import annotations
@@ -28,10 +30,14 @@ import struct
 import zlib
 from pathlib import Path
 
-# Brand palette (kept in step with lib/app/colors.dart's accent family).
-GRADIENT_TOP = (0x9C, 0x8D, 0xF8)
-GRADIENT_BOTTOM = (0x67, 0x50, 0xC8)
-BAR_COLOR = (0xFF, 0xFF, 0xFF)
+# Brand palette (kept in step with lib/app/colors.dart).
+# Squircle / banner background: a dark, premium violet-black.
+BG_TOP = (0x1C, 0x17, 0x30)
+BG_BOTTOM = (0x10, 0x0E, 0x18)
+# Equalizer bars: a single violet→orange gradient (brandBright → accent),
+# mapped across the bars' shared vertical span so the mark reads as one sweep.
+BAR_TOP = (0x9C, 0x84, 0xFF)
+BAR_BOTTOM = (0xFF, 0x9F, 0x43)
 
 # The equalizer bars, as fractions of the region they're drawn in. Heights are
 # bottom-aligned to a shared baseline, giving the "levels" look.
@@ -68,12 +74,23 @@ def _lerp(a: int, b: int, t: float) -> int:
     return round(a + (b - a) * t)
 
 
-def _gradient_row(y: float, height: int) -> tuple[int, int, int]:
+def _bg_row(y: float, height: int) -> tuple[int, int, int]:
     t = y / max(height - 1, 1)
     return (
-        _lerp(GRADIENT_TOP[0], GRADIENT_BOTTOM[0], t),
-        _lerp(GRADIENT_TOP[1], GRADIENT_BOTTOM[1], t),
-        _lerp(GRADIENT_TOP[2], GRADIENT_BOTTOM[2], t),
+        _lerp(BG_TOP[0], BG_BOTTOM[0], t),
+        _lerp(BG_TOP[1], BG_BOTTOM[1], t),
+        _lerp(BG_TOP[2], BG_BOTTOM[2], t),
+    )
+
+
+def _bar_color(y: float, top: float, bottom: float) -> tuple[int, int, int]:
+    span = max(bottom - top, 1.0)
+    t = (y - top) / span
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    return (
+        _lerp(BAR_TOP[0], BAR_BOTTOM[0], t),
+        _lerp(BAR_TOP[1], BAR_BOTTOM[1], t),
+        _lerp(BAR_TOP[2], BAR_BOTTOM[2], t),
     )
 
 
@@ -127,11 +144,11 @@ def _render(width: int, height: int, ss: int, *, mode: str) -> bytearray:
     """Renders the mark at width x height, supersampled by ss for anti-aliasing.
 
     [mode] selects the composition:
-      - "tile":       brand gradient in a rounded square, transparent corners
+      - "tile":       brand squircle (dark gradient), transparent corners
                       (the legacy launcher icon and the F-Droid icon);
       - "foreground": transparent background, bars only in the safe zone (the
                       adaptive icon foreground, masked by the launcher);
-      - "banner":     full-bleed gradient with centred bars (the feature
+      - "banner":     full-bleed dark background with centred bars (the feature
                       graphic).
     """
     sw, sh = width * ss, height * ss
@@ -153,23 +170,29 @@ def _render(width: int, height: int, ss: int, *, mode: str) -> bytearray:
         bar_region = region * 0.66
         bars = _bars((sw - bar_region) / 2, (sh - bar_region) / 2, bar_region)
 
+    # Bars share one gradient sweep across their vertical span (violet at the
+    # tops, orange at the baseline), so the mark reads as a single motion.
+    bar_top = min(b[2] for b in bars)
+    bar_bottom = bars[0][3]
+
     # Hard inside/outside tests at the supersampled resolution; the box
     # downsample below turns the jagged edges into smooth anti-aliased ones.
     hi = bytearray(sw * sh * 4)
     for sy in range(sh):
-        grad = _gradient_row(sy, sh)
+        bg = _bg_row(sy, sh)
+        bar = _bar_color(sy, bar_top, bar_bottom)
         row = sy * sw * 4
         for sx in range(sw):
             r = g = b = a = 0
             if mode == "banner":
-                r, g, b, a = grad[0], grad[1], grad[2], 255
+                r, g, b, a = bg[0], bg[1], bg[2], 255
             elif mode == "tile" and _in_rounded_rect(
                 sx, sy, tile_left, tile_top, tile_right, tile_bottom, corner
             ):
-                r, g, b, a = grad[0], grad[1], grad[2], 255
+                r, g, b, a = bg[0], bg[1], bg[2], 255
             for (cx, hw, top, bottom) in bars:
                 if _in_capsule(sx, sy, cx, hw, top, bottom):
-                    r, g, b, a = BAR_COLOR[0], BAR_COLOR[1], BAR_COLOR[2], 255
+                    r, g, b, a = bar[0], bar[1], bar[2], 255
                     break
             o = row + sx * 4
             hi[o] = r

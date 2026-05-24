@@ -223,8 +223,8 @@ lib/
     linthra_app.dart         root MaterialApp.router widget
     router.dart             go_router config (Riverpod provider)
     routes.dart             route path constants
-    theme.dart              dark-first ThemeData
-    colors.dart / dimens.dart  design tokens
+    theme.dart              dark-first ThemeData (violet brand + orange accent)
+    colors.dart / dimens.dart  design tokens (palette, spacing, radii)
   core/                     framework-free domain layer
     app_info.dart           static app metadata
     models/                 immutable entities: Track, Album, Artist,
@@ -1152,17 +1152,26 @@ F-Droid / Fastlane-style store metadata under
 - `changelogs/1.txt` — release notes for `versionCode` 1 (the current
   `0.1.0-alpha.1+1`), shown by F-Droid if/when the app is listed.
 
-**Branding (real, committed).** Linthra now has a genuine app icon — four
-rounded white equalizer bars on the brand violet gradient — generated
-deterministically from one source design (`tool/branding/linthra_icon.svg` via
+**Branding (real, committed).** Linthra has a genuine app icon — a small
+equalizer of four rounded bars carrying a single violet→orange gradient (the
+brand's two colours) on a dark, premium squircle — generated deterministically
+from one source design (`tool/branding/linthra_icon.svg` via
 `tool/branding/generate_icons.py`, standard library only). That same mark backs:
 
 - the Android launcher icons: regenerated legacy `mipmap-*/ic_launcher.png` plus
-  an **adaptive icon** (`mipmap-anydpi-v26/ic_launcher.xml`) with a white-bars
-  foreground over a vector gradient background — no longer the default Flutter
-  icon;
+  an **adaptive icon** (`mipmap-anydpi-v26/ic_launcher.xml`) with the gradient
+  equalizer foreground over a dark vector-gradient background — no longer the
+  default Flutter icon;
 - the listing graphics: real `images/icon.png` (512×512) and
-  `images/featureGraphic.png` (1024×500).
+  `images/featureGraphic.png` (1024×500);
+- an in-app `LinthraLogoMark` (`lib/shared/widgets/`), the Dart twin of the same
+  mark, shown in the Settings about footer so the identity reads from the home
+  screen into the app.
+
+The palette is centralized in `lib/app/colors.dart`: a vivid **violet** carries
+the brand (logo, primary actions, structure) and a warm **orange** accent is
+held in reserve for *live* states — the play button, active/selected controls,
+and playback progress — over a dark, premium surface ramp.
 
 **Still missing: screenshots.** No real screenshots have been captured from a
 running build, so none are committed — `images/` carries them as a documented

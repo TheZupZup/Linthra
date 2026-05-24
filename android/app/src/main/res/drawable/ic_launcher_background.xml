@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Adaptive-icon background: the Linthra brand violet gradient. The white
+<!-- Adaptive-icon background: Linthra's dark premium squircle. The violet→orange
      equalizer foreground (ic_launcher_foreground) sits on top of it. Kept as a
-     vector so it stays crisp at every density and matches the gradient baked
-     into the legacy ic_launcher.png. -->
+     vector so it stays crisp at every density and matches the dark gradient
+     baked into the legacy ic_launcher.png. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
-        android:startColor="#9C8DF8"
-        android:endColor="#6750C8"
+        android:startColor="#1C1730"
+        android:endColor="#100E18"
         android:angle="270" />
 </shape>

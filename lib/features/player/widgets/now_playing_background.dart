@@ -2,6 +2,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../../app/colors.dart';
+
 /// The full-bleed backdrop behind the now-playing content.
 ///
 /// When artwork is available it shows a heavily blurred, dimmed copy of it so
@@ -65,6 +67,7 @@ class _Gradient extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final surface = theme.colorScheme.surface;
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -72,11 +75,16 @@ class _Gradient extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             Color.alphaBlend(
-              theme.colorScheme.primary.withValues(alpha: 0.35),
-              theme.colorScheme.surface,
+              AppColors.brand.withValues(alpha: 0.32),
+              surface,
             ),
-            theme.colorScheme.surface,
+            surface,
+            Color.alphaBlend(
+              AppColors.accent.withValues(alpha: 0.12),
+              surface,
+            ),
           ],
+          stops: const [0.0, 0.55, 1.0],
         ),
       ),
     );

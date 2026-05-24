@@ -123,7 +123,23 @@ class _NowPlaying extends ConsumerWidget {
             child: Center(
               child: AspectRatio(
                 aspectRatio: 1,
-                child: AlbumArtwork(artworkUri: track.artworkUri),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(AppRadii.lg),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        blurRadius: 32,
+                        spreadRadius: -8,
+                        offset: const Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: AlbumArtwork(
+                    artworkUri: track.artworkUri,
+                    borderRadius: BorderRadius.circular(AppRadii.lg),
+                  ),
+                ),
               ),
             ),
           ),

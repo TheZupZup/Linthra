@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../app/dimens.dart';
+import '../../../app/colors.dart';
 import '../../../core/models/playback_state.dart';
 import '../../../core/models/repeat_mode.dart';
 import '../../../core/services/playback_controller.dart';
@@ -11,7 +11,7 @@ import '../player_providers.dart';
 ///
 /// Shuffle and repeat are live, controller-driven modes (read from
 /// [PlaybackState], toggled/cycled through the [PlaybackController]); the active
-/// state is shown with the accent colour and the button's selected styling.
+/// state is shown in the warm accent colour and the button's selected styling.
 /// Previous/next reflect the live queue (disabled at the ends) and delegate to
 /// the existing queue controls; play/pause forwards straight to the controller
 /// and shows a spinner while a track loads.
@@ -63,7 +63,7 @@ class _ShuffleButton extends StatelessWidget {
       onPressed: () => controller.setShuffleEnabled(!enabled),
       icon: const Icon(Icons.shuffle),
       isSelected: enabled,
-      color: enabled ? theme.colorScheme.primary : null,
+      color: enabled ? theme.colorScheme.secondary : null,
       tooltip: enabled ? 'Shuffle on' : 'Shuffle',
     );
   }
@@ -88,7 +88,7 @@ class _RepeatButton extends StatelessWidget {
         mode == RepeatMode.one ? Icons.repeat_one : Icons.repeat,
       ),
       isSelected: active,
-      color: active ? theme.colorScheme.primary : null,
+      color: active ? theme.colorScheme.secondary : null,
       tooltip: _tooltipFor(mode),
     );
   }
@@ -105,47 +105,78 @@ class _RepeatButton extends StatelessWidget {
   }
 }
 
-/// The dominant control: a large filled circle that toggles play/pause and
+/// The dominant control: a large warm-accent circle that toggles play/pause and
 /// shows a spinner while the next track resolves/buffers.
+///
+/// Built by hand (rather than [IconButton.filled]) so it can carry the brand's
+/// orange gradient and a soft accent glow — the one intentionally bold, "this is
+/// the music" moment on the screen — while keeping an ink ripple on tap.
 class _PlayPauseButton extends StatelessWidget {
   const _PlayPauseButton({required this.state, required this.controller});
 
   final PlaybackState state;
   final PlaybackController controller;
 
+  static const _gradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [AppColors.accentBright, AppColors.accentDeep],
+  );
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final bool loading = state.status == PlaybackStatus.loading;
+    final bool playing = state.isPlaying;
+    final VoidCallback? onTap =
+        loading ? null : (playing ? controller.pause : controller.play);
 
-    if (state.status == PlaybackStatus.loading) {
-      return Container(
+    return Tooltip(
+      message: playing ? 'Pause' : 'Play',
+      child: Container(
         width: 72,
         height: 72,
         decoration: BoxDecoration(
-          color: theme.colorScheme.primary,
           shape: BoxShape.circle,
+          gradient: _gradient,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.accent.withValues(alpha: 0.45),
+              blurRadius: 24,
+              spreadRadius: -4,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: CircularProgressIndicator(
-            strokeWidth: 2.5,
-            valueColor:
-                AlwaysStoppedAnimation<Color>(theme.colorScheme.onPrimary),
+        child: Material(
+          type: MaterialType.transparency,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: Center(
+              child: loading ? _loadingIcon() : _playIcon(playing),
+            ),
           ),
         ),
-      );
-    }
-
-    final playing = state.isPlaying;
-    return SizedBox(
-      width: 72,
-      height: 72,
-      child: IconButton.filled(
-        iconSize: 40,
-        onPressed: playing ? controller.pause : controller.play,
-        icon: Icon(playing ? Icons.pause : Icons.play_arrow),
-        tooltip: playing ? 'Pause' : 'Play',
       ),
+    );
+  }
+
+  Widget _loadingIcon() {
+    return const SizedBox.square(
+      dimension: 26,
+      child: CircularProgressIndicator(
+        strokeWidth: 2.5,
+        valueColor: AlwaysStoppedAnimation<Color>(AppColors.onAccent),
+      ),
+    );
+  }
+
+  Widget _playIcon(bool playing) {
+    return Icon(
+      playing ? Icons.pause : Icons.play_arrow,
+      size: 40,
+      color: AppColors.onAccent,
     );
   }
 }

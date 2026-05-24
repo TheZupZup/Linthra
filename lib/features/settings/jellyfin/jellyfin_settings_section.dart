@@ -152,7 +152,6 @@ class _JellyfinSettingsSectionState
             labelText: 'Server URL',
             hintText: 'https://music.example.com',
             prefixIcon: Icon(Icons.dns_outlined),
-            border: OutlineInputBorder(),
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -164,7 +163,6 @@ class _JellyfinSettingsSectionState
           decoration: const InputDecoration(
             labelText: 'Username',
             prefixIcon: Icon(Icons.person_outline),
-            border: OutlineInputBorder(),
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -177,7 +175,6 @@ class _JellyfinSettingsSectionState
           decoration: InputDecoration(
             labelText: 'Password',
             prefixIcon: const Icon(Icons.lock_outline),
-            border: const OutlineInputBorder(),
             suffixIcon: IconButton(
               icon: Icon(
                 _obscurePassword
