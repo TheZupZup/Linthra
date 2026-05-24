@@ -605,9 +605,10 @@ void main() {
         // The preload is sacrificed; the user download survives.
         expect(await repository.statusFor('keep'), DownloadStatus.downloaded);
         expect(await repository.statusFor('new'), DownloadStatus.downloaded);
-        final List<String> ids =
-            (await store.loadDownloads()).map((c) => c.trackId).toList()
-              ..sort();
+        final List<String> ids = (await store.loadDownloads())
+            .map((c) => c.trackId)
+            .toList()
+          ..sort();
         expect(ids, <String>['keep', 'new']);
       });
     });

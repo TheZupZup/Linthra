@@ -157,8 +157,8 @@ void main() {
         cached: <CachedTrack>[
           // The user download is older, but a preload is sacrificed first.
           _managed('download', size: 100, accessed: DateTime(2024, 1, 1)),
-          _managed('preload', size: 100, accessed: DateTime(2024, 6, 1),
-              preloaded: true),
+          _managed('preload',
+              size: 100, accessed: DateTime(2024, 6, 1), preloaded: true),
         ],
         incomingBytes: 100,
         maxBytes: 250,
@@ -171,10 +171,10 @@ void main() {
     test('evicts older preloads first among several preloads', () {
       final plan = policy.plan(
         cached: <CachedTrack>[
-          _managed('p-new', size: 100, cached: DateTime(2024, 6, 1),
-              preloaded: true),
-          _managed('p-old', size: 100, cached: DateTime(2024, 1, 1),
-              preloaded: true),
+          _managed('p-new',
+              size: 100, cached: DateTime(2024, 6, 1), preloaded: true),
+          _managed('p-old',
+              size: 100, cached: DateTime(2024, 1, 1), preloaded: true),
           _managed('download', size: 100, accessed: DateTime(2024, 1, 1)),
         ],
         incomingBytes: 100,

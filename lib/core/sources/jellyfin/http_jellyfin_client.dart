@@ -222,8 +222,8 @@ class HttpJellyfinClient implements JellyfinClient {
   }
 
   /// Parses Jellyfin's `/Audio/<id>/Lyrics` body into [Lyrics], or `null` when
-  /// it carries no usable lines. Each entry is `{ "Text": "…", "Start": <ticks>
-  /// }`, where `Start` is in 100-nanosecond ticks (synced) or absent (plain).
+  /// it carries no usable lines. Each entry is a `Text` string plus an optional
+  /// `Start` in 100-nanosecond ticks (synced) — or no `Start` at all (plain).
   static Lyrics? _parseLyrics(Map<String, dynamic> json) {
     final Object? raw = json['Lyrics'];
     if (raw is! List) return null;
