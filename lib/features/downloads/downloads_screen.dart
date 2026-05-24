@@ -31,7 +31,14 @@ class DownloadsScreen extends ConsumerWidget {
   Widget _list(AsyncValue<List<Track>> downloaded) {
     return downloaded.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text('$error')),
+      // Never surface raw exception text (it can carry paths or store detail);
+      // show one calm, friendly line instead.
+      error: (_, __) => const EmptyState(
+        icon: Icons.error_outline,
+        title: "Couldn't load downloads",
+        message:
+            'Something went wrong reading your downloads. Try again later.',
+      ),
       data: (tracks) {
         if (tracks.isEmpty) {
           return const EmptyState(

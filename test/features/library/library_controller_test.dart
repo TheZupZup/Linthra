@@ -90,16 +90,24 @@ void main() {
       expect(state.isEmpty, isTrue);
     });
 
-    test('surfaces an error when the repository throws', () async {
+    test('surfaces a friendly, leak-free error when the repository throws',
+        () async {
+      // A raw store failure (a corrupt-db or filesystem error on device) must
+      // not leak its text — the user sees one clean, actionable line instead.
       final container = _containerWith(
-        FakeMusicLibraryRepository(error: Exception('boom')),
+        FakeMusicLibraryRepository(
+          error: Exception('FileSystemException: /data/.../db errno = 13'),
+        ),
       );
 
       await container.read(libraryControllerProvider.notifier).refresh();
 
       final state = container.read(libraryControllerProvider);
       expect(state.status, LibraryStatus.error);
-      expect(state.errorMessage, contains('boom'));
+      expect(state.errorMessage, contains("Couldn't open your music library"));
+      // The raw exception text never reaches the UI.
+      expect(state.errorMessage, isNot(contains('errno')));
+      expect(state.errorMessage, isNot(contains('Exception')));
     });
 
     test('scanFolder persists discovered tracks and reloads', () async {

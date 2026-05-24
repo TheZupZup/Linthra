@@ -371,6 +371,29 @@ it covers the paths that only behave correctly on real hardware:
 6. **Friendly playback errors.** With Jellyfin signed out, try to play a synced
    Jellyfin track and confirm the Now Playing status line shows a precise,
    friendly message (e.g. "not signed in"), not an opaque engine error.
+7. **Download a Jellyfin track for offline.** Signed in and online, tap the
+   download icon on a synced Jellyfin track in the Library. It should show a
+   spinner, then a filled "downloaded" icon. The track should also appear on the
+   **Downloads** tab.
+8. **Play a cached track fully offline.** Enable **airplane mode** (or stop the
+   server). Play the downloaded track — it should play from the **local cached
+   file** with no network error. Then try an *un-downloaded* Jellyfin track and
+   confirm you get the friendly "couldn't reach your server" message, never a
+   raw failure or a silent hang.
+9. **Remove a download.** Back online or off, remove the download (Downloads tab
+   trash icon, or the Library row's "remove" action). It should **disappear from
+   the Downloads tab immediately** and the Library row should revert to the
+   "download" action.
+10. **Retry a failed download.** Start a Jellyfin download, then kill the server
+    or connection mid-fetch so it fails. The Library row should show an **error
+    icon with a "Retry download" tooltip**; tapping it re-attempts the download
+    (it succeeds once the server is reachable again).
+11. **Wi-Fi-only gate.** On the Downloads tab, turn on **Wi-Fi only**, switch to
+    mobile data (or a future real detector), and start a download — it should be
+    **queued** rather than run over mobile data. (See the connectivity note in
+    *Offline downloads & known limitations*.)
+12. **No secrets on screen.** Throughout, confirm no error, status line, or
+    track subtitle ever shows a Jellyfin token, `api_key`, password, or raw URL.
 
 See *Testing scanning on Android* below for the SAF-specific detail, and the
 *Limitations still remaining* list at the end of this section.
