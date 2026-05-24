@@ -2,6 +2,7 @@ import '../../models/album.dart';
 import '../../models/artist.dart';
 import '../../models/track.dart';
 import 'jellyfin_api.dart';
+import 'jellyfin_endpoints.dart';
 
 /// Converts Jellyfin wire items into Linthra's source-agnostic domain models.
 ///
@@ -72,6 +73,6 @@ abstract final class JellyfinTrackMapper {
     if (!item.hasPrimaryImage) {
       return null;
     }
-    return Uri.parse('$baseUrl/Items/${item.id}/Images/Primary');
+    return JellyfinEndpoints.primaryImage(baseUrl, itemId: item.id);
   }
 }

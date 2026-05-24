@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
@@ -127,6 +128,54 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('not accepted'), findsOneWidget);
+    });
+
+    testWidgets('copies a secret-free diagnostics report to the clipboard',
+        (tester) async {
+      final List<MethodCall> clipboardCalls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboardCalls.add(call);
+          }
+          return null;
+        },
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      await _pumpSection(tester, authenticator: FakeJellyfinAuthenticator());
+      await _fillForm(
+        tester,
+        url: 'music.example.com',
+        username: 'alice',
+        password: 'pw',
+      );
+      await tester.tap(find.text('Sign in'));
+      await tester.pump();
+      await tester.pump();
+
+      // The diagnostics action appears once connected.
+      expect(find.text('Copy Jellyfin diagnostics'), findsOneWidget);
+
+      await tester.tap(find.text('Copy Jellyfin diagnostics'));
+      await tester.pump();
+
+      expect(clipboardCalls, hasLength(1));
+      final Map<dynamic, dynamic> args =
+          clipboardCalls.single.arguments as Map<dynamic, dynamic>;
+      final String copied = args['text'] as String;
+      expect(copied, contains('Linthra Jellyfin diagnostics'));
+      expect(copied, contains('App version:'));
+      // The fake session's token must never reach the clipboard.
+      expect(copied, isNot(contains('fake-token')));
+      expect(copied, isNot(contains('api_key')));
+
+      // Let the confirmation SnackBar's auto-dismiss timer fire so the test
+      // ends with no pending timers.
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
     });
   });
 }

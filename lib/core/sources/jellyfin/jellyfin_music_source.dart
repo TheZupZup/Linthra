@@ -7,6 +7,7 @@ import '../../services/playback_diagnostics.dart';
 import 'jellyfin_api.dart';
 import 'jellyfin_client.dart';
 import 'jellyfin_download_source.dart';
+import 'jellyfin_endpoints.dart';
 import 'jellyfin_exception.dart';
 import 'jellyfin_stream_source.dart';
 import 'jellyfin_track_mapper.dart';
@@ -110,24 +111,26 @@ class JellyfinMusicSource
     return url;
   }
 
-  /// The direct-play stream URL for [track]. `static=true` asks Jellyfin to
-  /// serve the original file as-is (no transcode), which is the reliable
-  /// "stream directly" path for an audio engine that already decodes the common
-  /// containers.
-  Uri _streamUri(Track track) =>
-      Uri.parse('${session.baseUrl}/Audio/${_itemId(track)}/stream').replace(
-        queryParameters: <String, String>{
-          'static': 'true',
-          'api_key': session.accessToken,
-          'UserId': session.userId,
-          'DeviceId': session.deviceId,
-        },
+  /// The direct-play stream URL for [track], built by the single
+  /// [JellyfinEndpoints.audioStream] helper so the streaming, download, and
+  /// probe paths can never drift apart. `static=true` asks Jellyfin to serve the
+  /// original file as-is (no transcode) — the reliable "stream directly" path
+  /// for an audio engine that already decodes the common containers.
+  Uri _streamUri(Track track) => JellyfinEndpoints.audioStream(
+        session.baseUrl,
+        itemId: _itemId(track),
+        accessToken: session.accessToken,
+        userId: session.userId,
+        deviceId: session.deviceId,
       );
 
   /// Turns a stream [probe] into a typed [JellyfinException] when the response
   /// isn't playable audio, so the resolver can map it to a friendly message.
-  /// HTML is checked first: a Cloudflare/login/error page is never audio
-  /// whatever its status, and Jellyfin's own auth responses aren't HTML.
+  ///
+  /// Order matters: HTML is checked first (a Cloudflare/login/error page is
+  /// never audio, whatever its status, and Jellyfin's own auth responses aren't
+  /// HTML), then auth, then a missing item (404), then server errors, then any
+  /// other non-2xx, and finally a 2xx whose body isn't audio.
   void _ensurePlayableAudio(JellyfinStreamProbe probe) {
     if (probe.isHtml) {
       throw JellyfinException.webPage();
@@ -136,10 +139,20 @@ class JellyfinMusicSource
     if (code == 401 || code == 403) {
       throw JellyfinException.unauthorized();
     }
+    if (code == 404) {
+      // The stream endpoint answered but the item isn't there — moved, removed,
+      // or a library the token can't see.
+      throw JellyfinException.streamUnavailable();
+    }
     if (code >= 500) {
       throw JellyfinException.serverError(code);
     }
-    if (!probe.isSuccess || !probe.isAudio) {
+    if (!probe.isSuccess) {
+      // Any other non-2xx (a 400/429/redirect-that-didn't-resolve): a response
+      // Linthra can't turn into a playable stream.
+      throw JellyfinException.unsupportedResponse(code);
+    }
+    if (!probe.isAudio) {
       throw JellyfinException.notAudioStream();
     }
   }
@@ -151,11 +164,10 @@ class JellyfinMusicSource
   /// token is woven in here, at download time, and never stored on the track.
   @override
   Future<Uri?> resolveDownloadUri(Track track) async {
-    return Uri.parse('${session.baseUrl}/Items/${_itemId(track)}/Download')
-        .replace(
-      queryParameters: <String, String>{
-        'api_key': session.accessToken,
-      },
+    return JellyfinEndpoints.download(
+      session.baseUrl,
+      itemId: _itemId(track),
+      accessToken: session.accessToken,
     );
   }
 

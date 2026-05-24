@@ -169,6 +169,53 @@ void main() {
         expect(uri!.path, '/Audio/t1/stream');
       });
 
+      test('a 404 maps to "stream unavailable" (track moved/removed)',
+          () async {
+        final source = _source(FakeJellyfinClient(
+          streamProbe: const JellyfinStreamProbe(statusCode: 404),
+        ));
+
+        await expectLater(
+          source.resolvePlayableUri(track),
+          throwsA(isA<JellyfinException>().having(
+            (JellyfinException e) => e.kind,
+            'kind',
+            JellyfinErrorKind.streamUnavailable,
+          )),
+        );
+      });
+
+      test('a 5xx maps to a server error', () async {
+        final source = _source(FakeJellyfinClient(
+          streamProbe: const JellyfinStreamProbe(statusCode: 503),
+        ));
+
+        await expectLater(
+          source.resolvePlayableUri(track),
+          throwsA(isA<JellyfinException>().having(
+            (JellyfinException e) => e.kind,
+            'kind',
+            JellyfinErrorKind.serverError,
+          )),
+        );
+      });
+
+      test('an unclassifiable non-2xx maps to "unsupported response"',
+          () async {
+        final source = _source(FakeJellyfinClient(
+          streamProbe: const JellyfinStreamProbe(statusCode: 400),
+        ));
+
+        await expectLater(
+          source.resolvePlayableUri(track),
+          throwsA(isA<JellyfinException>().having(
+            (JellyfinException e) => e.kind,
+            'kind',
+            JellyfinErrorKind.unsupportedResponse,
+          )),
+        );
+      });
+
       test('a transport failure during the probe propagates', () async {
         final source = _source(FakeJellyfinClient(
           probeError: JellyfinException.notReachable(),

@@ -1,9 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/app_info.dart';
 import '../../../core/models/jellyfin_session.dart';
 import '../../../core/sources/jellyfin/jellyfin_api.dart';
+import '../../../core/sources/jellyfin/jellyfin_diagnostics.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../../core/sources/jellyfin/jellyfin_music_source.dart';
+import '../../../core/sources/jellyfin/jellyfin_server_capabilities.dart';
 import '../../../data/repositories/jellyfin_session_store_provider.dart';
 import 'jellyfin_settings_providers.dart';
 import 'jellyfin_settings_state.dart';
@@ -63,6 +66,8 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
       baseUrl: saved.baseUrl,
       username: saved.userName,
       serverName: saved.serverName,
+      serverVersion: saved.serverVersion,
+      productName: saved.productName,
       statusMessage: _connectedMessage(saved),
     );
   }
@@ -75,6 +80,8 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
       baseUrl: url,
       username: state.username,
       serverName: state.serverName,
+      serverVersion: state.serverVersion,
+      productName: state.productName,
     );
     try {
       final JellyfinServerInfo info =
@@ -85,12 +92,14 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
         username: state.username,
         serverName: info.serverName,
         serverVersion: info.version,
+        productName: info.productName,
         statusMessage:
             'Connected to ${info.serverName} (Jellyfin ${info.version}).',
       );
       return true;
     } on JellyfinException catch (error) {
-      _setFailure(error.message, url: url, username: state.username);
+      _setFailure(error.message,
+          kind: error.kind, url: url, username: state.username);
       return false;
     }
   }
@@ -109,6 +118,8 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
       baseUrl: url,
       username: username,
       serverName: state.serverName,
+      serverVersion: state.serverVersion,
+      productName: state.productName,
     );
     try {
       final JellyfinSession newSession =
@@ -116,7 +127,7 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
                 rawUrl: url,
                 username: username,
                 password: password,
-                serverName: state.serverName,
+                serverInfo: _knownServerInfo(),
               );
       await ref.read(jellyfinSessionStoreProvider).write(newSession);
       _session = newSession;
@@ -125,11 +136,14 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
         baseUrl: newSession.baseUrl,
         username: newSession.userName,
         serverName: newSession.serverName,
+        serverVersion: newSession.serverVersion,
+        productName: newSession.productName,
         statusMessage: _connectedMessage(newSession),
       );
       return true;
     } on JellyfinException catch (error) {
-      _setFailure(error.message, url: url, username: username);
+      _setFailure(error.message,
+          kind: error.kind, url: url, username: username);
       return false;
     }
   }
@@ -144,8 +158,14 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
   }
 
   /// Reports an error without dropping an existing connection: a failed test or
-  /// re-auth keeps any session that's still valid, it just surfaces the message.
-  void _setFailure(String message, {String? url, String? username}) {
+  /// re-auth keeps any session that's still valid, it just surfaces the message
+  /// (and the error [kind] for the diagnostics report).
+  void _setFailure(
+    String message, {
+    JellyfinErrorKind? kind,
+    String? url,
+    String? username,
+  }) {
     final JellyfinSession? current = _session;
     state = JellyfinSettingsState(
       phase: current != null
@@ -154,9 +174,60 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
       baseUrl: current?.baseUrl ?? url,
       username: current?.userName ?? username,
       serverName: current?.serverName ?? state.serverName,
+      serverVersion: current?.serverVersion ?? state.serverVersion,
+      productName: current?.productName ?? state.productName,
       statusMessage: current != null ? _connectedMessage(current) : null,
       errorMessage: message,
+      errorKind: kind,
     );
+  }
+
+  /// The server info already known from a prior connection test or the loaded
+  /// session, so sign-in needn't re-read it. Null when nothing is known yet.
+  JellyfinServerInfo? _knownServerInfo() {
+    final String? name = state.serverName;
+    final String? version = state.serverVersion;
+    if (name == null || name.isEmpty || version == null || version.isEmpty) {
+      return null;
+    }
+    return JellyfinServerInfo(
+      serverName: name,
+      version: version,
+      productName: state.productName,
+    );
+  }
+
+  /// A secret-free diagnostics report for the "Copy Jellyfin diagnostics"
+  /// action, assembled from display-safe state only — never the token,
+  /// password, or a full authenticated URL (the address is reduced to its host).
+  String diagnosticsReport() {
+    final String? version = state.serverVersion;
+    return JellyfinDiagnostics.describe(
+      appVersion: AppInfo.version,
+      connectionState: _connectionStateLabel(),
+      serverHost: JellyfinDiagnostics.hostOnly(state.baseUrl),
+      serverName: state.serverName,
+      serverVersion: version,
+      productName: state.productName,
+      versionSupport:
+          version != null ? jellyfinServerSupportFor(version) : null,
+      lastErrorKind: state.errorKind?.name,
+    );
+  }
+
+  String _connectionStateLabel() {
+    switch (state.phase) {
+      case JellyfinConnectionPhase.connected:
+        return 'connected';
+      case JellyfinConnectionPhase.tested:
+        return 'tested (not signed in)';
+      case JellyfinConnectionPhase.testing:
+        return 'testing';
+      case JellyfinConnectionPhase.signingIn:
+        return 'signing in';
+      case JellyfinConnectionPhase.disconnected:
+        return 'disconnected';
+    }
   }
 
   String _connectedMessage(JellyfinSession session) {

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
+import '../../../core/sources/jellyfin/jellyfin_server_capabilities.dart';
 import 'jellyfin_settings_controller.dart';
 import 'jellyfin_settings_state.dart';
 import 'jellyfin_sync_controller.dart';
@@ -84,6 +86,29 @@ class _JellyfinSettingsSectionState
     await ref.read(jellyfinSyncControllerProvider.notifier).sync();
   }
 
+  /// Copies a secret-free diagnostics report to the clipboard so the user can
+  /// paste it into a bug report. The report is assembled by the controller and,
+  /// by construction, carries no token, password, or full authenticated URL.
+  Future<void> _copyDiagnostics() async {
+    final String report = ref
+        .read(jellyfinSettingsControllerProvider.notifier)
+        .diagnosticsReport();
+    await Clipboard.setData(ClipboardData(text: report));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Jellyfin diagnostics copied (no password or token).'),
+      ),
+    );
+  }
+
+  /// Show the diagnostics action once there's something worth reporting: a live
+  /// connection, a successful test, or a failure the user might want to share.
+  bool _showDiagnostics(JellyfinSettingsState state) =>
+      state.isConnected ||
+      state.phase == JellyfinConnectionPhase.tested ||
+      state.errorMessage != null;
+
   @override
   Widget build(BuildContext context) {
     final JellyfinSettingsState state =
@@ -130,6 +155,17 @@ class _JellyfinSettingsSectionState
             ] else if (state.statusMessage != null) ...[
               const SizedBox(height: AppSpacing.md),
               _StatusLine(message: state.statusMessage!, isError: false),
+            ],
+            if (_showDiagnostics(state)) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _copyDiagnostics,
+                  icon: const Icon(Icons.bug_report_outlined, size: 18),
+                  label: const Text('Copy Jellyfin diagnostics'),
+                ),
+              ),
             ],
           ],
         ),
@@ -265,11 +301,30 @@ class _ConnectedView extends StatelessWidget {
                             theme.colorScheme.onSurface.withValues(alpha: 0.6),
                       ),
                     ),
+                  if (state.serverVersion != null &&
+                      state.serverVersion!.isNotEmpty)
+                    Text(
+                      _serverVersionLine(state),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
                 ],
               ),
             ),
           ],
         ),
+        if (state.serverVersion != null &&
+            jellyfinServerSupportFor(state.serverVersion) ==
+                JellyfinServerSupport.untested) ...[
+          const SizedBox(height: AppSpacing.sm),
+          const _StatusLine(
+            message: 'This Jellyfin version is older than Linthra is tested '
+                'against. Streaming should still work, but is untested.',
+            isError: false,
+          ),
+        ],
         const SizedBox(height: AppSpacing.md),
         FilledButton.tonalIcon(
           onPressed: onSync,
@@ -294,6 +349,16 @@ class _ConnectedView extends StatelessWidget {
       ],
     );
   }
+}
+
+/// `Jellyfin {version}` plus the product name when the server reported one.
+String _serverVersionLine(JellyfinSettingsState state) {
+  final StringBuffer line = StringBuffer('Jellyfin ${state.serverVersion}');
+  final String? product = state.productName;
+  if (product != null && product.isNotEmpty && product != 'Jellyfin Server') {
+    line.write(' · $product');
+  }
+  return line.toString();
 }
 
 /// A button label that swaps to a small spinner while its action runs.

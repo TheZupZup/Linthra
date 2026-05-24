@@ -81,6 +81,17 @@ class JellyfinPlayableUriResolver implements PlayableUriResolver {
           'Jellyfin did not return an audio stream.',
           kind: PlaybackResolutionErrorKind.invalidStream,
         );
+      case JellyfinErrorKind.unsupportedResponse:
+        return const PlaybackResolutionException(
+          'Your Jellyfin server returned a response Linthra could not use. '
+          'It may be running an unsupported version.',
+          kind: PlaybackResolutionErrorKind.invalidStream,
+        );
+      case JellyfinErrorKind.streamUnavailable:
+        return const PlaybackResolutionException(
+          "This track isn't available to stream from your server right now.",
+          kind: PlaybackResolutionErrorKind.streamUnavailable,
+        );
       case JellyfinErrorKind.notReachable:
       case JellyfinErrorKind.serverError:
         return const PlaybackResolutionException(

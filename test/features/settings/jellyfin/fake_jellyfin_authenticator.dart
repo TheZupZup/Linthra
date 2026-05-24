@@ -23,7 +23,7 @@ class FakeJellyfinAuthenticator implements JellyfinAuthenticator {
   String? lastSignInUrl;
   String? lastUsername;
   String? lastPassword;
-  String? lastServerName;
+  JellyfinServerInfo? lastServerInfo;
 
   @override
   Future<JellyfinServerInfo> testConnection(String rawUrl) async {
@@ -41,12 +41,12 @@ class FakeJellyfinAuthenticator implements JellyfinAuthenticator {
     required String rawUrl,
     required String username,
     required String password,
-    String? serverName,
+    JellyfinServerInfo? serverInfo,
   }) async {
     lastSignInUrl = rawUrl;
     lastUsername = username;
     lastPassword = password;
-    lastServerName = serverName;
+    lastServerInfo = serverInfo;
     final JellyfinException? error = signInError;
     if (error != null) {
       throw error;
@@ -58,7 +58,9 @@ class FakeJellyfinAuthenticator implements JellyfinAuthenticator {
           accessToken: 'fake-token',
           deviceId: 'device-1',
           userName: username,
-          serverName: serverName,
+          serverName: serverInfo?.serverName,
+          serverVersion: serverInfo?.version,
+          productName: serverInfo?.productName,
         );
   }
 }

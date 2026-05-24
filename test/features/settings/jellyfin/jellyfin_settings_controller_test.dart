@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
+import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/data/repositories/in_memory_jellyfin_session_store.dart';
 import 'package:linthra/data/repositories/jellyfin_session_store_provider.dart';
@@ -168,7 +169,10 @@ void main() {
         password: 'pw',
       );
 
-      expect(auth.lastServerName, 'My Server');
+      // The tested server info (name + version) is carried into sign-in so it
+      // needn't re-read it and the session records the version.
+      expect(auth.lastServerInfo?.serverName, 'My Server');
+      expect(auth.lastServerInfo?.version, '10.9.0');
     });
 
     test('does not persist anything on failure', () async {
@@ -209,6 +213,106 @@ void main() {
         container.read(jellyfinSettingsControllerProvider.notifier).session,
         isNull,
       );
+    });
+  });
+
+  group('server capability + diagnostics', () {
+    test('captures the server version and product on a successful test',
+        () async {
+      final auth = FakeJellyfinAuthenticator(
+        serverInfo: const JellyfinServerInfo(
+          serverName: 'Home',
+          version: '10.9.11',
+          productName: 'Jellyfin Server',
+        ),
+      );
+      final container = _container(authenticator: auth);
+      container.read(jellyfinSettingsControllerProvider);
+      await _settle();
+
+      await container
+          .read(jellyfinSettingsControllerProvider.notifier)
+          .testConnection('music.example.com');
+
+      final state = container.read(jellyfinSettingsControllerProvider);
+      expect(state.serverVersion, '10.9.11');
+      expect(state.productName, 'Jellyfin Server');
+    });
+
+    test('persists the server version into the saved session', () async {
+      final store = InMemoryJellyfinSessionStore();
+      final auth = FakeJellyfinAuthenticator(
+        serverInfo:
+            const JellyfinServerInfo(serverName: 'Home', version: '10.9.11'),
+      );
+      final container = _container(authenticator: auth, store: store);
+      final notifier =
+          container.read(jellyfinSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.testConnection('music.example.com');
+      await notifier.signIn(
+        url: 'music.example.com',
+        username: 'alice',
+        password: 'pw',
+      );
+
+      final saved = await store.read();
+      expect(saved!.serverVersion, '10.9.11');
+    });
+
+    test('builds a secret-free diagnostics report', () async {
+      const session = JellyfinSession(
+        baseUrl: 'https://music.example.com/jellyfin',
+        userId: 'user-1',
+        accessToken: 'tok-secret-value',
+        deviceId: 'device-1',
+        userName: 'alice',
+        serverName: 'Home',
+        serverVersion: '10.9.11',
+      );
+      final container = _container(
+        store: InMemoryJellyfinSessionStore(initialSession: session),
+      );
+      final notifier =
+          container.read(jellyfinSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      final report = notifier.diagnosticsReport();
+
+      // It carries the useful, non-secret context...
+      expect(report, contains('App version:'));
+      expect(report, contains('Connection: connected'));
+      expect(report, contains('10.9.11'));
+      expect(report, contains('music.example.com'));
+      // ...and never the token, an Authorization header, or a full URL.
+      expect(report, isNot(contains('tok-secret-value')));
+      expect(report, isNot(contains('api_key')));
+      expect(report, isNot(contains('/jellyfin')));
+    });
+
+    test('records the error kind for diagnostics on a failed sign-in',
+        () async {
+      final auth = FakeJellyfinAuthenticator(
+        signInError: JellyfinException.unauthorized(),
+      );
+      final container = _container(authenticator: auth);
+      final notifier =
+          container.read(jellyfinSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.signIn(
+        url: 'music.example.com',
+        username: 'alice',
+        password: 'bad',
+      );
+
+      expect(
+        container.read(jellyfinSettingsControllerProvider).errorKind,
+        JellyfinErrorKind.unauthorized,
+      );
+      expect(
+          notifier.diagnosticsReport(), contains('Last error: unauthorized'));
     });
   });
 

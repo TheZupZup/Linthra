@@ -8,6 +8,7 @@ import '../../models/lyrics.dart';
 import 'jellyfin_api.dart';
 import 'jellyfin_auth_header.dart';
 import 'jellyfin_client.dart';
+import 'jellyfin_endpoints.dart';
 import 'jellyfin_exception.dart';
 
 /// The real [JellyfinClient], backed by `package:http`.
@@ -30,7 +31,7 @@ class HttpJellyfinClient implements JellyfinClient {
 
   @override
   Future<JellyfinServerInfo> fetchServerInfo(String baseUrl) async {
-    final Uri uri = Uri.parse('$baseUrl/System/Info/Public');
+    final Uri uri = JellyfinEndpoints.serverInfo(baseUrl);
     final http.Response response = await _send(
       () => _client.get(uri, headers: const <String, String>{
         'Accept': 'application/json',
@@ -52,7 +53,7 @@ class HttpJellyfinClient implements JellyfinClient {
     required String password,
     required String deviceId,
   }) async {
-    final Uri uri = Uri.parse('$baseUrl/Users/AuthenticateByName');
+    final Uri uri = JellyfinEndpoints.authenticateByName(baseUrl);
     final http.Response response = await _send(
       () => _client.post(
         uri,
@@ -83,7 +84,11 @@ class HttpJellyfinClient implements JellyfinClient {
     JellyfinSession session, {
     required JellyfinItemKind kind,
   }) async {
-    final Uri uri = _itemsUri(session, kind);
+    final Uri uri = JellyfinEndpoints.items(
+      session.baseUrl,
+      userId: session.userId,
+      kind: kind,
+    );
     final http.Response response = await _send(
       () => _client.get(uri, headers: <String, String>{
         'Accept': 'application/json',
@@ -117,7 +122,7 @@ class HttpJellyfinClient implements JellyfinClient {
     // `/Users/Me` is a tiny authenticated call: a 401 means the token is no
     // longer valid, a transport failure means the server is unreachable. The
     // body is irrelevant, so it is not parsed.
-    final Uri uri = Uri.parse('${session.baseUrl}/Users/Me');
+    final Uri uri = JellyfinEndpoints.currentUser(session.baseUrl);
     final http.Response response = await _send(
       () => _client.get(uri, headers: <String, String>{
         'Accept': 'application/json',
@@ -155,7 +160,7 @@ class HttpJellyfinClient implements JellyfinClient {
 
   @override
   Future<Lyrics?> fetchLyrics(JellyfinSession session, String itemId) async {
-    final Uri uri = Uri.parse('${session.baseUrl}/Audio/$itemId/Lyrics');
+    final Uri uri = JellyfinEndpoints.lyrics(session.baseUrl, itemId: itemId);
     final http.Response response = await _send(
       () => _client.get(uri, headers: _authHeaders(session)),
     );
@@ -167,14 +172,9 @@ class HttpJellyfinClient implements JellyfinClient {
 
   @override
   Future<Set<String>> fetchFavoriteIds(JellyfinSession session) async {
-    final Uri uri = Uri.parse('${session.baseUrl}/Items').replace(
-      queryParameters: <String, String>{
-        'UserId': session.userId,
-        'Recursive': 'true',
-        'IncludeItemTypes': 'Audio',
-        'Filters': 'IsFavorite',
-        'EnableImages': 'false',
-      },
+    final Uri uri = JellyfinEndpoints.favoriteAudioItems(
+      session.baseUrl,
+      userId: session.userId,
     );
     final http.Response response = await _send(
       () => _client.get(uri, headers: _authHeaders(session)),
@@ -199,8 +199,10 @@ class HttpJellyfinClient implements JellyfinClient {
     String itemId, {
     required bool favorite,
   }) async {
-    final Uri uri = Uri.parse(
-      '${session.baseUrl}/Users/${session.userId}/FavoriteItems/$itemId',
+    final Uri uri = JellyfinEndpoints.favoriteItem(
+      session.baseUrl,
+      userId: session.userId,
+      itemId: itemId,
     );
     final Map<String, String> headers = _authHeaders(session);
     final http.Response response = await _send(
@@ -242,43 +244,6 @@ class HttpJellyfinClient implements JellyfinClient {
     }
     if (lines.isEmpty) return null;
     return Lyrics(lines: lines);
-  }
-
-  /// Builds the listing URL for [kind]. Artists have their own endpoint in
-  /// Jellyfin; tracks and albums share `/Items` filtered by type.
-  Uri _itemsUri(JellyfinSession session, JellyfinItemKind kind) {
-    switch (kind) {
-      case JellyfinItemKind.audio:
-        return Uri.parse('${session.baseUrl}/Items').replace(
-          queryParameters: <String, String>{
-            'UserId': session.userId,
-            'Recursive': 'true',
-            'IncludeItemTypes': 'Audio',
-            'SortBy': 'AlbumArtist,Album,IndexNumber,SortName',
-            'SortOrder': 'Ascending',
-            'Fields': 'RunTimeTicks',
-          },
-        );
-      case JellyfinItemKind.album:
-        return Uri.parse('${session.baseUrl}/Items').replace(
-          queryParameters: <String, String>{
-            'UserId': session.userId,
-            'Recursive': 'true',
-            'IncludeItemTypes': 'MusicAlbum',
-            'SortBy': 'AlbumArtist,SortName',
-            'SortOrder': 'Ascending',
-            'Fields': 'ProductionYear,ChildCount',
-          },
-        );
-      case JellyfinItemKind.artist:
-        return Uri.parse('${session.baseUrl}/Artists').replace(
-          queryParameters: <String, String>{
-            'UserId': session.userId,
-            'SortBy': 'SortName',
-            'SortOrder': 'Ascending',
-          },
-        );
-    }
   }
 
   /// Runs a request with a timeout, turning any transport-level failure (DNS,

@@ -7,6 +7,8 @@
 /// separate.
 library;
 
+import 'jellyfin_server_capabilities.dart';
+
 /// Which kind of music item to list. Maps to a Jellyfin item type / endpoint
 /// inside the client, so the source can ask for "tracks" without knowing the
 /// query string.
@@ -62,17 +64,40 @@ class JellyfinStreamProbe {
 }
 
 /// Public server info from `GET /System/Info/Public` — enough to confirm the
-/// address is a Jellyfin server and to show the user which one they reached.
+/// address is a Jellyfin server, to show the user which one they reached, and to
+/// record the server's version/product for compatibility and diagnostics.
+///
+/// The extra fields ([productName], [operatingSystem]) are optional because
+/// Jellyfin only includes them on some versions; they're used for display and
+/// the diagnostics report, never to branch request behavior.
 class JellyfinServerInfo {
   const JellyfinServerInfo({
     required this.serverName,
     required this.version,
     this.id,
+    this.productName,
+    this.operatingSystem,
   });
 
   final String serverName;
   final String version;
   final String? id;
+
+  /// The server's product name (e.g. `Jellyfin Server`), when reported.
+  final String? productName;
+
+  /// The host OS the server reports, when present (often absent in the public
+  /// info on locked-down servers).
+  final String? operatingSystem;
+
+  /// The reported [version] parsed into a comparable value, or `null` when it
+  /// has no recognizable `major.minor`.
+  JellyfinServerVersion? get parsedVersion =>
+      JellyfinServerVersion.tryParse(version);
+
+  /// How well Linthra expects to work with this server's version. Diagnostic
+  /// only — see [jellyfinServerSupportFor].
+  JellyfinServerSupport get support => jellyfinServerSupportFor(version);
 
   /// Parses the response, or returns `null` when the body lacks the fields a
   /// real Jellyfin server always sends (so the client can report "not a
@@ -85,6 +110,8 @@ class JellyfinServerInfo {
       serverName: name,
       version: version,
       id: json['Id'] as String?,
+      productName: json['ProductName'] as String?,
+      operatingSystem: json['OperatingSystem'] as String?,
     );
   }
 }

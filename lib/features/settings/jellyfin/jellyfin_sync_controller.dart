@@ -96,6 +96,8 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
         return 'Your Jellyfin server reported an error. Try again in a moment.';
       case JellyfinErrorKind.invalidUrl:
       case JellyfinErrorKind.notAudioStream:
+      case JellyfinErrorKind.streamUnavailable:
+      case JellyfinErrorKind.unsupportedResponse:
       case JellyfinErrorKind.unexpected:
         return error.message;
     }

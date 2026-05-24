@@ -37,8 +37,13 @@ class JellyfinAuthenticator {
     return _client.fetchServerInfo(baseUrl);
   }
 
-  /// Signs in and returns a session. [serverName], when known from a prior
-  /// [testConnection], is carried into the session for display only.
+  /// Signs in and returns a session.
+  ///
+  /// [serverInfo], when known from a prior [testConnection], is carried into the
+  /// session (server name/version/product) for display and diagnostics. When it
+  /// is absent, sign-in reads `/System/Info/Public` itself so the session still
+  /// records the server's version — best-effort, since the auth call is the real
+  /// gate and a public-info hiccup must not block a valid sign-in.
   ///
   /// Throws [JellyfinException] for a bad URL, missing username, or rejected
   /// credentials.
@@ -46,7 +51,7 @@ class JellyfinAuthenticator {
     required String rawUrl,
     required String username,
     required String password,
-    String? serverName,
+    JellyfinServerInfo? serverInfo,
   }) async {
     final String baseUrl = JellyfinServerUrl.normalize(rawUrl);
     final String trimmedUsername = username.trim();
@@ -56,6 +61,12 @@ class JellyfinAuthenticator {
         kind: JellyfinErrorKind.unauthorized,
       );
     }
+
+    // Reuse a known server info, else read it now so the session captures the
+    // version/product for diagnostics. Swallow its failure: the auth call below
+    // surfaces the real, friendly error for a bad address or down server.
+    final JellyfinServerInfo? info =
+        serverInfo ?? await _tryFetchServerInfo(baseUrl);
 
     final String deviceId = _deviceIdGenerator();
     final JellyfinAuthResult result = await _client.authenticateByName(
@@ -72,8 +83,18 @@ class JellyfinAuthenticator {
       deviceId: deviceId,
       userName: result.userName ?? trimmedUsername,
       serverId: result.serverId,
-      serverName: serverName,
+      serverName: info?.serverName,
+      serverVersion: info?.version,
+      productName: info?.productName,
     );
+  }
+
+  Future<JellyfinServerInfo?> _tryFetchServerInfo(String baseUrl) async {
+    try {
+      return await _client.fetchServerInfo(baseUrl);
+    } on JellyfinException {
+      return null;
+    }
   }
 
   static String _randomDeviceId() {

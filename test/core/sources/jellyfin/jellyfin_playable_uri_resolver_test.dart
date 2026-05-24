@@ -172,6 +172,42 @@ void main() {
       );
     });
 
+    test('reports a stream-unavailable error on a 404 stream', () async {
+      final source =
+          _FakeStreamSource(streamError: JellyfinException.streamUnavailable());
+      final resolver = JellyfinPlayableUriResolver(() => source);
+
+      await expectLater(
+        resolver.resolve(_jellyfinTrack),
+        throwsA(
+          isA<PlaybackResolutionException>().having(
+            (PlaybackResolutionException e) => e.kind,
+            'kind',
+            PlaybackResolutionErrorKind.streamUnavailable,
+          ),
+        ),
+      );
+    });
+
+    test('reports an invalid stream on an unsupported server response',
+        () async {
+      final source = _FakeStreamSource(
+        streamError: JellyfinException.unsupportedResponse(400),
+      );
+      final resolver = JellyfinPlayableUriResolver(() => source);
+
+      await expectLater(
+        resolver.resolve(_jellyfinTrack),
+        throwsA(
+          isA<PlaybackResolutionException>().having(
+            (PlaybackResolutionException e) => e.kind,
+            'kind',
+            PlaybackResolutionErrorKind.invalidStream,
+          ),
+        ),
+      );
+    });
+
     test('error messages match the friendly, secret-free wording', () async {
       Future<String> messageFor(JellyfinException verifyError) async {
         final resolver = JellyfinPlayableUriResolver(
