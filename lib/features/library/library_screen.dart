@@ -1,17 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/dimens.dart';
-import '../../app/routes.dart';
-import '../../core/models/track.dart';
-import '../../core/repositories/download_repository.dart';
-import '../../data/repositories/download_repository_provider.dart';
-import '../downloads/download_providers.dart';
-import '../player/player_providers.dart';
 import 'library_controller.dart';
 import 'library_state.dart';
 import 'selected_folder_controller.dart';
+import 'widgets/alphabet_track_list.dart';
 
 /// Browse tracks from the local catalog. Reads entirely from
 /// [libraryControllerProvider] and [selectedFolderControllerProvider]; it has
@@ -74,119 +68,7 @@ class LibraryScreen extends ConsumerWidget {
                 : () => _rescan(ref, selectedFolder),
           );
         }
-        return _TrackList(tracks: state.tracks);
-    }
-  }
-}
-
-class _TrackList extends StatelessWidget {
-  const _TrackList({required this.tracks});
-
-  final List<Track> tracks;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      itemCount: tracks.length,
-      itemBuilder: (context, index) => _TrackTile(tracks: tracks, index: index),
-    );
-  }
-}
-
-class _TrackTile extends ConsumerWidget {
-  const _TrackTile({required this.tracks, required this.index});
-
-  /// The whole visible list, so tapping one track queues the rest after it.
-  final List<Track> tracks;
-  final int index;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final track = tracks[index];
-    return ListTile(
-      leading: const Icon(Icons.music_note_outlined),
-      title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(
-        _subtitle(track),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: _DownloadAction(track: track),
-      // Play the tapped track and queue the rest of the list behind it, then
-      // surface the now-playing screen.
-      onTap: () {
-        final controller = ref.read(playbackControllerProvider);
-        controller.playTracks(tracks, startIndex: index);
-        context.push(AppRoutes.player);
-      },
-    );
-  }
-
-  /// Prefer human-readable artist/album metadata; fall back to the raw
-  /// uri/path when a track has no tags yet.
-  static String _subtitle(Track track) {
-    final parts = <String>[
-      if (track.artistName != null && track.artistName!.isNotEmpty)
-        track.artistName!,
-      if (track.albumName != null && track.albumName!.isNotEmpty)
-        track.albumName!,
-    ];
-    return parts.isEmpty ? track.uri : parts.join(' • ');
-  }
-}
-
-/// The per-row offline-download control. Reflects the track's [DownloadStatus]
-/// and offers the matching user-initiated action — download when absent, remove
-/// when cached. Progress states (queued/downloading) show as non-interactive
-/// indicators; nothing here ever starts a download on its own.
-class _DownloadAction extends ConsumerWidget {
-  const _DownloadAction({required this.track});
-
-  final Track track;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final asyncStatus = ref.watch(trackDownloadStatusProvider(track.id));
-    final status = asyncStatus.valueOrNull ?? DownloadStatus.notDownloaded;
-    final repository = ref.read(downloadRepositoryProvider);
-    final theme = Theme.of(context);
-
-    switch (status) {
-      case DownloadStatus.notDownloaded:
-        return IconButton(
-          icon: const Icon(Icons.download_outlined),
-          tooltip: 'Download',
-          onPressed: () => repository.requestDownload(track),
-        );
-      case DownloadStatus.queued:
-        return IconButton(
-          icon: const Icon(Icons.schedule_outlined),
-          tooltip: 'Queued',
-          onPressed: () => repository.removeDownload(track.id),
-        );
-      case DownloadStatus.downloading:
-        return const SizedBox.square(
-          dimension: 24,
-          child: Padding(
-            padding: EdgeInsets.all(AppSpacing.xs),
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        );
-      case DownloadStatus.downloaded:
-        return IconButton(
-          icon: Icon(
-            Icons.download_done_outlined,
-            color: theme.colorScheme.primary,
-          ),
-          tooltip: 'Remove download',
-          onPressed: () => repository.removeDownload(track.id),
-        );
-      case DownloadStatus.failed:
-        return IconButton(
-          icon: Icon(Icons.error_outline, color: theme.colorScheme.error),
-          tooltip: 'Retry download',
-          onPressed: () => repository.requestDownload(track),
-        );
+        return AlphabetTrackList(tracks: state.tracks);
     }
   }
 }

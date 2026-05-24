@@ -85,9 +85,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.state.currentTrack?.id, '1');
+    // The list is sorted by title, so after "Song One" comes "Song Three"
+    // then "Song Two" — the up-next queue follows that visible order.
     expect(
       controller.state.upNext.map((t) => t.id).toList(),
-      ['2', '3'],
+      ['3', '2'],
     );
     // The player surfaces the queued tracks in its Up next queue sheet.
     await tester.tap(find.byTooltip('Queue'));
