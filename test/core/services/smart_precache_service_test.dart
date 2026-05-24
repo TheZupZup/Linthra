@@ -10,12 +10,33 @@ import 'package:linthra/data/repositories/in_memory_download_preferences.dart';
 
 /// Records the ids it was asked to warm, in order. (The real prefetcher dedups
 /// and bounds; here we only assert *what* the service decides to pre-cache.)
+///
+/// It records the attempt and returns without "caching" anything, which — from
+/// the service's vantage point — is indistinguishable from a *failed* pre-cache:
+/// the real prefetcher swallows fetch errors and returns having cached nothing.
+/// So asserting on [prefetched] also proves the service doesn't re-attempt a
+/// track that never succeeds.
 class _RecordingPrefetcher implements TrackPrefetcher {
   final List<String> prefetched = <String>[];
 
   @override
   Future<void> prefetch(Track track) async {
     prefetched.add(track.id);
+  }
+}
+
+/// A prefetcher whose calls block on [gate] until a test opens it, so a test can
+/// hold a pre-cache "in progress" and assert the service keeps accepting new
+/// playback states meanwhile — i.e. pre-cache runs off the playback path and
+/// never blocks it.
+class _GatedPrefetcher implements TrackPrefetcher {
+  final List<String> started = <String>[];
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<void> prefetch(Track track) async {
+    started.add(track.id);
+    await gate.future;
   }
 }
 
@@ -205,6 +226,64 @@ void main() {
       await _settle();
 
       expect(prefetcher.prefetched, <String>['b']);
+      await service.dispose();
+    });
+
+    test('a track that fails to cache is not retried in a tight loop',
+        () async {
+      // The prefetcher records each attempt and returns having cached nothing —
+      // exactly how the real one behaves when a fetch fails (it swallows the
+      // error). So a track that keeps "failing" stays uncached and therefore
+      // remains an eligible up-next candidate.
+      preferences = InMemoryDownloadPreferences(precacheCount: 1);
+      final service = build();
+
+      // Emit the same what-to-cache inputs many times, as the rapid position /
+      // status ticks during playback would. The service keys off the playing
+      // track, queue, shuffle and repeat — none of which changed — so it must
+      // not hammer the failing track on every tick.
+      for (int i = 0; i < 6; i++) {
+        states.add(_playing(_t('a'), <Track>[_t('b')]));
+        await _settle();
+      }
+
+      // One attempt total, despite six emissions and a persistent failure.
+      expect(prefetcher.prefetched, <String>['b']);
+      await service.dispose();
+    });
+
+    test('a slow pre-cache never blocks playback advancing', () async {
+      // Playback (and the player feature) never await the service: it observes
+      // the state stream and warms tracks as a side effect. Proven here by
+      // wedging a pre-cache mid-flight and showing newer states still flow in.
+      // (Playback itself resolves independently and streams an uncached track
+      // immediately — see offline_first_playable_uri_resolver_test.)
+      preferences = InMemoryDownloadPreferences(precacheCount: 1);
+      final gated = _GatedPrefetcher();
+      final service = SmartPrecacheService(
+        playbackStates: states.stream,
+        prefetcher: gated,
+        preferences: preferences,
+      );
+
+      // Start playing 'a'; the service begins warming 'b' and that fetch blocks.
+      states.add(_playing(_t('a'), <Track>[_t('b')]));
+      await _settle();
+      expect(gated.started, <String>['b']);
+
+      // Playback advances to 'b' while 'b''s pre-cache is still in flight.
+      // Delivering the new state must not deadlock on the stuck pre-cache.
+      states.add(_playing(_t('b'), <Track>[_t('c')]));
+      await _settle();
+      // Still one warm at a time, so 'c' hasn't started — but nothing hung.
+      expect(gated.started, <String>['b']);
+
+      // Once the in-flight pre-cache finishes, the service catches up to the
+      // latest queue and warms 'c'.
+      gated.gate.complete();
+      await _settle();
+      expect(gated.started, <String>['b', 'c']);
+
       await service.dispose();
     });
 
