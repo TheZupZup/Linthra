@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/app_info.dart';
+import '../core/services/active_playback_controller.dart';
 import '../core/services/notification_permission.dart';
+import '../features/player/player_providers.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -29,13 +31,36 @@ class LinthraApp extends ConsumerStatefulWidget {
   ConsumerState<LinthraApp> createState() => _LinthraAppState();
 }
 
-class _LinthraAppState extends ConsumerState<LinthraApp> {
+class _LinthraAppState extends ConsumerState<LinthraApp>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(notificationPermissionProvider).ensureGranted();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Returning from the background while casting: re-sync from the receiver so
+    // the position the UI shows is fresh. This never starts local playback —
+    // backgrounding/foregrounding the app must not recreate or resume the local
+    // engine while a cast session owns playback.
+    if (state == AppLifecycleState.resumed) {
+      final controller = ref.read(playbackControllerProvider);
+      if (controller is ActivePlaybackController) {
+        controller.onAppResumed();
+      }
+    }
   }
 
   @override

@@ -55,6 +55,7 @@ class CastState {
     this.devices = const <CastDevice>[],
     this.connectedDevice,
     this.message,
+    this.isCasting = false,
   });
 
   /// The honest default: no cast backend wired, nothing reachable.
@@ -76,6 +77,14 @@ class CastState {
   /// authenticated URL.
   final String? message;
 
+  /// Whether a real handoff is in effect: connected *and* the current track's
+  /// media has been loaded onto the receiver, so the receiver is the active
+  /// output. False while merely connected with nothing castable loaded (e.g.
+  /// the current track is a local file), so local playback is left alone in
+  /// that case. The `ActivePlaybackController` watches this to decide when to
+  /// silence the local engine and follow the cast session.
+  final bool isCasting;
+
   /// Whether the platform can cast at all. False when no backend is wired,
   /// which is what the UI uses to show an honest unavailable state rather than
   /// an empty device picker.
@@ -93,11 +102,13 @@ class CastState {
     CastAvailability? availability,
     List<CastDevice>? devices,
     CastDevice? connectedDevice,
+    bool? isCasting,
   }) {
     return CastState(
       availability: availability ?? this.availability,
       devices: devices ?? this.devices,
       connectedDevice: connectedDevice ?? this.connectedDevice,
+      isCasting: isCasting ?? this.isCasting,
     );
   }
 
@@ -108,7 +119,8 @@ class CastState {
           other.availability == availability &&
           listEquals(other.devices, devices) &&
           other.connectedDevice == connectedDevice &&
-          other.message == message);
+          other.message == message &&
+          other.isCasting == isCasting);
 
   @override
   int get hashCode => Object.hash(
@@ -116,5 +128,6 @@ class CastState {
         Object.hashAll(devices),
         connectedDevice,
         message,
+        isCasting,
       );
 }

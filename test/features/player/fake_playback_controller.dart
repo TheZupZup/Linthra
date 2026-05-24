@@ -5,14 +5,17 @@ import 'package:linthra/core/models/playback_queue.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
-import 'package:linthra/core/services/playback_controller.dart';
+import 'package:linthra/core/services/local_playback_controller.dart';
 
-/// In-memory [PlaybackController] for widget/provider tests.
+/// In-memory [LocalPlaybackController] for widget/provider tests.
 ///
 /// Records the calls it receives, maintains a real [PlaybackQueue] so queue
 /// flows behave like the production controller, and lets a test push arbitrary
-/// [PlaybackState]s — all without `just_audio` or any platform plugin.
-class FakePlaybackController implements PlaybackController {
+/// [PlaybackState]s — all without `just_audio` or any platform plugin. It also
+/// honours [suspend]/[resume] so it can stand in as the local engine behind an
+/// [ActivePlaybackController] in cast-routing tests: while suspended, queue
+/// changes update the current track without "playing" locally.
+class FakePlaybackController implements LocalPlaybackController {
   FakePlaybackController({PlaybackState initial = PlaybackState.idle})
       : _state = initial;
 
@@ -22,6 +25,7 @@ class FakePlaybackController implements PlaybackController {
   PlaybackQueue _queue = PlaybackQueue.empty;
   bool _shuffleEnabled = false;
   RepeatMode _repeatMode = RepeatMode.off;
+  bool _suspended = false;
 
   /// Seeded so shuffle is deterministic across test runs.
   final Random _random = Random(1);
@@ -33,6 +37,11 @@ class FakePlaybackController implements PlaybackController {
   int skipCount = 0;
   int previousCount = 0;
   int clearCount = 0;
+  int suspendCount = 0;
+  int resumeCount = 0;
+  int restartQueueCount = 0;
+  Duration? lastResumeAt;
+  bool? lastResumePlay;
   bool disposed = false;
   final List<Duration> seeks = <Duration>[];
 
@@ -129,6 +138,19 @@ class FakePlaybackController implements PlaybackController {
   void _playCurrent() {
     final track = _queue.current;
     if (track == null) return;
+    if (_suspended) {
+      // A cast output owns audio: reflect the queue/track without "playing"
+      // locally, mirroring the real controller's suspended path.
+      emit(PlaybackState(
+        status: PlaybackStatus.paused,
+        currentTrack: track,
+        upNext: _queue.upNext,
+        hasPrevious: _queue.hasPrevious,
+        shuffleEnabled: _shuffleEnabled,
+        repeatMode: _repeatMode,
+      ));
+      return;
+    }
     playedTracks.add(track);
     final playing = PlaybackState(
       status: PlaybackStatus.playing,
@@ -139,6 +161,31 @@ class FakePlaybackController implements PlaybackController {
       repeatMode: _repeatMode,
     );
     emit(playing);
+  }
+
+  @override
+  bool get isSuspended => _suspended;
+
+  @override
+  Future<void> suspend() async {
+    suspendCount++;
+    _suspended = true;
+  }
+
+  @override
+  Future<void> resume({Duration at = Duration.zero, bool play = false}) async {
+    resumeCount++;
+    lastResumeAt = at;
+    lastResumePlay = play;
+    _suspended = false;
+    _playCurrent();
+  }
+
+  @override
+  Future<void> restartQueue() async {
+    restartQueueCount++;
+    _queue = _queue.restarted();
+    _playCurrent();
   }
 
   @override

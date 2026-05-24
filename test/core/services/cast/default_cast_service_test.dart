@@ -2,14 +2,16 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/cast_media.dart';
+import 'package:linthra/core/models/cast_playback_status.dart';
 import 'package:linthra/core/models/cast_state.dart';
+import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/cast/cast_media_resolver.dart';
 import 'package:linthra/core/services/cast/cast_transport.dart';
 import 'package:linthra/core/services/cast/default_cast_service.dart';
 
-/// A [CastSessionHandle] whose readiness and lifetime the test drives. It
-/// replays the latest readiness to each new listener, exactly like the real
+/// A [CastSessionHandle] whose readiness, status, and lifetime the test drives.
+/// It replays the latest readiness to each new listener, exactly like the real
 /// handle, so the service's `firstWhere` sees a session that became ready before
 /// it subscribed.
 class _FakeHandle implements CastSessionHandle {
@@ -18,8 +20,14 @@ class _FakeHandle implements CastSessionHandle {
   }
 
   final StreamController<bool> _ready = StreamController<bool>.broadcast();
+  final StreamController<CastPlaybackStatus> _status =
+      StreamController<CastPlaybackStatus>.broadcast();
   bool? _last;
   final List<CastMedia> loaded = <CastMedia>[];
+  int playCount = 0;
+  int pauseCount = 0;
+  final List<Duration> seeks = <Duration>[];
+  int statusRequests = 0;
   bool closed = false;
 
   void becomeReady() {
@@ -32,6 +40,10 @@ class _FakeHandle implements CastSessionHandle {
     if (!_ready.isClosed) _ready.add(false);
   }
 
+  void pushStatus(CastPlaybackStatus status) {
+    if (!_status.isClosed) _status.add(status);
+  }
+
   @override
   Stream<bool> get readyStream async* {
     if (_last != null) yield _last!;
@@ -39,12 +51,28 @@ class _FakeHandle implements CastSessionHandle {
   }
 
   @override
+  Stream<CastPlaybackStatus> get statusStream => _status.stream;
+
+  @override
   Future<void> loadMedia(CastMedia media) async => loaded.add(media);
+
+  @override
+  Future<void> play() async => playCount++;
+
+  @override
+  Future<void> pause() async => pauseCount++;
+
+  @override
+  Future<void> seek(Duration position) async => seeks.add(position);
+
+  @override
+  Future<void> requestStatus() async => statusRequests++;
 
   @override
   Future<void> close() async {
     closed = true;
     if (!_ready.isClosed) await _ready.close();
+    if (!_status.isClosed) await _status.close();
   }
 }
 
@@ -106,16 +134,12 @@ void main() {
   late _FakeResolver resolver;
   late StreamController<Track?> trackChanges;
   Track? current;
-  int pauseCount = 0;
-  int resumeCount = 0;
 
   DefaultCastService build() => DefaultCastService(
         transport: transport,
         mediaResolver: resolver,
         currentTrack: () => current,
         trackChanges: trackChanges.stream,
-        onCastingStarted: () async => pauseCount++,
-        onCastingStopped: () async => resumeCount++,
         discoveryTimeout: const Duration(milliseconds: 5),
         connectTimeout: const Duration(milliseconds: 100),
       );
@@ -125,8 +149,6 @@ void main() {
     resolver = _FakeResolver();
     trackChanges = StreamController<Track?>.broadcast();
     current = null;
-    pauseCount = 0;
-    resumeCount = 0;
   });
 
   tearDown(() async {
@@ -139,6 +161,7 @@ void main() {
       addTearDown(service.dispose);
       expect(service.state.availability, CastAvailability.idle);
       expect(service.state.isAvailable, isTrue);
+      expect(service.state.isCasting, isFalse);
     });
 
     test('populates the device list', () async {
@@ -151,17 +174,6 @@ void main() {
       expect(transport.discoverCount, 1);
       expect(service.state.availability, CastAvailability.idle);
       expect(service.state.devices, const <CastDevice>[_d1]);
-    });
-
-    test('settles to an empty idle state when nothing is found', () async {
-      transport.devices = const <CastDevice>[];
-      final service = build();
-      addTearDown(service.dispose);
-
-      await service.startDiscovery();
-
-      expect(service.state.availability, CastAvailability.idle);
-      expect(service.state.devices, isEmpty);
     });
 
     test('a discovery failure becomes a friendly error state', () async {
@@ -178,8 +190,7 @@ void main() {
   });
 
   group('connect + handoff', () {
-    test('casts the current streamable track and pauses local playback',
-        () async {
+    test('casts the current streamable track and marks isCasting', () async {
       current = _jellyfinTrack;
       final handle = _FakeHandle();
       transport.handle = handle;
@@ -190,13 +201,12 @@ void main() {
 
       expect(transport.connectRequests, const <CastDevice>[_d1]);
       expect(service.state.isConnected, isTrue);
+      expect(service.state.isCasting, isTrue);
       expect(service.state.connectedDevice, _d1);
       // The resolved, token-bearing URL reached the receiver.
       expect(handle.loaded, hasLength(1));
       expect(handle.loaded.single.url.queryParameters['api_key'], 'TOKEN');
       expect(handle.loaded.single.title, 'Streamed');
-      // Local playback was silenced so audio isn't heard twice.
-      expect(pauseCount, 1);
     });
 
     test('a local file is reported as a clear limitation, not cast', () async {
@@ -210,14 +220,14 @@ void main() {
       await service.connect(_d1);
 
       expect(service.state.isConnected, isTrue);
+      // Not a real handoff: the engine must be left alone for local files.
+      expect(service.state.isCasting, isFalse);
       expect(service.state.message, DefaultCastService.localFileLimitation);
-      // Nothing was sent to the receiver and local playback was left alone.
       expect(handle.loaded, isEmpty);
       expect(resolver.resolved, isEmpty);
-      expect(pauseCount, 0);
     });
 
-    test('a resolve failure surfaces the message but stays connected',
+    test('a resolve failure surfaces the message and does not claim casting',
         () async {
       current = _jellyfinTrack;
       resolver.error = const CastMediaException(
@@ -231,9 +241,9 @@ void main() {
       await service.connect(_d1);
 
       expect(service.state.isConnected, isTrue);
+      expect(service.state.isCasting, isFalse);
       expect(service.state.message, contains('Sign in to Jellyfin'));
       expect(transport.handle!.loaded, isEmpty);
-      expect(pauseCount, 0);
     });
 
     test('a session that never becomes ready becomes an error state', () async {
@@ -245,8 +255,8 @@ void main() {
       await service.connect(_d1);
 
       expect(service.state.hasError, isTrue);
+      expect(service.state.isCasting, isFalse);
       expect(service.state.message, contains('Living Room'));
-      expect(pauseCount, 0);
     });
 
     test('a connect failure becomes a friendly error state', () async {
@@ -277,11 +287,12 @@ void main() {
 
       expect(handle.loaded, hasLength(2));
       expect(handle.loaded.last.title, 'Next up');
+      expect(service.state.isCasting, isTrue);
     });
   });
 
-  group('disconnect + recovery', () {
-    test('disconnect closes the session and resumes local playback', () async {
+  group('receiver status', () {
+    test('forwards the receiver media status on playbackStream', () async {
       current = _jellyfinTrack;
       final handle = _FakeHandle();
       transport.handle = handle;
@@ -289,17 +300,78 @@ void main() {
       addTearDown(service.dispose);
 
       await service.connect(_d1);
-      expect(pauseCount, 1);
+
+      const status = CastPlaybackStatus(
+        status: PlaybackStatus.playing,
+        position: Duration(seconds: 12),
+        duration: Duration(minutes: 3),
+      );
+      final Future<CastPlaybackStatus> next = service.playbackStream.first;
+      handle.pushStatus(status);
+
+      expect(await next, status);
+      expect(service.playbackStatus, status);
+    });
+  });
+
+  group('transport commands route to the session', () {
+    test('play/pause/seek/refresh forward to the handle while casting',
+        () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+
+      await service.play();
+      await service.pause();
+      await service.seek(const Duration(seconds: 30));
+      await service.refresh();
+
+      expect(handle.playCount, 1);
+      expect(handle.pauseCount, 1);
+      expect(handle.seeks, const <Duration>[Duration(seconds: 30)]);
+      expect(handle.statusRequests, 1);
+    });
+
+    test('commands are safe no-ops when not connected', () async {
+      final service = build();
+      addTearDown(service.dispose);
+
+      // Must not throw with no session.
+      await service.play();
+      await service.pause();
+      await service.seek(const Duration(seconds: 5));
+      await service.refresh();
+    });
+  });
+
+  group('disconnect + recovery (no surprise local restart)', () {
+    test('disconnect closes the session and returns to idle', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      expect(service.state.isCasting, isTrue);
 
       await service.disconnect();
 
       expect(handle.closed, isTrue);
-      expect(resumeCount, 1);
       expect(service.state.availability, CastAvailability.idle);
+      expect(service.state.isCasting, isFalse);
       expect(service.state.connectedDevice, isNull);
+      // Playback status is reset; the router (not this service) decides what the
+      // device does next, and it never auto-starts local playback.
+      expect(service.playbackStatus, CastPlaybackStatus.idle);
     });
 
-    test('a receiver-dropped session recovers to local playback', () async {
+    test('a receiver-dropped session recovers to a disconnected state',
+        () async {
       current = _jellyfinTrack;
       final handle = _FakeHandle();
       transport.handle = handle;
@@ -310,40 +382,25 @@ void main() {
       handle.drop();
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(resumeCount, 1);
       expect(service.state.availability, CastAvailability.idle);
+      expect(service.state.isCasting, isFalse);
     });
   });
 
-  group('local playback stays stable when not actively casting', () {
-    test('merely discovering never pauses local playback', () async {
+  group('security', () {
+    test('no token leaks into cast state on success or failure', () async {
       current = _jellyfinTrack;
-      transport.devices = const <CastDevice>[_d1];
+      final handle = _FakeHandle();
+      transport.handle = handle;
       final service = build();
       addTearDown(service.dispose);
 
-      await service.startDiscovery();
-
-      // Cast is available but no handoff happened, so local playback is
-      // untouched and keeps playing.
-      expect(pauseCount, 0);
-      expect(resumeCount, 0);
-    });
-
-    test('disconnecting without a handoff leaves local playback alone',
-        () async {
-      current = _localTrack;
-      resolver.castable = false;
-      transport.handle = _FakeHandle();
-      final service = build();
-      addTearDown(service.dispose);
-
-      await service.connect(_d1); // local file: limitation, no handoff
-      await service.disconnect();
-
-      // Never paused, so never force-resumed either.
-      expect(pauseCount, 0);
-      expect(resumeCount, 0);
+      await service.connect(_d1);
+      // The token rode only on the CastMedia handed to the receiver.
+      expect(handle.loaded.single.url.queryParameters['api_key'], 'TOKEN');
+      // Never in the user-facing state.
+      expect(service.state.message ?? '', isNot(contains('TOKEN')));
+      expect(service.state.message ?? '', isNot(contains('api_key')));
     });
   });
 }

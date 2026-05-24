@@ -6,6 +6,7 @@ import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
 import 'cast/cast_button.dart';
+import 'cast/cast_providers.dart';
 import 'player_providers.dart';
 import 'widgets/album_artwork.dart';
 import 'widgets/now_playing_actions.dart';
@@ -168,17 +169,30 @@ class _NowPlaying extends ConsumerWidget {
   }
 }
 
-/// Under the metadata: a friendly error message when playback failed, otherwise
-/// the playback-source badge (LOCAL FILE / STREAMING DIRECT / OFFLINE CACHE)
-/// once a track has resolved. Shows nothing while a track is still loading.
-class _SourceOrError extends StatelessWidget {
+/// Under the metadata: while casting, a clear `Casting to …` indicator;
+/// otherwise a friendly error message when playback failed, or the
+/// playback-source badge (LOCAL FILE / STREAMING DIRECT / OFFLINE CACHE) once a
+/// track has resolved. Shows nothing while a track is still loading locally.
+class _SourceOrError extends ConsumerWidget {
   const _SourceOrError({required this.state});
 
   final PlaybackState state;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+
+    // While casting, the source badge would be misleading (the receiver, not
+    // this device, is playing); show where the audio is going instead.
+    final castState = ref.watch(
+      castStateProvider.select((s) => s.valueOrNull),
+    );
+    final service = ref.watch(castServiceProvider);
+    final cast = castState ?? service.state;
+    if (cast.isConnected && cast.connectedDevice != null) {
+      return _CastingIndicator(deviceName: cast.connectedDevice!.name);
+    }
+
     if (state.status == PlaybackStatus.error) {
       return Text(
         state.errorMessage ?? "Couldn't play this track",
@@ -193,5 +207,42 @@ class _SourceOrError extends StatelessWidget {
       return const SizedBox(height: 28);
     }
     return PlaybackSourceChip(source: source);
+  }
+}
+
+/// A small, on-brand `Casting to …` chip shown on Now Playing while a cast
+/// session is connected, so it's obvious the phone is a remote.
+class _CastingIndicator extends StatelessWidget {
+  const _CastingIndicator({required this.deviceName});
+
+  final String deviceName;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.cast_connected,
+          size: 16,
+          color: theme.colorScheme.primary,
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        Flexible(
+          child: Text(
+            'Casting to $deviceName',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

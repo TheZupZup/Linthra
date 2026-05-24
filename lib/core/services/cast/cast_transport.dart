@@ -1,4 +1,5 @@
 import '../../models/cast_media.dart';
+import '../../models/cast_playback_status.dart';
 import '../../models/cast_state.dart';
 
 /// The low-level cast plumbing [DefaultCastService] drives, isolated behind an
@@ -28,9 +29,29 @@ abstract interface class CastSessionHandle {
   /// ready to accept [loadMedia], and `false`/closes if the session ends.
   Stream<bool> get readyStream;
 
+  /// Position/play-state updates parsed from the receiver's media status, so the
+  /// app can mirror the device (and follow its position for lyrics) instead of
+  /// the silenced local engine while casting. Carries no track identity, URL, or
+  /// token.
+  Stream<CastPlaybackStatus> get statusStream;
+
   /// Tells the receiver to fetch and play [media]. Only valid once the session
   /// is ready.
   Future<void> loadMedia(CastMedia media);
+
+  /// Resumes playback on the receiver.
+  Future<void> play();
+
+  /// Pauses playback on the receiver.
+  Future<void> pause();
+
+  /// Seeks the receiver to [position].
+  Future<void> seek(Duration position);
+
+  /// Asks the receiver for a fresh media status (used to re-sync position, e.g.
+  /// after the app returns from the background). Best-effort; a no-op when no
+  /// media is loaded.
+  Future<void> requestStatus();
 
   /// Tears the session down and returns control to this device.
   Future<void> close();

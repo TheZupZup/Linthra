@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/playback_state.dart';
+import '../../core/services/active_playback_controller.dart';
 import '../../core/services/just_audio_playback_controller.dart';
 import '../../core/services/local_playable_uri_resolver.dart';
+import '../../core/services/local_playback_controller.dart';
 import '../../core/services/offline_first_playable_uri_resolver.dart';
 import '../../core/services/playable_uri_resolver.dart';
 import '../../core/services/playback_controller.dart';
@@ -13,6 +15,7 @@ import '../../core/services/routing_playable_uri_resolver.dart';
 import '../../core/sources/jellyfin/jellyfin_playable_uri_resolver.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
+import 'cast/cast_providers.dart';
 
 /// Composes the [PlayableUriResolver] the controller resolves tracks through.
 ///
@@ -40,26 +43,42 @@ final playableUriResolverProvider = Provider<PlayableUriResolver>((ref) {
   );
 });
 
-/// The single [PlaybackController] the app drives playback through.
+/// The on-device audio engine: the `just_audio`-backed [LocalPlaybackController]
+/// that owns the queue (current track, up-next, shuffle, repeat) regardless of
+/// which output is making sound.
 ///
-/// Defaults to the `just_audio`-backed implementation, wired with the routing
-/// resolver above. Tests override it with a fake so playback can be exercised
-/// without the audio plugin. Disposed with the provider scope (i.e. on app
-/// shutdown) so native resources are released.
-///
-/// Lifecycle: this is pinned for the whole app session. It reads its resolver
-/// once with [Ref.read] rather than [Ref.watch], so a rebuild of the resolver,
-/// the offline-cache locator, or the download stores can never tear the
-/// controller down. That matters because the live `AudioPlayer` and the
-/// `audio_service` media session are both bound to *this* instance: recreating
-/// it mid-playback would dispose the player (cutting the music) and leave the
-/// notification mirroring a dead controller. Navigating between tabs and
-/// changing settings touch none of that, so playback survives them. The
-/// resolver still reads the live signed-in Jellyfin source lazily at play time,
-/// so sign-in/out is picked up without rebuilding the controller.
-final playbackControllerProvider = Provider<PlaybackController>((ref) {
+/// Lifecycle: pinned for the whole app session. It reads its resolver once with
+/// [Ref.read] rather than [Ref.watch], so a rebuild of the resolver, the
+/// offline-cache locator, or the download stores can never tear it down — which
+/// would dispose the live `AudioPlayer` and cut the music. The resolver still
+/// reads the live signed-in Jellyfin source lazily at play time, so sign-in/out
+/// is picked up without rebuilding the engine.
+final localPlaybackControllerProvider =
+    Provider<LocalPlaybackController>((ref) {
   final controller = JustAudioPlaybackController(
     resolver: ref.read(playableUriResolverProvider),
+  );
+  ref.onDispose(controller.dispose);
+  return controller;
+});
+
+/// The single [PlaybackController] the UI drives playback through, routing
+/// between the local engine and a cast receiver and exposing one unified
+/// [PlaybackState].
+///
+/// The UI depends only on this — never on `just_audio` or the cast SDK — so when
+/// casting is active the now-playing screen, mini-player, and lyrics follow the
+/// receiver (position, play-state, duration) while transport commands go to the
+/// device that is actually playing. It owns the local↔cast switch, suspending
+/// the engine on handoff and resuming it *paused* when a session ends, so the
+/// phone never surprise-starts. Tests override it with a fake so playback can be
+/// exercised without the audio plugin. Pinned for the session and disposed with
+/// the scope (its subscriptions only; the engine and cast service are disposed
+/// by their own providers).
+final playbackControllerProvider = Provider<PlaybackController>((ref) {
+  final controller = ActivePlaybackController(
+    local: ref.read(localPlaybackControllerProvider),
+    cast: ref.read(castServiceProvider),
   );
   ref.onDispose(controller.dispose);
   return controller;
