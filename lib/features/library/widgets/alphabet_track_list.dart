@@ -5,7 +5,7 @@ import '../../../core/models/track.dart';
 import 'track_tile.dart';
 
 /// A track list with first-letter section grouping and an A–Z fast-scroll
-/// index down the trailing edge, so large libraries stay navigable.
+/// index pinned to the trailing edge, so large libraries stay navigable.
 ///
 /// Tracks are sorted by title (case-insensitive) and grouped under a header for
 /// each leading letter; titles that don't start with a letter fall under '#'.
@@ -29,6 +29,10 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   static const double _headerExtent = 36;
   static const double _trackExtent = 64;
 
+  /// Width of the trailing A–Z rail. The list reserves this much right-side
+  /// padding so rows (and the 3-dot overflow menu) never sit under the rail.
+  static const double _railWidth = 28;
+
   final ScrollController _controller = ScrollController();
 
   late List<Track> _sorted;
@@ -36,10 +40,19 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   late List<String> _letters;
   late Map<String, double> _letterOffsets;
 
+  /// The section the list is currently parked at — highlighted in the rail and
+  /// shown in the scrub bubble. Tracks both manual scrolling and rail drags.
+  String? _activeLetter;
+
+  /// True while the user is touching/dragging the rail, which surfaces the
+  /// larger active-letter bubble.
+  bool _scrubbing = false;
+
   @override
   void initState() {
     super.initState();
     _rebuildIndex();
+    _controller.addListener(_syncActiveLetter);
   }
 
   @override
@@ -52,6 +65,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
 
   @override
   void dispose() {
+    _controller.removeListener(_syncActiveLetter);
     _controller.dispose();
     super.dispose();
   }
@@ -80,6 +94,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
       _entries.add(_Entry.track(i));
       offset += _trackExtent;
     }
+    _activeLetter = _letters.isNotEmpty ? _letters.first : null;
   }
 
   /// The leading index character for [title]: an uppercase letter, or '#' for
@@ -91,21 +106,51 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
     return RegExp('[A-Z]').hasMatch(first) ? first : '#';
   }
 
+  /// Keeps [_activeLetter] in step with normal list scrolling so the rail
+  /// highlight reflects where the user actually is, not just where they tapped.
+  void _syncActiveLetter() {
+    if (!_controller.hasClients) return;
+    final letter = _letterForOffset(_controller.offset);
+    if (letter != null && letter != _activeLetter) {
+      setState(() => _activeLetter = letter);
+    }
+  }
+
+  /// The last section whose header sits at or above [offset] — i.e. the section
+  /// currently scrolled to the top of the viewport.
+  String? _letterForOffset(double offset) {
+    String? result;
+    for (final entry in _letterOffsets.entries) {
+      if (entry.value <= offset + 1) {
+        result = entry.key;
+      } else {
+        break;
+      }
+    }
+    return result ?? (_letters.isNotEmpty ? _letters.first : null);
+  }
+
   void _jumpToLetter(String letter) {
     final offset = _letterOffsets[letter];
     if (offset == null || !_controller.hasClients) return;
     final max = _controller.position.maxScrollExtent;
     _controller.jumpTo(offset.clamp(0.0, max));
+    if (letter != _activeLetter) {
+      setState(() => _activeLetter = letter);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final showRail = _letters.length >= 2;
     return Stack(
       children: [
         ListView.builder(
           key: const Key('library_track_list'),
           controller: _controller,
-          padding: const EdgeInsets.only(right: AppSpacing.md),
+          // Reserve room for the rail so rows never render beneath it.
+          padding:
+              EdgeInsets.only(right: showRail ? _railWidth : AppSpacing.md),
           itemCount: _entries.length,
           itemExtentBuilder: (index, _) =>
               _entries[index].isHeader ? _headerExtent : _trackExtent,
@@ -117,13 +162,27 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
             return TrackTile(tracks: _sorted, index: entry.trackIndex!);
           },
         ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: _AlphabetIndex(
-            letters: _letters,
-            onSelected: _jumpToLetter,
+        if (showRail)
+          Positioned(
+            top: 0,
+            bottom: 0,
+            right: 0,
+            width: _railWidth,
+            child: _AlphabetIndex(
+              letters: _letters,
+              activeLetter: _activeLetter,
+              onSelected: _jumpToLetter,
+              onScrubChanged: (scrubbing) =>
+                  setState(() => _scrubbing = scrubbing),
+            ),
           ),
-        ),
+        if (showRail && _scrubbing && _activeLetter != null)
+          Positioned(
+            right: _railWidth + AppSpacing.sm,
+            top: 0,
+            bottom: 0,
+            child: Center(child: _ScrubBubble(letter: _activeLetter!)),
+          ),
       ],
     );
   }
@@ -170,13 +229,51 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-/// The A–Z scrubber rail. Renders only the letters present and maps a tap or
-/// vertical drag to the nearest letter, jumping the list to that section.
+/// The big translucent letter shown beside the rail while the user is
+/// scrubbing, so the target section is legible even under a fingertip.
+class _ScrubBubble extends StatelessWidget {
+  const _ScrubBubble({required this.letter});
+
+  final String letter;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: 48,
+      height: 48,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary,
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.md)),
+      ),
+      child: Text(
+        letter,
+        style: theme.textTheme.titleLarge?.copyWith(
+          color: theme.colorScheme.onPrimary,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+
+/// The A–Z scrubber rail, pinned to the trailing edge at a fixed [width]. It
+/// renders only the letters present and maps a tap or vertical drag to the
+/// nearest letter, jumping the list to that section. The active letter is
+/// drawn in the accent colour; the rest stay subtle.
 class _AlphabetIndex extends StatelessWidget {
-  const _AlphabetIndex({required this.letters, required this.onSelected});
+  const _AlphabetIndex({
+    required this.letters,
+    required this.activeLetter,
+    required this.onSelected,
+    required this.onScrubChanged,
+  });
 
   final List<String> letters;
+  final String? activeLetter;
   final ValueChanged<String> onSelected;
+  final ValueChanged<bool> onScrubChanged;
 
   void _handle(Offset localPosition, double height) {
     if (letters.isEmpty || height <= 0) return;
@@ -186,7 +283,6 @@ class _AlphabetIndex extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (letters.length < 2) return const SizedBox.shrink();
     final theme = Theme.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -198,28 +294,32 @@ class _AlphabetIndex extends StatelessWidget {
           key: const Key('library_alphabet_index'),
           behavior: HitTestBehavior.opaque,
           onTapDown: (d) => _handle(d.localPosition, height),
-          onVerticalDragStart: (d) => _handle(d.localPosition, height),
+          onVerticalDragStart: (d) {
+            onScrubChanged(true);
+            _handle(d.localPosition, height);
+          },
           onVerticalDragUpdate: (d) => _handle(d.localPosition, height),
+          onVerticalDragEnd: (_) => onScrubChanged(false),
+          onVerticalDragCancel: () => onScrubChanged(false),
           child: SizedBox(
             height: height > 0 ? height : null,
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final letter in letters)
-                      Text(
-                        letter,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.45),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+            child: Column(
+              mainAxisSize: height > 0 ? MainAxisSize.max : MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                for (final letter in letters)
+                  Text(
+                    letter,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: letter == activeLetter
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface.withValues(alpha: 0.45),
+                      fontWeight: letter == activeLetter
+                          ? FontWeight.bold
+                          : FontWeight.w600,
+                    ),
+                  ),
+              ],
             ),
           ),
         );
