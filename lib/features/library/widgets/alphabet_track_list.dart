@@ -212,7 +212,8 @@ class _AlphabetIndex extends StatelessWidget {
                       Text(
                         letter,
                         style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.primary,
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.45),
                           fontWeight: FontWeight.w600,
                         ),
                       ),

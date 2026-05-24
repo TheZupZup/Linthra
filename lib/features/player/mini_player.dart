@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/colors.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../core/models/playback_state.dart';
@@ -17,7 +18,8 @@ import 'widgets/album_artwork.dart';
 /// it never owns playback state of its own and never disappears when switching
 /// tabs. When nothing is loaded it collapses to zero height. Tapping it opens
 /// the full now-playing screen; the play/pause button delegates straight to the
-/// controller.
+/// controller. A thin accent progress line rides its top edge, doubling as the
+/// separator from the content above.
 class MiniPlayer extends ConsumerWidget {
   const MiniPlayer({super.key});
 
@@ -41,53 +43,61 @@ class MiniPlayer extends ConsumerWidget {
       color: theme.colorScheme.surfaceContainerHigh,
       child: InkWell(
         onTap: () => context.push(AppRoutes.player),
-        child: Container(
+        child: SizedBox(
           height: 64,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-          decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(
-                color: theme.colorScheme.outlineVariant,
-                width: 0.5,
-              ),
-            ),
-          ),
-          child: Row(
+          child: Column(
             children: [
-              SizedBox.square(
-                dimension: 44,
-                child: AlbumArtwork(
-                  artworkUri: track.artworkUri,
-                  borderRadius: BorderRadius.circular(AppRadii.sm),
-                ),
+              _MiniProgressBar(
+                position: state.position,
+                duration: state.duration,
               ),
-              const SizedBox(width: AppSpacing.md),
               Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      track.title,
-                      style: theme.textTheme.titleSmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (subtitle != null)
-                      Text(
-                        subtitle,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                  ),
+                  child: Row(
+                    children: [
+                      SizedBox.square(
+                        dimension: 44,
+                        child: AlbumArtwork(
+                          artworkUri: track.artworkUri,
+                          borderRadius: BorderRadius.circular(AppRadii.sm),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                  ],
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              track.title,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (subtitle != null)
+                              Text(
+                                subtitle,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.6),
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      _PlayPauseButton(state: state, controller: controller),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              _PlayPauseButton(state: state, controller: controller),
             ],
           ),
         ),
@@ -109,8 +119,33 @@ class MiniPlayer extends ConsumerWidget {
   }
 }
 
+/// A 2.5dp accent line tracking playback progress across the mini-player's top
+/// edge. Sits at 0 (an empty track) when the duration is still unknown, so it
+/// never animates indeterminately or jumps.
+class _MiniProgressBar extends StatelessWidget {
+  const _MiniProgressBar({required this.position, required this.duration});
+
+  final Duration position;
+  final Duration duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final int total = duration.inMilliseconds;
+    final double value =
+        total > 0 ? (position.inMilliseconds / total).clamp(0.0, 1.0) : 0.0;
+    return LinearProgressIndicator(
+      value: value,
+      minHeight: 2.5,
+      backgroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+      color: AppColors.accent,
+    );
+  }
+}
+
 /// The mini-player's transport control: a spinner while a track loads, then a
-/// play/pause toggle that forwards to the controller.
+/// play/pause toggle (tinted with the warm accent) that forwards to the
+/// controller.
 class _PlayPauseButton extends StatelessWidget {
   const _PlayPauseButton({required this.state, required this.controller});
 
@@ -132,6 +167,8 @@ class _PlayPauseButton extends StatelessWidget {
     return IconButton(
       onPressed: playing ? controller.pause : controller.play,
       icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+      iconSize: 30,
+      color: Theme.of(context).colorScheme.secondary,
       tooltip: playing ? 'Pause' : 'Play',
     );
   }

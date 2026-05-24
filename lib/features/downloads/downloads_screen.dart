@@ -8,6 +8,7 @@ import '../../core/repositories/download_store.dart';
 import '../../core/services/offline_cache_manager.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../player/widgets/album_artwork.dart';
 import 'download_providers.dart';
 
 /// Manage explicit, user-controlled downloads. Lists the tracks the user has
@@ -142,7 +143,13 @@ class _DownloadedList extends ConsumerWidget {
         final CachedTrack? entry = entries[track.id];
         final bool pinned = entry?.pinned ?? false;
         return ListTile(
-          leading: const Icon(Icons.music_note_outlined),
+          leading: SizedBox.square(
+            dimension: 44,
+            child: AlbumArtwork(
+              artworkUri: track.artworkUri,
+              borderRadius: BorderRadius.circular(AppRadii.sm),
+            ),
+          ),
           title: Text(
             track.title,
             maxLines: 1,
@@ -154,7 +161,7 @@ class _DownloadedList extends ConsumerWidget {
             children: [
               IconButton(
                 icon: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
-                color: pinned ? Theme.of(context).colorScheme.primary : null,
+                color: pinned ? Theme.of(context).colorScheme.secondary : null,
                 tooltip: pinned ? 'Unpin' : 'Keep offline',
                 onPressed: () => ref
                     .read(offlineCacheManagerProvider)

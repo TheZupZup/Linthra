@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Generate Linthra's launcher icons and store graphics from one source design.
 
-Linthra's mark is a small equalizer — four rounded white bars on the brand
-violet gradient — echoing a now-playing visualizer. This script is the single
-source of truth for that mark: it renders every raster asset the app and the
-F-Droid/Fastlane listing need, so the icon never drifts between sizes and can be
-regenerated deterministically.
+Linthra's mark is an abstract "L" monogram made of audio: a bold vertical spine
+and a horizontal foot form the letter, while a short equalizer crescendo rises
+from the foot so the "L" still reads as sound. It carries the brand's two
+colours as a single violet→orange gradient on a dark, premium squircle.
+
+This script is the single source of truth for that mark: it renders every raster
+asset the app and the F-Droid/Fastlane listing need, so the icon never drifts
+between sizes and can be regenerated deterministically.
 
 It is a *developer tool*, not part of the app build, and depends only on the
 Python standard library (no Pillow / native image tools required): it rasterises
@@ -19,7 +22,8 @@ Outputs (paths relative to the repo root):
   - fastlane/metadata/android/en-US/images/featureGraphic.png (1024x500)
 
 The adaptive background is a vector gradient drawable (ic_launcher_background.xml)
-and is not generated here. Run from the repo root:  python3 tool/branding/generate_icons.py
+and is not generated here. Run from the repo root:
+  python3 tool/branding/generate_icons.py
 """
 
 from __future__ import annotations
@@ -28,23 +32,31 @@ import struct
 import zlib
 from pathlib import Path
 
-# Brand palette (kept in step with lib/app/colors.dart's accent family).
-GRADIENT_TOP = (0x9C, 0x8D, 0xF8)
-GRADIENT_BOTTOM = (0x67, 0x50, 0xC8)
-BAR_COLOR = (0xFF, 0xFF, 0xFF)
+# Brand palette (kept in step with lib/app/colors.dart).
+# Squircle / banner background: a dark, premium violet-black.
+BG_TOP = (0x1C, 0x17, 0x30)
+BG_BOTTOM = (0x10, 0x0E, 0x18)
+# The mark: a single violet→orange gradient (brandBright → accent), mapped
+# across the mark's shared vertical span so it reads as one sweep of motion.
+MARK_TOP = (0x9C, 0x84, 0xFF)
+MARK_BOTTOM = (0xFF, 0x9F, 0x43)
 
-# The equalizer bars, as fractions of the region they're drawn in. Heights are
-# bottom-aligned to a shared baseline, giving the "levels" look.
-BAR_HEIGHTS = (0.46, 0.70, 0.56, 0.34)
-BAR_WIDTH_FRACTION = 0.13
-BAR_GAP_FRACTION = 0.10
-BASELINE_FRACTION = 0.80
+# The mark, in fractional [0, 1] coordinates of its square region. An abstract
+# "L" — a vertical spine plus a horizontal foot — with a three-step equalizer
+# crescendo rising from the foot. Shape tuples:
+#   ("v", cx, half_width, top, bottom)   vertical capsule (rounded bar)
+#   ("h", cy, half_height, left, right)  horizontal capsule (rounded bar)
+MARK = (
+    ("v", 0.17, 0.095, 0.07, 0.92),   # spine — the stem of the "L"
+    ("h", 0.85, 0.060, 0.17, 0.93),   # foot — the base of the "L"
+    ("v", 0.46, 0.055, 0.50, 0.79),   # equalizer tick — short
+    ("v", 0.64, 0.055, 0.33, 0.79),   # equalizer tick — tall (the beat)
+    ("v", 0.82, 0.055, 0.47, 0.79),   # equalizer tick — mid
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RES_DIR = REPO_ROOT / "android/app/src/main/res"
-FASTLANE_IMAGES = (
-    REPO_ROOT / "fastlane/metadata/android/en-US/images"
-)
+FASTLANE_IMAGES = REPO_ROOT / "fastlane/metadata/android/en-US/images"
 
 # Legacy square launcher icon, per density (dp size 48 * density).
 LEGACY_SIZES = {
@@ -68,12 +80,23 @@ def _lerp(a: int, b: int, t: float) -> int:
     return round(a + (b - a) * t)
 
 
-def _gradient_row(y: float, height: int) -> tuple[int, int, int]:
+def _bg_row(y: float, height: int) -> tuple[int, int, int]:
     t = y / max(height - 1, 1)
     return (
-        _lerp(GRADIENT_TOP[0], GRADIENT_BOTTOM[0], t),
-        _lerp(GRADIENT_TOP[1], GRADIENT_BOTTOM[1], t),
-        _lerp(GRADIENT_TOP[2], GRADIENT_BOTTOM[2], t),
+        _lerp(BG_TOP[0], BG_BOTTOM[0], t),
+        _lerp(BG_TOP[1], BG_BOTTOM[1], t),
+        _lerp(BG_TOP[2], BG_BOTTOM[2], t),
+    )
+
+
+def _mark_row(y: float, top: float, bottom: float) -> tuple[int, int, int]:
+    span = max(bottom - top, 1.0)
+    t = (y - top) / span
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    return (
+        _lerp(MARK_TOP[0], MARK_BOTTOM[0], t),
+        _lerp(MARK_TOP[1], MARK_BOTTOM[1], t),
+        _lerp(MARK_TOP[2], MARK_BOTTOM[2], t),
     )
 
 
@@ -90,7 +113,7 @@ def _in_rounded_rect(
     return dx * dx + dy * dy <= radius * radius
 
 
-def _in_capsule(
+def _in_vcapsule(
     x: float, y: float, cx: float, half_width: float, top: float,
     bottom: float,
 ) -> bool:
@@ -106,33 +129,69 @@ def _in_capsule(
     return dx * dx + dy * dy <= half_width * half_width
 
 
-def _bars(region_left: float, region_top: float, region_size: float):
-    """Returns the (cx, half_width, top, bottom) of each equalizer bar."""
-    bar_width = region_size * BAR_WIDTH_FRACTION
-    gap = region_size * BAR_GAP_FRACTION
-    count = len(BAR_HEIGHTS)
-    group_width = count * bar_width + (count - 1) * gap
-    start_x = region_left + (region_size - group_width) / 2
-    baseline = region_top + region_size * BASELINE_FRACTION
-    bars = []
-    for i, height_fraction in enumerate(BAR_HEIGHTS):
-        left = start_x + i * (bar_width + gap)
-        cx = left + bar_width / 2
-        top = baseline - region_size * height_fraction
-        bars.append((cx, bar_width / 2, top, baseline))
-    return bars
+def _in_hcapsule(
+    x: float, y: float, cy: float, half_height: float, left: float,
+    right: float,
+) -> bool:
+    if abs(y - cy) > half_height:
+        return False
+    inner_left = left + half_height
+    inner_right = right - half_height
+    if inner_left <= x <= inner_right:
+        return True
+    anchor_x = inner_left if x < inner_left else inner_right
+    dx = x - anchor_x
+    dy = y - cy
+    return dx * dx + dy * dy <= half_height * half_height
+
+
+def _mark_shapes(left: float, top: float, size: float):
+    """Maps the fractional MARK into a square region at (left, top, size)."""
+    shapes = []
+    for s in MARK:
+        if s[0] == "v":
+            _, cx, hw, t, b = s
+            shapes.append((
+                "v", left + cx * size, hw * size,
+                top + t * size, top + b * size,
+            ))
+        else:
+            _, cy, hh, l, r = s
+            shapes.append((
+                "h", top + cy * size, hh * size,
+                left + l * size, left + r * size,
+            ))
+    return shapes
+
+
+def _mark_span(shapes) -> tuple[float, float]:
+    tops, bottoms = [], []
+    for s in shapes:
+        if s[0] == "v":
+            tops.append(s[3])
+            bottoms.append(s[4])
+        else:
+            tops.append(s[1] - s[2])
+            bottoms.append(s[1] + s[2])
+    return min(tops), max(bottoms)
+
+
+def _hit(s, x: float, y: float) -> bool:
+    if s[0] == "v":
+        return _in_vcapsule(x, y, s[1], s[2], s[3], s[4])
+    return _in_hcapsule(x, y, s[1], s[2], s[3], s[4])
 
 
 def _render(width: int, height: int, ss: int, *, mode: str) -> bytearray:
     """Renders the mark at width x height, supersampled by ss for anti-aliasing.
 
     [mode] selects the composition:
-      - "tile":       brand gradient in a rounded square, transparent corners
+      - "tile":       brand squircle (dark gradient), transparent corners
                       (the legacy launcher icon and the F-Droid icon);
-      - "foreground": transparent background, bars only in the safe zone (the
-                      adaptive icon foreground, masked by the launcher);
-      - "banner":     full-bleed gradient with centred bars (the feature
-                      graphic).
+      - "foreground": transparent background, mark in the adaptive safe zone
+                      (the adaptive icon foreground, masked by the launcher);
+      - "banner":     full-bleed dark background with the centred mark (the
+                      feature graphic).
     """
     sw, sh = width * ss, height * ss
     region = min(sw, sh)
@@ -145,31 +204,40 @@ def _render(width: int, height: int, ss: int, *, mode: str) -> bytearray:
         tile_right = sw - margin
         tile_bottom = (sh + region) / 2 - margin
         corner = (tile_right - tile_left) * 0.225
-        bars = _bars(tile_left, tile_top, tile_right - tile_left)
+        inset = (tile_right - tile_left) * 0.12
+        shapes = _mark_shapes(
+            tile_left + inset, tile_top + inset,
+            (tile_right - tile_left) - 2 * inset,
+        )
     elif mode == "foreground":
         safe = region * 0.62
-        bars = _bars((sw - safe) / 2, (sh - safe) / 2, safe)
+        shapes = _mark_shapes((sw - safe) / 2, (sh - safe) / 2, safe)
     else:  # "banner"
-        bar_region = region * 0.66
-        bars = _bars((sw - bar_region) / 2, (sh - bar_region) / 2, bar_region)
+        mark_region = region * 0.62
+        shapes = _mark_shapes(
+            (sw - mark_region) / 2, (sh - mark_region) / 2, mark_region,
+        )
+
+    mark_top, mark_bottom = _mark_span(shapes)
 
     # Hard inside/outside tests at the supersampled resolution; the box
     # downsample below turns the jagged edges into smooth anti-aliased ones.
     hi = bytearray(sw * sh * 4)
     for sy in range(sh):
-        grad = _gradient_row(sy, sh)
+        bg = _bg_row(sy, sh)
+        mk = _mark_row(sy, mark_top, mark_bottom)
         row = sy * sw * 4
         for sx in range(sw):
             r = g = b = a = 0
             if mode == "banner":
-                r, g, b, a = grad[0], grad[1], grad[2], 255
+                r, g, b, a = bg[0], bg[1], bg[2], 255
             elif mode == "tile" and _in_rounded_rect(
                 sx, sy, tile_left, tile_top, tile_right, tile_bottom, corner
             ):
-                r, g, b, a = grad[0], grad[1], grad[2], 255
-            for (cx, hw, top, bottom) in bars:
-                if _in_capsule(sx, sy, cx, hw, top, bottom):
-                    r, g, b, a = BAR_COLOR[0], BAR_COLOR[1], BAR_COLOR[2], 255
+                r, g, b, a = bg[0], bg[1], bg[2], 255
+            for s in shapes:
+                if _hit(s, sx, sy):
+                    r, g, b, a = mk[0], mk[1], mk[2], 255
                     break
             o = row + sx * 4
             hi[o] = r

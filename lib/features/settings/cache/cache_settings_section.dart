@@ -218,7 +218,6 @@ class _CacheLimitDialogState extends State<_CacheLimitDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Size',
                     suffixText: 'GB',
-                    border: OutlineInputBorder(),
                   ),
                 ),
               ),
