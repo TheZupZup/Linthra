@@ -27,10 +27,21 @@ enum JellyfinErrorKind {
   /// problem is in front of Jellyfin, not the address itself.
   webPage,
 
-  /// A stream URL was probed and the server answered, but not with audio (an
-  /// unexpected content type or a non-2xx that isn't auth/transport/5xx). The
-  /// item likely can't be direct-streamed in its current form.
+  /// A stream URL was probed and the server answered, but not with audio (a
+  /// 2xx with an unexpected content type). The item likely can't be
+  /// direct-streamed in its current form.
   notAudioStream,
+
+  /// A stream URL was probed and the server returned 404: the audio item isn't
+  /// available to stream (moved, removed, or a library the token can't reach).
+  /// Distinct from [notAudioStream] so the player can say "this track isn't
+  /// available" rather than "the server returned the wrong kind of data".
+  streamUnavailable,
+
+  /// The server answered with something Linthra can't classify or use — an
+  /// unexpected non-2xx status on a stream, or a shape an older/newer server
+  /// returned that this version doesn't understand.
+  unsupportedResponse,
 
   /// Any other unexpected failure.
   unexpected,
@@ -94,6 +105,22 @@ class JellyfinException implements Exception {
   factory JellyfinException.notAudioStream() => const JellyfinException(
         "Jellyfin didn't return an audio stream for this track.",
         kind: JellyfinErrorKind.notAudioStream,
+      );
+
+  factory JellyfinException.streamUnavailable() => const JellyfinException(
+        "This track isn't available to stream from your server right now. "
+        'It may have been moved or removed.',
+        kind: JellyfinErrorKind.streamUnavailable,
+        statusCode: 404,
+      );
+
+  factory JellyfinException.unsupportedResponse([int? statusCode]) =>
+      JellyfinException(
+        'Your Jellyfin server returned a response Linthra could not use'
+        '${statusCode != null ? ' (HTTP $statusCode)' : ''}. '
+        'It may be running an unsupported version.',
+        kind: JellyfinErrorKind.unsupportedResponse,
+        statusCode: statusCode,
       );
 
   factory JellyfinException.unexpected(int statusCode) => JellyfinException(

@@ -1,3 +1,5 @@
+import '../../../core/sources/jellyfin/jellyfin_exception.dart';
+
 /// Where the Jellyfin connection is in its lifecycle.
 enum JellyfinConnectionPhase {
   /// No session and nothing in progress.
@@ -32,8 +34,10 @@ class JellyfinSettingsState {
     this.username,
     this.serverName,
     this.serverVersion,
+    this.productName,
     this.statusMessage,
     this.errorMessage,
+    this.errorKind,
   });
 
   final JellyfinConnectionPhase phase;
@@ -47,14 +51,22 @@ class JellyfinSettingsState {
   /// Friendly server name from a connection test or the saved session.
   final String? serverName;
 
-  /// Server version string from a connection test.
+  /// Server version string from a connection test or the saved session.
   final String? serverVersion;
+
+  /// Server product name (e.g. "Jellyfin Server"), when reported.
+  final String? productName;
 
   /// A friendly, non-error status line (e.g. "Connected to …").
   final String? statusMessage;
 
   /// A friendly error line, when the last action failed.
   final String? errorMessage;
+
+  /// The kind of the last failure, kept for the diagnostics report so it can
+  /// show a stable, non-secret error category. The friendly [errorMessage] is
+  /// already secret-free; the kind is even safer to surface in a bug report.
+  final JellyfinErrorKind? errorKind;
 
   bool get isConnected => phase == JellyfinConnectionPhase.connected;
 

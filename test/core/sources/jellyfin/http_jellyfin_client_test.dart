@@ -31,6 +31,7 @@ void main() {
             'ServerName': 'Home',
             'Version': '10.9.0',
             'Id': 'abc',
+            'ProductName': 'Jellyfin Server',
           }),
           200,
           headers: <String, String>{'content-type': 'application/json'},
@@ -41,6 +42,7 @@ void main() {
 
       expect(info.serverName, 'Home');
       expect(info.version, '10.9.0');
+      expect(info.productName, 'Jellyfin Server');
       expect(captured!.method, 'GET');
       expect(captured!.url.path, '/System/Info/Public');
     });

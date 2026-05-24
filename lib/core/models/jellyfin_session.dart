@@ -18,6 +18,8 @@ class JellyfinSession {
     this.userName,
     this.serverId,
     this.serverName,
+    this.serverVersion,
+    this.productName,
   });
 
   /// Clean base URL of the server (no trailing slash), e.g.
@@ -45,6 +47,14 @@ class JellyfinSession {
   /// only.
   final String? serverName;
 
+  /// The server's reported version (e.g. `10.9.11`), when known. Carried so the
+  /// diagnostics report can show it after a restart. Not secret, display only.
+  final String? serverVersion;
+
+  /// The server's product name (e.g. `Jellyfin Server`), when reported. Not
+  /// secret, display/diagnostics only.
+  final String? productName;
+
   JellyfinSession copyWith({
     String? baseUrl,
     String? userId,
@@ -53,6 +63,8 @@ class JellyfinSession {
     String? userName,
     String? serverId,
     String? serverName,
+    String? serverVersion,
+    String? productName,
   }) {
     return JellyfinSession(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -62,6 +74,8 @@ class JellyfinSession {
       userName: userName ?? this.userName,
       serverId: serverId ?? this.serverId,
       serverName: serverName ?? this.serverName,
+      serverVersion: serverVersion ?? this.serverVersion,
+      productName: productName ?? this.productName,
     );
   }
 
@@ -76,6 +90,8 @@ class JellyfinSession {
         if (userName != null) 'userName': userName,
         if (serverId != null) 'serverId': serverId,
         if (serverName != null) 'serverName': serverName,
+        if (serverVersion != null) 'serverVersion': serverVersion,
+        if (productName != null) 'productName': productName,
       };
 
   /// Rebuilds a session from [toJson] output, or returns `null` if any required
@@ -98,6 +114,8 @@ class JellyfinSession {
       userName: json['userName'] as String?,
       serverId: json['serverId'] as String?,
       serverName: json['serverName'] as String?,
+      serverVersion: json['serverVersion'] as String?,
+      productName: json['productName'] as String?,
     );
   }
 
@@ -111,7 +129,9 @@ class JellyfinSession {
           other.deviceId == deviceId &&
           other.userName == userName &&
           other.serverId == serverId &&
-          other.serverName == serverName);
+          other.serverName == serverName &&
+          other.serverVersion == serverVersion &&
+          other.productName == productName);
 
   @override
   int get hashCode => Object.hash(
@@ -122,6 +142,8 @@ class JellyfinSession {
         userName,
         serverId,
         serverName,
+        serverVersion,
+        productName,
       );
 
   /// Redacts the token so the session can be safely interpolated into logs or
@@ -129,5 +151,6 @@ class JellyfinSession {
   @override
   String toString() => 'JellyfinSession(baseUrl: $baseUrl, userId: $userId, '
       'userName: $userName, serverId: $serverId, serverName: $serverName, '
+      'serverVersion: $serverVersion, productName: $productName, '
       'deviceId: $deviceId, accessToken: <redacted>)';
 }

@@ -998,6 +998,11 @@ Deliberate gaps the next PRs will close:
 Linthra can connect to your own [Jellyfin](https://jellyfin.org) server,
 including one published over HTTPS through a **Cloudflare** domain or tunnel.
 
+> **Compatibility reference.** Supported use cases, exact endpoints, the tested
+> version floor, Cloudflare Tunnel vs. Zero Trust, troubleshooting, and how to
+> report an issue without leaking secrets are documented in
+> [docs/jellyfin-compatibility.md](docs/jellyfin-compatibility.md).
+
 **Setup.** Open **Settings → Jellyfin** and:
 
 1. **Server URL** — enter your server address, e.g. `https://music.example.com`.
@@ -1006,13 +1011,21 @@ including one published over HTTPS through a **Cloudflare** domain or tunnel.
    `https://example.com/jellyfin` is preserved.
 2. **Test connection** — checks the address is reachable and is really a
    Jellyfin server (it reads the public `/System/Info/Public` endpoint, no
-   credentials needed) and shows the server name/version.
+   credentials needed) and shows the server name/version. The server version is
+   also classified for compatibility, and an older-than-tested server shows a
+   gentle "untested" note (it is never blocked).
 3. **Username + password → Sign in** — authenticates and stores the resulting
-   session. The password field has a show/hide toggle.
+   session. The password field has a show/hide toggle. Sign-in also records the
+   server name/version/product (reading `/System/Info/Public` if you didn't tap
+   Test first) so diagnostics show them after a restart.
 4. **Sync library** — once signed in, pulls your Jellyfin artists/albums/tracks
    and stores them in the local catalog so they show up in the Library. Shows a
    spinner while it runs and a friendly result/error line when it's done.
-5. **Sign out & clear** — forgets the saved session and clears the settings.
+5. **Copy Jellyfin diagnostics** — copies a short, **secret-free** report (app
+   version, connection state, server name/version/host-only, last error kind) to
+   the clipboard for bug reports. It never includes your password, token,
+   `Authorization` header, or any full authenticated URL.
+6. **Sign out & clear** — forgets the saved session and clears the settings.
 
 **Cloudflare notes.** A Cloudflare-proxied or Cloudflare Tunnel (`cloudflared`)
 Jellyfin is just a normal HTTPS endpoint, so it works without any special
@@ -1040,6 +1053,12 @@ configuration — point the URL at your public domain. Two things to know:
 - **Offline downloads inherit the same handling.** A downloaded track's cache
   file name is derived only from the non-secret track id; the token never lands
   in the file name, the `DownloadStore` metadata, a log, or a download error.
+- **Diagnostics are secret-free by construction.** The "Copy Jellyfin
+  diagnostics" report (and the debug `PlaybackDiagnostics` log) have no field for
+  a password, token, `Authorization` header, or full authenticated URL; the
+  server address is reduced to its **host only**, and the persisted server
+  version/product are non-secret display values. Tests assert no token reaches
+  either sink.
 
 **What works now.** Configuring a server, testing the connection, signing in
 with friendly URL/connection/auth errors, persisting the session across
@@ -1070,8 +1089,12 @@ Cloudflare page, an expired token, or a non-audio response becomes a precise
 message instead of the engine's opaque "couldn't play". The player surfaces
 friendly errors — **not signed in**, **expired session**, **server
 unreachable**, **a web page instead of audio (Cloudflare/Jellyfin access)**,
-**not an audio stream**, and a generic **couldn't stream** — branched on a typed
-error kind, not message text. Local and `content://` file playback are untouched
+**not an audio stream**, a **track that isn't available** (a 404 from the stream
+endpoint), an **unsupported server response** (an unexpected status or shape),
+and a generic **couldn't stream** — branched on a typed error kind, not message
+text (the full mapping is tabulated in the compatibility doc). All Jellyfin URLs
+are built in one place (`JellyfinEndpoints`), so the stream, download, and probe
+paths can't drift apart. Local and `content://` file playback are untouched
 (they never enter the Jellyfin resolver), and a downloaded track still plays from
 its cached copy; a cache miss falls straight through to streaming. Debug builds
 emit a secret-free `PlaybackDiagnostics` line (source, resolver, HTTP status,
