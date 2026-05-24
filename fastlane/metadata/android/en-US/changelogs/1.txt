@@ -1,8 +1,18 @@
-Initial development build (0.1.0).
+Linthra 0.1.0-alpha.1 — first manually testable alpha.
 
-Early-stage. Working today: select a music folder, scan it, and list the
-discovered tracks; the selection and catalog persist across restarts. Audio
-playback, playlists, and offline downloads are still in progress.
+Working in this build:
+- Pick a local folder, scan it (Storage Access Framework on Android), and
+  list the discovered tracks; the choice and catalog persist across restarts.
+- Local audio playback with an up-next queue.
+- Background playback with a media notification and lock-screen / Bluetooth /
+  headset controls.
+- Android Auto: a browsable Library and Queue from the car screen.
+- Jellyfin: connect to your own server, sign in, sync your library, and
+  stream tracks. The session token is stored encrypted; passwords are never
+  saved.
+- Explicit, user-initiated offline downloads of Jellyfin tracks, with a
+  "Wi-Fi only" option. Nothing downloads automatically.
 
-This is a placeholder changelog for the first versionCode and will be replaced
-with real release notes once a published version exists.
+Alpha, so expect rough edges. Known limits: no tag/metadata parsing yet
+(tracks show file names), track-level downloads only, single Jellyfin server,
+optimistic connectivity detection, and no saved playlists. Not on F-Droid yet.

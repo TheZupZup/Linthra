@@ -9,9 +9,18 @@ control.
 
 ## Status
 
-**Early-stage, but Library v1 is wired end to end.** Alongside the project
+**First alpha: `0.1.0-alpha.1`.** Linthra is now a manually testable Android
+build. Local scanning, local playback, background playback with a media
+notification, an Android Auto browse foundation, Jellyfin connect/sync/stream,
+and explicit user-initiated offline downloads all work end to end. It is still
+early software with honest, documented limitations — see the per-feature
+"known limitations" sections below and the
+[v0.1.0-alpha.1 release notes](./docs/release-notes/v0.1.0-alpha.1.md). It is
+**not** on F-Droid yet, and nothing is published automatically.
+
+**Library v1 and beyond, wired end to end.** Alongside the project
 structure, dark-first theming, navigation, app shell, core domain models, and
-the service/repository *interfaces*, the Library feature now works as a real
+the service/repository *interfaces*, the Library feature works as a real
 vertical slice.
 
 **Library v1.** The Library screen can scan a local folder, persist the
@@ -492,6 +501,12 @@ signs its own builds) — are in [docs/release-signing.md](./docs/release-signin
   [docs/release-process.md](./docs/release-process.md). F-Droid readiness is
   tracked separately in [docs/fdroid-readiness.md](./docs/fdroid-readiness.md).
 
+> **First alpha (`v0.1.0-alpha.1`).** The draft GitHub-Release body — what
+> works, known limitations, sideload instructions, and the manual release
+> steps — lives in
+> [docs/release-notes/v0.1.0-alpha.1.md](./docs/release-notes/v0.1.0-alpha.1.md).
+> It is a draft only; cutting the tag and publishing the Release stay manual.
+
 ### Background playback & Android Auto
 
 Linthra registers a platform **media session** through `audio_service` so
@@ -954,8 +969,9 @@ branch rather than `main`.
 
 Later: Jellyfin (landed — settings, auth, encrypted session, a library source,
 Library sync, streaming playback, and explicit per-track offline downloads;
-album/playlist "download all" and a background download manager next), WebDAV,
-NAS, lyrics, ReplayGain, MPRIS, Android Auto, smart playlists, and more.
+album/playlist "download all" and a background download manager next), Android
+Auto (foundation landed — browsable Library/Queue; album/artist grouping and
+search next), WebDAV, NAS, lyrics, ReplayGain, MPRIS, smart playlists, and more.
 
 ## F-Droid metadata (work in progress)
 
@@ -969,8 +985,8 @@ F-Droid / Fastlane-style store metadata under
   limit).
 - `full_description.txt` — long description that deliberately separates what
   works today from what is still planned.
-- `changelogs/1.txt` — placeholder release notes for `versionCode` 1 (the
-  current `0.1.0+1`); replaced with real notes once a published version exists.
+- `changelogs/1.txt` — release notes for `versionCode` 1 (the current
+  `0.1.0-alpha.1+1`), shown by F-Droid if/when the app is listed.
 
 **Branding (real, committed).** Linthra now has a genuine app icon — four
 rounded white equalizer bars on the brand violet gradient — generated
@@ -991,10 +1007,11 @@ avoided so the listing never misrepresents the app. The full asset checklist,
 exact sizes, and screenshot-capture steps are in
 [docs/listing-assets.md](./docs/listing-assets.md).
 
-The wording describes only shipped behaviour (folder selection, scanning,
-playback, persisted listing) as done; playlists and offline downloads are
-described as planned. There are no claims of F-Droid availability and no
-marketing language that overpromises.
+The wording describes only shipped behaviour (folder selection, scanning, local
+and Jellyfin playback, background playback, Android Auto browsing, and explicit
+offline downloads) as done; tag parsing, artwork, playlists, and batch
+downloads are described as planned. There are no claims of F-Droid availability
+and no marketing language that overpromises.
 
 ### Release & F-Droid documentation
 

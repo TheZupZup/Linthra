@@ -14,7 +14,7 @@ docs reference this document rather than restating the plan.
 `pubspec.yaml` is the **single source of truth** for the version:
 
 ```
-version: x.y.z+<versionCode>      # currently 0.1.0+1
+version: x.y.z+<versionCode>      # currently 0.1.0-alpha.1+1
 ```
 
 - **`versionName` = `x.y.z`** — the human-facing [SemVer](https://semver.org/)
@@ -31,7 +31,9 @@ bumping `pubspec.yaml` is enough.
   decrease it — Android refuses to install an update with an equal/lower code,
   and F-Droid relies on it to order versions.
 - `versionName` follows SemVer. Pre-1.0, treat `0.y.z` as "still early; the API
-  and feature set can change between minor versions."
+  and feature set can change between minor versions." A SemVer pre-release
+  suffix (e.g. `0.1.0-alpha.1`) marks an explicitly unstable build; the matching
+  tag is `vX.Y.Z-suffix` and the GitHub Release should be marked **pre-release**.
 
 ## 2. Tagging
 
@@ -58,7 +60,10 @@ Before creating a release tag:
 1. **Bump the version** in `pubspec.yaml` (`versionName` and `versionCode`).
 2. **Add a changelog** for the new `versionCode` at
    `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` (e.g.
-   `1.txt` for `0.1.0+1`). Keep it short and factual; this is what F-Droid shows.
+   `1.txt` for `0.1.0-alpha.1+1`). Keep it short and factual; this is what
+   F-Droid shows. A longer GitHub-Release body can live under
+   `docs/release-notes/vX.Y.Z*.md` (see the
+   [v0.1.0-alpha.1 draft](./release-notes/v0.1.0-alpha.1.md)).
 3. **Regenerate committed generated files** (Drift `*.g.dart`) so they match the
    schema at the tagged commit — run the
    [Generate Drift files workflow](../README.md#generating-drift-files-in-ci) or
@@ -136,8 +141,12 @@ to F-Droid.
 2. **A `vX.Y.Z` tag** exists — none does yet.
 3. **Decide the `pubspec.lock` policy** for reproducible release builds
    ([fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
-4. **Feature-maturity call:** decide whether `0.1.0` (library scan only; playback
-   not shipped) is the version to release, or whether to wait.
+4. **Feature-maturity call — made for the alpha.** `0.1.0-alpha.1` ships local
+   scanning + playback, background playback / media notification, an Android
+   Auto browse foundation, Jellyfin connect/sync/stream, and explicit offline
+   downloads. It is published as a sideloadable, pre-release alpha (no F-Droid
+   submission yet). See
+   [docs/release-notes/v0.1.0-alpha.1.md](./release-notes/v0.1.0-alpha.1.md).
 
 See [fdroid-readiness.md §8](./fdroid-readiness.md#8-remaining-blockers-before-submission)
 for the full F-Droid blocker list.
