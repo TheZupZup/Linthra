@@ -18,7 +18,7 @@ class RoutingPlayableUriResolver implements PlayableUriResolver {
       _resolvers.any((PlayableUriResolver r) => r.handles(track));
 
   @override
-  Future<Uri> resolve(Track track) async {
+  Future<ResolvedPlayable> resolve(Track track) async {
     for (final PlayableUriResolver resolver in _resolvers) {
       if (resolver.handles(track)) {
         return resolver.resolve(track);

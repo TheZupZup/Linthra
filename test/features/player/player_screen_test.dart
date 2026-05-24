@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/playback_controller.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/player_screen.dart';
+import 'package:linthra/features/player/widgets/album_artwork.dart';
+import 'package:linthra/features/player/widgets/now_playing_background.dart';
 
 import 'fake_playback_controller.dart';
 
@@ -24,44 +27,101 @@ Future<void> _pumpScreen(
   await tester.pumpAndSettle();
 }
 
+/// A local track with full metadata but no artwork, so widget tests never reach
+/// for the network (artwork falls back to the placeholder).
+const _localTrack = Track(
+  id: '1',
+  title: 'Song One',
+  uri: '/music/song1.mp3',
+  artistName: 'Artist A',
+  albumName: 'Album B',
+);
+
+FakePlaybackController _playing({
+  Track track = _localTrack,
+  PlaybackSource source = PlaybackSource.localFile,
+  List<Track> upNext = const <Track>[],
+  bool hasPrevious = false,
+  Duration position = Duration.zero,
+  Duration duration = Duration.zero,
+}) {
+  return FakePlaybackController(
+    initial: PlaybackState(
+      status: PlaybackStatus.playing,
+      currentTrack: track,
+      source: source,
+      upNext: upNext,
+      hasPrevious: hasPrevious,
+      position: position,
+      duration: duration,
+    ),
+  );
+}
+
 void main() {
   group('PlayerScreen', () {
-    testWidgets('shows the empty state when nothing is loaded', (tester) async {
+    testWidgets('shows the empty state with no track', (tester) async {
       await _pumpScreen(tester, FakePlaybackController());
 
       expect(find.text('Nothing playing'), findsOneWidget);
     });
 
-    testWidgets('shows the current track title, artist, and Playing status', (
-      tester,
-    ) async {
-      final controller = FakePlaybackController(
-        initial: const PlaybackState(
-          status: PlaybackStatus.playing,
-          currentTrack: Track(
-            id: '1',
-            title: 'Song One',
-            uri: '/music/song1.mp3',
-            artistName: 'Artist A',
-          ),
-        ),
-      );
-      await _pumpScreen(tester, controller);
+    testWidgets('renders the title, artist, and album', (tester) async {
+      await _pumpScreen(tester, _playing());
 
       expect(find.text('Song One'), findsOneWidget);
       expect(find.text('Artist A'), findsOneWidget);
-      expect(find.text('Playing'), findsOneWidget);
+      expect(find.text('Album B'), findsOneWidget);
       // While playing, the toggle offers Pause.
       expect(find.byTooltip('Pause'), findsOneWidget);
     });
 
-    testWidgets('the play/pause button delegates to the controller', (
-      tester,
-    ) async {
+    testWidgets('falls back to placeholder artwork', (tester) async {
+      await _pumpScreen(tester, _playing());
+
+      // The background and artwork widgets render even without an artwork URI,
+      // and no broken-image exception is thrown.
+      expect(find.byType(NowPlayingBackground), findsOneWidget);
+      expect(find.byType(AlbumArtwork), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('shows the LOCAL FILE badge', (tester) async {
+      await _pumpScreen(tester, _playing(source: PlaybackSource.localFile));
+
+      expect(find.text('LOCAL FILE'), findsOneWidget);
+    });
+
+    testWidgets('shows the STREAMING DIRECT badge', (tester) async {
+      await _pumpScreen(
+        tester,
+        _playing(
+          track: const Track(id: 't1', title: 'Remote', uri: 'jellyfin:t1'),
+          source: PlaybackSource.streamingDirect,
+        ),
+      );
+
+      expect(find.text('STREAMING DIRECT'), findsOneWidget);
+    });
+
+    testWidgets('shows the OFFLINE CACHE badge', (tester) async {
+      await _pumpScreen(
+        tester,
+        _playing(
+          track: const Track(id: 't1', title: 'Remote', uri: 'jellyfin:t1'),
+          source: PlaybackSource.offlineCache,
+        ),
+      );
+
+      expect(find.text('OFFLINE CACHE'), findsOneWidget);
+    });
+
+    testWidgets('play/pause delegates to the controller', (tester) async {
       final controller = FakePlaybackController(
         initial: const PlaybackState(
           status: PlaybackStatus.paused,
-          currentTrack: Track(id: '1', title: 'Song One', uri: '/s.mp3'),
+          currentTrack: _localTrack,
+          source: PlaybackSource.localFile,
         ),
       );
       await _pumpScreen(tester, controller);
@@ -69,47 +129,29 @@ void main() {
       // Paused: tapping the toggle resumes playback.
       await tester.tap(find.byTooltip('Play'));
       expect(controller.playCount, 1);
-
-      // Stop is always available.
-      await tester.tap(find.byTooltip('Stop'));
-      expect(controller.stopCount, 1);
     });
 
-    testWidgets('shows the Up next list and an enabled Next button', (
-      tester,
-    ) async {
-      final controller = FakePlaybackController(
-        initial: const PlaybackState(
-          status: PlaybackStatus.playing,
-          currentTrack: Track(id: '1', title: 'Song One', uri: '/1.mp3'),
-          upNext: <Track>[
-            Track(id: '2', title: 'Song Two', uri: '/2.mp3'),
-            Track(id: '3', title: 'Song Three', uri: '/3.mp3'),
-          ],
-        ),
+    testWidgets('Next delegates to the controller', (tester) async {
+      final controller = _playing(
+        upNext: const <Track>[Track(id: '2', title: 'Song Two', uri: '/2.mp3')],
       );
       await _pumpScreen(tester, controller);
-
-      expect(find.text('Up next'), findsOneWidget);
-      expect(find.text('Song Two'), findsOneWidget);
-      expect(find.text('Song Three'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Next'));
       expect(controller.skipCount, 1);
     });
 
-    testWidgets('hides Up next and disables Next when the queue is empty', (
-      tester,
-    ) async {
-      final controller = FakePlaybackController(
-        initial: const PlaybackState(
-          status: PlaybackStatus.playing,
-          currentTrack: Track(id: '1', title: 'Only Song', uri: '/1.mp3'),
-        ),
-      );
+    testWidgets('Previous delegates to the controller', (tester) async {
+      final controller = _playing(hasPrevious: true);
       await _pumpScreen(tester, controller);
 
-      expect(find.text('Up next'), findsNothing);
+      await tester.tap(find.byTooltip('Previous'));
+      expect(controller.previousCount, 1);
+    });
+
+    testWidgets('disables Next with an empty queue', (tester) async {
+      await _pumpScreen(tester, _playing());
+
       final next = tester.widget<IconButton>(
         find.ancestor(
           of: find.byIcon(Icons.skip_next),
@@ -119,23 +161,39 @@ void main() {
       expect(next.onPressed, isNull);
     });
 
-    testWidgets('Clear delegates to the controller', (tester) async {
-      final controller = FakePlaybackController(
-        initial: const PlaybackState(
-          status: PlaybackStatus.playing,
-          currentTrack: Track(id: '1', title: 'Song One', uri: '/1.mp3'),
-          upNext: <Track>[Track(id: '2', title: 'Song Two', uri: '/2.mp3')],
-        ),
+    testWidgets('the slider seeks via the controller', (tester) async {
+      final controller = _playing(duration: const Duration(minutes: 3));
+      await _pumpScreen(tester, controller);
+
+      // Tapping the slider commits a seek to roughly its center.
+      await tester.tap(find.byType(Slider));
+      await tester.pumpAndSettle();
+
+      expect(controller.seeks, isNotEmpty);
+      expect(controller.seeks.first, greaterThan(Duration.zero));
+    });
+
+    testWidgets('the queue button opens up-next', (tester) async {
+      final controller = _playing(
+        upNext: const <Track>[
+          Track(id: '2', title: 'Song Two', uri: '/2.mp3'),
+          Track(id: '3', title: 'Song Three', uri: '/3.mp3'),
+        ],
       );
       await _pumpScreen(tester, controller);
+
+      await tester.tap(find.byTooltip('Queue'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Up next'), findsOneWidget);
+      expect(find.text('Song Two'), findsOneWidget);
+      expect(find.text('Song Three'), findsOneWidget);
 
       await tester.tap(find.text('Clear'));
       expect(controller.clearCount, 1);
     });
 
-    testWidgets('shows the specific error message on a playback error', (
-      tester,
-    ) async {
+    testWidgets('shows the specific playback error', (tester) async {
       final controller = FakePlaybackController(
         initial: const PlaybackState(
           status: PlaybackStatus.error,
@@ -155,21 +213,13 @@ void main() {
       expect(find.text("Couldn't play this track"), findsNothing);
     });
 
-    testWidgets('shows a Lyrics entry that opens a calm empty state', (
-      tester,
-    ) async {
-      final controller = FakePlaybackController(
-        initial: const PlaybackState(
-          status: PlaybackStatus.playing,
-          currentTrack: Track(id: '1', title: 'Song One', uri: '/s.mp3'),
-        ),
-      );
-      await _pumpScreen(tester, controller);
+    testWidgets('shows the Lyrics empty state', (tester) async {
+      await _pumpScreen(tester, _playing());
 
       // The entry point is visible on the player.
-      expect(find.text('Lyrics'), findsOneWidget);
+      expect(find.byTooltip('Lyrics'), findsOneWidget);
 
-      await tester.tap(find.text('Lyrics'));
+      await tester.tap(find.byTooltip('Lyrics'));
       await tester.pumpAndSettle();
 
       // No lyrics source yet, so it shows a calm placeholder rather than blank.
@@ -185,12 +235,13 @@ void main() {
         const PlaybackState(
           status: PlaybackStatus.playing,
           currentTrack: Track(id: '1', title: 'Live Track', uri: '/l.mp3'),
+          source: PlaybackSource.localFile,
         ),
       );
       await tester.pumpAndSettle();
 
       expect(find.text('Live Track'), findsOneWidget);
-      expect(find.text('Playing'), findsOneWidget);
+      expect(find.byTooltip('Pause'), findsOneWidget);
     });
   });
 }

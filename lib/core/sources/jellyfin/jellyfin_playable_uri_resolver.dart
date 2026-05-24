@@ -1,3 +1,4 @@
+import '../../models/playback_source.dart';
 import '../../models/track.dart';
 import '../../services/playable_uri_resolver.dart';
 import 'jellyfin_exception.dart';
@@ -28,7 +29,7 @@ class JellyfinPlayableUriResolver implements PlayableUriResolver {
       track.uri.startsWith(JellyfinTrackMapper.uriScheme);
 
   @override
-  Future<Uri> resolve(Track track) async {
+  Future<ResolvedPlayable> resolve(Track track) async {
     final JellyfinStreamSource? source = _source();
     if (source == null) {
       throw const PlaybackResolutionException(
@@ -54,7 +55,7 @@ class JellyfinPlayableUriResolver implements PlayableUriResolver {
         kind: PlaybackResolutionErrorKind.streamUnavailable,
       );
     }
-    return uri;
+    return ResolvedPlayable(uri, PlaybackSource.streamingDirect);
   }
 
   /// Maps a verification failure to a friendly, secret-free playback error.

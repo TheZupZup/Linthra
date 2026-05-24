@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/local_playable_uri_resolver.dart';
 
@@ -6,13 +7,14 @@ void main() {
   group('LocalPlayableUriResolver', () {
     const resolver = LocalPlayableUriResolver();
 
-    test('resolves a filesystem path to a file URI', () async {
+    test('resolves a filesystem path to a local-file source', () async {
       const track = Track(id: '1', title: 'One', uri: '/music/song.mp3');
 
-      final uri = await resolver.resolve(track);
+      final resolved = await resolver.resolve(track);
 
-      expect(uri, Uri.file('/music/song.mp3'));
-      expect(uri.scheme, 'file');
+      expect(resolved.uri, Uri.file('/music/song.mp3'));
+      expect(resolved.uri.scheme, 'file');
+      expect(resolved.source, PlaybackSource.localFile);
     });
 
     test('passes a content:// URI through unchanged', () async {
@@ -20,12 +22,13 @@ void main() {
           'tree/primary%3AMusic/document/primary%3AMusic%2FOne.mp3';
       const track = Track(id: raw, title: 'One', uri: raw);
 
-      final uri = await resolver.resolve(track);
+      final resolved = await resolver.resolve(track);
 
-      expect(uri.scheme, 'content');
+      expect(resolved.uri.scheme, 'content');
       // Compare parsed URIs (not strings) so the assertion doesn't depend on
       // Dart's percent-encoding normalization of the content URI.
-      expect(uri, Uri.parse(raw));
+      expect(resolved.uri, Uri.parse(raw));
+      expect(resolved.source, PlaybackSource.localFile);
     });
 
     test('handles on-device tracks but not Jellyfin tracks', () {

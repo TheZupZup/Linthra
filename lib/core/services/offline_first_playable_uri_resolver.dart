@@ -1,3 +1,4 @@
+import '../models/playback_source.dart';
 import '../models/track.dart';
 import 'cached_track_locator.dart';
 import 'playable_uri_resolver.dart';
@@ -26,10 +27,13 @@ class OfflineFirstPlayableUriResolver implements PlayableUriResolver {
   bool handles(Track track) => _fallback.handles(track);
 
   @override
-  Future<Uri> resolve(Track track) async {
+  Future<ResolvedPlayable> resolve(Track track) async {
     final String? cachedPath = await _locator.cachedFilePath(track);
     if (cachedPath != null) {
-      return Uri.file(cachedPath);
+      return ResolvedPlayable(
+        Uri.file(cachedPath),
+        PlaybackSource.offlineCache,
+      );
     }
     return _fallback.resolve(track);
   }

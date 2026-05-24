@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/cached_track_locator.dart';
 import 'package:linthra/core/services/offline_first_playable_uri_resolver.dart';
@@ -19,7 +20,7 @@ class _FakeLocator implements CachedTrackLocator {
 }
 
 /// A fallback that records the track it was asked to resolve and returns a
-/// canned (streaming) URI.
+/// canned (streaming) result.
 class _RecordingResolver implements PlayableUriResolver {
   _RecordingResolver(this._uri);
 
@@ -30,9 +31,9 @@ class _RecordingResolver implements PlayableUriResolver {
   bool handles(Track track) => true;
 
   @override
-  Future<Uri> resolve(Track track) async {
+  Future<ResolvedPlayable> resolve(Track track) async {
     resolved = track;
-    return _uri;
+    return ResolvedPlayable(_uri, PlaybackSource.streamingDirect);
   }
 }
 
@@ -42,7 +43,7 @@ class _OfflineResolver implements PlayableUriResolver {
   bool handles(Track track) => true;
 
   @override
-  Future<Uri> resolve(Track track) async {
+  Future<ResolvedPlayable> resolve(Track track) async {
     throw const PlaybackResolutionException(
       "Couldn't reach your Jellyfin server.",
       kind: PlaybackResolutionErrorKind.serverUnreachable,
@@ -62,10 +63,12 @@ void main() {
         fallback: fallback,
       );
 
-      final uri = await resolver.resolve(_track);
+      final resolved = await resolver.resolve(_track);
 
-      expect(uri.scheme, 'file');
-      expect(uri.toFilePath(), '/offline_audio/t1.mp3');
+      expect(resolved.uri.scheme, 'file');
+      expect(resolved.uri.toFilePath(), '/offline_audio/t1.mp3');
+      // A cache hit is reported as the offline-cache source.
+      expect(resolved.source, PlaybackSource.offlineCache);
       expect(fallback.resolved, isNull);
     });
 
@@ -78,9 +81,11 @@ void main() {
         fallback: fallback,
       );
 
-      final uri = await resolver.resolve(_track);
+      final resolved = await resolver.resolve(_track);
 
-      expect(uri.host, 'music.example.com');
+      expect(resolved.uri.host, 'music.example.com');
+      // The fallback's source (a direct stream) is passed straight through.
+      expect(resolved.source, PlaybackSource.streamingDirect);
       expect(fallback.resolved, _track);
     });
 

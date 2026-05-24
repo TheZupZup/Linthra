@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
@@ -48,9 +49,11 @@ void main() {
       );
       final resolver = JellyfinPlayableUriResolver(() => source);
 
-      final uri = await resolver.resolve(_jellyfinTrack);
+      final resolved = await resolver.resolve(_jellyfinTrack);
 
-      expect(uri.path, '/Audio/t1/universal');
+      expect(resolved.uri.path, '/Audio/t1/universal');
+      // A minted Jellyfin URL is reported as a direct stream.
+      expect(resolved.source, PlaybackSource.streamingDirect);
       // The session is verified before the URL is handed to the engine.
       expect(source.verifyCount, 1);
     });

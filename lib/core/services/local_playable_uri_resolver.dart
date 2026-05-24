@@ -1,3 +1,4 @@
+import '../models/playback_source.dart';
 import '../models/track.dart';
 import 'playable_uri_resolver.dart';
 
@@ -20,7 +21,12 @@ class LocalPlayableUriResolver implements PlayableUriResolver {
   }
 
   @override
-  Future<Uri> resolve(Track track) async => playableUriFor(track.uri);
+  Future<ResolvedPlayable> resolve(Track track) async {
+    return ResolvedPlayable(
+      playableUriFor(track.uri),
+      PlaybackSource.localFile,
+    );
+  }
 
   /// Maps a stored on-device [trackUri] to a playable URI: a `content://` URI
   /// (an Android SAF document) is opened as-is; everything else is treated as a

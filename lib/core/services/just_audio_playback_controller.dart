@@ -142,9 +142,9 @@ class JustAudioPlaybackController implements PlaybackController {
     );
     _emit(loading);
 
-    final Uri uri;
+    final ResolvedPlayable resolved;
     try {
-      uri = await _resolver.resolve(track);
+      resolved = await _resolver.resolve(track);
     } on PlaybackResolutionException catch (error) {
       _emitError(track, error.message);
       return;
@@ -153,10 +153,15 @@ class JustAudioPlaybackController implements PlaybackController {
       return;
     }
 
+    // Record where the audio is coming from so the UI can show an honest
+    // source badge. It rides along on every later position/status update via
+    // copyWith until the next track loads (which resets it).
+    _emit(_state.copyWith(source: resolved.source));
+
     try {
       // setUrl handles file://, content:// (Android), and https:// URIs alike,
       // so local files, SAF documents, and Jellyfin streams share one path.
-      await _player.setUrl(uri.toString());
+      await _player.setUrl(resolved.uri.toString());
       // play()'s future completes when playback ends, so we don't await it.
       unawaited(_player.play());
     } catch (_) {

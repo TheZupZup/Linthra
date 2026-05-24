@@ -7,6 +7,7 @@ import '../../app/routes.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/services/playback_controller.dart';
 import 'player_providers.dart';
+import 'widgets/album_artwork.dart';
 
 /// A compact, persistent now-playing bar shown above the bottom navigation on
 /// every main screen (Library / Playlists / Downloads / Settings).
@@ -53,7 +54,13 @@ class MiniPlayer extends ConsumerWidget {
           ),
           child: Row(
             children: [
-              Icon(Icons.music_note, color: theme.colorScheme.primary),
+              SizedBox.square(
+                dimension: 44,
+                child: AlbumArtwork(
+                  artworkUri: track.artworkUri,
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                ),
+              ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(

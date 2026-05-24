@@ -1,12 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/local_playable_uri_resolver.dart';
 import 'package:linthra/core/services/offline_first_playable_uri_resolver.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/services/routing_playable_uri_resolver.dart';
+import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_playable_uri_resolver.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_stream_source.dart';
+import 'package:linthra/core/sources/jellyfin/jellyfin_track_mapper.dart';
 import 'package:linthra/data/repositories/in_memory_download_store.dart';
 import 'package:linthra/data/repositories/in_memory_offline_file_store.dart';
 import 'package:linthra/data/repositories/store_cached_track_locator.dart';
@@ -64,11 +67,12 @@ void main() {
         source: source,
       );
 
-      final uri = await resolver.resolve(_jellyfinTrack);
+      final resolved = await resolver.resolve(_jellyfinTrack);
 
       // It streamed (no download required) straight from Jellyfin.
-      expect(uri.scheme, 'https');
-      expect(uri.path, '/Audio/t1/universal');
+      expect(resolved.uri.scheme, 'https');
+      expect(resolved.uri.path, '/Audio/t1/universal');
+      expect(resolved.source, PlaybackSource.streamingDirect);
       expect(source.verifyCount, 1);
       expect(source.resolveCount, 1);
     });
@@ -90,11 +94,12 @@ void main() {
         source: source,
       );
 
-      final uri = await resolver.resolve(_jellyfinTrack);
+      final resolved = await resolver.resolve(_jellyfinTrack);
 
       // Cache hit: a local file, and the network source was never touched.
-      expect(uri.scheme, 'file');
-      expect(uri.toFilePath(), '/offline_audio/t1.mp3');
+      expect(resolved.uri.scheme, 'file');
+      expect(resolved.uri.toFilePath(), '/offline_audio/t1.mp3');
+      expect(resolved.source, PlaybackSource.offlineCache);
       expect(source.verifyCount, 0);
       expect(source.resolveCount, 0);
     });
@@ -109,13 +114,55 @@ void main() {
         source: source,
       );
 
-      final uri = await resolver.resolve(_localTrack);
+      final resolved = await resolver.resolve(_localTrack);
 
-      expect(uri.scheme, 'file');
-      expect(uri.toFilePath(), '/music/one.mp3');
+      expect(resolved.uri.scheme, 'file');
+      expect(resolved.uri.toFilePath(), '/music/one.mp3');
+      expect(resolved.source, PlaybackSource.localFile);
       // A local track never consults the Jellyfin source.
       expect(source.verifyCount, 0);
       expect(source.resolveCount, 0);
+    });
+  });
+
+  group('Jellyfin token safety', () {
+    const baseUrl = 'https://music.example.com';
+    const token = 'super-secret-token';
+
+    test('no token leaks into the track uri, artwork, source label, or cache '
+        'filename', () async {
+      // The mapped track is the persisted identity the UI and database see.
+      final track = JellyfinTrackMapper.toTrack(
+        const JellyfinItemDto(id: 't1', name: 'One', hasPrimaryImage: true),
+        baseUrl: baseUrl,
+      );
+      expect(track.uri, 'jellyfin:t1');
+      expect(track.uri, isNot(contains(token)));
+      expect(track.artworkUri.toString(), isNot(contains(token)));
+      expect(track.artworkUri.toString(), isNot(contains('api_key')));
+
+      // The tokenized stream URL is minted only at play time; the source the UI
+      // renders is a plain enum label with no secret in it.
+      final source = _FakeStreamSource(
+        Uri.parse('$baseUrl/Audio/t1/universal?api_key=$token'),
+      );
+      final resolver = _resolver(
+        locator: StoreCachedTrackLocator(
+          InMemoryDownloadStore(),
+          InMemoryOfflineFileStore(),
+        ),
+        source: source,
+      );
+      final resolved = await resolver.resolve(track);
+      expect(resolved.source, PlaybackSource.streamingDirect);
+      expect(resolved.source.label, isNot(contains(token)));
+
+      // A downloaded copy is named from the track id, never the tokenized URL.
+      final files = InMemoryOfflineFileStore();
+      final fileName =
+          await files.write(track.id, <int>[1, 2, 3], extension: 'mp3');
+      expect(fileName, isNot(contains(token)));
+      expect(fileName, isNot(contains('api_key')));
     });
   });
 }

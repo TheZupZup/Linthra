@@ -6,10 +6,18 @@ import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
 import 'player_providers.dart';
+import 'widgets/album_artwork.dart';
+import 'widgets/now_playing_actions.dart';
+import 'widgets/now_playing_background.dart';
+import 'widgets/playback_controls.dart';
+import 'widgets/playback_progress_bar.dart';
+import 'widgets/track_metadata.dart';
 
-/// Full-screen now-playing view. Renders from [playbackStateProvider] and
-/// drives playback through the [PlaybackController]; it never touches the audio
-/// engine directly. Pushed above the shell via AppRoutes.player.
+/// Full-screen now-playing view. Renders from [playbackStateProvider] and drives
+/// playback through the [PlaybackController]; it never touches the audio engine,
+/// Jellyfin, or the cache directly. Layout is composed from small widgets
+/// (background, artwork, metadata, progress, controls, actions) so this file
+/// stays a thin orchestrator. Pushed above the shell via AppRoutes.player.
 class PlayerScreen extends ConsumerWidget {
   const PlayerScreen({super.key});
 
@@ -18,16 +26,69 @@ class PlayerScreen extends ConsumerWidget {
     final controller = ref.watch(playbackControllerProvider);
     final state =
         ref.watch(playbackStateProvider).valueOrNull ?? controller.state;
+    final Track? track = state.currentTrack;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Now Playing')),
-      body: state.hasTrack ? _NowPlaying(state: state) : const _Nothing(),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: NowPlayingBackground(artworkUri: track?.artworkUri),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                const _Header(),
+                Expanded(
+                  child: track == null
+                      ? const _EmptyNowPlaying()
+                      : _NowPlaying(state: state, track: track),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _Nothing extends StatelessWidget {
-  const _Nothing();
+/// Top bar: a collapse affordance and a calm "Now Playing" caption. Transparent
+/// so the blurred artwork shows through.
+class _Header extends StatelessWidget {
+  const _Header();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.keyboard_arrow_down),
+            tooltip: 'Close',
+          ),
+          Expanded(
+            child: Text(
+              'Now Playing',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+              ),
+            ),
+          ),
+          // Balances the leading button so the title stays centered.
+          const SizedBox(width: 48),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyNowPlaying extends StatelessWidget {
+  const _EmptyNowPlaying();
 
   @override
   Widget build(BuildContext context) {
@@ -39,241 +100,80 @@ class _Nothing extends StatelessWidget {
   }
 }
 
-/// Lays out the now-playing block above an optional "Up next" section. The
-/// centered track info stays vertically centered when the queue is empty, and
-/// shares the screen with the queue list when there are upcoming tracks.
-class _NowPlaying extends StatelessWidget {
-  const _NowPlaying({required this.state});
+class _NowPlaying extends ConsumerWidget {
+  const _NowPlaying({required this.state, required this.track});
 
   final PlaybackState state;
+  final Track track;
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // The now-playing block keeps the larger share so the controls stay
-        // on screen even when the queue list is shown beneath it.
-        Expanded(
-          flex: 2,
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(AppSpacing.xl),
-              child: _TrackInfo(state: state),
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.sm,
+        AppSpacing.lg,
+        AppSpacing.md,
+      ),
+      child: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: AlbumArtwork(artworkUri: track.artworkUri),
+              ),
             ),
           ),
-        ),
-        if (state.hasNext) Expanded(child: _UpNext(tracks: state.upNext)),
-      ],
-    );
-  }
-}
-
-class _TrackInfo extends StatelessWidget {
-  const _TrackInfo({required this.state});
-
-  final PlaybackState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final track = state.currentTrack!;
-    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.7);
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.music_note, size: 96, color: theme.colorScheme.primary),
-        const SizedBox(height: AppSpacing.xl),
-        Text(
-          track.title,
-          style: theme.textTheme.headlineSmall,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        if (track.artistName != null && track.artistName!.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          TrackMetadata(
+            title: track.title,
+            artistName: track.artistName,
+            albumName: track.albumName,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _SourceOrError(state: state),
           const SizedBox(height: AppSpacing.sm),
-          Text(
-            track.artistName!,
-            style: theme.textTheme.titleMedium?.copyWith(color: muted),
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          PlaybackProgressBar(
+            position: state.position,
+            duration: state.duration,
+            onSeek: (position) =>
+                ref.read(playbackControllerProvider).seek(position),
           ),
+          const SizedBox(height: AppSpacing.xs),
+          PlaybackControls(state: state),
+          const SizedBox(height: AppSpacing.sm),
+          const NowPlayingActions(),
         ],
-        const SizedBox(height: AppSpacing.lg),
-        Text(
-          _statusText(state),
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: state.status == PlaybackStatus.error
-                ? theme.colorScheme.error
-                : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        _Controls(state: state),
-        const SizedBox(height: AppSpacing.md),
-        const _LyricsButton(),
-      ],
-    );
-  }
-}
-
-/// Visible entry point for lyrics. Lyrics aren't sourced yet, so tapping opens a
-/// calm empty state rather than nothing — the button stays put for when a real
-/// lyrics source lands in a later change. No lyrics are fetched or scraped.
-class _LyricsButton extends StatelessWidget {
-  const _LyricsButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return TextButton.icon(
-      onPressed: () => _showLyrics(context),
-      icon: const Icon(Icons.lyrics_outlined),
-      label: const Text('Lyrics'),
-    );
-  }
-
-  void _showLyrics(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => const SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(bottom: AppSpacing.xl),
-          child: EmptyState(
-            icon: Icons.lyrics_outlined,
-            title: 'No lyrics available yet.',
-            message: 'Lyrics support is coming in a future update.',
-          ),
-        ),
       ),
     );
   }
 }
 
-class _Controls extends ConsumerWidget {
-  const _Controls({required this.state});
+/// Under the metadata: a friendly error message when playback failed, otherwise
+/// the playback-source badge (LOCAL FILE / STREAMING DIRECT / OFFLINE CACHE)
+/// once a track has resolved. Shows nothing while a track is still loading.
+class _SourceOrError extends StatelessWidget {
+  const _SourceOrError({required this.state});
 
   final PlaybackState state;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.read(playbackControllerProvider);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        IconButton.filled(
-          iconSize: 48,
-          onPressed: state.isPlaying ? controller.pause : controller.play,
-          icon: Icon(state.isPlaying ? Icons.pause : Icons.play_arrow),
-          tooltip: state.isPlaying ? 'Pause' : 'Play',
-        ),
-        const SizedBox(width: AppSpacing.lg),
-        IconButton.filledTonal(
-          iconSize: 48,
-          onPressed: state.hasNext ? controller.skipToNext : null,
-          icon: const Icon(Icons.skip_next),
-          tooltip: 'Next',
-        ),
-        const SizedBox(width: AppSpacing.lg),
-        IconButton.filledTonal(
-          iconSize: 48,
-          onPressed: controller.stop,
-          icon: const Icon(Icons.stop),
-          tooltip: 'Stop',
-        ),
-      ],
-    );
-  }
-}
-
-/// The "Up next" section: a header with a Clear action and the upcoming tracks
-/// in play order. Only built when the queue has upcoming tracks.
-class _UpNext extends ConsumerWidget {
-  const _UpNext({required this.tracks});
-
-  final List<Track> tracks;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final controller = ref.read(playbackControllerProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            AppSpacing.sm,
-            AppSpacing.sm,
-            AppSpacing.sm,
-          ),
-          child: Row(
-            children: [
-              Text('Up next', style: theme.textTheme.titleSmall),
-              const Spacer(),
-              TextButton(
-                onPressed: controller.clearQueue,
-                child: const Text('Clear'),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            itemCount: tracks.length,
-            itemBuilder: (context, index) => _UpNextTile(track: tracks[index]),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _UpNextTile extends StatelessWidget {
-  const _UpNextTile({required this.track});
-
-  final Track track;
-
-  @override
   Widget build(BuildContext context) {
-    final artist = track.artistName;
-    return ListTile(
-      dense: true,
-      leading: const Icon(Icons.queue_music_outlined),
-      title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: artist == null || artist.isEmpty
-          ? null
-          : Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis),
-    );
-  }
-}
-
-/// The status line under the track. On error it shows the state's specific,
-/// friendly [PlaybackState.errorMessage] (e.g. "session has expired") when one
-/// is set, falling back to a generic line.
-String _statusText(PlaybackState state) {
-  if (state.status == PlaybackStatus.error) {
-    return state.errorMessage ?? "Couldn't play this track";
-  }
-  return _statusLabel(state.status);
-}
-
-String _statusLabel(PlaybackStatus status) {
-  switch (status) {
-    case PlaybackStatus.idle:
-      return 'Stopped';
-    case PlaybackStatus.loading:
-      return 'Loading…';
-    case PlaybackStatus.playing:
-      return 'Playing';
-    case PlaybackStatus.paused:
-      return 'Paused';
-    case PlaybackStatus.completed:
-      return 'Finished';
-    case PlaybackStatus.error:
-      return "Couldn't play this track";
+    final theme = Theme.of(context);
+    if (state.status == PlaybackStatus.error) {
+      return Text(
+        state.errorMessage ?? "Couldn't play this track",
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.error,
+        ),
+        textAlign: TextAlign.center,
+      );
+    }
+    final source = state.source;
+    if (source == null) {
+      return const SizedBox(height: 28);
+    }
+    return PlaybackSourceChip(source: source);
   }
 }

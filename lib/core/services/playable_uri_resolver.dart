@@ -1,4 +1,20 @@
+import '../models/playback_source.dart';
 import '../models/track.dart';
+
+/// The outcome of resolving a [Track]: the URI the audio engine should open and
+/// where those bytes come from.
+///
+/// Carrying the [source] alongside the [uri] lets the player show an honest
+/// "LOCAL FILE / STREAMING DIRECT / OFFLINE CACHE" badge without re-deriving it
+/// (a `file://` URI alone can't tell an on-device track from a downloaded remote
+/// one). The resolver that actually produces the URI is the one that knows, so
+/// it reports both together.
+class ResolvedPlayable {
+  const ResolvedPlayable(this.uri, this.source);
+
+  final Uri uri;
+  final PlaybackSource source;
+}
 
 /// Why resolving a [Track] to a playable URI failed.
 ///
@@ -50,7 +66,7 @@ abstract interface class PlayableUriResolver {
   /// Whether this resolver can produce a URI for [track].
   bool handles(Track track);
 
-  /// Resolves [track] to a playable URI, or throws a
+  /// Resolves [track] to a playable URI and its source, or throws a
   /// [PlaybackResolutionException] with a friendly, secret-free message.
-  Future<Uri> resolve(Track track);
+  Future<ResolvedPlayable> resolve(Track track);
 }
