@@ -1,25 +1,45 @@
 name: Android Release Build
 
-# Builds the Android release artifacts (APK + AAB) and attaches them to the
-# workflow run. This is a build-only foundation for future GitHub Releases /
-# F-Droid distribution: it does NOT create a GitHub release, publish to any
-# store, or submit to F-Droid, and it runs only when you trigger it manually.
+# Builds the Android release artifacts (APK + AAB) and makes them available as
+# workflow artifacts. When triggered by a version tag, it can additionally
+# attach the *release-signed* artifacts to a matching GitHub Release (if one
+# already exists). It never creates a GitHub Release, writes release notes,
+# publishes to a store, or submits to F-Droid.
 #
-# Signing: this workflow can produce either a real release-signed build or a
-# debug-key build, controlled by the `signed` input below.
+# Triggers:
 #
-#   * signed = false (default): no signing secrets are read; the release build
-#     falls back to the debug signing config in android/app/build.gradle. The
-#     artifacts are DEBUG-KEY SIGNED — fine for previews and smoke-testing a
-#     release build, but NOT suitable for store or F-Droid distribution. They
-#     are uploaded with a `-debug-signed` name so they cannot be mistaken for a
-#     real release.
+#   * workflow_dispatch (manual): produces test builds. The `signed` input
+#     chooses real release signing vs. a debug-key build, exactly as before.
 #
-#   * signed = true: the workflow decodes a keystore from the LINTHRA_KEYSTORE_*
-#     repository secrets and signs the build with it. If any required secret is
-#     missing the run fails fast with a clear error (it does NOT silently fall
-#     back to the debug key). See docs/release-signing.md for the required
-#     secrets and how to generate / rotate the keystore.
+#   * push of a tag matching `v*` (e.g. v0.1.0-alpha.1): an automatic release
+#     build. Tag builds attempt release signing and, if the signing secrets are
+#     present, attach the signed APK/AAB to an existing GitHub Release for that
+#     tag.
+#
+# Why not also `release: [published]`? Creating a Release in the GitHub UI on a
+# new tag also pushes that tag, which already fires the `push` trigger above.
+# Listening to both would build the same commit twice. We listen only to the
+# tag push and look up the Release from inside that run, so there is exactly one
+# build per tag and release notes stay manually authored.
+#
+# Signing (unchanged behavior for manual runs):
+#
+#   * Manual run, signed = false (default): no signing secrets are read; the
+#     build falls back to the debug signing config in android/app/build.gradle.
+#     Artifacts are DEBUG-KEY SIGNED — fine for previews, NOT for distribution —
+#     and are uploaded with a `-debug-signed` name.
+#
+#   * Manual run, signed = true: decodes the keystore from the LINTHRA_KEYSTORE_*
+#     secrets and signs with it. If any required secret is missing the run fails
+#     fast (it does NOT silently fall back to the debug key).
+#
+#   * Tag push: signed if the LINTHRA_* secrets are configured (-> release-signed,
+#     eligible for Release attachment). If the secrets are missing, the run does
+#     NOT pretend to be a real release: it builds DEBUG-KEY signed artifacts,
+#     labels them `-debug-signed`, emits a loud warning, and does NOT attach them
+#     to any Release.
+#
+# See docs/release-signing.md for the required secrets and keystore handling.
 on:
   workflow_dispatch:
     inputs:
@@ -27,9 +47,13 @@ on:
         description: "Sign with the release keystore (requires LINTHRA_* secrets). If false, builds are debug-signed and labeled as such."
         type: boolean
         default: false
+  push:
+    tags:
+      - "v*"
 
-# Read-only is all this needs: artifacts are shared via upload-artifact rather
-# than by writing to the repo or creating a release.
+# Default to read-only. Building and sharing artifacts via upload-artifact needs
+# nothing more. The separate attach-release job below requests `contents: write`
+# only for itself, and only to upload assets to an existing GitHub Release.
 permissions:
   contents: read
 
@@ -45,28 +69,57 @@ jobs:
       LINTHRA_KEYSTORE_PASSWORD: ${{ secrets.LINTHRA_KEYSTORE_PASSWORD }}
       LINTHRA_KEY_ALIAS: ${{ secrets.LINTHRA_KEY_ALIAS }}
       LINTHRA_KEY_PASSWORD: ${{ secrets.LINTHRA_KEY_PASSWORD }}
+    outputs:
+      signing: ${{ steps.mode.outputs.signing }}
+      trigger: ${{ steps.mode.outputs.trigger }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate signing secrets
-        if: ${{ inputs.signed }}
+      # Decide, in one place, how this run should sign and how to label it.
+      #   trigger: manual | tag
+      #   signing: release-signed | debug-signed
+      # Manual signed=true with missing secrets fails fast (preserves the old
+      # behavior). A tag with missing secrets degrades to clearly-labeled
+      # debug-signed artifacts (never silently passed off as a real release).
+      - name: Determine build mode
+        id: mode
         env:
           LINTHRA_KEYSTORE_BASE64: ${{ secrets.LINTHRA_KEYSTORE_BASE64 }}
         run: |
-          missing=()
-          [ -z "$LINTHRA_KEYSTORE_BASE64" ] && missing+=("LINTHRA_KEYSTORE_BASE64")
-          [ -z "$LINTHRA_KEYSTORE_PASSWORD" ] && missing+=("LINTHRA_KEYSTORE_PASSWORD")
-          [ -z "$LINTHRA_KEY_ALIAS" ] && missing+=("LINTHRA_KEY_ALIAS")
-          [ -z "$LINTHRA_KEY_PASSWORD" ] && missing+=("LINTHRA_KEY_PASSWORD")
-          if [ ${#missing[@]} -ne 0 ]; then
-            echo "::error::Signed release requested but these secrets are missing: ${missing[*]}. See docs/release-signing.md."
-            exit 1
+          have_secrets=true
+          for v in "$LINTHRA_KEYSTORE_BASE64" "$LINTHRA_KEYSTORE_PASSWORD" "$LINTHRA_KEY_ALIAS" "$LINTHRA_KEY_PASSWORD"; do
+            [ -z "$v" ] && have_secrets=false
+          done
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            trigger=manual
+            want_signed="${{ inputs.signed }}"
+          else
+            trigger=tag
+            want_signed=true
           fi
-          echo "All required signing secrets are present."
+
+          if [ "$want_signed" = "true" ]; then
+            if [ "$have_secrets" = "true" ]; then
+              signing=release-signed
+            elif [ "$trigger" = "manual" ]; then
+              echo "::error::Signed release requested but signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). See docs/release-signing.md."
+              exit 1
+            else
+              echo "::warning::Tag build but signing secrets are missing; producing DEBUG-KEY signed artifacts (labeled -debug-signed). These are NOT a real release and will NOT be attached to any GitHub Release. Configure the LINTHRA_* secrets to get release-signed builds. See docs/release-signing.md."
+              signing=debug-signed
+            fi
+          else
+            signing=debug-signed
+          fi
+
+          echo "trigger=$trigger" >> "$GITHUB_OUTPUT"
+          echo "signing=$signing" >> "$GITHUB_OUTPUT"
+          echo "Trigger: $trigger | Signing: $signing"
 
       - name: Decode release keystore
-        if: ${{ inputs.signed }}
+        if: ${{ steps.mode.outputs.signing == 'release-signed' }}
         env:
           LINTHRA_KEYSTORE_BASE64: ${{ secrets.LINTHRA_KEYSTORE_BASE64 }}
         run: |
@@ -98,50 +151,76 @@ jobs:
       - name: Build release AAB
         run: flutter build appbundle --release
 
-      # Distinguish real release-signed artifacts from debug-signed previews so
-      # the wrong build can never be mistaken for a publishable release.
-      - name: Determine artifact label
-        id: label
-        run: |
-          if [ "${{ inputs.signed }}" = "true" ]; then
-            echo "suffix=release-signed" >> "$GITHUB_OUTPUT"
-          else
-            echo "suffix=debug-signed" >> "$GITHUB_OUTPUT"
-          fi
-
+      # The artifact name carries the signing label so a debug-signed build can
+      # never be mistaken for a publishable release.
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: linthra-${{ steps.label.outputs.suffix }}-apk
+          name: linthra-${{ steps.mode.outputs.signing }}-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
       - name: Upload release AAB
         uses: actions/upload-artifact@v4
         with:
-          name: linthra-${{ steps.label.outputs.suffix }}-aab
+          name: linthra-${{ steps.mode.outputs.signing }}-aab
           path: build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
 
       - name: Build summary
         run: |
-          if [ "${{ inputs.signed }}" = "true" ]; then
-            {
-              echo "## Linthra release build"
-              echo ""
+          {
+            echo "## Linthra release build"
+            echo ""
+            echo "**Trigger:** ${{ steps.mode.outputs.trigger }}${{ github.event_name == 'push' && format(' (tag {0})', github.ref_name) || '' }}"
+            echo ""
+            if [ "${{ steps.mode.outputs.signing }}" = "release-signed" ]; then
               echo "**Signing:** release-signed with the configured keystore."
               echo ""
               echo "Artifacts: \`linthra-release-signed-apk\`, \`linthra-release-signed-aab\`."
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            {
-              echo "## Linthra release build"
-              echo ""
-              echo "**Signing:** DEBUG-KEY signed (not a real release)."
-              echo ""
-              echo "Re-run with \`signed = true\` and the LINTHRA_* secrets configured to"
-              echo "produce a release-signed build. See docs/release-signing.md."
+              if [ "${{ steps.mode.outputs.trigger }}" = "tag" ]; then
+                echo ""
+                echo "These signed artifacts will be attached to the GitHub Release for this tag if one exists."
+              fi
+            else
+              echo "**Signing:** DEBUG-KEY signed (NOT a real release)."
               echo ""
               echo "Artifacts: \`linthra-debug-signed-apk\`, \`linthra-debug-signed-aab\`."
-            } >> "$GITHUB_STEP_SUMMARY"
+              echo ""
+              echo "Configure the LINTHRA_* secrets (and, for manual runs, set \`signed = true\`) to"
+              echo "produce a release-signed build. See docs/release-signing.md."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Attaches the release-signed artifacts to an EXISTING GitHub Release for the
+  # pushed tag. This is the only job that needs write access, so it is the only
+  # one granted `contents: write`. It never creates a Release and never writes
+  # release notes — if no Release exists yet, it leaves a notice and the signed
+  # artifacts remain downloadable from the build job.
+  attach-release:
+    name: Attach signed artifacts to GitHub Release
+    needs: build-release
+    if: ${{ github.event_name == 'push' && needs.build-release.outputs.signing == 'release-signed' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Attach to GitHub Release (if one exists)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          apk="artifacts/linthra-release-signed-apk/app-release.apk"
+          aab="artifacts/linthra-release-signed-aab/app-release.aab"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release '$TAG' exists; uploading signed artifacts."
+            gh release upload "$TAG" "$apk" "$aab" --clobber --repo "$GITHUB_REPOSITORY"
+            echo "Attached release-signed APK/AAB to Release '$TAG'."
+          else
+            echo "::notice::No GitHub Release exists for tag '$TAG' yet, so nothing was attached. The release-signed APK/AAB are available as workflow artifacts. Create the Release (with your own notes) and re-run this workflow, or attach the artifacts manually."
           fi

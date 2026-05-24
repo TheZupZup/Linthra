@@ -318,10 +318,11 @@ flutter install              # installs the last debug build
 ```
 
 The debug APK is unsigned and meant for local testing only. Release builds and
-optional release signing are handled separately by the manual **Android Release
-Build** workflow (see [Building release artifacts](#building-release-artifacts-android)
-and [docs/release-signing.md](./docs/release-signing.md)); nothing is published
-to a store or F-Droid, and no GitHub Release is created automatically.
+optional release signing are handled separately by the **Android Release
+Build** workflow — manual for test builds, automatic on `v*` tags (see
+[Building release artifacts](#building-release-artifacts-android) and
+[docs/release-signing.md](./docs/release-signing.md)); nothing is published to a
+store or F-Droid, and no GitHub Release is created or written automatically.
 
 #### Downloading a debug APK from CI
 
@@ -440,24 +441,48 @@ rather than a broad "all files" grant.
 
 The **Android Release Build** workflow
 (`.github/workflows/android-release-build.yml`) builds the Android **release**
-artifacts so we can validate a release build ahead of any GitHub Releases /
-F-Droid distribution. It is a build-only foundation:
+artifacts. It runs **manually** for test builds and **automatically on version
+tags** so a tagged release builds its APK/AAB without anyone clicking *Run
+workflow*. It still never publishes to a store or F-Droid and never writes
+release notes.
 
-- **How to run it:** open the repo's **Actions** tab → **Android Release
-  Build** → **Run workflow**. It is **manual only** (`workflow_dispatch`) — it
-  never runs on a push or PR. A `signed` input controls whether the build is
-  release-signed (see [Signing status](#signing-status-important) below).
+- **Manual test builds:** open the repo's **Actions** tab → **Android Release
+  Build** → **Run workflow** (`workflow_dispatch`). A `signed` input controls
+  whether the build is release-signed (see
+  [Signing status](#signing-status-important) below). This behavior is
+  unchanged.
+- **Automatic tag builds:** pushing a tag matching `v*` (e.g. `v0.1.0-alpha.1`)
+  triggers the workflow automatically:
+
+  ```bash
+  git tag -a v0.1.0-alpha.1 -m "Linthra 0.1.0-alpha.1"
+  git push origin v0.1.0-alpha.1
+  ```
+
+  Creating a Release in the GitHub UI on a *new* tag also creates+pushes that
+  tag, which starts the same build — so you can write the Release notes first
+  and let the build attach to it (see below). The workflow listens only to the
+  tag push (not to `release: published`) so a tag never builds twice.
 - **What it builds:** `flutter build apk --release` and
   `flutter build appbundle --release`.
 - **Artifacts** (names reflect how the build was signed, so a preview can't be
   mistaken for a real release):
-  - `signed = false` (default): `linthra-debug-signed-apk` / `linthra-debug-signed-aab`.
-  - `signed = true`: `linthra-release-signed-apk` / `linthra-release-signed-aab`.
+  - Manual `signed = false` (default), or any build where signing secrets are
+    absent: `linthra-debug-signed-apk` / `linthra-debug-signed-aab`.
+  - Manual `signed = true`, or a tag build with the signing secrets present:
+    `linthra-release-signed-apk` / `linthra-release-signed-aab`.
   - Each contains `app-release.apk` (`build/app/outputs/flutter-apk/app-release.apk`)
     or `app-release.aab` (`build/app/outputs/bundle/release/app-release.aab`).
+- **Release attachment (tag builds only):** when a tag build is
+  **release-signed** *and* a GitHub Release already exists for that tag, the
+  signed APK/AAB are attached to the Release automatically. The workflow never
+  creates a Release or writes notes — those stay manual. If no Release exists
+  yet, nothing is attached and the signed artifacts remain downloadable from the
+  run.
 - **Download:** open the completed run and grab the artifacts from the run's
   **Artifacts** section (GitHub serves each as a `.zip`; unzip to get the
-  APK/AAB).
+  APK/AAB). For a published Release, download the attached APK/AAB directly from
+  the Release page.
 
 Build the same artifacts locally with:
 
@@ -476,25 +501,36 @@ material is present does it sign with the release key; otherwise it falls back t
 the **debug** key so `flutter run --release` still works. **No signing keys or
 secrets are committed** to the repo.
 
-- Run the workflow with **`signed = false`** (default) → **debug-key signed**
+- Manual run with **`signed = false`** (default) → **debug-key signed**
   artifacts, labeled `…-debug-signed-…`. Fine for previewing a release build,
   **not** suitable for store or F-Droid distribution.
-- Run with **`signed = true`** → the workflow decodes a keystore from the
+- Manual run with **`signed = true`** → the workflow decodes a keystore from the
   `LINTHRA_*` repository secrets and produces **release-signed** artifacts
   (labeled `…-release-signed-…`). If a required secret is missing, the run
   **fails fast** rather than silently producing a debug-signed build.
+- **Tag build** (`v*` push) → attempts release signing automatically:
+  - If the `LINTHRA_*` secrets are present → **release-signed** artifacts,
+    eligible for Release attachment.
+  - If the secrets are missing → the run does **not** pretend to be a real
+    release: it emits a loud warning, builds **debug-key signed** artifacts
+    labeled `…-debug-signed-…`, and does **not** attach them to any Release.
 
-The keystore secrets are not configured in this repository yet, so a real
-release-signed build requires setting them up first. Full details — required
+The keystore secrets are not configured in this repository yet, so until they
+are, tag builds fall back to debug-signed artifacts. Configure them (see
+[docs/release-signing.md](./docs/release-signing.md)) to get release-signed tag
+builds. Full details — required
 secrets, how to generate/rotate a keystore, and how this relates to F-Droid (which
 signs its own builds) — are in [docs/release-signing.md](./docs/release-signing.md).
 
 #### Limitations & next steps
 
-- The workflow **does not** create a GitHub release, upload anything to a store,
-  or submit to F-Droid. It only produces downloadable build artifacts.
+- The workflow **does not** create a GitHub Release, write release notes, upload
+  anything to a store, or submit to F-Droid. It produces downloadable build
+  artifacts and, for a release-signed tag build, attaches them to a Release you
+  created manually.
 - Release signing **secrets are not yet provisioned**, so until they are, builds
-  fall back to the debug key (and are labeled accordingly).
+  (including tag builds) fall back to the debug key (and are labeled
+  accordingly).
 - **Next steps:** provision the `LINTHRA_*` keystore secrets
   ([docs/release-signing.md](./docs/release-signing.md)), then follow the manual
   release/tagging and GitHub-Release flow in
@@ -926,10 +962,11 @@ flutter test                         # widget/unit tests
 CI pins **Flutter 3.27.x (stable)** for reproducible results; using a matching
 SDK locally avoids spurious `dart format` diffs from formatter changes in newer
 Dart releases. The automatic `ci.yml` workflow is **code-quality only**. Native
-builds and optional release signing live in **separate, manual** workflows
-(**Android Debug APK**, **Android Release Build**); nothing publishes to a store
-or F-Droid. See [Building release artifacts](#building-release-artifacts-android)
-and [docs/release-process.md](./docs/release-process.md).
+builds and optional release signing live in **separate** workflows (**Android
+Debug APK**, and **Android Release Build** — manual for test builds, automatic
+on `v*` tags); nothing publishes to a store or F-Droid. See
+[Building release artifacts](#building-release-artifacts-android) and
+[docs/release-process.md](./docs/release-process.md).
 
 ### Generating Drift files in CI
 

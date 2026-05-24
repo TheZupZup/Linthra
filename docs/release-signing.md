@@ -58,17 +58,30 @@ file at runtime and never writes it into the repository.
 
 ## 3. Running the release workflow
 
-The **Android Release Build** workflow is manual only (`workflow_dispatch`). It
-does not create a GitHub Release, publish to any store, or submit to F-Droid.
+The **Android Release Build** workflow runs **manually** (`workflow_dispatch`)
+for test builds and **automatically on `v*` tags** for release builds. It does
+not create a GitHub Release, write notes, publish to any store, or submit to
+F-Droid.
 
-- **Unsigned preview (default):** run with `signed = false`. Artifacts are
-  uploaded as `linthra-debug-signed-apk` / `linthra-debug-signed-aab`.
-- **Real release-signed build:** run with `signed = true` (requires the secrets
-  above). Artifacts are uploaded as `linthra-release-signed-apk` /
-  `linthra-release-signed-aab`.
+- **Manual unsigned preview (default):** run with `signed = false`. Artifacts
+  are uploaded as `linthra-debug-signed-apk` / `linthra-debug-signed-aab`.
+- **Manual release-signed build:** run with `signed = true` (requires the
+  secrets above; the run **fails fast** if any are missing). Artifacts are
+  uploaded as `linthra-release-signed-apk` / `linthra-release-signed-aab`.
+- **Automatic tag build (`v*` push):** attempts release signing.
+  - If all the secrets above are present → **release-signed** artifacts, and if
+    a GitHub Release already exists for the tag they are attached to it.
+  - If any secret is missing → the run does **not** silently fake a release: it
+    logs a warning, builds **debug-signed** artifacts (`linthra-debug-signed-*`),
+    and attaches nothing to any Release. Configure the secrets to get a real
+    release-signed tag build.
 
 The artifact names and the run summary always state which key signed the build,
-so a debug-signed preview can never be confused with a release.
+so a debug-signed build can never be confused with a release.
+
+> **Minimal permissions.** The build job runs with `contents: read`. Only the
+> separate Release-attachment job is granted `contents: write`, and only to
+> upload assets to an existing Release — it never creates one or edits notes.
 
 ## 4. Generating a keystore locally
 
@@ -139,11 +152,12 @@ freely once published — plan rotation carefully.
   F-Droid repository, F-Droid builds from source on its own infrastructure and
   signs the APK with **F-Droid's** signing key, not ours. Our release keystore
   is therefore not used by, and not given to, F-Droid.
-- **GitHub Releases signing is separate.** Any APK/AAB we attach to a GitHub
-  Release (a future, manual step — not done by this PR) would be signed with
-  *our* release key. That means the F-Droid build and a GitHub-Release build of
-  the same version have **different signatures** and cannot be cross-installed
-  as updates of each other. This is expected; document it clearly for users.
+- **GitHub Releases signing is separate.** Any APK/AAB attached to a GitHub
+  Release (built on a `v*` tag and attached automatically when release-signed)
+  is signed with *our* release key. That means the F-Droid build and a
+  GitHub-Release build of the same version have **different signatures** and
+  cannot be cross-installed as updates of each other. This is expected; document
+  it clearly for users.
 - **Reproducible builds (optional, advanced).** F-Droid supports verifying that
   a developer-signed binary matches what it builds from source, but that
   requires a reproducible build setup and is explicitly out of scope here.
@@ -153,7 +167,9 @@ freely once published — plan rotation carefully.
 
 ## 7. What is intentionally out of scope
 
-- Creating GitHub Releases automatically (the release workflow stays manual).
+- Creating GitHub Releases or writing release notes automatically (the workflow
+  only *attaches* signed artifacts to a Release you created; it never creates
+  one). Building the artifacts on a `v*` tag *is* automated.
 - Publishing to the Play Store.
 - Submitting to F-Droid.
 - Committing any keystore, password, or `key.properties`.
