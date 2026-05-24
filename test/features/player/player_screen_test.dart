@@ -225,7 +225,7 @@ void main() {
 
       // The default lyrics backend returns none (local track, no Jellyfin), so
       // it shows a calm placeholder rather than a blank sheet.
-      expect(find.text('No lyrics available'), findsOneWidget);
+      expect(find.text('No lyrics available yet.'), findsOneWidget);
     });
 
     testWidgets('the favorite button toggles the heart', (tester) async {

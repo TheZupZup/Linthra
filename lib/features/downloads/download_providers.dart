@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/cache_size.dart';
+import '../../core/models/download_progress.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/download_repository.dart';
 import '../../core/repositories/download_store.dart';
@@ -18,6 +19,18 @@ final trackDownloadStatusProvider =
   final repository = ref.watch(downloadRepositoryProvider);
   return repository.statusStream
       .map((statuses) => statuses[trackId] ?? DownloadStatus.notDownloaded)
+      .distinct();
+});
+
+/// The live byte progress of a single in-flight download, for the row's
+/// determinate ring. Null when the track isn't downloading (or its server
+/// didn't report a size, leaving progress indeterminate). Auto-disposed so
+/// off-screen rows drop the subscription.
+final trackDownloadProgressProvider = StreamProvider.autoDispose
+    .family<DownloadProgress?, String>((ref, trackId) {
+  final repository = ref.watch(downloadRepositoryProvider);
+  return repository.progressStream
+      .map((progress) => progress[trackId])
       .distinct();
 });
 

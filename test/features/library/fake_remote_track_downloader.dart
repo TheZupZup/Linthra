@@ -12,7 +12,11 @@ class FakeRemoteTrackDownloader implements RemoteTrackDownloader {
   bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
 
   @override
-  Future<RemoteTrackData> fetch(Track track) async {
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    onProgress?.call(4, 4);
     return const RemoteTrackData(
         bytes: <int>[1, 2, 3, 4], fileExtension: 'mp3');
   }

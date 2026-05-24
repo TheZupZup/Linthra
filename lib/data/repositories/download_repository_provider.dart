@@ -142,7 +142,10 @@ class _UnsupportedRemoteTrackDownloader implements RemoteTrackDownloader {
   bool isRemote(Track track) => false;
 
   @override
-  Future<RemoteTrackData> fetch(Track track) {
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) {
     throw UnsupportedError('No remote downloader is configured.');
   }
 }

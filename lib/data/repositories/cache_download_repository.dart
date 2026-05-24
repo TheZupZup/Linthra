@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../core/models/download_progress.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/download_preferences.dart';
 import '../../core/repositories/download_repository.dart';
@@ -7,6 +8,7 @@ import '../../core/repositories/download_store.dart';
 import '../../core/repositories/offline_file_store.dart';
 import '../../core/services/cache_eviction_policy.dart';
 import '../../core/services/connectivity_service.dart';
+import '../../core/services/download_scheduler.dart';
 import '../../core/services/offline_cache_manager.dart';
 import '../../core/services/remote_track_downloader.dart';
 import '../../core/services/track_prefetcher.dart';
@@ -23,6 +25,13 @@ import '../../core/services/track_prefetcher.dart';
 ///    pin). Auto-*preloaded* tracks ([prefetch]) are cached ahead of play too,
 ///    but they never take on a user-download status: they stay invisible to the
 ///    downloads UI, count toward the limit, and are the first to be evicted.
+///  - **Bounded parallelism.** Several downloads fetch their bytes at once (via
+///    a [DownloadScheduler]) so caching feels fast, but never more than the
+///    scheduler's small limit — the app never opens an unbounded number of
+///    requests. The byte fetch runs in parallel; the cache *commit* (eviction +
+///    write + metadata) is serialized, so the limit is honored even when several
+///    downloads finish at once. A repeated request for a track already
+///    downloading (or queued) is ignored, so a track is never fetched twice.
 ///  - **Source-aware.** A remote (Jellyfin) track has its bytes fetched and
 ///    written to the offline directory; an on-device track is already local, so
 ///    it's recorded as available offline with no fetch and no managed file.
@@ -54,6 +63,7 @@ class CacheDownloadRepository
     required ConnectivityService connectivity,
     required DownloadPreferences preferences,
     CacheEvictionPolicy policy = const CacheEvictionPolicy(),
+    DownloadScheduler? scheduler,
     String? Function()? currentlyPlayingTrackId,
     DateTime Function()? now,
   })  : _store = store,
@@ -62,6 +72,7 @@ class CacheDownloadRepository
         _connectivity = connectivity,
         _preferences = preferences,
         _policy = policy,
+        _scheduler = scheduler ?? DownloadScheduler(),
         _currentlyPlayingTrackId = currentlyPlayingTrackId,
         _now = now ?? DateTime.now;
 
@@ -71,6 +82,9 @@ class CacheDownloadRepository
   final ConnectivityService _connectivity;
   final DownloadPreferences _preferences;
   final CacheEvictionPolicy _policy;
+
+  /// Bounds how many remote downloads fetch their bytes at the same time.
+  final DownloadScheduler _scheduler;
 
   /// Supplies the id of the track currently playing (or `null`), so it is never
   /// evicted out from under the user. Read lazily so the repository doesn't
@@ -86,11 +100,27 @@ class CacheDownloadRepository
   /// usage is cheap to total.
   final Map<String, CachedTrack> _downloads = <String, CachedTrack>{};
 
+  /// Track ids with a user download in flight (queued for a slot or actively
+  /// fetching). Reserved synchronously at the start of [requestDownload] so two
+  /// rapid taps — or two callers — can never start the same fetch twice.
+  final Set<String> _inFlight = <String>{};
+
+  /// Live byte progress for in-flight downloads, surfaced via [progressStream].
+  final Map<String, DownloadProgress> _progress = <String, DownloadProgress>{};
+
+  /// Serializes the cache *commit* (eviction + write + metadata) across the
+  /// otherwise-parallel downloads, so the limit can't be overshot when several
+  /// finish at once. Bytes are fetched in parallel; only this step is ordered.
+  Future<void> _commitChain = Future<void>.value();
+
   final StreamController<Map<String, DownloadStatus>> _changes =
       StreamController<Map<String, DownloadStatus>>.broadcast();
 
   final StreamController<CacheSnapshot> _cacheChanges =
       StreamController<CacheSnapshot>.broadcast();
+
+  final StreamController<Map<String, DownloadProgress>> _progressChanges =
+      StreamController<Map<String, DownloadProgress>>.broadcast();
 
   bool _loaded = false;
 
@@ -143,19 +173,68 @@ class CacheDownloadRepository
   }
 
   @override
+  Stream<Map<String, DownloadProgress>> get progressStream async* {
+    yield _progressSnapshot();
+    yield* _progressChanges.stream;
+  }
+
+  @override
   Future<void> requestDownload(Track track) async {
-    await _ensureLoaded();
-    final DownloadStatus current =
-        _statuses[track.id] ?? DownloadStatus.notDownloaded;
-    // Already done or in flight — never re-trigger. A queued or failed track,
-    // by contrast, is fair game for an explicit retry.
-    if (current == DownloadStatus.downloaded ||
-        current == DownloadStatus.downloading) {
+    if (!_downloader.isRemote(track)) {
+      // On-device track: no bytes to fetch and no network gate, so record it as
+      // available offline directly.
+      await _requestOnDeviceDownload(track);
       return;
     }
 
-    // A track that was preloaded ahead of play is already cached: promote it to
-    // a user download in place, without re-fetching its bytes.
+    // Reserve the in-flight slot synchronously, before any `await`, so a second
+    // request for the same track (a double tap, or a second caller) bails out
+    // here instead of starting a duplicate fetch.
+    if (!_inFlight.add(track.id)) return;
+    try {
+      await _runRemoteRequest(track);
+    } on CacheStorageException {
+      // The cache is full with nothing safe to evict; surface the friendly,
+      // secret-free error so the UI can prompt to free space or raise the
+      // limit. Status was already reset to not-downloaded before the throw.
+      rethrow;
+    } catch (_) {
+      // Other errors may carry source-specific detail; the UI only needs the
+      // failed state (which offers a retry).
+      _set(track.id, DownloadStatus.failed);
+    } finally {
+      _inFlight.remove(track.id);
+      _clearProgress(track.id);
+    }
+  }
+
+  /// Records an on-device track as available offline: its bytes are already
+  /// local, so there is no fetch, no managed file, and no Wi-Fi gate.
+  Future<void> _requestOnDeviceDownload(Track track) async {
+    await _ensureLoaded();
+    if (_statuses[track.id] == DownloadStatus.downloaded) return;
+    _downloads[track.id] = CachedTrack(
+      trackId: track.id,
+      sourceType: _sourceTypeOf(track),
+      cachedAt: _now(),
+    );
+    await _save();
+    _statuses[track.id] = DownloadStatus.downloaded;
+    _emitStatus();
+    _emitCache();
+  }
+
+  /// Drives one remote download: skip if already cached, promote a preloaded
+  /// copy in place, honor "Wi-Fi only", then wait for a concurrency slot before
+  /// fetching the bytes and committing them under the cache limit.
+  Future<void> _runRemoteRequest(Track track) async {
+    await _ensureLoaded();
+    // Already cached — nothing to do. (A track that is downloading or queued is
+    // already in [_inFlight], so it never reaches here a second time.)
+    if (_statuses[track.id] == DownloadStatus.downloaded) return;
+
+    // A track preloaded ahead of play is already cached: promote it to a user
+    // download in place, without re-fetching its bytes.
     final CachedTrack? preloadedEntry = _downloads[track.id];
     if (preloadedEntry != null &&
         preloadedEntry.preloaded &&
@@ -168,41 +247,27 @@ class CacheDownloadRepository
       return;
     }
 
-    if (!_downloader.isRemote(track)) {
-      // On-device track: the bytes are already local, so there's nothing to
-      // fetch and no managed file — just record it as available offline.
-      _downloads[track.id] = CachedTrack(
-        trackId: track.id,
-        sourceType: _sourceTypeOf(track),
-        cachedAt: _now(),
-      );
-      await _save();
-      _statuses[track.id] = DownloadStatus.downloaded;
-      _emitStatus();
-      _emitCache();
-      return;
-    }
-
-    // Remote track: the Wi-Fi gate only matters here, where there are bytes to
-    // pull over the network.
+    // The Wi-Fi gate only matters here, where there are bytes to pull over the
+    // network. When it blocks, the track waits as "queued" for an explicit
+    // retry once on Wi-Fi (the in-flight reservation is released by the caller).
     if (!await _allowedToDownloadNow()) {
       _set(track.id, DownloadStatus.queued);
       return;
     }
 
-    _set(track.id, DownloadStatus.downloading);
-    try {
-      final RemoteTrackData data = await _downloader.fetch(track);
-      await _cacheRemote(track, data);
-    } on CacheStorageException {
-      // Space was reset below before throwing; surface the friendly error so
-      // the UI can tell the user to free space or raise the limit.
-      rethrow;
-    } catch (_) {
-      // Other errors may carry source-specific detail; the UI only needs the
-      // failed state (offering a retry).
-      _set(track.id, DownloadStatus.failed);
-    }
+    // Accepted: show "queued" until a concurrency slot frees up, then fetch.
+    _set(track.id, DownloadStatus.queued);
+    await _scheduler.schedule(() async {
+      _set(track.id, DownloadStatus.downloading);
+      final RemoteTrackData data = await _downloader.fetch(
+        track,
+        onProgress: (int received, int? total) =>
+            _reportProgress(track.id, received, total),
+      );
+      // Commit serially so concurrent downloads can't jointly overshoot the
+      // limit; the (slow) byte fetch above already ran in parallel.
+      await _commit(() => _cacheRemote(track, data));
+    });
   }
 
   /// Writes a freshly fetched remote track's bytes, evicting first to stay under
@@ -217,6 +282,16 @@ class CacheDownloadRepository
     RemoteTrackData data, {
     bool preloaded = false,
   }) async {
+    if (preloaded) {
+      final CachedTrack? existing = _downloads[track.id];
+      // A user download for the same track raced this preload (commits are
+      // serialized, so by now the winner is known). Don't clobber or duplicate
+      // a real download with a preloaded copy — let the user's copy stand.
+      if (_inFlight.contains(track.id) ||
+          (existing != null && !existing.preloaded)) {
+        return;
+      }
+    }
     final int incoming = data.bytes.length;
     final int maxBytes = await _preferences.maxCacheBytes();
     final EvictionPlan plan = _policy.plan(
@@ -272,15 +347,19 @@ class CacheDownloadRepository
     await _ensureLoaded();
     // Only remote tracks have bytes to fetch; local ones are already on disk.
     if (!_downloader.isRemote(track)) return;
-    // Already cached (download or earlier preload) or in flight — skip.
+    // Already cached (download or earlier preload), or a user download already
+    // has it in flight — skip rather than fetch the same bytes twice.
     if (_downloads.containsKey(track.id)) return;
+    if (_inFlight.contains(track.id)) return;
     if (_statuses[track.id] == DownloadStatus.downloading) return;
     // Preload is best-effort and network-heavy, so it honours "Wi-Fi only" and
     // simply skips (rather than queueing) when it can't run right now.
     if (!await _allowedToDownloadNow()) return;
     try {
       final RemoteTrackData data = await _downloader.fetch(track);
-      await _cacheRemote(track, data, preloaded: true);
+      // Share the one commit lock so a preload write can't race a user
+      // download's and overshoot the limit.
+      await _commit(() => _cacheRemote(track, data, preloaded: true));
     } catch (_) {
       // Best-effort: a failed preload caches nothing and changes no status; the
       // track still streams normally when it's reached.
@@ -370,6 +449,7 @@ class CacheDownloadRepository
   Future<void> dispose() async {
     await _changes.close();
     await _cacheChanges.close();
+    await _progressChanges.close();
   }
 
   /// The connectivity gate. With "Wi-Fi only" off, anything goes; with it on,
@@ -404,8 +484,43 @@ class CacheDownloadRepository
 
   void _emitCache() => _cacheChanges.add(_cacheSnapshot());
 
+  void _emitProgress() => _progressChanges.add(_progressSnapshot());
+
+  /// Runs [action] (a cache commit) only after any in-flight commit finishes,
+  /// so the eviction + write step is never interleaved across the otherwise
+  /// parallel downloads — which is what keeps the cache limit exact under load.
+  /// The chain itself never rejects (errors are routed to [action]'s future),
+  /// so one failed commit doesn't stall the ones behind it.
+  Future<T> _commit<T>(Future<T> Function() action) {
+    final Completer<T> result = Completer<T>();
+    _commitChain = _commitChain.then((_) async {
+      try {
+        result.complete(await action());
+      } catch (error, stackTrace) {
+        result.completeError(error, stackTrace);
+      }
+    });
+    return result.future;
+  }
+
+  void _reportProgress(String trackId, int received, int? total) {
+    _progress[trackId] = DownloadProgress(
+      trackId: trackId,
+      receivedBytes: received,
+      totalBytes: total,
+    );
+    _emitProgress();
+  }
+
+  void _clearProgress(String trackId) {
+    if (_progress.remove(trackId) != null) _emitProgress();
+  }
+
   Map<String, DownloadStatus> _snapshot() =>
       Map<String, DownloadStatus>.unmodifiable(_statuses);
+
+  Map<String, DownloadProgress> _progressSnapshot() =>
+      Map<String, DownloadProgress>.unmodifiable(_progress);
 
   CacheSnapshot _cacheSnapshot() {
     int used = 0;

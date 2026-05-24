@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/download_progress.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_repository.dart';
 import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/repositories/offline_file_store.dart';
 import 'package:linthra/core/services/connectivity_service.dart';
+import 'package:linthra/core/services/download_scheduler.dart';
 import 'package:linthra/core/services/offline_cache_manager.dart';
 import 'package:linthra/core/services/remote_track_downloader.dart';
 import 'package:linthra/data/repositories/cache_download_repository.dart';
@@ -27,28 +31,50 @@ class _FakeConnectivity implements ConnectivityService {
 /// A remote downloader fake: treats `jellyfin:` tracks as remote and returns
 /// canned bytes, or throws when [error] is set, so the repository's remote path
 /// can be driven without a server or HTTP.
+///
+/// When [gate] is set, every [fetch] awaits it before completing, so a test can
+/// hold downloads in flight and observe how many run at once ([maxActive]).
+/// [error] is mutable so a test can fail an attempt, then clear it and retry.
 class _FakeRemoteDownloader implements RemoteTrackDownloader {
-  _FakeRemoteDownloader({this.error});
+  _FakeRemoteDownloader({this.error, this.gate});
 
   /// The canned bytes every successful fetch returns.
   static const List<int> bytes = <int>[1, 2, 3, 4];
 
   /// When set, [fetch] throws this instead of returning bytes.
-  final Object? error;
+  Object? error;
+
+  /// When set, [fetch] awaits this before completing.
+  final Future<void>? gate;
 
   int fetchCount = 0;
+  int activeNow = 0;
+  int maxActive = 0;
   final List<Track> fetched = <Track>[];
 
   @override
   bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
 
   @override
-  Future<RemoteTrackData> fetch(Track track) async {
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
     fetchCount++;
+    activeNow++;
+    if (activeNow > maxActive) maxActive = activeNow;
     fetched.add(track);
-    final Object? err = error;
-    if (err != null) throw err;
-    return const RemoteTrackData(bytes: bytes, fileExtension: 'mp3');
+    try {
+      onProgress?.call(2, bytes.length);
+      final Future<void>? pending = gate;
+      if (pending != null) await pending;
+      final Object? err = error;
+      if (err != null) throw err;
+      onProgress?.call(bytes.length, bytes.length);
+      return const RemoteTrackData(bytes: bytes, fileExtension: 'mp3');
+    } finally {
+      activeNow--;
+    }
   }
 }
 
@@ -514,6 +540,150 @@ void main() {
       });
     });
 
+    group('parallel downloads', () {
+      test('runs several downloads at once, bounded by the concurrency limit',
+          () async {
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(gate: gate.future);
+        final repository = CacheDownloadRepository(
+          store: store,
+          files: files,
+          downloader: downloader,
+          connectivity: connectivity,
+          preferences: preferences,
+          scheduler: DownloadScheduler(maxConcurrent: 2),
+        );
+
+        final futures = <Future<void>>[
+          repository.requestDownload(_jellyfin('j1')),
+          repository.requestDownload(_jellyfin('j2')),
+          repository.requestDownload(_jellyfin('j3')),
+        ];
+
+        // Only two may fetch at once; the third waits its turn as "queued".
+        await _pumpUntil(() => downloader.fetchCount >= 2);
+        expect(downloader.fetchCount, 2);
+        expect(downloader.maxActive, 2);
+
+        final statuses = <DownloadStatus>[
+          await repository.statusFor('j1'),
+          await repository.statusFor('j2'),
+          await repository.statusFor('j3'),
+        ];
+        expect(
+          statuses.where((s) => s == DownloadStatus.downloading).length,
+          2,
+        );
+        expect(statuses.where((s) => s == DownloadStatus.queued).length, 1);
+
+        // Releasing the gate lets all three finish — still never more than two
+        // fetching at any instant.
+        gate.complete();
+        await Future.wait(futures);
+        expect(downloader.fetchCount, 3);
+        expect(downloader.maxActive, 2);
+        final List<String> ids = await repository.downloadedTrackIds();
+        ids.sort();
+        expect(ids, <String>['j1', 'j2', 'j3']);
+      });
+
+      test('a duplicate request for the same track is not started twice',
+          () async {
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(gate: gate.future);
+        final repository = build();
+
+        final f1 = repository.requestDownload(_jellyfin('j1'));
+        final f2 = repository.requestDownload(_jellyfin('j1'));
+
+        // The second request bails on the in-flight guard before fetching.
+        await _pumpUntil(() => downloader.fetchCount >= 1);
+        expect(downloader.fetchCount, 1);
+
+        gate.complete();
+        await Future.wait(<Future<void>>[f1, f2]);
+
+        expect(downloader.fetchCount, 1);
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+      });
+
+      test('respects the cache limit even when downloads finish concurrently',
+          () async {
+        // Room for exactly two 4-byte downloads.
+        preferences = InMemoryDownloadPreferences(maxCacheBytes: 8);
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(gate: gate.future);
+        final repository = CacheDownloadRepository(
+          store: store,
+          files: files,
+          downloader: downloader,
+          connectivity: connectivity,
+          preferences: preferences,
+          scheduler: DownloadScheduler(maxConcurrent: 3),
+        );
+
+        final futures = <Future<void>>[
+          repository.requestDownload(_jellyfin('j1')),
+          repository.requestDownload(_jellyfin('j2')),
+          repository.requestDownload(_jellyfin('j3')),
+        ];
+        // All three fetch in parallel, then commit serially once released.
+        await _pumpUntil(() => downloader.fetchCount >= 3);
+        expect(downloader.maxActive, 3);
+        gate.complete();
+        await Future.wait(futures);
+
+        // The serialized commit kept usage at the limit (never 12), evicting
+        // the least-recently-used one to make room for the third.
+        final CacheSnapshot snapshot = await repository.cacheSnapshot();
+        expect(snapshot.usedBytes, 8);
+        expect(snapshot.managedCount, 2);
+      });
+
+      test('reports byte progress while downloading, then clears it on finish',
+          () async {
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(gate: gate.future);
+        final repository = build();
+
+        final emissions = <Map<String, DownloadProgress>>[];
+        final sub = repository.progressStream.listen(emissions.add);
+
+        final future = repository.requestDownload(_jellyfin('j1'));
+        await _pumpUntil(() => emissions.any((m) => m['j1'] != null));
+
+        final DownloadProgress? mid = emissions.last['j1'];
+        expect(mid, isNotNull);
+        expect(mid!.receivedBytes, 2);
+        expect(mid.totalBytes, 4);
+        expect(mid.fraction, 0.5);
+
+        gate.complete();
+        await future;
+        await _settle();
+
+        // Progress is cleared once the download finishes.
+        expect(emissions.last['j1'], isNull);
+        await sub.cancel();
+      });
+
+      test('a failed download can be retried on the same repository', () async {
+        downloader = _FakeRemoteDownloader(error: Exception('boom'));
+        final repository = build();
+        await repository.requestDownload(_jellyfin('j1'));
+        expect(await repository.statusFor('j1'), DownloadStatus.failed);
+        expect(downloader.fetchCount, 1);
+
+        // Clear the fault and retry through the same repository instance: the
+        // in-flight reservation was released, so the retry proceeds.
+        downloader.error = null;
+        await repository.requestDownload(_jellyfin('j1'));
+
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+        expect(downloader.fetchCount, 2);
+      });
+    });
+
     group('preload (prefetch)', () {
       test('caches a remote track without giving it a download status',
           () async {
@@ -691,3 +861,11 @@ void main() {
 
 /// Lets the broadcast stream deliver any pending events.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
+
+/// Pumps event-loop turns until [condition] holds (or a bounded number elapse),
+/// so concurrency assertions don't depend on exact async scheduling.
+Future<void> _pumpUntil(bool Function() condition) async {
+  for (var i = 0; i < 200 && !condition(); i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+}
