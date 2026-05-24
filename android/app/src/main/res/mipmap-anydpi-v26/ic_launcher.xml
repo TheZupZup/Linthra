@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Adaptive launcher icon (Android 8.0+): the dark premium squircle background
-     with the violet→orange "L" monogram foreground. Older devices fall back to
+     with the violet→orange equalizer foreground. Older devices fall back to
      the legacy mipmap-*/ic_launcher.png. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />

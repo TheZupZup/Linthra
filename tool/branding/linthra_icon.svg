@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Canonical Linthra app-icon source: an abstract "L" monogram made of audio —
-     a bold spine + foot form the letter, with a short equalizer crescendo
-     rising from the foot — under a single violet→orange gradient on a dark
-     premium squircle. generate_icons.py rasterises this same design into the
-     launcher mipmaps and the F-Droid icon/feature graphic; edit both together
-     so they never drift. -->
+<!-- Canonical Linthra app-icon source: four rounded equalizer bars carrying a
+     single violet→orange gradient on a dark premium squircle. generate_icons.py
+     rasterises this same design into the launcher mipmaps and the F-Droid
+     icon/feature graphic; edit both together so they never drift. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"
      viewBox="0 0 512 512">
   <defs>
@@ -12,19 +10,18 @@
       <stop offset="0" stop-color="#1C1730" />
       <stop offset="1" stop-color="#100E18" />
     </linearGradient>
-    <linearGradient id="mark" gradientUnits="userSpaceOnUse"
-                    x1="0" y1="108.7" x2="0" y2="399.8">
+    <linearGradient id="bars" gradientUnits="userSpaceOnUse"
+                    x1="0" y1="75.8" x2="0" y2="391.2">
       <stop offset="0" stop-color="#9C84FF" />
       <stop offset="1" stop-color="#FF9F43" />
     </linearGradient>
   </defs>
   <rect x="30.7" y="30.7" width="450.6" height="450.6" rx="101.4" ry="101.4"
         fill="url(#bg)" />
-  <g fill="url(#mark)">
-    <rect x="110.5" y="108.7" width="65.1" height="291.1" rx="32.5" ry="32.5" />
-    <rect x="143.0" y="355.3" width="260.3" height="41.1" rx="20.5" ry="20.5" />
-    <rect x="223.5" y="256.0" width="37.7" height="99.3" rx="18.8" ry="18.8" />
-    <rect x="285.1" y="197.8" width="37.7" height="157.5" rx="18.8" ry="18.8" />
-    <rect x="346.8" y="245.7" width="37.7" height="109.6" rx="18.8" ry="18.8" />
+  <g fill="url(#bars)">
+    <rect x="71.2" y="183.9" width="58.6" height="207.3" rx="29.3" ry="29.3" />
+    <rect x="174.8" y="75.8" width="58.6" height="315.4" rx="29.3" ry="29.3" />
+    <rect x="278.5" y="138.9" width="58.6" height="252.3" rx="29.3" ry="29.3" />
+    <rect x="382.1" y="238.0" width="58.6" height="153.2" rx="29.3" ry="29.3" />
   </g>
 </svg>

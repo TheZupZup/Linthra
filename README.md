@@ -1152,11 +1152,10 @@ F-Droid / Fastlane-style store metadata under
 - `changelogs/1.txt` — release notes for `versionCode` 1 (the current
   `0.1.0-alpha.1+1`), shown by F-Droid if/when the app is listed.
 
-**Branding (real, committed).** Linthra has a genuine app icon — an abstract
-"L" monogram made of audio: a bold spine and foot form the letter while a short
-equalizer crescendo rises from the foot, all carrying a single violet→orange
-gradient (the brand's two colours) on a dark, premium squircle — generated
-deterministically from one source design (`tool/branding/linthra_icon.svg` via
+**Branding (real, committed).** Linthra has a genuine app icon — a small
+equalizer of four rounded bars carrying a single violet→orange gradient (the
+brand's two colours) on a dark, premium squircle — generated deterministically
+from one source design (`tool/branding/linthra_icon.svg` via
 `tool/branding/generate_icons.py`, standard library only). That same mark backs:
 
 - the Android launcher icons: regenerated legacy `mipmap-*/ic_launcher.png` plus
