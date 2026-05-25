@@ -25,6 +25,9 @@ Linthra is **not on F-Droid** and **not production-stable** yet.
 - [Known limitations](#known-limitations)
 - [Install](#install)
 - [Connect your Jellyfin server](#connect-your-jellyfin-server)
+- [Cast to a speaker or TV](#cast-to-a-speaker-or-tv)
+- [Offline cache, in short](#offline-cache-in-short)
+- [Reporting bugs &amp; feedback](#reporting-bugs--feedback)
 - [Privacy &amp; security](#privacy--security)
 - [Roadmap](#roadmap)
 - [Project status](#project-status)
@@ -153,6 +156,12 @@ GitHub Releases and keeps them updated — a great fit for alpha sideloading.
 3. On first launch (Android 13+), tap **Allow** on the notification prompt so
    the media notification and its controls can appear.
 
+> **Using Android Auto?** Android Auto only lists media apps installed from the
+> Play Store unless you enable sideloaded ones: in the Android Auto settings, tap
+> the version number to unlock **Developer settings**, then turn on **Unknown
+> sources**. Without this, Linthra works on the phone but won't appear on the car
+> screen. Full steps are in [docs/android-auto.md](docs/android-auto.md).
+
 ### Build it yourself
 
 Linthra is a standard Flutter app (the committed `android/` scaffold means no
@@ -193,6 +202,91 @@ Full setup notes, supported endpoints, compatibility, and troubleshooting are in
 [Jellyfin (self-hosted music) — setup &amp; known limitations](#jellyfin-self-hosted-music--setup--known-limitations)
 and [docs/jellyfin-compatibility.md](docs/jellyfin-compatibility.md).
 
+## Cast to a speaker or TV
+
+Linthra can hand a Jellyfin or Navidrome/Subsonic stream off to a **Chromecast**
+device (a Cast-enabled speaker, TV, or display) on your network. It uses a
+pure-Dart implementation of the Google Cast v2 protocol — **no Google Play
+Services and no proprietary Cast SDK** — so casting works the same on a
+sideloaded or F-Droid-style build.
+
+1. Be on the **same Wi-Fi network** as the Cast device.
+2. Start playing a **streamed** track (Jellyfin or Subsonic).
+3. Tap the **cast icon** in the Now Playing header to open the device sheet.
+4. Pick a device. Linthra resolves the stream at cast time, plays it on the
+   receiver, and pauses local audio so you don't hear it twice.
+5. While connected, the sheet shows a **Cast volume** slider and mute that drive
+   the *device's* own volume. Disconnecting (or the receiver dropping) resumes
+   local playback, paused.
+
+**Good to know:**
+
+- **On-device (local) files can't be cast** — a receiver can't reach a file on
+  your phone, so only network streams hand off. The sheet says so plainly rather
+  than failing silently.
+- Discovery uses mDNS, so a device only appears if it's reachable on your LAN
+  (some guest/isolated networks block this).
+
+Architecture and token-handling details are in
+[Now Playing controls — casting](#now-playing-controls--shuffle-repeat-favorite-lyrics--casting).
+
+## Offline cache, in short
+
+Linthra's offline model is **explicit and user-controlled** — Plexamp-style, but
+open-source, with no surprise downloads:
+
+- Your **whole synced library stays visible**; nothing is hidden behind a
+  download.
+- **Streaming is the default.** You tap the download icon on the tracks you want
+  available offline; only those are fetched.
+- **Cached tracks play with no network** — airplane mode, dead tunnel, anywhere.
+- A **size limit** (4 GB by default; presets up to 16 GB or a custom value) keeps
+  the cache from filling your phone. When it's full, Linthra evicts pre-cached
+  and least-recently-played, unpinned tracks first — never something you
+  **pinned** with "Keep offline".
+- Optional **smart pre-cache** warms the next few queued tracks so they start
+  instantly; it honours the "Wi-Fi only" toggle and the same size limit.
+
+The full mechanics, eviction policy, and token handling are in
+[Offline downloads &amp; known limitations](#offline-downloads--known-limitations).
+
+## Reporting bugs &amp; feedback
+
+This is an alpha, and **focused bug reports are the most useful thing a tester
+can send.** Please file issues on the
+[GitHub issue tracker](https://github.com/thezupzup/linthra/issues).
+
+**Attach diagnostics.** Linthra has a built-in, **secret-free** diagnostics
+export — open **Settings → Diagnostics** and tap **Copy diagnostics** (or **Save
+diagnostics** to write `linthra-diagnostics.txt`), then paste it into the report.
+The snapshot includes the app version, Android version, Jellyfin/Subsonic
+connection state and **server host only**, library track count, cache used/limit,
+current playback output, the last error kind, and which features are
+available/enabled. By construction it contains **no password, token,
+`Authorization` header, or full server URL** — so it's safe to share publicly.
+
+A good report includes:
+
+1. **What you did** — the steps to reproduce, ideally numbered.
+2. **What you expected** vs. **what happened**.
+3. **The diagnostics block** from Settings → Diagnostics (above).
+4. **Install source** — GitHub Releases APK, Obtainium, or a self-built APK — and
+   whether it was debug- or release-signed (shown on the Release asset name).
+5. **Your setup** — local files, Jellyfin, and/or Navidrome/Subsonic; and whether
+   Android Auto or Cast was involved.
+
+**Advanced (optional) logs.** For playback or Android Auto issues, a logcat
+capture from a USB-connected device often pinpoints the cause. Linthra's own log
+lines are tagged and **secret-free by design** (tokens and URLs are never
+logged):
+
+```bash
+adb logcat | grep -i linthra
+```
+
+There is **no telemetry or crash reporting** — nothing is collected unless you
+choose to send it.
+
 ## Privacy &amp; security
 
 Linthra is built to respect the people who use it:
@@ -210,7 +304,9 @@ Linthra is built to respect the people who use it:
   token and then discarded — it is **never stored**. The session token is
   encrypted at rest (`flutter_secure_storage`, Android Keystore-backed), is
   **never logged** or shown in the UI, and authenticated stream/download URLs are
-  minted only on demand. Diagnostics are secret-free by construction.
+  minted only on demand. The **Settings → Diagnostics** export (see
+  [Reporting bugs &amp; feedback](#reporting-bugs--feedback)) is secret-free by
+  construction — it can carry a host name and counts, never a token or password.
 
 More detail lives in the
 [Jellyfin security notes](#jellyfin-self-hosted-music--setup--known-limitations)
@@ -219,16 +315,18 @@ and the offline-downloads section below.
 ## Roadmap
 
 **Working now:** local scanning + playback, background playback & media session,
-Android Auto browsing, shuffle/repeat, Jellyfin and Navidrome/Subsonic
+Android Auto browsing, shuffle/repeat, playlists (create/edit/reorder/delete,
+with partial Jellyfin sync), safe song removal, Jellyfin and Navidrome/Subsonic
 connect/sync/stream, explicit offline downloads with a smart cache, synced
-favorites & lyrics (Jellyfin), and Chromecast with device-volume control.
+favorites & lyrics (Jellyfin), Chromecast with device-volume control, and a
+secret-free diagnostics export.
 
 **Next up (roughly in order):**
 
 1. Tag/metadata parsing and album artwork.
 2. Browse by artist/album, and search.
 3. Subsonic favorites, lyrics, and cover art.
-4. Playlist creation, editing, and queue reordering.
+4. Full playlist sync (rename/reorder of synced playlists; Subsonic playlists).
 5. Album/playlist "download all" and a background download manager.
 6. Real connectivity detection for the "Wi-Fi only" gate.
 7. More sources behind the same interface — WebDAV, NAS.
