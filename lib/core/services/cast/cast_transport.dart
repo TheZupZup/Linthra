@@ -1,6 +1,7 @@
 import '../../models/cast_media.dart';
 import '../../models/cast_playback_status.dart';
 import '../../models/cast_state.dart';
+import '../../models/cast_volume.dart';
 
 /// The low-level cast plumbing [DefaultCastService] drives, isolated behind an
 /// interface so the orchestration logic (discovery → state, connect → handoff,
@@ -35,6 +36,11 @@ abstract interface class CastSessionHandle {
   /// token.
   Stream<CastPlaybackStatus> get statusStream;
 
+  /// The receiver's device volume, parsed from its receiver status, so the app
+  /// can show and follow the *device* volume (not the phone's). Emits whenever
+  /// the device reports a change. Carries no track identity, URL, or token.
+  Stream<CastVolume> get volumeStream;
+
   /// Tells the receiver to fetch and play [media]. Only valid once the session
   /// is ready.
   Future<void> loadMedia(CastMedia media);
@@ -47,6 +53,14 @@ abstract interface class CastSessionHandle {
 
   /// Seeks the receiver to [position].
   Future<void> seek(Duration position);
+
+  /// Sets the receiver's device volume to [level] (`0.0–1.0`). Targets the
+  /// platform receiver, not the media app, so it changes the device's own
+  /// volume.
+  Future<void> setVolume(double level);
+
+  /// Mutes ([muted] true) or unmutes the receiver's device volume.
+  Future<void> setMuted(bool muted);
 
   /// Asks the receiver for a fresh media status (used to re-sync position, e.g.
   /// after the app returns from the background). Best-effort; a no-op when no

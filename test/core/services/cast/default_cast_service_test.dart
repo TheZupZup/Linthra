@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/cast_media.dart';
 import 'package:linthra/core/models/cast_playback_status.dart';
 import 'package:linthra/core/models/cast_state.dart';
+import 'package:linthra/core/models/cast_volume.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/cast/cast_media_resolver.dart';
@@ -22,12 +23,20 @@ class _FakeHandle implements CastSessionHandle {
   final StreamController<bool> _ready = StreamController<bool>.broadcast();
   final StreamController<CastPlaybackStatus> _status =
       StreamController<CastPlaybackStatus>.broadcast();
+  final StreamController<CastVolume> _volume =
+      StreamController<CastVolume>.broadcast();
   bool? _last;
   final List<CastMedia> loaded = <CastMedia>[];
   int playCount = 0;
   int pauseCount = 0;
   final List<Duration> seeks = <Duration>[];
   int statusRequests = 0;
+  final List<double> volumes = <double>[];
+  final List<bool> mutes = <bool>[];
+
+  /// When set, [setVolume]/[setMuted] throw it, so a test can drive a failed
+  /// volume command.
+  Object? volumeError;
   bool closed = false;
 
   void becomeReady() {
@@ -44,6 +53,10 @@ class _FakeHandle implements CastSessionHandle {
     if (!_status.isClosed) _status.add(status);
   }
 
+  void pushVolume(CastVolume volume) {
+    if (!_volume.isClosed) _volume.add(volume);
+  }
+
   @override
   Stream<bool> get readyStream async* {
     if (_last != null) yield _last!;
@@ -52,6 +65,9 @@ class _FakeHandle implements CastSessionHandle {
 
   @override
   Stream<CastPlaybackStatus> get statusStream => _status.stream;
+
+  @override
+  Stream<CastVolume> get volumeStream => _volume.stream;
 
   @override
   Future<void> loadMedia(CastMedia media) async => loaded.add(media);
@@ -66,6 +82,18 @@ class _FakeHandle implements CastSessionHandle {
   Future<void> seek(Duration position) async => seeks.add(position);
 
   @override
+  Future<void> setVolume(double level) async {
+    if (volumeError != null) throw volumeError!;
+    volumes.add(level);
+  }
+
+  @override
+  Future<void> setMuted(bool muted) async {
+    if (volumeError != null) throw volumeError!;
+    mutes.add(muted);
+  }
+
+  @override
   Future<void> requestStatus() async => statusRequests++;
 
   @override
@@ -73,6 +101,7 @@ class _FakeHandle implements CastSessionHandle {
     closed = true;
     if (!_ready.isClosed) await _ready.close();
     if (!_status.isClosed) await _status.close();
+    if (!_volume.isClosed) await _volume.close();
   }
 }
 
@@ -401,6 +430,142 @@ void main() {
       // Never in the user-facing state.
       expect(service.state.message ?? '', isNot(contains('TOKEN')));
       expect(service.state.message ?? '', isNot(contains('api_key')));
+    });
+  });
+
+  group('device volume', () {
+    Future<DefaultCastService> connectedService(_FakeHandle handle) async {
+      current = _jellyfinTrack;
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+      await service.connect(_d1);
+      return service;
+    }
+
+    Future<void> settle() =>
+        Future<void>.delayed(const Duration(milliseconds: 5));
+
+    test('a receiver volume update folds into the cast state', () async {
+      final handle = _FakeHandle();
+      final service = await connectedService(handle);
+
+      handle.pushVolume(const CastVolume(level: 0.4, muted: false));
+      await settle();
+
+      expect(service.state.volume, 0.4);
+      expect(service.state.muted, isFalse);
+      expect(service.state.supportsVolumeControl, isTrue);
+      // Folding volume must not disturb the handoff.
+      expect(service.state.isCasting, isTrue);
+    });
+
+    test('setVolume forwards a clamped level to the session', () async {
+      final handle = _FakeHandle();
+      final service = await connectedService(handle);
+      handle.pushVolume(const CastVolume(level: 0.5, muted: false));
+      await settle();
+
+      await service.setVolume(1.5);
+
+      expect(handle.volumes, <double>[1.0]);
+    });
+
+    test('setMuted forwards to the session', () async {
+      final handle = _FakeHandle();
+      final service = await connectedService(handle);
+      handle.pushVolume(const CastVolume(level: 0.5, muted: false));
+      await settle();
+
+      await service.setMuted(true);
+
+      expect(handle.mutes, <bool>[true]);
+    });
+
+    test('volumeUp / volumeDown nudge from the current level', () async {
+      final handle = _FakeHandle();
+      final service = await connectedService(handle);
+      handle.pushVolume(const CastVolume(level: 0.5, muted: false));
+      await settle();
+
+      await service.volumeUp();
+      await service.volumeDown();
+
+      expect(handle.volumes, hasLength(2));
+      expect(handle.volumes[0], closeTo(0.6, 1e-9));
+      expect(handle.volumes[1], closeTo(0.4, 1e-9));
+    });
+
+    test('volume commands are safe no-ops when not connected', () async {
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.setVolume(0.5);
+      await service.setMuted(true);
+      await service.volumeUp();
+      await service.volumeDown();
+      // No throw, nothing connected to forward to.
+    });
+
+    test('volume commands are no-ops on a fixed-volume device', () async {
+      final handle = _FakeHandle();
+      final service = await connectedService(handle);
+      handle.pushVolume(
+        const CastVolume(level: 0.5, muted: false, controllable: false),
+      );
+      await settle();
+      expect(service.state.supportsVolumeControl, isFalse);
+
+      await service.setVolume(0.8);
+      await service.setMuted(true);
+
+      expect(handle.volumes, isEmpty);
+      expect(handle.mutes, isEmpty);
+    });
+
+    test('a failed volume command surfaces a notice but never stops playback',
+        () async {
+      final handle = _FakeHandle();
+      final service = await connectedService(handle);
+      handle.pushVolume(const CastVolume(level: 0.5, muted: false));
+      await settle();
+      expect(service.state.isCasting, isTrue);
+
+      handle.volumeError = Exception('receiver rejected SET_VOLUME');
+      await service.setVolume(0.7);
+
+      // Playback/handoff is untouched, and the raw error never leaks.
+      expect(service.state.isCasting, isTrue);
+      expect(service.state.message, DefaultCastService.volumeCommandFailed);
+      expect(service.state.message, isNot(contains('Exception')));
+    });
+
+    test('the device volume survives a track change mid-session', () async {
+      final handle = _FakeHandle();
+      final service = await connectedService(handle);
+      handle.pushVolume(const CastVolume(level: 0.5, muted: false));
+      await settle();
+
+      const next = Track(id: 'j2', title: 'Next up', uri: 'jellyfin:j2');
+      current = next;
+      trackChanges.add(next);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(service.state.volume, 0.5);
+      expect(service.state.supportsVolumeControl, isTrue);
+    });
+
+    test('disconnect clears the device volume', () async {
+      final handle = _FakeHandle();
+      final service = await connectedService(handle);
+      handle.pushVolume(const CastVolume(level: 0.5, muted: false));
+      await settle();
+      expect(service.state.supportsVolumeControl, isTrue);
+
+      await service.disconnect();
+
+      expect(service.state.volume, isNull);
+      expect(service.state.supportsVolumeControl, isFalse);
     });
   });
 }

@@ -5,6 +5,7 @@ import 'package:cast/cast.dart' as cast;
 import '../../models/cast_media.dart';
 import '../../models/cast_playback_status.dart';
 import '../../models/cast_state.dart';
+import '../../models/cast_volume.dart';
 import '../../models/playback_state.dart';
 import 'cast_transport.dart';
 
@@ -83,12 +84,18 @@ class _ChromecastSessionHandle implements CastSessionHandle {
       'type': 'LAUNCH',
       'appId': mediaReceiverAppId,
     });
+    // Ask the platform receiver for its status so the device's current volume is
+    // known promptly (the LAUNCH reply also carries it, but this is belt-and-
+    // suspenders for receivers that omit volume on launch).
+    _requestReceiverStatus();
   }
 
   final cast.CastSession _session;
   final StreamController<bool> _ready = StreamController<bool>.broadcast();
   final StreamController<CastPlaybackStatus> _status =
       StreamController<CastPlaybackStatus>.broadcast();
+  final StreamController<CastVolume> _volume =
+      StreamController<CastVolume>.broadcast();
   StreamSubscription<cast.CastSessionState>? _stateSub;
   StreamSubscription<Map<String, dynamic>>? _messageSub;
   Timer? _poll;
@@ -112,6 +119,9 @@ class _ChromecastSessionHandle implements CastSessionHandle {
 
   @override
   Stream<CastPlaybackStatus> get statusStream => _status.stream;
+
+  @override
+  Stream<CastVolume> get volumeStream => _volume.stream;
 
   @override
   Future<void> loadMedia(CastMedia media) async {
@@ -169,6 +179,45 @@ class _ChromecastSessionHandle implements CastSessionHandle {
     });
   }
 
+  @override
+  Future<void> setVolume(double level) async {
+    _sendToReceiver(<String, dynamic>{
+      'type': 'SET_VOLUME',
+      'volume': <String, dynamic>{'level': level.clamp(0.0, 1.0)},
+    });
+  }
+
+  @override
+  Future<void> setMuted(bool muted) async {
+    _sendToReceiver(<String, dynamic>{
+      'type': 'SET_VOLUME',
+      'volume': <String, dynamic>{'muted': muted},
+    });
+  }
+
+  /// Asks the platform receiver for its current status (which carries device
+  /// volume).
+  void _requestReceiverStatus() {
+    _sendToReceiver(<String, dynamic>{'type': 'GET_STATUS'});
+  }
+
+  /// Sends a message on the receiver namespace addressed to the platform
+  /// receiver (`receiver-0`), not the media app.
+  ///
+  /// `CastSession.sendMessage` targets the media app's transport id once the
+  /// app has launched, but volume/receiver-status commands must reach the
+  /// platform receiver — so this goes through the socket with an explicit
+  /// `receiver-0` destination (the virtual connection to it was opened when the
+  /// session connected).
+  void _sendToReceiver(Map<String, dynamic> payload) {
+    _session.socket.sendMessage(
+      cast.CastSession.kNamespaceReceiver,
+      _session.sessionId,
+      'receiver-0',
+      <String, dynamic>{'requestId': _requestId++, ...payload},
+    );
+  }
+
   void _mediaCommand(String type) {
     final int? id = _mediaSessionId;
     if (id == null) return;
@@ -191,10 +240,19 @@ class _ChromecastSessionHandle implements CastSessionHandle {
     _poll = null;
   }
 
-  /// Parses a receiver `MEDIA_STATUS` payload into a [CastPlaybackStatus] and
-  /// forwards it. Other message types (receiver status, etc.) are ignored.
+  /// Routes an incoming receiver message: media status drives playback, receiver
+  /// status carries the device volume. Other types are ignored.
   void _onMessage(Map<String, dynamic> payload) {
-    if (payload['type'] != 'MEDIA_STATUS') return;
+    switch (payload['type']) {
+      case 'MEDIA_STATUS':
+        _onMediaStatus(payload);
+      case 'RECEIVER_STATUS':
+        _onReceiverStatus(payload);
+    }
+  }
+
+  /// Parses a `MEDIA_STATUS` payload into a [CastPlaybackStatus] and forwards it.
+  void _onMediaStatus(Map<String, dynamic> payload) {
     final Object? list = payload['status'];
     if (list is! List || list.isEmpty) return;
     final Object? first = list.first;
@@ -222,6 +280,27 @@ class _ChromecastSessionHandle implements CastSessionHandle {
       duration: _lastDuration,
     );
     if (!_status.isClosed) _status.add(status);
+  }
+
+  /// Parses the device volume out of a `RECEIVER_STATUS` payload and forwards a
+  /// [CastVolume]. A `controlType` of `fixed` marks the device as not
+  /// volume-controllable, so the UI can disable its slider. Carries no track
+  /// identity, URL, or token.
+  void _onReceiverStatus(Map<String, dynamic> payload) {
+    final Object? status = payload['status'];
+    if (status is! Map) return;
+    final Object? volume = status['volume'];
+    if (volume is! Map) return;
+    final num? level = volume['level'] as num?;
+    if (level == null) return;
+    final Object? muted = volume['muted'];
+    final Object? controlType = volume['controlType'];
+    final CastVolume next = CastVolume(
+      level: level.toDouble().clamp(0.0, 1.0),
+      muted: muted is bool ? muted : false,
+      controllable: controlType != 'fixed',
+    );
+    if (!_volume.isClosed) _volume.add(next);
   }
 
   static Duration _secondsToDuration(num seconds) =>
@@ -256,6 +335,7 @@ class _ChromecastSessionHandle implements CastSessionHandle {
     _messageSub = null;
     if (!_ready.isClosed) await _ready.close();
     if (!_status.isClosed) await _status.close();
+    if (!_volume.isClosed) await _volume.close();
     await cast.CastSessionManager().endSession(_session.sessionId);
   }
 }

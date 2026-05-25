@@ -14,11 +14,15 @@ import 'playback_diagnostics.dart';
 class LocalPlayableUriResolver implements PlayableUriResolver {
   const LocalPlayableUriResolver();
 
+  /// Remote schemes this on-device resolver must NOT claim, so their own
+  /// resolvers (composed ahead of this one) handle them. Anything else is
+  /// treated as an on-device file path or `content://` document.
+  static const Set<String> _remoteSchemes = <String>{'jellyfin', 'subsonic'};
+
   @override
   bool handles(Track track) {
     final Uri? uri = Uri.tryParse(track.uri);
-    // Anything that isn't a known remote scheme is treated as on-device.
-    return (uri?.scheme.toLowerCase() ?? '') != 'jellyfin';
+    return !_remoteSchemes.contains(uri?.scheme.toLowerCase() ?? '');
   }
 
   @override

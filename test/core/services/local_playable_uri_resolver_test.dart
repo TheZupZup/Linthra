@@ -31,14 +31,18 @@ void main() {
       expect(resolved.source, PlaybackSource.localFile);
     });
 
-    test('handles on-device tracks but not Jellyfin tracks', () {
+    test('handles on-device tracks but not remote (Jellyfin/Subsonic) ones',
+        () {
       const file = Track(id: '1', title: 'One', uri: '/music/song.mp3');
       const content = Track(id: '2', title: 'Two', uri: 'content://x/y');
       const jellyfin = Track(id: 't1', title: 'J', uri: 'jellyfin:t1');
+      const subsonic = Track(id: 's1', title: 'S', uri: 'subsonic:s1');
 
       expect(resolver.handles(file), isTrue);
       expect(resolver.handles(content), isTrue);
+      // Remote tracks are left to their own resolvers, composed ahead of this.
       expect(resolver.handles(jellyfin), isFalse);
+      expect(resolver.handles(subsonic), isFalse);
     });
   });
 }

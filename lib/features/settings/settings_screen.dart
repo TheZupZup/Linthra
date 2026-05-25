@@ -6,6 +6,7 @@ import '../../shared/widgets/linthra_logo_mark.dart';
 import 'cache/cache_settings_section.dart';
 import 'jellyfin/jellyfin_settings_section.dart';
 import 'precache/precache_settings_section.dart';
+import 'subsonic/subsonic_settings_section.dart';
 
 /// Settings. Hosts the connection/source and offline-storage options, plus a
 /// quiet brand/about footer. Theme and other options will join them here.
@@ -20,6 +21,8 @@ class SettingsScreen extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.md),
         children: const [
           JellyfinSettingsSection(),
+          SizedBox(height: AppSpacing.md),
+          SubsonicSettingsSection(),
           SizedBox(height: AppSpacing.md),
           CacheSettingsSection(),
           SizedBox(height: AppSpacing.md),

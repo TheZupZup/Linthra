@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../../models/track.dart';
 import '../../services/remote_track_downloader.dart';
+import '../audio_file_extension.dart';
 import 'jellyfin_download_source.dart';
 import 'jellyfin_track_mapper.dart';
 
@@ -79,7 +80,8 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
 
       return RemoteTrackData(
         bytes: builder.takeBytes(),
-        fileExtension: _extensionFor(response.headers['content-type']),
+        fileExtension:
+            AudioFileExtension.forContentType(response.headers['content-type']),
       );
     } on StateError {
       // Our own friendly, token-free messages (bad status / not signed in):
@@ -89,39 +91,6 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
       // Never rethrow the original error: a ClientException/SocketException (or
       // a TimeoutException) can embed the tokenized URL in its message.
       throw StateError('Jellyfin download failed.');
-    }
-  }
-
-  /// Maps a response content type to a cache-file extension. Returns `null` for
-  /// unknown types; the player sniffs the container regardless, so the extension
-  /// is only a convenience.
-  static String? _extensionFor(String? contentType) {
-    if (contentType == null) return null;
-    final String type = contentType.split(';').first.trim().toLowerCase();
-    switch (type) {
-      case 'audio/mpeg':
-      case 'audio/mp3':
-        return 'mp3';
-      case 'audio/flac':
-      case 'audio/x-flac':
-        return 'flac';
-      case 'audio/mp4':
-      case 'audio/m4a':
-      case 'audio/x-m4a':
-        return 'm4a';
-      case 'audio/aac':
-        return 'aac';
-      case 'audio/ogg':
-      case 'application/ogg':
-        return 'ogg';
-      case 'audio/opus':
-        return 'opus';
-      case 'audio/wav':
-      case 'audio/x-wav':
-      case 'audio/wave':
-        return 'wav';
-      default:
-        return null;
     }
   }
 }

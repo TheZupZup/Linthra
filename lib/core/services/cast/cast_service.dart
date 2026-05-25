@@ -49,6 +49,24 @@ abstract interface class CastService {
   /// Seeks the receiver to [position]. A no-op when not casting.
   Future<void> seek(Duration position);
 
+  /// Sets the connected receiver's volume to [volume] (clamped to `0.0–1.0`).
+  /// Controls the *device* volume, not the phone's media volume. A no-op when
+  /// not connected or the device doesn't support volume control; a failure is
+  /// swallowed (surfaced via [CastState.message]) and never breaks playback.
+  Future<void> setVolume(double volume);
+
+  /// Nudges the connected receiver's volume up by one step. A no-op when not
+  /// connected or unsupported.
+  Future<void> volumeUp();
+
+  /// Nudges the connected receiver's volume down by one step. A no-op when not
+  /// connected or unsupported.
+  Future<void> volumeDown();
+
+  /// Mutes ([muted] true) or unmutes the connected receiver. A no-op when not
+  /// connected or unsupported; a failure never breaks playback.
+  Future<void> setMuted(bool muted);
+
   /// Asks the receiver for a fresh status, to re-sync position (e.g. when the
   /// app returns from the background). A no-op when not casting.
   Future<void> refresh();

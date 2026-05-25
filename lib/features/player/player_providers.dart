@@ -13,8 +13,10 @@ import '../../core/services/playback_controller.dart';
 import '../../core/services/routing_playable_uri_resolver.dart';
 import '../../core/services/smart_precache_service.dart';
 import '../../core/sources/jellyfin/jellyfin_playable_uri_resolver.dart';
+import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
+import '../settings/subsonic/subsonic_settings_controller.dart';
 import 'cast/cast_providers.dart';
 
 /// Composes the [PlayableUriResolver] the controller resolves tracks through.
@@ -29,6 +31,7 @@ import 'cast/cast_providers.dart';
 final playableUriResolverProvider = Provider<PlayableUriResolver>((ref) {
   final fallback = RoutingPlayableUriResolver(<PlayableUriResolver>[
     JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
+    SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
     const LocalPlayableUriResolver(),
   ]);
   return OfflineFirstPlayableUriResolver(

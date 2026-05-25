@@ -6,9 +6,12 @@ import '../../../core/services/cast/cast_media_resolver.dart';
 import '../../../core/services/cast/cast_service.dart';
 import '../../../core/services/cast/chromecast_cast_transport.dart';
 import '../../../core/services/cast/default_cast_service.dart';
+import '../../../core/services/cast/routing_cast_media_resolver.dart';
 import '../../../core/services/cast/unavailable_cast_service.dart';
 import '../../../core/sources/jellyfin/jellyfin_cast_media_resolver.dart';
+import '../../../core/sources/subsonic/subsonic_cast_media_resolver.dart';
 import '../../settings/jellyfin/jellyfin_settings_controller.dart';
+import '../../settings/subsonic/subsonic_settings_controller.dart';
 import '../player_providers.dart';
 
 /// The single [CastService] the app drives casting through.
@@ -30,11 +33,16 @@ final castStateProvider = StreamProvider<CastState>((ref) {
 });
 
 /// Resolves the current track into a castable URL on demand at cast time.
-/// Jellyfin tracks mint an authenticated stream URL (the receiver fetches it
-/// directly); on-device files report [CastMediaResolver.canCast] false so the
-/// service can show a clear limitation instead of failing.
+/// Jellyfin and Subsonic tracks each mint an authenticated stream URL (the
+/// receiver fetches it directly); on-device files report
+/// [CastMediaResolver.canCast] false so the service can show a clear limitation
+/// instead of failing. Composed so multiple remote sources cast through one
+/// resolver.
 final castMediaResolverProvider = Provider<CastMediaResolver>((ref) {
-  return JellyfinCastMediaResolver(() => ref.read(jellyfinMusicSourceProvider));
+  return RoutingCastMediaResolver(<CastMediaResolver>[
+    JellyfinCastMediaResolver(() => ref.read(jellyfinMusicSourceProvider)),
+    SubsonicCastMediaResolver(() => ref.read(subsonicMusicSourceProvider)),
+  ]);
 });
 
 /// Production binding: the real Chromecast backend, applied in `main`.
