@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest an improvement or a missing capability.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a look at the [Roadmap](../../README.md#roadmap) first — some of
+        this may already be planned.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the use case, not just the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What would you like Linthra to do?
+    validations:
+      required: false

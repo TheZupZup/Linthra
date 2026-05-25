@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Jellyfin setup & troubleshooting
+    url: https://github.com/thezupzup/linthra/blob/main/docs/jellyfin-compatibility.md
+    about: Connection, Cloudflare, and "how to report without leaking secrets" notes.
+  - name: Android Auto troubleshooting
+    url: https://github.com/thezupzup/linthra/blob/main/docs/android-auto.md
+    about: Why a sideloaded build may not appear, and how to test on a head unit.

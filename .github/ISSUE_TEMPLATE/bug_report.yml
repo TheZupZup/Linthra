@@ -1,0 +1,75 @@
+name: Bug report
+description: Report something that doesn't work in the Linthra alpha.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Linthra! This is alpha software, so rough edges are
+        expected — clear reports help a lot.
+
+        **Tip:** open **Settings → Diagnostics → Copy diagnostics** in the app
+        and paste the result below. It's secret-free by construction (no
+        password, token, or full server URL — just versions, connection state,
+        server host, counts, and feature flags).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+      placeholder: I tapped a synced Jellyfin track and expected it to play, but…
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps so it can be reproduced.
+      placeholder: |
+        1. Go to Settings → Jellyfin and sign in
+        2. Sync the library
+        3. Tap a track
+        4. See the error
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste the output of Settings → Diagnostics → Copy diagnostics.
+      render: text
+    validations:
+      required: false
+  - type: dropdown
+    id: install-source
+    attributes:
+      label: Install source
+      options:
+        - GitHub Releases APK
+        - Obtainium
+        - Self-built APK (flutter build)
+        - Other / not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: setup
+    attributes:
+      label: What were you using?
+      options:
+        - label: Local files
+        - label: Jellyfin
+        - label: Navidrome / Subsonic
+        - label: Android Auto
+        - label: Chromecast / Cast
+        - label: Offline cache / downloads
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: |
+        For playback or Android Auto issues, a logcat capture often helps.
+        Linthra's own log lines are secret-free by design:
+        `adb logcat | grep -i linthra`
+      render: text
+    validations:
+      required: false
