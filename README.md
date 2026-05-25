@@ -47,7 +47,7 @@ violet→orange gradient — generated from a single source design (not mockups)
 ## What works today
 
 Everything below works end to end on a real Android device in the current alpha
-(`0.1.0-alpha.9`):
+(`0.1.0-alpha.15`):
 
 - **Local library** — pick a folder with the native Android picker (Storage
   Access Framework), scan it, and list your tracks. The chosen folder and the
@@ -241,7 +241,7 @@ See [Roadmap (MVP)](#roadmap-mvp) below for the full breakdown.
 
 ## Project status
 
-**Current alpha: `0.1.0-alpha.9`.** Linthra is a manually testable Android build
+**Current alpha: `0.1.0-alpha.15`.** Linthra is a manually testable Android build
 with several rounds of features and fixes since the first alpha. It is still
 early software with honest, documented limitations — see
 [Known limitations](#known-limitations) and the
@@ -249,6 +249,25 @@ early software with honest, documented limitations — see
 F-Droid, **not** on Google Play, and nothing is published automatically. Release
 signing is wired up but not yet provisioned, so some alpha APKs may be
 debug-signed (and clearly labeled as such).
+
+### Real-device QA
+
+The automated suite (`flutter test`) covers the logic seams; the device-only
+surfaces are verified by hand against the
+[manual QA checklist](./docs/manual-test-checklist.md). Confirmed on real
+hardware for this alpha:
+
+- Jellyfin **direct streaming** plays on the first tap after launch.
+- **Chromecast** connect / disconnect / transport, with no duplicate local
+  audio while casting and a paused (never surprise-starting) hand-back.
+- **Android Auto** appears and browses (after enabling Android Auto "unknown
+  sources"); media ids/extras/logs carry no token.
+- **Offline cache** with a user-configurable size limit; local source files are
+  never deleted by cache cleanup.
+- **Shuffle / repeat** and a polished Now Playing screen.
+
+Re-run the [checklist](./docs/manual-test-checklist.md) before each release; it
+also tracks the current known limitations and follow-ups.
 
 ## Contributing &amp; deeper docs
 

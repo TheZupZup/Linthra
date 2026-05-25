@@ -946,6 +946,94 @@ void main() {
         await sub.cancel();
       });
     });
+
+    group('cancel / clear races', () {
+      test('cancelling a download mid-fetch never resurrects it', () async {
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(gate: gate.future);
+        final spy = _SpyOfflineFileStore(files);
+        final repository = CacheDownloadRepository(
+          store: store,
+          files: spy,
+          downloader: downloader,
+          connectivity: connectivity,
+          preferences: preferences,
+        );
+
+        final Future<void> request =
+            repository.requestDownload(_jellyfin('j1'));
+        // Wait until the bytes are actually being fetched, then cancel.
+        await _pumpUntil(() => downloader.fetchCount >= 1);
+        await repository.removeDownload('j1');
+        // The in-flight fetch now completes — it must commit nothing.
+        gate.complete();
+        await request;
+
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        expect(await repository.downloadedTrackIds(), isEmpty);
+        expect(await store.loadDownloads(), isEmpty);
+        final CacheSnapshot snapshot = await repository.cacheSnapshot();
+        expect(snapshot.usedBytes, 0);
+        expect(snapshot.entries, isEmpty);
+        // The cancelled fetch wrote no managed file at all.
+        expect(spy.bytesFor('j1.mp3'), isNull);
+      });
+
+      test('a cancelled download can be requested again and downloads',
+          () async {
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(gate: gate.future);
+        final repository = build();
+
+        final Future<void> first = repository.requestDownload(_jellyfin('j1'));
+        await _pumpUntil(() => downloader.fetchCount >= 1);
+        await repository.removeDownload('j1');
+        gate.complete();
+        await first;
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+
+        // A fresh, explicit request supersedes the prior cancellation.
+        await repository.requestDownload(_jellyfin('j1'));
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+      });
+
+      test('clear all during an in-flight download leaves nothing behind',
+          () async {
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(gate: gate.future);
+        final repository = build();
+
+        final Future<void> request =
+            repository.requestDownload(_jellyfin('j1'));
+        await _pumpUntil(() => downloader.fetchCount >= 1);
+        await repository.clearAll();
+        gate.complete();
+        await request;
+
+        expect(await repository.downloadedTrackIds(), isEmpty);
+        expect(await store.loadDownloads(), isEmpty);
+        expect((await repository.cacheSnapshot()).usedBytes, 0);
+      });
+    });
+
+    group('preload concurrency', () {
+      test('two concurrent prefetches of the same track fetch its bytes once',
+          () async {
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(gate: gate.future);
+        final repository = build();
+
+        final Future<void> p1 = repository.prefetch(_jellyfin('j1'));
+        final Future<void> p2 = repository.prefetch(_jellyfin('j1'));
+        await _pumpUntil(() => downloader.fetchCount >= 1);
+        gate.complete();
+        await Future.wait(<Future<void>>[p1, p2]);
+
+        // The reservation made the second prefetch bail before fetching, so the
+        // bytes were pulled exactly once (not just de-duplicated at commit).
+        expect(downloader.fetchCount, 1);
+      });
+    });
   });
 }
 

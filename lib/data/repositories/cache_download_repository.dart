@@ -105,6 +105,20 @@ class CacheDownloadRepository
   /// rapid taps — or two callers — can never start the same fetch twice.
   final Set<String> _inFlight = <String>{};
 
+  /// Track ids whose bytes are being pre-cached right now. Reserved
+  /// synchronously at the start of [prefetch] so two concurrent prefetches of
+  /// the same track can't both spend network fetching it. Kept separate from
+  /// [_inFlight] so a preload never makes a user [requestDownload] think the
+  /// track is already a download.
+  final Set<String> _preloading = <String>{};
+
+  /// Track ids whose in-flight fetch must NOT commit, because the user removed
+  /// or cleared the download while its bytes were still downloading. Checked at
+  /// commit time so a late fetch can't resurrect a cancelled download or leave a
+  /// stray file behind. A fresh [requestDownload] clears any stale entry, and
+  /// the commit/cleanup paths drop it once handled.
+  final Set<String> _canceled = <String>{};
+
   /// Live byte progress for in-flight downloads, surfaced via [progressStream].
   final Map<String, DownloadProgress> _progress = <String, DownloadProgress>{};
 
@@ -187,6 +201,9 @@ class CacheDownloadRepository
       return;
     }
 
+    // A fresh, explicit request supersedes any pending cancellation for this id
+    // (e.g. the user removed it mid-fetch and immediately asked again).
+    _canceled.remove(track.id);
     // Reserve the in-flight slot synchronously, before any `await`, so a second
     // request for the same track (a double tap, or a second caller) bails out
     // here instead of starting a duplicate fetch.
@@ -200,9 +217,13 @@ class CacheDownloadRepository
       rethrow;
     } catch (_) {
       // Other errors may carry source-specific detail; the UI only needs the
-      // failed state (which offers a retry).
-      _set(track.id, DownloadStatus.failed);
+      // failed state (which offers a retry) — but a download the user cancelled
+      // mid-fetch must stay gone, not flip to "failed".
+      if (!_canceled.contains(track.id)) {
+        _set(track.id, DownloadStatus.failed);
+      }
     } finally {
+      _canceled.remove(track.id);
       _inFlight.remove(track.id);
       _clearProgress(track.id);
     }
@@ -282,6 +303,10 @@ class CacheDownloadRepository
     RemoteTrackData data, {
     bool preloaded = false,
   }) async {
+    // The user removed or cleared this download while its bytes were still in
+    // flight: honour that and commit nothing — no file write, no metadata, no
+    // status — so a late fetch can't resurrect it or leave a stray file.
+    if (_canceled.remove(track.id)) return;
     if (preloaded) {
       final CachedTrack? existing = _downloads[track.id];
       // A user download for the same track raced this preload (commits are
@@ -352,15 +377,18 @@ class CacheDownloadRepository
     if (_downloads.containsKey(track.id)) return;
     if (_inFlight.contains(track.id)) return;
     if (_statuses[track.id] == DownloadStatus.downloading) return;
-    // Preload is best-effort and network-heavy, so it honours "Wi-Fi only" and
-    // simply skips (rather than queueing) when it can't run right now.
-    if (!await _allowedToDownloadNow()) return;
-    // Respect the cache limit *before* spending data: if the cache is already
-    // full and nothing is safe to evict (every entry pinned or playing), a
-    // best-effort preload can never fit — skip the fetch rather than pull bytes
-    // we'd immediately discard. The exact fit is still re-checked at commit.
-    if (!_hasRoomForPrecache(await _preferences.maxCacheBytes())) return;
+    // Reserve synchronously, before any await, so a second concurrent prefetch
+    // of the same track bails here instead of fetching the same bytes twice.
+    if (!_preloading.add(track.id)) return;
     try {
+      // Preload is best-effort and network-heavy, so it honours "Wi-Fi only"
+      // and simply skips (rather than queueing) when it can't run right now.
+      if (!await _allowedToDownloadNow()) return;
+      // Respect the cache limit *before* spending data: if the cache is already
+      // full and nothing is safe to evict (every entry pinned or playing), a
+      // best-effort preload can never fit — skip the fetch rather than pull
+      // bytes we'd immediately discard. The exact fit is re-checked at commit.
+      if (!_hasRoomForPrecache(await _preferences.maxCacheBytes())) return;
       final RemoteTrackData data = await _downloader.fetch(track);
       // Share the one commit lock so a preload write can't race a user
       // download's and overshoot the limit.
@@ -368,12 +396,20 @@ class CacheDownloadRepository
     } catch (_) {
       // Best-effort: a failed preload caches nothing and changes no status; the
       // track still streams normally when it's reached.
+    } finally {
+      _canceled.remove(track.id);
+      _preloading.remove(track.id);
     }
   }
 
   @override
   Future<void> removeDownload(String trackId) async {
     await _ensureLoaded();
+    // If a fetch for this track is still in flight, mark it cancelled so its
+    // late commit won't re-add the entry or leave a managed file on disk.
+    if (_inFlight.contains(trackId) || _preloading.contains(trackId)) {
+      _canceled.add(trackId);
+    }
     final CachedTrack? existing = _downloads.remove(trackId);
     await _deleteManagedFile(existing);
     await _save();
@@ -435,6 +471,12 @@ class CacheDownloadRepository
   /// app-managed cache files. On-device markers carry no managed file, so the
   /// user's local source files are never touched.
   Future<void> _clear({required bool keepPinned}) async {
+    // Cancel any in-flight fetch first (synchronously, before any await), so a
+    // download finishing mid-clear can't write a file and re-add an entry the
+    // user just cleared. An in-flight download holds no committed entry yet, so
+    // it is unpinned by nature — correct to drop under either clear mode.
+    _canceled.addAll(_inFlight);
+    _canceled.addAll(_preloading);
     await _ensureLoaded();
     final List<CachedTrack> victims = _downloads.values
         .where((CachedTrack c) => !(keepPinned && c.pinned))

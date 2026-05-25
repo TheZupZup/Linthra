@@ -27,4 +27,10 @@ abstract interface class FavoritesRepository {
   /// set (server is the source of truth there), leaving local-track favourites
   /// untouched. A no-op when not signed in. Never throws.
   Future<void> refreshFromRemote();
+
+  /// Drops the server-sourced favourites (the signed-in account's), keeping
+  /// on-device favourites. Called on sign-out so one account's hearts can't
+  /// linger — or be re-pushed to a different account — after disconnecting.
+  /// A no-op when there are none. Never throws.
+  Future<void> clearRemote();
 }

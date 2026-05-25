@@ -7,6 +7,7 @@ import '../../../core/sources/subsonic/subsonic_music_source.dart';
 import '../../../data/repositories/subsonic_session_store_provider.dart';
 import 'subsonic_settings_providers.dart';
 import 'subsonic_settings_state.dart';
+import 'subsonic_sync_controller.dart';
 
 /// Drives the Subsonic/Navidrome settings screen: loads any saved session,
 /// tests a connection, signs in, and clears settings.
@@ -140,10 +141,14 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
     }
   }
 
-  /// Clears the saved session and resets to the disconnected state.
+  /// Clears the saved session and resets to the disconnected state, also
+  /// resetting the now-stale "Synced N tracks" status so it can't linger into a
+  /// later sign-in. (Subsonic favourites are on-device only, so there are no
+  /// server-synced favourites to drop here.)
   Future<void> clear() async {
     await ref.read(subsonicSessionStoreProvider).clear();
     _session = null;
+    ref.invalidate(subsonicSyncControllerProvider);
     state = const SubsonicSettingsState(
       statusMessage: 'Signed out. Your Subsonic settings were cleared.',
     );

@@ -137,5 +137,48 @@ void main() {
 
       expect(ids, <String>{'a', 'j1'});
     });
+
+    test('clearRemote drops server favourites but keeps on-device ones',
+        () async {
+      final repo = build(session: _session);
+      await repo.setFavorite(_jellyfin('j1'), true); // server-synced
+      await repo.setFavorite(_local('a'), true); // device-local
+      expect(repo.isFavorite('j1'), isTrue);
+      expect(repo.isFavorite('a'), isTrue);
+
+      await repo.clearRemote();
+
+      // The remote (account) favourite is gone; the local one survives.
+      expect(repo.isFavorite('j1'), isFalse);
+      expect(repo.isFavorite('a'), isTrue);
+      final loaded = await store.load();
+      expect(loaded.remoteIds, isEmpty);
+      expect(loaded.localIds, <String>{'a'});
+    });
+
+    test('clearRemote emits the reduced set on the stream', () async {
+      final repo = build(session: _session);
+      await repo.setFavorite(_jellyfin('j1'), true);
+      final emissions = <Set<String>>[];
+      final sub = repo.favoritesStream.listen(emissions.add);
+      await _settle();
+
+      await repo.clearRemote();
+      await _settle();
+      await sub.cancel();
+
+      expect(emissions.last, isNot(contains('j1')));
+    });
+
+    test('clearRemote is a no-op when there are no server favourites',
+        () async {
+      final repo = build(session: _session);
+      await repo.setFavorite(_local('a'), true);
+
+      await repo.clearRemote();
+
+      expect(repo.isFavorite('a'), isTrue);
+      expect((await store.load()).localIds, <String>{'a'});
+    });
   });
 }

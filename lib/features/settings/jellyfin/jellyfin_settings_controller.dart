@@ -7,9 +7,11 @@ import '../../../core/sources/jellyfin/jellyfin_diagnostics.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../../core/sources/jellyfin/jellyfin_music_source.dart';
 import '../../../core/sources/jellyfin/jellyfin_server_capabilities.dart';
+import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/jellyfin_session_store_provider.dart';
 import 'jellyfin_settings_providers.dart';
 import 'jellyfin_settings_state.dart';
+import 'jellyfin_sync_controller.dart';
 
 /// Drives the Jellyfin settings screen: loads any saved session, tests a
 /// connection, signs in, and clears settings.
@@ -149,9 +151,20 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
   }
 
   /// Clears the saved session and resets to the disconnected state.
+  ///
+  /// Also tears down this account's *derived* state so nothing lingers — or
+  /// crosses over to a different account on the next sign-in: the server-synced
+  /// favourites are dropped (on-device favourites are kept), and the now-stale
+  /// "Synced N tracks" status is reset.
   Future<void> clear() async {
     await ref.read(jellyfinSessionStoreProvider).clear();
     _session = null;
+    try {
+      await ref.read(favoritesRepositoryProvider).clearRemote();
+    } catch (_) {
+      // A storage hiccup must not block sign-out; the session is already gone.
+    }
+    ref.invalidate(jellyfinSyncControllerProvider);
     state = const JellyfinSettingsState(
       statusMessage: 'Signed out. Your Jellyfin settings were cleared.',
     );
@@ -173,9 +186,12 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
           : JellyfinConnectionPhase.disconnected,
       baseUrl: current?.baseUrl ?? url,
       username: current?.userName ?? username,
-      serverName: current?.serverName ?? state.serverName,
-      serverVersion: current?.serverVersion ?? state.serverVersion,
-      productName: current?.productName ?? state.productName,
+      // While a session still stands, keep its server identity; when
+      // disconnected, drop any previously-known server so a failed test of a
+      // *different* address can't report the old server in diagnostics.
+      serverName: current?.serverName,
+      serverVersion: current?.serverVersion,
+      productName: current?.productName,
       statusMessage: current != null ? _connectedMessage(current) : null,
       errorMessage: message,
       errorKind: kind,

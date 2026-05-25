@@ -125,6 +125,15 @@ class JellyfinSyncedFavoritesRepository implements FavoritesRepository {
     }
   }
 
+  @override
+  Future<void> clearRemote() async {
+    await _ensureLoaded();
+    if (_data.remoteIds.isEmpty) return;
+    _data = _data.copyWith(remoteIds: const <String>{});
+    _emit();
+    await _store.save(_data);
+  }
+
   void _emit() {
     if (!_changes.isClosed) _changes.add(_all);
   }
