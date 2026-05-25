@@ -102,4 +102,7 @@ class FakeFavoritesRepository implements FavoritesRepository {
 
   @override
   Future<void> refreshFromRemote() async {}
+
+  @override
+  Future<void> clearRemote() async {}
 }

@@ -1,0 +1,17 @@
+Linthra 0.1.0-alpha.15 — QA & stabilization pass after real-device testing.
+
+Fixed:
+- Settings/About version now matches the published release.
+- Cancelling or clearing a download mid-fetch no longer lets it reappear as
+  "downloaded" (and no stray file is left behind).
+- Pre-cache no longer double-fetches the same track if asked twice at once.
+- "Add to playlist" now reports the number of songs actually added (duplicates
+  already in the playlist are no longer counted).
+- Signing out of Jellyfin now clears that account's synced favorites and stale
+  sync status, so they can't linger or cross over to another account.
+- Jellyfin diagnostics no longer report a previous server after a failed test of
+  a different address.
+
+Also: broader automated test coverage and a manual Android QA checklist.
+
+Still an alpha — expect rough edges. Not on F-Droid yet.

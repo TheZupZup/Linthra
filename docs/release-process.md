@@ -5,7 +5,7 @@ git tagging, changelogs, and the (manual) GitHub-Release flow. The F-Droid
 docs reference this document rather than restating the plan.
 
 > **Sideloadable alphas only; nothing here publishes to a store.** Linthra has
-> tagged pre-release alphas (latest `v0.1.0-alpha.9`) attached to GitHub
+> tagged pre-release alphas (latest `v0.1.0-alpha.15`) attached to GitHub
 > Releases as sideloadable APKs/AABs, but is **not** on F-Droid. Pushing a `v*`
 > tag builds the release artifacts automatically. For **alpha/beta/rc** tags the
 > build can create a GitHub **pre-release** and attach the APK/AAB to it; for
@@ -18,7 +18,7 @@ docs reference this document rather than restating the plan.
 `pubspec.yaml` is the **single source of truth** for the version:
 
 ```
-version: x.y.z+<versionCode>      # currently 0.1.0-alpha.9+9
+version: x.y.z+<versionCode>      # currently 0.1.0-alpha.15+15
 ```
 
 - **`versionName` = `x.y.z`** — the human-facing [SemVer](https://semver.org/)
@@ -75,7 +75,7 @@ Before creating a release tag:
 
 1. **Bump the version** in `pubspec.yaml` (`versionName` and `versionCode`).
    The `versionCode` **must** be strictly greater than every previous build's
-   (the current release is `+9`, so the next is `+10`).
+   (the current release is `+15`, so the next is `+16`).
 2. **Sync the in-app version.** Set `AppInfo.version` in
    `lib/core/app_info.dart` to the new `versionName` (no `+versionCode`). The
    drift test (`test/core/app_info_version_test.dart`) fails CI if you forget,
@@ -210,7 +210,7 @@ Release, writes production notes, signs a store build, or submits to F-Droid.
    GitHub-Release artifact is wanted — see
    [release-signing.md](./release-signing.md). (Not needed for F-Droid itself,
    which signs its own builds.)
-2. **A `vX.Y.Z` tag** exists — alpha tags through `v0.1.0-alpha.9` have been
+2. **A `vX.Y.Z` tag** exists — alpha tags through `v0.1.0-alpha.15` have been
    cut; F-Droid submission itself is still pending the other blockers.
 3. **Decide the `pubspec.lock` policy** for reproducible release builds
    ([fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).

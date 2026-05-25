@@ -131,13 +131,22 @@ class _AddToPlaylistSheet extends ConsumerWidget {
       );
       return;
     }
+    // The repository skips ids already in the playlist, so the count the user
+    // sees must be the genuinely-new ones — not the whole addable list.
+    final Set<String> existing = playlist.trackIds.toSet();
+    final int added =
+        addable.where((Track t) => !existing.contains(t.id)).length;
     await ref.read(playlistRepositoryProvider).addTracks(
       playlist.id,
       <String>[for (final Track track in addable) track.id],
     );
     navigator.pop();
     messenger.showSnackBar(
-      SnackBar(content: Text(_addedMessage(playlist, addable.length))),
+      SnackBar(
+        content: Text(
+          _resultMessage(playlist, addableCount: addable.length, added: added),
+        ),
+      ),
     );
   }
 
@@ -166,8 +175,15 @@ class _AddToPlaylistSheet extends ConsumerWidget {
       );
     }
     navigator.pop();
+    // A freshly created playlist is empty, so every addable track is genuinely
+    // added; the skipped remainder (if any) was filtered as non-Jellyfin.
     messenger.showSnackBar(
-      SnackBar(content: Text(_addedMessage(created, addable.length))),
+      SnackBar(
+        content: Text(
+          _resultMessage(created,
+              addableCount: addable.length, added: addable.length),
+        ),
+      ),
     );
   }
 
@@ -182,13 +198,31 @@ class _AddToPlaylistSheet extends ConsumerWidget {
     ];
   }
 
-  String _addedMessage(Playlist playlist, int added) {
+  /// A snackbar line reflecting what actually changed. [added] is the number of
+  /// tracks genuinely appended (the repository skips ids already present, and
+  /// [addableCount] excludes tracks the playlist can't take — e.g. non-Jellyfin
+  /// tracks for a synced playlist), so this never claims more than was added.
+  String _resultMessage(
+    Playlist playlist, {
+    required int addableCount,
+    required int added,
+  }) {
+    if (added == 0) {
+      // Nothing new landed. Either the whole selection was unsupported, or
+      // every track was already in the playlist.
+      if (addableCount == 0 && playlist.source == PlaylistSource.jellyfin) {
+        return 'Only Jellyfin tracks can be added to ${playlist.name}.';
+      }
+      return tracks.length == 1
+          ? "That song's already in ${playlist.name}."
+          : 'Those songs are already in ${playlist.name}.';
+    }
     final int skipped = tracks.length - added;
     final String base = added == 1
         ? 'Added to ${playlist.name}.'
         : 'Added $added songs to ${playlist.name}.';
     if (skipped > 0) {
-      return '$base $skipped not added (not Jellyfin tracks).';
+      return '$base $skipped skipped (already added or not supported).';
     }
     return base;
   }

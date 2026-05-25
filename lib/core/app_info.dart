@@ -11,5 +11,5 @@ abstract final class AppInfo {
   /// `pubspec.yaml` is the single source of truth; this constant must match it.
   /// `test/core/app_info_version_test.dart` fails CI if the two ever drift, so
   /// bump both in the same commit (see docs/release-process.md §3).
-  static const String version = '0.1.0-alpha.9';
+  static const String version = '0.1.0-alpha.15';
 }

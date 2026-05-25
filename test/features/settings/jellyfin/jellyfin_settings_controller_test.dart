@@ -1,13 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
+import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/favorites_repository.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
+import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_jellyfin_session_store.dart';
 import 'package:linthra/data/repositories/jellyfin_session_store_provider.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_providers.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_state.dart';
+import 'package:linthra/features/settings/jellyfin/jellyfin_sync_controller.dart';
+import 'package:linthra/features/settings/jellyfin/jellyfin_sync_state.dart';
 
 import '../../../core/sources/jellyfin/fake_jellyfin_client.dart';
 import 'fake_jellyfin_authenticator.dart';
@@ -23,6 +28,27 @@ const _session = JellyfinSession(
 
 /// Lets the controller's async `build`/`_loadPersisted` settle.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
+
+/// Records [clearRemote] calls so a sign-out test can prove the controller tears
+/// down this account's server-synced favourites.
+class _SpyFavoritesRepository implements FavoritesRepository {
+  int clearRemoteCalls = 0;
+
+  @override
+  Future<void> clearRemote() async => clearRemoteCalls++;
+
+  @override
+  Stream<Set<String>> get favoritesStream => const Stream<Set<String>>.empty();
+
+  @override
+  bool isFavorite(String trackId) => false;
+
+  @override
+  Future<void> setFavorite(Track track, bool favorite) async {}
+
+  @override
+  Future<void> refreshFromRemote() async {}
+}
 
 ProviderContainer _container({
   FakeJellyfinAuthenticator? authenticator,
@@ -214,6 +240,52 @@ void main() {
         isNull,
       );
     });
+
+    test("sign-out drops this account's server-synced favourites", () async {
+      final favorites = _SpyFavoritesRepository();
+      final container = ProviderContainer(overrides: <Override>[
+        jellyfinAuthenticatorProvider
+            .overrideWithValue(FakeJellyfinAuthenticator()),
+        jellyfinSessionStoreProvider.overrideWithValue(
+          InMemoryJellyfinSessionStore(initialSession: _session),
+        ),
+        jellyfinClientProvider.overrideWithValue(FakeJellyfinClient()),
+        favoritesRepositoryProvider.overrideWithValue(favorites),
+      ]);
+      addTearDown(container.dispose);
+      container.read(jellyfinSettingsControllerProvider);
+      await _settle();
+
+      await container.read(jellyfinSettingsControllerProvider.notifier).clear();
+
+      // The account's hearts are cleared so they can't linger — or be re-pushed
+      // to a different account — after signing out.
+      expect(favorites.clearRemoteCalls, 1);
+    });
+
+    test('sign-out resets the (now stale) sync status', () async {
+      final container = _container(
+        store: InMemoryJellyfinSessionStore(initialSession: _session),
+      );
+      final notifier =
+          container.read(jellyfinSettingsControllerProvider.notifier);
+      await _settle();
+      // Run a sync so the sync controller holds a non-idle status message.
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+      expect(
+        container.read(jellyfinSyncControllerProvider).status,
+        isNot(JellyfinSyncStatus.idle),
+      );
+
+      await notifier.clear();
+      await _settle();
+
+      // The stale "Synced …" status is gone, so it can't reappear on a later
+      // sign-in into this (or a different) account.
+      final synced = container.read(jellyfinSyncControllerProvider);
+      expect(synced.status, JellyfinSyncStatus.idle);
+      expect(synced.message, isNull);
+    });
   });
 
   group('server capability + diagnostics', () {
@@ -289,6 +361,36 @@ void main() {
       expect(report, isNot(contains('tok-secret-value')));
       expect(report, isNot(contains('api_key')));
       expect(report, isNot(contains('/jellyfin')));
+    });
+
+    test('a failed test of a different address reports no stale server',
+        () async {
+      final auth = FakeJellyfinAuthenticator(
+        serverInfo:
+            const JellyfinServerInfo(serverName: 'Home', version: '10.9.11'),
+      );
+      final container = _container(authenticator: auth);
+      final notifier =
+          container.read(jellyfinSettingsControllerProvider.notifier);
+      await _settle();
+
+      // A successful test of one server records its name/version (but we never
+      // sign in, so we stay disconnected).
+      await notifier.testConnection('home.example.com');
+      expect(
+        container.read(jellyfinSettingsControllerProvider).serverName,
+        'Home',
+      );
+
+      // Now a test of a *different* address fails.
+      auth.testError = JellyfinException.notReachable();
+      await notifier.testConnection('other.example.com');
+
+      final report = notifier.diagnosticsReport();
+      // Diagnostics must describe the address that was just tried — not carry
+      // the previously-seen server's identity into an unrelated failure.
+      expect(report, isNot(contains('Home')));
+      expect(report, isNot(contains('10.9.11')));
     });
 
     test('records the error kind for diagnostics on a failed sign-in',
