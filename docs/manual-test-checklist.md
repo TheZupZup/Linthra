@@ -154,8 +154,15 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
 - ☐ Subsonic/Navidrome connect: test, sign in, sign out & clear.
 - ☐ Sign out resets the sync status line (no stale "Synced N tracks" after
   signing back in). *(Fixed this release.)*
-- ☐ "Copy diagnostics" after a **failed** test of a different address does not
-  report the previously-seen server. *(Fixed this release.)*
+- ☐ "Copy Jellyfin diagnostics" after a **failed** test of a different address
+  does not report the previously-seen server. *(Fixed this release.)*
+- ☐ **Diagnostics card**: "Copy diagnostics" copies the app snapshot to the
+  clipboard and shows the "no passwords, tokens, or URLs" confirmation; pasting
+  it shows app version, connection state, server **host only**, counts, and
+  feature status — and **no** token, password, `Authorization` header, or full
+  authenticated URL (see §12).
+- ☐ "Save diagnostics" writes the same snapshot and confirms with a **redacted**
+  location (basename only, never the private app directory path).
 - ☐ Cache settings: change the limit (persists); clear cache (confirms first).
 - ☐ Pre-cache settings: toggle + count persist.
 - ☐ Version display matches the build; about/privacy links present.
@@ -176,6 +183,41 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
 - ☐ Dark theme is consistent; the violet + warm-orange palette is consistent.
 - ☐ Loading / error / empty states are friendly everywhere.
 - ☐ Destructive actions (delete playlist, clear cache) confirm first.
+
+---
+
+## Reporting a bug (for testers and users)
+
+When something goes wrong, attach a diagnostics snapshot so it can be triaged
+without a back-and-forth — and without you having to share anything sensitive.
+
+**How to copy diagnostics**
+
+1. Open **Settings ▸ Diagnostics**.
+2. Tap **Copy diagnostics** (or **Save diagnostics** to write a
+   `linthra-diagnostics.txt` file). A confirmation appears.
+3. Paste it into your bug report.
+
+The snapshot is **secret-free by design**: it carries the app version, Android
+version and device model (when available), the Jellyfin/Subsonic connection
+state and **server host only**, the library track count, cache used/limit, the
+current playback output, the last safe error kind, and feature status (Cast,
+Android Auto, offline cache, smart pre-cache). It **never** includes your
+password, any token, an `Authorization` header, or a full authenticated URL — so
+it is safe to paste into a public issue.
+
+**What to include in a bug report**
+
+- The pasted **diagnostics** snapshot (above).
+- **What you did** — the exact steps to reproduce, in order.
+- **What you expected** vs. **what happened**.
+- **How often** it happens (every time / sometimes / once).
+- Your **server type** (Jellyfin / Navidrome / Subsonic) if it's connection-,
+  sync-, streaming-, or cast-related.
+- A screenshot or screen recording if it's a UI/layout issue.
+
+Please **do not** paste raw `logcat` output, your server URL with credentials,
+or any token — the diagnostics snapshot already has the safe details needed.
 
 ---
 

@@ -4,6 +4,7 @@ import '../../app/dimens.dart';
 import '../../core/app_info.dart';
 import '../../shared/widgets/linthra_logo_mark.dart';
 import 'cache/cache_settings_section.dart';
+import 'diagnostics/diagnostics_settings_section.dart';
 import 'jellyfin/jellyfin_settings_section.dart';
 import 'precache/precache_settings_section.dart';
 import 'subsonic/subsonic_settings_section.dart';
@@ -27,6 +28,8 @@ class SettingsScreen extends StatelessWidget {
           CacheSettingsSection(),
           SizedBox(height: AppSpacing.md),
           PrecacheSettingsSection(),
+          SizedBox(height: AppSpacing.md),
+          DiagnosticsSettingsSection(),
           SizedBox(height: AppSpacing.md),
           _AboutCard(),
         ],
