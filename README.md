@@ -237,8 +237,9 @@ discover it.
 - **Feature deep-dives:** background playback & Android Auto, Now Playing
   controls, folder selection, offline downloads, and Jellyfin — all detailed in
   the sections below.
-- **Release & F-Droid planning:** [docs/](./docs) (release process, signing,
-  F-Droid readiness, dependency/license audit, Jellyfin compatibility).
+- **Release, F-Droid & Google Play planning:** [docs/](./docs) (release process,
+  signing, F-Droid readiness, dependency/license audit, Jellyfin compatibility,
+  and [Google Play closed-testing readiness](#google-play-closed-testing-work-in-progress)).
 
 ## Philosophy
 
@@ -1362,6 +1363,30 @@ Planning/readiness docs (none of these publish or submit anything):
 > **Status:** Linthra is **not** on F-Droid and no submission has been made. The
 > remaining blockers before a submission would be possible are listed in
 > [docs/fdroid-readiness.md §8](./docs/fdroid-readiness.md#8-remaining-blockers-before-submission).
+
+## Google Play closed testing (work in progress)
+
+Linthra is **not** on Google Play, and no submission has been made. As
+groundwork for a first **internal / closed testing** (alpha) submission — **not**
+a production launch — the repository carries Play-oriented planning docs. None of
+them publish or submit anything.
+
+- [docs/play-store-readiness.md](./docs/play-store-readiness.md) — Play
+  readiness checklist: identity, AAB vs APK, Play App Signing, testing tracks,
+  required assets, blockers, the recommended submission path, versioning, and a
+  permissions review.
+- [docs/privacy-policy.md](./docs/privacy-policy.md) — privacy policy **draft**
+  (needs review and a public URL before submission).
+- [docs/google-play-listing.md](./docs/google-play-listing.md) — store listing
+  **draft**: short/full description, features, what-works-today, alpha
+  limitations, keywords, and a screenshot checklist.
+- [docs/google-play-data-safety.md](./docs/google-play-data-safety.md) — Data
+  Safety form prep (no ads, no analytics, no data sold; on-device storage and
+  the user's own Jellyfin server).
+
+> **Status:** alpha only. The blockers before closed testing — and the much
+> longer list before production — are in
+> [docs/play-store-readiness.md §9](./docs/play-store-readiness.md#9-known-blockers-before-production).
 
 ## License
 
