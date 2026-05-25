@@ -283,11 +283,14 @@ class DefaultCastService implements CastService {
     }
 
     // Playing on the receiver now. Marking isCasting true is the signal the
-    // ActivePlaybackController uses to silence the local engine; we report a
-    // loading status until the receiver's first MEDIA_STATUS arrives.
-    if (!_playbackStatus.isPlaying) {
-      _emitPlayback(_playbackStatus.copyWith(status: PlaybackStatus.loading));
-    }
+    // ActivePlaybackController uses to silence the local engine. Report a fresh
+    // loading status (position and duration reset to zero) for the just-loaded
+    // media: the receiver starts every LOAD at the beginning, so carrying the
+    // previous track's position/duration forward would make the phone briefly
+    // show the new track at the old track's progress — a visible desync on
+    // next/previous and on repeat-advance while casting — until the receiver's
+    // first MEDIA_STATUS for the new media arrives.
+    _emitPlayback(const CastPlaybackStatus(status: PlaybackStatus.loading));
     _emit(_connected(device, isCasting: true));
   }
 

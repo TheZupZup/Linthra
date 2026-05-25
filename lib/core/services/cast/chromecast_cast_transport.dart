@@ -125,6 +125,14 @@ class _ChromecastSessionHandle implements CastSessionHandle {
 
   @override
   Future<void> loadMedia(CastMedia media) async {
+    // A LOAD starts a brand-new media session on the receiver, which mints a
+    // fresh mediaSessionId and reports the new track's own duration. Forget the
+    // previous track's session id and duration so a poll between this LOAD and
+    // the first MEDIA_STATUS can't address the old media (or report its stale
+    // duration/`FINISHED`) — which would desync the phone or trigger a spurious
+    // skip on track change while casting.
+    _mediaSessionId = null;
+    _lastDuration = Duration.zero;
     _session.sendMessage(cast.CastSession.kNamespaceMedia, <String, dynamic>{
       'type': 'LOAD',
       'requestId': _requestId++,

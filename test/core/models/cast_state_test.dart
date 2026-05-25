@@ -26,6 +26,27 @@ void main() {
       expect(casting, isNot(equals(idle)));
     });
 
+    test('copyWith preserves the transient message when it is not replaced', () {
+      const connected = CastState(
+        availability: CastAvailability.connected,
+        message: 'This track is a local file.',
+        isCasting: false,
+      );
+      // A volume/casting update must not silently drop the limitation notice.
+      final updated = connected.copyWith(isCasting: true);
+      expect(updated.message, 'This track is a local file.');
+      expect(updated.isCasting, isTrue);
+    });
+
+    test('copyWith can replace the message', () {
+      const connected = CastState(
+        availability: CastAvailability.connected,
+        message: 'old note',
+      );
+      final updated = connected.copyWith(message: 'new note');
+      expect(updated.message, 'new note');
+    });
+
     test('availability helpers map to the right value', () {
       expect(
         const CastState(availability: CastAvailability.idle).isAvailable,

@@ -318,6 +318,38 @@ void main() {
       expect(handle.loaded.last.title, 'Next up');
       expect(service.state.isCasting, isTrue);
     });
+
+    test(
+        'a track change resets the reported position/duration so the UI does '
+        "not show the new track at the old track's progress", () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      // The receiver reports the first track playing near its end.
+      handle.pushStatus(const CastPlaybackStatus(
+        status: PlaybackStatus.playing,
+        position: Duration(seconds: 175),
+        duration: Duration(seconds: 180),
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(service.playbackStatus.position, const Duration(seconds: 175));
+
+      // Skip to the next track while casting.
+      const next = Track(id: 'j2', title: 'Next up', uri: 'jellyfin:j2');
+      current = next;
+      trackChanges.add(next);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // The reported status is reset for the freshly loaded media, so the phone
+      // UI never briefly shows the new track at the previous track's 2:55.
+      expect(service.playbackStatus.status, PlaybackStatus.loading);
+      expect(service.playbackStatus.position, Duration.zero);
+      expect(service.playbackStatus.duration, Duration.zero);
+    });
   });
 
   group('receiver status', () {
