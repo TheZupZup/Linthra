@@ -98,8 +98,8 @@ void main() {
       await _pump(tester);
       await _openArtist(tester, 'Daft Punk');
 
-      expect(find.widgetWithText(FilledButton, 'Play all'), findsOneWidget);
-      expect(find.widgetWithText(FilledButton, 'Shuffle all'), findsOneWidget);
+      expect(find.text('Play all'), findsOneWidget);
+      expect(find.text('Shuffle all'), findsOneWidget);
       // Albums section (the artist has two albums) and songs section.
       expect(find.text('Albums'), findsOneWidget);
       expect(find.text('Songs'), findsOneWidget);
@@ -114,7 +114,7 @@ void main() {
       final FakePlaybackController controller = await _pump(tester);
       await _openArtist(tester, 'Daft Punk');
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Play all'));
+      await tester.tap(find.text('Play all'));
       await tester.pumpAndSettle();
 
       // Two tracks by Daft Punk; album order puts Discovery before Homework.
@@ -131,7 +131,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Now on the album detail: its Play action and only its track.
-      expect(find.widgetWithText(FilledButton, 'Play'), findsOneWidget);
+      expect(find.text('Play'), findsOneWidget);
       expect(find.text('Alpha'), findsOneWidget);
       expect(find.text('Beta'), findsNothing);
     });
@@ -146,10 +146,10 @@ void main() {
       );
       await _openArtist(tester, 'Unknown Artist');
 
-      expect(find.widgetWithText(FilledButton, 'Play all'), findsOneWidget);
+      expect(find.text('Play all'), findsOneWidget);
       expect(find.text('Untagged'), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Play all'));
+      await tester.tap(find.text('Play all'));
       await tester.pumpAndSettle();
       expect(controller.state.currentTrack?.id, 'x');
     });

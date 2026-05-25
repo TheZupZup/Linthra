@@ -98,8 +98,8 @@ void main() {
       await _openAlbum(tester, 'Discovery');
 
       // The header's Play action confirms we're on the detail screen.
-      expect(find.widgetWithText(FilledButton, 'Play'), findsOneWidget);
-      expect(find.widgetWithText(FilledButton, 'Shuffle'), findsOneWidget);
+      expect(find.text('Play'), findsOneWidget);
+      expect(find.text('Shuffle'), findsOneWidget);
       // Only this album's tracks are listed.
       expect(find.text('Alpha'), findsOneWidget);
       expect(find.text('Beta'), findsOneWidget);
@@ -110,7 +110,7 @@ void main() {
       final FakePlaybackController controller = await _pump(tester);
       await _openAlbum(tester, 'Discovery');
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Play'));
+      await tester.tap(find.text('Play'));
       await tester.pumpAndSettle();
 
       expect(controller.state.currentTrack?.id, '1');
@@ -140,7 +140,7 @@ void main() {
       );
       await _openAlbum(tester, 'Unknown Album');
 
-      expect(find.widgetWithText(FilledButton, 'Play'), findsOneWidget);
+      expect(find.text('Play'), findsOneWidget);
       expect(find.text('Untagged'), findsOneWidget);
     });
   });
