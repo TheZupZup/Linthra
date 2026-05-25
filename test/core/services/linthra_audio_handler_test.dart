@@ -221,5 +221,59 @@ void main() {
         );
       });
     });
+
+    group('safe media items', () {
+      final jellyfin = Track(
+        id: 'jf-guid-123',
+        title: 'Remote Song',
+        uri: 'jellyfin:jf-guid-123',
+        artistName: 'Remote Artist',
+        albumName: 'Remote Album',
+        artworkUri: Uri.parse(
+          'https://music.example.com/Items/jf-guid-123/Images/Primary',
+        ),
+      );
+      const local = Track(
+        id: 'local-1',
+        title: 'Local Song',
+        uri: '/storage/music/local.mp3',
+      );
+
+      test('library items carry token-free ids, no extras, token-free art',
+          () async {
+        final libController = FakePlaybackController();
+        final libHandler = LinthraAudioHandler(
+          libController,
+          MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: <Track>[jellyfin, local]),
+          ),
+        );
+        addTearDown(() async {
+          await libHandler.dispose();
+          await libController.dispose();
+        });
+
+        final items = await libHandler.getChildren(MediaId.library);
+
+        expect(items.map((i) => i.id), [
+          MediaId.libraryTrack('jf-guid-123'),
+          MediaId.libraryTrack('local-1'),
+        ]);
+        for (final item in items) {
+          // Ids never carry a token, an auth query, a URI scheme, or a stream
+          // URL — only the opaque catalog id.
+          expect(item.id, isNot(contains('api_key')));
+          expect(item.id, isNot(contains('token')));
+          expect(item.id, isNot(contains('jellyfin:')));
+          expect(item.id, isNot(contains('://')));
+          // We attach no extras, so nothing can leak through them.
+          expect(item.extras, isNull);
+          // The artwork URL (when present) is the token-free image endpoint.
+          final String art = item.artUri?.toString() ?? '';
+          expect(art, isNot(contains('api_key')));
+          expect(art.toLowerCase(), isNot(contains('token')));
+        }
+      });
+    });
   });
 }

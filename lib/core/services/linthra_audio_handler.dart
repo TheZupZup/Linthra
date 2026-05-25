@@ -1,13 +1,44 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:audio_service/audio_service.dart' as audio;
 
 import '../models/playback_state.dart';
 import '../models/repeat_mode.dart';
 import '../models/track.dart';
+import '../repositories/favorites_repository.dart';
 import '../repositories/music_library_repository.dart';
+import '../repositories/playlist_repository.dart';
 import 'media_browser_tree.dart';
 import 'playback_controller.dart';
+
+/// Logger name for the Android Auto / media-browser path. Filter device logs
+/// with `adb logcat | grep $_logName` to see whether the session attached and
+/// whether Android Auto is actually binding, browsing, and selecting items.
+///
+/// Everything logged here is deliberately **secret-free**: only the structural
+/// *category* of a media id (never the raw id, a track id, a URI, or a token)
+/// and small counts. See [_categoryOf].
+const String _logName = 'Linthra.AndroidAuto';
+
+void _log(String message) => developer.log(message, name: _logName);
+
+/// The non-secret category an [id] belongs to, for safe diagnostics. Returns a
+/// fixed label set — never the id itself — so a track id, playlist id, URI, or
+/// token can never reach the log.
+String _categoryOf(String id) {
+  if (id == MediaId.root) return 'root';
+  if (id == MediaId.library) return 'library';
+  if (id == MediaId.queue) return 'queue';
+  if (id == MediaId.playlists) return 'playlists';
+  if (id == MediaId.favorites) return 'favorites';
+  if (MediaId.isPlaylistTrack(id)) return 'playlist-track';
+  if (MediaId.isPlaylistCategory(id)) return 'playlist';
+  if (MediaId.isLibraryTrack(id)) return 'library-track';
+  if (MediaId.isQueueItem(id)) return 'queue-item';
+  if (MediaId.isFavoriteItem(id)) return 'favorite';
+  return 'other';
+}
 
 /// Bridges the app's [PlaybackController] to the platform media session via
 /// `audio_service`. This is the only file in the app that knows
@@ -74,6 +105,10 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     Map<String, dynamic>? options,
   ]) async {
     final nodes = await _tree.childrenOf(parentMediaId, _controller.state);
+    // Secret-free browse trace: confirms Android Auto bound and is requesting
+    // children, and shows whether a node returned content (vs. an empty
+    // "library not synced yet" case) — without logging any id, title, or URI.
+    _log('browse: ${_categoryOf(parentMediaId)} -> ${nodes.length} children');
     return nodes.map(_mediaItemForNode).toList();
   }
 
@@ -83,7 +118,17 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     Map<String, dynamic>? extras,
   ]) async {
     final request = await _tree.resolve(mediaId, _controller.state);
+    // Secret-free selection trace: which category was picked and whether it
+    // resolved to something playable — useful when "controls don't work" turns
+    // out to be a stale id resolving to nothing.
+    _log('play: ${_categoryOf(mediaId)} resolved=${request != null}');
     if (request == null) return;
+    // Delegates to the single PlaybackController, exactly like tapping a track
+    // in the app. While a Cast session is active the controller has suspended
+    // the local engine, so this updates the queue and mirrors onto the receiver
+    // *without* starting any local audio — Android Auto can never produce a
+    // second, duplicate stream on the phone. The controller owns that routing;
+    // this handler stays a thin, output-agnostic bridge.
     await _controller.playTracks(request.tracks,
         startIndex: request.startIndex);
   }
@@ -205,26 +250,46 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 
 /// Registers [controller] with the platform media session so playback appears
 /// in the notification / lock screen and is reachable from Android Auto, with a
-/// browsable tree backed by [library].
+/// browsable tree backed by [library] and — when supplied — the user's
+/// [playlists] and [favorites].
+///
+/// Runs entirely off repository seams, so when Android Auto starts the media
+/// service cold (before any phone screen is opened) the browse tree is already
+/// answerable from the persisted catalog/playlists/favourites — it does not wait
+/// on the Flutter UI.
 ///
 /// Best-effort by design: returns `null` when `audio_service` can't initialise
 /// (a platform without the native setup, or a test environment). Playback still
 /// works through the controller in that case, so a missing media session never
-/// breaks basic playback.
+/// breaks basic playback. A failure is logged (secret-free) under [_logName] so
+/// a silent "no media session / not in Android Auto" is diagnosable from
+/// `adb logcat`.
 Future<LinthraAudioHandler?> connectMediaSession(
   PlaybackController controller,
-  MusicLibraryRepository library,
-) async {
+  MusicLibraryRepository library, {
+  PlaylistRepository? playlists,
+  FavoritesRepository? favorites,
+}) async {
   try {
-    return await audio.AudioService.init(
-      builder: () => LinthraAudioHandler(controller, MediaBrowserTree(library)),
+    final handler = await audio.AudioService.init(
+      builder: () => LinthraAudioHandler(
+        controller,
+        MediaBrowserTree(library, playlists: playlists, favorites: favorites),
+      ),
       config: const audio.AudioServiceConfig(
         androidNotificationChannelId: 'com.linthra.audio',
         androidNotificationChannelName: 'Linthra playback',
         androidNotificationOngoing: true,
       ),
     );
-  } catch (_) {
+    _log('media session attached (Android Auto browser ready)');
+    return handler;
+  } catch (error) {
+    // The error here is a platform/plugin init failure (e.g. unsupported
+    // platform, or a test host with no native binding) — it carries no Jellyfin
+    // token or URL. Log its type so the cause is visible without leaking
+    // anything from the catalog or a session.
+    _log('media session init failed: ${error.runtimeType}');
     return null;
   }
 }
