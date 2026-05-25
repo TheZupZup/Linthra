@@ -26,7 +26,7 @@ void main() {
       expect(casting, isNot(equals(idle)));
     });
 
-    test('copyWith preserves the transient message when it is not replaced', () {
+    test('copyWith keeps the transient message when it is not replaced', () {
       const connected = CastState(
         availability: CastAvailability.connected,
         message: 'This track is a local file.',

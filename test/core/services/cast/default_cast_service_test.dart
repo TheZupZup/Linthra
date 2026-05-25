@@ -319,9 +319,7 @@ void main() {
       expect(service.state.isCasting, isTrue);
     });
 
-    test(
-        'a track change resets the reported position/duration so the UI does '
-        "not show the new track at the old track's progress", () async {
+    test('a track change resets the reported position and duration', () async {
       current = _jellyfinTrack;
       final handle = _FakeHandle();
       transport.handle = handle;
