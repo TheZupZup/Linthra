@@ -262,7 +262,10 @@ void main() {
           MediaId.playlist('p2'),
         ]);
         expect(nodes.map((n) => n.title), ['Roadtrip', 'Empty']);
-        expect(nodes.map((n) => n.subtitle), ['2 tracks', '0 tracks']);
+        // The subtitle is the playlist's declared track count (3 for p1,
+        // including 'x'); opening it then lists only the 2 catalog-resolved
+        // tracks — see the next test.
+        expect(nodes.map((n) => n.subtitle), ['3 tracks', '0 tracks']);
         expect(nodes.every((n) => n.playable), isFalse);
       });
 
