@@ -61,6 +61,122 @@ class FakeJellyfinClient implements JellyfinClient {
   final List<({String itemId, bool favorite})> favoriteCalls =
       <({String itemId, bool favorite})>[];
 
+  // --- Playlists ---------------------------------------------------------
+
+  /// Canned playlists for [fetchPlaylists] (id + name).
+  List<JellyfinPlaylistDto> playlists = <JellyfinPlaylistDto>[];
+
+  /// Canned entries per playlist id for [fetchPlaylistEntries], also updated by
+  /// the create/add/remove calls so a round-trip reads back consistently.
+  final Map<String, List<JellyfinPlaylistEntry>> playlistEntries =
+      <String, List<JellyfinPlaylistEntry>>{};
+
+  /// A single error every playlist call throws, for the error-mapping tests.
+  JellyfinException? playlistError;
+
+  /// The id [createPlaylist] returns (and keys new entries under).
+  String createdPlaylistId = 'remote-playlist-1';
+
+  // Recorded calls, in order.
+  final List<({String name, List<String> itemIds})> createPlaylistCalls =
+      <({String name, List<String> itemIds})>[];
+  final List<({String playlistId, List<String> itemIds})> addItemCalls =
+      <({String playlistId, List<String> itemIds})>[];
+  final List<({String playlistId, List<String> itemIds})> removeItemCalls =
+      <({String playlistId, List<String> itemIds})>[];
+  final List<String> deletedPlaylistIds = <String>[];
+
+  @override
+  Future<List<JellyfinPlaylistDto>> fetchPlaylists(
+    JellyfinSession session,
+  ) async {
+    final JellyfinException? error = playlistError;
+    if (error != null) throw error;
+    return playlists;
+  }
+
+  @override
+  Future<List<JellyfinPlaylistEntry>> fetchPlaylistEntries(
+    JellyfinSession session,
+    String playlistId,
+  ) async {
+    final JellyfinException? error = playlistError;
+    if (error != null) throw error;
+    return playlistEntries[playlistId] ?? const <JellyfinPlaylistEntry>[];
+  }
+
+  @override
+  Future<String> createPlaylist(
+    JellyfinSession session, {
+    required String name,
+    List<String> itemIds = const <String>[],
+  }) async {
+    final JellyfinException? error = playlistError;
+    if (error != null) throw error;
+    createPlaylistCalls.add((name: name, itemIds: itemIds));
+    final String id = createdPlaylistId;
+    playlistEntries[id] = <JellyfinPlaylistEntry>[
+      for (final String itemId in itemIds)
+        JellyfinPlaylistEntry(itemId: itemId, playlistItemId: 'entry-$itemId'),
+    ];
+    playlists = <JellyfinPlaylistDto>[
+      ...playlists,
+      JellyfinPlaylistDto(id: id, name: name),
+    ];
+    return id;
+  }
+
+  @override
+  Future<void> addItemsToPlaylist(
+    JellyfinSession session,
+    String playlistId,
+    List<String> itemIds,
+  ) async {
+    final JellyfinException? error = playlistError;
+    if (error != null) throw error;
+    addItemCalls.add((playlistId: playlistId, itemIds: itemIds));
+    final List<JellyfinPlaylistEntry> entries =
+        playlistEntries[playlistId] ?? <JellyfinPlaylistEntry>[];
+    playlistEntries[playlistId] = <JellyfinPlaylistEntry>[
+      ...entries,
+      for (final String itemId in itemIds)
+        JellyfinPlaylistEntry(itemId: itemId, playlistItemId: 'entry-$itemId'),
+    ];
+  }
+
+  @override
+  Future<void> removeItemsFromPlaylist(
+    JellyfinSession session,
+    String playlistId,
+    List<String> itemIds,
+  ) async {
+    final JellyfinException? error = playlistError;
+    if (error != null) throw error;
+    removeItemCalls.add((playlistId: playlistId, itemIds: itemIds));
+    final List<JellyfinPlaylistEntry> entries =
+        playlistEntries[playlistId] ?? const <JellyfinPlaylistEntry>[];
+    final Set<String> targets = itemIds.toSet();
+    playlistEntries[playlistId] = <JellyfinPlaylistEntry>[
+      for (final JellyfinPlaylistEntry entry in entries)
+        if (!targets.contains(entry.itemId)) entry,
+    ];
+  }
+
+  @override
+  Future<void> deletePlaylist(
+    JellyfinSession session,
+    String playlistId,
+  ) async {
+    final JellyfinException? error = playlistError;
+    if (error != null) throw error;
+    deletedPlaylistIds.add(playlistId);
+    playlistEntries.remove(playlistId);
+    playlists = <JellyfinPlaylistDto>[
+      for (final JellyfinPlaylistDto p in playlists)
+        if (p.id != playlistId) p,
+    ];
+  }
+
   @override
   Future<JellyfinServerInfo> fetchServerInfo(String baseUrl) async {
     lastBaseUrl = baseUrl;

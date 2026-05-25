@@ -7,6 +7,14 @@ abstract final class AppRoutes {
   /// Liked tracks, reached from the Playlists tab. A child of [playlists] so it
   /// keeps the bottom nav and pops back into that tab.
   static const String favorites = '/playlists/favorites';
+
+  /// A single playlist's tracks. A child of [playlists] (so it keeps the bottom
+  /// nav and pops back into that tab); the playlist id rides as a path segment.
+  static const String playlistDetail = '/playlists/detail';
+
+  /// Builds the [playlistDetail] location for a given playlist [id].
+  static String playlistDetailPath(String id) => '$playlistDetail/$id';
+
   static const String downloads = '/downloads';
   static const String settings = '/settings';
 

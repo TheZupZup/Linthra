@@ -9,6 +9,7 @@ import 'data/repositories/download_repository_provider.dart';
 import 'data/repositories/favorites_repository_provider.dart';
 import 'data/repositories/jellyfin_session_store_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
+import 'data/repositories/playlist_repository_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
 import 'features/downloads/download_providers.dart';
@@ -46,6 +47,8 @@ Future<void> main() async {
       secureSubsonicSessionStoreOverride,
       sharedPreferencesFavoritesStoreOverride,
       jellyfinFavoritesOverride,
+      sharedPreferencesPlaylistStoreOverride,
+      jellyfinPlaylistSyncOverride,
       jellyfinLyricsOverride,
       // Real Chromecast backend (Android/iOS only); see cast_providers.dart.
       chromecastCastServiceOverride,
@@ -94,6 +97,10 @@ Future<void> main() async {
   // reflects the server from the first frame. Best-effort and offline-tolerant:
   // the repository swallows failures and keeps any locally stored favourites.
   unawaited(container.read(favoritesRepositoryProvider).refreshFromRemote());
+
+  // Likewise import the user's Jellyfin playlists so synced playlists appear on
+  // the Playlists tab from the first frame. Best-effort and offline-tolerant.
+  unawaited(container.read(playlistRepositoryProvider).refreshFromRemote());
 
   runApp(
     UncontrolledProviderScope(

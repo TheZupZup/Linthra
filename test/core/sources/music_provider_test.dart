@@ -37,6 +37,42 @@ void main() {
       expect(MusicProviders.subsonic.serverUrlLabel, 'Server URL');
       expect(MusicProviders.local.serverUrlLabel, isNull);
     });
+
+    test('remove/delete capabilities are safe by default', () {
+      // Every provider allows the safe, reversible "remove from library".
+      expect(MusicProviders.local.capabilities.canRemoveFromLibrary, isTrue);
+      expect(MusicProviders.jellyfin.capabilities.canRemoveFromLibrary, isTrue);
+      expect(MusicProviders.subsonic.capabilities.canRemoveFromLibrary, isTrue);
+
+      // On-device tracks have no app-managed offline copy to remove; remote
+      // providers do.
+      expect(MusicProviders.local.capabilities.canRemoveOfflineCopy, isFalse);
+      expect(MusicProviders.jellyfin.capabilities.canRemoveOfflineCopy, isTrue);
+
+      // Destructive file/server deletes are not enabled in this release for any
+      // provider, so those actions stay hidden everywhere.
+      for (final caps in <MusicProviderCapabilities>[
+        MusicProviders.local.capabilities,
+        MusicProviders.jellyfin.capabilities,
+        MusicProviders.subsonic.capabilities,
+      ]) {
+        expect(caps.canDeleteLocalFile, isFalse);
+        expect(caps.canDeleteRemoteItem, isFalse);
+      }
+    });
+
+    test('playlist capabilities reflect provider support', () {
+      expect(MusicProviders.local.capabilities.canCreatePlaylist, isTrue);
+      expect(MusicProviders.local.capabilities.canSyncPlaylists, isFalse);
+
+      expect(MusicProviders.jellyfin.capabilities.canCreatePlaylist, isTrue);
+      expect(MusicProviders.jellyfin.capabilities.canEditPlaylist, isTrue);
+      expect(MusicProviders.jellyfin.capabilities.canDeletePlaylist, isTrue);
+      expect(MusicProviders.jellyfin.capabilities.canSyncPlaylists, isTrue);
+
+      // Subsonic playlists aren't synced yet.
+      expect(MusicProviders.subsonic.capabilities.canSyncPlaylists, isFalse);
+    });
   });
 
   group('MusicProviders.forTrackUri', () {

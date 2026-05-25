@@ -5,6 +5,7 @@ import '../features/downloads/downloads_screen.dart';
 import '../features/favorites/favorites_screen.dart';
 import '../features/library/library_screen.dart';
 import '../features/player/player_screen.dart';
+import '../features/playlists/playlist_detail_screen.dart';
 import '../features/playlists/playlists_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/shell/home_shell.dart';
@@ -39,6 +40,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'favorites',
                     builder: (context, state) => const FavoritesScreen(),
+                  ),
+                  GoRoute(
+                    path: 'detail/:id',
+                    builder: (context, state) => PlaylistDetailScreen(
+                      playlistId: state.pathParameters['id']!,
+                    ),
                   ),
                 ],
               ),

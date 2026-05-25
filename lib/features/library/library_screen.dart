@@ -2,41 +2,150 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/dimens.dart';
+import '../../core/models/track.dart';
+import '../../core/services/bulk_track_actions.dart';
+import '../playlists/widgets/add_to_playlist_sheet.dart';
 import 'library_controller.dart';
 import 'library_state.dart';
 import 'selected_folder_controller.dart';
+import 'song_actions.dart';
 import 'widgets/alphabet_track_list.dart';
 
 /// Browse tracks from the local catalog. Reads entirely from
 /// [libraryControllerProvider] and [selectedFolderControllerProvider]; it has
 /// no knowledge of where tracks are stored or which plugin picks the folder.
-class LibraryScreen extends ConsumerWidget {
+///
+/// A long-press on a row enters multi-select; the app bar then becomes a
+/// contextual selection bar offering only the actions that are safe for the
+/// current selection (mixed-source selections hide unsafe destructive actions).
+class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(libraryControllerProvider);
-    final selectedFolder = ref.watch(selectedFolderControllerProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Library'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.create_new_folder_outlined),
-            tooltip: 'Select music folder',
-            onPressed: () => _pickAndScan(ref),
-          ),
-        ],
+  ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends ConsumerState<LibraryScreen> {
+  final Set<String> _selectedIds = <String>{};
+  bool _selecting = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final LibraryState state = ref.watch(libraryControllerProvider);
+    final AsyncValue<String?> selectedFolder =
+        ref.watch(selectedFolderControllerProvider);
+
+    // Drop any selected ids that are no longer in the catalog (e.g. after a
+    // removal) so the count and actions stay accurate.
+    final List<Track> selected = <Track>[
+      for (final Track track in state.tracks)
+        if (_selectedIds.contains(track.id)) track,
+    ];
+
+    return PopScope(
+      canPop: !_selecting,
+      onPopInvokedWithResult: (bool didPop, _) {
+        if (!didPop && _selecting) _exitSelection();
+      },
+      child: Scaffold(
+        appBar: _selecting
+            ? _selectionAppBar(selected)
+            : AppBar(
+                title: const Text('Library'),
+                actions: <Widget>[
+                  IconButton(
+                    icon: const Icon(Icons.create_new_folder_outlined),
+                    tooltip: 'Select music folder',
+                    onPressed: () => _pickAndScan(),
+                  ),
+                ],
+              ),
+        body: _body(state, selectedFolder.valueOrNull),
       ),
-      body: _body(ref, state, selectedFolder.valueOrNull),
     );
+  }
+
+  PreferredSizeWidget _selectionAppBar(List<Track> selected) {
+    final BulkActionAvailability actions =
+        bulkActionsFor(selected, inPlaylist: false);
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: 'Cancel selection',
+        onPressed: _exitSelection,
+      ),
+      title: Text('${selected.length} selected'),
+      actions: <Widget>[
+        if (actions.canAddToPlaylist)
+          IconButton(
+            icon: const Icon(Icons.playlist_add),
+            tooltip: 'Add to playlist',
+            onPressed: selected.isEmpty ? null : () => _addToPlaylist(selected),
+          ),
+        if (actions.canRemoveOfflineCopy)
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Remove offline copies',
+            onPressed: selected.isEmpty ? null : () => _removeOffline(selected),
+          ),
+        if (actions.canRemoveFromLibrary)
+          IconButton(
+            icon: const Icon(Icons.remove_circle_outline),
+            tooltip: 'Remove from Linthra',
+            onPressed:
+                selected.isEmpty ? null : () => _removeFromLibrary(selected),
+          ),
+      ],
+    );
+  }
+
+  void _enterSelection(Track track) {
+    setState(() {
+      _selecting = true;
+      _selectedIds
+        ..clear()
+        ..add(track.id);
+    });
+  }
+
+  void _toggle(Track track) {
+    setState(() {
+      if (!_selectedIds.add(track.id)) {
+        _selectedIds.remove(track.id);
+      }
+      if (_selectedIds.isEmpty) _selecting = false;
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selecting = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _addToPlaylist(List<Track> selected) async {
+    await showAddToPlaylistSheet(context, selected);
+    _exitSelection();
+  }
+
+  Future<void> _removeFromLibrary(List<Track> selected) async {
+    final bool removed =
+        await SongActions.removeFromLibrary(context, ref, selected);
+    if (removed) _exitSelection();
+  }
+
+  Future<void> _removeOffline(List<Track> selected) async {
+    final bool ran =
+        await SongActions.removeOfflineCopies(context, ref, selected);
+    if (ran) _exitSelection();
   }
 
   /// Open the system folder picker, persist the choice, then scan it. A
   /// cancelled pick leaves everything untouched. The UI only talks to the two
   /// controllers — never to a picker plugin or the file system directly.
-  Future<void> _pickAndScan(WidgetRef ref) async {
-    final path = await ref
+  Future<void> _pickAndScan() async {
+    final String? path = await ref
         .read(selectedFolderControllerProvider.notifier)
         .pickAndPersist();
     if (path != null) {
@@ -45,11 +154,11 @@ class LibraryScreen extends ConsumerWidget {
   }
 
   /// Re-scan the folder the user already selected, without opening the picker.
-  Future<void> _rescan(WidgetRef ref, String folder) {
+  Future<void> _rescan(String folder) {
     return ref.read(libraryControllerProvider.notifier).scanFolder(folder);
   }
 
-  Widget _body(WidgetRef ref, LibraryState state, String? selectedFolder) {
+  Widget _body(LibraryState state, String? selectedFolder) {
     switch (state.status) {
       case LibraryStatus.loading:
         return const Center(child: CircularProgressIndicator());
@@ -62,13 +171,19 @@ class LibraryScreen extends ConsumerWidget {
         if (state.isEmpty) {
           return _LibraryEmpty(
             selectedFolder: selectedFolder,
-            onPick: () => _pickAndScan(ref),
-            onRescan: selectedFolder == null
-                ? null
-                : () => _rescan(ref, selectedFolder),
+            onPick: _pickAndScan,
+            onRescan:
+                selectedFolder == null ? null : () => _rescan(selectedFolder),
           );
         }
-        return AlphabetTrackList(tracks: state.tracks);
+        return AlphabetTrackList(
+          tracks: state.tracks,
+          selectable: true,
+          selectionActive: _selecting,
+          selectedIds: _selectedIds,
+          onSelectStart: _enterSelection,
+          onSelectToggle: _toggle,
+        );
     }
   }
 }

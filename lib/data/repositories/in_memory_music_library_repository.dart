@@ -74,4 +74,16 @@ class InMemoryMusicLibraryRepository implements MusicLibraryRepository {
     _albumsBySource[sourceId] = List<Album>.of(albums);
     _artistsBySource[sourceId] = List<Artist>.of(artists);
   }
+
+  @override
+  Future<void> removeTracks(List<String> trackIds) async {
+    if (trackIds.isEmpty) return;
+    final Set<String> ids = trackIds.toSet();
+    for (final String sourceId in _tracksBySource.keys.toList()) {
+      _tracksBySource[sourceId] = <Track>[
+        for (final Track track in _tracksBySource[sourceId]!)
+          if (!ids.contains(track.id)) track,
+      ];
+    }
+  }
 }

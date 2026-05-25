@@ -5,6 +5,7 @@ import '../../../app/dimens.dart';
 import '../../../core/models/track.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../shared/widgets/empty_state.dart';
+import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../favorites_providers.dart';
 import '../player_providers.dart';
 import 'lyrics_view.dart';
@@ -37,6 +38,11 @@ class NowPlayingActions extends ConsumerWidget {
           color: isFavorite ? theme.colorScheme.primary : null,
           isSelected: isFavorite,
           tooltip: isFavorite ? 'Remove from favorites' : 'Favorite',
+        ),
+        IconButton(
+          onPressed: () => showAddToPlaylistSheet(context, <Track>[track]),
+          icon: const Icon(Icons.playlist_add),
+          tooltip: 'Add to playlist',
         ),
         IconButton(
           onPressed: () => _openQueue(context),

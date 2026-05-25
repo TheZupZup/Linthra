@@ -18,6 +18,14 @@ class MusicProviderCapabilities {
     required this.canFavorite,
     required this.canLyrics,
     required this.canCast,
+    required this.canRemoveFromLibrary,
+    required this.canRemoveOfflineCopy,
+    required this.canDeleteLocalFile,
+    required this.canDeleteRemoteItem,
+    required this.canCreatePlaylist,
+    required this.canEditPlaylist,
+    required this.canDeletePlaylist,
+    required this.canSyncPlaylists,
   });
 
   /// Tracks can be played by resolving a stream URL at play time.
@@ -36,6 +44,41 @@ class MusicProviderCapabilities {
   /// receiver. False for on-device files a receiver can't reach.
   final bool canCast;
 
+  /// The track can be removed from Linthra's local catalog/index — a safe,
+  /// reversible action that never deletes the underlying file or server item.
+  /// True for every provider.
+  final bool canRemoveFromLibrary;
+
+  /// The provider's tracks can have an app-managed offline copy that Linthra may
+  /// safely delete (the same managed cache the download repository owns).
+  /// Whether a *specific* track actually has a copy to remove is a per-track
+  /// download-status check on top of this static capability.
+  final bool canRemoveOfflineCopy;
+
+  /// Linthra can delete the underlying file from the device for this provider's
+  /// tracks. Only meaningful for on-device files and only when platform
+  /// permissions allow it safely; left `false` until that path is robust.
+  final bool canDeleteLocalFile;
+
+  /// Linthra can delete the underlying item from the provider's server/library.
+  /// Strongly destructive (affects every device), so it is only enabled when it
+  /// can be done safely with explicit confirmation; left `false` otherwise.
+  final bool canDeleteRemoteItem;
+
+  /// A playlist of this provider's kind can be created from Linthra.
+  final bool canCreatePlaylist;
+
+  /// A playlist of this provider's kind can be edited (rename, add/remove/reorder
+  /// tracks) from Linthra.
+  final bool canEditPlaylist;
+
+  /// A playlist of this provider's kind can be deleted from Linthra.
+  final bool canDeletePlaylist;
+
+  /// Playlists can be synced with this provider's server (two-way where the API
+  /// supports it).
+  final bool canSyncPlaylists;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -44,11 +87,32 @@ class MusicProviderCapabilities {
           other.canCache == canCache &&
           other.canFavorite == canFavorite &&
           other.canLyrics == canLyrics &&
-          other.canCast == canCast);
+          other.canCast == canCast &&
+          other.canRemoveFromLibrary == canRemoveFromLibrary &&
+          other.canRemoveOfflineCopy == canRemoveOfflineCopy &&
+          other.canDeleteLocalFile == canDeleteLocalFile &&
+          other.canDeleteRemoteItem == canDeleteRemoteItem &&
+          other.canCreatePlaylist == canCreatePlaylist &&
+          other.canEditPlaylist == canEditPlaylist &&
+          other.canDeletePlaylist == canDeletePlaylist &&
+          other.canSyncPlaylists == canSyncPlaylists);
 
   @override
-  int get hashCode =>
-      Object.hash(canStream, canCache, canFavorite, canLyrics, canCast);
+  int get hashCode => Object.hash(
+        canStream,
+        canCache,
+        canFavorite,
+        canLyrics,
+        canCast,
+        canRemoveFromLibrary,
+        canRemoveOfflineCopy,
+        canDeleteLocalFile,
+        canDeleteRemoteItem,
+        canCreatePlaylist,
+        canEditPlaylist,
+        canDeletePlaylist,
+        canSyncPlaylists,
+      );
 }
 
 /// The identity + capabilities of one music provider (local files, Jellyfin,
@@ -84,6 +148,17 @@ abstract final class MusicProviders {
       canFavorite: true,
       canLyrics: false,
       canCast: false,
+      canRemoveFromLibrary: true,
+      // On-device tracks are already local — there is no separate app-managed
+      // copy to remove.
+      canRemoveOfflineCopy: false,
+      // Deleting the real on-device file is not wired up safely yet.
+      canDeleteLocalFile: false,
+      canDeleteRemoteItem: false,
+      canCreatePlaylist: true,
+      canEditPlaylist: true,
+      canDeletePlaylist: true,
+      canSyncPlaylists: false,
     ),
   );
 
@@ -97,6 +172,17 @@ abstract final class MusicProviders {
       canFavorite: true,
       canLyrics: true,
       canCast: true,
+      canRemoveFromLibrary: true,
+      canRemoveOfflineCopy: true,
+      canDeleteLocalFile: false,
+      // Server-side delete (removing the item from Jellyfin for every device)
+      // is intentionally not enabled in this release; see
+      // docs/playlists-and-delete.md.
+      canDeleteRemoteItem: false,
+      canCreatePlaylist: true,
+      canEditPlaylist: true,
+      canDeletePlaylist: true,
+      canSyncPlaylists: true,
     ),
   );
 
@@ -113,6 +199,16 @@ abstract final class MusicProviders {
       canFavorite: false,
       canLyrics: false,
       canCast: true,
+      canRemoveFromLibrary: true,
+      canRemoveOfflineCopy: true,
+      canDeleteLocalFile: false,
+      canDeleteRemoteItem: false,
+      // Subsonic/Navidrome playlists aren't synced yet; its tracks can still be
+      // added to local Linthra playlists.
+      canCreatePlaylist: false,
+      canEditPlaylist: false,
+      canDeletePlaylist: false,
+      canSyncPlaylists: false,
     ),
   );
 

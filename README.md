@@ -54,6 +54,13 @@ Everything below works end to end on a real Android device in the current alpha
   scanned catalog survive a restart. No broad storage permission is requested.
 - **Playback** — play local tracks with an up-next queue, plus working
   **shuffle** and **repeat** (off / all / one).
+- **Playlists** — create, rename, reorder, and delete playlists; add and remove
+  tracks (including multi-select bulk actions); play or shuffle a playlist.
+  Playlists persist locally and **sync with Jellyfin** where supported. See
+  [docs/playlists-and-delete.md](docs/playlists-and-delete.md).
+- **Safe song removal** — clearly-separated, always-confirmed actions. "Remove
+  from Linthra" (index only) and "Remove offline copy" (app-managed cache only)
+  never touch your real files or server items.
 - **Background playback** — a media notification with lock-screen, Bluetooth,
   and wired-headset transport controls.
 - **Android Auto** — browse your Library and Queue from the car screen and
@@ -85,8 +92,15 @@ This is an alpha — expect rough edges. The honest gaps today:
 - **No tag/metadata parsing yet** — tracks show their file name, and there is
   no album artwork.
 - **No browse-by-artist/album and no search** in the in-app library yet.
-- **No saved playlists** — there is an up-next queue, but no playlist creation,
-  editing, or reordering.
+- **Playlist sync is partial** — local playlists are full-featured (create,
+  edit, reorder, delete, bulk actions); Jellyfin create / add / remove / delete
+  sync, but **rename and reorder of a synced playlist stay local for now**, and
+  Subsonic/Navidrome playlist sync isn't implemented. See
+  [docs/playlists-and-delete.md](docs/playlists-and-delete.md).
+- **File/server deletion is intentionally disabled** — only the safe "Remove
+  from Linthra" and "Remove offline copy" actions ship today; deleting the real
+  device file or the Jellyfin server item is modelled but not enabled until it's
+  robust.
 - **Downloads are track-level only** — no album/playlist "download all" and no
   background download manager (downloads run inline; no resume).
 - **Single Jellyfin server** — one session at a time; no multi-server support.

@@ -68,5 +68,84 @@ void main() {
       // No dedicated, always-visible download button on the row anymore.
       expect(find.byTooltip('Download'), findsNothing);
     });
+
+    testWidgets('overflow menu offers add-to-playlist and remove-from-Linthra',
+        (tester) async {
+      await _pump(tester, const <Track>[
+        Track(id: '1', title: 'Song One', uri: 'file:///s1.mp3'),
+      ]);
+
+      await tester.tap(find.byTooltip('More actions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add to playlist'), findsOneWidget);
+      expect(find.text('Remove from Linthra'), findsOneWidget);
+    });
   });
+
+  group('TrackTile selection', () {
+    testWidgets('long-press starts selection', (tester) async {
+      Track? started;
+      await _pumpSelectable(
+        tester,
+        selectionActive: false,
+        onSelectStart: (Track t) => started = t,
+      );
+
+      await tester.longPress(find.text('Song One'));
+      await tester.pumpAndSettle();
+      expect(started?.id, '1');
+    });
+
+    testWidgets('shows a checkbox and toggles while selecting', (tester) async {
+      Track? toggled;
+      await _pumpSelectable(
+        tester,
+        selectionActive: true,
+        selected: false,
+        onSelectToggle: (Track t) => toggled = t,
+      );
+
+      expect(find.byType(Checkbox), findsOneWidget);
+      await tester.tap(find.text('Song One'));
+      await tester.pumpAndSettle();
+      expect(toggled?.id, '1');
+    });
+  });
+}
+
+Future<void> _pumpSelectable(
+  WidgetTester tester, {
+  required bool selectionActive,
+  bool selected = false,
+  void Function(Track track)? onSelectStart,
+  void Function(Track track)? onSelectToggle,
+}) async {
+  const List<Track> tracks = <Track>[
+    Track(id: '1', title: 'Song One', uri: 'file:///s1.mp3'),
+  ];
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: <Override>[
+        remoteTrackDownloaderProvider
+            .overrideWithValue(FakeRemoteTrackDownloader()),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: TrackTile(
+            tracks: tracks,
+            index: 0,
+            selectable: true,
+            selectionActive: selectionActive,
+            selected: selected,
+            onSelectStart:
+                onSelectStart == null ? null : () => onSelectStart(tracks[0]),
+            onSelectToggle:
+                onSelectToggle == null ? null : () => onSelectToggle(tracks[0]),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
 }

@@ -108,5 +108,55 @@ void main() {
       expect(all, contains(_track('local-1')));
       expect(all, contains(_track('jellyfin-1')));
     });
+
+    test('removeTracks drops only the named ids from the index', () async {
+      await repository.upsertCatalog(
+        sourceId: 'local',
+        tracks: <Track>[_track('a'), _track('b'), _track('c')],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+
+      await repository.removeTracks(<String>['b']);
+
+      final List<Track> all = await repository.getAllTracks();
+      expect(all, hasLength(2));
+      expect(all, contains(_track('a')));
+      expect(all, contains(_track('c')));
+      expect(await repository.getTrackById('b'), isNull);
+    });
+
+    test('removeTracks spans sources and leaves others intact', () async {
+      await repository.upsertCatalog(
+        sourceId: 'local',
+        tracks: <Track>[_track('local-1')],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+      await repository.upsertCatalog(
+        sourceId: 'jellyfin',
+        tracks: <Track>[_track('jelly-1'), _track('jelly-2')],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+
+      await repository.removeTracks(<String>['jelly-1']);
+
+      final List<Track> all = await repository.getAllTracks();
+      expect(all, hasLength(2));
+      expect(all, contains(_track('local-1')));
+      expect(all, contains(_track('jelly-2')));
+    });
+
+    test('removeTracks with an empty list is a no-op', () async {
+      await repository.upsertCatalog(
+        sourceId: 'local',
+        tracks: <Track>[_track('a')],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+      await repository.removeTracks(const <String>[]);
+      expect(await repository.getAllTracks(), hasLength(1));
+    });
   });
 }

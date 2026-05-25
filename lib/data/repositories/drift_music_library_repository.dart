@@ -60,4 +60,13 @@ class DriftMusicLibraryRepository implements MusicLibraryRepository {
       });
     });
   }
+
+  /// Deletes the catalog rows for [trackIds] only. This touches nothing on disk
+  /// and nothing on a server — it is purely an index removal (see
+  /// [MusicLibraryRepository.removeTracks]).
+  @override
+  Future<void> removeTracks(List<String> trackIds) async {
+    if (trackIds.isEmpty) return;
+    await (_db.delete(_db.tracks)..where((t) => t.id.isIn(trackIds))).go();
+  }
 }

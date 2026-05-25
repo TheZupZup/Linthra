@@ -213,6 +213,148 @@ class HttpJellyfinClient implements JellyfinClient {
     _checkStatus(response);
   }
 
+  @override
+  Future<List<JellyfinPlaylistDto>> fetchPlaylists(
+    JellyfinSession session,
+  ) async {
+    final Uri uri = JellyfinEndpoints.playlists(
+      session.baseUrl,
+      userId: session.userId,
+    );
+    final http.Response response = await _send(
+      () => _client.get(uri, headers: _authHeaders(session)),
+    );
+    _checkStatus(response);
+    final Map<String, dynamic> json = _decodeObject(response);
+    final Object? rawItems = json['Items'];
+    if (rawItems is! List) return const <JellyfinPlaylistDto>[];
+    final List<JellyfinPlaylistDto> playlists = <JellyfinPlaylistDto>[];
+    for (final Object? entry in rawItems) {
+      if (entry is Map<String, dynamic>) {
+        final JellyfinPlaylistDto? dto = JellyfinPlaylistDto.fromJson(entry);
+        if (dto != null) playlists.add(dto);
+      }
+    }
+    return playlists;
+  }
+
+  @override
+  Future<List<JellyfinPlaylistEntry>> fetchPlaylistEntries(
+    JellyfinSession session,
+    String playlistId,
+  ) async {
+    final Uri uri = JellyfinEndpoints.playlistItems(
+      session.baseUrl,
+      playlistId: playlistId,
+      userId: session.userId,
+    );
+    final http.Response response = await _send(
+      () => _client.get(uri, headers: _authHeaders(session)),
+    );
+    _checkStatus(response);
+    final Map<String, dynamic> json = _decodeObject(response);
+    final Object? rawItems = json['Items'];
+    if (rawItems is! List) return const <JellyfinPlaylistEntry>[];
+    final List<JellyfinPlaylistEntry> entries = <JellyfinPlaylistEntry>[];
+    for (final Object? entry in rawItems) {
+      if (entry is Map<String, dynamic>) {
+        final JellyfinPlaylistEntry? parsed =
+            JellyfinPlaylistEntry.fromJson(entry);
+        if (parsed != null) entries.add(parsed);
+      }
+    }
+    return entries;
+  }
+
+  @override
+  Future<String> createPlaylist(
+    JellyfinSession session, {
+    required String name,
+    List<String> itemIds = const <String>[],
+  }) async {
+    final Uri uri = JellyfinEndpoints.createPlaylist(
+      session.baseUrl,
+      name: name,
+      userId: session.userId,
+      itemIds: itemIds,
+    );
+    final http.Response response = await _send(
+      () => _client.post(uri, headers: _authHeaders(session)),
+    );
+    _checkStatus(response);
+    final Map<String, dynamic> json = _decodeObject(response);
+    final Object? id = json['Id'];
+    if (id is! String || id.isEmpty) {
+      throw JellyfinException.unsupportedResponse(response.statusCode);
+    }
+    return id;
+  }
+
+  @override
+  Future<void> addItemsToPlaylist(
+    JellyfinSession session,
+    String playlistId,
+    List<String> itemIds,
+  ) async {
+    if (itemIds.isEmpty) return;
+    final Uri uri = JellyfinEndpoints.addPlaylistItems(
+      session.baseUrl,
+      playlistId: playlistId,
+      userId: session.userId,
+      itemIds: itemIds,
+    );
+    final http.Response response = await _send(
+      () => _client.post(uri, headers: _authHeaders(session)),
+    );
+    _checkStatus(response);
+  }
+
+  @override
+  Future<void> removeItemsFromPlaylist(
+    JellyfinSession session,
+    String playlistId,
+    List<String> itemIds,
+  ) async {
+    if (itemIds.isEmpty) return;
+    // Jellyfin removes by *entry* id (PlaylistItemId), not media id, so resolve
+    // the entry ids for the requested media ids from the current playlist first.
+    final List<JellyfinPlaylistEntry> entries =
+        await fetchPlaylistEntries(session, playlistId);
+    final Set<String> targets = itemIds.toSet();
+    final List<String> entryIds = <String>[
+      for (final JellyfinPlaylistEntry entry in entries)
+        if (targets.contains(entry.itemId) && entry.playlistItemId != null)
+          entry.playlistItemId!,
+    ];
+    if (entryIds.isEmpty) {
+      // The server didn't expose entry ids (or the items are already gone):
+      // surface an honest "couldn't use the response" rather than a silent ok.
+      throw JellyfinException.unsupportedResponse();
+    }
+    final Uri uri = JellyfinEndpoints.removePlaylistEntries(
+      session.baseUrl,
+      playlistId: playlistId,
+      entryIds: entryIds,
+    );
+    final http.Response response = await _send(
+      () => _client.delete(uri, headers: _authHeaders(session)),
+    );
+    _checkStatus(response);
+  }
+
+  @override
+  Future<void> deletePlaylist(
+    JellyfinSession session,
+    String playlistId,
+  ) async {
+    final Uri uri =
+        JellyfinEndpoints.deleteItem(session.baseUrl, itemId: playlistId);
+    final http.Response response = await _send(
+      () => _client.delete(uri, headers: _authHeaders(session)),
+    );
+    _checkStatus(response);
+  }
+
   /// The standard headers for an authenticated JSON call: the token rides in the
   /// `Authorization` header (built in one place, never logged).
   Map<String, String> _authHeaders(JellyfinSession session) {

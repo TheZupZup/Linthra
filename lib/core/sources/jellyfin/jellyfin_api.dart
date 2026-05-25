@@ -225,3 +225,46 @@ class JellyfinItemDto {
     );
   }
 }
+
+/// A playlist item from `GET /Users/<userId>/Items?IncludeItemTypes=Playlist`.
+///
+/// Only the fields Linthra mirrors are kept: the server playlist [id] (used as
+/// the local playlist's `remoteId`) and its [name]. No token or URL is carried.
+class JellyfinPlaylistDto {
+  const JellyfinPlaylistDto({required this.id, required this.name});
+
+  final String id;
+  final String name;
+
+  /// Parses one playlist entry, or `null` when it lacks an id/name so a single
+  /// malformed entry can't break a whole listing.
+  static JellyfinPlaylistDto? fromJson(Map<String, dynamic> json) {
+    final String? id = json['Id'] as String?;
+    final String? name = json['Name'] as String?;
+    if (id == null || id.isEmpty || name == null) return null;
+    return JellyfinPlaylistDto(id: id, name: name);
+  }
+}
+
+/// One entry inside a Jellyfin playlist, from `GET /Playlists/<id>/Items`.
+///
+/// Carries both the underlying media [itemId] (what Linthra stores as a track
+/// reference) and the playlist-scoped [playlistItemId] (the *entry* id Jellyfin
+/// requires to remove that entry — distinct from the media id). The entry id is
+/// optional because some server versions omit it; removal falls back to a
+/// no-entry-id outcome the caller can treat as "couldn't remove on server".
+class JellyfinPlaylistEntry {
+  const JellyfinPlaylistEntry({required this.itemId, this.playlistItemId});
+
+  final String itemId;
+  final String? playlistItemId;
+
+  static JellyfinPlaylistEntry? fromJson(Map<String, dynamic> json) {
+    final String? id = json['Id'] as String?;
+    if (id == null || id.isEmpty) return null;
+    return JellyfinPlaylistEntry(
+      itemId: id,
+      playlistItemId: json['PlaylistItemId'] as String?,
+    );
+  }
+}

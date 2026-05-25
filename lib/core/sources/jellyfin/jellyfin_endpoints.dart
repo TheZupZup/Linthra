@@ -25,6 +25,7 @@ abstract final class JellyfinEndpoints {
   static const String _currentUserPath = '/Users/Me';
   static const String _itemsPath = '/Items';
   static const String _artistsPath = '/Artists';
+  static const String _playlistsPath = '/Playlists';
 
   // --- Query-parameter keys, named once so a typo can't split a request. ---
 
@@ -115,6 +116,88 @@ abstract final class JellyfinEndpoints {
     required String itemId,
   }) =>
       _join(baseUrl, '/Users/$userId/FavoriteItems/$itemId');
+
+  /// `GET /Items?…&IncludeItemTypes=Playlist` — the user's playlists. Images are
+  /// disabled to keep the payload small; only id + name are mapped.
+  static Uri playlists(String baseUrl, {required String userId}) =>
+      _join(baseUrl, _itemsPath).replace(
+        queryParameters: <String, String>{
+          userIdParam: userId,
+          'Recursive': 'true',
+          'IncludeItemTypes': 'Playlist',
+          'SortBy': 'SortName',
+          'SortOrder': 'Ascending',
+          'EnableImages': 'false',
+        },
+      );
+
+  /// `GET /Playlists/<playlistId>/Items` — the ordered entries of one playlist.
+  /// Each entry carries both the media `Id` and the playlist-scoped
+  /// `PlaylistItemId` (the entry id needed to remove it).
+  static Uri playlistItems(
+    String baseUrl, {
+    required String playlistId,
+    required String userId,
+  }) =>
+      _join(baseUrl, '$_playlistsPath/$playlistId/Items').replace(
+        queryParameters: <String, String>{
+          userIdParam: userId,
+          'Fields': 'ItemCounts',
+        },
+      );
+
+  /// `POST /Playlists?Name=…&Ids=…&UserId=…` — create a playlist (optionally
+  /// seeded with audio item [itemIds]). Returns `{ "Id": "<playlistId>" }`.
+  static Uri createPlaylist(
+    String baseUrl, {
+    required String name,
+    required String userId,
+    List<String> itemIds = const <String>[],
+  }) {
+    final Map<String, String> query = <String, String>{
+      'Name': name,
+      userIdParam: userId,
+      'MediaType': 'Audio',
+    };
+    if (itemIds.isNotEmpty) {
+      query['Ids'] = itemIds.join(',');
+    }
+    return _join(baseUrl, _playlistsPath).replace(queryParameters: query);
+  }
+
+  /// `POST /Playlists/<playlistId>/Items?Ids=…&UserId=…` — append audio
+  /// [itemIds] to an existing playlist.
+  static Uri addPlaylistItems(
+    String baseUrl, {
+    required String playlistId,
+    required String userId,
+    required List<String> itemIds,
+  }) =>
+      _join(baseUrl, '$_playlistsPath/$playlistId/Items').replace(
+        queryParameters: <String, String>{
+          'Ids': itemIds.join(','),
+          userIdParam: userId,
+        },
+      );
+
+  /// `DELETE /Playlists/<playlistId>/Items?EntryIds=…` — remove entries by their
+  /// playlist-scoped entry ids (the `PlaylistItemId`s, not the media ids).
+  static Uri removePlaylistEntries(
+    String baseUrl, {
+    required String playlistId,
+    required List<String> entryIds,
+  }) =>
+      _join(baseUrl, '$_playlistsPath/$playlistId/Items').replace(
+        queryParameters: <String, String>{
+          'EntryIds': entryIds.join(','),
+        },
+      );
+
+  /// `DELETE /Items/<itemId>` — delete a library item. Used to delete a playlist
+  /// (a playlist is an item); requires the user to have delete permission, so a
+  /// 401/403 is mapped to a friendly "couldn't delete" rather than retried.
+  static Uri deleteItem(String baseUrl, {required String itemId}) =>
+      _join(baseUrl, '$_itemsPath/$itemId');
 
   /// `GET /Audio/<itemId>/Lyrics` — time-synced or plain lyrics (a 404 just
   /// means the server has none).

@@ -55,6 +55,9 @@ class _RecordingRepository implements MusicLibraryRepository {
 
   @override
   Future<Track?> getTrackById(String id) async => null;
+
+  @override
+  Future<void> removeTracks(List<String> trackIds) async {}
 }
 
 SubsonicMusicSource _source({

@@ -10,11 +10,21 @@ import '../../../data/repositories/download_repository_provider.dart';
 import '../../downloads/download_providers.dart';
 import '../../player/player_providers.dart';
 import '../../player/widgets/album_artwork.dart';
+import '../../playlists/widgets/add_to_playlist_sheet.dart';
+import '../song_actions.dart';
 
 /// The actions reachable from a track row's overflow menu. Which subset is
 /// offered is context-aware: it depends on whether the track is remote and on
 /// its current [DownloadStatus] (see `_OverflowMenu._menuItems`).
-enum _TrackAction { playNext, download, removeOffline, retryDownload, cancel }
+enum _TrackAction {
+  playNext,
+  addToPlaylist,
+  download,
+  removeOffline,
+  retryDownload,
+  cancel,
+  removeFromLibrary,
+}
 
 /// A single library track row.
 ///
@@ -27,17 +37,43 @@ enum _TrackAction { playNext, download, removeOffline, retryDownload, cancel }
 /// Tapping the row plays the tapped track and queues the rest of [tracks]
 /// behind it, then opens the now-playing screen — unchanged from before.
 ///
+/// Selection: when [selectable] is set, a long-press starts multi-select via
+/// [onSelectStart] and, while [selectionActive], a tap toggles this row via
+/// [onSelectToggle] instead of playing. Hosts that don't pass these (e.g.
+/// Favorites) keep the plain tap-to-play behaviour.
+///
 /// Source-awareness: offline/download actions only appear for *remote* tracks
 /// (resolved through [remoteTrackDownloaderProvider], the same seam the
 /// download repository uses). On-device tracks are already local, so showing
 /// "Download for offline" on them would be meaningless — they only get the
-/// queue action.
+/// queue/playlist/remove actions.
 class TrackTile extends ConsumerWidget {
-  const TrackTile({required this.tracks, required this.index, super.key});
+  const TrackTile({
+    required this.tracks,
+    required this.index,
+    this.selectable = false,
+    this.selectionActive = false,
+    this.selected = false,
+    this.onSelectToggle,
+    this.onSelectStart,
+    super.key,
+  });
 
   /// The whole visible list, so tapping one track queues the rest after it.
   final List<Track> tracks;
   final int index;
+
+  /// Whether this row participates in multi-select at all.
+  final bool selectable;
+
+  /// Whether the host is currently in selection mode (so a tap toggles).
+  final bool selectionActive;
+
+  /// Whether this row is currently selected.
+  final bool selected;
+
+  final VoidCallback? onSelectToggle;
+  final VoidCallback? onSelectStart;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -57,6 +93,7 @@ class TrackTile extends ConsumerWidget {
         : null;
 
     return ListTile(
+      selected: selectionActive && selected,
       leading: SizedBox.square(
         dimension: 48,
         child: AlbumArtwork(
@@ -80,26 +117,37 @@ class TrackTile extends ConsumerWidget {
           color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
         ),
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _StatusGlyph(
-            status: status,
-            isRemote: isRemote,
-            progress: downloadFraction,
-          ),
-          _OverflowMenu(
-            track: track,
-            status: status,
-            isRemote: isRemote,
-          ),
-        ],
-      ),
+      trailing: selectionActive
+          ? Checkbox(
+              value: selected,
+              onChanged:
+                  onSelectToggle == null ? null : (_) => onSelectToggle!(),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _StatusGlyph(
+                  status: status,
+                  isRemote: isRemote,
+                  progress: downloadFraction,
+                ),
+                _OverflowMenu(
+                  track: track,
+                  status: status,
+                  isRemote: isRemote,
+                ),
+              ],
+            ),
       onTap: () {
+        if (selectionActive) {
+          onSelectToggle?.call();
+          return;
+        }
         final controller = ref.read(playbackControllerProvider);
         controller.playTracks(tracks, startIndex: index);
         context.push(AppRoutes.player);
       },
+      onLongPress: (selectable && !selectionActive) ? onSelectStart : null,
     );
   }
 
@@ -171,7 +219,8 @@ class _StatusGlyph extends StatelessWidget {
 }
 
 /// The trailing 3-dots menu. Builds a context-aware action set and dispatches
-/// the chosen one to the playback controller or download repository.
+/// the chosen one to the playback controller, download repository, or the safe
+/// remove actions.
 class _OverflowMenu extends ConsumerWidget {
   const _OverflowMenu({
     required this.track,
@@ -194,10 +243,13 @@ class _OverflowMenu extends ConsumerWidget {
   }
 
   /// Context-aware action list. Offline actions are gated on [isRemote]; the
-  /// rest depend on the track's [DownloadStatus]. The queue action is always
-  /// available.
+  /// rest depend on the track's [DownloadStatus]. The queue, add-to-playlist,
+  /// and remove-from-Linthra actions are always available.
   List<PopupMenuEntry<_TrackAction>> _menuItems() {
-    final items = <PopupMenuEntry<_TrackAction>>[];
+    final items = <PopupMenuEntry<_TrackAction>>[
+      _item(_TrackAction.playNext, Icons.queue_music, 'Play next'),
+      _item(_TrackAction.addToPlaylist, Icons.playlist_add, 'Add to playlist'),
+    ];
     if (isRemote) {
       switch (status) {
         case DownloadStatus.notDownloaded:
@@ -215,7 +267,8 @@ class _OverflowMenu extends ConsumerWidget {
           items.add(_item(_TrackAction.cancel, Icons.close, 'Cancel download'));
       }
     }
-    items.add(_item(_TrackAction.playNext, Icons.queue_music, 'Play next'));
+    items.add(_item(_TrackAction.removeFromLibrary, Icons.remove_circle_outline,
+        'Remove from Linthra'));
     return items;
   }
 
@@ -242,12 +295,19 @@ class _OverflowMenu extends ConsumerWidget {
     switch (action) {
       case _TrackAction.playNext:
         ref.read(playbackControllerProvider).playNext(track);
+      case _TrackAction.addToPlaylist:
+        await showAddToPlaylistSheet(context, <Track>[track]);
       case _TrackAction.download:
       case _TrackAction.retryDownload:
         await _download(context, ref);
-      case _TrackAction.removeOffline:
       case _TrackAction.cancel:
+        // Cancelling an in-flight/queued download is not destructive to a saved
+        // copy, so it needs no confirmation.
         await ref.read(downloadRepositoryProvider).removeDownload(track.id);
+      case _TrackAction.removeOffline:
+        await SongActions.removeOfflineCopies(context, ref, <Track>[track]);
+      case _TrackAction.removeFromLibrary:
+        await SongActions.removeFromLibrary(context, ref, <Track>[track]);
     }
   }
 

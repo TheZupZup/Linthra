@@ -15,9 +15,32 @@ import 'track_tile.dart';
 /// Both the rows and the index work off the *same* sorted list, so a row's tap
 /// queues the rest of the library in the order the user sees — see [TrackTile].
 class AlphabetTrackList extends StatefulWidget {
-  const AlphabetTrackList({required this.tracks, super.key});
+  const AlphabetTrackList({
+    required this.tracks,
+    this.selectable = false,
+    this.selectionActive = false,
+    this.selectedIds = const <String>{},
+    this.onSelectToggle,
+    this.onSelectStart,
+    super.key,
+  });
 
   final List<Track> tracks;
+
+  /// Whether rows can enter multi-select (long-press) and toggle selection.
+  final bool selectable;
+
+  /// Whether the host is currently in selection mode.
+  final bool selectionActive;
+
+  /// Ids of the currently-selected tracks.
+  final Set<String> selectedIds;
+
+  /// Toggles a track's selection (tap while in selection mode).
+  final void Function(Track track)? onSelectToggle;
+
+  /// Starts selection with a track (long-press).
+  final void Function(Track track)? onSelectStart;
 
   @override
   State<AlphabetTrackList> createState() => _AlphabetTrackListState();
@@ -159,7 +182,21 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
             if (entry.isHeader) {
               return _SectionHeader(letter: entry.letter!);
             }
-            return TrackTile(tracks: _sorted, index: entry.trackIndex!);
+            final int trackIndex = entry.trackIndex!;
+            final Track track = _sorted[trackIndex];
+            return TrackTile(
+              tracks: _sorted,
+              index: trackIndex,
+              selectable: widget.selectable,
+              selectionActive: widget.selectionActive,
+              selected: widget.selectedIds.contains(track.id),
+              onSelectToggle: widget.onSelectToggle == null
+                  ? null
+                  : () => widget.onSelectToggle!(track),
+              onSelectStart: widget.onSelectStart == null
+                  ? null
+                  : () => widget.onSelectStart!(track),
+            );
           },
         ),
         if (showRail)

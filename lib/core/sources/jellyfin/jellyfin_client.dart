@@ -72,4 +72,43 @@ abstract interface class JellyfinClient {
     String itemId, {
     required bool favorite,
   });
+
+  /// Lists the signed-in user's playlists (id + name only).
+  Future<List<JellyfinPlaylistDto>> fetchPlaylists(JellyfinSession session);
+
+  /// Lists the ordered entries of the playlist [playlistId]. Each entry carries
+  /// the media item id and its playlist-scoped entry id.
+  Future<List<JellyfinPlaylistEntry>> fetchPlaylistEntries(
+    JellyfinSession session,
+    String playlistId,
+  );
+
+  /// Creates a playlist named [name], optionally seeded with audio [itemIds],
+  /// and returns the new server playlist id. Throws on failure.
+  Future<String> createPlaylist(
+    JellyfinSession session, {
+    required String name,
+    List<String> itemIds = const <String>[],
+  });
+
+  /// Appends audio [itemIds] to the playlist [playlistId]. Throws on failure.
+  Future<void> addItemsToPlaylist(
+    JellyfinSession session,
+    String playlistId,
+    List<String> itemIds,
+  );
+
+  /// Removes the entries holding [itemIds] from the playlist [playlistId]. The
+  /// implementation resolves each media item id to its playlist entry id first,
+  /// since Jellyfin removes by entry id. Throws on failure.
+  Future<void> removeItemsFromPlaylist(
+    JellyfinSession session,
+    String playlistId,
+    List<String> itemIds,
+  );
+
+  /// Deletes the playlist [playlistId] from the server. Requires the user to
+  /// have delete permission; a permission failure surfaces as a friendly
+  /// [JellyfinException]. Throws on failure.
+  Future<void> deletePlaylist(JellyfinSession session, String playlistId);
 }

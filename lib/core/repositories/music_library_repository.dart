@@ -25,4 +25,14 @@ abstract interface class MusicLibraryRepository {
     required List<Album> albums,
     required List<Artist> artists,
   });
+
+  /// Removes the tracks with [trackIds] from the local catalog/index only.
+  ///
+  /// This is the "Remove from Linthra library" primitive: it deletes nothing on
+  /// disk and nothing on a server — it only forgets the rows in Linthra's own
+  /// index. The original local file or remote server item is untouched, so a
+  /// later re-scan / re-sync of that source can bring the track back. A safe,
+  /// reversible default, deliberately distinct from deleting a file or a server
+  /// item.
+  Future<void> removeTracks(List<String> trackIds);
 }
