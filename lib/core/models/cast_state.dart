@@ -56,6 +56,9 @@ class CastState {
     this.connectedDevice,
     this.message,
     this.isCasting = false,
+    this.volume,
+    this.muted = false,
+    this.supportsVolumeControl = false,
   });
 
   /// The honest default: no cast backend wired, nothing reachable.
@@ -85,6 +88,23 @@ class CastState {
   /// silence the local engine and follow the cast session.
   final bool isCasting;
 
+  /// The connected receiver's volume on the `0.0–1.0` scale, or null when not
+  /// connected or the device hasn't reported one yet. This is the *device*
+  /// volume (a Chromecast's own level), not the phone's media volume.
+  final double? volume;
+
+  /// Whether the connected receiver is muted. Only meaningful while connected.
+  final bool muted;
+
+  /// Whether the connected receiver allows volume control. False when not
+  /// connected, when the device reports a fixed volume, or before its first
+  /// status arrives — the volume UI shows an honest disabled state in that case.
+  final bool supportsVolumeControl;
+
+  /// Whether a device volume level is known (connected and reported), so the UI
+  /// can render the current level.
+  bool get hasVolume => volume != null;
+
   /// Whether the platform can cast at all. False when no backend is wired,
   /// which is what the UI uses to show an honest unavailable state rather than
   /// an empty device picker.
@@ -103,12 +123,19 @@ class CastState {
     List<CastDevice>? devices,
     CastDevice? connectedDevice,
     bool? isCasting,
+    double? volume,
+    bool? muted,
+    bool? supportsVolumeControl,
   }) {
     return CastState(
       availability: availability ?? this.availability,
       devices: devices ?? this.devices,
       connectedDevice: connectedDevice ?? this.connectedDevice,
       isCasting: isCasting ?? this.isCasting,
+      volume: volume ?? this.volume,
+      muted: muted ?? this.muted,
+      supportsVolumeControl:
+          supportsVolumeControl ?? this.supportsVolumeControl,
     );
   }
 
@@ -120,7 +147,10 @@ class CastState {
           listEquals(other.devices, devices) &&
           other.connectedDevice == connectedDevice &&
           other.message == message &&
-          other.isCasting == isCasting);
+          other.isCasting == isCasting &&
+          other.volume == volume &&
+          other.muted == muted &&
+          other.supportsVolumeControl == supportsVolumeControl);
 
   @override
   int get hashCode => Object.hash(
@@ -129,5 +159,8 @@ class CastState {
         connectedDevice,
         message,
         isCasting,
+        volume,
+        muted,
+        supportsVolumeControl,
       );
 }

@@ -51,6 +51,18 @@ class UnavailableCastService implements CastService {
   Future<void> seek(Duration position) async {}
 
   @override
+  Future<void> setVolume(double volume) async {}
+
+  @override
+  Future<void> volumeUp() async {}
+
+  @override
+  Future<void> volumeDown() async {}
+
+  @override
+  Future<void> setMuted(bool muted) async {}
+
+  @override
   Future<void> refresh() async {}
 
   @override

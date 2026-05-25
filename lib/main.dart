@@ -10,12 +10,14 @@ import 'data/repositories/favorites_repository_provider.dart';
 import 'data/repositories/jellyfin_session_store_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
+import 'data/repositories/subsonic_session_store_provider.dart';
 import 'features/downloads/download_providers.dart';
 import 'features/player/cast/cast_providers.dart';
 import 'features/player/favorites_providers.dart';
 import 'features/player/lyrics_providers.dart';
 import 'features/player/player_providers.dart';
 import 'features/settings/jellyfin/jellyfin_settings_controller.dart';
+import 'features/settings/subsonic/subsonic_settings_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,9 +29,10 @@ Future<void> main() async {
   // persists its catalog to SQLite (Drift override) and its chosen folder,
   // offline-download set, and Wi-Fi-only preference via shared_preferences;
   // downloaded audio is written to an app-private directory on disk; and the
-  // Jellyfin session token is persisted in encrypted on-device storage. The
-  // Jellyfin downloader override makes remote tracks downloadable for offline
-  // use. Tests keep the in-memory defaults unless they opt into these bindings.
+  // Jellyfin and Subsonic/Navidrome session credentials are each persisted in
+  // encrypted on-device storage. The remote downloader override makes both
+  // Jellyfin and Subsonic tracks downloadable for offline use. Tests keep the
+  // in-memory defaults unless they opt into these bindings.
   final container = ProviderContainer(
     overrides: [
       driftMusicLibraryRepositoryOverride,
@@ -37,9 +40,10 @@ Future<void> main() async {
       sharedPreferencesDownloadStoreOverride,
       sharedPreferencesDownloadPreferencesOverride,
       fileSystemOfflineFileStoreOverride,
-      jellyfinRemoteTrackDownloaderOverride,
+      remoteTrackDownloaderOverride,
       currentlyPlayingTrackIdOverride,
       secureJellyfinSessionStoreOverride,
+      secureSubsonicSessionStoreOverride,
       sharedPreferencesFavoritesStoreOverride,
       jellyfinFavoritesOverride,
       jellyfinLyricsOverride,
@@ -71,6 +75,16 @@ Future<void> main() async {
   try {
     await container
         .read(jellyfinSettingsControllerProvider.notifier)
+        .ensureLoaded();
+  } catch (_) {
+    // Ignore: the user can still connect in Settings.
+  }
+
+  // Likewise warm any persisted Subsonic/Navidrome session so a synced Subsonic
+  // track can stream on the first tap. Best-effort and secret-free.
+  try {
+    await container
+        .read(subsonicSettingsControllerProvider.notifier)
         .ensureLoaded();
   } catch (_) {
     // Ignore: the user can still connect in Settings.

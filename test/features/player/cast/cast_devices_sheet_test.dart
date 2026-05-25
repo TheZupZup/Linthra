@@ -138,4 +138,123 @@ void main() {
       expect(service.discoveryStarts, before + 1);
     });
   });
+
+  group('Cast volume controls', () {
+    CastState connected({
+      double? volume,
+      bool muted = false,
+      bool supportsVolumeControl = false,
+    }) =>
+        CastState(
+          availability: CastAvailability.connected,
+          devices: const <CastDevice>[_device],
+          connectedDevice: _device,
+          volume: volume,
+          muted: muted,
+          supportsVolumeControl: supportsVolumeControl,
+        );
+
+    testWidgets('hidden when no device is connected', (tester) async {
+      await _pumpSheet(
+        tester,
+        FakeCastService(
+          initial: const CastState(
+            availability: CastAvailability.idle,
+            devices: <CastDevice>[_device],
+          ),
+        ),
+      );
+
+      expect(find.text('Cast volume'), findsNothing);
+      expect(find.byType(Slider), findsNothing);
+    });
+
+    testWidgets('renders a slider when connected and supported',
+        (tester) async {
+      await _pumpSheet(
+        tester,
+        FakeCastService(
+          initial: connected(volume: 0.4, supportsVolumeControl: true),
+        ),
+      );
+
+      expect(find.text('Cast volume'), findsOneWidget);
+      final slider = tester.widget<Slider>(find.byType(Slider));
+      expect(slider.value, 0.4);
+      expect(slider.onChanged, isNotNull);
+    });
+
+    testWidgets('slider release calls CastService.setVolume', (tester) async {
+      final service = FakeCastService(
+        initial: connected(volume: 0.2, supportsVolumeControl: true),
+      );
+      await _pumpSheet(tester, service);
+
+      // Invoke the slider's commit callback directly — a deterministic stand-in
+      // for a drag-and-release at that level.
+      tester.widget<Slider>(find.byType(Slider)).onChangeEnd!(0.75);
+      await tester.pump();
+
+      expect(service.volumeRequests, <double>[0.75]);
+    });
+
+    testWidgets('mute button calls CastService.setMuted', (tester) async {
+      final service = FakeCastService(
+        initial: connected(volume: 0.5, supportsVolumeControl: true),
+      );
+      await _pumpSheet(tester, service);
+
+      await tester.tap(find.byIcon(Icons.volume_up));
+      await tester.pump();
+
+      expect(service.muteRequests, <bool>[true]);
+    });
+
+    testWidgets('unsupported control shows a friendly disabled state',
+        (tester) async {
+      await _pumpSheet(
+        tester,
+        FakeCastService(initial: connected(supportsVolumeControl: false)),
+      );
+
+      // The section is still present and stable, but the slider is disabled and
+      // an honest note explains why.
+      expect(find.text('Cast volume'), findsOneWidget);
+      expect(
+        find.textContaining("doesn't support volume control"),
+        findsOneWidget,
+      );
+      expect(tester.widget<Slider>(find.byType(Slider)).onChanged, isNull);
+    });
+
+    testWidgets('a CastState volume update refreshes the slider',
+        (tester) async {
+      final service = FakeCastService(
+        initial: connected(volume: 0.3, supportsVolumeControl: true),
+      );
+      await _pumpSheet(tester, service);
+      expect(tester.widget<Slider>(find.byType(Slider)).value, 0.3);
+
+      service.emit(connected(volume: 0.9, supportsVolumeControl: true));
+      // One frame for the StreamProvider to deliver the event, one to rebuild.
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.widget<Slider>(find.byType(Slider)).value, 0.9);
+    });
+
+    testWidgets('a muted receiver shows the muted icon and a zeroed slider',
+        (tester) async {
+      await _pumpSheet(
+        tester,
+        FakeCastService(
+          initial:
+              connected(volume: 0.6, muted: true, supportsVolumeControl: true),
+        ),
+      );
+
+      expect(find.byIcon(Icons.volume_off), findsOneWidget);
+      expect(tester.widget<Slider>(find.byType(Slider)).value, 0.0);
+    });
+  });
 }

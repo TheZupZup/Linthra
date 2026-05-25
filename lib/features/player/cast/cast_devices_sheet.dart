@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -187,6 +189,10 @@ class _Body extends ConsumerWidget {
         // file that can't be cast).
         if (state.isConnected && state.message != null)
           _Notice(message: state.message!),
+        // Cast device volume — only while connected, since it controls the
+        // receiver's own volume (not the phone's).
+        if (state.isConnected)
+          CastVolumeControls(state: state, service: service),
         for (final device in devices)
           ListTile(
             leading: Icon(
@@ -206,6 +212,107 @@ class _Body extends ConsumerWidget {
                 : () => service.connect(device),
           ),
       ],
+    );
+  }
+}
+
+/// Cast device volume controls, shown in the sheet while connected.
+///
+/// Drives the receiver's *own* volume entirely through [CastService] — never a
+/// cast SDK directly — so a command failure can't break playback (the service
+/// swallows it and surfaces a calm notice). It follows live volume updates from
+/// [CastState] (which the sheet watches) while tracking the in-progress drag
+/// locally, mirroring [PlaybackProgressBar]. When the device doesn't support
+/// volume control ([CastState.supportsVolumeControl] false) the slider and mute
+/// are disabled with an honest note rather than hidden, so the section stays
+/// stable.
+class CastVolumeControls extends StatefulWidget {
+  const CastVolumeControls({
+    required this.state,
+    required this.service,
+    super.key,
+  });
+
+  final CastState state;
+  final CastService service;
+
+  @override
+  State<CastVolumeControls> createState() => _CastVolumeControlsState();
+}
+
+class _CastVolumeControlsState extends State<CastVolumeControls> {
+  /// The in-progress drag level (0–1), or null when not dragging — so live
+  /// device updates don't fight the user's finger.
+  double? _dragValue;
+
+  void _onChanged(double value) => setState(() => _dragValue = value);
+
+  void _onChangeEnd(double value) {
+    unawaited(widget.service.setVolume(value));
+    setState(() => _dragValue = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final bool supported = widget.state.supportsVolumeControl;
+    final bool muted = widget.state.muted;
+    final double level = (widget.state.volume ?? 0.0).clamp(0.0, 1.0);
+    // While muted, show the slider at zero so the visual matches what's heard.
+    final double effective = muted ? 0.0 : level;
+    final double sliderValue = _dragValue ?? effective;
+
+    final Color muteColor = supported
+        ? theme.colorScheme.onSurface
+        : theme.colorScheme.onSurface.withValues(alpha: 0.38);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.sm,
+        AppSpacing.lg,
+        AppSpacing.sm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Cast volume',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+          Row(
+            children: [
+              IconButton(
+                onPressed: supported
+                    ? () => unawaited(widget.service.setMuted(!muted))
+                    : null,
+                color: muteColor,
+                icon: Icon(muted ? Icons.volume_off : Icons.volume_up),
+                tooltip: muted ? 'Unmute' : 'Mute',
+              ),
+              Expanded(
+                child: Slider(
+                  value: sliderValue,
+                  onChanged: supported ? _onChanged : null,
+                  onChangeEnd: supported ? _onChangeEnd : null,
+                ),
+              ),
+            ],
+          ),
+          if (!supported)
+            Padding(
+              padding: const EdgeInsets.only(left: AppSpacing.sm),
+              child: Text(
+                "This device doesn't support volume control from Linthra.",
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

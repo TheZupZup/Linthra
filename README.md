@@ -61,15 +61,22 @@ Everything below works end to end on a real Android device in the current alpha
 - **Jellyfin (self-hosted)** — connect to your own server, test the connection,
   sign in, sync your library, and **stream** tracks. Works with HTTPS /
   Cloudflare-proxied domains.
+- **Navidrome / Subsonic (self-hosted)** — connect to your own
+  Subsonic-compatible server, test the connection, sign in, **sync** your
+  library, and **stream / cache / cast** tracks. Auth uses the Subsonic
+  token+salt scheme, so your password is never stored — only a derived token is
+  kept (encrypted). Favorites and lyrics are follow-ups; see
+  [docs/providers.md](docs/providers.md).
 - **Smart offline cache** — mark individual Jellyfin tracks for offline use
   (Plexamp-style explicit downloads), with a **"Wi-Fi only"** option, a
   configurable cache size limit, "Keep offline" pinning, and optional smart
   pre-caching of upcoming tracks. Cached tracks play fully offline.
 - **Synced lyrics** — fetch a Jellyfin track's lyrics into a sheet; favorites
   also sync with your Jellyfin server.
-- **Chromecast foundation** — discover Cast devices, connect, and hand off the
-  current Jellyfin stream to the receiver, using a pure-Dart Cast protocol (no
-  Google Play Services).
+- **Chromecast** — discover Cast devices, connect, and hand off the current
+  Jellyfin/Subsonic stream to the receiver, using a pure-Dart Cast protocol (no
+  Google Play Services). When connected, the Cast sheet shows a **Cast volume**
+  control (slider + mute) that drives the *device's* volume.
 
 ## Known limitations
 
@@ -83,6 +90,9 @@ This is an alpha — expect rough edges. The honest gaps today:
 - **Downloads are track-level only** — no album/playlist "download all" and no
   background download manager (downloads run inline; no resume).
 - **Single Jellyfin server** — one session at a time; no multi-server support.
+- **Subsonic favorites & lyrics** — Navidrome/Subsonic streaming, offline cache,
+  and casting work, but favorites, lyrics, and cover art are documented
+  follow-ups (see [docs/providers.md](docs/providers.md)).
 - **Direct play only** — no server-side transcoding fallback for exotic
   formats; Cloudflare Access / Zero Trust in front of Jellyfin is not supported.
 - **On-device files can't be cast** — a Cast receiver can't reach a local file,
@@ -195,18 +205,19 @@ and the offline-downloads section below.
 ## Roadmap
 
 **Working now:** local scanning + playback, background playback & media session,
-Android Auto browsing, shuffle/repeat, Jellyfin connect/sync/stream, explicit
-offline downloads with a smart cache, synced favorites & lyrics, and a
-Chromecast foundation.
+Android Auto browsing, shuffle/repeat, Jellyfin and Navidrome/Subsonic
+connect/sync/stream, explicit offline downloads with a smart cache, synced
+favorites & lyrics (Jellyfin), and Chromecast with device-volume control.
 
 **Next up (roughly in order):**
 
 1. Tag/metadata parsing and album artwork.
 2. Browse by artist/album, and search.
-3. Playlist creation, editing, and queue reordering.
-4. Album/playlist "download all" and a background download manager.
-5. Real connectivity detection for the "Wi-Fi only" gate.
-6. More sources behind the same interface — WebDAV, NAS.
+3. Subsonic favorites, lyrics, and cover art.
+4. Playlist creation, editing, and queue reordering.
+5. Album/playlist "download all" and a background download manager.
+6. Real connectivity detection for the "Wi-Fi only" gate.
+7. More sources behind the same interface — WebDAV, NAS.
 
 **Later:** local-file lyrics (`.lrc`/tags), ReplayGain, MPRIS, smart playlists,
 Linux desktop, and richer Android Auto (album/artist grouping, search) and
@@ -321,11 +332,15 @@ lib/
 
 - **`MusicSource`** (`core/services/music_source.dart`) — a media backend.
   `LocalMusicSource` shipped first; `JellyfinMusicSource`
-  (`core/sources/jellyfin/`) now implements the same contract over a
-  `JellyfinClient` (HTTP behind one interface), with `JellyfinAuthenticator`
-  for sign-in and `JellyfinSessionStore` for the encrypted token —
-  authentication, persistence, and library fetching kept separate.
-  `WebDavMusicSource` slots in the same way later.
+  (`core/sources/jellyfin/`) and `SubsonicMusicSource` (`core/sources/subsonic/`,
+  for Navidrome and other Subsonic-compatible servers) now implement the same
+  contract over their own HTTP clients, each with a separate authenticator,
+  encrypted session store, and library fetcher — authentication, persistence,
+  and library fetching kept apart. A small **capability model**
+  (`core/sources/music_provider.dart`) declares what each provider supports
+  (`canStream`/`canCache`/`canFavorite`/`canLyrics`/`canCast`) so the UI offers
+  only the actions that work. `WebDavMusicSource` slots in the same way later;
+  see [docs/providers.md](docs/providers.md).
 - **`MusicLibraryRepository`** (`core/repositories/`) — the local SQLite cache
   the UI reads from. Sources *sync into* it; the UI never talks to a source
   directly. This is what keeps the app fast and fully offline.
@@ -353,7 +368,10 @@ lib/
   keep `UnavailableCastService`, so the button stays honest. The
   network-touching transport is isolated so all of casting's decision-making is
   unit-tested with a fake; the resolved URL (with any token) is never logged or
-  persisted.
+  persisted. When connected, `CastService` also exposes the receiver's **device
+  volume** (`setVolume`/`volumeUp`/`volumeDown`/`setMuted`, surfaced in
+  `CastState` as `volume`/`muted`/`supportsVolumeControl`); the Cast sheet shows
+  a "Cast volume" slider, and a failed volume command never interrupts playback.
 - **`DownloadRepository`** (`core/repositories/`) — enforces the
   user-initiated, "Wi-Fi only"-respecting download policy in one place.
   `CacheDownloadRepository` implements it today over a `DownloadStore`
@@ -831,13 +849,21 @@ own.
   Google Play Services or proprietary Cast SDK**, so the F-Droid build keeps
   casting (see [docs](docs/dependency-license-audit.md#casting-chromecast--real-cast-without-google-play-services)).
   The handoff resolves the current track's stream URL **only at cast time**
-  (Jellyfin's authenticated URL, token woven in on demand and **never logged or
-  persisted**), tells the receiver to fetch it, and pauses local audio so it
-  isn't heard twice; disconnecting (or the receiver dropping) resumes local
-  playback. **On-device files can't be cast** — a receiver can't reach a
-  `file://` path — so those surface a clear limitation in the sheet rather than
-  failing silently. The sheet shows every state honestly: searching, available
-  devices, connecting, connected, the local-file notice, and error/no-devices.
+  (Jellyfin's or Subsonic's authenticated URL, the credential woven in on demand
+  and **never logged or persisted**), tells the receiver to fetch it, and pauses
+  local audio so it isn't heard twice; disconnecting (or the receiver dropping)
+  resumes local playback. **On-device files can't be cast** — a receiver can't
+  reach a `file://` path — so those surface a clear limitation in the sheet
+  rather than failing silently. The sheet shows every state honestly: searching,
+  available devices, connecting, connected, the local-file notice, and
+  error/no-devices.
+- **Cast volume.** While connected, the Cast sheet shows a clearly labelled
+  **Cast volume** slider plus mute, driving the *device's* own volume (not the
+  phone's media volume) and following the receiver's reported level live. It's
+  all behind `CastService` (`setVolume`/`volumeUp`/`volumeDown`/`setMuted`), with
+  `CastState` exposing `volume`/`muted`/`supportsVolumeControl`; a device that
+  reports a fixed volume shows an honest disabled state, and a failed volume
+  command surfaces a calm notice **without ever interrupting playback**.
   Architecturally the UI still only touches `CastService`/`CastState`; the real
   `DefaultCastService` owns state + handoff and is fully unit-tested behind a
   faked `CastTransport`, while the thin `ChromecastCastTransport` (the only code

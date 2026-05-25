@@ -3,6 +3,7 @@ import 'dart:async';
 import '../../models/cast_media.dart';
 import '../../models/cast_playback_status.dart';
 import '../../models/cast_state.dart';
+import '../../models/cast_volume.dart';
 import '../../models/playback_state.dart';
 import '../../models/track.dart';
 import 'cast_media_resolver.dart';
@@ -54,8 +55,14 @@ class DefaultCastService implements CastService {
         _connectTimeout = connectTimeout;
 
   static const String localFileLimitation =
-      'This track is a local file. Casting plays streamed (Jellyfin) tracks '
-      'only — a receiver can\'t reach files on this device.';
+      'This track is a local file. Casting plays streamed (Jellyfin/Subsonic) '
+      "tracks only — a receiver can't reach files on this device.";
+
+  static const String volumeCommandFailed =
+      "Couldn't change the cast volume. Playback is unaffected.";
+
+  /// How far one volume nudge moves the device level (10%).
+  static const double _volumeStep = 0.1;
 
   final CastTransport _transport;
   final CastMediaResolver _mediaResolver;
@@ -77,8 +84,14 @@ class DefaultCastService implements CastService {
   CastSessionHandle? _handle;
   StreamSubscription<bool>? _readySub;
   StreamSubscription<CastPlaybackStatus>? _statusSub;
+  StreamSubscription<CastVolume>? _volumeSub;
   StreamSubscription<Track?>? _trackSub;
   bool _discovering = false;
+
+  /// The connected receiver's last-reported volume, kept so every connected
+  /// state build carries it (it belongs to the device and persists across track
+  /// changes within a session). Null until the receiver reports one.
+  CastVolume? _volume;
 
   @override
   CastState get state => _state;
@@ -101,6 +114,28 @@ class DefaultCastService implements CastService {
   void _emitPlayback(CastPlaybackStatus next) {
     _playbackStatus = next;
     if (!_playback.isClosed) _playback.add(next);
+  }
+
+  /// Builds a `connected` state for [device] that always carries the current
+  /// device [_volume], so a track change or volume update never drops the
+  /// receiver's known level. [message] is transient (not preserved by the next
+  /// build) and defaults to none.
+  CastState _connected(
+    CastDevice device, {
+    String? message,
+    bool isCasting = false,
+  }) {
+    final CastVolume? v = _volume;
+    return CastState(
+      availability: CastAvailability.connected,
+      devices: _state.devices,
+      connectedDevice: device,
+      message: message,
+      isCasting: isCasting,
+      volume: v?.level,
+      muted: v?.muted ?? false,
+      supportsVolumeControl: v?.controllable ?? false,
+    );
   }
 
   @override
@@ -191,6 +226,12 @@ class DefaultCastService implements CastService {
       onError: (_) {},
       cancelOnError: false,
     );
+    // Follow the receiver's device volume so the sheet can show and track it.
+    _volumeSub = handle.volumeStream.listen(
+      _onVolume,
+      onError: (_) {},
+      cancelOnError: false,
+    );
     // Cast the current track now, and re-cast whenever it changes.
     _trackSub = _trackChanges.listen((Track? track) => _handOff(device, track));
     await _handOff(device, _currentTrack());
@@ -206,22 +247,13 @@ class DefaultCastService implements CastService {
 
     if (track == null) {
       _emitPlayback(CastPlaybackStatus.idle);
-      _emit(CastState(
-        availability: CastAvailability.connected,
-        devices: _state.devices,
-        connectedDevice: device,
-      ));
+      _emit(_connected(device));
       return;
     }
 
     if (!_mediaResolver.canCast(track)) {
       _emitPlayback(CastPlaybackStatus.idle);
-      _emit(CastState(
-        availability: CastAvailability.connected,
-        devices: _state.devices,
-        connectedDevice: device,
-        message: localFileLimitation,
-      ));
+      _emit(_connected(device, message: localFileLimitation));
       return;
     }
 
@@ -230,21 +262,11 @@ class DefaultCastService implements CastService {
       media = await _mediaResolver.resolve(track);
     } on CastMediaException catch (error) {
       _emitPlayback(CastPlaybackStatus.idle);
-      _emit(CastState(
-        availability: CastAvailability.connected,
-        devices: _state.devices,
-        connectedDevice: device,
-        message: error.message,
-      ));
+      _emit(_connected(device, message: error.message));
       return;
     } catch (_) {
       _emitPlayback(CastPlaybackStatus.idle);
-      _emit(CastState(
-        availability: CastAvailability.connected,
-        devices: _state.devices,
-        connectedDevice: device,
-        message: "Couldn't cast this track.",
-      ));
+      _emit(_connected(device, message: "Couldn't cast this track."));
       return;
     }
 
@@ -255,12 +277,8 @@ class DefaultCastService implements CastService {
       await handle.loadMedia(media);
     } catch (_) {
       _emitPlayback(CastPlaybackStatus.idle);
-      _emit(CastState(
-        availability: CastAvailability.connected,
-        devices: _state.devices,
-        connectedDevice: device,
-        message: "Couldn't start playback on ${device.name}.",
-      ));
+      _emit(_connected(device,
+          message: "Couldn't start playback on ${device.name}."));
       return;
     }
 
@@ -270,11 +288,20 @@ class DefaultCastService implements CastService {
     if (!_playbackStatus.isPlaying) {
       _emitPlayback(_playbackStatus.copyWith(status: PlaybackStatus.loading));
     }
-    _emit(CastState(
-      availability: CastAvailability.connected,
-      devices: _state.devices,
-      connectedDevice: device,
-      isCasting: true,
+    _emit(_connected(device, isCasting: true));
+  }
+
+  /// Folds a fresh receiver [volume] into the connected state, keeping the
+  /// current notice and casting flag. Ignored when not connected (a stray
+  /// update after disconnect must not resurrect a connected state).
+  void _onVolume(CastVolume volume) {
+    _volume = volume;
+    final CastDevice? device = _state.connectedDevice;
+    if (device == null || !_state.isConnected) return;
+    _emit(_connected(
+      device,
+      message: _state.message,
+      isCasting: _state.isCasting,
     ));
   }
 
@@ -295,6 +322,57 @@ class DefaultCastService implements CastService {
 
   @override
   Future<void> seek(Duration position) async => _handle?.seek(position);
+
+  @override
+  Future<void> setVolume(double volume) async {
+    final CastSessionHandle? handle = _handle;
+    // Only act on a live, volume-capable session; otherwise a safe no-op.
+    if (handle == null || !_state.supportsVolumeControl) return;
+    final double level = volume.clamp(0.0, 1.0);
+    try {
+      await handle.setVolume(level);
+      // The receiver confirms with a status push that updates [_volume]; no
+      // optimistic write is needed.
+    } catch (_) {
+      // A failed volume command must never break playback — surface a calm
+      // notice and leave the session/handoff untouched.
+      _emitVolumeError();
+    }
+  }
+
+  @override
+  Future<void> volumeUp() => _nudgeVolume(_volumeStep);
+
+  @override
+  Future<void> volumeDown() => _nudgeVolume(-_volumeStep);
+
+  Future<void> _nudgeVolume(double delta) {
+    final double base = _volume?.level ?? 0.0;
+    return setVolume(base + delta);
+  }
+
+  @override
+  Future<void> setMuted(bool muted) async {
+    final CastSessionHandle? handle = _handle;
+    if (handle == null || !_state.supportsVolumeControl) return;
+    try {
+      await handle.setMuted(muted);
+    } catch (_) {
+      _emitVolumeError();
+    }
+  }
+
+  /// Surfaces a friendly volume-command failure as a transient notice, without
+  /// touching playback or the handoff. A no-op when not connected.
+  void _emitVolumeError() {
+    final CastDevice? device = _state.connectedDevice;
+    if (device == null || !_state.isConnected) return;
+    _emit(_connected(
+      device,
+      message: volumeCommandFailed,
+      isCasting: _state.isCasting,
+    ));
+  }
 
   @override
   Future<void> refresh() async => _handle?.requestStatus();
@@ -320,8 +398,13 @@ class DefaultCastService implements CastService {
     _readySub = null;
     await _statusSub?.cancel();
     _statusSub = null;
+    await _volumeSub?.cancel();
+    _volumeSub = null;
     await _trackSub?.cancel();
     _trackSub = null;
+    // The device volume belongs to the session; forget it so the next connect
+    // starts from "unknown" rather than a stale level.
+    _volume = null;
     final CastSessionHandle? handle = _handle;
     _handle = null;
     if (handle != null) await _safeClose(handle);

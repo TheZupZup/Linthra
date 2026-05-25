@@ -31,6 +31,14 @@ class FakeCastService implements CastService {
   int pauseCount = 0;
   final List<Duration> seeks = <Duration>[];
   int refreshCount = 0;
+  final List<double> volumeRequests = <double>[];
+  int volumeUpCount = 0;
+  int volumeDownCount = 0;
+  final List<bool> muteRequests = <bool>[];
+
+  /// When set, [setVolume]/[setMuted] throw it, so a test can assert that a
+  /// failed volume command doesn't break playback.
+  Object? commandError;
 
   void emit(CastState next) {
     _state = next;
@@ -74,6 +82,24 @@ class FakeCastService implements CastService {
 
   @override
   Future<void> seek(Duration position) async => seeks.add(position);
+
+  @override
+  Future<void> setVolume(double volume) async {
+    volumeRequests.add(volume);
+    if (commandError != null) throw commandError!;
+  }
+
+  @override
+  Future<void> volumeUp() async => volumeUpCount++;
+
+  @override
+  Future<void> volumeDown() async => volumeDownCount++;
+
+  @override
+  Future<void> setMuted(bool muted) async {
+    muteRequests.add(muted);
+    if (commandError != null) throw commandError!;
+  }
 
   @override
   Future<void> refresh() async => refreshCount++;
