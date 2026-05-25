@@ -4,12 +4,14 @@ class Artist {
     required this.id,
     required this.name,
     this.albumCount = 0,
+    this.trackCount = 0,
     this.artworkUri,
   });
 
   final String id;
   final String name;
   final int albumCount;
+  final int trackCount;
   final Uri? artworkUri;
 
   @override

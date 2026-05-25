@@ -55,6 +55,10 @@ Everything below works end to end on a real Android device in the current alpha
 - **Local library** — pick a folder with the native Android picker (Storage
   Access Framework), scan it, and list your tracks. The chosen folder and the
   scanned catalog survive a restart. No broad storage permission is requested.
+- **Library browsing & search** — browse across **Songs**, **Albums**, and
+  **Artists** tabs, with a search box that filters the active tab (by title,
+  artist, or album) — case- and accent-insensitive. Open an album or artist to
+  play or shuffle it. See [docs/library.md](docs/library.md).
 - **Playback** — play local tracks with an up-next queue, plus working
   **shuffle** and **repeat** (off / all / one).
 - **Playlists** — create, rename, reorder, and delete playlists; add and remove
@@ -92,9 +96,11 @@ Everything below works end to end on a real Android device in the current alpha
 
 This is an alpha — expect rough edges. The honest gaps today:
 
-- **No tag/metadata parsing yet** — tracks show their file name, and there is
-  no album artwork.
-- **No browse-by-artist/album and no search** in the in-app library yet.
+- **No local tag/metadata parsing yet** — local files show their file name, and
+  there is no album artwork for them. Because album/artist tags aren't read,
+  local tracks group under **Unknown Album** / **Unknown Artist** in the Albums
+  and Artists tabs. Jellyfin/Subsonic tracks carry real album/artist names and
+  artwork, so they group properly. See [docs/library.md](docs/library.md).
 - **Playlist sync is partial** — local playlists are full-featured (create,
   edit, reorder, delete, bulk actions); Jellyfin create / add / remove / delete
   sync, but **rename and reorder of a synced playlist stay local for now**, and
