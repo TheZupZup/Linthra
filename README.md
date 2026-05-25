@@ -705,15 +705,24 @@ shallow:
 
 ```
 root
-├── Library   → every catalog track (tap to play; the rest of the library
-│               becomes up-next)
-└── Queue     → the current track followed by the up-next list (tap to jump)
+├── Library    → every catalog track (tap to play; the rest of the library
+│                becomes up-next)
+├── Queue      → the current track followed by the up-next list (tap to jump)
+├── Playlists  → your playlists (shown only when you have some); open one to
+│                play a track and queue the rest of that playlist
+└── Favorites  → your favourited tracks (shown only when you have some)
 ```
 
-Nodes are addressed by stable IDs: the `Library` and `Queue` categories, and
-leaf IDs `library/<trackId>` and `queue/<index>` that a selection is resolved
-back through. Playlists are **not** a node yet — there is no persisted playlist
-store, so adding one would not be "safe/simple" (see limitations).
+Nodes are addressed by stable IDs: the `Library`, `Queue`, `Playlists` and
+`Favorites` categories, and leaf IDs `library/<trackId>`, `queue/<index>`,
+`playlist/<playlistId>/<index>` and `favorite/<index>` that a selection is
+resolved back through. `Playlists` and `Favorites` appear only when you have
+some, so the car never shows an empty dead-end category. Every ID is built only
+from opaque catalog/track/playlist ids — never a Jellyfin token or an
+authenticated stream URL (those are minted lazily at play time, never stored on
+a track or exposed to the browser). See **[docs/android-auto.md](docs/android-auto.md)**
+for the current status, how to test on a real head unit or the Desktop Head
+Unit, troubleshooting, and the manual checklist.
 
 **Architecture.** `audio_service` is a pure infrastructure layer.
 `LinthraAudioHandler` (`lib/core/services/linthra_audio_handler.dart`) is the
@@ -722,13 +731,18 @@ only file that imports it: it forwards session commands
 controller's `PlaybackState` back out as the session's playback state + media
 item. The browse tree itself is **pure Dart** — `MediaBrowserTree`
 (`lib/core/services/media_browser_tree.dart`) builds neutral `MediaNode`s from
-the `MusicLibraryRepository` (catalog) and a `PlaybackState` snapshot (the live
-queue), and the handler maps those onto `audio_service` media items. So library
-data still flows only through `MusicLibraryRepository`, playback still flows only
-through `PlaybackController`, and **the UI continues to depend only on
+the `MusicLibraryRepository` (catalog), a `PlaybackState` snapshot (the live
+queue), and — when wired — the `PlaylistRepository` and `FavoritesRepository`,
+and the handler maps those onto `audio_service` media items. It reads only those
+repository seams (no widget), so Android Auto can load the tree the moment the
+media service starts, before any phone screen is opened. So library data still
+flows only through `MusicLibraryRepository`, playback still flows only through
+`PlaybackController`, and **the UI continues to depend only on
 `PlaybackController`** — never on `audio_service`. Attaching the session in
-`main.dart` is best-effort: if it fails to initialise (e.g. an unsupported
-platform) basic playback still works.
+`main.dart` is best-effort: it logs a secret-free line under the
+`Linthra.AndroidAuto` tag on success/failure (visible via `adb logcat`), and if
+it fails to initialise (e.g. an unsupported platform) basic playback still
+works.
 
 **Native setup (applied).** The required Android wiring lives in the committed
 scaffold so the media session can run as a foreground service and be visible to
@@ -805,12 +819,16 @@ The notification channel id/name are configured in `connectMediaSession`
 
 **Limitations (this PR).**
 
-- The browse tree is **flat**: `Library` is a single flat track list (no
-  album/artist/folder grouping) and there is no search-from-Auto. Large
-  libraries are not paged.
-- **No Playlists node.** Playlists have a model and a repository *interface* but
-  no persisted implementation yet, so exposing them would not be safe/simple —
-  deferred to a later PR.
+- **Sideloaded builds need "unknown sources".** Android Auto only lists media
+  apps installed from the Play Store unless you enable Developer mode → *Add
+  unknown sources* in the Android Auto settings. Linthra ships via F-Droid /
+  GitHub Releases, so this toggle is required for a sideloaded build to appear —
+  it is the most common reason Linthra "doesn't show up in Android Auto". Full
+  steps and troubleshooting are in **[docs/android-auto.md](docs/android-auto.md)**.
+- The browse tree is **flat**: `Library`, `Playlists` and `Favorites` are flat
+  track lists (no album/artist/folder grouping) and there is no search-from-Auto.
+  Large libraries are not paged. A favourite or playlist track that isn't in the
+  on-device catalog yet is skipped (it can't be played until synced).
 - Queue browsing is **read + jump only**: you can play from a queue position,
   but reordering/removing queue items from the car isn't supported.
 - The car experience is **basic browsing**, not a polished/custom car UI
