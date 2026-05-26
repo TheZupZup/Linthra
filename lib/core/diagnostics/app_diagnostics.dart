@@ -127,8 +127,7 @@ abstract final class AppDiagnostics {
       if (cache != null) cache,
       if (data.playbackOutput != null)
         'Playback output: ${data.playbackOutput}',
-      if (data.playbackStatus != null)
-        'Playback state: ${data.playbackStatus}',
+      if (data.playbackStatus != null) 'Playback state: ${data.playbackStatus}',
       if (data.currentTrackIdHash != null)
         'Current track: ${data.currentTrackIdHash}',
       'Last error: ${data.lastErrorKind ?? 'none'}',
