@@ -55,6 +55,16 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
     // A secret-free breadcrumb (debug only): freezes/ANRs cluster around
     // background/foreground, so logging the transition makes them correlatable.
     StabilityDiagnostics.lifecycle(state.name);
+    // On a background transition (screen off / app hidden), snapshot the
+    // playback status so a "music stopped when I locked the phone" report can
+    // show what state playback was in at that exact boundary. This only reads
+    // the controller's status — it never pauses, stops, or disposes playback.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.inactive) {
+      final status = ref.read(playbackControllerProvider).state.status;
+      StabilityDiagnostics.backgroundPlaybackState(status.name);
+    }
     // Returning from the background while casting: re-sync from the receiver so
     // the position the UI shows is fresh. This never starts local playback —
     // backgrounding/foregrounding the app must not recreate or resume the local

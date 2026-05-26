@@ -12,6 +12,15 @@
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
+    <!-- WAKE_LOCK: keeps the CPU (and, paired with the foreground media service,
+         the Wi-Fi radio) awake while audio is playing so playback and streaming
+         survive the screen being off. audio_service's foreground service holds
+         this lock only while it reports `playing`; the manifest merger already
+         pulls this permission in from the audio_service plugin, but it is
+         declared here too so the background-playback permission set stays
+         auditable in one place. It grants no network or storage access. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- POST_NOTIFICATIONS: required on Android 13+ (API 33) for the
          audio_service media notification (and its transport controls) to appear
          at all. It is a runtime permission the user must grant; the app asks

@@ -28,6 +28,10 @@ class AppDiagnosticsData {
     this.playbackStatus,
     this.currentTrackIdHash,
     this.lastErrorKind,
+    this.notificationPermission,
+    this.lastLifecycleState,
+    this.playbackStateAtBackground,
+    this.lastInterruptionKind,
     this.castAvailable = false,
     this.castConnected = false,
     this.androidAutoSupported = false,
@@ -85,6 +89,25 @@ class AppDiagnosticsData {
   /// occurred. Never a raw error message.
   final String? lastErrorKind;
 
+  /// Whether the notification permission is `granted`/`denied`/`unknown`, so a
+  /// "lock-screen controls don't work" report can show whether the Android 13+
+  /// `POST_NOTIFICATIONS` grant — required for the media notification and its
+  /// transport controls — is in place. Null when not collected.
+  final String? notificationPermission;
+
+  /// The most recent app lifecycle state (`resumed`/`paused`/…), when known —
+  /// the background/foreground boundary screen-off playback bugs cluster around.
+  final String? lastLifecycleState;
+
+  /// The playback status captured the last time the app was backgrounded
+  /// (`playing`/`buffering`/`paused`/…), when known — so a "music stopped when I
+  /// locked the phone" report shows what state playback was in at that boundary.
+  final String? playbackStateAtBackground;
+
+  /// The last safe playback/stream interruption kind (an enum name or fixed
+  /// label like `load`), when one occurred. Never a raw error.
+  final String? lastInterruptionKind;
+
   final bool castAvailable;
   final bool castConnected;
   final bool androidAutoSupported;
@@ -140,7 +163,15 @@ abstract final class AppDiagnostics {
         'Playback state: ${data.playbackStatus}',
       if (includePlayback && data.currentTrackIdHash != null)
         'Current track: ${data.currentTrackIdHash}',
+      if (includePlayback && data.playbackStateAtBackground != null)
+        'Playback at last background: ${data.playbackStateAtBackground}',
+      if (_has(data.lastLifecycleState))
+        'Last lifecycle: ${data.lastLifecycleState}',
+      if (_has(data.notificationPermission))
+        'Notification permission: ${data.notificationPermission}',
       'Last error: ${data.lastErrorKind ?? 'none'}',
+      if (includePlayback && _has(data.lastInterruptionKind))
+        'Last interruption: ${data.lastInterruptionKind}',
       'Cast available: ${_yesNo(data.castAvailable)}',
       'Cast connected: ${_yesNo(data.castConnected)}',
       'Android Auto supported: ${_yesNo(data.androidAutoSupported)}',

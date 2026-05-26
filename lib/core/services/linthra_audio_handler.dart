@@ -261,13 +261,43 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
         audio.MediaAction.setRepeatMode,
       },
       processingState: _processingStateFor(state.status),
-      playing: state.isPlaying,
+      playing: _isSessionPlaying(state.status),
       updatePosition: state.position,
       shuffleMode: state.shuffleEnabled
           ? audio.AudioServiceShuffleMode.all
           : audio.AudioServiceShuffleMode.none,
       repeatMode: _repeatModeTo(state.repeatMode),
     );
+  }
+
+  /// Whether the platform session should be reported as `playing`.
+  ///
+  /// This is the value that keeps the foreground media service (and the CPU +
+  /// Wi-Fi wake locks `audio_service` holds with it) alive: `audio_service`
+  /// promotes the service to the foreground while `playing` is `true` and, with
+  /// the default `androidStopForegroundOnPause`, demotes it the moment it goes
+  /// `false`. If a mid-stream re-buffer or a track transition reported
+  /// `playing: false`, the OS could freeze the backgrounded process with the
+  /// screen off — so streaming would go silent and only resume when the app is
+  /// reopened (the exact field bug this guards against).
+  ///
+  /// So the session is "playing" whenever the engine is actively working toward
+  /// sound — steadily playing, re-buffering mid-stream, or loading the next
+  /// track — and only reports `false` on a real user pause, stop, idle, normal
+  /// completion, or error. The distinct buffering/loading `processingState`
+  /// still drives the notification's spinner; the foreground service stays up.
+  static bool _isSessionPlaying(PlaybackStatus status) {
+    switch (status) {
+      case PlaybackStatus.playing:
+      case PlaybackStatus.buffering:
+      case PlaybackStatus.loading:
+        return true;
+      case PlaybackStatus.idle:
+      case PlaybackStatus.paused:
+      case PlaybackStatus.completed:
+      case PlaybackStatus.error:
+        return false;
+    }
   }
 
   static RepeatMode _repeatModeFrom(audio.AudioServiceRepeatMode mode) {
@@ -294,9 +324,15 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   }
 
   List<audio.MediaControl> _controlsFor(PlaybackState state) {
+    // Show the pause control whenever the session is treated as playing
+    // (including while buffering/loading), so the notification/lock-screen
+    // toggle matches the reported `playing` flag rather than flipping to a play
+    // icon during a mid-stream re-buffer.
     return <audio.MediaControl>[
       if (state.hasPrevious) audio.MediaControl.skipToPrevious,
-      state.isPlaying ? audio.MediaControl.pause : audio.MediaControl.play,
+      _isSessionPlaying(state.status)
+          ? audio.MediaControl.pause
+          : audio.MediaControl.play,
       audio.MediaControl.stop,
       if (state.hasNext) audio.MediaControl.skipToNext,
     ];
@@ -355,7 +391,15 @@ Future<LinthraAudioHandler?> connectMediaSession(
       config: const audio.AudioServiceConfig(
         androidNotificationChannelId: 'com.linthra.audio',
         androidNotificationChannelName: 'Linthra playback',
+        // Keep the notification ongoing (un-swipeable) while the session reports
+        // `playing`, so the foreground media service — and the CPU/Wi-Fi wake
+        // locks it holds — stay alive with the screen off. `audio_service`
+        // requires `androidStopForegroundOnPause: true` (the default, set
+        // explicitly here) whenever the notification is ongoing: the service is
+        // foregrounded only while playing and demoted on a real pause, never on
+        // a mid-stream re-buffer (see [_isSessionPlaying]).
         androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
       ),
     );
     _log('media session attached (Android Auto browser ready)');

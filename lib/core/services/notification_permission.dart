@@ -18,6 +18,39 @@ abstract interface class NotificationPermission {
   /// Never throws — a platform that can't service the request is treated as
   /// "nothing to do" so startup is never blocked by it.
   Future<void> ensureGranted();
+
+  /// The current notification-permission state, for diagnostics.
+  ///
+  /// Never throws and never prompts: it only *reads* the status so a bug report
+  /// can say whether the media notification / lock-screen controls can appear at
+  /// all. Returns [NotificationPermissionStatus.unknown] off Android (where
+  /// there is no `POST_NOTIFICATIONS` gate) and whenever the platform can't
+  /// answer.
+  Future<NotificationPermissionStatus> status();
+}
+
+/// The display-safe notification-permission state surfaced in diagnostics.
+///
+/// On Android 13+ the media notification (and its transport controls) only
+/// appears when [granted]; when [denied] the foreground service still runs but
+/// the controls are suppressed, which is worth surfacing in a bug report.
+/// [unknown] covers platforms with no runtime gate and any read that fails.
+enum NotificationPermissionStatus {
+  granted,
+  denied,
+  unknown;
+
+  /// A stable, secret-free label for the diagnostics report.
+  String get label {
+    switch (this) {
+      case NotificationPermissionStatus.granted:
+        return 'granted';
+      case NotificationPermissionStatus.denied:
+        return 'denied';
+      case NotificationPermissionStatus.unknown:
+        return 'unknown';
+    }
+  }
 }
 
 /// The production [NotificationPermission], backed by `permission_handler`.
@@ -48,6 +81,22 @@ class PermissionHandlerNotificationPermission
       // runs without the notification rather than failing to start.
     }
   }
+
+  @override
+  Future<NotificationPermissionStatus> status() async {
+    if (!Platform.isAndroid) {
+      return NotificationPermissionStatus.unknown;
+    }
+    try {
+      final PermissionStatus status = await Permission.notification.status;
+      return status.isGranted
+          ? NotificationPermissionStatus.granted
+          : NotificationPermissionStatus.denied;
+    } catch (_) {
+      // A read that the platform can't service must never crash diagnostics.
+      return NotificationPermissionStatus.unknown;
+    }
+  }
 }
 
 /// A [NotificationPermission] that does nothing.
@@ -58,4 +107,8 @@ class NoopNotificationPermission implements NotificationPermission {
 
   @override
   Future<void> ensureGranted() async {}
+
+  @override
+  Future<NotificationPermissionStatus> status() async =>
+      NotificationPermissionStatus.unknown;
 }

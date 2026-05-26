@@ -16,6 +16,10 @@ class _RecordingNotificationPermission implements NotificationPermission {
   Future<void> ensureGranted() async {
     calls += 1;
   }
+
+  @override
+  Future<NotificationPermissionStatus> status() async =>
+      NotificationPermissionStatus.unknown;
 }
 
 void main() {

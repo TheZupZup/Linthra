@@ -81,4 +81,30 @@ void main() {
       }
     });
   });
+
+  group('StabilityDiagnostics retained fields for diagnostics', () {
+    setUp(SafeEventLog.instance.clear);
+    tearDown(SafeEventLog.instance.clear);
+
+    test('lifecycle retains the last state seen', () {
+      StabilityDiagnostics.lifecycle('inactive');
+      StabilityDiagnostics.lifecycle('paused');
+      expect(StabilityDiagnostics.lastLifecycleState, 'paused');
+    });
+
+    test('backgroundPlaybackState retains and records the status', () {
+      StabilityDiagnostics.backgroundPlaybackState('buffering');
+      expect(StabilityDiagnostics.playbackStateAtBackground, 'buffering');
+      expect(SafeEventLog.instance.lines, contains('bg-playback: buffering'));
+      expect(
+        StabilityDiagnostics.describeBackgroundPlaybackState('playing'),
+        'background playback: playing',
+      );
+    });
+
+    test('playbackError retains the last interruption kind', () {
+      StabilityDiagnostics.playbackError('connectionLost');
+      expect(StabilityDiagnostics.lastInterruptionKind, 'connectionLost');
+    });
+  });
 }

@@ -210,6 +210,82 @@ void main() {
       });
     });
 
+    group('foreground service stays alive across buffering & transitions', () {
+      // The screen-off bug: if the session reported `playing: false` during a
+      // mid-stream re-buffer or a track transition, audio_service would demote
+      // the foreground service and the OS could freeze the backgrounded process,
+      // silencing playback until the app is reopened. So the session must stay
+      // `playing` whenever the engine is working toward sound.
+
+      test('a mid-stream re-buffer stays playing (service not demoted)',
+          () async {
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+
+        controller.emit(
+          controller.state.copyWith(status: PlaybackStatus.buffering),
+        );
+        await _settle();
+
+        final state = handler.playbackState.value;
+        expect(state.playing, isTrue);
+        expect(state.processingState, audio.AudioProcessingState.buffering);
+        // The toggle still offers pause (not play) while buffering.
+        expect(state.controls, contains(audio.MediaControl.pause));
+        expect(state.controls, isNot(contains(audio.MediaControl.play)));
+      });
+
+      test('a loading track transition stays playing', () async {
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+
+        controller.emit(
+          controller.state.copyWith(status: PlaybackStatus.loading),
+        );
+        await _settle();
+
+        final state = handler.playbackState.value;
+        expect(state.playing, isTrue);
+        expect(state.processingState, audio.AudioProcessingState.loading);
+      });
+
+      test('a real user pause reports not-playing', () async {
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+
+        controller.emit(
+          controller.state.copyWith(status: PlaybackStatus.paused),
+        );
+        await _settle();
+
+        final state = handler.playbackState.value;
+        expect(state.playing, isFalse);
+        expect(state.controls, contains(audio.MediaControl.play));
+        expect(state.controls, isNot(contains(audio.MediaControl.pause)));
+      });
+
+      test('completion and error report not-playing', () async {
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+
+        controller.emit(
+          controller.state.copyWith(status: PlaybackStatus.completed),
+        );
+        await _settle();
+        expect(handler.playbackState.value.playing, isFalse);
+        expect(
+          handler.playbackState.value.processingState,
+          audio.AudioProcessingState.completed,
+        );
+
+        controller.emit(
+          controller.state.copyWith(status: PlaybackStatus.error),
+        );
+        await _settle();
+        expect(handler.playbackState.value.playing, isFalse);
+      });
+    });
+
     group('media browser', () {
       test('root lists Library and Queue as browsable categories', () async {
         final children = await handler.getChildren(MediaId.root);
