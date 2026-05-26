@@ -76,6 +76,11 @@ Future<void> main() async {
   // Instantiating it wires the listener; it has no value the UI reads.
   container.read(smartPrecacheServiceProvider);
 
+  // Start stream preload: as playback advances it warms the next remote track's
+  // stream URL in memory so a skip starts faster — without touching the offline
+  // cache or marking anything downloaded. Side-effect-only, like smart pre-cache.
+  container.read(streamPreloadServiceProvider);
+
   // Warm the persisted Jellyfin session before the first frame so a synced
   // remote track can stream on the first tap — without it, playback would race
   // the background session load and could fail with "not signed in", making

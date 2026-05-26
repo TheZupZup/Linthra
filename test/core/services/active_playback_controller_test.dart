@@ -159,6 +159,38 @@ void main() {
       expect(state.currentTrack, _trackA);
     });
 
+    test('a local engine error while casting never pulls output back to local',
+        () async {
+      final controller = build();
+      addTearDown(controller.dispose);
+
+      cast.emit(_casting());
+      await _waitFor(controller,
+          (_) => controller.activeOutput == ActivePlaybackOutput.cast);
+      cast.emitPlayback(const CastPlaybackStatus(
+        status: PlaybackStatus.playing,
+        position: Duration(seconds: 12),
+        duration: Duration(minutes: 3),
+      ));
+      await _waitFor(controller, (s) => s.status == PlaybackStatus.playing);
+
+      // The silenced local engine reports an error (e.g. a stale stream URL it
+      // was never actually playing). It must not change the active output, and
+      // the merged state must keep following the receiver — no fall-back to
+      // duplicate local playback, no error surfaced over a healthy cast.
+      local.emit(const PlaybackState(
+        status: PlaybackStatus.error,
+        currentTrack: _trackA,
+        errorMessage: "Couldn't stream this track.",
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(controller.activeOutput, ActivePlaybackOutput.cast);
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(controller.state.errorMessage, isNull);
+      expect(local.playCount, 0);
+    });
+
     test(
         'skip advances the local queue without local audio; cast re-casts via '
         'the track change', () async {

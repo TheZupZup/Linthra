@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../models/playback_queue.dart';
@@ -12,6 +13,7 @@ import 'local_playable_uri_resolver.dart';
 import 'local_playback_controller.dart';
 import 'playable_uri_resolver.dart';
 import 'playback_controller.dart';
+import 'stream_interruption.dart';
 
 /// [PlaybackController] backed by `just_audio`.
 ///
@@ -31,11 +33,41 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     AudioPlayer? player,
     PlayableUriResolver resolver = const LocalPlayableUriResolver(),
     Random? random,
-  })  : _player = player ?? AudioPlayer(),
+  })  : _player = player ?? _defaultPlayer(),
         _resolver = resolver,
         _random = random ?? Random() {
     _wire();
   }
+
+  /// The default engine, tuned for resilient remote streaming. An injected
+  /// [player] (tests, or a future custom engine) bypasses this.
+  static AudioPlayer _defaultPlayer() =>
+      AudioPlayer(audioLoadConfiguration: _streamBuffering);
+
+  /// Buffering tuned for remote streams so a brief network hiccup is absorbed
+  /// instead of stalling playback: a generous look-ahead (up to ~2 minutes), a
+  /// healthy minimum to resume on after a stall, and a quick initial start.
+  /// Applied to the default engine only — an injected player (tests, or a future
+  /// custom engine) is left untouched. just_audio exposes ExoPlayer's
+  /// `LoadControl` here; there is no lower-level per-request buffer-size knob, so
+  /// resilience also comes from the retry/recovery and preload paths.
+  static const AudioLoadConfiguration _streamBuffering = AudioLoadConfiguration(
+    androidLoadControl: AndroidLoadControl(
+      minBufferDuration: Duration(seconds: 30),
+      maxBufferDuration: Duration(minutes: 2),
+      bufferForPlaybackDuration: Duration(seconds: 2),
+      bufferForPlaybackAfterRebufferDuration: Duration(seconds: 5),
+      prioritizeTimeOverSizeThresholds: true,
+    ),
+    darwinLoadControl: DarwinLoadControl(
+      automaticallyWaitsToMinimizeStalling: true,
+      preferredForwardBufferDuration: Duration(minutes: 1),
+    ),
+  );
+
+  /// One bounded retry per track for a mid-stream failure, so a transient drop
+  /// recovers without ever looping forever on a real outage/expiry.
+  static const int _maxStreamRetries = 1;
 
   final AudioPlayer _player;
   final PlayableUriResolver _resolver;
@@ -59,6 +91,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   bool _shuffleEnabled = false;
   RepeatMode _repeatMode = RepeatMode.off;
 
+  // How many times the current track has been retried after a mid-stream
+  // failure. Reset when a fresh track loads and when playback reaches `playing`,
+  // so each track (and each successful stretch) gets its own one-retry budget.
+  int _retriesForCurrent = 0;
+
   @override
   PlaybackState get state => _state;
 
@@ -72,12 +109,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // status underneath the cast session.
       if (_suspended) return;
       final status = _statusFor(playerState);
+      // Playback is healthy again: give a later, independent drop a fresh retry.
+      if (status == PlaybackStatus.playing) _retriesForCurrent = 0;
       // When a track finishes, what happens next depends on the repeat mode.
       if (status == PlaybackStatus.completed) {
         _onCompleted();
         return;
       }
       _emit(_state.copyWith(status: status));
+    }, onError: (Object _, StackTrace __) {
+      // Engine errors are recovered via [playbackEventStream] below; swallow any
+      // duplicate that the player-state stream may forward so it never becomes
+      // an unhandled async error (and so we never act on it twice).
     }));
     _subscriptions.add(_player.positionStream.listen((position) {
       if (_suspended) return;
@@ -87,15 +130,66 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       if (_suspended) return;
       if (duration != null) _emit(_state.copyWith(duration: duration));
     }));
+    // A mid-stream failure (network drop, expired token, server gone) surfaces
+    // here as a stream error. Recover gracefully rather than dying silently.
+    _subscriptions.add(
+      _player.playbackEventStream.listen((_) {}, onError: _onEngineError),
+    );
   }
+
+  /// Recovers from an engine error that happens **while streaming**. A transient
+  /// drop gets one bounded retry that re-resolves and reloads at the preserved
+  /// position; an auth/format failure (or an exhausted retry) shows a friendly,
+  /// secret-free message. The raw [error] (which can carry a tokenized URL) is
+  /// never logged or surfaced — only its classification is used.
+  void _onEngineError(Object error, StackTrace _) {
+    // A cast receiver owns the audio while suspended: never touch local
+    // playback, so a local engine glitch can't pull output back from the
+    // receiver or start duplicate audio.
+    if (_suspended) return;
+    // Only recover from a failure that happens once we're actually streaming; an
+    // initial-load failure is handled where setUrl is awaited (with its own
+    // friendly message), so we don't fight it here.
+    if (_state.status != PlaybackStatus.playing &&
+        _state.status != PlaybackStatus.buffering) {
+      return;
+    }
+    final Track? track = _queue.current;
+    if (track == null) return;
+
+    final StreamInterruption interruption = classifyEngineError(error);
+    if (interruption.retryable && _retriesForCurrent < _maxStreamRetries) {
+      _retriesForCurrent++;
+      // Re-resolve and reload at the preserved position. The resolver re-checks
+      // the session/server, so a real expiry/outage surfaces a precise friendly
+      // error while a transient blip simply recovers. setUrl replaces the
+      // source, so there is no duplicate playback and no jump to the start.
+      unawaited(_playCurrent(startAt: _state.position, isRetry: true));
+      return;
+    }
+    _emitError(track, interruption.message);
+  }
+
+  /// Maps the engine's (playing, processingState) pair to a [PlaybackStatus].
+  ///
+  /// The key distinction: `buffering` *while the engine wants to play* is a
+  /// mid-stream re-buffer ([PlaybackStatus.buffering] — a calm "Buffering…"
+  /// hint, not a frozen player), whereas `loading`, or buffering *before* the
+  /// first play, is still the initial preparing state ([PlaybackStatus.loading]).
+  @visibleForTesting
+  static PlaybackStatus statusFor(PlayerState playerState) =>
+      _statusFor(playerState);
 
   static PlaybackStatus _statusFor(PlayerState playerState) {
     switch (playerState.processingState) {
       case ProcessingState.idle:
         return PlaybackStatus.idle;
       case ProcessingState.loading:
-      case ProcessingState.buffering:
         return PlaybackStatus.loading;
+      case ProcessingState.buffering:
+        return playerState.playing
+            ? PlaybackStatus.buffering
+            : PlaybackStatus.loading;
       case ProcessingState.ready:
         return playerState.playing
             ? PlaybackStatus.playing
@@ -212,9 +306,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Future<void> _playCurrent({
     Duration startAt = Duration.zero,
     bool autoplay = true,
+    bool isRetry = false,
   }) async {
     final track = _queue.current;
     if (track == null) return;
+
+    // A fresh (non-retry) load starts a new track or a deliberate (re)play, so
+    // reset the mid-stream recovery budget. A retry must keep its counter.
+    if (!isRetry) _retriesForCurrent = 0;
 
     if (_suspended) {
       // A cast receiver owns the audio. Reflect only the queue/track so the UI
@@ -233,17 +332,23 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       return;
     }
 
-    // Reset position/duration up front so the UI doesn't show the previous
-    // track's progress while the new one loads.
-    final loading = PlaybackState(
-      status: PlaybackStatus.loading,
-      currentTrack: track,
-      upNext: _queue.upNext,
-      hasPrevious: _queue.hasPrevious,
-      shuffleEnabled: _shuffleEnabled,
-      repeatMode: _repeatMode,
-    );
-    _emit(loading);
+    if (isRetry) {
+      // Recovering from a mid-stream drop: keep the current track and position
+      // visible and show a calm buffering state, rather than blanking to a fresh
+      // load (which would look like the track jumped back to the start).
+      _emit(_state.copyWith(status: PlaybackStatus.buffering));
+    } else {
+      // Reset position/duration up front so the UI doesn't show the previous
+      // track's progress while the new one loads.
+      _emit(PlaybackState(
+        status: PlaybackStatus.loading,
+        currentTrack: track,
+        upNext: _queue.upNext,
+        hasPrevious: _queue.hasPrevious,
+        shuffleEnabled: _shuffleEnabled,
+        repeatMode: _repeatMode,
+      ));
+    }
 
     final ResolvedPlayable resolved;
     try {

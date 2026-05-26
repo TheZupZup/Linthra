@@ -5,7 +5,21 @@ import 'repeat_mode.dart';
 import 'track.dart';
 
 /// High-level playback status, deliberately decoupled from any audio package.
-enum PlaybackStatus { idle, loading, playing, paused, completed, error }
+///
+/// [loading] is the initial *preparing* state (resolving + opening a source);
+/// [buffering] is a distinct mid-playback re-buffer (the engine wants to play but
+/// is waiting for more data over the network). Keeping them apart lets the UI
+/// show a calm "Buffering…" hint instead of a fresh-load spinner, and keeps the
+/// mini-player from looking frozen during a brief network stall.
+enum PlaybackStatus {
+  idle,
+  loading,
+  buffering,
+  playing,
+  paused,
+  completed,
+  error,
+}
 
 /// An immutable snapshot of what the player is doing. The UI renders from this
 /// instead of reaching into the audio backend, which keeps playback internals
@@ -66,6 +80,15 @@ class PlaybackState {
   bool get isPlaying => status == PlaybackStatus.playing;
   bool get hasTrack => currentTrack != null;
   bool get hasNext => upNext.isNotEmpty;
+
+  /// Whether a mid-playback re-buffer is in progress (engine waiting on data).
+  bool get isBuffering => status == PlaybackStatus.buffering;
+
+  /// Whether the player is preparing or re-buffering — i.e. working, not idle and
+  /// not steadily playing. The mini-player shows a spinner for this so it never
+  /// looks frozen during a network stall.
+  bool get isBusy =>
+      status == PlaybackStatus.loading || status == PlaybackStatus.buffering;
 
   PlaybackState copyWith({
     PlaybackStatus? status,
