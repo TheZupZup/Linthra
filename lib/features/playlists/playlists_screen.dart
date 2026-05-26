@@ -22,6 +22,9 @@ class PlaylistsScreen extends ConsumerWidget {
     final ThemeData theme = Theme.of(context);
     final Color accent = theme.colorScheme.primary;
     final AsyncValue<List<Playlist>> playlists = ref.watch(playlistsProvider);
+    final bool jellyfinConnected = ref.watch(
+      jellyfinSettingsControllerProvider.select((s) => s.isConnected),
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Playlists')),
@@ -48,11 +51,7 @@ class PlaylistsScreen extends ConsumerWidget {
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (_, __) => const _PlaylistsError(),
               data: (List<Playlist> items) => items.isEmpty
-                  ? const EmptyState(
-                      icon: Icons.queue_music_outlined,
-                      title: 'No playlists yet',
-                      message: 'Tap “New playlist” to create one.',
-                    )
+                  ? _PlaylistsEmpty(jellyfinConnected: jellyfinConnected)
                   : ListView.builder(
                       padding: const EdgeInsets.only(bottom: 88),
                       itemCount: items.length,
@@ -104,7 +103,7 @@ class _PlaylistTile extends ConsumerWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(_subtitle(theme)),
+      subtitle: Text(_subtitle()),
       trailing: PopupMenuButton<_PlaylistMenuAction>(
         icon: const Icon(Icons.more_vert),
         tooltip: 'Playlist actions',
@@ -132,11 +131,17 @@ class _PlaylistTile extends ConsumerWidget {
     );
   }
 
-  String _subtitle(ThemeData theme) {
+  /// "{n} songs", with a subtle source/status suffix: "· Sync failed" when a
+  /// sync didn't land, otherwise "· Jellyfin" for a synced playlist so its
+  /// origin is clear without cluttering the row. Local playlists show no suffix.
+  String _subtitle() {
     final String count = '${playlist.length} '
         '${playlist.length == 1 ? 'song' : 'songs'}';
     if (playlist.syncState == PlaylistSyncState.syncFailed) {
       return '$count · Sync failed';
+    }
+    if (playlist.source == PlaylistSource.jellyfin) {
+      return '$count · Jellyfin';
     }
     return count;
   }
@@ -183,6 +188,28 @@ class _PlaylistTile extends ConsumerWidget {
 }
 
 enum _PlaylistMenuAction { rename, delete }
+
+/// The empty Playlists state, worded for the situation: signed in to Jellyfin
+/// (your server playlists land here after a sync) vs not (create one, or sign in
+/// to import). A failed *load* is a separate state — see [_PlaylistsError].
+class _PlaylistsEmpty extends StatelessWidget {
+  const _PlaylistsEmpty({required this.jellyfinConnected});
+
+  final bool jellyfinConnected;
+
+  @override
+  Widget build(BuildContext context) {
+    return EmptyState(
+      icon: Icons.queue_music_outlined,
+      title: 'No playlists yet',
+      message: jellyfinConnected
+          ? 'Tap “New playlist” to create one. Your Jellyfin playlists appear '
+              'here after you sync your library.'
+          : 'Tap “New playlist” to create one, or sign in to Jellyfin in '
+              'Settings to import your server playlists.',
+    );
+  }
+}
 
 class _PlaylistsError extends StatelessWidget {
   const _PlaylistsError();

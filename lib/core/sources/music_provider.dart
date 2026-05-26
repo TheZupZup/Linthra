@@ -15,13 +15,16 @@ class MusicProviderCapabilities {
   const MusicProviderCapabilities({
     required this.canStream,
     required this.canCache,
-    required this.canFavorite,
+    required this.canFavoriteTracks,
+    required this.canReadFavoriteState,
+    required this.canSyncFavorites,
     required this.canLyrics,
     required this.canCast,
     required this.canRemoveFromLibrary,
     required this.canRemoveOfflineCopy,
     required this.canDeleteLocalFile,
     required this.canDeleteRemoteItem,
+    required this.canListPlaylists,
     required this.canCreatePlaylist,
     required this.canEditPlaylist,
     required this.canDeletePlaylist,
@@ -34,8 +37,20 @@ class MusicProviderCapabilities {
   /// Tracks can be downloaded for offline use safely (a token-free cache file).
   final bool canCache;
 
-  /// Favorites can be toggled and reflected for this provider.
-  final bool canFavorite;
+  /// A track's favourite/like state can be toggled for this provider (the heart
+  /// button is meaningful). For a remote provider that also implies pushing the
+  /// change to the server when [canSyncFavorites] is true.
+  final bool canFavoriteTracks;
+
+  /// This provider exposes a readable favourite/like state for its tracks, so
+  /// Linthra can show the right heart state. True for on-device tracks (stored
+  /// locally) and for servers that report a per-user favourite flag.
+  final bool canReadFavoriteState;
+
+  /// Favourites are mirrored with this provider's server (two-way): liking a
+  /// track here pushes to the server, and a server-side change is adopted on the
+  /// next sync. False for the on-device source, whose favourites stay local.
+  final bool canSyncFavorites;
 
   /// Lyrics can be fetched for this provider's tracks.
   final bool canLyrics;
@@ -65,6 +80,11 @@ class MusicProviderCapabilities {
   /// can be done safely with explicit confirmation; left `false` otherwise.
   final bool canDeleteRemoteItem;
 
+  /// This provider can enumerate its own (server-side) playlists, so Linthra can
+  /// import and list them. True for Jellyfin; false for the on-device source and
+  /// providers whose playlist listing isn't wired up yet.
+  final bool canListPlaylists;
+
   /// A playlist of this provider's kind can be created from Linthra.
   final bool canCreatePlaylist;
 
@@ -85,13 +105,16 @@ class MusicProviderCapabilities {
       (other is MusicProviderCapabilities &&
           other.canStream == canStream &&
           other.canCache == canCache &&
-          other.canFavorite == canFavorite &&
+          other.canFavoriteTracks == canFavoriteTracks &&
+          other.canReadFavoriteState == canReadFavoriteState &&
+          other.canSyncFavorites == canSyncFavorites &&
           other.canLyrics == canLyrics &&
           other.canCast == canCast &&
           other.canRemoveFromLibrary == canRemoveFromLibrary &&
           other.canRemoveOfflineCopy == canRemoveOfflineCopy &&
           other.canDeleteLocalFile == canDeleteLocalFile &&
           other.canDeleteRemoteItem == canDeleteRemoteItem &&
+          other.canListPlaylists == canListPlaylists &&
           other.canCreatePlaylist == canCreatePlaylist &&
           other.canEditPlaylist == canEditPlaylist &&
           other.canDeletePlaylist == canDeletePlaylist &&
@@ -101,13 +124,16 @@ class MusicProviderCapabilities {
   int get hashCode => Object.hash(
         canStream,
         canCache,
-        canFavorite,
+        canFavoriteTracks,
+        canReadFavoriteState,
+        canSyncFavorites,
         canLyrics,
         canCast,
         canRemoveFromLibrary,
         canRemoveOfflineCopy,
         canDeleteLocalFile,
         canDeleteRemoteItem,
+        canListPlaylists,
         canCreatePlaylist,
         canEditPlaylist,
         canDeletePlaylist,
@@ -145,7 +171,11 @@ abstract final class MusicProviders {
     capabilities: MusicProviderCapabilities(
       canStream: true,
       canCache: false,
-      canFavorite: true,
+      // On-device favourites are toggled and read locally; there is no server to
+      // sync them to.
+      canFavoriteTracks: true,
+      canReadFavoriteState: true,
+      canSyncFavorites: false,
       canLyrics: false,
       canCast: false,
       canRemoveFromLibrary: true,
@@ -155,6 +185,8 @@ abstract final class MusicProviders {
       // Deleting the real on-device file is not wired up safely yet.
       canDeleteLocalFile: false,
       canDeleteRemoteItem: false,
+      // No server playlists to enumerate; local playlists are created here.
+      canListPlaylists: false,
       canCreatePlaylist: true,
       canEditPlaylist: true,
       canDeletePlaylist: true,
@@ -169,7 +201,11 @@ abstract final class MusicProviders {
     capabilities: MusicProviderCapabilities(
       canStream: true,
       canCache: true,
-      canFavorite: true,
+      // Jellyfin tracks favourite/read/sync against the server's per-user state,
+      // so the heart follows the user across clients.
+      canFavoriteTracks: true,
+      canReadFavoriteState: true,
+      canSyncFavorites: true,
       canLyrics: true,
       canCast: true,
       canRemoveFromLibrary: true,
@@ -179,6 +215,7 @@ abstract final class MusicProviders {
       // is intentionally not enabled in this release; see
       // docs/playlists-and-delete.md.
       canDeleteRemoteItem: false,
+      canListPlaylists: true,
       canCreatePlaylist: true,
       canEditPlaylist: true,
       canDeletePlaylist: true,
@@ -196,7 +233,11 @@ abstract final class MusicProviders {
     capabilities: MusicProviderCapabilities(
       canStream: true,
       canCache: true,
-      canFavorite: false,
+      // Subsonic favourites (star/unstar) aren't wired up yet, so the heart and
+      // favourite sync stay disabled and their actions hidden.
+      canFavoriteTracks: false,
+      canReadFavoriteState: false,
+      canSyncFavorites: false,
       canLyrics: false,
       canCast: true,
       canRemoveFromLibrary: true,
@@ -205,6 +246,7 @@ abstract final class MusicProviders {
       canDeleteRemoteItem: false,
       // Subsonic/Navidrome playlists aren't synced yet; its tracks can still be
       // added to local Linthra playlists.
+      canListPlaylists: false,
       canCreatePlaylist: false,
       canEditPlaylist: false,
       canDeletePlaylist: false,

@@ -2,6 +2,7 @@ import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/favorites_repository.dart';
 import 'package:linthra/core/repositories/playlist_repository.dart';
+import 'package:linthra/core/repositories/remote_sync_result.dart';
 
 /// Minimal [PlaylistRepository] for browse-tree tests: serves a fixed list of
 /// playlists. Only the reads the media browser uses ([getAllPlaylists],
@@ -71,7 +72,10 @@ class FakePlaylistRepository implements PlaylistRepository {
   }
 
   @override
-  Future<void> refreshFromRemote() => throw UnimplementedError();
+  Future<PlaylistSyncResult> refreshFromRemote() => throw UnimplementedError();
+
+  @override
+  Future<void> clearRemote() => throw UnimplementedError();
 }
 
 /// Minimal local-only [FavoritesRepository] for browse-tree tests: holds a fixed
@@ -101,7 +105,8 @@ class FakeFavoritesRepository implements FavoritesRepository {
   }
 
   @override
-  Future<void> refreshFromRemote() async {}
+  Future<FavoritesSyncResult> refreshFromRemote() async =>
+      const FavoritesSyncResult.notConfigured();
 
   @override
   Future<void> clearRemote() async {}

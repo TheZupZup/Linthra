@@ -9,6 +9,7 @@ import '../../../core/sources/jellyfin/jellyfin_music_source.dart';
 import '../../../core/sources/jellyfin/jellyfin_server_capabilities.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/jellyfin_session_store_provider.dart';
+import '../../../data/repositories/playlist_repository_provider.dart';
 import 'jellyfin_settings_providers.dart';
 import 'jellyfin_settings_state.dart';
 import 'jellyfin_sync_controller.dart';
@@ -154,7 +155,8 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
   ///
   /// Also tears down this account's *derived* state so nothing lingers — or
   /// crosses over to a different account on the next sign-in: the server-synced
-  /// favourites are dropped (on-device favourites are kept), and the now-stale
+  /// favourites and imported Jellyfin playlists are dropped (on-device
+  /// favourites and local-only playlists are kept), and the now-stale
   /// "Synced N tracks" status is reset.
   Future<void> clear() async {
     await ref.read(jellyfinSessionStoreProvider).clear();
@@ -163,6 +165,11 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
       await ref.read(favoritesRepositoryProvider).clearRemote();
     } catch (_) {
       // A storage hiccup must not block sign-out; the session is already gone.
+    }
+    try {
+      await ref.read(playlistRepositoryProvider).clearRemote();
+    } catch (_) {
+      // Same: never let a playlist-store hiccup block sign-out.
     }
     ref.invalidate(jellyfinSyncControllerProvider);
     state = const JellyfinSettingsState(

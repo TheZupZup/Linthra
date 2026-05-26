@@ -4,6 +4,7 @@ import '../../core/models/jellyfin_session.dart';
 import '../../core/models/playlist.dart';
 import '../../core/repositories/playlist_repository.dart';
 import '../../core/repositories/playlist_store.dart';
+import '../../core/repositories/remote_sync_result.dart';
 import '../../core/sources/jellyfin/jellyfin_api.dart';
 import '../../core/sources/jellyfin/jellyfin_client.dart';
 import '../../core/sources/jellyfin/jellyfin_exception.dart';
@@ -260,26 +261,38 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   }
 
   @override
-  Future<void> refreshFromRemote() async {
+  Future<PlaylistSyncResult> refreshFromRemote() async {
     await _ensureLoaded();
     final JellyfinClient? client = _client;
     final JellyfinSession? session = _liveSession();
-    if (client == null || session == null) return;
+    if (client == null || session == null) {
+      return const PlaylistSyncResult.notConfigured();
+    }
     final List<JellyfinPlaylistDto> remote;
     try {
       remote = await client.fetchPlaylists(session);
     } on JellyfinException catch (_) {
-      // Offline or transient: keep what we have.
-      return;
+      // Offline or transient: keep what we have and report a friendly failure.
+      return const PlaylistSyncResult.failed();
     }
 
+    final Set<String> serverIds = <String>{
+      for (final JellyfinPlaylistDto dto in remote) dto.id,
+    };
     final Map<String, Playlist> byRemoteId = <String, Playlist>{
       for (final Playlist p in _playlists)
         if (p.remoteId != null) p.remoteId!: p,
     };
 
-    final List<Playlist> next = <Playlist>[..._playlists];
-    bool changed = false;
+    // Start from the playlists we keep, dropping any synced Jellyfin playlist
+    // whose server copy is gone — it was deleted on the server, and the server
+    // is the source of truth for synced playlists. Local-only playlists and
+    // not-yet-created ones (no remoteId) are always kept.
+    final List<Playlist> next = <Playlist>[
+      for (final Playlist p in _playlists)
+        if (!_isStaleSyncedRemote(p, serverIds)) p,
+    ];
+    bool changed = next.length != _playlists.length;
     for (final JellyfinPlaylistDto dto in remote) {
       List<String> itemIds;
       try {
@@ -327,6 +340,29 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       _playlists = next;
       await _persistAndEmit();
     }
+    return PlaylistSyncResult.synced(remote.length);
+  }
+
+  @override
+  Future<void> clearRemote() async {
+    await _ensureLoaded();
+    final int before = _playlists.length;
+    _playlists = <Playlist>[
+      for (final Playlist p in _playlists)
+        if (p.source != PlaylistSource.jellyfin) p,
+    ];
+    if (_playlists.length != before) {
+      await _persistAndEmit();
+    }
+  }
+
+  /// Whether [p] is a synced Jellyfin playlist (has a server [Playlist.remoteId])
+  /// that no longer exists in [serverIds] — i.e. it was deleted on the server, so
+  /// its local mirror should be dropped on the next refresh.
+  static bool _isStaleSyncedRemote(Playlist p, Set<String> serverIds) {
+    return p.source == PlaylistSource.jellyfin &&
+        p.remoteId != null &&
+        !serverIds.contains(p.remoteId);
   }
 
   // --- Internal helpers --------------------------------------------------

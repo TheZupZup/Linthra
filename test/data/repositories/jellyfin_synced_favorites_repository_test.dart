@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/favorites_store.dart';
+import 'package:linthra/core/repositories/remote_sync_result.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/data/repositories/in_memory_favorites_store.dart';
 import 'package:linthra/data/repositories/jellyfin_synced_favorites_repository.dart';
@@ -102,6 +103,34 @@ void main() {
 
       expect(repo.isFavorite('a'), isTrue); // local kept
       expect(repo.isFavorite('j9'), isTrue); // remote adopted
+    });
+
+    test('refreshFromRemote reports the synced favourite count', () async {
+      final repo = build(session: _session);
+      client.favoriteIds = <String>{'j1', 'j2', 'j3'};
+
+      final result = await repo.refreshFromRemote();
+
+      expect(result.didSync, isTrue);
+      expect(result.favoriteCount, 3);
+    });
+
+    test('refreshFromRemote reports not configured without a session',
+        () async {
+      final repo = build(session: null);
+
+      final result = await repo.refreshFromRemote();
+
+      expect(result.outcome, RemoteSyncOutcome.notConfigured);
+    });
+
+    test('refreshFromRemote reports a failure on a server error', () async {
+      client.favoritesError = JellyfinException.notReachable();
+      final repo = build(session: _session);
+
+      final result = await repo.refreshFromRemote();
+
+      expect(result.didFail, isTrue);
     });
 
     test('a server push failure keeps the optimistic local favourite',

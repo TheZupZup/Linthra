@@ -36,12 +36,14 @@ Future<void> _pump(
   required List<Track> tracks,
   required FavoritesData favorites,
   FakePlaybackController? playback,
+  Object? libraryError,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        musicLibraryRepositoryProvider
-            .overrideWithValue(FakeMusicLibraryRepository(tracks: tracks)),
+        musicLibraryRepositoryProvider.overrideWithValue(
+          FakeMusicLibraryRepository(tracks: tracks, error: libraryError),
+        ),
         favoritesStoreProvider
             .overrideWithValue(InMemoryFavoritesStore(favorites)),
         if (playback != null)
@@ -90,6 +92,22 @@ void main() {
 
       expect(find.text('No favorites yet'), findsOneWidget);
       expect(find.text('Alpha'), findsNothing);
+    });
+
+    testWidgets('shows a friendly error state when the catalog fails to load', (
+      tester,
+    ) async {
+      // A non-empty favourite set forces the catalog read, which then fails.
+      await _pump(
+        tester,
+        tracks: const <Track>[],
+        favorites: const FavoritesData(remoteIds: {'j1'}),
+        libraryError: Exception('boom'),
+      );
+
+      expect(find.text("Couldn't load your favorites"), findsOneWidget);
+      // The raw error is never surfaced.
+      expect(find.textContaining('boom'), findsNothing);
     });
 
     testWidgets('tapping a favourite plays it and queues the rest', (

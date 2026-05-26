@@ -1293,8 +1293,11 @@ including one published over HTTPS through a **Cloudflare** domain or tunnel.
    server name/version/product (reading `/System/Info/Public` if you didn't tap
    Test first) so diagnostics show them after a restart.
 4. **Sync library** — once signed in, pulls your Jellyfin artists/albums/tracks
-   and stores them in the local catalog so they show up in the Library. Shows a
-   spinner while it runs and a friendly result/error line when it's done.
+   **and your playlists and liked/favourite tracks** into the local catalog so
+   they show up in Library, Playlists, and Favorites. Shows a spinner while it
+   runs and a friendly result line ("Synced 42 tracks, 3 playlists and 9
+   favorites from your Jellyfin library.") — with honest partial-failure notes
+   when only playlists or favourites couldn't load.
 5. **Copy Jellyfin diagnostics** — copies a short, **secret-free** report (app
    version, connection state, server name/version/host-only, last error kind) to
    the clipboard for bug reports. It never includes your password, token,
@@ -1347,6 +1350,21 @@ for being **not signed in**, a **server it couldn't reach**, an
 **expired/invalid session** (prompting a fresh sign-in), and an **empty Jellyfin
 library** (which leaves any existing catalog untouched rather than wiping it).
 
+**Playlists & favourites sync by default.** The same Sync action — and app
+startup — also imports your Jellyfin **playlists** and adopts your **liked/
+favourite** tracks, so they appear on the Playlists and Favorites tabs without
+any extra step. Server playlists are imported as `jellyfin`-source playlists
+(name + membership mapped to your synced tracks; tracks not in your library are
+counted and shown as unavailable, never crashed), a server-side rename is picked
+up on the next sync, and a playlist deleted on the server is dropped locally.
+Liking a Jellyfin track in Linthra pushes the change to the server
+(optimistically, reconciled on the next sync); local-file favourites and
+local-only playlists always stay on-device. Sign-out clears this account's
+imported playlists and server favourites while keeping your local ones. Nothing
+here stores a token — full behaviour, limitations, troubleshooting, and security
+notes are in [docs/jellyfin-sync.md](docs/jellyfin-sync.md) and
+[docs/playlists-and-delete.md](docs/playlists-and-delete.md).
+
 **Streaming playback** routes through a `PlayableUriResolver` seam, so the
 playback controller opens whatever URI it's given rather than assuming a local
 file. A `JellyfinPlayableUriResolver` reads the live signed-in source, verifies
@@ -1398,9 +1416,11 @@ tokenized URL).
 - **Direct play only (no transcoding fallback yet).** Streaming serves the
   original file (`static=true`), which the engine decodes for the common
   containers; a server-side transcode fallback for exotic formats is deferred.
-- **No Android Auto browsing or sync-conflict handling** for Jellyfin in this
-  foundation. (Lyrics and favourites now sync from Jellyfin — see **Now Playing
-  controls** above.)
+- **No two-way conflict resolution.** For a synced playlist the server is the
+  source of truth on refresh, and playlist **rename/reorder are local-only** (not
+  pushed); favourites reconcile to the server on the next sync. Lyrics,
+  favourites, **and playlists** now sync from Jellyfin — see **Now Playing
+  controls** above and [docs/jellyfin-sync.md](docs/jellyfin-sync.md).
 
 ## Continuous integration
 

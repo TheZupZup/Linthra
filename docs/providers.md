@@ -9,13 +9,18 @@ Each provider declares what it can do through a small **capability model**
 (`lib/core/sources/music_provider.dart`), so the UI only ever offers actions a
 source actually supports:
 
-| Capability     | Meaning                                                        |
-| -------------- | -------------------------------------------------------------- |
-| `canStream`    | Tracks play by resolving a stream URL at play time.            |
-| `canCache`     | Tracks can be downloaded for offline use (token-free cache).   |
-| `canFavorite`  | Favorites can be toggled and reflected.                        |
-| `canLyrics`    | Lyrics can be fetched for the source's tracks.                 |
-| `canCast`      | A track's playback URL is network-reachable, so it can cast.   |
+| Capability             | Meaning                                                       |
+| ---------------------- | ------------------------------------------------------------- |
+| `canStream`            | Tracks play by resolving a stream URL at play time.           |
+| `canCache`             | Tracks can be downloaded for offline use (token-free cache).  |
+| `canFavoriteTracks`    | The heart can be toggled for this source's tracks.            |
+| `canReadFavoriteState` | The source exposes a readable liked/favourite state.          |
+| `canSyncFavorites`     | Favourites mirror two-way with this source's server.          |
+| `canListPlaylists`     | The source's (server) playlists can be imported and listed.   |
+| `canCreatePlaylist` / `canEditPlaylist` / `canDeletePlaylist` | Playlists of this kind can be created / edited / deleted. |
+| `canSyncPlaylists`     | Playlists mirror with this source's server.                   |
+| `canLyrics`            | Lyrics can be fetched for the source's tracks.                |
+| `canCast`              | A track's playback URL is network-reachable, so it can cast.  |
 
 A track carries an opaque `scheme:` URI (`subsonic:<id>`, `jellyfin:<id>`, or a
 file path) and **never** an authenticated URL — stream/download URLs are minted
@@ -24,13 +29,15 @@ persisted catalog.
 
 ## Provider matrix
 
-| Provider              | sourceId   | Stream | Cache | Favorite | Lyrics | Cast |
-| --------------------- | ---------- | :----: | :---: | :------: | :----: | :--: |
-| On this device        | `local`    |   ✅   |  —    |    ✅    |   —    |  —   |
-| Jellyfin              | `jellyfin` |   ✅   |  ✅   |    ✅    |   ✅   |  ✅  |
-| Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜    |   🔜   |  ✅  |
+| Provider              | sourceId   | Stream | Cache | Favorites | Playlists | Lyrics | Cast |
+| --------------------- | ---------- | :----: | :---: | :-------: | :-------: | :----: | :--: |
+| On this device        | `local`    |   ✅   |  —    | ✅ local  | ✅ local  |   —    |  —   |
+| Jellyfin              | `jellyfin` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
+| Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜     |    🔜     |   🔜   |  ✅  |
 
-✅ implemented · 🔜 planned follow-up · — not applicable
+✅ implemented · 🔜 planned follow-up · — not applicable. "local" favourites/
+playlists stay on-device; "synced" ones mirror with the server (server is the
+source of truth on refresh).
 
 ## Local files
 
@@ -42,10 +49,13 @@ cannot be cast (a receiver can't reach a file on your phone).
 ## Jellyfin
 
 Connect to your own Jellyfin server, test the connection, sign in, sync your
-library, and stream — including over an HTTPS/Cloudflare-proxied domain.
-Favorites and synced lyrics work; tracks can be marked for offline use and cast
+library, and stream — including over an HTTPS/Cloudflare-proxied domain. A sync
+also imports your **playlists** and adopts your **liked/favourite** tracks by
+default, and synced lyrics work; tracks can be marked for offline use and cast
 to a Chromecast. The access token is stored encrypted on-device; the password is
-never persisted. See [jellyfin-compatibility.md](jellyfin-compatibility.md).
+never persisted. See [jellyfin-compatibility.md](jellyfin-compatibility.md) for
+connectivity, and [jellyfin-sync.md](jellyfin-sync.md) for what syncs (playlists
++ favourites), the documented limitations, and the token-free guarantees.
 
 ## Navidrome / Subsonic
 

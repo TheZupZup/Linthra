@@ -4,6 +4,7 @@ import '../../core/models/jellyfin_session.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/favorites_repository.dart';
 import '../../core/repositories/favorites_store.dart';
+import '../../core/repositories/remote_sync_result.dart';
 import '../../core/sources/jellyfin/jellyfin_client.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 
@@ -105,23 +106,28 @@ class JellyfinSyncedFavoritesRepository implements FavoritesRepository {
   }
 
   @override
-  Future<void> refreshFromRemote() async {
+  Future<FavoritesSyncResult> refreshFromRemote() async {
     await _ensureLoaded();
     final JellyfinClient? client = _client;
     final JellyfinSession? session = _session?.call();
-    if (client == null || session == null) return;
+    if (client == null || session == null) {
+      return const FavoritesSyncResult.notConfigured();
+    }
     try {
       final Set<String> serverIds = await client.fetchFavoriteIds(session);
-      // Skip the emit/save when nothing actually changed, to avoid churn.
-      if (serverIds.length == _data.remoteIds.length &&
-          serverIds.containsAll(_data.remoteIds)) {
-        return;
+      // Skip the emit/save when nothing actually changed, to avoid churn — but
+      // still report the (unchanged) count as a successful sync.
+      final bool unchanged = serverIds.length == _data.remoteIds.length &&
+          serverIds.containsAll(_data.remoteIds);
+      if (!unchanged) {
+        _data = _data.copyWith(remoteIds: serverIds);
+        _emit();
+        await _store.save(_data);
       }
-      _data = _data.copyWith(remoteIds: serverIds);
-      _emit();
-      await _store.save(_data);
+      return FavoritesSyncResult.synced(serverIds.length);
     } catch (_) {
-      // Offline or transient: keep what we have.
+      // Offline or transient: keep what we have and report a friendly failure.
+      return const FavoritesSyncResult.failed();
     }
   }
 

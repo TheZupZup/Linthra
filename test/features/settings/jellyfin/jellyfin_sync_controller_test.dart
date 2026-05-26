@@ -4,11 +4,19 @@ import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/favorites_repository.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
+import 'package:linthra/core/repositories/playlist_repository.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_music_source.dart';
+import 'package:linthra/data/repositories/favorites_repository_provider.dart';
+import 'package:linthra/data/repositories/in_memory_favorites_store.dart';
+import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
+import 'package:linthra/data/repositories/jellyfin_synced_favorites_repository.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/data/repositories/playlist_repository_provider.dart';
+import 'package:linthra/data/repositories/synced_playlist_repository.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_sync_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_sync_state.dart';
@@ -93,16 +101,26 @@ JellyfinMusicSource _source({
 ProviderContainer _container({
   required MusicLibraryRepository repository,
   JellyfinMusicSource? source,
+  PlaylistRepository? playlists,
+  FavoritesRepository? favorites,
 }) {
   final container = ProviderContainer(
     overrides: <Override>[
       musicLibraryRepositoryProvider.overrideWithValue(repository),
       jellyfinMusicSourceProvider.overrideWithValue(source),
+      if (playlists != null)
+        playlistRepositoryProvider.overrideWithValue(playlists),
+      if (favorites != null)
+        favoritesRepositoryProvider.overrideWithValue(favorites),
     ],
   );
   addTearDown(container.dispose);
   return container;
 }
+
+/// A [JellyfinMusicSource] over [client] for the playlist/favourite sync tests.
+JellyfinMusicSource _sourceOver(FakeJellyfinClient client) =>
+    JellyfinMusicSource(session: _session, client: client);
 
 void main() {
   group('JellyfinSyncController', () {
@@ -243,6 +261,162 @@ void main() {
       // The raw error is not surfaced to the user.
       expect(state.message, isNot(contains('disk full')));
       expect(state.message, contains('Please try again'));
+    });
+  });
+
+  group('JellyfinSyncController playlists + favourites', () {
+    SyncedPlaylistRepository playlistRepo(FakeJellyfinClient client) {
+      final repo = SyncedPlaylistRepository(
+        store: InMemoryPlaylistStore(),
+        client: client,
+        session: () => _session,
+      );
+      addTearDown(repo.dispose);
+      return repo;
+    }
+
+    JellyfinSyncedFavoritesRepository favoritesRepo(FakeJellyfinClient client) {
+      final repo = JellyfinSyncedFavoritesRepository(
+        store: InMemoryFavoritesStore(),
+        client: client,
+        session: () => _session,
+      );
+      addTearDown(repo.dispose);
+      return repo;
+    }
+
+    test('a library sync imports Jellyfin playlists and reports the count',
+        () async {
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a'), _audio('b')],
+        },
+      );
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'Road Trip'),
+      ];
+      client.playlistEntries['srv-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+      ];
+      final playlists = playlistRepo(client);
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _sourceOver(client),
+        playlists: playlists,
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.status, JellyfinSyncStatus.success);
+      expect(state.playlistCount, 1);
+      expect(state.message, contains('1 playlist'));
+      // The imported playlist now lives in the repository as a synced record.
+      final imported = (await playlists.getAllPlaylists())
+          .where((p) => p.remoteId == 'srv-1');
+      expect(imported, hasLength(1));
+      expect(imported.single.name, 'Road Trip');
+      expect(imported.single.trackIds, <String>['a']);
+    });
+
+    test('a library sync adopts Jellyfin favourites and reports them',
+        () async {
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a')],
+        },
+      );
+      client.favoriteIds = <String>{'fav-1', 'fav-2'};
+      final favorites = favoritesRepo(client);
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _sourceOver(client),
+        favorites: favorites,
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.favoriteCount, 2);
+      expect(state.message, contains('2 favorites'));
+      expect(favorites.isFavorite('fav-1'), isTrue);
+      expect(favorites.isFavorite('fav-2'), isTrue);
+    });
+
+    test('a playlist sync failure is reported without failing the track sync',
+        () async {
+      final repository = _RecordingRepository();
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a'), _audio('b')],
+        },
+      );
+      client.playlistError = JellyfinException.notReachable();
+      final container = _container(
+        repository: repository,
+        source: _sourceOver(client),
+        playlists: playlistRepo(client),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      // Tracks still synced…
+      expect(state.status, JellyfinSyncStatus.success);
+      expect(state.trackCount, 2);
+      expect(repository.upsertedTracks, hasLength(2));
+      // …but the playlist failure is surfaced honestly.
+      expect(state.playlistsFailed, isTrue);
+      expect(state.message, contains('2 tracks'));
+      expect(state.message, contains('could not be loaded'));
+    });
+
+    test('a favourites sync failure is reported without failing the track sync',
+        () async {
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a')],
+        },
+      );
+      client.favoritesError = JellyfinException.notReachable();
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _sourceOver(client),
+        favorites: favoritesRepo(client),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.status, JellyfinSyncStatus.success);
+      expect(state.favoritesFailed, isTrue);
+      expect(state.message, contains('could not be synced'));
+    });
+
+    test('no token leaks into the combined sync message', () async {
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a')],
+        },
+      );
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv', name: 'Mix'),
+      ];
+      client.playlistEntries['srv'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+      ];
+      client.favoriteIds = <String>{'a'};
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _sourceOver(client),
+        playlists: playlistRepo(client),
+        favorites: favoritesRepo(client),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.message, isNot(contains('secret-token')));
     });
   });
 }

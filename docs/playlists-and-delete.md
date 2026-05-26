@@ -42,8 +42,27 @@ Linthra never pretends a sync worked when the server rejected it.
 ## Jellyfin playlist sync
 
 When you're signed in to Jellyfin you can create a playlist that mirrors to your
-server (toggle "Sync with Jellyfin" in the create dialog). Linthra also imports
-your existing Jellyfin playlists on launch and on refresh.
+server (toggle "Sync with Jellyfin" in the create dialog). Linthra also **imports
+your existing Jellyfin playlists by default** — on app launch and on every
+**Sync library** — so they appear on the Playlists tab without any extra step. A
+synced playlist row shows a subtle "· Jellyfin" source label.
+
+### Reconcile on refresh (server is the source of truth)
+
+Each refresh (startup or Sync library):
+
+- **imports** new server playlists (name + membership), mapping items to your
+  synced tracks; items not in your library are counted as unavailable and shown
+  honestly on the detail screen, never crashed;
+- **updates** an already-synced playlist's name and membership — so a server-side
+  rename shows up on the next sync — and is idempotent: repeated syncs never
+  duplicate a playlist or its entries;
+- **drops** a synced playlist whose server copy is gone (it was deleted on the
+  server). Local-only playlists are never touched by a refresh.
+
+On **sign-out**, this account's imported Jellyfin playlists (and its server
+favourites) are cleared so they can't linger — or be confused with a different
+account — after disconnecting; your local-only playlists stay on-device.
 
 Supported today (best-effort, server is the source of truth for synced
 playlists):
@@ -141,6 +160,10 @@ are shown:
 | `canRemoveOfflineCopy` | — (already local) | ✅ | ✅ |
 | `canDeleteLocalFile` | ❌ (not wired up) | ❌ | ❌ |
 | `canDeleteRemoteItem` | ❌ | ❌ (not enabled) | ❌ |
+| `canFavoriteTracks` | ✅ | ✅ | ❌ |
+| `canReadFavoriteState` | ✅ | ✅ | ❌ |
+| `canSyncFavorites` | ❌ (local-only) | ✅ | ❌ |
+| `canListPlaylists` | ❌ | ✅ | ❌ |
 | `canCreatePlaylist` | ✅ | ✅ | ❌ |
 | `canEditPlaylist` | ✅ | ✅ | ❌ |
 | `canDeletePlaylist` | ✅ | ✅ | ❌ |
