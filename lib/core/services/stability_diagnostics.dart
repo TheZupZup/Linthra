@@ -28,14 +28,44 @@ abstract final class StabilityDiagnostics {
     developer.log(message, name: name);
   }
 
+  /// The most recent app lifecycle state seen (`resumed`, `paused`, …), retained
+  /// for diagnostics so a bug report can show what transition the app was in.
+  /// Null until the first transition. A fixed enum-name label — never a secret.
+  static String? lastLifecycleState;
+
+  /// The playback status (`playing`, `buffering`, `paused`, …) captured the last
+  /// time the app was backgrounded, retained for diagnostics so a "music stopped
+  /// when I locked the phone" report can show what state playback was in at that
+  /// boundary. Null until the app has been backgrounded at least once.
+  static String? playbackStateAtBackground;
+
+  /// The last safe playback/stream interruption *kind* seen (an enum name or a
+  /// fixed label like `load`/`resolution`), retained for diagnostics. Null until
+  /// one occurs. Never the raw error (which can carry a tokenized URL).
+  static String? lastInterruptionKind;
+
   /// An app lifecycle transition (`resumed`, `paused`, `inactive`, …) — the
   /// boundary most freezes/ANRs cluster around (background/foreground).
   static void lifecycle(String state) {
+    lastLifecycleState = state;
     SafeEventLog.instance.record('lifecycle', state);
     _log(describeLifecycle(state));
   }
 
   static String describeLifecycle(String state) => 'lifecycle: $state';
+
+  /// The playback status at the moment the app was backgrounded (screen off /
+  /// app hidden). Retained in [playbackStateAtBackground] and recorded as a
+  /// breadcrumb so a screen-off "playback stopped" report is correlatable.
+  /// [status] is a stable [PlaybackStatus] name — never a track, URL, or token.
+  static void backgroundPlaybackState(String status) {
+    playbackStateAtBackground = status;
+    SafeEventLog.instance.record('bg-playback', status);
+    _log(describeBackgroundPlaybackState(status));
+  }
+
+  static String describeBackgroundPlaybackState(String status) =>
+      'background playback: $status';
 
   /// The active playback output changed (`local` / `cast`), so a handoff can be
   /// correlated with a freeze without logging anything about the track.
@@ -60,6 +90,7 @@ abstract final class StabilityDiagnostics {
   /// [StreamInterruptionKind] name or a fixed label like `resolution`/`load`) —
   /// never the raw error, which can carry a tokenized URL.
   static void playbackError(String kind) {
+    lastInterruptionKind = kind;
     SafeEventLog.instance.record('error', kind);
     _log(describePlaybackError(kind));
   }

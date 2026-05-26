@@ -31,6 +31,9 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
   "Known limitations".)*
 - ☐ Returning to the foreground while casting re-syncs the shown position and
   never starts a second local stream.
+- ☐ Screen-off / lock-screen playback survives a 5-minute screen-off for local,
+  streaming, cached, and cast playback. See the dedicated checklist and battery
+  troubleshooting in [background-playback.md](background-playback.md).
 
 ## 2. Library
 

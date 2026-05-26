@@ -8,7 +8,9 @@ import '../../../core/models/active_playback_output.dart';
 import '../../../core/models/cast_state.dart';
 import '../../../core/models/playback_state.dart';
 import '../../../core/services/active_playback_controller.dart';
+import '../../../core/services/notification_permission.dart';
 import '../../../core/services/playback_diagnostics.dart';
+import '../../../core/services/stability_diagnostics.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../downloads/download_providers.dart';
 import '../../player/cast/cast_providers.dart';
@@ -64,6 +66,10 @@ class DiagnosticsCollector {
       playbackStatus: _playbackStatus(),
       currentTrackIdHash: _currentTrackIdHash(),
       lastErrorKind: jellyfin.errorKind?.name ?? subsonic.errorKind?.name,
+      notificationPermission: (await _notificationPermission()).label,
+      lastLifecycleState: StabilityDiagnostics.lastLifecycleState,
+      playbackStateAtBackground: StabilityDiagnostics.playbackStateAtBackground,
+      lastInterruptionKind: StabilityDiagnostics.lastInterruptionKind,
       castAvailable: cast.isAvailable,
       castConnected: cast.isConnected,
       androidAutoSupported: _androidAutoSupported(),
@@ -73,6 +79,12 @@ class DiagnosticsCollector {
       smartPrecacheEnabled: _ref.read(smartPrecacheEnabledProvider).valueOrNull,
     );
   }
+
+  /// Reads (never prompts for) the notification permission state, so the report
+  /// can show whether the media notification / lock-screen controls can appear.
+  /// Best-effort: the seam returns `unknown` off Android and on any read error.
+  Future<NotificationPermissionStatus> _notificationPermission() =>
+      const PermissionHandlerNotificationPermission().status();
 
   String? _androidVersion() =>
       Platform.isAndroid ? Platform.operatingSystemVersion : null;

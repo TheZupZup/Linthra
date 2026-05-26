@@ -302,6 +302,27 @@ void main() {
       expect(local.playCount, localPlaysBefore);
     });
 
+    test('the active output stays cast across a background/foreground cycle',
+        () async {
+      final controller = build();
+      addTearDown(controller.dispose);
+
+      cast.emit(_casting());
+      await _waitFor(controller,
+          (_) => controller.activeOutput == ActivePlaybackOutput.cast);
+      final int suspendsBefore = local.suspendCount;
+      final int resumesBefore = local.resumeCount;
+
+      // Simulate leaving and returning to the app while casting.
+      controller.onAppResumed();
+
+      // Output is unchanged and the local engine was neither re-suspended nor
+      // resumed — backgrounding must not reset the active output.
+      expect(controller.activeOutput, ActivePlaybackOutput.cast);
+      expect(local.suspendCount, suspendsBefore);
+      expect(local.resumeCount, resumesBefore);
+    });
+
     test('onAppResumed is a no-op when not casting', () async {
       final controller = build();
       addTearDown(controller.dispose);

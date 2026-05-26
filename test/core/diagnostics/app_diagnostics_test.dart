@@ -150,6 +150,76 @@ void main() {
       expect(report, isNot(contains('Current track:')));
     });
 
+    test('includes the background-playback diagnostic fields', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          notificationPermission: 'denied',
+          lastLifecycleState: 'paused',
+          playbackStateAtBackground: 'playing',
+          lastInterruptionKind: 'connectionLost',
+        ),
+      );
+
+      expect(report, contains('Notification permission: denied'));
+      expect(report, contains('Last lifecycle: paused'));
+      expect(report, contains('Playback at last background: playing'));
+      expect(report, contains('Last interruption: connectionLost'));
+    });
+
+    test('includePlayback: false drops the background-playback playback lines',
+        () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          notificationPermission: 'granted',
+          lastLifecycleState: 'resumed',
+          playbackStateAtBackground: 'buffering',
+          lastInterruptionKind: 'connectionLost',
+        ),
+        includePlayback: false,
+      );
+
+      // Notification permission and lifecycle carry no track info, so they stay.
+      expect(report, contains('Notification permission: granted'));
+      expect(report, contains('Last lifecycle: resumed'));
+      // The playback-describing lines are dropped with the rest of playback.
+      expect(report, isNot(contains('Playback at last background:')));
+      expect(report, isNot(contains('Last interruption:')));
+    });
+
+    test('the background-playback diagnostics never carry a secret', () {
+      // Every field here is a fixed enum-name/label, so a report built from a
+      // backgrounded streaming session leaks no token, URL, or track identity.
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          playbackOutput: 'local',
+          playbackStatus: 'buffering',
+          notificationPermission: 'granted',
+          lastLifecycleState: 'paused',
+          playbackStateAtBackground: 'buffering',
+          lastInterruptionKind: 'connectionLost',
+        ),
+      );
+
+      expect(report.toLowerCase(), isNot(contains('http')));
+      expect(report.toLowerCase(), isNot(contains('token')));
+      expect(report, isNot(contains('api_key')));
+      expect(report.toLowerCase(), isNot(contains('authorization')));
+      expect(report.toLowerCase(), isNot(contains('bearer')));
+    });
+
+    test('omits the background-playback fields when absent', () {
+      final String report =
+          AppDiagnostics.report(const AppDiagnosticsData(appVersion: '0.1.0'));
+
+      expect(report, isNot(contains('Notification permission:')));
+      expect(report, isNot(contains('Last lifecycle:')));
+      expect(report, isNot(contains('Playback at last background:')));
+      expect(report, isNot(contains('Last interruption:')));
+    });
+
     test('includeCache: false drops the cache line', () {
       final String report = AppDiagnostics.report(
         const AppDiagnosticsData(
