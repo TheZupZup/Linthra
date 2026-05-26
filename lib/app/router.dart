@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 
 import '../features/downloads/downloads_screen.dart';
 import '../features/favorites/favorites_screen.dart';
+import '../features/library/album_detail_screen.dart';
+import '../features/library/artist_detail_screen.dart';
 import '../features/library/library_screen.dart';
 import '../features/player/player_screen.dart';
 import '../features/playlists/playlist_detail_screen.dart';
@@ -28,6 +30,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.library,
                 builder: (context, state) => const LibraryScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'album/:id',
+                    builder: (context, state) => AlbumDetailScreen(
+                      albumId: state.pathParameters['id']!,
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'artist/:id',
+                    builder: (context, state) => ArtistDetailScreen(
+                      artistId: state.pathParameters['id']!,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
