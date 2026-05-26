@@ -1,4 +1,5 @@
 import '../models/track.dart';
+import 'remote_sync_result.dart';
 
 /// Tracks the user's favourites and keeps them in sync with the source.
 ///
@@ -25,8 +26,11 @@ abstract interface class FavoritesRepository {
 
   /// Pulls the signed-in user's server favourites and adopts them as the remote
   /// set (server is the source of truth there), leaving local-track favourites
-  /// untouched. A no-op when not signed in. Never throws.
-  Future<void> refreshFromRemote();
+  /// untouched. Never throws: it returns a [FavoritesSyncResult] describing the
+  /// outcome (not configured / synced + count / failed) so a caller — the
+  /// "Sync library" action — can report "synced favorites" or "favorites could
+  /// not be synced" instead of guessing.
+  Future<FavoritesSyncResult> refreshFromRemote();
 
   /// Drops the server-sourced favourites (the signed-in account's), keeping
   /// on-device favourites. Called on sign-out so one account's hearts can't

@@ -1,13 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
+import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/favorites_repository.dart';
+import 'package:linthra/core/repositories/playlist_repository.dart';
+import 'package:linthra/core/repositories/remote_sync_result.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_jellyfin_session_store.dart';
 import 'package:linthra/data/repositories/jellyfin_session_store_provider.dart';
+import 'package:linthra/data/repositories/playlist_repository_provider.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_providers.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_state.dart';
@@ -47,7 +51,70 @@ class _SpyFavoritesRepository implements FavoritesRepository {
   Future<void> setFavorite(Track track, bool favorite) async {}
 
   @override
-  Future<void> refreshFromRemote() async {}
+  Future<FavoritesSyncResult> refreshFromRemote() async =>
+      const FavoritesSyncResult.notConfigured();
+}
+
+/// Records [clearRemote] calls so a sign-out test can prove the controller also
+/// drops this account's imported Jellyfin playlists.
+class _SpyPlaylistRepository implements PlaylistRepository {
+  int clearRemoteCalls = 0;
+
+  @override
+  Future<void> clearRemote() async => clearRemoteCalls++;
+
+  @override
+  Stream<List<Playlist>> get playlistsStream =>
+      const Stream<List<Playlist>>.empty();
+
+  @override
+  Future<List<Playlist>> getAllPlaylists() async => const <Playlist>[];
+
+  @override
+  Future<Playlist?> getPlaylistById(String id) async => null;
+
+  @override
+  Future<PlaylistSyncResult> refreshFromRemote() async =>
+      const PlaylistSyncResult.notConfigured();
+
+  @override
+  Future<Playlist> createPlaylist(
+    String name, {
+    String? description,
+    PlaylistSource source = PlaylistSource.local,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> renamePlaylist(String id, String name, {String? description}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> deletePlaylist(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> addTrack(String playlistId, String trackId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> addTracks(String playlistId, List<String> trackIds) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> removeTrack(String playlistId, String trackId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> reorderTracks(String playlistId, int oldIndex, int newIndex) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> markSyncState(
+    String id,
+    PlaylistSyncState state, {
+    String? error,
+  }) =>
+      throw UnimplementedError();
 }
 
 ProviderContainer _container({
@@ -261,6 +328,28 @@ void main() {
       // The account's hearts are cleared so they can't linger — or be re-pushed
       // to a different account — after signing out.
       expect(favorites.clearRemoteCalls, 1);
+    });
+
+    test("sign-out drops this account's imported Jellyfin playlists", () async {
+      final playlists = _SpyPlaylistRepository();
+      final container = ProviderContainer(overrides: <Override>[
+        jellyfinAuthenticatorProvider
+            .overrideWithValue(FakeJellyfinAuthenticator()),
+        jellyfinSessionStoreProvider.overrideWithValue(
+          InMemoryJellyfinSessionStore(initialSession: _session),
+        ),
+        jellyfinClientProvider.overrideWithValue(FakeJellyfinClient()),
+        playlistRepositoryProvider.overrideWithValue(playlists),
+      ]);
+      addTearDown(container.dispose);
+      container.read(jellyfinSettingsControllerProvider);
+      await _settle();
+
+      await container.read(jellyfinSettingsControllerProvider.notifier).clear();
+
+      // The account's imported Jellyfin playlists are dropped so they can't
+      // linger after signing out; local-only playlists are kept (repository).
+      expect(playlists.clearRemoteCalls, 1);
     });
 
     test('sign-out resets the (now stale) sync status', () async {

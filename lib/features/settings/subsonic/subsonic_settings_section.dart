@@ -240,7 +240,8 @@ class _CapabilityChips extends StatelessWidget {
       if (caps.canCache)
         (icon: Icons.download_for_offline_outlined, label: 'Offline'),
       if (caps.canCast) (icon: Icons.cast, label: 'Cast'),
-      if (caps.canFavorite) (icon: Icons.favorite_border, label: 'Favorites'),
+      if (caps.canFavoriteTracks)
+        (icon: Icons.favorite_border, label: 'Favorites'),
       if (caps.canLyrics) (icon: Icons.lyrics_outlined, label: 'Lyrics'),
     ];
     return Wrap(

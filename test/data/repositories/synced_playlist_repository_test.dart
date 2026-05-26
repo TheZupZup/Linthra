@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/playlist.dart';
+import 'package:linthra/core/repositories/remote_sync_result.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
@@ -130,6 +131,11 @@ void main() {
       expect(created.source, PlaylistSource.local);
       expect(created.syncState, PlaylistSyncState.localOnly);
     });
+
+    test('refreshFromRemote without a client reports not configured', () async {
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+      expect(result.outcome, RemoteSyncOutcome.notConfigured);
+    });
   });
 
   group('SyncedPlaylistRepository (Jellyfin sync)', () {
@@ -248,6 +254,114 @@ void main() {
       expect(all.single.source, PlaylistSource.jellyfin);
       expect(all.single.trackIds, <String>['a', 'b']);
       expect(all.single.syncState, PlaylistSyncState.synced);
+    });
+
+    test('refreshFromRemote reports the synced playlist count', () async {
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'A'),
+        JellyfinPlaylistDto(id: 'srv-2', name: 'B'),
+      ];
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+      expect(result.didSync, isTrue);
+      expect(result.playlistCount, 2);
+    });
+
+    test('refreshFromRemote reports a failure when the server is unreachable',
+        () async {
+      client.playlistError = JellyfinException.notReachable();
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+      expect(result.didFail, isTrue);
+    });
+
+    test('repeated refresh does not duplicate the imported playlist', () async {
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'Mix'),
+      ];
+      client.playlistEntries['srv-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+      ];
+      await repository.refreshFromRemote();
+      await repository.refreshFromRemote();
+      final List<Playlist> all = await repository.getAllPlaylists();
+      expect(all.where((Playlist p) => p.remoteId == 'srv-1'), hasLength(1));
+    });
+
+    test('a remote rename updates the local synced playlist on refresh',
+        () async {
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'Old Name'),
+      ];
+      client.playlistEntries['srv-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+      ];
+      await repository.refreshFromRemote();
+
+      // The server renames the playlist; the next refresh adopts the new name.
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'New Name'),
+      ];
+      await repository.refreshFromRemote();
+
+      final List<Playlist> all = await repository.getAllPlaylists();
+      expect(all, hasLength(1));
+      expect(all.single.name, 'New Name');
+      expect(all.single.remoteId, 'srv-1');
+    });
+
+    test('a playlist deleted on the server is dropped on the next refresh',
+        () async {
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'Mix'),
+      ];
+      client.playlistEntries['srv-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+      ];
+      await repository.refreshFromRemote();
+      expect(await repository.getAllPlaylists(), hasLength(1));
+
+      // The server no longer reports it — it was deleted there.
+      client.playlists = const <JellyfinPlaylistDto>[];
+      await repository.refreshFromRemote();
+      expect(await repository.getAllPlaylists(), isEmpty);
+    });
+
+    test('refresh keeps a local-only playlist while pruning a deleted remote',
+        () async {
+      final Playlist local = await repository.createPlaylist('Local Mix');
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'Server Mix'),
+      ];
+      client.playlistEntries['srv-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+      ];
+      await repository.refreshFromRemote();
+      expect(await repository.getAllPlaylists(), hasLength(2));
+
+      // The server deletes its playlist; the local-only one must survive.
+      client.playlists = const <JellyfinPlaylistDto>[];
+      await repository.refreshFromRemote();
+      final List<Playlist> all = await repository.getAllPlaylists();
+      expect(all, hasLength(1));
+      expect(all.single.id, local.id);
+      expect(all.single.source, PlaylistSource.local);
+    });
+
+    test('clearRemote drops synced playlists but keeps local-only ones',
+        () async {
+      final Playlist local = await repository.createPlaylist('Local Mix');
+      client.createdPlaylistId = 'srv-9';
+      await repository.createPlaylist(
+        'Server Mix',
+        source: PlaylistSource.jellyfin,
+      );
+      expect(await repository.getAllPlaylists(), hasLength(2));
+
+      await repository.clearRemote();
+
+      final List<Playlist> all = await repository.getAllPlaylists();
+      expect(all, hasLength(1));
+      expect(all.single.id, local.id);
+      expect(all.single.source, PlaylistSource.local);
     });
 
     test('no token is ever stored in playlist metadata', () async {

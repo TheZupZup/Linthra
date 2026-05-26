@@ -6,7 +6,11 @@ void main() {
     test('local: plays and favorites on-device, but cannot cast', () {
       final caps = MusicProviders.local.capabilities;
       expect(caps.canStream, isTrue);
-      expect(caps.canFavorite, isTrue);
+      expect(caps.canFavoriteTracks, isTrue);
+      expect(caps.canReadFavoriteState, isTrue);
+      // On-device favourites stay local — there's no server to sync them to.
+      expect(caps.canSyncFavorites, isFalse);
+      expect(caps.canListPlaylists, isFalse);
       expect(caps.canCast, isFalse);
       expect(caps.canCache, isFalse);
     });
@@ -15,7 +19,10 @@ void main() {
       final caps = MusicProviders.jellyfin.capabilities;
       expect(caps.canStream, isTrue);
       expect(caps.canCache, isTrue);
-      expect(caps.canFavorite, isTrue);
+      expect(caps.canFavoriteTracks, isTrue);
+      expect(caps.canReadFavoriteState, isTrue);
+      expect(caps.canSyncFavorites, isTrue);
+      expect(caps.canListPlaylists, isTrue);
       expect(caps.canLyrics, isTrue);
       expect(caps.canCast, isTrue);
     });
@@ -27,7 +34,10 @@ void main() {
       expect(caps.canCache, isTrue);
       expect(caps.canCast, isTrue);
       // Declared unsupported so their actions stay hidden/disabled.
-      expect(caps.canFavorite, isFalse);
+      expect(caps.canFavoriteTracks, isFalse);
+      expect(caps.canReadFavoriteState, isFalse);
+      expect(caps.canSyncFavorites, isFalse);
+      expect(caps.canListPlaylists, isFalse);
       expect(caps.canLyrics, isFalse);
     });
 
@@ -72,6 +82,75 @@ void main() {
 
       // Subsonic playlists aren't synced yet.
       expect(MusicProviders.subsonic.capabilities.canSyncPlaylists, isFalse);
+    });
+
+    test('favorite capabilities reflect provider support', () {
+      // Jellyfin reads, toggles, and two-way syncs favourites against the
+      // server; local toggles/reads on-device only; Subsonic does neither yet.
+      final jelly = MusicProviders.jellyfin.capabilities;
+      expect(jelly.canReadFavoriteState, isTrue);
+      expect(jelly.canFavoriteTracks, isTrue);
+      expect(jelly.canSyncFavorites, isTrue);
+
+      final local = MusicProviders.local.capabilities;
+      expect(local.canFavoriteTracks, isTrue);
+      expect(local.canSyncFavorites, isFalse);
+
+      expect(MusicProviders.subsonic.capabilities.canFavoriteTracks, isFalse);
+    });
+
+    test('a future provider seam is data-driven via a fake provider', () {
+      // The capability matrix is a plain value, so a not-yet-shipped provider
+      // (e.g. a richer Navidrome) can declare its abilities and be tested/
+      // compared without touching any feature code.
+      const MusicProvider future = MusicProvider(
+        sourceId: 'navidrome-future',
+        displayName: 'Future Navidrome',
+        serverUrlLabel: 'Server URL',
+        capabilities: MusicProviderCapabilities(
+          canStream: true,
+          canCache: true,
+          canFavoriteTracks: true,
+          canReadFavoriteState: true,
+          canSyncFavorites: true,
+          canLyrics: false,
+          canCast: true,
+          canRemoveFromLibrary: true,
+          canRemoveOfflineCopy: true,
+          canDeleteLocalFile: false,
+          canDeleteRemoteItem: false,
+          canListPlaylists: true,
+          canCreatePlaylist: true,
+          canEditPlaylist: true,
+          canDeletePlaylist: true,
+          canSyncPlaylists: true,
+        ),
+      );
+
+      expect(future.capabilities.canListPlaylists, isTrue);
+      expect(future.capabilities.canSyncFavorites, isTrue);
+      // Value equality lets a UI compare capability sets directly.
+      expect(
+        future.capabilities,
+        const MusicProviderCapabilities(
+          canStream: true,
+          canCache: true,
+          canFavoriteTracks: true,
+          canReadFavoriteState: true,
+          canSyncFavorites: true,
+          canLyrics: false,
+          canCast: true,
+          canRemoveFromLibrary: true,
+          canRemoveOfflineCopy: true,
+          canDeleteLocalFile: false,
+          canDeleteRemoteItem: false,
+          canListPlaylists: true,
+          canCreatePlaylist: true,
+          canEditPlaylist: true,
+          canDeletePlaylist: true,
+          canSyncPlaylists: true,
+        ),
+      );
     });
   });
 

@@ -1,4 +1,5 @@
 import '../models/playlist.dart';
+import 'remote_sync_result.dart';
 
 /// Persistence + editing contract for user-created playlists.
 ///
@@ -55,7 +56,17 @@ abstract interface class PlaylistRepository {
   });
 
   /// Pulls playlists from the signed-in server and reconciles them into the
-  /// local set (importing new ones, adopting server membership for synced ones).
-  /// A no-op when not signed in or no server sync is configured. Never throws.
-  Future<void> refreshFromRemote();
+  /// local set: importing new ones, adopting server name/membership for synced
+  /// ones, and dropping a synced playlist whose server copy is gone (server is
+  /// the source of truth for synced playlists). Local-only playlists are never
+  /// touched. Never throws: it returns a [PlaylistSyncResult] describing the
+  /// outcome (not configured / synced + count / failed) so the "Sync library"
+  /// action can report "synced N playlists" or "playlists could not be loaded".
+  Future<PlaylistSyncResult> refreshFromRemote();
+
+  /// Drops the server-synced (remote-source) playlists, keeping local-only ones.
+  /// Called on sign-out so one account's imported playlists can't linger — or be
+  /// confused with a different account's — after disconnecting. A no-op when
+  /// there are none. Never throws.
+  Future<void> clearRemote();
 }
