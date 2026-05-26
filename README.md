@@ -18,22 +18,26 @@ Android Auto, and **no surprise downloads**.
 
 ## 🎧 Why Linthra?
 
-Linthra is built for people who keep their music library in their own hands.
+You ripped the CDs. You pay for the server. You shouldn't have to rent your own
+music back from someone else's app.
 
-If your music lives on a Jellyfin, Navidrome, Subsonic server, or in local files,
-the player should make that library easy to enjoy without getting in the way.
+Most "music apps" are storefronts that happen to play audio — they nudge you
+toward a catalog, sync things you didn't ask for, and treat your library as a
+guest. Linthra flips that around:
 
-Linthra focuses on a simple local-first music experience:
+Point it at your Jellyfin / Navidrome / Subsonic server, or a folder of
+local files.
 
-- Point it at **your** Jellyfin / Navidrome / Subsonic server, or a folder of
-  local files.
-- **Streaming is the default.** Nothing downloads unless you tap download.
-- Your library stays quick to browse because the app uses a local catalog
-  instead of depending on the network for every view.
-- No telemetry, no ads, no required account, and no phoning home.
+Streaming is the default. Nothing downloads unless you tap download.
 
-If you self-host your music and want a clean Android player that respects your
-library, Linthra is for you.
+Your whole library is browsable instantly because the app reads from a local
+catalog, not the network.
+
+No telemetry, no ads, no account, no phoning home.
+
+
+If you self-host your music and want a clean Android player that respects that,
+Linthra is for you.
 
 ## 🌱 Status
 
