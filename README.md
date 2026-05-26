@@ -39,7 +39,7 @@ No telemetry, no ads, no account, no phoning home.
 If you self-host your music and want a clean Android player that respects that,
 Linthra is for you.
 
-## 🌱 Status
+## Status
 
 **Linthra is early alpha — but already usable for testing today.** You can
 connect a real server, sync your library, stream, cache, cast, and drive it from
@@ -62,7 +62,7 @@ gradient, generated from one source design (not mockups).
 > [a great first contribution](#-ways-to-help)! The capture checklist and sizes
 > are in [docs/listing-assets.md](./docs/listing-assets.md).
 
-## ✨ What works today
+## What works today
 
 - **Local library** — pick a folder (Storage Access Framework), scan it, browse
   **Songs / Albums / Artists** with search. No broad storage permission.
@@ -82,7 +82,7 @@ gradient, generated from one source design (not mockups).
 
 Each feature has a deep-dive in [the docs](#-documentation).
 
-## 📦 Try it
+## Try it
 
 > Linthra is **not on Google Play or F-Droid**. It's distributed as a
 > sideloadable APK from **[GitHub Releases](https://github.com/thezupzup/linthra/releases)**.
@@ -107,29 +107,29 @@ setup, CI builds, and release details are in
 > **Heads up:** until release signing is provisioned, some alpha APKs may be
 > **debug-signed**; if a signature changes, you may need to reinstall.
 
-## 🙌 Ways to help
+## Ways to help
 
 Linthra is small and friendly — good first contributions are very welcome, and
 many don't need a single line of code:
 
-- 🧪 **Test with your server** — does it work with your **Jellyfin**? Your
+-  **Test with your server** — does it work with your **Jellyfin**? Your
   **Navidrome / Subsonic**? Tell us what broke.
-- 📺 **Try Cast** — connect a Chromecast/speaker/TV and report device
+   **Try Cast** — connect a Chromecast/speaker/TV and report device
   compatibility.
-- 🚗 **Test Android Auto** — on a head unit or the Desktop Head Unit.
-- 📸 **Capture screenshots** for the README and store listing.
-- 📝 **Improve docs** — fix a confusing step, add a setup gotcha.
-- 🐞 **Report bugs in one tap** — **Settings → Report a bug** builds a
+-  **Test Android Auto** — on a head unit or the Desktop Head Unit.
+-  **Capture screenshots** for the README and store listing.
+-  **Improve docs** — fix a confusing step, add a setup gotcha.
+-  **Report bugs in one tap** — **Settings → Report a bug** builds a
   **secret-free** report on your device (no tokens, no passwords); review it,
   then copy it or open a prefilled GitHub issue.
   ([how it works](./docs/reporting-bugs.md))
-- 🎨 **Polish UI/UX** — small refinements add up.
-- 🔌 **Help future providers** — WebDAV/NAS support behind the same interface.
+-  **Polish UI/UX** — small refinements add up.
+-  **Help future providers** — WebDAV/NAS support behind the same interface.
 
 Found Linthra useful? A **GitHub star** helps others discover it. Start at the
 [issue tracker](https://github.com/thezupzup/linthra/issues).
 
-## 🗄️ Self-hosted sources
+## Self-hosted sources
 
 Sources sit behind one interface, so the app treats them uniformly:
 
@@ -140,7 +140,7 @@ Sources sit behind one interface, so the app treats them uniformly:
 | **Navidrome / Subsonic** | ✅ Stream, cache, cast (favourites & lyrics are follow-ups) — [docs](./docs/providers.md) |
 | **WebDAV / NAS** | 🔜 Planned — same `MusicSource` seam |
 
-## 🔒 Privacy
+## Privacy
 
 Linthra is built to respect the people who use it:
 
@@ -155,7 +155,7 @@ Linthra is built to respect the people who use it:
   then discarded; the token is encrypted at rest, never logged, and stream URLs
   are minted only on demand. Token-handling details are in each provider's doc.
 
-## 🧭 Roadmap
+## Roadmap
 
 **Next up:** local tag/metadata parsing + album artwork · Subsonic favourites,
 lyrics & cover art · full playlist sync · album/playlist "download all" +
@@ -168,7 +168,7 @@ Linux desktop, richer Android Auto and Cast.
 Honest gaps (no local tag parsing yet, single Jellyfin server, direct-play only,
 partial playlist sync, optimistic connectivity) are documented per feature.
 
-## 📚 Documentation
+## Documentation
 
 | Topic | Doc |
 | --- | --- |
