@@ -528,7 +528,8 @@ void main() {
         expect(files.bytesFor('j1.mp3'), isNull);
       });
 
-      test('the cache limit is still enforced when downloading over mobile data',
+      test(
+          'the cache limit is still enforced when downloading over mobile data',
           () async {
         final repository = buildLimited(maxBytes: 10, now: incrementingClock());
         await preferences.setAllowMobileData(true);

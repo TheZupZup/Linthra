@@ -40,8 +40,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('may use a lot of data'), findsOneWidget);
-      final SwitchListTile tile =
-          tester.widget(find.byType(SwitchListTile));
+      final SwitchListTile tile = tester.widget(find.byType(SwitchListTile));
       expect(tile.value, isFalse);
     });
 
@@ -60,8 +59,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(await preferences.allowMobileData(), isTrue);
-      final SwitchListTile tile =
-          tester.widget(find.byType(SwitchListTile));
+      final SwitchListTile tile = tester.widget(find.byType(SwitchListTile));
       expect(tile.value, isTrue);
     });
 
@@ -75,8 +73,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(await preferences.allowMobileData(), isFalse);
-      final SwitchListTile tile =
-          tester.widget(find.byType(SwitchListTile));
+      final SwitchListTile tile = tester.widget(find.byType(SwitchListTile));
       expect(tile.value, isFalse);
     });
 
