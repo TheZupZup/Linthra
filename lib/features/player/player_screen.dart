@@ -25,10 +25,16 @@ class PlayerScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.watch(playbackControllerProvider);
-    final state =
-        ref.watch(playbackStateProvider).valueOrNull ?? controller.state;
-    final Track? track = state.currentTrack;
+    // Watch only the current track (id-distinct), so the ~5 Hz position ticks
+    // never rebuild this whole screen — above all the full-screen *blurred*
+    // artwork background, which is expensive to re-paint and was rebuilding on
+    // every tick. The position/status pieces watch their own slice in
+    // [_LiveControls], so they stay live without dragging the heavy widgets.
+    final Track? streamed = ref.watch(
+      playbackStateProvider.select((s) => s.valueOrNull?.currentTrack),
+    );
+    final Track? track =
+        streamed ?? ref.read(playbackControllerProvider).state.currentTrack;
 
     return Scaffold(
       body: Stack(
@@ -43,7 +49,7 @@ class PlayerScreen extends ConsumerWidget {
                 Expanded(
                   child: track == null
                       ? const _EmptyNowPlaying()
-                      : _NowPlaying(state: state, track: track),
+                      : _NowPlaying(track: track),
                 ),
               ],
             ),
@@ -103,14 +109,13 @@ class _EmptyNowPlaying extends StatelessWidget {
   }
 }
 
-class _NowPlaying extends ConsumerWidget {
-  const _NowPlaying({required this.state, required this.track});
+class _NowPlaying extends StatelessWidget {
+  const _NowPlaying({required this.track});
 
-  final PlaybackState state;
   final Track track;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
@@ -151,20 +156,43 @@ class _NowPlaying extends ConsumerWidget {
             albumName: track.albumName,
           ),
           const SizedBox(height: AppSpacing.md),
-          _SourceOrError(state: state),
-          const SizedBox(height: AppSpacing.sm),
-          PlaybackProgressBar(
-            position: state.position,
-            duration: state.duration,
-            onSeek: (position) =>
-                ref.read(playbackControllerProvider).seek(position),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          PlaybackControls(state: state),
+          // The only part of the screen that follows the live, high-frequency
+          // playback state — kept separate so the artwork, metadata, and the
+          // blurred background above never rebuild on a position tick.
+          const _LiveControls(),
           const SizedBox(height: AppSpacing.sm),
           NowPlayingActions(track: track),
         ],
       ),
+    );
+  }
+}
+
+/// The source/error line, seekable progress bar, and transport controls —
+/// everything that must follow position/status. Isolated into its own consumer
+/// so a position tick rebuilds only this slim column, not the screen.
+class _LiveControls extends ConsumerWidget {
+  const _LiveControls();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.watch(playbackControllerProvider);
+    final PlaybackState state =
+        ref.watch(playbackStateProvider).valueOrNull ?? controller.state;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SourceOrError(state: state),
+        const SizedBox(height: AppSpacing.sm),
+        PlaybackProgressBar(
+          position: state.position,
+          duration: state.duration,
+          onSeek: (position) =>
+              ref.read(playbackControllerProvider).seek(position),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        PlaybackControls(state: state),
+      ],
     );
   }
 }

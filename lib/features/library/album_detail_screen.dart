@@ -9,6 +9,7 @@ import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
+import 'library_browse_providers.dart';
 import 'library_controller.dart';
 import 'library_grouping.dart';
 import 'library_state.dart';
@@ -36,7 +37,18 @@ class AlbumDetailScreen extends ConsumerWidget {
       );
     }
 
-    final Album? album = albumById(state.tracks, albumId);
+    // Reuse the album grouping the Albums tab already memoized, instead of
+    // re-grouping the entire catalog on every build — that O(N) pass (base64
+    // key + sort per track) blocked the UI thread for seconds on large
+    // libraries when opening a detail page. Only the per-album track list, a
+    // single bounded filter, is derived here.
+    Album? album;
+    for (final Album candidate in ref.watch(libraryAlbumsProvider)) {
+      if (candidate.id == albumId) {
+        album = candidate;
+        break;
+      }
+    }
     final List<Track> tracks = tracksForAlbum(state.tracks, albumId);
     if (album == null || tracks.isEmpty) {
       return Scaffold(

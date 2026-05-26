@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/app_info.dart';
 import '../core/services/active_playback_controller.dart';
 import '../core/services/notification_permission.dart';
+import '../core/services/stability_diagnostics.dart';
 import '../features/player/player_providers.dart';
 import 'router.dart';
 import 'theme.dart';
@@ -51,6 +52,9 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    // A secret-free breadcrumb (debug only): freezes/ANRs cluster around
+    // background/foreground, so logging the transition makes them correlatable.
+    StabilityDiagnostics.lifecycle(state.name);
     // Returning from the background while casting: re-sync from the receiver so
     // the position the UI shows is fresh. This never starts local playback —
     // backgrounding/foregrounding the app must not recreate or resume the local

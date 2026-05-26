@@ -119,7 +119,7 @@ final cachedTrackLocatorProvider = Provider<CachedTrackLocator>((ref) {
 /// the in-memory defaults.
 final sharedPreferencesDownloadStoreOverride =
     downloadStoreProvider.overrideWithValue(
-  const SharedPreferencesDownloadStore(),
+  SharedPreferencesDownloadStore(),
 );
 
 final sharedPreferencesDownloadPreferencesOverride =

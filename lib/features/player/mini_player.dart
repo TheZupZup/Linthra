@@ -5,8 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/colors.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
-import '../../core/models/playback_state.dart';
-import '../../core/services/playback_controller.dart';
+import '../../core/models/track.dart';
 import 'cast/cast_providers.dart';
 import 'player_providers.dart';
 import 'widgets/album_artwork.dart';
@@ -26,22 +25,27 @@ class MiniPlayer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.watch(playbackControllerProvider);
-    final state =
-        ref.watch(playbackStateProvider).valueOrNull ?? controller.state;
+    // Watch only the current track (id-distinct), so the ~5 Hz position ticks
+    // rebuild just the thin progress line and the play/pause button below — not
+    // the whole bar (artwork, text) on every screen, every tick. Falls back to
+    // the controller's latest state until the first stream event arrives.
+    final Track? streamed = ref.watch(
+      playbackStateProvider.select((s) => s.valueOrNull?.currentTrack),
+    );
+    final Track? track =
+        streamed ?? ref.read(playbackControllerProvider).state.currentTrack;
 
     // Collapse entirely when there is nothing to show, so screens without a
     // loaded track look exactly as they did before.
-    if (!state.hasTrack) {
+    if (track == null) {
       return const SizedBox.shrink();
     }
 
     final theme = Theme.of(context);
-    final track = state.currentTrack!;
     final bool isCasting = ref.watch(
       castStateProvider.select((s) => s.valueOrNull?.isConnected ?? false),
     );
-    final subtitle = _subtitle(state);
+    final subtitle = _subtitle(track);
 
     return Material(
       color: theme.colorScheme.surfaceContainerHigh,
@@ -51,10 +55,7 @@ class MiniPlayer extends ConsumerWidget {
           height: 64,
           child: Column(
             children: [
-              _MiniProgressBar(
-                position: state.position,
-                duration: state.duration,
-              ),
+              const _MiniProgressBar(),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
@@ -105,7 +106,7 @@ class MiniPlayer extends ConsumerWidget {
                         const SizedBox(width: AppSpacing.sm),
                       ],
                       const SizedBox(width: AppSpacing.sm),
-                      _PlayPauseButton(state: state, controller: controller),
+                      const _PlayPauseButton(),
                     ],
                   ),
                 ),
@@ -119,8 +120,7 @@ class MiniPlayer extends ConsumerWidget {
 
   /// Artist • album when present; falls back to artist or album alone, and to
   /// nothing when the track carries no metadata.
-  static String? _subtitle(PlaybackState state) {
-    final track = state.currentTrack!;
+  static String? _subtitle(Track track) {
     final parts = <String>[
       if (track.artistName != null && track.artistName!.isNotEmpty)
         track.artistName!,
@@ -134,18 +134,22 @@ class MiniPlayer extends ConsumerWidget {
 /// A 2.5dp accent line tracking playback progress across the mini-player's top
 /// edge. Sits at 0 (an empty track) when the duration is still unknown, so it
 /// never animates indeterminately or jumps.
-class _MiniProgressBar extends StatelessWidget {
-  const _MiniProgressBar({required this.position, required this.duration});
-
-  final Duration position;
-  final Duration duration;
+///
+/// It watches the position/duration itself, so a position tick rebuilds only
+/// this thin line — not the artwork and text above it.
+class _MiniProgressBar extends ConsumerWidget {
+  const _MiniProgressBar();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.watch(playbackControllerProvider);
+    final state =
+        ref.watch(playbackStateProvider).valueOrNull ?? controller.state;
     final theme = Theme.of(context);
-    final int total = duration.inMilliseconds;
-    final double value =
-        total > 0 ? (position.inMilliseconds / total).clamp(0.0, 1.0) : 0.0;
+    final int total = state.duration.inMilliseconds;
+    final double value = total > 0
+        ? (state.position.inMilliseconds / total).clamp(0.0, 1.0)
+        : 0.0;
     return LinearProgressIndicator(
       value: value,
       minHeight: 2.5,
@@ -157,15 +161,16 @@ class _MiniProgressBar extends StatelessWidget {
 
 /// The mini-player's transport control: a spinner while a track loads, then a
 /// play/pause toggle (tinted with the warm accent) that forwards to the
-/// controller.
-class _PlayPauseButton extends StatelessWidget {
-  const _PlayPauseButton({required this.state, required this.controller});
-
-  final PlaybackState state;
-  final PlaybackController controller;
+/// controller. Watches the playback status itself so it stays live even though
+/// the bar around it only rebuilds when the track changes.
+class _PlayPauseButton extends ConsumerWidget {
+  const _PlayPauseButton();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.watch(playbackControllerProvider);
+    final state =
+        ref.watch(playbackStateProvider).valueOrNull ?? controller.state;
     // A spinner for both preparing and mid-stream buffering, so the mini-player
     // shows activity (never looks frozen) while the stream catches up.
     if (state.isBusy) {

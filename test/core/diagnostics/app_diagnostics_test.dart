@@ -110,6 +110,30 @@ void main() {
       expect(report, contains('Smart pre-cache: disabled'));
     });
 
+    test('includes the playback state and a hashed current-track id', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          playbackOutput: 'local',
+          playbackStatus: 'playing',
+          currentTrackIdHash: 'id#1a2b3c',
+        ),
+      );
+
+      expect(report, contains('Playback output: local'));
+      expect(report, contains('Playback state: playing'));
+      // A hash tag — never a raw id, title, or URI.
+      expect(report, contains('Current track: id#1a2b3c'));
+    });
+
+    test('omits the playback state / current track lines when absent', () {
+      final String report =
+          AppDiagnostics.report(const AppDiagnosticsData(appVersion: '0.1.0'));
+
+      expect(report, isNot(contains('Playback state:')));
+      expect(report, isNot(contains('Current track:')));
+    });
+
     test('omits absent optional fields but always reports app version', () {
       final String report =
           AppDiagnostics.report(const AppDiagnosticsData(appVersion: '0.1.0'));

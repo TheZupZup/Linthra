@@ -9,6 +9,7 @@ import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../player/player_providers.dart';
+import 'library_browse_providers.dart';
 import 'library_controller.dart';
 import 'library_grouping.dart';
 import 'library_state.dart';
@@ -38,7 +39,17 @@ class ArtistDetailScreen extends ConsumerWidget {
       );
     }
 
-    final Artist? artist = artistById(state.tracks, artistId);
+    // Reuse the artist grouping the Artists tab already memoized, rather than
+    // re-grouping the whole catalog on every build (the freeze on large
+    // libraries). The per-artist track and album lists below are bounded
+    // filters over the catalog, not another full grouping of it.
+    Artist? artist;
+    for (final Artist candidate in ref.watch(libraryArtistsProvider)) {
+      if (candidate.id == artistId) {
+        artist = candidate;
+        break;
+      }
+    }
     final List<Track> tracks = tracksForArtist(state.tracks, artistId);
     if (artist == null || tracks.isEmpty) {
       return Scaffold(

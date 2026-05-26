@@ -65,6 +65,24 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   final MediaBrowserTree _tree;
   late final StreamSubscription<PlaybackState> _subscription;
 
+  // The last media item / playback state actually pushed to the platform
+  // session. Position ticks arrive several times a second; re-pushing identical
+  // metadata on every one of them thrashes the Android MediaSession and rebuilds
+  // the notification needlessly (a real source of jank/ANR during long
+  // playback), so [_broadcast] pushes only when something the session shows
+  // actually changes. `audio_service` already interpolates the displayed
+  // position from `updatePosition` + the wall clock, so it does not need a push
+  // per tick — only when the position is discontinuous (a seek/track change) or
+  // has drifted enough to re-sync.
+  audio.MediaItem? _lastItem;
+  audio.PlaybackState? _lastPlaybackState;
+  bool _seeded = false;
+
+  /// How far the reported position may drift before a fresh playback-state push
+  /// re-syncs the session — so steady playback produces only this ~1 Hz
+  /// correction rather than ~5 platform pushes a second.
+  static const Duration _positionResyncThreshold = Duration(seconds: 1);
+
   @override
   Future<void> play() => _controller.play();
 
@@ -136,13 +154,69 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   // ------------------------------------------------------------------------
 
   void _broadcast(PlaybackState state) {
-    final track = state.currentTrack;
-    mediaItem.add(
-      track == null
-          ? null
-          : _trackMediaItem(track, id: track.id, live: state.duration),
-    );
-    playbackState.add(_playbackStateFor(state));
+    final Track? track = state.currentTrack;
+    final audio.MediaItem? item = track == null
+        ? null
+        : _trackMediaItem(track, id: track.id, live: state.duration);
+    // Re-push the media item only when its identity/metadata changes (a track
+    // change, or its duration becoming known) — not on every position tick.
+    if (!_seeded || !_sameItem(item, _lastItem)) {
+      _lastItem = item;
+      mediaItem.add(item);
+    }
+    final audio.PlaybackState next = _playbackStateFor(state);
+    if (!_seeded || _shouldPushPlayback(next, _lastPlaybackState)) {
+      _lastPlaybackState = next;
+      playbackState.add(next);
+    }
+    _seeded = true;
+  }
+
+  /// Whether two media items would show the same thing in the session, so a
+  /// re-push can be skipped. Compares the fields the platform renders; all of
+  /// them derive from the track (identified by [audio.MediaItem.id]) plus the
+  /// live duration, so this never drops a real metadata change.
+  static bool _sameItem(audio.MediaItem? a, audio.MediaItem? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null) return false;
+    return a.id == b.id &&
+        a.title == b.title &&
+        a.artist == b.artist &&
+        a.album == b.album &&
+        a.duration == b.duration &&
+        a.artUri == b.artUri;
+  }
+
+  /// Whether a playback state must be pushed to the platform session: when any
+  /// field the session renders as a *control/mode* changes, or when the position
+  /// is discontinuous relative to the last push (a seek, a track reset) or has
+  /// drifted past [_positionResyncThreshold]. Steady position ticks within the
+  /// threshold are skipped — `audio_service` interpolates them.
+  static bool _shouldPushPlayback(
+    audio.PlaybackState next,
+    audio.PlaybackState? last,
+  ) {
+    if (last == null) return true;
+    if (next.playing != last.playing ||
+        next.processingState != last.processingState ||
+        next.shuffleMode != last.shuffleMode ||
+        next.repeatMode != last.repeatMode ||
+        !_sameControls(next.controls, last.controls)) {
+      return true;
+    }
+    return (next.updatePosition - last.updatePosition).abs() >=
+        _positionResyncThreshold;
+  }
+
+  static bool _sameControls(
+    List<audio.MediaControl> a,
+    List<audio.MediaControl> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   audio.MediaItem _mediaItemForNode(MediaNode node) {

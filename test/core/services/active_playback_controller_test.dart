@@ -96,6 +96,29 @@ void main() {
       );
       expect(state.position, const Duration(seconds: 42));
     });
+
+    test('passive position updates never re-issue play or load', () async {
+      local = FakePlaybackController();
+      await local.playTracks(const <Track>[_trackA, _trackB]);
+      cast = FakeCastService();
+      final controller = build();
+      addTearDown(controller.dispose);
+
+      final int playsBefore = local.playCount;
+      final int playedBefore = local.playedTracks.length;
+
+      // The engine's position stream pushes a series of position-only updates;
+      // the merged controller must only mirror them out, never command playback.
+      for (int s = 1; s <= 5; s++) {
+        local.emit(local.state.copyWith(position: Duration(seconds: s)));
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(local.playCount, playsBefore);
+      expect(local.playedTracks.length, playedBefore);
+      expect(cast.playCount, 0);
+      expect(cast.seeks, isEmpty);
+    });
   });
 
   group('handoff to cast', () {

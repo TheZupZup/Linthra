@@ -121,6 +121,95 @@ void main() {
       );
     });
 
+    group('session updates are not flooded by position ticks', () {
+      test('the media item is pushed once per track, not per position tick',
+          () async {
+        final List<audio.MediaItem?> items = <audio.MediaItem?>[];
+        final sub = handler.mediaItem.listen(items.add);
+        addTearDown(sub.cancel);
+
+        await controller.playTracks(<Track>[_track('a'), _track('b')]);
+        await _settle();
+        // Four position-only updates for the same track, each well under a
+        // second apart — exactly what the engine's position stream produces.
+        for (int ms = 200; ms <= 800; ms += 200) {
+          controller.emit(
+            controller.state.copyWith(position: Duration(milliseconds: ms)),
+          );
+          await _settle();
+        }
+
+        // Only one real item (track 'a') reached the session despite the ticks.
+        final List<audio.MediaItem> nonNull =
+            items.whereType<audio.MediaItem>().toList();
+        expect(nonNull, hasLength(1));
+        expect(nonNull.single.id, 'a');
+      });
+
+      test('playback state is not re-pushed on sub-second position ticks',
+          () async {
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+
+        final List<audio.PlaybackState> pushed = <audio.PlaybackState>[];
+        final sub = handler.playbackState.listen(pushed.add);
+        addTearDown(sub.cancel);
+        await _settle();
+        // Listening replays the current value; count only pushes after that.
+        final int baseline = pushed.length;
+
+        for (int ms = 100; ms <= 900; ms += 200) {
+          controller.emit(
+            controller.state.copyWith(position: Duration(milliseconds: ms)),
+          );
+          await _settle();
+        }
+
+        // Same shape, drift under the 1s threshold: nothing new was pushed —
+        // audio_service interpolates the displayed position between pushes.
+        expect(pushed.length, baseline);
+      });
+
+      test('a position jump (a seek) is pushed immediately', () async {
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+
+        final List<audio.PlaybackState> pushed = <audio.PlaybackState>[];
+        final sub = handler.playbackState.listen(pushed.add);
+        addTearDown(sub.cancel);
+        await _settle();
+        final int baseline = pushed.length;
+
+        // A discontinuity (>1s) is a seek/track reset and must re-sync.
+        controller.emit(
+          controller.state.copyWith(position: const Duration(seconds: 30)),
+        );
+        await _settle();
+
+        expect(pushed.length, greaterThan(baseline));
+      });
+
+      test('a pause is pushed even when the position is steady', () async {
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+
+        final List<audio.PlaybackState> pushed = <audio.PlaybackState>[];
+        final sub = handler.playbackState.listen(pushed.add);
+        addTearDown(sub.cancel);
+        await _settle();
+        final int baseline = pushed.length;
+
+        // Same position, different shape (paused): a control change always pushes.
+        controller.emit(
+          controller.state.copyWith(status: PlaybackStatus.paused),
+        );
+        await _settle();
+
+        expect(pushed.length, greaterThan(baseline));
+        expect(pushed.last.playing, isFalse);
+      });
+    });
+
     group('media browser', () {
       test('root lists Library and Queue as browsable categories', () async {
         final children = await handler.getChildren(MediaId.root);

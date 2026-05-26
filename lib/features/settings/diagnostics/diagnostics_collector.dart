@@ -6,7 +6,9 @@ import '../../../core/app_info.dart';
 import '../../../core/diagnostics/app_diagnostics.dart';
 import '../../../core/models/active_playback_output.dart';
 import '../../../core/models/cast_state.dart';
+import '../../../core/models/playback_state.dart';
 import '../../../core/services/active_playback_controller.dart';
+import '../../../core/services/playback_diagnostics.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../downloads/download_providers.dart';
 import '../../player/cast/cast_providers.dart';
@@ -57,6 +59,8 @@ class DiagnosticsCollector {
       cacheUsedBytes: _cacheUsedBytes(),
       cacheLimitBytes: _cacheLimitBytes(),
       playbackOutput: _playbackOutput(),
+      playbackStatus: _playbackStatus(),
+      currentTrackIdHash: _currentTrackIdHash(),
       lastErrorKind: jellyfin.errorKind?.name ?? subsonic.errorKind?.name,
       castAvailable: cast.isAvailable,
       castConnected: cast.isConnected,
@@ -134,6 +138,25 @@ class DiagnosticsCollector {
       case ActivePlaybackOutput.cast:
         return 'cast';
     }
+  }
+
+  /// The current playback status as a stable enum name, or null when nothing is
+  /// loaded (so a quiet, never-played session reports no line).
+  String? _playbackStatus() {
+    final PlaybackState state = _ref.read(playbackControllerProvider).state;
+    if (state.currentTrack == null && state.status == PlaybackStatus.idle) {
+      return null;
+    }
+    return state.status.name;
+  }
+
+  /// A non-reversible hash of the currently playing track's id (never the id,
+  /// title, or URI), or null when nothing is playing.
+  String? _currentTrackIdHash() {
+    final String? id =
+        _ref.read(playbackControllerProvider).state.currentTrack?.id;
+    if (id == null || id.isEmpty) return null;
+    return PlaybackDiagnostics.redactId(id);
   }
 }
 

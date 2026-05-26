@@ -13,6 +13,7 @@ import 'local_playable_uri_resolver.dart';
 import 'local_playback_controller.dart';
 import 'playable_uri_resolver.dart';
 import 'playback_controller.dart';
+import 'stability_diagnostics.dart';
 import 'stream_interruption.dart';
 
 /// [PlaybackController] backed by `just_audio`.
@@ -96,6 +97,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   // so each track (and each successful stretch) gets its own one-retry budget.
   int _retriesForCurrent = 0;
 
+  // The latest engine position awaiting a coalesced flush, and the timer that
+  // flushes it. The engine's positionStream can fire several times a second
+  // (more in bursts during seeking/buffering); emitting a new state for every
+  // raw tick floods the unified stream — and the UI, media session, and
+  // pre-cache services hanging off it. These coalesce position onto a steady
+  // cadence; status/duration/track changes still emit immediately.
+  Duration? _pendingPosition;
+  Timer? _positionFlush;
+  static const Duration _positionFlushInterval = Duration(milliseconds: 250);
+
   @override
   PlaybackState get state => _state;
 
@@ -124,7 +135,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     }));
     _subscriptions.add(_player.positionStream.listen((position) {
       if (_suspended) return;
-      _emit(_state.copyWith(position: position));
+      // Coalesce raw position ticks onto a steady ~4 Hz flush so a high (or
+      // bursty) engine tick rate can never flood the state stream with rebuilds.
+      _pendingPosition = position;
+      _positionFlush ??=
+          Timer.periodic(_positionFlushInterval, (_) => _flushPosition());
     }));
     _subscriptions.add(_player.durationStream.listen((duration) {
       if (_suspended) return;
@@ -158,6 +173,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (track == null) return;
 
     final StreamInterruption interruption = classifyEngineError(error);
+    // Secret-free breadcrumb: only the classified *kind*, never the raw error
+    // (which can echo a tokenized stream URL).
+    StabilityDiagnostics.playbackError(interruption.kind.name);
     if (interruption.retryable && _retriesForCurrent < _maxStreamRetries) {
       _retriesForCurrent++;
       // Re-resolve and reload at the preserved position. The resolver re-checks
@@ -203,6 +221,30 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (next == _state) return;
     _state = next;
     if (!_states.isClosed) _states.add(next);
+  }
+
+  /// Emits the latest coalesced position. When nothing new has arrived since the
+  /// last flush (paused/stopped), it stops the timer so it never ticks idly; the
+  /// next position event restarts it.
+  void _flushPosition() {
+    final Duration? position = _pendingPosition;
+    _pendingPosition = null;
+    if (position == null) {
+      _positionFlush?.cancel();
+      _positionFlush = null;
+      return;
+    }
+    if (_suspended) return;
+    _emit(_state.copyWith(position: position));
+  }
+
+  /// Drops any pending position and stops the flush timer, so a stale tick from
+  /// the previous source can't flush onto a freshly established state (a new
+  /// track loading, stop, or a cast handoff).
+  void _resetPositionFlush() {
+    _pendingPosition = null;
+    _positionFlush?.cancel();
+    _positionFlush = null;
   }
 
   @override
@@ -311,6 +353,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final track = _queue.current;
     if (track == null) return;
 
+    // A fresh load (or retry) establishes a new position baseline; drop any
+    // coalesced tick from the previous source so it can't flush onto it.
+    _resetPositionFlush();
+
     // A fresh (non-retry) load starts a new track or a deliberate (re)play, so
     // reset the mid-stream recovery budget. A retry must keep its counter.
     if (!isRetry) _retriesForCurrent = 0;
@@ -355,10 +401,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       resolved = await _resolver.resolve(track);
     } on PlaybackResolutionException catch (error) {
       // A resolver failure carries its own friendly, secret-free message.
+      StabilityDiagnostics.playbackError('resolution');
       _emitError(track, error.message);
       return;
     } catch (_) {
       // An unexpected error before we even know the source: stay generic.
+      StabilityDiagnostics.playbackError('resolution-unknown');
       _emitError(track, "Couldn't play this track.");
       return;
     }
@@ -383,6 +431,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     } catch (_) {
       // The URL resolved and (for streams) probed OK, so a failure here is the
       // engine itself. Word it for the source the listener can see on the badge.
+      StabilityDiagnostics.playbackError('load');
       _emitError(track, _loadErrorFor(resolved.source));
     }
   }
@@ -416,6 +465,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Future<void> suspend() async {
     if (_suspended) return;
     _suspended = true;
+    // A cast receiver now owns position; stop flushing local ticks underneath it.
+    _resetPositionFlush();
     // Silence the engine but keep the loaded source and queue intact, so a
     // later resume can pick up the same track instantly when nothing changed.
     await _player.pause();
@@ -450,6 +501,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   @override
   Future<void> stop() async {
+    _resetPositionFlush();
     await _player.stop();
     final stopped = PlaybackState(
       currentTrack: _state.currentTrack,
@@ -469,6 +521,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   @override
   Future<void> dispose() async {
+    _resetPositionFlush();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }

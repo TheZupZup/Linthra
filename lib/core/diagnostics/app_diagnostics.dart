@@ -25,6 +25,8 @@ class AppDiagnosticsData {
     this.cacheUsedBytes,
     this.cacheLimitBytes,
     this.playbackOutput,
+    this.playbackStatus,
+    this.currentTrackIdHash,
     this.lastErrorKind,
     this.castAvailable = false,
     this.castConnected = false,
@@ -69,6 +71,15 @@ class AppDiagnosticsData {
   /// Which output is producing sound now: `local`, `cast`, or `android auto`.
   /// Null when nothing is playing / not known.
   final String? playbackOutput;
+
+  /// The current playback status (a stable enum name like `playing`/`buffering`/
+  /// `error`), when a controller is available. Null otherwise.
+  final String? playbackStatus;
+
+  /// A non-reversible hash tag of the currently playing track's id (e.g.
+  /// `id#1a2b3c`) — never the raw id, title, or URI — so a report can correlate
+  /// "which track was playing when it froze" without revealing anything.
+  final String? currentTrackIdHash;
 
   /// The stable name of the last safe error kind (an enum name), when one
   /// occurred. Never a raw error message.
@@ -116,6 +127,10 @@ abstract final class AppDiagnostics {
       if (cache != null) cache,
       if (data.playbackOutput != null)
         'Playback output: ${data.playbackOutput}',
+      if (data.playbackStatus != null)
+        'Playback state: ${data.playbackStatus}',
+      if (data.currentTrackIdHash != null)
+        'Current track: ${data.currentTrackIdHash}',
       'Last error: ${data.lastErrorKind ?? 'none'}',
       'Cast available: ${_yesNo(data.castAvailable)}',
       'Cast connected: ${_yesNo(data.castConnected)}',

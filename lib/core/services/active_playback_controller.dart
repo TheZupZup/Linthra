@@ -9,6 +9,7 @@ import '../models/track.dart';
 import 'cast/cast_service.dart';
 import 'local_playback_controller.dart';
 import 'playback_controller.dart';
+import 'stability_diagnostics.dart';
 
 /// The single [PlaybackController] the UI talks to, routing between the
 /// on-device engine and a cast receiver and presenting *one* unified
@@ -124,6 +125,7 @@ class ActivePlaybackController implements PlaybackController {
       // A handoff began: the receiver is the active output. Silence the engine
       // so audio isn't heard twice; the queue stays owned locally.
       _output = ActivePlaybackOutput.cast;
+      StabilityDiagnostics.output('cast');
       unawaited(_local.suspend());
     } else if (!shouldCast && _output == ActivePlaybackOutput.cast) {
       // The session ended (user disconnect or a dropped receiver). Return to the
@@ -131,6 +133,7 @@ class ActivePlaybackController implements PlaybackController {
       // surprise-starts; the user can press play to continue here.
       final Duration resumeAt = _interpolatedCastPosition();
       _output = ActivePlaybackOutput.local;
+      StabilityDiagnostics.output('local');
       _castStatus = CastPlaybackStatus.idle;
       _castAnchoredAt = null;
       _castWasCompleted = false;

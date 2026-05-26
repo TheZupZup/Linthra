@@ -4,6 +4,7 @@ import '../models/playback_state.dart';
 import '../models/repeat_mode.dart';
 import '../models/track.dart';
 import '../repositories/download_preferences.dart';
+import 'stability_diagnostics.dart';
 import 'track_prefetcher.dart';
 
 /// Smart pre-cache: warms a small number of upcoming Jellyfin tracks into the
@@ -108,15 +109,24 @@ class SmartPrecacheService {
   Future<void> _precacheUpcoming(PlaybackState state) async {
     final List<Track> upNext = state.upNext;
     if (upNext.isEmpty) return;
-    if (!await _preferences.preloadEnabled()) return;
+    if (!await _preferences.preloadEnabled()) {
+      StabilityDiagnostics.precache('skip:disabled');
+      return;
+    }
     // Repeat-one replays the current track indefinitely, so the up-next won't
     // play soon. Don't aggressively pre-cache unrelated tracks — stay quiet.
-    if (state.repeatMode == RepeatMode.one) return;
+    if (state.repeatMode == RepeatMode.one) {
+      StabilityDiagnostics.precache('skip:repeat-one');
+      return;
+    }
     final int aheadCount = sanitizePrecacheCount(
       await _preferences.precacheCount(),
     );
     if (aheadCount <= 0) return;
     final int count = upNext.length < aheadCount ? upNext.length : aheadCount;
+    // Secret-free count only — never which tracks. A real pre-cache pass per
+    // queue change (not per position tick — see [_onState]) reads as one log.
+    StabilityDiagnostics.precache('start:$count');
     for (int i = 0; i < count; i++) {
       // Sequential on purpose: one warm fetch at a time keeps pre-cache off the
       // critical path and lets the cache limit settle between writes.
