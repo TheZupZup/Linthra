@@ -202,11 +202,48 @@ class _SourceOrError extends ConsumerWidget {
         textAlign: TextAlign.center,
       );
     }
+    // A mid-stream re-buffer: a calm "Buffering…" hint rather than the source
+    // badge, so it's clear the stream is catching up (not stalled).
+    if (state.status == PlaybackStatus.buffering) {
+      return const _BufferingIndicator();
+    }
     final source = state.source;
     if (source == null) {
       return const SizedBox(height: 28);
     }
     return PlaybackSourceChip(source: source);
+  }
+}
+
+/// A small, calm "Buffering…" hint shown on Now Playing during a mid-stream
+/// re-buffer, so the screen reads as catching-up rather than frozen.
+class _BufferingIndicator extends StatelessWidget {
+  const _BufferingIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox.square(
+          dimension: 14,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        Text(
+          'Buffering…',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            letterSpacing: 0.3,
+          ),
+        ),
+      ],
+    );
   }
 }
 

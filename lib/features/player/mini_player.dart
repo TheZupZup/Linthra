@@ -166,7 +166,9 @@ class _PlayPauseButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (state.status == PlaybackStatus.loading) {
+    // A spinner for both preparing and mid-stream buffering, so the mini-player
+    // shows activity (never looks frozen) while the stream catches up.
+    if (state.isBusy) {
       return const SizedBox.square(
         dimension: 24,
         child: Padding(

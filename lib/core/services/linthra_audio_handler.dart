@@ -234,6 +234,8 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
         return audio.AudioProcessingState.idle;
       case PlaybackStatus.loading:
         return audio.AudioProcessingState.loading;
+      case PlaybackStatus.buffering:
+        return audio.AudioProcessingState.buffering;
       case PlaybackStatus.playing:
       case PlaybackStatus.paused:
         return audio.AudioProcessingState.ready;

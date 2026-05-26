@@ -12,6 +12,8 @@ import '../../core/services/playable_uri_resolver.dart';
 import '../../core/services/playback_controller.dart';
 import '../../core/services/routing_playable_uri_resolver.dart';
 import '../../core/services/smart_precache_service.dart';
+import '../../core/services/stream_preload_service.dart';
+import '../../core/services/stream_preloading_resolver.dart';
 import '../../core/sources/jellyfin/jellyfin_playable_uri_resolver.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import '../../data/repositories/download_repository_provider.dart';
@@ -19,24 +21,39 @@ import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
 import 'cast/cast_providers.dart';
 
+/// The source router wrapped in the stream-preloading decorator.
+///
+/// Pinned as its own provider so the controller's resolver **and** the
+/// [streamPreloadServiceProvider] share the *same* in-memory preload cache: the
+/// service warms the next remote track's stream URL here, and the controller
+/// consumes it on the next play. It only ever holds short-lived remote URLs in
+/// memory — never the offline cache. Depends only on lazily-read source getters,
+/// so signing in/out is picked up without rebuilding (keeping the instance, and
+/// its cache, stable for the session).
+final streamPreloadingResolverProvider =
+    Provider<StreamPreloadingResolver>((ref) {
+  return StreamPreloadingResolver(
+    RoutingPlayableUriResolver(<PlayableUriResolver>[
+      JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
+      SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
+      const LocalPlayableUriResolver(),
+    ]),
+  );
+});
+
 /// Composes the [PlayableUriResolver] the controller resolves tracks through.
 ///
 /// Offline first: a downloaded track resolves to its cached `file://` copy
-/// before anything else. On a cache miss it falls through to the source router,
-/// which mints an authenticated Jellyfin stream URL at play time (reading the
-/// live signed-in source, so sign-in/out is picked up without a rebuild) and
-/// sends everything else to the on-device resolver. The UI and controller
-/// depend only on the [PlayableUriResolver] interface, never on Jellyfin, the
-/// cache, or HTTP.
+/// before anything else. On a cache miss it falls through to the
+/// stream-preloading source router, which serves a pre-warmed URL when one is
+/// ready or mints a fresh authenticated stream URL at play time (reading the
+/// live signed-in source, so sign-in/out is picked up without a rebuild). The UI
+/// and controller depend only on the [PlayableUriResolver] interface, never on
+/// Jellyfin, the cache, or HTTP.
 final playableUriResolverProvider = Provider<PlayableUriResolver>((ref) {
-  final fallback = RoutingPlayableUriResolver(<PlayableUriResolver>[
-    JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
-    SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
-    const LocalPlayableUriResolver(),
-  ]);
   return OfflineFirstPlayableUriResolver(
     locator: ref.watch(cachedTrackLocatorProvider),
-    fallback: fallback,
+    fallback: ref.watch(streamPreloadingResolverProvider),
     // On a cache hit, refresh the track's least-recently-used position so
     // eviction keeps what's actually listened to. Read lazily (no build-time
     // dependency on the cache manager) and never awaited — a metadata write
@@ -109,6 +126,25 @@ final smartPrecacheServiceProvider = Provider<SmartPrecacheService>((ref) {
     playbackStates: ref.read(playbackControllerProvider).stateStream,
     prefetcher: ref.read(trackPrefetcherProvider),
     preferences: ref.read(downloadPreferencesProvider),
+  );
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+/// Stream preload: as playback advances, warms the **immediate next** remote
+/// track's stream URL into the shared in-memory cache so a skip starts faster.
+///
+/// This is **not** the offline cache — it never writes bytes to disk, never
+/// marks a track as downloaded, and never blocks the current track (best-effort,
+/// one warm at a time, calm under repeat-one). It complements smart pre-cache
+/// (which warms upcoming tracks to *disk*). Pinned for the session like the
+/// controller; reads its seams once with [Ref.read]. It does its work as a side
+/// effect of listening, so `main` instantiates it once after startup; nothing in
+/// the UI reads its value.
+final streamPreloadServiceProvider = Provider<StreamPreloadService>((ref) {
+  final service = StreamPreloadService(
+    playbackStates: ref.read(playbackControllerProvider).stateStream,
+    preloader: ref.read(streamPreloadingResolverProvider),
   );
   ref.onDispose(service.dispose);
   return service;

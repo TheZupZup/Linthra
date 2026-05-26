@@ -125,8 +125,11 @@ class _PlayPauseButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Only the initial prepare shows the spinner-and-disabled state. A mid-stream
+    // re-buffer keeps the (active) pause button so the user stays in control —
+    // the calm "Buffering…" hint on Now Playing signals the wait instead.
     final bool loading = state.status == PlaybackStatus.loading;
-    final bool playing = state.isPlaying;
+    final bool playing = state.isPlaying || state.isBuffering;
     final VoidCallback? onTap =
         loading ? null : (playing ? controller.pause : controller.play);
 

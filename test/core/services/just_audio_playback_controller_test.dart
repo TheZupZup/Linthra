@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/services/just_audio_playback_controller.dart';
 
@@ -72,6 +74,41 @@ void main() {
         containsAllInOrder(<RepeatMode>[RepeatMode.all, RepeatMode.one]),
       );
       await sub.cancel();
+    });
+  });
+
+  group('JustAudioPlaybackController.statusFor', () {
+    // Pure mapping from the engine's (playing, processingState) pair to the
+    // app's PlaybackStatus — no platform channel, no playback.
+    PlaybackStatus map(bool playing, ProcessingState state) =>
+        JustAudioPlaybackController.statusFor(PlayerState(playing, state));
+
+    test('an idle engine is idle', () {
+      expect(map(false, ProcessingState.idle), PlaybackStatus.idle);
+    });
+
+    test('loading is the preparing state', () {
+      expect(map(false, ProcessingState.loading), PlaybackStatus.loading);
+      expect(map(true, ProcessingState.loading), PlaybackStatus.loading);
+    });
+
+    test('buffering while playing is the mid-stream buffering state', () {
+      // The engine wants to play but is waiting for data: a calm "Buffering…",
+      // not a frozen player.
+      expect(map(true, ProcessingState.buffering), PlaybackStatus.buffering);
+    });
+
+    test('buffering before the first play is still preparing (loading)', () {
+      expect(map(false, ProcessingState.buffering), PlaybackStatus.loading);
+    });
+
+    test('ready maps to playing or paused by the play flag', () {
+      expect(map(true, ProcessingState.ready), PlaybackStatus.playing);
+      expect(map(false, ProcessingState.ready), PlaybackStatus.paused);
+    });
+
+    test('completed maps to completed', () {
+      expect(map(false, ProcessingState.completed), PlaybackStatus.completed);
     });
   });
 }
