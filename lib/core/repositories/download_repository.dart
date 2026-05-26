@@ -4,6 +4,41 @@ import '../models/track.dart';
 /// Where a track stands in the offline-download lifecycle.
 enum DownloadStatus { notDownloaded, queued, downloading, downloaded, failed }
 
+/// The result of a [DownloadRepository.requestDownload] call, so the UI can tell
+/// the user *why* a download didn't start instead of failing silently.
+enum DownloadRequestOutcome {
+  /// The download started, was already in progress/finished, or (for an
+  /// on-device track) was recorded immediately.
+  started,
+
+  /// Held back by the network policy: the device is on mobile data and the user
+  /// hasn't allowed it (or the connection type is unknown). The track is queued
+  /// and starts on Wi-Fi, or once the user allows mobile data.
+  waitingForWifi,
+
+  /// Held back because the device is offline. The track is queued and starts
+  /// when a connection returns.
+  waitingForConnection,
+}
+
+/// A friendly, secret-free line for an outcome that didn't start, or `null` when
+/// the download started (so callers stay quiet on success). Never carries a URL,
+/// token, or path, so the UI can show it verbatim.
+extension DownloadRequestOutcomeMessage on DownloadRequestOutcome {
+  String? get blockedMessage {
+    switch (this) {
+      case DownloadRequestOutcome.started:
+        return null;
+      case DownloadRequestOutcome.waitingForWifi:
+        return 'Downloads are limited to Wi-Fi. Turn on "Allow mobile data" in '
+            'Settings to download over mobile data.';
+      case DownloadRequestOutcome.waitingForConnection:
+        return "You're offline. This download will start automatically when "
+            "you're back online.";
+    }
+  }
+}
+
 /// Thrown by [DownloadRepository.requestDownload] when a download can't be
 /// cached because the cache is at its limit and nothing safe is left to evict
 /// (everything remaining is pinned or currently playing, or the track is larger
@@ -27,9 +62,10 @@ class CacheStorageException implements Exception {
 /// Tracks which library items are available offline.
 ///
 /// Downloads in Linthra are always *explicit and user-initiated* — never
-/// automatic. Implementations must also honor the user's "Wi-Fi only" pref
-/// (queueing rather than downloading over mobile data when set), so that
-/// promise is enforced in one place rather than scattered through the UI.
+/// automatic. Implementations must also honor the user's mobile-data preference
+/// (queueing rather than downloading over mobile data unless the user allowed
+/// it), so that promise is enforced in one place rather than scattered through
+/// the UI.
 ///
 /// [requestDownload] takes the whole [Track], not just an id, so the repository
 /// can be *source-aware*: a remote (Jellyfin) track has its bytes fetched and
@@ -56,7 +92,11 @@ abstract interface class DownloadRepository {
   /// To stay under the user's cache limit, a remote download may first evict
   /// least-recently-used, unpinned, not-currently-playing tracks. If even then
   /// there isn't room, it throws [CacheStorageException] and caches nothing.
-  Future<void> requestDownload(Track track);
+  ///
+  /// Returns a [DownloadRequestOutcome] so the caller can tell the user when a
+  /// download was queued by the network policy (mobile data not allowed, or
+  /// offline) rather than started.
+  Future<DownloadRequestOutcome> requestDownload(Track track);
 
   /// Removes the offline copy of [trackId], deleting any cached file and
   /// freeing storage.

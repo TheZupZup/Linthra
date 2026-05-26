@@ -9,21 +9,22 @@ import '../../core/repositories/download_preferences.dart';
 class SharedPreferencesDownloadPreferences implements DownloadPreferences {
   const SharedPreferencesDownloadPreferences();
 
-  static const String _wifiOnlyKey = 'downloads_wifi_only';
+  static const String _allowMobileDataKey = 'downloads_allow_mobile_data';
   static const String _maxCacheBytesKey = 'downloads_max_cache_bytes';
   static const String _preloadEnabledKey = 'downloads_preload_enabled';
   static const String _precacheCountKey = 'downloads_precache_count';
 
   @override
-  Future<bool> wifiOnly() async {
+  Future<bool> allowMobileData() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_wifiOnlyKey) ?? false;
+    // Default false: Wi-Fi only is the safe out-of-the-box behaviour.
+    return prefs.getBool(_allowMobileDataKey) ?? false;
   }
 
   @override
-  Future<void> setWifiOnly(bool value) async {
+  Future<void> setAllowMobileData(bool value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_wifiOnlyKey, value);
+    await prefs.setBool(_allowMobileDataKey, value);
   }
 
   @override

@@ -311,14 +311,19 @@ class _OverflowMenu extends ConsumerWidget {
     }
   }
 
-  /// Starts the download, surfacing the one user-facing failure that isn't a
-  /// transient "failed" status: a full cache with nothing safe to evict. The
-  /// message is friendly and secret-free; other errors fall through to the
-  /// row's "failed" indicator (with a retry action).
+  /// Starts the download, surfacing the friendly, secret-free reasons it might
+  /// not start: a full cache with nothing safe to evict, or the network policy
+  /// queueing it (mobile data not allowed, or offline). Other errors fall
+  /// through to the row's "failed" indicator (with a retry action).
   Future<void> _download(BuildContext context, WidgetRef ref) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     try {
-      await ref.read(downloadRepositoryProvider).requestDownload(track);
+      final DownloadRequestOutcome outcome =
+          await ref.read(downloadRepositoryProvider).requestDownload(track);
+      final String? message = outcome.blockedMessage;
+      if (message != null) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
     } on CacheStorageException catch (error) {
       messenger.showSnackBar(SnackBar(content: Text(error.message)));
     }

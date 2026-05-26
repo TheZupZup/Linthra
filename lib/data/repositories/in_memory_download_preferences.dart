@@ -4,26 +4,26 @@ import '../../core/repositories/download_preferences.dart';
 /// A non-persistent [DownloadPreferences] for development and tests.
 class InMemoryDownloadPreferences implements DownloadPreferences {
   InMemoryDownloadPreferences({
-    bool wifiOnly = false,
+    bool allowMobileData = false,
     int maxCacheBytes = CacheSize.defaultLimit,
     bool preloadEnabled = true,
     int precacheCount = kDefaultPrecacheCount,
-  })  : _wifiOnly = wifiOnly,
+  })  : _allowMobileData = allowMobileData,
         _maxCacheBytes = maxCacheBytes,
         _preloadEnabled = preloadEnabled,
         _precacheCount = sanitizePrecacheCount(precacheCount);
 
-  bool _wifiOnly;
+  bool _allowMobileData;
   int _maxCacheBytes;
   bool _preloadEnabled;
   int _precacheCount;
 
   @override
-  Future<bool> wifiOnly() async => _wifiOnly;
+  Future<bool> allowMobileData() async => _allowMobileData;
 
   @override
-  Future<void> setWifiOnly(bool value) async {
-    _wifiOnly = value;
+  Future<void> setAllowMobileData(bool value) async {
+    _allowMobileData = value;
   }
 
   @override

@@ -10,7 +10,7 @@ import '../models/track.dart';
 ///
 /// A pre-cache is *best-effort and never user-visible as a download*: it caches
 /// a remote track's bytes (skipping local tracks, which are already on disk),
-/// honours the user's "Wi-Fi only" and smart-pre-cache preferences, stays under
+/// honours the user's mobile-data and smart-pre-cache preferences, stays under
 /// the cache limit (evicting other pre-cached entries first), and silently does
 /// nothing on any failure — the track still streams normally when it's reached.
 abstract interface class TrackPrefetcher {

@@ -64,8 +64,9 @@ data stays on the device.
 Tracks you explicitly download, and tracks the app pre-caches to play smoothly,
 are stored as files in Linthra's **local storage on your device**, within a
 size limit you control. Downloads are always **user-initiated** — Linthra does
-not silently download your library. A "Wi-Fi only" option is available for
-remote downloads.
+not silently download your library. Downloads and pre-caching use **Wi-Fi only
+by default**; an optional "Allow mobile data" setting lets them use mobile data
+once you opt in.
 
 ### App settings
 

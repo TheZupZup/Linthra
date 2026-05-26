@@ -288,53 +288,94 @@ void main() {
       expect(downloader.fetchCount, 1);
     });
 
-    group('Wi-Fi only policy (remote downloads)', () {
-      test('queues instead of downloading when on mobile', () async {
-        await preferences.setWifiOnly(true);
+    group('mobile-data policy (remote downloads)', () {
+      test('Wi-Fi only by default: queues on mobile and reports why', () async {
+        // Default preference: mobile data is not allowed.
         connectivity.status = NetworkStatus.mobile;
         final repository = build();
 
-        await repository.requestDownload(_jellyfin('j1'));
+        final DownloadRequestOutcome outcome =
+            await repository.requestDownload(_jellyfin('j1'));
 
+        expect(outcome, DownloadRequestOutcome.waitingForWifi);
         expect(await repository.statusFor('j1'), DownloadStatus.queued);
         expect(downloader.fetchCount, 0);
         expect(await store.loadDownloads(), isEmpty);
       });
 
-      test('downloads when on Wi-Fi', () async {
-        await preferences.setWifiOnly(true);
+      test('downloads when on Wi-Fi even with mobile data not allowed',
+          () async {
         connectivity.status = NetworkStatus.wifi;
         final repository = build();
 
-        await repository.requestDownload(_jellyfin('j1'));
+        final DownloadRequestOutcome outcome =
+            await repository.requestDownload(_jellyfin('j1'));
 
+        expect(outcome, DownloadRequestOutcome.started);
         expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
       });
 
-      test('downloads over mobile when the preference is off', () async {
-        await preferences.setWifiOnly(false);
+      test('downloads over mobile when the user allows mobile data', () async {
+        await preferences.setAllowMobileData(true);
         connectivity.status = NetworkStatus.mobile;
         final repository = build();
 
-        await repository.requestDownload(_jellyfin('j1'));
+        final DownloadRequestOutcome outcome =
+            await repository.requestDownload(_jellyfin('j1'));
 
+        expect(outcome, DownloadRequestOutcome.started);
         expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
       });
 
-      test('a local track is never queued, even off Wi-Fi', () async {
-        await preferences.setWifiOnly(true);
+      test('queues with a connection-waiting reason when offline', () async {
+        // Even with mobile data allowed, offline means there is no link to use.
+        await preferences.setAllowMobileData(true);
+        connectivity.status = NetworkStatus.offline;
+        final repository = build();
+
+        final DownloadRequestOutcome outcome =
+            await repository.requestDownload(_jellyfin('j1'));
+
+        expect(outcome, DownloadRequestOutcome.waitingForConnection);
+        expect(await repository.statusFor('j1'), DownloadStatus.queued);
+        expect(downloader.fetchCount, 0);
+      });
+
+      test('treats an unknown connection conservatively, like mobile data',
+          () async {
+        connectivity.status = NetworkStatus.unknown;
+        final repository = build();
+
+        // Mobile data not allowed: an unknown link is held for Wi-Fi…
+        expect(
+          await repository.requestDownload(_jellyfin('j1')),
+          DownloadRequestOutcome.waitingForWifi,
+        );
+        expect(await repository.statusFor('j1'), DownloadStatus.queued);
+
+        // …and allowed once the user opts into mobile data.
+        await preferences.setAllowMobileData(true);
+        expect(
+          await repository.requestDownload(_jellyfin('j1')),
+          DownloadRequestOutcome.started,
+        );
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+      });
+
+      test('a local track is never queued, even on mobile data', () async {
         connectivity.status = NetworkStatus.mobile;
         final repository = build();
 
-        await repository.requestDownload(_local('a'));
+        final DownloadRequestOutcome outcome =
+            await repository.requestDownload(_local('a'));
 
-        // Already local: the Wi-Fi gate doesn't apply (no bytes to fetch).
+        // Already local: the network gate doesn't apply (no bytes to fetch).
+        expect(outcome, DownloadRequestOutcome.started);
         expect(await repository.statusFor('a'), DownloadStatus.downloaded);
       });
 
       test('a queued track downloads on an explicit retry once on Wi-Fi',
           () async {
-        await preferences.setWifiOnly(true);
         connectivity.status = NetworkStatus.mobile;
         final repository = build();
         await repository.requestDownload(_jellyfin('j1'));
@@ -344,6 +385,28 @@ void main() {
         await repository.requestDownload(_jellyfin('j1'));
 
         expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+      });
+
+      test('blocked-download messages are friendly and secret-free', () async {
+        // No URL, token, scheme, or path leaks into what the user would see.
+        const String wifi =
+            'Downloads are limited to Wi-Fi. Turn on "Allow mobile data" in '
+            'Settings to download over mobile data.';
+        const String offline =
+            "You're offline. This download will start automatically when "
+            "you're back online.";
+        expect(DownloadRequestOutcome.waitingForWifi.blockedMessage, wifi);
+        expect(
+          DownloadRequestOutcome.waitingForConnection.blockedMessage,
+          offline,
+        );
+        expect(DownloadRequestOutcome.started.blockedMessage, isNull);
+        for (final String message in <String>[wifi, offline]) {
+          expect(message, isNot(contains('jellyfin:')));
+          expect(message, isNot(contains('http')));
+          expect(message, isNot(contains('token')));
+          expect(message, isNot(contains('/')));
+        }
       });
     });
 
@@ -463,6 +526,25 @@ void main() {
         expect(await repository.statusFor('j3'), DownloadStatus.downloaded);
         // The evicted file's bytes are gone from disk.
         expect(files.bytesFor('j1.mp3'), isNull);
+      });
+
+      test(
+          'the cache limit is still enforced when downloading over mobile data',
+          () async {
+        final repository = buildLimited(maxBytes: 10, now: incrementingClock());
+        await preferences.setAllowMobileData(true);
+        connectivity.status = NetworkStatus.mobile;
+
+        await repository.requestDownload(_jellyfin('j1')); // oldest
+        await repository.requestDownload(_jellyfin('j2'));
+        await repository.requestDownload(_jellyfin('j3')); // forces eviction
+
+        // Allowing mobile data never lets the cache exceed its limit.
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        expect(
+          (await repository.cacheSnapshot()).usedBytes,
+          lessThanOrEqualTo(10),
+        );
       });
 
       test('playing a track refreshes it so a stale one is evicted instead',
@@ -731,9 +813,9 @@ void main() {
         expect(await store.loadDownloads(), isEmpty);
       });
 
-      test('respects "Wi-Fi only" and skips (without queueing) on mobile',
+      test('skips (without queueing) on mobile when mobile data not allowed',
           () async {
-        await preferences.setWifiOnly(true);
+        // Default: mobile data is not allowed, so pre-cache stays Wi-Fi-only.
         connectivity.status = NetworkStatus.mobile;
         final repository = build();
 
@@ -741,6 +823,30 @@ void main() {
 
         expect(downloader.fetchCount, 0);
         expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        expect(await store.loadDownloads(), isEmpty);
+      });
+
+      test('runs on mobile when the user allows mobile data', () async {
+        await preferences.setAllowMobileData(true);
+        connectivity.status = NetworkStatus.mobile;
+        final repository = build();
+
+        await repository.prefetch(_jellyfin('j1'));
+
+        // Pre-cached over mobile, but it stays invisible as a download.
+        expect(downloader.fetchCount, 1);
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        expect((await store.loadDownloads()).single.preloaded, isTrue);
+      });
+
+      test('skips when offline, even with mobile data allowed', () async {
+        await preferences.setAllowMobileData(true);
+        connectivity.status = NetworkStatus.offline;
+        final repository = build();
+
+        await repository.prefetch(_jellyfin('j1'));
+
+        expect(downloader.fetchCount, 0);
         expect(await store.loadDownloads(), isEmpty);
       });
 

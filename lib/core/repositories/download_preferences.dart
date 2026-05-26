@@ -20,16 +20,19 @@ int sanitizePrecacheCount(int value) =>
 /// These are kept behind an interface so the [DownloadRepository] and cache
 /// manager can consult them without binding to a storage plugin. The policy
 /// lives in the repository; this only remembers the choices:
-///  - "Wi-Fi only": downloads that would run over mobile data are queued.
+///  - "Allow mobile data": when off (the safe default), downloads and smart
+///    pre-cache run only on Wi-Fi and are queued on mobile data; when on, they
+///    may also run over a metered/cellular connection.
 ///  - "Max cache size": the byte ceiling the offline cache is kept under, with
 ///    least-recently-used eviction once a new download would exceed it.
 ///  - Smart pre-cache "on/off" and "how many upcoming tracks": whether, and how
 ///    far ahead, playback warms the next queued tracks into the cache.
 abstract interface class DownloadPreferences {
-  /// Whether downloads should only run on Wi-Fi. Defaults to `false`.
-  Future<bool> wifiOnly();
+  /// Whether downloads and smart pre-cache may use mobile data. Defaults to
+  /// `false`, so the safe behaviour out of the box is Wi-Fi only.
+  Future<bool> allowMobileData();
 
-  Future<void> setWifiOnly(bool value);
+  Future<void> setAllowMobileData(bool value);
 
   /// The maximum total size of the offline cache in bytes. Defaults to
   /// [CacheSize.defaultLimit] when the user hasn't chosen one.
@@ -39,8 +42,8 @@ abstract interface class DownloadPreferences {
 
   /// Whether smart pre-cache is on: upcoming queued tracks are warmed into the
   /// cache ahead of play. Defaults to `true`. Pre-cached bytes are bounded by
-  /// [maxCacheBytes], skipped (not queued) when "Wi-Fi only" is on and the
-  /// connection isn't Wi-Fi, and evicted before any user download.
+  /// [maxCacheBytes], skipped (not queued) when the connection isn't allowed by
+  /// the mobile-data policy, and evicted before any user download.
   Future<bool> preloadEnabled();
 
   Future<void> setPreloadEnabled(bool value);

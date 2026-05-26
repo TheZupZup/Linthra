@@ -35,8 +35,11 @@ import '../../core/services/track_prefetcher.dart';
 ///  - **Source-aware.** A remote (Jellyfin) track has its bytes fetched and
 ///    written to the offline directory; an on-device track is already local, so
 ///    it's recorded as available offline with no fetch and no managed file.
-///  - **Wi-Fi only is respected.** A *remote* request is queued (not run) when
-///    the user set "Wi-Fi only" and the connection isn't Wi-Fi.
+///  - **The mobile-data policy is respected.** A *remote* request runs on Wi-Fi
+///    always, on mobile data only when the user turned on "Allow mobile data",
+///    and never while offline. When the connection isn't allowed the request is
+///    queued (not run) and [requestDownload] reports why, so the UI can prompt
+///    the user instead of failing silently.
 ///  - **Stays under the cache limit.** Before writing a remote download, the
 ///    policy evicts least-recently-used, unpinned, not-currently-playing tracks
 ///    to make room; if it still won't fit, the download is refused with a
@@ -193,12 +196,12 @@ class CacheDownloadRepository
   }
 
   @override
-  Future<void> requestDownload(Track track) async {
+  Future<DownloadRequestOutcome> requestDownload(Track track) async {
     if (!_downloader.isRemote(track)) {
       // On-device track: no bytes to fetch and no network gate, so record it as
       // available offline directly.
       await _requestOnDeviceDownload(track);
-      return;
+      return DownloadRequestOutcome.started;
     }
 
     // A fresh, explicit request supersedes any pending cancellation for this id
@@ -207,9 +210,9 @@ class CacheDownloadRepository
     // Reserve the in-flight slot synchronously, before any `await`, so a second
     // request for the same track (a double tap, or a second caller) bails out
     // here instead of starting a duplicate fetch.
-    if (!_inFlight.add(track.id)) return;
+    if (!_inFlight.add(track.id)) return DownloadRequestOutcome.started;
     try {
-      await _runRemoteRequest(track);
+      return await _runRemoteRequest(track);
     } on CacheStorageException {
       // The cache is full with nothing safe to evict; surface the friendly,
       // secret-free error so the UI can prompt to free space or raise the
@@ -222,6 +225,7 @@ class CacheDownloadRepository
       if (!_canceled.contains(track.id)) {
         _set(track.id, DownloadStatus.failed);
       }
+      return DownloadRequestOutcome.started;
     } finally {
       _canceled.remove(track.id);
       _inFlight.remove(track.id);
@@ -230,7 +234,7 @@ class CacheDownloadRepository
   }
 
   /// Records an on-device track as available offline: its bytes are already
-  /// local, so there is no fetch, no managed file, and no Wi-Fi gate.
+  /// local, so there is no fetch, no managed file, and no network gate.
   Future<void> _requestOnDeviceDownload(Track track) async {
     await _ensureLoaded();
     if (_statuses[track.id] == DownloadStatus.downloaded) return;
@@ -246,13 +250,15 @@ class CacheDownloadRepository
   }
 
   /// Drives one remote download: skip if already cached, promote a preloaded
-  /// copy in place, honor "Wi-Fi only", then wait for a concurrency slot before
-  /// fetching the bytes and committing them under the cache limit.
-  Future<void> _runRemoteRequest(Track track) async {
+  /// copy in place, apply the mobile-data policy, then wait for a concurrency
+  /// slot before fetching the bytes and committing them under the cache limit.
+  Future<DownloadRequestOutcome> _runRemoteRequest(Track track) async {
     await _ensureLoaded();
     // Already cached — nothing to do. (A track that is downloading or queued is
     // already in [_inFlight], so it never reaches here a second time.)
-    if (_statuses[track.id] == DownloadStatus.downloaded) return;
+    if (_statuses[track.id] == DownloadStatus.downloaded) {
+      return DownloadRequestOutcome.started;
+    }
 
     // A track preloaded ahead of play is already cached: promote it to a user
     // download in place, without re-fetching its bytes.
@@ -265,15 +271,19 @@ class CacheDownloadRepository
       _statuses[track.id] = DownloadStatus.downloaded;
       _emitStatus();
       _emitCache();
-      return;
+      return DownloadRequestOutcome.started;
     }
 
-    // The Wi-Fi gate only matters here, where there are bytes to pull over the
+    // The network gate only matters here, where there are bytes to pull over the
     // network. When it blocks, the track waits as "queued" for an explicit
-    // retry once on Wi-Fi (the in-flight reservation is released by the caller).
-    if (!await _allowedToDownloadNow()) {
+    // retry once allowed (the in-flight reservation is released by the caller),
+    // and the outcome tells the UI why so it can prompt instead of failing.
+    final _NetworkDecision decision = await _networkDecision();
+    if (decision != _NetworkDecision.allowed) {
       _set(track.id, DownloadStatus.queued);
-      return;
+      return decision == _NetworkDecision.offline
+          ? DownloadRequestOutcome.waitingForConnection
+          : DownloadRequestOutcome.waitingForWifi;
     }
 
     // Accepted: show "queued" until a concurrency slot frees up, then fetch.
@@ -289,6 +299,7 @@ class CacheDownloadRepository
       // limit; the (slow) byte fetch above already ran in parallel.
       await _commit(() => _cacheRemote(track, data));
     });
+    return DownloadRequestOutcome.started;
   }
 
   /// Writes a freshly fetched remote track's bytes, evicting first to stay under
@@ -381,8 +392,8 @@ class CacheDownloadRepository
     // of the same track bails here instead of fetching the same bytes twice.
     if (!_preloading.add(track.id)) return;
     try {
-      // Preload is best-effort and network-heavy, so it honours "Wi-Fi only"
-      // and simply skips (rather than queueing) when it can't run right now.
+      // Preload is best-effort and network-heavy, so it honours the mobile-data
+      // policy and simply skips (rather than queueing) when it can't run now.
       if (!await _allowedToDownloadNow()) return;
       // Respect the cache limit *before* spending data: if the cache is already
       // full and nothing is safe to evict (every entry pinned or playing), a
@@ -521,11 +532,32 @@ class CacheDownloadRepository
     return used < maxBytes || hasEvictable;
   }
 
-  /// The connectivity gate. With "Wi-Fi only" off, anything goes; with it on,
-  /// only a Wi-Fi connection clears a download to start now.
-  Future<bool> _allowedToDownloadNow() async {
-    if (!await _preferences.wifiOnly()) return true;
-    return await _connectivity.currentStatus() == NetworkStatus.wifi;
+  /// The connectivity gate as a simple yes/no, for the best-effort pre-cache
+  /// path that just skips when it can't run.
+  Future<bool> _allowedToDownloadNow() async =>
+      await _networkDecision() == _NetworkDecision.allowed;
+
+  /// Decides whether a download may run right now, and (when it can't) why:
+  ///  - Wi-Fi: always allowed.
+  ///  - Mobile data: allowed only when the user turned on "Allow mobile data";
+  ///    otherwise held for Wi-Fi.
+  ///  - Unknown: treated conservatively, like mobile data — allowed only when
+  ///    the user allowed mobile data, so an undetermined link is never assumed
+  ///    unmetered.
+  ///  - Offline: never allowed; the request waits for a connection.
+  Future<_NetworkDecision> _networkDecision() async {
+    final NetworkStatus status = await _connectivity.currentStatus();
+    switch (status) {
+      case NetworkStatus.wifi:
+        return _NetworkDecision.allowed;
+      case NetworkStatus.mobile:
+      case NetworkStatus.unknown:
+        return await _preferences.allowMobileData()
+            ? _NetworkDecision.allowed
+            : _NetworkDecision.needsWifi;
+      case NetworkStatus.offline:
+        return _NetworkDecision.offline;
+    }
   }
 
   /// Deletes the app-managed cache file behind [entry], if any. A `null` entry
@@ -611,3 +643,8 @@ class CacheDownloadRepository
     return scheme.isEmpty ? null : scheme;
   }
 }
+
+/// Whether the network policy lets a download run now, and why not when it
+/// doesn't: held for Wi-Fi (mobile data not allowed) or waiting for a
+/// connection (offline).
+enum _NetworkDecision { allowed, needsWifi, offline }

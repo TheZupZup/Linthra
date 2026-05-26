@@ -145,22 +145,25 @@ final maxCacheBytesControllerProvider =
   MaxCacheBytesController.new,
 );
 
-/// Owns the "Wi-Fi only downloads" switch: loads the persisted value and writes
-/// changes back through [DownloadPreferences].
-class WifiOnlyController extends AsyncNotifier<bool> {
+/// Owns the "Allow mobile data" switch: loads the persisted value and writes
+/// changes back through [DownloadPreferences]. When off (the safe default),
+/// downloads and smart pre-cache run only on Wi-Fi.
+class AllowMobileDataController extends AsyncNotifier<bool> {
   @override
   Future<bool> build() {
-    return ref.read(downloadPreferencesProvider).wifiOnly();
+    return ref.read(downloadPreferencesProvider).allowMobileData();
   }
 
-  Future<void> setWifiOnly(bool value) async {
-    await ref.read(downloadPreferencesProvider).setWifiOnly(value);
+  Future<void> setAllowMobileData(bool value) async {
+    await ref.read(downloadPreferencesProvider).setAllowMobileData(value);
     state = AsyncData<bool>(value);
   }
 }
 
-final wifiOnlyControllerProvider =
-    AsyncNotifierProvider<WifiOnlyController, bool>(WifiOnlyController.new);
+final allowMobileDataControllerProvider =
+    AsyncNotifierProvider<AllowMobileDataController, bool>(
+  AllowMobileDataController.new,
+);
 
 /// Owns the "Smart pre-cache" on/off switch: loads the persisted value and
 /// writes changes back through [DownloadPreferences]. When on, the player warms

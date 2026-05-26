@@ -28,7 +28,7 @@ Future<void> main() async {
   // the platform media session: Android Auto browses the real catalog and the
   // notification / lock screen reflect the real controller. The running app
   // persists its catalog to SQLite (Drift override) and its chosen folder,
-  // offline-download set, and Wi-Fi-only preference via shared_preferences;
+  // offline-download set, and mobile-data preference via shared_preferences;
   // downloaded audio is written to an app-private directory on disk; and the
   // Jellyfin and Subsonic/Navidrome session credentials are each persisted in
   // encrypted on-device storage. The remote downloader override makes both
@@ -70,8 +70,9 @@ Future<void> main() async {
   );
 
   // Start smart pre-cache: as playback advances it warms the next queued tracks
-  // into the offline cache (under the same limit, honouring "Wi-Fi only" and the
-  // user's smart-pre-cache on/off + count, and staying calm under repeat-one).
+  // into the offline cache (under the same limit, honouring "Allow mobile data"
+  // and the user's smart-pre-cache on/off + count, and staying calm under
+  // repeat-one).
   // Instantiating it wires the listener; it has no value the UI reads.
   container.read(smartPrecacheServiceProvider);
 

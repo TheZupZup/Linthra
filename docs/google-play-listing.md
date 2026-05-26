@@ -55,7 +55,8 @@ WORKS TODAY
 • Connect to your own Jellyfin server, sign in, sync your library, and stream.
   The session token is stored encrypted and your password is never saved.
 • Explicit, user-initiated offline downloads with a smart cache and a size
-  limit you set, plus a "Wi-Fi only" option — never automatic.
+  limit you set — Wi-Fi only by default, with an optional "Allow mobile data"
+  toggle. Never automatic.
 • Cast to Chromecast-compatible devices on your local network.
 
 PLANNED (NOT FINISHED YET)
@@ -73,7 +74,7 @@ bundles no server and runs no cloud service of its own.
 NO SURPRISES
 No ads. No account. No forced sync. No surprise downloads — Linthra never
 downloads your library in the background; downloads happen only when you ask,
-and a "Wi-Fi only" option is respected.
+and they use Wi-Fi only by default unless you allow mobile data.
 
 Linthra is alpha software with honest, documented limitations. Expect rough
 edges, and please share feedback.
@@ -118,7 +119,7 @@ Be upfront in the listing and/or release notes:
 - No browse-by-artist/album and **no search** yet.
 - **No playlist** creation/editing yet; queue reordering is limited.
 - No album/playlist "download all" or background download manager yet.
-- The "Wi-Fi only" gate relies on basic connectivity handling; robust
+- The Wi-Fi / mobile-data gate relies on basic connectivity handling; robust
   connectivity detection is still planned.
 - Some Android 11+ scoped-storage folders may be unreadable; the app surfaces a
   clear error rather than a silent empty library.
@@ -160,8 +161,8 @@ emulator.
 A core promise worth stating plainly in the listing and release notes:
 
 > Linthra never downloads your library in the background. Offline downloads are
-> always something **you** start, with a size limit you set and an optional
-> "Wi-Fi only" restriction. There is no forced full-library sync.
+> always something **you** start, with a size limit you set and Wi-Fi-only by
+> default (mobile data is opt-in). There is no forced full-library sync.
 
 ## 9. Jellyfin / NAS / self-hosted positioning
 
