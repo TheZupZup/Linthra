@@ -11,13 +11,14 @@ import '../../core/services/offline_cache_manager.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../player/widgets/album_artwork.dart';
+import '../settings/network/network_settings_section.dart';
 import 'download_providers.dart';
 
 /// Manage explicit, user-controlled downloads. Lists the tracks the user has
 /// marked for offline use — both the ones still in flight (queued / downloading
 /// with live progress / failed) and the finished ones — with their cache size
 /// and a "Keep offline" pin, shows how much cache is in use, and exposes the
-/// "Wi-Fi only" preference. Downloads are always user-initiated — never
+/// "Allow mobile data" preference. Downloads are always user-initiated — never
 /// automatic.
 class DownloadsScreen extends ConsumerWidget {
   const DownloadsScreen({super.key});
@@ -29,7 +30,7 @@ class DownloadsScreen extends ConsumerWidget {
       body: const Column(
         children: [
           _CacheUsageHeader(),
-          _WifiOnlyToggle(),
+          MobileDataDownloadsTile(),
           Divider(height: 1),
           Expanded(child: _DownloadsBody()),
         ],
@@ -83,26 +84,6 @@ class _CacheUsageHeader extends ConsumerWidget {
         ],
       ),
     );
-  }
-}
-
-class _WifiOnlyToggle extends ConsumerWidget {
-  const _WifiOnlyToggle();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final wifiOnly = ref.watch(wifiOnlyControllerProvider);
-    return SwitchListTile(
-      secondary: const Icon(Icons.wifi_outlined),
-      title: const Text('Wi-Fi only'),
-      subtitle: const Text('Queue downloads until Wi-Fi is available'),
-      value: wifiOnly.valueOrNull ?? false,
-      onChanged: wifiOnly.isLoading ? null : (value) => _set(ref, value),
-    );
-  }
-
-  void _set(WidgetRef ref, bool value) {
-    ref.read(wifiOnlyControllerProvider.notifier).setWifiOnly(value);
   }
 }
 
@@ -253,13 +234,19 @@ class _ActiveDownloadTile extends ConsumerWidget {
     );
   }
 
-  /// Re-requests the download. Surfaces only the friendly, secret-free "cache
-  /// full" message; any other failure simply lands back in the row's failed
-  /// state (which keeps offering Retry).
+  /// Re-requests the download. Surfaces the friendly, secret-free reasons it
+  /// might not start — a full cache, or the network policy queueing it — while
+  /// any other failure simply lands back in the row's failed state (which keeps
+  /// offering Retry).
   Future<void> _retry(BuildContext context, WidgetRef ref) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     try {
-      await ref.read(downloadRepositoryProvider).requestDownload(track);
+      final DownloadRequestOutcome outcome =
+          await ref.read(downloadRepositoryProvider).requestDownload(track);
+      final String? message = outcome.blockedMessage;
+      if (message != null) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
     } on CacheStorageException catch (error) {
       messenger.showSnackBar(SnackBar(content: Text(error.message)));
     }

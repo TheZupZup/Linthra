@@ -108,6 +108,13 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
   *(Regression-fixed this release.)*
 - ☐ **Local source files are never deleted** by any cache action.
 - ☐ Tokens / authenticated URLs never appear in the downloads UI or progress.
+- ☐ **Wi-Fi only by default**: with **Allow mobile data** off, a download on
+  mobile data is queued with a friendly "limited to Wi-Fi" message.
+- ☐ Enabling **Allow mobile data** shows the confirmation dialog; allowing it
+  lets the same download run over mobile data; cancelling leaves it off.
+- ☐ The toggle persists across restart and stays in sync between the Downloads
+  tab and **Settings → Downloads & network**.
+- ☐ With mobile data allowed, the **cache size limit still applies** over LTE.
 
 ## 7. Smart pre-cache
 
@@ -115,7 +122,7 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
 - ☐ Enabled: only the next small window (1/3/5/10) is warmed; not the whole
   library.
 - ☐ Respects shuffle order and stays quiet under repeat-one.
-- ☐ Respects the cache limit and "Wi-Fi only".
+- ☐ Respects the cache limit and the "Allow mobile data" setting.
 - ☐ Never blocks or stutters what's playing.
 
 ## 8. Favorites

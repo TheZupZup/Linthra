@@ -27,8 +27,9 @@ import 'track_prefetcher.dart';
 ///    service caches nothing extra and lets those tracks stream if reached.
 ///  - **It only decides what/when.** Everything that *bounds* a pre-cache lives
 ///    downstream in the [TrackPrefetcher]: it pre-caches only remote tracks
-///    (skipping local files, already on disk), avoids duplicates, honours
-///    "Wi-Fi only", stays under the cache limit (evicting pre-cached entries
+///    (skipping local files, already on disk), avoids duplicates, honours the
+///    mobile-data policy (Wi-Fi always; mobile data only when the user allowed
+///    it; never offline), stays under the cache limit (evicting pre-cached entries
 ///    before any user download), and never throws. A pre-cache never blocks or
 ///    interrupts what's playing.
 ///  - **One at a time.** Pre-caches run sequentially (effective concurrency 1),

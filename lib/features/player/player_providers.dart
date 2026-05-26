@@ -96,8 +96,8 @@ final playbackStateProvider = StreamProvider<PlaybackState>((ref) {
 
 /// Smart pre-cache: warms the next few queued tracks into the offline cache as
 /// playback moves, so upcoming songs play instantly and offline (bounded by the
-/// cache limit, honouring "Wi-Fi only" and the user's smart-pre-cache on/off and
-/// count; calm under repeat-one).
+/// cache limit, honouring "Allow mobile data" and the user's smart-pre-cache
+/// on/off and count; calm under repeat-one).
 ///
 /// Pinned for the session like the controller: it reads the controller's state
 /// stream and the cache/prefs seams once with [Ref.read], so a rebuild of the

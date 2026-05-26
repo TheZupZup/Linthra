@@ -43,15 +43,15 @@ final remoteTrackDownloaderProvider = Provider<RemoteTrackDownloader>((ref) {
   return const _UnsupportedRemoteTrackDownloader();
 });
 
-/// The user's "Wi-Fi only" download preference. In-memory by default; the app
-/// persists it via `shared_preferences`.
+/// The user's download/offline preferences (including "Allow mobile data").
+/// In-memory by default; the app persists them via `shared_preferences`.
 final downloadPreferencesProvider = Provider<DownloadPreferences>((ref) {
   return InMemoryDownloadPreferences();
 });
 
-/// Network reachability used to honor the "Wi-Fi only" preference. The default
-/// optimistically reports Wi-Fi until real detection lands; tests inject a fake
-/// to drive the policy's mobile/offline paths.
+/// Network reachability used to honor the mobile-data download preference. The
+/// default optimistically reports Wi-Fi until real detection lands; tests inject
+/// a fake to drive the policy's mobile/offline/unknown paths.
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   return const OptimisticConnectivityService();
 });
@@ -112,7 +112,8 @@ final cachedTrackLocatorProvider = Provider<CachedTrackLocator>((ref) {
   );
 });
 
-/// Production bindings: persist the cached-track set and the Wi-Fi-only switch
+/// Production bindings: persist the cached-track set and the download/offline
+/// preferences (including "Allow mobile data")
 /// via `shared_preferences`, and store downloaded bytes on the device
 /// filesystem, so all three survive a restart. Applied in `main`; tests keep
 /// the in-memory defaults.

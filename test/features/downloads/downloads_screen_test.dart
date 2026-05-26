@@ -84,7 +84,7 @@ void main() {
     Future<ProviderContainer> pump(
       WidgetTester tester, {
       required RemoteTrackDownloader downloader,
-      bool wifiOnly = false,
+      bool allowMobileData = false,
       NetworkStatus connectivity = NetworkStatus.wifi,
     }) async {
       await tester.pumpWidget(
@@ -95,7 +95,7 @@ void main() {
             ),
             remoteTrackDownloaderProvider.overrideWithValue(downloader),
             downloadPreferencesProvider.overrideWithValue(
-              InMemoryDownloadPreferences(wifiOnly: wifiOnly),
+              InMemoryDownloadPreferences(allowMobileData: allowMobileData),
             ),
             connectivityServiceProvider
                 .overrideWithValue(_FakeConnectivity(connectivity)),
@@ -162,13 +162,13 @@ void main() {
       expect(find.byTooltip('Remove download'), findsOneWidget);
     });
 
-    testWidgets('shows a queued track when Wi-Fi-only blocks it on mobile', (
+    testWidgets('shows a queued track when mobile data is not allowed', (
       tester,
     ) async {
       final container = await pump(
         tester,
         downloader: _FakeRemoteDownloader(),
-        wifiOnly: true,
+        // Default: mobile data not allowed, so on mobile the download queues.
         connectivity: NetworkStatus.mobile,
       );
 
@@ -182,8 +182,8 @@ void main() {
   });
 }
 
-/// A connectivity stand-in reporting a fixed status, so the Wi-Fi-only gate can
-/// be driven without a plugin.
+/// A connectivity stand-in reporting a fixed status, so the mobile-data gate
+/// can be driven without a plugin.
 class _FakeConnectivity implements ConnectivityService {
   _FakeConnectivity(this._status);
 

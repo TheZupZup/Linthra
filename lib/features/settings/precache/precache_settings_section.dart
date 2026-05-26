@@ -14,7 +14,7 @@ import '../../downloads/download_providers.dart';
 /// **protected** and never removed automatically. The widget never caches or
 /// evicts anything itself — it only writes the user's choices back through the
 /// preference controllers; the `SmartPrecacheService` and cache policy do the
-/// rest, honouring the cache limit and the "Wi-Fi only" setting.
+/// rest, honouring the cache limit and the "Allow mobile data" setting.
 class PrecacheSettingsSection extends ConsumerWidget {
   const PrecacheSettingsSection({super.key});
 
@@ -65,8 +65,8 @@ class PrecacheSettingsSection extends ConsumerWidget {
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(Icons.bolt_outlined),
               title: const Text('Pre-cache upcoming tracks'),
-              subtitle:
-                  const Text('Follows your Wi-Fi-only setting and cache limit'),
+              subtitle: const Text(
+                  'Follows your mobile-data setting and cache limit'),
               value: isOn,
               onChanged: enabled.isLoading
                   ? null

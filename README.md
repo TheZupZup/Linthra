@@ -82,9 +82,10 @@ Everything below works end to end on a real Android device in the current alpha
   kept (encrypted). Favorites and lyrics are follow-ups; see
   [docs/providers.md](docs/providers.md).
 - **Smart offline cache** — mark individual Jellyfin tracks for offline use
-  (Plexamp-style explicit downloads), with a **"Wi-Fi only"** option, a
-  configurable cache size limit, "Keep offline" pinning, and optional smart
-  pre-caching of upcoming tracks. Cached tracks play fully offline.
+  (Plexamp-style explicit downloads), Wi-Fi-only by default with an opt-in
+  **"Allow mobile data"** toggle, a configurable cache size limit, "Keep
+  offline" pinning, and optional smart pre-caching of upcoming tracks. Cached
+  tracks play fully offline. See [docs/offline-cache.md](docs/offline-cache.md).
 - **Synced lyrics** — fetch a Jellyfin track's lyrics into a sheet; favorites
   also sync with your Jellyfin server.
 - **Chromecast** — discover Cast devices, connect, and hand off the current
@@ -120,8 +121,8 @@ This is an alpha — expect rough edges. The honest gaps today:
   formats; Cloudflare Access / Zero Trust in front of Jellyfin is not supported.
 - **On-device files can't be cast** — a Cast receiver can't reach a local file,
   so only Jellyfin streams hand off.
-- **Connectivity is optimistic** — the "Wi-Fi only" gate relies on a placeholder
-  detector for now.
+- **Connectivity is optimistic** — the Wi-Fi / mobile-data gate relies on a
+  placeholder detector for now (it reports Wi-Fi until real detection lands).
 - **Android only today** — Linux desktop is planned later from the same codebase.
 - **Release signing not yet provisioned** — alpha APKs may be debug-signed (see
   [Install](#install)).
@@ -246,12 +247,15 @@ open-source, with no surprise downloads:
 - **Streaming is the default.** You tap the download icon on the tracks you want
   available offline; only those are fetched.
 - **Cached tracks play with no network** — airplane mode, dead tunnel, anywhere.
+- **Wi-Fi only by default.** Downloads and pre-caching run on Wi-Fi; on mobile
+  data they wait until you turn on **"Allow mobile data for downloads"** in
+  Settings (with a confirmation first, since it can use a lot of data).
 - A **size limit** (4 GB by default; presets up to 16 GB or a custom value) keeps
   the cache from filling your phone. When it's full, Linthra evicts pre-cached
   and least-recently-played, unpinned tracks first — never something you
   **pinned** with "Keep offline".
 - Optional **smart pre-cache** warms the next few queued tracks so they start
-  instantly; it honours the "Wi-Fi only" toggle and the same size limit.
+  instantly; it follows the same mobile-data setting and size limit.
 
 The full mechanics, eviction policy, and token handling are in
 [Offline downloads &amp; known limitations](#offline-downloads--known-limitations).
@@ -300,8 +304,8 @@ Linthra is built to respect the people who use it:
 - **No telemetry, no analytics, no phoning home.** The app never uploads your
   library or reports usage.
 - **No forced sync and no surprise downloads.** Offline downloads are always
-  user-initiated; there is no automatic full-library sync, and a "Wi-Fi only"
-  option is respected for remote downloads.
+  user-initiated; there is no automatic full-library sync, and the default is
+  Wi-Fi only — mobile data is used for downloads/cache only after you opt in.
 - **Minimal Android permissions.** Just foreground-service + notification (for
   background playback) and internet (to reach your Jellyfin server). **No broad
   storage permission** — folder access uses the Storage Access Framework grant
@@ -334,7 +338,7 @@ secret-free diagnostics export.
 3. Subsonic favorites, lyrics, and cover art.
 4. Full playlist sync (rename/reorder of synced playlists; Subsonic playlists).
 5. Album/playlist "download all" and a background download manager.
-6. Real connectivity detection for the "Wi-Fi only" gate.
+6. Real connectivity detection for the Wi-Fi / mobile-data gate.
 7. More sources behind the same interface — WebDAV, NAS.
 
 **Later:** local-file lyrics (`.lrc`/tags), ReplayGain, MPRIS, smart playlists,
@@ -393,7 +397,8 @@ discover it.
 
 - **Local-first & offline-first** — the UI always reads from a local cache.
 - **Privacy-focused** — no telemetry, no forced sync.
-- **User-controlled downloads** — never automatic; "Wi-Fi only" is respected.
+- **User-controlled downloads** — never automatic; Wi-Fi only by default, with
+  an explicit "Allow mobile data" opt-in.
 - **No vendor lock-in** — sources (local, Jellyfin, WebDAV, NAS) sit behind a
   single interface.
 - **Contributor-friendly** — small focused files, explicit naming, clean layers.
@@ -510,11 +515,12 @@ lib/
   `CastState` as `volume`/`muted`/`supportsVolumeControl`); the Cast sheet shows
   a "Cast volume" slider, and a failed volume command never interrupts playback.
 - **`DownloadRepository`** (`core/repositories/`) — enforces the
-  user-initiated, "Wi-Fi only"-respecting download policy in one place.
+  user-initiated, mobile-data-respecting download policy in one place.
   `CacheDownloadRepository` implements it today over a `DownloadStore`
-  (durable cached-ID set), a `DownloadPreferences` ("Wi-Fi only" switch), and a
-  `ConnectivityService`. Remote (Jellyfin/WebDAV) downloads add a real
-  byte-fetch in `_obtainOfflineCopy` without touching the policy or the UI.
+  (durable cached-ID set), a `DownloadPreferences` ("Allow mobile data" switch),
+  and a `ConnectivityService` (Wi-Fi / mobile data / offline / unknown). Remote
+  (Jellyfin/WebDAV) downloads add a real byte-fetch without touching the policy
+  or the UI.
 
 ## Getting started
 
@@ -641,10 +647,12 @@ it covers the paths that only behave correctly on real hardware:
     or connection mid-fetch so it fails. The Library row should show an **error
     icon with a "Retry download" tooltip**; tapping it re-attempts the download
     (it succeeds once the server is reachable again).
-11. **Wi-Fi-only gate.** On the Downloads tab, turn on **Wi-Fi only**, switch to
-    mobile data (or a future real detector), and start a download — it should be
-    **queued** rather than run over mobile data. (See the connectivity note in
-    *Offline downloads & known limitations*.)
+11. **Mobile-data gate.** With **Allow mobile data** off (the default), switch to
+    mobile data (or a future real detector) and start a download — it should be
+    **queued** with a friendly "Downloads are limited to Wi-Fi" message rather
+    than run over mobile data. Turn **Allow mobile data** on (confirm the
+    dialog) and retry — it should download over mobile data. (See the
+    connectivity note in *Offline downloads & known limitations*.)
 12. **No secrets on screen.** Throughout, confirm no error, status line, or
     track subtitle ever shows a Jellyfin token, `api_key`, password, or raw URL.
 
@@ -1158,11 +1166,11 @@ user-controlled**:
 download an absent track, see a spinner while it's in flight, remove a cached
 one, or retry a failed one. The **Downloads** tab lists everything currently
 cached — with each track's **size** and a **Keep offline** pin — shows how much
-of the limit is in use, and hosts the **Wi-Fi only** toggle. **Settings → Smart
-pre-cache** turns automatic pre-caching on/off and sets how many upcoming tracks
-to warm (1, 3, 5, or 10); **Settings → Offline cache** shows used / max / free
-space and the **Change limit** and **Clear cache** (clear unpinned, or clear
-all) actions. The download lifecycle flows through `DownloadRepository`, which
+of the limit is in use, and hosts the **Allow mobile data** toggle (also under
+**Settings → Downloads & network**). **Settings → Smart pre-cache** turns
+automatic pre-caching on/off and sets how many upcoming tracks to warm (1, 3, 5,
+or 10); **Settings → Offline cache** shows used / max / free space and the
+**Change limit** and **Clear cache** (clear unpinned, or clear all) actions. The download lifecycle flows through `DownloadRepository`, which
 centralizes three guarantees:
 
 - **Downloads are user-initiated.** A track's *download status* only ever changes
@@ -1175,9 +1183,11 @@ centralizes three guarantees:
   app-private offline directory (`OfflineFileStore`); an **on-device** track is
   already local, so it's recorded as available offline with no network fetch and
   no managed file.
-- **Wi-Fi only is respected.** For remote downloads, with the toggle on a request
-  made off Wi-Fi is *queued* instead of run; with it off, downloads proceed on
-  any connection. (Local tracks are never queued — there are no bytes to fetch.)
+- **The mobile-data policy is respected.** Remote downloads run on Wi-Fi always,
+  on mobile data only when **Allow mobile data** is on, and never while offline.
+  When the connection isn't allowed the request is *queued* instead of run, and
+  the UI shows a friendly reason ("limited to Wi-Fi", or "you're offline").
+  (Local tracks are never queued — there are no bytes to fetch.)
 
 **Smart pre-cache.** As playback moves, Linthra warms a small number of upcoming
 queued tracks into the same cache ahead of time — the Plex/Plexamp-style "the
@@ -1192,8 +1202,9 @@ normal playback and the **shuffled order** when shuffle is on, since the
 controller keeps `upNext` in effective play order. The same applies while
 **casting**: the queue is always owned locally, so it pre-caches the active
 queue either way. It is deliberately well-behaved: only remote, not-yet-cached
-tracks are fetched, one at a time; it **honours "Wi-Fi only"** (skipping rather
-than queueing off Wi-Fi); it respects the cache limit *before* spending data
+tracks are fetched, one at a time; it **follows the same mobile-data policy**
+(skipping rather than queueing when the connection isn't allowed); it respects
+the cache limit *before* spending data
 (and **evicts pre-cached entries before any download**); a pre-cache that won't
 fit or fails is silently skipped (the track still streams when reached); and it
 never blocks or interrupts what's playing. Under **repeat-one** it stays calm —
@@ -1260,9 +1271,9 @@ Deliberate gaps the next PRs will close:
   reconciliation against the directory's actual on-disk size, and a remote track
   larger than the whole limit can't be cached at all.
 - **Connectivity is optimistic.** `OptimisticConnectivityService` always reports
-  Wi-Fi until `connectivity_plus` is wired in, so the "Wi-Fi only" gate currently
-  blocks only when a test (or a future real detector) reports mobile/offline —
-  the seam and its tests are in place for when it does.
+  Wi-Fi until `connectivity_plus` is wired in, so the mobile-data gate currently
+  blocks only when a test (or a future real detector) reports mobile/offline/
+  unknown — the seam and its tests are in place for when it does.
 - **No Drift table for downloads.** Persisting a small `CachedTrack` set is a
   key/value job; a `downloads` table (with byte progress) graduates from the
   `DownloadStore` seam when background/resumable downloads need it.
@@ -1479,7 +1490,7 @@ branch rather than `main`.
 6. Search
 7. Album artwork
 8. Explicit offline downloads
-9. "Wi-Fi only downloads" option
+9. "Allow mobile data for downloads" option (Wi-Fi only by default)
 10. Settings
 
 Later: Jellyfin (landed — settings, auth, encrypted session, a library source,
