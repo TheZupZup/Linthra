@@ -70,13 +70,19 @@ compatible with MPL-2.0 and acceptable to F-Droid.
 | `flutter_secure_storage` | `^9.2.2`     | (juliansteenbakker) | BSD-3-Clause   | Encrypted store for the Jellyfin session token (§7). |
 | `cast`                   | `^2.1.0`     | (johnvuko)          | MIT            | Pure-Dart Google Cast v2 protocol for real Chromecast — **no** Google Play Services / proprietary Cast SDK. See §5 (Casting). |
 | `bonsoir`                | `^5.1.11`    | (Skyost)            | MIT            | mDNS/Bonjour service discovery used by `cast`; Android side is AOSP `NsdManager`, not GMS. Pinned to 5.x for Dart 3.6 (6.x+ needs Dart ≥3.8). See §5 (Casting). |
+| `url_launcher`           | `^6.3.0`     | flutter.dev         | BSD-3-Clause   | Opens the browser for the "Report a bug" → "Open GitHub issue" action (a prefilled, **unsubmitted** issue the user reviews). AOSP `ACTION_VIEW` intent; **no** GMS. See note below and §7 (Reporting a bug). |
 
 > The `http` and `flutter_secure_storage` entries were added with the Jellyfin
 > source foundation; `cast` and `bonsoir` were added with real Chromecast
 > support (§5, Casting). All four are permissive (MIT / BSD-3-Clause) Dart/Flutter-
 > ecosystem packages. `cast` pulls in one transitive runtime package, `protobuf`
 > (`^3.1.0`, dart.dev, **BSD-3-Clause**), used only to frame cast-channel
-> messages — also free software, no GMS.
+> messages — also free software, no GMS. `url_launcher` was added with the
+> "Report a bug" flow; it is the official Flutter-team plugin (**BSD-3-Clause**),
+> and on Android it fires a standard AOSP `ACTION_VIEW` intent (no Google Play
+> Services). It is wrapped behind the `ExternalLinkLauncher` interface and is
+> invoked only on an explicit user tap — the app never opens a link on its own.
+> See §7.
 
 ## 4. Dev / build-only dependencies (NOT shipped in the APK)
 
@@ -184,6 +190,30 @@ encrypted session token, a library source behind an interface). It is the reason
   manifest will need an `INTERNET` permission; that is a normal, expected
   permission for a user-opted-in remote source and is not an anti-feature by
   itself.
+
+### Reporting a bug (browser hand-off, no auto-send)
+
+The in-app "Report a bug" flow (Settings → Report a bug) is the reason
+`url_launcher` is a dependency. Its network/privacy posture:
+
+- **Nothing is sent automatically.** The report is assembled **on device** from
+  the existing secret-free diagnostics and a bounded in-memory ring of
+  structural breadcrumbs. The user reviews it in a preview, then chooses to copy,
+  save, or open a GitHub issue. There is **no backend**, no Linthra server, and
+  **no upload to Claude/OpenAI/Anthropic or any third-party/AI service**.
+- **"Open GitHub issue" is a browser hand-off.** It builds a
+  `github.com/.../issues/new?...` URL with the report prefilled and opens it via
+  `url_launcher` (AOSP `ACTION_VIEW`). The issue is **unsubmitted**: the user
+  reviews and submits it themselves in their browser. **No GitHub token** is used
+  and the app posts nothing on the user's behalf.
+- **No new data collection.** The recent-events buffer holds only the same
+  secret-free labels `StabilityDiagnostics` already emits (an output name, a
+  lifecycle state, an error *kind*); it is memory-only, capped, never persisted,
+  and surfaced solely when the user opts in while building a report.
+- **Anti-feature judgement:** opening a user-chosen link in the browser is not an
+  anti-feature and introduces no tracking. `url_launcher` is the official
+  Flutter-team plugin and pulls in only its own federated platform packages — no
+  GMS (to be confirmed by the mechanical transitive walk in §9).
 
 ## 8. Summary
 

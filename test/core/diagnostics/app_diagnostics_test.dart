@@ -134,6 +134,35 @@ void main() {
       expect(report, isNot(contains('Current track:')));
     });
 
+    test('includePlayback: false drops every playback line', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          playbackOutput: 'local',
+          playbackStatus: 'playing',
+          currentTrackIdHash: 'id#1a2b3c',
+        ),
+        includePlayback: false,
+      );
+
+      expect(report, isNot(contains('Playback output:')));
+      expect(report, isNot(contains('Playback state:')));
+      expect(report, isNot(contains('Current track:')));
+    });
+
+    test('includeCache: false drops the cache line', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          cacheUsedBytes: 2 * CacheSize.bytesPerGb,
+          cacheLimitBytes: 4 * CacheSize.bytesPerGb,
+        ),
+        includeCache: false,
+      );
+
+      expect(report, isNot(contains('Cache:')));
+    });
+
     test('omits absent optional fields but always reports app version', () {
       final String report =
           AppDiagnostics.report(const AppDiagnosticsData(appVersion: '0.1.0'));

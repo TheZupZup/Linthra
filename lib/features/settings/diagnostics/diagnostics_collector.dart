@@ -35,10 +35,12 @@ class DiagnosticsCollector {
   /// library track count asynchronously; everything else is read synchronously
   /// from the current provider state.
   Future<String> buildReport() async {
-    return AppDiagnostics.report(await _collect());
+    return AppDiagnostics.report(await collect());
   }
 
-  Future<AppDiagnosticsData> _collect() async {
+  /// Gathers the live, display-safe snapshot. Public so the "Report a bug" flow
+  /// can render it with its own toggles via [AppDiagnostics.report].
+  Future<AppDiagnosticsData> collect() async {
     final JellyfinSettingsState jellyfin =
         _ref.read(jellyfinSettingsControllerProvider);
     final SubsonicSettingsState subsonic =

@@ -72,6 +72,7 @@ accepted on F-Droid:
 | `flutter_secure_storage` | Encrypted Jellyfin session-token store   | BSD-3-Clause | OK (Android Keystore; AOSP, not GMS) |
 | `cast`                   | Real Chromecast (pure-Dart Cast v2 protocol) | MIT | OK — **no** GMS / Google Cast SDK; see [audit §5 (Casting)](./dependency-license-audit.md#casting-chromecast--real-cast-without-google-play-services) |
 | `bonsoir`                | mDNS discovery used by `cast`            | MIT | OK — Android side is AOSP `NsdManager`, not GMS; pinned to 5.x for Dart 3.6 |
+| `url_launcher`           | Opens the browser for "Report a bug" → "Open GitHub issue" | BSD-3-Clause | OK — official Flutter plugin; AOSP `ACTION_VIEW` intent, no GMS; fired only on an explicit user tap. See [audit §7 (Reporting a bug)](./dependency-license-audit.md#reporting-a-bug-browser-hand-off-no-auto-send) |
 
 Dev-only dependencies (`flutter_lints`, `flutter_test`, `drift_dev`,
 `build_runner`) are not shipped in the APK.

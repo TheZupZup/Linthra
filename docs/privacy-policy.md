@@ -94,6 +94,27 @@ control:
 Linthra does **not** phone home, upload your library, or send usage data
 anywhere.
 
+## Diagnostics and bug reports
+
+Linthra can generate a diagnostic / bug report to help fix problems
+(**Settings → Report a bug**, or **Settings → Diagnostics**). This is always on
+your terms:
+
+- The report is **generated on your device** and shown to you to review first.
+- It is **secret-free by construction**: it never includes your password, a
+  session token, or a full server URL — only app/OS versions, connection state,
+  the server **host**, counts, feature flags, and (if you opt in) a few
+  structural app events such as lifecycle transitions and playback-error kinds.
+- **Nothing is sent automatically.** There is no backend and no upload to any
+  third party or AI service (including Claude/OpenAI/Anthropic). You choose
+  whether to copy it, save it, or open a prefilled GitHub issue.
+- **"Open GitHub issue"** simply opens your browser at a prefilled — but
+  **unsubmitted** — issue on the project's GitHub. Linthra uses **no GitHub
+  token** and posts nothing on your behalf; you review and submit it yourself.
+
+Please still review a report before sharing, and don't paste secrets into the
+free-text fields.
+
 ## Permissions
 
 Linthra requests a minimal set of Android permissions, each tied to a feature:

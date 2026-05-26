@@ -116,5 +116,14 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Lets url_launcher resolve a browser for the "Report a bug" →
+             "Open GitHub issue" action on Android 11+ (package visibility).
+             Without it, launching the prefilled https issue URL can fail to
+             find a handler. This only declares intent visibility — it grants no
+             new permission and opens nothing on its own. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

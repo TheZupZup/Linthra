@@ -8,10 +8,12 @@ body:
         Thanks for testing Linthra! This is alpha software, so rough edges are
         expected — clear reports help a lot.
 
-        **Tip:** open **Settings → Diagnostics → Copy diagnostics** in the app
-        and paste the result below. It's secret-free by construction (no
-        password, token, or full server URL — just versions, connection state,
-        server host, counts, and feature flags).
+        **Tip:** in the app, open **Settings → Report a bug** to build a
+        secret-free report, review it, then tap **Open GitHub issue** to land
+        here with everything prefilled. (Or **Settings → Diagnostics → Copy
+        diagnostics** and paste it into the Diagnostics field below.) Reports are
+        secret-free by construction — no password, token, or full server URL,
+        just versions, connection state, server host, counts, and feature flags.
   - type: textarea
     id: what-happened
     attributes:

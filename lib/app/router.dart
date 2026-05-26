@@ -9,6 +9,7 @@ import '../features/library/library_screen.dart';
 import '../features/player/player_screen.dart';
 import '../features/playlists/playlist_detail_screen.dart';
 import '../features/playlists/playlists_screen.dart';
+import '../features/settings/bug_report/bug_report_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/shell/home_shell.dart';
 import 'routes.dart';
@@ -80,6 +81,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.settings,
                 builder: (context, state) => const SettingsScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'report-bug',
+                    builder: (context, state) => const BugReportScreen(),
+                  ),
+                ],
               ),
             ],
           ),
