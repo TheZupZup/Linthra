@@ -115,8 +115,10 @@ many don't need a single line of code:
 - 🚗 **Test Android Auto** — on a head unit or the Desktop Head Unit.
 - 📸 **Capture screenshots** for the README and store listing.
 - 📝 **Improve docs** — fix a confusing step, add a setup gotcha.
-- 🐞 **Report bugs with diagnostics** — **Settings → Diagnostics** exports a
-  **secret-free** report (no tokens, no passwords) you can paste into an issue.
+- 🐞 **Report bugs in one tap** — **Settings → Report a bug** builds a
+  **secret-free** report on your device (no tokens, no passwords); review it,
+  then copy it or open a prefilled GitHub issue.
+  ([how it works](./docs/reporting-bugs.md))
 - 🎨 **Polish UI/UX** — small refinements add up.
 - 🔌 **Help future providers** — WebDAV/NAS support behind the same interface.
 
@@ -138,8 +140,9 @@ Sources sit behind one interface, so the app treats them uniformly:
 
 Linthra is built to respect the people who use it:
 
-- **No telemetry, no analytics, no phoning home** — nothing is collected unless
-  you choose to send a diagnostics report.
+- **No telemetry, no analytics, no phoning home** — nothing leaves your device
+  unless **you** choose to. Bug reports are built locally and never auto-sent;
+  "Open GitHub issue" only opens your browser to a prefilled, unsubmitted issue.
 - **No surprise downloads** — streaming is the default; downloads are always
   user-initiated, Wi-Fi only unless you opt in to mobile data.
 - **Minimal permissions** — foreground-service + notification (playback) and
@@ -174,6 +177,7 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 | Offline cache & downloads | [docs/offline-cache.md](./docs/offline-cache.md) |
 | Cast / Chromecast | [docs/cast.md](./docs/cast.md) |
 | Android Auto | [docs/android-auto.md](./docs/android-auto.md) |
+| Reporting a bug | [docs/reporting-bugs.md](./docs/reporting-bugs.md) |
 | Playlists & safe removal | [docs/playlists-and-delete.md](./docs/playlists-and-delete.md) |
 | Manual QA checklist | [docs/manual-test-checklist.md](./docs/manual-test-checklist.md) |
 | Release process & signing | [docs/release-process.md](./docs/release-process.md) · [signing](./docs/release-signing.md) |

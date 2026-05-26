@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/diagnostics/safe_event_log.dart';
 import 'package:linthra/core/services/stability_diagnostics.dart';
 
 void main() {
@@ -48,6 +49,36 @@ void main() {
         },
         returnsNormally,
       );
+    });
+  });
+
+  group('StabilityDiagnostics recent-event recording', () {
+    setUp(SafeEventLog.instance.clear);
+    tearDown(SafeEventLog.instance.clear);
+
+    test('records each breadcrumb into the shared SafeEventLog', () {
+      StabilityDiagnostics.lifecycle('resumed');
+      StabilityDiagnostics.output('cast');
+      StabilityDiagnostics.precache('start:3');
+      StabilityDiagnostics.playbackError('load');
+
+      expect(SafeEventLog.instance.lines, <String>[
+        'lifecycle: resumed',
+        'output: cast',
+        'precache: start:3',
+        'error: load',
+      ]);
+    });
+
+    test('the recorded lines carry no secret', () {
+      StabilityDiagnostics.lifecycle('paused');
+      StabilityDiagnostics.playbackError('networkDropped');
+
+      for (final String line in SafeEventLog.instance.lines) {
+        expect(line, isNot(contains('://')));
+        expect(line.toLowerCase(), isNot(contains('token')));
+        expect(line.toLowerCase(), isNot(contains('password')));
+      }
     });
   });
 }

@@ -36,6 +36,10 @@ abstract final class AppRoutes {
   static const String downloads = '/downloads';
   static const String settings = '/settings';
 
+  /// The "Report a bug" builder, reached from Settings. A child of [settings]
+  /// so it keeps the bottom nav and pops back into that tab.
+  static const String reportBug = '/settings/report-bug';
+
   /// Full-screen now-playing view, pushed above the shell.
   static const String player = '/player';
 }

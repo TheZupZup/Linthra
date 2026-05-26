@@ -74,6 +74,15 @@ dependencies:
   # docs/dependency-license-audit.md §"Cast" and docs/fdroid-readiness.md.
   cast: ^2.1.0
   bonsoir: ^5.1.11
+  # Opens an external URL (the user's browser) for the "Report a bug" flow's
+  # "Open GitHub issue" action, which hands the browser a prefilled — but
+  # unsubmitted — issue the user reviews and submits themselves. Used ONLY by
+  # UrlLauncherExternalLinkLauncher behind the ExternalLinkLauncher interface;
+  # the UI never calls url_launcher directly. The official Flutter-team plugin
+  # (BSD-3-Clause); on Android it fires a standard AOSP VIEW intent — no Google
+  # Play Services. The app never auto-opens anything; every launch is an
+  # explicit user tap. See docs/dependency-license-audit.md §"Reporting a bug".
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_lints: ^5.0.0

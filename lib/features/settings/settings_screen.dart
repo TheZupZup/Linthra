@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/dimens.dart';
 import '../../core/app_info.dart';
 import '../../shared/widgets/linthra_logo_mark.dart';
+import 'bug_report/report_bug_settings_section.dart';
 import 'cache/cache_settings_section.dart';
 import 'diagnostics/diagnostics_settings_section.dart';
 import 'jellyfin/jellyfin_settings_section.dart';
@@ -31,6 +32,8 @@ class SettingsScreen extends StatelessWidget {
           NetworkSettingsSection(),
           SizedBox(height: AppSpacing.md),
           PrecacheSettingsSection(),
+          SizedBox(height: AppSpacing.md),
+          ReportBugSettingsSection(),
           SizedBox(height: AppSpacing.md),
           DiagnosticsSettingsSection(),
           SizedBox(height: AppSpacing.md),

@@ -109,10 +109,19 @@ abstract final class AppDiagnostics {
   /// Assembles the multi-line report. Only [AppDiagnosticsData.appVersion] is
   /// guaranteed present; every other line is emitted only when its value is
   /// known, so the report is useful even before a connection or a library sync.
-  static String report(AppDiagnosticsData data) {
+  ///
+  /// [includePlayback] and [includeCache] let the "Report a bug" flow drop the
+  /// playback (output/state/current-track) and cache lines when the user turns
+  /// those toggles off. Both default to true, so the plain Diagnostics export is
+  /// unchanged.
+  static String report(
+    AppDiagnosticsData data, {
+    bool includePlayback = true,
+    bool includeCache = true,
+  }) {
     final String? jellyfinHost = hostOnly(data.jellyfinHost);
     final String? subsonicHost = hostOnly(data.subsonicHost);
-    final String? cache = _cacheLine(data);
+    final String? cache = includeCache ? _cacheLine(data) : null;
     final List<String> lines = <String>[
       'Linthra diagnostics',
       'App version: ${data.appVersion}',
@@ -125,10 +134,11 @@ abstract final class AppDiagnostics {
       if (data.libraryTrackCount != null)
         'Library tracks: ${data.libraryTrackCount}',
       if (cache != null) cache,
-      if (data.playbackOutput != null)
+      if (includePlayback && data.playbackOutput != null)
         'Playback output: ${data.playbackOutput}',
-      if (data.playbackStatus != null) 'Playback state: ${data.playbackStatus}',
-      if (data.currentTrackIdHash != null)
+      if (includePlayback && data.playbackStatus != null)
+        'Playback state: ${data.playbackStatus}',
+      if (includePlayback && data.currentTrackIdHash != null)
         'Current track: ${data.currentTrackIdHash}',
       'Last error: ${data.lastErrorKind ?? 'none'}',
       'Cast available: ${_yesNo(data.castAvailable)}',
