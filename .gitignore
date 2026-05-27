@@ -1,3 +1,7 @@
+# Project-local toolchain installed by scripts/setup_flutter.sh.
+# The Flutter SDK is downloaded here, never committed.
+.tool/
+
 # Dart / Flutter
 .dart_tool/
 .flutter-plugins
