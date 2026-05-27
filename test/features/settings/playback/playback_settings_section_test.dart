@@ -45,8 +45,7 @@ void main() {
 
     testWidgets('defaults off', (tester) async {
       await pump(tester);
-      final SwitchListTile tile =
-          tester.widget(find.byType(SwitchListTile));
+      final SwitchListTile tile = tester.widget(find.byType(SwitchListTile));
       expect(tile.value, isFalse);
     });
 
