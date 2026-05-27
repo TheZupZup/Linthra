@@ -15,41 +15,125 @@ docs reference this document rather than restating the plan.
 
 ## 1. Versioning model
 
-`pubspec.yaml` is the **single source of truth** for the version:
+**The Git tag is the source of truth for a release; `pubspec.yaml` is the
+default for local/dev builds.** A tagged release build derives its version from
+the tag and bakes the same value into the APK/AAB metadata *and* the in-app
+display, so they can never drift. You do **not** edit any version constant to
+cut a release — you just push the tag.
 
 ```
-version: x.y.z+<versionCode>      # currently 0.1.0-alpha.15+15
+                       ┌─ --build-name / --build-number ─▶ Android versionName/versionCode (APK/AAB)
+push tag  ─▶  parse ───┤
+v0.1.0-alpha.16        └─ --dart-define=LINTHRA_VERSION_NAME ─▶ AppInfo.version (Settings/About, diagnostics, Jellyfin header)
 ```
 
-- **`versionName` = `x.y.z`** — the human-facing [SemVer](https://semver.org/)
-  string.
-- **`versionCode` = the integer after `+`** — Android's internal build number.
+### versionName
 
-Android reads both from Flutter (`flutter.versionName` / `flutter.versionCode`
-in `android/app/build.gradle`); they are **not** hard-coded in Gradle, so
-bumping `pubspec.yaml` is enough for the installed APK's version.
+The tag with its leading `v` stripped, **pre-release suffix preserved**:
 
-**The in-app version display has its own copy.** The Settings/About screen and
-the Jellyfin client-version header read `AppInfo.version` in
-`lib/core/app_info.dart`, a `const` string. It must mirror the `versionName`
-part of `pubspec.yaml` (without the `+versionCode`). This second copy is what
-drifted in earlier alphas — the APK shipped `alpha.9` while Settings still said
-`alpha.1`. To keep it honest, `test/core/app_info_version_test.dart` reads
-`pubspec.yaml` and **fails CI if `AppInfo.version` does not match**, so the two
-must be bumped together in the same commit. (Runtime package-metadata lookup via
-a plugin was deliberately not used: `AppInfo.version` is a `const` consumed
-synchronously, and a test-guarded mirror keeps the change small and dependency-
-free.)
+| Tag               | versionName      |
+| ----------------- | ---------------- |
+| `v0.1.0-alpha.16` | `0.1.0-alpha.16` |
+| `v0.1.0-beta.1`   | `0.1.0-beta.1`   |
+| `v0.1.0-rc.1`     | `0.1.0-rc.1`     |
+| `v0.1.0`          | `0.1.0`          |
+| `v1.2.3`          | `1.2.3`          |
 
-**Rules:**
+### versionCode (fully encoded, strictly monotonic)
 
-- `versionCode` **must increase monotonically** on every release. Never reuse or
-  decrease it — Android refuses to install an update with an equal/lower code,
-  and F-Droid relies on it to order versions.
+`versionCode` is computed from the version so it can **never go backwards**, with
+no manual counter to maintain:
+
+```
+versionCode = MAJOR*10_000_000 + MINOR*100_000 + PATCH*1_000 + preReleaseRank
+```
+
+`preReleaseRank` orders the pre-release tiers below the stable release of the
+*same* `x.y.z`: `alpha.N → N`, `beta.N → 300 + N`, `rc.N → 600 + N`, stable
+`→ 999`. Worked examples:
+
+| Tag               | versionCode |
+| ----------------- | ----------- |
+| `v0.1.0-alpha.16` | `100016`    |
+| `v0.1.0-beta.1`   | `100301`    |
+| `v0.1.0-rc.1`     | `100601`    |
+| `v0.1.0`          | `100999`    |
+| `v0.1.1-alpha.1`  | `101001`    |
+| `v0.2.0-alpha.1`  | `200001`    |
+| `v1.2.3`          | `10203999`  |
+
+The fields are bounded (minor/patch ≤ 99, pre-release `N` ≤ 299) so the result
+stays a valid Android `versionCode` (1‥2,100,000,000) and the tiers never
+collide. A tag that violates these bounds, or is otherwise malformed, **fails
+the build** (see "Malformed tags" below) instead of shipping guessed metadata.
+
+> **Note — the encoding intentionally jumps from the legacy hand-numbered
+> codes.** Alphas through `0.1.0-alpha.15` used `versionCode = N` (so `+15`).
+> The first encoded build, `v0.1.0-alpha.16`, is `100016` — far larger than `15`,
+> so it is still a strict increase (Android only requires monotonicity; gaps are
+> fine). F-Droid changelog files are named by `versionCode`, so new entries live
+> at `fastlane/metadata/android/en-US/changelogs/<encoded code>.txt` (e.g.
+> `100016.txt`); the historical `1.txt`/`9.txt`/`15.txt` stay as-is.
+
+The parsing/encoding rules live in **`tool/version_from_tag.dart`** (the single
+source of truth), exercised by `test/tooling/version_from_tag_test.dart`. The
+release workflow calls it; nothing else needs to know the formula.
+
+### In-app version (`AppInfo.version`)
+
+Settings/About, the diagnostics / "Report a bug" output, and the Jellyfin
+client-version header all read `AppInfo.version` in `lib/core/app_info.dart`:
+
+- **Tagged release build:** the workflow passes
+  `--dart-define=LINTHRA_VERSION_NAME=<derived versionName>`, so `AppInfo.version`
+  is exactly the tag's version — matching the APK/AAB metadata.
+- **Local/dev build & the test suite** (no dart-define): `AppInfo.version` falls
+  back to `AppInfo._devVersionName`, a `const` that mirrors `pubspec.yaml`'s
+  `versionName`. `test/core/app_info_version_test.dart` **fails CI if that
+  fallback drifts from `pubspec.yaml`**, so the two stay aligned for dev builds.
+
+A runtime package-metadata plugin was deliberately avoided: the dart-define keeps
+`AppInfo.version` resolvable without a plugin and uses the *same* value the
+Android build metadata gets, so there is only one effective version per build.
+
+### Rules
+
+- `versionCode` **increases monotonically** by construction — never reuse or
+  decrease it. Android refuses to install an update with an equal/lower code, and
+  F-Droid relies on it to order versions.
 - `versionName` follows SemVer. Pre-1.0, treat `0.y.z` as "still early; the API
-  and feature set can change between minor versions." A SemVer pre-release
-  suffix (e.g. `0.1.0-alpha.1`) marks an explicitly unstable build; the matching
-  tag is `vX.Y.Z-suffix` and the GitHub Release should be marked **pre-release**.
+  and feature set can change between minor versions." A SemVer pre-release suffix
+  (e.g. `0.1.0-alpha.1`) marks an explicitly unstable build; its tag is
+  `vX.Y.Z-suffix` and the GitHub Release should be marked **pre-release**.
+
+### Malformed tags
+
+The build **fails fast** — before producing any artifact — when the tag is not a
+supported release tag. `tool/version_from_tag.dart` exits non-zero (failing the
+"Derive version from tag" step) for, e.g.:
+
+- a non-`X.Y.Z` core (`v1.2`, `v1.2.3.4`, `vfoo`);
+- an unknown or numberless pre-release (`v1.2.3-alpha`, `v1.2.3-preview.1`);
+- SemVer build metadata (`v1.2.3-alpha.1+build`);
+- fields outside the encodable range (`v0.100.0`, `v0.1.0-alpha.300`).
+
+The error names the offending tag and the expected format. Fix it (delete the
+bad tag, push a corrected one) and re-run — nothing stale is ever published.
+
+### Manual builds vs. tag builds
+
+A manual `workflow_dispatch` run is **not** a release: it passes none of the
+version flags, builds the `pubspec.yaml` version, and names its artifacts without
+a tag (`linthra-<signing>.apk`) so it can't be mistaken for a tagged release.
+Only a `v*` tag push derives the version from the tag.
+
+### Do not hand-edit version metadata
+
+There is **no generated version file to edit.** For a release, edit nothing — push
+the tag. `AppInfo._devVersionName` and `pubspec.yaml` only affect local/dev builds
+and are kept in lock-step by the drift test; bump them together (in one commit) if
+you want dev builds to show a newer baseline, but they are not what a release
+ships.
 
 ## 2. Tagging
 
@@ -73,21 +157,28 @@ F-Droid (and our own release tracking) builds from a **git tag**.
 
 Before creating a release tag:
 
-1. **Bump the version** in `pubspec.yaml` (`versionName` and `versionCode`).
-   The `versionCode` **must** be strictly greater than every previous build's
-   (the current release is `+15`, so the next is `+16`).
-2. **Sync the in-app version.** Set `AppInfo.version` in
-   `lib/core/app_info.dart` to the new `versionName` (no `+versionCode`). The
-   drift test (`test/core/app_info_version_test.dart`) fails CI if you forget,
-   so do this in the same commit as step 1.
-3. **Add a changelog** for the new `versionCode` at
-   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` (e.g.
-   `9.txt` for `0.1.0-alpha.9+9`). Keep it short and factual; this is what
-   F-Droid shows. A longer GitHub-Release body lives under
-   `docs/release-notes/vX.Y.Z*.md` (see the
-   [v0.1.0-alpha.9 notes](./release-notes/v0.1.0-alpha.9.md)). The
-   `vX.Y.Z` in the file name and the version inside it must match the tag and
-   `pubspec.yaml`.
+1. **Choose the version** = the tag you will push, e.g. `v0.1.0-alpha.16`. The
+   build derives `versionName`/`versionCode` from it automatically (§1); there is
+   **no version constant to bump** for the release. Preview the derived values:
+
+   ```sh
+   dart run tool/version_from_tag.dart v0.1.0-alpha.16
+   # LINTHRA_VERSION_NAME=0.1.0-alpha.16
+   # LINTHRA_VERSION_CODE=100016
+   ```
+
+2. **(Optional) Refresh the dev baseline.** `pubspec.yaml`'s `version:` and
+   `AppInfo._devVersionName` only drive local/dev builds; bump them together (the
+   drift test `test/core/app_info_version_test.dart` enforces they match) if you
+   want `flutter run` to show the new version. **Not required** for the release —
+   the tag overrides both.
+3. **Add a changelog** named by the **derived `versionCode`** at
+   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` — e.g.
+   `100016.txt` for `v0.1.0-alpha.16` (use the value `tool/version_from_tag.dart`
+   prints). Keep it short and factual; this is what F-Droid shows. A longer
+   GitHub-Release body lives under `docs/release-notes/vX.Y.Z*.md` (see the
+   [v0.1.0-alpha.9 notes](./release-notes/v0.1.0-alpha.9.md)). The `vX.Y.Z` in the
+   file name and the version inside it must match the tag.
 4. **Regenerate committed generated files** (Drift `*.g.dart`) so they match the
    schema at the tagged commit — run the
    [Generate Drift files workflow](../README.md#generating-drift-files-in-ci) or
@@ -104,7 +195,9 @@ Before creating a release tag:
 
 Pushing a `v*` tag starts the build. The **Android Release Build** workflow
 (`.github/workflows/android-release-build.yml`) runs automatically on a `v*`
-tag, builds the APK/AAB, and attaches them to a GitHub Release. **Writing the
+tag, **derives the version from the tag** (§1), builds the APK/AAB with that
+version, verifies the built APK carries it, and attaches them to a GitHub
+Release. **Writing the
 release notes stays manual** — the workflow never authors production notes,
 publishes to a store, or submits to F-Droid. It listens only to the tag `push`
 (not to `release: published`), so a tag builds exactly once. See
@@ -192,6 +285,7 @@ F-Droid does **not** consume our signed artifacts. When/if Linthra is submitted:
 | Quality CI (analyze/test/format) on PRs & `main` | **Automatic** (`ci.yml`). |
 | Debug APK build | Manual (`workflow_dispatch`) + on PRs (`android-debug-apk.yml`). |
 | Release APK/AAB build | **Manual** (`workflow_dispatch`) **and automatic on `v*` tags** (`android-release-build.yml`). |
+| Deriving versionName/versionCode + in-app version from the tag | **Automatic** on a `v*` tag build (`tool/version_from_tag.dart`); manual runs use `pubspec.yaml`. |
 | Attaching APK/AAB to a Release | **Automatic** on a `v*` tag build. Alpha/beta/rc tags attach (debug- or release-signed) to a **pre-release**; stable tags attach **release-signed** assets to an existing Release only. |
 | Creating a GitHub **pre-release** (alpha/beta/rc) | **Automatic** on the tag build if no Release exists yet (placeholder notes; edit afterwards). |
 | Creating a stable GitHub Release | **Manual** (operator, §4); never auto-created. |

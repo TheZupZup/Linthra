@@ -225,27 +225,31 @@ internal/closed testing.
 
 Play enforces a **strictly increasing `versionCode`** per package: an upload
 with an equal or lower code than any previous upload (on any track) is rejected.
-Linthra's versioning model already supports this safely:
+Linthra's versioning model supports this safely:
 
-- `pubspec.yaml` is the **single source of truth**:
-  `version: x.y.z+<versionCode>` (currently `0.1.0-alpha.9+9`). Android reads
-  both `versionName` and `versionCode` from Flutter — they are not hard-coded in
-  Gradle.
+- **The Git tag is the source of truth for a release.** The release build derives
+  `versionName`/`versionCode` from the tag and bakes them in — the strictly
+  monotonic, fully-encoded `versionCode` (e.g. `v0.1.0-alpha.16` → `100016`)
+  satisfies Play's strictly-increasing requirement by construction. `pubspec.yaml`
+  only sets the version for local/dev builds. See
+  [release-process.md §1](./release-process.md#1-versioning-model).
 - The in-app About/Settings string (`AppInfo.version` in
-  `lib/core/app_info.dart`) mirrors the `versionName`. A CI test
-  (`test/core/app_info_version_test.dart`) **fails the build if the two drift**,
-  so the displayed version can never silently diverge from the shipped one. This
-  guard already exists; **no new versioning code is needed for Play.**
+  `lib/core/app_info.dart`) shows the **effective** version: the tag-derived value
+  on a release build (via `--dart-define`), or a `const` mirror of `pubspec.yaml`
+  on dev builds that a CI test (`test/core/app_info_version_test.dart`) **fails
+  the build if it drifts**. Either way the displayed version matches the shipped
+  one. **No manual versioning edits are needed for Play.**
 
 **Per-upload checklist (in addition to
 [release-process.md §3](./release-process.md#3-pre-tag-checklist)):**
 
+- [ ] The upload is built from a `vX.Y.Z[-suffix]` tag, so `versionName`,
+      `versionCode`, and the in-app `AppInfo.version` are all tag-derived and
+      consistent — no manual version edits.
 - [ ] `versionCode` is **strictly greater** than every code ever uploaded to
-      Play — across **all** tracks, not just the current one. Once a code is
-      consumed by an upload it can never be reused, even if that upload is
-      discarded.
-- [ ] `versionName` and `AppInfo.version` are bumped together in the same commit
-      (the drift test enforces this).
+      Play — across **all** tracks, not just the current one (the encoded scheme
+      guarantees this for increasing tags). Once a code is consumed by an upload
+      it can never be reused, even if that upload is discarded.
 - [ ] A matching changelog exists at
       `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`.
 

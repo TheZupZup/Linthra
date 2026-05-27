@@ -117,11 +117,18 @@ process (and the GitHub-Release flow) is in
 [docs/release-process.md](./release-process.md), and it is consistent with
 [fdroid-readiness.md §6](./fdroid-readiness.md):
 
-1. **Single source of truth:** `pubspec.yaml` `version: x.y.z+<versionCode>`
-   (currently `0.1.0+1`). `versionName` = `x.y.z`, `versionCode` = the integer
-   after `+`.
-2. **`versionCode` must increase monotonically** on every release; never reuse
-   or decrease it.
+1. **Source of truth:** for a release the **git tag** drives
+   `versionName`/`versionCode` (derived by `tool/version_from_tag.dart`, see
+   [release-process.md §1](./release-process.md#1-versioning-model));
+   `pubspec.yaml` `version: x.y.z+<versionCode>` is the local/dev default.
+   **Note:** F-Droid builds from source and does not run our workflow, so its
+   `flutter build` takes the version from `pubspec.yaml` — set the metadata
+   `versionCode`/`versionName` to the tag-derived values and either bump
+   `pubspec.yaml` at the tagged commit or have the recipe pass
+   `--build-name`/`--build-number` (see the F-Droid caveat in
+   [fdroid-readiness.md §6](./fdroid-readiness.md)).
+2. **`versionCode` increases monotonically** by construction (the encoding can
+   never go backwards); never reuse or decrease it.
 3. **Tag format suggestion:** annotated tag `vX.Y.Z` (e.g. `v0.1.0`) on the
    commit to be built. This matches the `UpdateCheckMode`/`AutoUpdateMode`
    recommendation in §2.

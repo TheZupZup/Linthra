@@ -150,15 +150,27 @@ F-Droid builds from a git tag. Summary (the canonical, step-by-step process —
 including the GitHub-Release flow — is in
 [docs/release-process.md](./release-process.md)):
 
-1. Keep version in `pubspec.yaml` as the single source of truth
-   (`version: x.y.z+<versionCode>`; currently `0.1.0+1`).
-2. Tag releases as `vX.Y.Z` (annotated tag) on the commit to be built.
-3. Each release bumps both `versionName` (`x.y.z`) and `versionCode` (the
-   integer after `+`); `versionCode` must increase monotonically.
+1. The **git tag** is the source of truth for a release's version; the build
+   derives `versionName`/`versionCode` from it (see
+   [release-process.md §1](./release-process.md#1-versioning-model)).
+   `pubspec.yaml` only sets the version for local/dev builds.
+2. Tag releases as `vX.Y.Z[-suffix]` (annotated tag) on the commit to be built.
+3. `versionCode` is derived to be **strictly monotonic** automatically (encoded
+   from the version); never reuse or decrease it.
 4. Add a matching changelog file at
-   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`.
+   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`, named by the
+   **derived** code (e.g. `100016.txt` for `v0.1.0-alpha.16`).
 5. The F-Droid recipe should use `AutoUpdateMode`/`UpdateCheckMode` tied to tags
    so new tagged releases are picked up.
+
+> **F-Droid caveat.** F-Droid builds **from source** at the tag and does **not**
+> run our release workflow, so a plain `flutter build` there takes the version
+> from `pubspec.yaml`, not the tag. When Linthra is submitted, keep the F-Droid
+> build consistent by either (a) bumping `pubspec.yaml` to the tag-derived
+> `versionName`/`versionCode` at the tagged commit, or (b) having the recipe's
+> build pass `--build-name`/`--build-number` and pinning the metadata
+> `versionCode` to the derived value. This affects only the F-Droid channel — the
+> GitHub-Release build already bakes in the tag-derived version.
 
 ## 7. Metadata checklist
 

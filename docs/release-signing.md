@@ -66,7 +66,11 @@ Artifacts are named with the version (tag) and signing label, e.g.
 `linthra-v0.1.0-alpha.1-debug-signed.apk` or
 `linthra-v0.1.0-alpha.1-release-signed.aab`, so a debug-signed build can never
 be confused with a production release. They are uploaded as workflow artifacts
-(`linthra-<signing>-apk` / `linthra-<signing>-aab`).
+(`linthra-<signing>-apk` / `linthra-<signing>-aab`). On a tag build the
+`versionName`/`versionCode` baked into the APK/AAB (and the in-app version) are
+derived from the tag — see
+[release-process.md §1](./release-process.md#1-versioning-model). Signing is
+independent of this and unchanged.
 
 - **Manual unsigned preview (default):** run with `signed = false` →
   debug-signed artifacts. Manual runs never touch any GitHub Release.

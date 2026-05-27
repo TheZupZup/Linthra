@@ -62,6 +62,7 @@ android {
         applicationId = "io.github.thezupzup.linthra"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
+        // From Flutter (pubspec.yaml); tag release builds override these via --build-name/--build-number derived from the git tag — see docs/release-process.md §1.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }

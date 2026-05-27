@@ -50,6 +50,21 @@ name: Android Release Build
 #   linthra-v0.1.0-alpha.1-debug-signed.apk / .aab
 #   linthra-v0.1.0-alpha.1-release-signed.apk / .aab
 #
+# Version derivation (tag builds):
+#
+#   * The tag is the single source of truth for the release version. A "Derive
+#     version from tag" step runs `tool/version_from_tag.dart` on GITHUB_REF_NAME
+#     to produce LINTHRA_VERSION_NAME (e.g. 0.1.0-alpha.16) and a strictly
+#     monotonic LINTHRA_VERSION_CODE (e.g. 100016). A malformed tag fails the run
+#     there, before any build, so a release never ships stale/guessed metadata.
+#   * The build bakes those in: `--build-name`/`--build-number` set Android's
+#     versionName/versionCode, and `--dart-define=LINTHRA_VERSION_NAME=...` sets
+#     the in-app version (AppInfo.version) to the same value. A verification step
+#     then confirms the built APK actually carries the derived version.
+#   * Manual `workflow_dispatch` runs pass none of these, so they build the
+#     pubspec.yaml version and are named without a tag (never passed off as a
+#     tagged release). See docs/release-process.md §1 for the full strategy.
+#
 # See docs/release-signing.md for the required secrets and keystore handling,
 # and docs/release-process.md for the overall release flow.
 on:
@@ -86,6 +101,8 @@ jobs:
       trigger: ${{ steps.mode.outputs.trigger }}
       prerelease: ${{ steps.mode.outputs.prerelease }}
       asset_base: ${{ steps.mode.outputs.asset_base }}
+      version_name: ${{ steps.version.outputs.LINTHRA_VERSION_NAME }}
+      version_code: ${{ steps.version.outputs.LINTHRA_VERSION_CODE }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -182,11 +199,80 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # Tag is the single source of truth for the release version. Parse it once
+      # (tool/version_from_tag.dart), export the result for the build steps, and
+      # fail fast here on a malformed tag — before any expensive build. The grep
+      # guarantees only the two expected KEY=VALUE lines ever reach the env file.
+      - name: Derive version from tag
+        if: ${{ steps.mode.outputs.trigger == 'tag' }}
+        id: version
+        run: |
+          set -euo pipefail
+          if ! out="$(dart run tool/version_from_tag.dart "$GITHUB_REF_NAME")"; then
+            echo "::error::Could not derive a version from tag '$GITHUB_REF_NAME' (see the error above). Use a tag like v0.1.0-alpha.16, v0.1.0-rc.1, or v1.2.3."
+            exit 1
+          fi
+          echo "Derived from tag '$GITHUB_REF_NAME':"
+          echo "$out"
+          printf '%s\n' "$out" | grep -E '^LINTHRA_VERSION_(NAME|CODE)=' >> "$GITHUB_ENV"
+          printf '%s\n' "$out" | grep -E '^LINTHRA_VERSION_(NAME|CODE)=' >> "$GITHUB_OUTPUT"
+
+      # On a tag build, bake the tag-derived version into both the Android build
+      # metadata (--build-name/--build-number) and the in-app version
+      # (--dart-define), so the APK/AAB and Settings/About all agree. A manual
+      # run passes neither, building the pubspec.yaml version instead.
       - name: Build release APK
-        run: flutter build apk --release
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.mode.outputs.trigger }}" = "tag" ]; then
+            flutter build apk --release \
+              --build-name="$LINTHRA_VERSION_NAME" \
+              --build-number="$LINTHRA_VERSION_CODE" \
+              --dart-define=LINTHRA_VERSION_NAME="$LINTHRA_VERSION_NAME"
+          else
+            flutter build apk --release
+          fi
 
       - name: Build release AAB
-        run: flutter build appbundle --release
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.mode.outputs.trigger }}" = "tag" ]; then
+            flutter build appbundle --release \
+              --build-name="$LINTHRA_VERSION_NAME" \
+              --build-number="$LINTHRA_VERSION_CODE" \
+              --dart-define=LINTHRA_VERSION_NAME="$LINTHRA_VERSION_NAME"
+          else
+            flutter build appbundle --release
+          fi
+
+      # Confirm the built APK actually carries the tag-derived version, so a
+      # release can never ship stale metadata. Uses aapt from the Android SDK the
+      # build just used; if it cannot be located the check warns rather than
+      # blocks (a missing tool is not a version mismatch).
+      - name: Verify APK version matches the tag
+        if: ${{ steps.mode.outputs.trigger == 'tag' }}
+        run: |
+          set -euo pipefail
+          apk="build/app/outputs/flutter-apk/app-release.apk"
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          aapt=""
+          if [ -n "$sdk" ]; then
+            aapt="$(find "$sdk"/build-tools -name aapt -type f 2>/dev/null | sort -V | tail -n1 || true)"
+          fi
+          if [ -z "$aapt" ]; then
+            echo "::warning::aapt not found (ANDROID_HOME/ANDROID_SDK_ROOT); skipping APK version verification."
+            exit 0
+          fi
+          badging="$("$aapt" dump badging "$apk")"
+          got_name="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+          got_code="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          echo "APK reports versionName=$got_name versionCode=$got_code"
+          echo "Tag derived  versionName=$LINTHRA_VERSION_NAME versionCode=$LINTHRA_VERSION_CODE"
+          if [ "$got_name" != "$LINTHRA_VERSION_NAME" ] || [ "$got_code" != "$LINTHRA_VERSION_CODE" ]; then
+            echo "::error::Built APK version ($got_name/$got_code) does not match the tag-derived version ($LINTHRA_VERSION_NAME/$LINTHRA_VERSION_CODE)."
+            exit 1
+          fi
+          echo "Verified: APK version matches the tag-derived version."
 
       # Give the outputs descriptive, self-documenting names that carry the
       # version (tag) and the signing label, so a debug-signed build can never
@@ -220,6 +306,13 @@ jobs:
             echo ""
             echo "**Trigger:** ${{ steps.mode.outputs.trigger }}${{ github.event_name == 'push' && format(' (tag {0})', github.ref_name) || '' }}"
             echo ""
+            if [ "${{ steps.mode.outputs.trigger }}" = "tag" ]; then
+              echo "**Version:** \`${LINTHRA_VERSION_NAME}\` (versionName) / \`${LINTHRA_VERSION_CODE}\` (versionCode), derived from the tag. The APK/AAB metadata and the in-app Settings/About version all use this value."
+              echo ""
+            else
+              echo "**Version:** from \`pubspec.yaml\` (manual build — not a tagged release)."
+              echo ""
+            fi
             echo "**Artifacts:** \`${{ steps.mode.outputs.asset_base }}.apk\`, \`${{ steps.mode.outputs.asset_base }}.aab\`"
             echo ""
             if [ "${{ steps.mode.outputs.signing }}" = "release-signed" ]; then

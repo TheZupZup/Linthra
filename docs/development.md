@@ -174,6 +174,28 @@ stable tags **require release signing** and only attach to a Release you created
 manually. Full versioning/tagging flow is in
 [release-process.md](release-process.md).
 
+### Versioning
+
+Local `flutter build`/`flutter run` use the `pubspec.yaml` version, and so does
+the in-app **Settings ▸ About** version (`AppInfo.version`). A **tagged** release
+build instead derives the version from the tag and bakes it into both the
+APK/AAB metadata and the in-app display, so they always match — see
+[release-process.md §1](release-process.md#1-versioning-model).
+
+Preview what a tag maps to, or reproduce a tag build locally:
+
+```bash
+# What versionName/versionCode does a tag produce?
+dart run tool/version_from_tag.dart v0.1.0-alpha.16
+# LINTHRA_VERSION_NAME=0.1.0-alpha.16
+# LINTHRA_VERSION_CODE=100016
+
+# Build exactly as a tag build would (version baked into metadata + in-app UI):
+flutter build apk --release \
+  --build-name=0.1.0-alpha.16 --build-number=100016 \
+  --dart-define=LINTHRA_VERSION_NAME=0.1.0-alpha.16
+```
+
 ### Signing status
 
 Release signing is **wired up but not yet provisioned**. `android/app/build.gradle`
