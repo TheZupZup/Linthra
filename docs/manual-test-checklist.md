@@ -57,7 +57,14 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
 - ☑ Next / Previous (Previous restarts/steps back correctly).
 - ☑ Shuffle on/off (current track keeps playing; up-next reorders).
 - ☑ Repeat off → all → one (one loops without re-minting a stream each loop).
-- ☐ Queue sheet shows the live up-next; Clear empties it.
+- ☐ Queue sheet (Now Playing → Queue) shows history, current, and live up-next;
+  Clear empties up-next + history but keeps the current track playing.
+- ☐ Play next / Add to queue (song ⋮ menu in Songs, Album, Artist, Playlist,
+  Search) land in the right place and never restart the current track.
+- ☐ Reorder an up-next track by its handle; remove one with ✕ (library + offline
+  copy stay intact); tap an up-next/history row to jump there.
+- ☐ Save queue as playlist creates a local playlist with the queue's songs.
+- ☐ While casting, queue edits and "play now" never start audio on the phone.
 - ☑ Mini-player shows on every tab, collapses when nothing is loaded, opens Now
   Playing on tap.
 - ☑ Now Playing: artwork, metadata, source badge / casting indicator, controls.

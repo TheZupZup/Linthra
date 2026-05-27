@@ -81,6 +81,18 @@ void main() {
       expect(find.text('Add to playlist'), findsOneWidget);
       expect(find.text('Remove from Linthra'), findsOneWidget);
     });
+
+    testWidgets('overflow menu offers queue actions', (tester) async {
+      await _pump(tester, const <Track>[
+        Track(id: '1', title: 'Song One', uri: 'file:///s1.mp3'),
+      ]);
+
+      await tester.tap(find.byTooltip('More actions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Play next'), findsOneWidget);
+      expect(find.text('Add to queue'), findsOneWidget);
+    });
   });
 
   group('TrackTile selection', () {

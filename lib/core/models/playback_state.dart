@@ -29,6 +29,7 @@ class PlaybackState {
     this.status = PlaybackStatus.idle,
     this.currentTrack,
     this.upNext = const <Track>[],
+    this.previous = const <Track>[],
     this.hasPrevious = false,
     this.position = Duration.zero,
     this.duration = Duration.zero,
@@ -53,9 +54,15 @@ class PlaybackState {
   /// queue holds only the current track.
   final List<Track> upNext;
 
-  /// Whether a previous track exists to step back to. Stored as a flag (unlike
-  /// [hasNext], which reads off [upNext]) because the state carries no played
-  /// history — the controller derives it from the queue's current position.
+  /// Tracks played before [currentTrack], in play order — the queue's history,
+  /// shown in the Queue screen so the listener can step back to one. Empty when
+  /// the current track is the first. Carries only catalog [Track]s (id, title,
+  /// artist, album, artwork) — never a resolved/authenticated stream URL.
+  final List<Track> previous;
+
+  /// Whether a previous track exists to step back to. Kept as a flag the
+  /// transport controls read directly; it mirrors `previous.isNotEmpty` (both
+  /// are set together by the controller from the queue's current position).
   final bool hasPrevious;
 
   final Duration position;
@@ -94,6 +101,7 @@ class PlaybackState {
     PlaybackStatus? status,
     Track? currentTrack,
     List<Track>? upNext,
+    List<Track>? previous,
     bool? hasPrevious,
     Duration? position,
     Duration? duration,
@@ -105,6 +113,7 @@ class PlaybackState {
       status: status ?? this.status,
       currentTrack: currentTrack ?? this.currentTrack,
       upNext: upNext ?? this.upNext,
+      previous: previous ?? this.previous,
       hasPrevious: hasPrevious ?? this.hasPrevious,
       position: position ?? this.position,
       duration: duration ?? this.duration,
@@ -121,6 +130,7 @@ class PlaybackState {
           other.status == status &&
           other.currentTrack == currentTrack &&
           listEquals(other.upNext, upNext) &&
+          listEquals(other.previous, previous) &&
           other.hasPrevious == hasPrevious &&
           other.position == position &&
           other.duration == duration &&
@@ -135,6 +145,7 @@ class PlaybackState {
       status,
       currentTrack,
       Object.hashAll(upNext),
+      Object.hashAll(previous),
       hasPrevious,
       position,
       duration,

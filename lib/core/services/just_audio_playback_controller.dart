@@ -262,9 +262,64 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   @override
   void playNext(Track track) {
+    final bool wasEmpty = _queue.current == null;
     _queue = _queue.enqueueNext(track);
+    if (wasEmpty) {
+      // Nothing was playing: "play next" has nothing to play after, so start
+      // the track now rather than silently leaving it queued.
+      unawaited(_playCurrent());
+      return;
+    }
     // The current track keeps playing; only the up-next list changes.
     _emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  void addToQueue(Track track) {
+    final bool wasEmpty = _queue.current == null;
+    _queue = _queue.appended(track);
+    if (wasEmpty) {
+      // An empty queue has nothing playing to append behind: start the track.
+      unawaited(_playCurrent());
+      return;
+    }
+    // The current track keeps playing; only the up-next list grows.
+    _emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  void removeFromQueue(int upNextIndex) {
+    final updated = _queue.removeUpNextAt(upNextIndex);
+    if (identical(updated, _queue)) return; // out of range: nothing to do
+    _queue = updated;
+    // Only the up-next list shrank; the current track and its audio are
+    // untouched — no reload, no restart.
+    _emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  void reorderQueue(int oldIndex, int newIndex) {
+    final updated = _queue.reorderUpNext(oldIndex, newIndex);
+    if (identical(updated, _queue)) return;
+    _queue = updated;
+    // The current track keeps playing; only the order of what follows changes.
+    _emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  Future<void> playFromQueue(int upNextIndex) async {
+    final jumped = _queue.jumpToUpNext(upNextIndex);
+    if (identical(jumped, _queue)) return;
+    _queue = jumped;
+    await _playCurrent();
+  }
+
+  @override
+  Future<void> playFromHistory(int previousIndex) async {
+    final jumped = _queue.jumpToHistory(previousIndex);
+    if (identical(jumped, _queue)) return;
+    _queue = jumped;
+    await _playCurrent();
   }
 
   @override
@@ -284,7 +339,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   @override
   void clearQueue() {
     _queue = _queue.cleared();
-    _emit(_state.copyWith(upNext: _queue.upNext, hasPrevious: false));
+    // Clearing keeps only the current track, so both the up-next list and the
+    // history collapse to empty; the current track's audio is untouched.
+    _emit(_state.copyWith(
+      upNext: _queue.upNext,
+      previous: _queue.history,
+      hasPrevious: false,
+    ));
   }
 
   @override
@@ -296,6 +357,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _queue = enabled ? _queue.shuffled(_random) : _queue.unshuffled();
     _emit(_state.copyWith(
       upNext: _queue.upNext,
+      previous: _queue.history,
       hasPrevious: _queue.hasPrevious,
       shuffleEnabled: _shuffleEnabled,
     ));
@@ -371,6 +433,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         status: PlaybackStatus.paused,
         currentTrack: track,
         upNext: _queue.upNext,
+        previous: _queue.history,
         hasPrevious: _queue.hasPrevious,
         shuffleEnabled: _shuffleEnabled,
         repeatMode: _repeatMode,
@@ -390,6 +453,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         status: PlaybackStatus.loading,
         currentTrack: track,
         upNext: _queue.upNext,
+        previous: _queue.history,
         hasPrevious: _queue.hasPrevious,
         shuffleEnabled: _shuffleEnabled,
         repeatMode: _repeatMode,
@@ -451,6 +515,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       status: PlaybackStatus.error,
       currentTrack: track,
       upNext: _queue.upNext,
+      previous: _queue.history,
       hasPrevious: _queue.hasPrevious,
       shuffleEnabled: _shuffleEnabled,
       repeatMode: _repeatMode,
@@ -506,6 +571,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final stopped = PlaybackState(
       currentTrack: _state.currentTrack,
       upNext: _queue.upNext,
+      previous: _queue.history,
       hasPrevious: _queue.hasPrevious,
       shuffleEnabled: _shuffleEnabled,
       repeatMode: _repeatMode,

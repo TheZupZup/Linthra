@@ -18,6 +18,7 @@ import '../song_actions.dart';
 /// its current [DownloadStatus] (see `_OverflowMenu._menuItems`).
 enum _TrackAction {
   playNext,
+  addToQueue,
   addToPlaylist,
   download,
   removeOffline,
@@ -248,6 +249,7 @@ class _OverflowMenu extends ConsumerWidget {
   List<PopupMenuEntry<_TrackAction>> _menuItems() {
     final items = <PopupMenuEntry<_TrackAction>>[
       _item(_TrackAction.playNext, Icons.queue_music, 'Play next'),
+      _item(_TrackAction.addToQueue, Icons.add_to_queue, 'Add to queue'),
       _item(_TrackAction.addToPlaylist, Icons.playlist_add, 'Add to playlist'),
     ];
     if (isRemote) {
@@ -295,6 +297,8 @@ class _OverflowMenu extends ConsumerWidget {
     switch (action) {
       case _TrackAction.playNext:
         ref.read(playbackControllerProvider).playNext(track);
+      case _TrackAction.addToQueue:
+        ref.read(playbackControllerProvider).addToQueue(track);
       case _TrackAction.addToPlaylist:
         await showAddToPlaylistSheet(context, <Track>[track]);
       case _TrackAction.download:

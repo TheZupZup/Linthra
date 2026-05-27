@@ -85,5 +85,81 @@ void main() {
       expect(controller.state.upNext, isEmpty);
       expect(controller.state.hasNext, isFalse);
     });
+
+    test('addToQueue appends a track to the end', () async {
+      final controller = FakePlaybackController();
+      await controller.playTracks([_track('a'), _track('b')]);
+
+      controller.addToQueue(_track('c'));
+
+      expect(controller.state.currentTrack, _track('a'));
+      expect(controller.state.upNext, [_track('b'), _track('c')]);
+    });
+
+    test('addToQueue on an empty queue starts playback', () async {
+      final controller = FakePlaybackController();
+
+      controller.addToQueue(_track('a'));
+
+      expect(controller.state.currentTrack, _track('a'));
+      expect(controller.playedTracks, [_track('a')]);
+    });
+
+    test('playNext on an empty queue starts playback', () async {
+      final controller = FakePlaybackController();
+
+      controller.playNext(_track('a'));
+
+      expect(controller.state.currentTrack, _track('a'));
+      expect(controller.playedTracks, [_track('a')]);
+    });
+
+    test('removeFromQueue drops only that up-next entry', () async {
+      final controller = FakePlaybackController();
+      await controller.playTracks([_track('a'), _track('b'), _track('c')]);
+
+      // up next is [b, c]; remove index 0 (b).
+      controller.removeFromQueue(0);
+
+      expect(controller.state.currentTrack, _track('a'));
+      expect(controller.state.upNext, [_track('c')]);
+    });
+
+    test('reorderQueue moves an up-next track', () async {
+      final controller = FakePlaybackController();
+      await controller.playTracks(
+        [_track('a'), _track('b'), _track('c'), _track('d')],
+      );
+
+      // up next is [b, c, d]; move b (0) to the end (2).
+      controller.reorderQueue(0, 2);
+
+      expect(controller.state.upNext, [_track('c'), _track('d'), _track('b')]);
+    });
+
+    test('playFromQueue jumps to and plays the chosen up-next track', () async {
+      final controller = FakePlaybackController();
+      await controller.playTracks([_track('a'), _track('b'), _track('c')]);
+
+      // up next is [b, c]; play c (index 1).
+      await controller.playFromQueue(1);
+
+      expect(controller.state.currentTrack, _track('c'));
+      expect(controller.playedTracks, [_track('a'), _track('c')]);
+    });
+
+    test('queue edits do not restart the current track', () async {
+      final controller = FakePlaybackController();
+      await controller.playTracks([_track('a'), _track('b'), _track('c')]);
+      final int playedBefore = controller.playedTracks.length;
+
+      controller.addToQueue(_track('d'));
+      controller.removeFromQueue(0); // removes b
+      controller.reorderQueue(0, 1); // reorders the remaining up-next
+
+      // The current track is still 'a' and was never re-played by any edit.
+      expect(controller.state.currentTrack, _track('a'));
+      expect(controller.playedTracks.length, playedBefore);
+    });
   });
 }

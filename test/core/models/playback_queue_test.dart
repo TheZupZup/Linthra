@@ -131,6 +131,152 @@ void main() {
     });
   });
 
+  group('PlaybackQueue advanced editing', () {
+    test('history exposes the tracks played before the current one', () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c')],
+        startIndex: 2,
+      );
+
+      expect(queue.history, [_track('a'), _track('b')]);
+    });
+
+    test('history is empty at the start of the queue', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')]);
+
+      expect(queue.history, isEmpty);
+    });
+
+    test('appended() adds a track to the end, keeping the current one', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')]);
+
+      final updated = queue.appended(_track('c'));
+
+      expect(updated.current, _track('a'));
+      expect(updated.upNext, [_track('b'), _track('c')]);
+    });
+
+    test('appended() on an empty queue makes the track current', () {
+      final updated = PlaybackQueue.empty.appended(_track('a'));
+
+      expect(updated.current, _track('a'));
+      expect(updated.hasNext, isFalse);
+    });
+
+    test('appended() while shuffled survives a later unshuffle', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')])
+          .shuffled(Random(2))
+          .appended(_track('z'));
+
+      expect(queue.unshuffled().tracks, contains(_track('z')));
+    });
+
+    test('removeUpNextAt() drops only that upcoming entry', () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c'), _track('d')],
+      );
+
+      // up next is [b, c, d]; remove index 1 (c).
+      final updated = queue.removeUpNextAt(1);
+
+      expect(updated.current, _track('a'));
+      expect(updated.upNext, [_track('b'), _track('d')]);
+    });
+
+    test('removeUpNextAt() leaves the current track and history untouched', () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c')],
+        startIndex: 1,
+      );
+
+      // current is b, history [a], up next [c]; remove the only up-next entry.
+      final updated = queue.removeUpNextAt(0);
+
+      expect(updated.current, _track('b'));
+      expect(updated.history, [_track('a')]);
+      expect(updated.upNext, isEmpty);
+    });
+
+    test('removeUpNextAt() out of range is a no-op', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')]);
+
+      expect(queue.removeUpNextAt(5), same(queue));
+      expect(queue.removeUpNextAt(-1), same(queue));
+    });
+
+    test('removeUpNextAt() drops the track from the shuffle original too', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b'), _track('c')])
+          .shuffled(Random(4));
+      // Remove the first up-next track in the shuffled order.
+      final removed = queue.upNext.first;
+
+      final updated = queue.removeUpNextAt(0).unshuffled();
+
+      // Unshuffling must not resurrect the removed track.
+      expect(updated.tracks, isNot(contains(removed)));
+    });
+
+    test('reorderUpNext() moves an upcoming track, keeping current playing',
+        () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c'), _track('d')],
+      );
+
+      // up next is [b, c, d]; move b (0) to the end (2).
+      final updated = queue.reorderUpNext(0, 2);
+
+      expect(updated.current, _track('a'));
+      expect(updated.upNext, [_track('c'), _track('d'), _track('b')]);
+    });
+
+    test('reorderUpNext() is a no-op for equal or out-of-range indices', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b'), _track('c')]);
+
+      expect(queue.reorderUpNext(0, 0), same(queue));
+      expect(queue.reorderUpNext(0, 9), same(queue));
+      expect(queue.reorderUpNext(-1, 0), same(queue));
+    });
+
+    test('jumpToUpNext() makes an upcoming track current', () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c'), _track('d')],
+      );
+
+      // up next is [b, c, d]; jump to c (index 1).
+      final updated = queue.jumpToUpNext(1);
+
+      expect(updated.current, _track('c'));
+      expect(updated.history, [_track('a'), _track('b')]);
+      expect(updated.upNext, [_track('d')]);
+    });
+
+    test('jumpToUpNext() out of range is a no-op', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')]);
+
+      expect(queue.jumpToUpNext(5), same(queue));
+    });
+
+    test('jumpToHistory() steps back to a played track', () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c')],
+        startIndex: 2,
+      );
+
+      // history is [a, b]; jump back to a (index 0).
+      final updated = queue.jumpToHistory(0);
+
+      expect(updated.current, _track('a'));
+      expect(updated.upNext, [_track('b'), _track('c')]);
+      expect(updated.history, isEmpty);
+    });
+
+    test('jumpToHistory() out of range is a no-op', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')], startIndex: 1);
+
+      expect(queue.jumpToHistory(5), same(queue));
+    });
+  });
+
   group('PlaybackQueue shuffle', () {
     test('shuffled() keeps the current track current and shuffles the rest',
         () {

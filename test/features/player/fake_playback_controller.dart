@@ -70,8 +70,56 @@ class FakePlaybackController implements LocalPlaybackController {
 
   @override
   void playNext(Track track) {
+    final bool wasEmpty = _queue.current == null;
     _queue = _queue.enqueueNext(track);
+    if (wasEmpty) {
+      _playCurrent();
+      return;
+    }
     emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  void addToQueue(Track track) {
+    final bool wasEmpty = _queue.current == null;
+    _queue = _queue.appended(track);
+    if (wasEmpty) {
+      _playCurrent();
+      return;
+    }
+    emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  void removeFromQueue(int upNextIndex) {
+    final updated = _queue.removeUpNextAt(upNextIndex);
+    if (identical(updated, _queue)) return;
+    _queue = updated;
+    emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  void reorderQueue(int oldIndex, int newIndex) {
+    final updated = _queue.reorderUpNext(oldIndex, newIndex);
+    if (identical(updated, _queue)) return;
+    _queue = updated;
+    emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  Future<void> playFromQueue(int upNextIndex) async {
+    final jumped = _queue.jumpToUpNext(upNextIndex);
+    if (identical(jumped, _queue)) return;
+    _queue = jumped;
+    _playCurrent();
+  }
+
+  @override
+  Future<void> playFromHistory(int previousIndex) async {
+    final jumped = _queue.jumpToHistory(previousIndex);
+    if (identical(jumped, _queue)) return;
+    _queue = jumped;
+    _playCurrent();
   }
 
   @override
@@ -94,7 +142,11 @@ class FakePlaybackController implements LocalPlaybackController {
   void clearQueue() {
     clearCount++;
     _queue = _queue.cleared();
-    emit(_state.copyWith(upNext: _queue.upNext, hasPrevious: false));
+    emit(_state.copyWith(
+      upNext: _queue.upNext,
+      previous: _queue.history,
+      hasPrevious: false,
+    ));
   }
 
   @override
@@ -145,6 +197,7 @@ class FakePlaybackController implements LocalPlaybackController {
         status: PlaybackStatus.paused,
         currentTrack: track,
         upNext: _queue.upNext,
+        previous: _queue.history,
         hasPrevious: _queue.hasPrevious,
         shuffleEnabled: _shuffleEnabled,
         repeatMode: _repeatMode,
@@ -156,6 +209,7 @@ class FakePlaybackController implements LocalPlaybackController {
       status: PlaybackStatus.playing,
       currentTrack: track,
       upNext: _queue.upNext,
+      previous: _queue.history,
       hasPrevious: _queue.hasPrevious,
       shuffleEnabled: _shuffleEnabled,
       repeatMode: _repeatMode,

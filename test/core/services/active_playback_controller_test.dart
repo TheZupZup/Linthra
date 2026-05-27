@@ -236,6 +236,58 @@ void main() {
     });
   });
 
+  group('queue editing while casting never starts duplicate local playback',
+      () {
+    test('add/remove/reorder update up-next without local audio', () async {
+      local = FakePlaybackController();
+      await local.playTracks(const <Track>[_trackA, _trackB]);
+      cast = FakeCastService();
+      final controller = build();
+      addTearDown(controller.dispose);
+
+      cast.emit(_casting());
+      await _waitFor(controller,
+          (_) => controller.activeOutput == ActivePlaybackOutput.cast);
+      final int playedBefore = local.playedTracks.length;
+
+      const trackC = Track(id: 'c', title: 'Song C', uri: 'jellyfin:c');
+      controller.addToQueue(trackC); // up next: [B, C]
+      controller.reorderQueue(0, 1); // up next: [C, B]
+      controller.removeFromQueue(0); // up next: [B]
+
+      // The local engine is suspended: every edit just reshapes the up-next
+      // list. None of them ever started local playback (no duplicate audio).
+      expect(local.playedTracks.length, playedBefore);
+      expect(controller.activeOutput, ActivePlaybackOutput.cast);
+      expect(controller.state.currentTrack, _trackA);
+      expect(controller.state.upNext, const <Track>[_trackB]);
+    });
+
+    test('playFromQueue changes the current track without local audio',
+        () async {
+      local = FakePlaybackController();
+      await local.playTracks(const <Track>[_trackA, _trackB]);
+      cast = FakeCastService();
+      final controller = build();
+      addTearDown(controller.dispose);
+
+      cast.emit(_casting());
+      await _waitFor(controller,
+          (_) => controller.activeOutput == ActivePlaybackOutput.cast);
+      final int playedBefore = local.playedTracks.length;
+
+      // up next is [B]; play it now while casting.
+      await controller.playFromQueue(0);
+
+      // The current track advances (the cast service mirrors it onto the
+      // receiver via the track-change stream), but the suspended local engine
+      // produced no audio of its own.
+      expect(controller.state.currentTrack, _trackB);
+      expect(local.playedTracks.length, playedBefore);
+      expect(controller.activeOutput, ActivePlaybackOutput.cast);
+    });
+  });
+
   group('ending a cast session never surprise-starts local playback', () {
     test('disconnect resumes the local engine paused at the cast position',
         () async {

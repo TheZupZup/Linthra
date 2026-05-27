@@ -25,8 +25,33 @@ abstract interface class PlaybackController {
   Future<void> playTracks(List<Track> tracks, {int startIndex = 0});
 
   /// Inserts [track] so it plays immediately after the current one
-  /// ("play next") without interrupting what is playing now.
+  /// ("play next") without interrupting what is playing now. When nothing is
+  /// playing it starts [track] (so the action is never a silent no-op).
   void playNext(Track track);
+
+  /// Appends [track] to the end of the queue ("add to queue") without
+  /// interrupting playback. When nothing is playing it starts [track].
+  void addToQueue(Track track);
+
+  /// Removes the upcoming track at [upNextIndex] (0-based into
+  /// [PlaybackState.upNext]). The current track keeps playing; the track is
+  /// only dropped from the queue — never deleted from the library or its
+  /// offline copy. Out-of-range indices are a no-op.
+  void removeFromQueue(int upNextIndex);
+
+  /// Moves an upcoming track within the queue, from [oldIndex] to [newIndex]
+  /// (both 0-based into [PlaybackState.upNext]). The current track is untouched,
+  /// so it keeps playing. A no-op for out-of-range or equal indices.
+  void reorderQueue(int oldIndex, int newIndex);
+
+  /// Jumps to the upcoming track at [upNextIndex] (0-based into
+  /// [PlaybackState.upNext]) and plays it now. The skipped tracks become
+  /// history ([PlaybackState.previous]). A no-op for an out-of-range index.
+  Future<void> playFromQueue(int upNextIndex);
+
+  /// Steps back to the previously-played track at [previousIndex] (0-based into
+  /// [PlaybackState.previous]) and plays it. A no-op for an out-of-range index.
+  Future<void> playFromHistory(int previousIndex);
 
   /// Advances to the next track in the queue, if any. A no-op when the queue
   /// has no upcoming tracks.

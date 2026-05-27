@@ -66,6 +66,18 @@ class PlaybackQueue {
     return tracks.sublist(currentIndex + 1);
   }
 
+  /// The tracks played before the current one, in play order — the queue's
+  /// history. Empty when the current track is the first (or the queue is
+  /// empty). Lets the queue UI show where you've been without the controller
+  /// carrying a separate history list. Named [history] (not `previous`) to
+  /// avoid clashing with the [previous] step-back method.
+  List<Track> get history {
+    if (currentIndex <= 0 || currentIndex > tracks.length) {
+      return const <Track>[];
+    }
+    return tracks.sublist(0, currentIndex);
+  }
+
   /// Whether there is at least one track after the current one.
   bool get hasNext => currentIndex >= 0 && currentIndex < tracks.length - 1;
 
@@ -120,6 +132,91 @@ class PlaybackQueue {
       tracks: updated,
       currentIndex: currentIndex,
       originalOrder: updatedOriginal,
+    );
+  }
+
+  /// Appends [track] to the end of the queue ("add to queue"). With an empty
+  /// queue it becomes the current track. When shuffled, the track is also
+  /// appended to [originalOrder] so it survives a later unshuffle (mirroring
+  /// [enqueueNext]).
+  PlaybackQueue appended(Track track) {
+    if (current == null) return PlaybackQueue.single(track);
+    final updated = List<Track>.of(tracks)..add(track);
+    final updatedOriginal = originalOrder == null
+        ? null
+        : (List<Track>.of(originalOrder!)..add(track));
+    return PlaybackQueue(
+      tracks: updated,
+      currentIndex: currentIndex,
+      originalOrder: updatedOriginal,
+    );
+  }
+
+  /// Removes the upcoming track at [upNextIndex] (0-based into [upNext]),
+  /// leaving the current track and everything before it untouched so playback
+  /// continues uninterrupted. An out-of-range index is a no-op (returns this).
+  /// When shuffled, the same track is dropped from [originalOrder] so a later
+  /// unshuffle can't resurrect it.
+  PlaybackQueue removeUpNextAt(int upNextIndex) {
+    if (upNextIndex < 0 || upNextIndex >= upNext.length) return this;
+    final absolute = currentIndex + 1 + upNextIndex;
+    final removed = tracks[absolute];
+    final updated = List<Track>.of(tracks)..removeAt(absolute);
+    final updatedOriginal = originalOrder == null
+        ? null
+        : (List<Track>.of(originalOrder!)..remove(removed));
+    return PlaybackQueue(
+      tracks: updated,
+      currentIndex: currentIndex,
+      originalOrder: updatedOriginal,
+    );
+  }
+
+  /// Moves the upcoming track from [oldUpNextIndex] to [newUpNextIndex] (both
+  /// 0-based into [upNext]; [newUpNextIndex] is the destination *after* removal,
+  /// the index a normalised `ReorderableList` reports). The current track is
+  /// untouched, so it keeps playing. A no-op for out-of-range or equal indices.
+  ///
+  /// While shuffled this reorders only the *effective* (shuffled) order;
+  /// [originalOrder] is left intact, so a later [unshuffled] restores the
+  /// pre-shuffle order and drops the manual move — keeping shuffle coherent.
+  PlaybackQueue reorderUpNext(int oldUpNextIndex, int newUpNextIndex) {
+    final int count = upNext.length;
+    if (oldUpNextIndex < 0 || oldUpNextIndex >= count) return this;
+    if (newUpNextIndex < 0 || newUpNextIndex >= count) return this;
+    if (oldUpNextIndex == newUpNextIndex) return this;
+    final int base = currentIndex + 1;
+    final updated = List<Track>.of(tracks);
+    final moved = updated.removeAt(base + oldUpNextIndex);
+    updated.insert(base + newUpNextIndex, moved);
+    return PlaybackQueue(
+      tracks: updated,
+      currentIndex: currentIndex,
+      originalOrder: originalOrder,
+    );
+  }
+
+  /// Makes the upcoming track at [upNextIndex] (0-based into [upNext]) the
+  /// current one — "play this now". The tracks between the old current and it
+  /// fall into [previous] (history). A no-op for an out-of-range index.
+  PlaybackQueue jumpToUpNext(int upNextIndex) {
+    if (upNextIndex < 0 || upNextIndex >= upNext.length) return this;
+    return PlaybackQueue(
+      tracks: tracks,
+      currentIndex: currentIndex + 1 + upNextIndex,
+      originalOrder: originalOrder,
+    );
+  }
+
+  /// Steps back to the previously-played track at [historyIndex] (0-based into
+  /// [history]), making it current. The tracks after it — including the old
+  /// current — become [upNext] again. A no-op for an out-of-range index.
+  PlaybackQueue jumpToHistory(int historyIndex) {
+    if (historyIndex < 0 || historyIndex >= history.length) return this;
+    return PlaybackQueue(
+      tracks: tracks,
+      currentIndex: historyIndex,
+      originalOrder: originalOrder,
     );
   }
 

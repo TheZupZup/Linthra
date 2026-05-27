@@ -259,6 +259,14 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                 ),
               ),
               PopupMenuItem<_RowAction>(
+                value: _RowAction.addToQueue,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.add_to_queue),
+                  title: Text('Add to queue'),
+                ),
+              ),
+              PopupMenuItem<_RowAction>(
                 value: _RowAction.addToPlaylist,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -399,6 +407,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     switch (action) {
       case _RowAction.playNext:
         ref.read(playbackControllerProvider).playNext(track);
+      case _RowAction.addToQueue:
+        ref.read(playbackControllerProvider).addToQueue(track);
       case _RowAction.addToPlaylist:
         await showAddToPlaylistSheet(context, <Track>[track]);
       case _RowAction.removeFromPlaylist:
@@ -515,7 +525,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
 enum _DetailMenuAction { rename, delete }
 
-enum _RowAction { playNext, addToPlaylist, removeFromPlaylist }
+enum _RowAction { playNext, addToQueue, addToPlaylist, removeFromPlaylist }
 
 class _Header extends StatelessWidget {
   const _Header({required this.onPlay, required this.onShuffle});

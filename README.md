@@ -77,6 +77,8 @@ gradient, generated from one source design (not mockups).
   needs a custom receiver app — see [docs/cast.md](./docs/cast.md).)
 - **Android Auto** — browse your Library, Queue, Playlists, and Favorites from
   the car screen and tap to play.
+- **Queue / Up Next** — play next, add to queue, reorder, remove, and save the
+  queue as a playlist — without building a playlist first ([docs](./docs/queue.md)).
 - **Playlists & favourites** — create/edit/reorder/delete playlists; favourite
   tracks. Both sync with Jellyfin where supported.
 - **Background playback** — media notification with lock-screen, Bluetooth, and
@@ -182,6 +184,7 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 | Music providers (overview) | [docs/providers.md](./docs/providers.md) |
 | Jellyfin setup | [docs/jellyfin.md](./docs/jellyfin.md) · [compatibility](./docs/jellyfin-compatibility.md) · [sync](./docs/jellyfin-sync.md) |
 | Streaming, buffering & recovery | [docs/streaming.md](./docs/streaming.md) |
+| Queue / Up Next | [docs/queue.md](./docs/queue.md) |
 | Offline cache & downloads | [docs/offline-cache.md](./docs/offline-cache.md) |
 | Cast / Chromecast | [docs/cast.md](./docs/cast.md) |
 | Android Auto | [docs/android-auto.md](./docs/android-auto.md) |

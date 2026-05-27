@@ -4,11 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/dimens.dart';
 import '../../../core/models/track.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
-import '../../../shared/widgets/empty_state.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../favorites_providers.dart';
-import '../player_providers.dart';
 import 'lyrics_view.dart';
+import 'queue_sheet.dart';
 
 /// Bottom action row on the now-playing screen: favorite · queue · lyrics.
 ///
@@ -59,12 +58,7 @@ class NowPlayingActions extends ConsumerWidget {
   }
 
   void _openQueue(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (_) => const _QueueSheet(),
-    );
+    showQueueSheet(context);
   }
 
   void _openLyrics(BuildContext context) {
@@ -115,90 +109,6 @@ class _LyricsSheet extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// The queue sheet: the playing track followed by the live up-next list, with a
-/// Clear action. Watches playback state so it stays current while open.
-class _QueueSheet extends ConsumerWidget {
-  const _QueueSheet();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final controller = ref.watch(playbackControllerProvider);
-    final state =
-        ref.watch(playbackStateProvider).valueOrNull ?? controller.state;
-    final upNext = state.upNext;
-
-    return SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.6,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg,
-                0,
-                AppSpacing.sm,
-                AppSpacing.sm,
-              ),
-              child: Row(
-                children: [
-                  Text('Up next', style: theme.textTheme.titleMedium),
-                  const Spacer(),
-                  if (upNext.isNotEmpty)
-                    TextButton(
-                      onPressed: controller.clearQueue,
-                      child: const Text('Clear'),
-                    ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: upNext.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
-                      child: EmptyState(
-                        icon: Icons.queue_music_outlined,
-                        title: 'Nothing up next',
-                        message: 'Tracks you queue will appear here.',
-                      ),
-                    )
-                  : ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: upNext.length,
-                      itemBuilder: (context, index) =>
-                          _QueueTile(track: upNext[index]),
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _QueueTile extends StatelessWidget {
-  const _QueueTile({required this.track});
-
-  final Track track;
-
-  @override
-  Widget build(BuildContext context) {
-    final artist = track.artistName;
-    return ListTile(
-      dense: true,
-      leading: const Icon(Icons.queue_music_outlined),
-      title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: artist == null || artist.isEmpty
-          ? null
-          : Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis),
     );
   }
 }
