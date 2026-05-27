@@ -8,6 +8,7 @@ import 'cache/cache_settings_section.dart';
 import 'diagnostics/diagnostics_settings_section.dart';
 import 'jellyfin/jellyfin_settings_section.dart';
 import 'network/network_settings_section.dart';
+import 'playback/playback_settings_section.dart';
 import 'precache/precache_settings_section.dart';
 import 'subsonic/subsonic_settings_section.dart';
 
@@ -28,6 +29,8 @@ class SettingsScreen extends StatelessWidget {
           SubsonicSettingsSection(),
           SizedBox(height: AppSpacing.md),
           CacheSettingsSection(),
+          SizedBox(height: AppSpacing.md),
+          PlaybackSettingsSection(),
           SizedBox(height: AppSpacing.md),
           NetworkSettingsSection(),
           SizedBox(height: AppSpacing.md),

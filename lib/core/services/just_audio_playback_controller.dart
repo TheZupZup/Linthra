@@ -8,6 +8,7 @@ import '../models/playback_queue.dart';
 import '../models/playback_source.dart';
 import '../models/playback_state.dart';
 import '../models/repeat_mode.dart';
+import '../models/replay_gain.dart';
 import '../models/track.dart';
 import 'local_playable_uri_resolver.dart';
 import 'local_playback_controller.dart';
@@ -103,6 +104,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   // across track changes and are mirrored onto every emitted state.
   bool _shuffleEnabled = false;
   RepeatMode _repeatMode = RepeatMode.off;
+
+  // Whether ReplayGain volume normalization is applied. Off by default so audio
+  // is never altered until the listener opts in. Mirrored onto the engine's
+  // volume whenever a track loads (and immediately when toggled).
+  bool _normalizeVolume = false;
 
   // How many times the current track has been retried after a mid-stream
   // failure. Reset when a fresh track loads and when playback reaches `playing`,
@@ -382,6 +388,39 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _emit(_state.copyWith(repeatMode: _repeatMode));
   }
 
+  @override
+  void setVolumeNormalizationEnabled(bool enabled) {
+    if (enabled == _normalizeVolume) return;
+    _normalizeVolume = enabled;
+    // Re-level whatever is loaded so toggling takes effect now, not only on the
+    // next track. Best-effort and silent: a volume tweak must never surface as a
+    // playback error or interrupt audio.
+    unawaited(_applyVolume());
+  }
+
+  /// The engine volume (0.0–1.0) to use for [track] given whether normalization
+  /// is on. With it off, or no track loaded, returns 1.0 (full, untouched).
+  /// With it on, returns the track's safe ReplayGain multiplier — attenuation
+  /// only and clip-safe (see [ReplayGain.linearVolume]).
+  @visibleForTesting
+  static double volumeFor(Track? track, {required bool normalizeVolume}) {
+    if (!normalizeVolume || track == null) return 1.0;
+    return track.replayGain.linearVolume();
+  }
+
+  /// Pushes the target volume for the current track onto the engine. A cast
+  /// receiver owns its own volume while suspended, so this is a no-op then.
+  Future<void> _applyVolume() async {
+    if (_suspended) return;
+    final double volume =
+        volumeFor(_queue.current, normalizeVolume: _normalizeVolume);
+    try {
+      await _player.setVolume(volume);
+    } catch (_) {
+      // A volume failure must never break playback; leave the prior volume.
+    }
+  }
+
   /// Decides what to play when the current track finishes, per [_repeatMode]:
   /// repeat-one replays the same track, repeat-all advances (wrapping past the
   /// end), and off advances until the queue runs out and then settles on
@@ -503,6 +542,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // is turned into an authenticated stream URL (or a friendly error) before
       // it ever reaches here.
       await _player.setUrl(resolved.uri.toString());
+      // Level this track before it's heard: apply its ReplayGain (or full
+      // volume when normalization is off), so the very first moment of audio is
+      // already at the right loudness rather than jumping after a beat.
+      await _applyVolume();
       // Resuming on this device after casting picks up where the receiver left
       // off, paused unless asked to play.
       if (startAt > Duration.zero) await _player.seek(startAt);

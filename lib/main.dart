@@ -11,6 +11,7 @@ import 'data/repositories/jellyfin_session_store_provider.dart';
 import 'data/repositories/library_added_store_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
 import 'data/repositories/play_history_repository_provider.dart';
+import 'data/repositories/playback_preferences_provider.dart';
 import 'data/repositories/playlist_repository_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
@@ -20,6 +21,7 @@ import 'features/player/favorites_providers.dart';
 import 'features/player/lyrics_providers.dart';
 import 'features/player/player_providers.dart';
 import 'features/settings/jellyfin/jellyfin_settings_controller.dart';
+import 'features/settings/playback/normalize_volume_controller.dart';
 import 'features/settings/subsonic/subsonic_settings_controller.dart';
 
 Future<void> main() async {
@@ -45,6 +47,7 @@ Future<void> main() async {
       sharedPreferencesSelectedMusicFolderRepositoryOverride,
       sharedPreferencesDownloadStoreOverride,
       sharedPreferencesDownloadPreferencesOverride,
+      sharedPreferencesPlaybackPreferencesOverride,
       fileSystemOfflineFileStoreOverride,
       remoteTrackDownloaderOverride,
       currentlyPlayingTrackIdOverride,
@@ -88,6 +91,20 @@ Future<void> main() async {
   // stream URL in memory so a skip starts faster — without touching the offline
   // cache or marking anything downloaded. Side-effect-only, like smart pre-cache.
   container.read(streamPreloadServiceProvider);
+
+  // Mirror the user's "Normalize volume" choice onto the local audio engine,
+  // seeding the persisted value now and pushing every later toggle. The engine
+  // applies the clip-safe ReplayGain attenuation; with the choice off (the
+  // default) audio plays untouched.
+  container.listen<AsyncValue<bool>>(
+    normalizeVolumeControllerProvider,
+    (_, next) {
+      container
+          .read(localPlaybackControllerProvider)
+          .setVolumeNormalizationEnabled(next.valueOrNull ?? false);
+    },
+    fireImmediately: true,
+  );
 
   // Warm the persisted Jellyfin session before the first frame so a synced
   // remote track can stream on the first tap — without it, playback would race
