@@ -25,4 +25,10 @@ abstract interface class LocalPlaybackController implements PlaybackController {
   /// Wraps the queue back to its first track and (re)loads it. Used to honour
   /// repeat-all when a cast track finishes at the end of the queue.
   Future<void> restartQueue();
+
+  /// Turns ReplayGain volume normalization on or off. When on, the engine
+  /// attenuates each loaded track by its ReplayGain so songs play at a more
+  /// even loudness; when off, audio plays untouched. Applies to the currently
+  /// loaded track immediately, so toggling takes effect without a track change.
+  void setVolumeNormalizationEnabled(bool enabled);
 }

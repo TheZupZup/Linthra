@@ -175,6 +175,15 @@ class FakePlaybackController implements LocalPlaybackController {
     emit(_state.copyWith(repeatMode: _repeatMode));
   }
 
+  /// The last value passed to [setVolumeNormalizationEnabled], so wiring tests
+  /// can assert the preference reaches the engine. Null until first set.
+  bool? normalizeVolumeEnabled;
+
+  @override
+  void setVolumeNormalizationEnabled(bool enabled) {
+    normalizeVolumeEnabled = enabled;
+  }
+
   /// Test seam mirroring the production controller's completion handling: drives
   /// what plays when the current track finishes, honouring the repeat mode.
   void completeCurrent() {

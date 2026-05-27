@@ -1,3 +1,5 @@
+import 'replay_gain.dart';
+
 /// A single playable track, independent of where it came from.
 ///
 /// [uri] may point to a local file path or a remote resource. Keeping it
@@ -13,6 +15,7 @@ class Track {
     this.duration = Duration.zero,
     this.trackNumber,
     this.artworkUri,
+    this.replayGain = ReplayGain.none,
   });
 
   final String id;
@@ -24,6 +27,10 @@ class Track {
   final int? trackNumber;
   final Uri? artworkUri;
 
+  /// Loudness metadata used for volume normalization. Defaults to
+  /// [ReplayGain.none]; sources that read it populate this when available.
+  final ReplayGain replayGain;
+
   Track copyWith({
     String? id,
     String? title,
@@ -33,6 +40,7 @@ class Track {
     Duration? duration,
     int? trackNumber,
     Uri? artworkUri,
+    ReplayGain? replayGain,
   }) {
     return Track(
       id: id ?? this.id,
@@ -43,6 +51,7 @@ class Track {
       duration: duration ?? this.duration,
       trackNumber: trackNumber ?? this.trackNumber,
       artworkUri: artworkUri ?? this.artworkUri,
+      replayGain: replayGain ?? this.replayGain,
     );
   }
 
