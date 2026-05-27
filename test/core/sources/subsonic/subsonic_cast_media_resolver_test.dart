@@ -29,6 +29,7 @@ const _track = Track(
   uri: 'subsonic:s1',
   artistName: 'Kavinsky',
   albumName: 'Drive',
+  duration: Duration(minutes: 4, seconds: 5),
 );
 
 void main() {
@@ -54,7 +55,23 @@ void main() {
     expect(media.title, 'One');
     expect(media.artist, 'Kavinsky');
     expect(media.album, 'Drive');
+    expect(media.duration, const Duration(minutes: 4, seconds: 5));
     expect(media.contentType, 'audio/mpeg');
+  });
+
+  test('omits artwork: Subsonic cover art needs auth, so a token never leaks',
+      () async {
+    final source = _FakeStreamSource(
+      uri: Uri.parse(
+          'https://music.example.com/rest/stream.view?id=s1&t=tok&s=salt'),
+    );
+    final resolver = SubsonicCastMediaResolver(() => source);
+
+    final media = await resolver.resolve(_track);
+
+    // The cover-art endpoint would embed the salt+token, so it is deliberately
+    // never sent to the receiver — only the stream URL carries the credential.
+    expect(media.artworkUrl, isNull);
   });
 
   test('throws notSignedIn when no source is connected', () async {

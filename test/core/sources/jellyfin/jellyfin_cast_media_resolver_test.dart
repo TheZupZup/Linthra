@@ -36,6 +36,7 @@ final _jellyfinTrack = Track(
   uri: 'jellyfin:t1',
   artistName: 'Artist',
   albumName: 'Album',
+  duration: const Duration(minutes: 3, seconds: 12),
   artworkUri: Uri.parse('https://music.example.com/Items/t1/Images/Primary'),
 );
 
@@ -67,6 +68,7 @@ void main() {
       expect(media.title, 'One');
       expect(media.artist, 'Artist');
       expect(media.album, 'Album');
+      expect(media.duration, const Duration(minutes: 3, seconds: 12));
       expect(media.artworkUrl, _jellyfinTrack.artworkUri);
       // The session is verified before a URL is minted.
       expect(source.verifyCount, 1);

@@ -74,6 +74,7 @@ class JellyfinCastMediaResolver implements CastMediaResolver {
       title: track.title,
       artist: track.artistName,
       album: track.albumName,
+      duration: track.duration > Duration.zero ? track.duration : null,
       // Token-free per JellyfinEndpoints.primaryImage, so safe to send as-is.
       artworkUrl: track.artworkUri,
     );

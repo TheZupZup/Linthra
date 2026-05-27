@@ -7,6 +7,7 @@ import '../../models/cast_playback_status.dart';
 import '../../models/cast_state.dart';
 import '../../models/cast_volume.dart';
 import '../../models/playback_state.dart';
+import 'cast_load_message.dart';
 import 'cast_transport.dart';
 
 /// The one place the `cast` package is touched. It implements [CastTransport]
@@ -133,27 +134,13 @@ class _ChromecastSessionHandle implements CastSessionHandle {
     // skip on track change while casting.
     _mediaSessionId = null;
     _lastDuration = Duration.zero;
-    _session.sendMessage(cast.CastSession.kNamespaceMedia, <String, dynamic>{
-      'type': 'LOAD',
-      'requestId': _requestId++,
-      'autoplay': true,
-      'currentTime': 0,
-      'media': <String, dynamic>{
-        'contentId': media.url.toString(),
-        'contentType': media.contentType,
-        'streamType': 'BUFFERED',
-        'metadata': <String, dynamic>{
-          'metadataType': 3, // MusicTrackMediaMetadata
-          if (media.title != null) 'title': media.title,
-          if (media.artist != null) 'artist': media.artist,
-          if (media.album != null) 'albumName': media.album,
-          if (media.artworkUrl != null)
-            'images': <Map<String, dynamic>>[
-              <String, dynamic>{'url': media.artworkUrl.toString()},
-            ],
-        },
-      },
-    });
+    // The message (including the title/artist/album/artwork/duration metadata
+    // the receiver displays) is built by the tested CastLoadMessage so this
+    // adapter stays pure transport.
+    _session.sendMessage(
+      cast.CastSession.kNamespaceMedia,
+      CastLoadMessage.build(media, requestId: _requestId++),
+    );
     // Keep position fresh between the receiver's spontaneous status pushes by
     // polling its media status once a second.
     _startPolling();

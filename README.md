@@ -72,7 +72,9 @@ gradient, generated from one source design (not mockups).
 - **Smart offline cache** — tap to download the tracks you want offline; Wi-Fi
   only by default, with a size limit and "Keep offline" pinning.
 - **Cast / Chromecast** — hand a stream off to a speaker or TV, with device
-  volume control. Pure-Dart Cast, no Google Play Services.
+  volume control and track metadata (title/artist/album/artwork) on the receiver.
+  Pure-Dart Cast, no Google Play Services. (App-name/logo branding on the receiver
+  needs a custom receiver app — see [docs/cast.md](./docs/cast.md).)
 - **Android Auto** — browse your Library, Queue, Playlists, and Favorites from
   the car screen and tap to play.
 - **Playlists & favourites** — create/edit/reorder/delete playlists; favourite

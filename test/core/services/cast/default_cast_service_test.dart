@@ -319,6 +319,52 @@ void main() {
       expect(service.state.isCasting, isTrue);
     });
 
+    test('a duplicate emission of the same track does not reload the receiver',
+        () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      expect(handle.loaded, hasLength(1));
+      final int resolvesAfterConnect = resolver.resolved.length;
+
+      // The same track is emitted again (a duplicate stream event / metadata
+      // refresh). It must not re-resolve or re-LOAD — that would restart the
+      // receiver and re-mint the stream URL for nothing.
+      trackChanges.add(_jellyfinTrack);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(handle.loaded, hasLength(1));
+      expect(resolver.resolved.length, resolvesAfterConnect);
+      expect(service.state.isCasting, isTrue);
+    });
+
+    test('reconnecting re-casts the current track (no stale dedupe)', () async {
+      current = _jellyfinTrack;
+      final firstHandle = _FakeHandle();
+      transport.handle = firstHandle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      expect(firstHandle.loaded, hasLength(1));
+
+      await service.disconnect();
+
+      // A brand-new session for the (unchanged) current track must load it
+      // again — the previous session's loaded-track memory is cleared on
+      // teardown, so a reconnect is never mistaken for a duplicate.
+      final secondHandle = _FakeHandle();
+      transport.handle = secondHandle;
+      await service.connect(_d1);
+
+      expect(secondHandle.loaded, hasLength(1));
+      expect(service.state.isCasting, isTrue);
+    });
+
     test('a track change resets the reported position and duration', () async {
       current = _jellyfinTrack;
       final handle = _FakeHandle();

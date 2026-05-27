@@ -47,5 +47,28 @@ void main() {
       expect(text, isNot(contains('mypass')));
       expect(text, isNot(contains('ZZZTOKEN')));
     });
+
+    test('carries the optional duration and artwork when given', () {
+      final media = CastMedia(
+        url: Uri.parse('https://music.example.com/Audio/t1/stream'),
+        contentType: 'audio/mpeg',
+        title: 'Song',
+        duration: const Duration(minutes: 4),
+        artworkUrl:
+            Uri.parse('https://music.example.com/Items/t1/Images/Primary'),
+      );
+      expect(media.duration, const Duration(minutes: 4));
+      expect(media.artworkUrl,
+          Uri.parse('https://music.example.com/Items/t1/Images/Primary'));
+    });
+
+    test('duration and artwork are null when omitted', () {
+      final media = CastMedia(
+        url: Uri.parse('https://music.example.com/Audio/t1/stream'),
+        contentType: 'audio/mpeg',
+      );
+      expect(media.duration, isNull);
+      expect(media.artworkUrl, isNull);
+    });
   });
 }

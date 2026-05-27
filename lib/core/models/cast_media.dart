@@ -16,6 +16,7 @@ class CastMedia {
     this.title,
     this.artist,
     this.album,
+    this.duration,
     this.artworkUrl,
   });
 
@@ -31,8 +32,15 @@ class CastMedia {
   final String? artist;
   final String? album;
 
+  /// The track's known duration, sent so the receiver can show the seek-bar
+  /// length immediately instead of waiting to probe the stream. Null (or zero)
+  /// when unknown, in which case the receiver derives it from the stream.
+  final Duration? duration;
+
   /// A token-free artwork URL for the receiver to show while playing, or null.
   /// Jellyfin's primary-image URL needs no auth, so it is safe to send as-is.
+  /// Subsonic cover art requires the credential in its query, so it is omitted
+  /// (null) rather than leak a token to the receiver.
   final Uri? artworkUrl;
 
   /// Redacts the secret-bearing [url] down to scheme/host/path so the media can

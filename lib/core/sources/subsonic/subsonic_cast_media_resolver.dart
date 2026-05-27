@@ -71,6 +71,9 @@ class SubsonicCastMediaResolver implements CastMediaResolver {
       title: track.title,
       artist: track.artistName,
       album: track.albumName,
+      duration: track.duration > Duration.zero ? track.duration : null,
+      // Artwork is intentionally omitted: Subsonic's getCoverArt URL embeds the
+      // salt+token, so sending it would leak the credential to the receiver.
     );
   }
 

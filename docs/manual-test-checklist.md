@@ -68,19 +68,53 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
 
 ## 4. Cast / Chromecast
 
-- ☑ Cast button discovers and connects to a real Chromecast.
-- ☑ Disconnect returns to the phone **paused** (never surprise-starts audio).
-- ☑ Play / pause / seek route to the receiver while connected.
-- ☐ Next / Previous change the receiver's track.
-- ☐ Background/foreground the app while casting — position stays in sync, no
-  duplicate local audio.
-- ☑ No duplicate local playback while Cast is active.
+Run the end-to-end pass in this order (a streamed track is required — local
+files can't cast):
+
+1. ☐ Start a **Jellyfin** (or Subsonic) track playing on the phone.
+2. ☐ Open the cast sheet, discover, and **connect** to a real Chromecast.
+3. ☐ Audio plays **on the receiver**.
+4. ☐ Phone audio does **not** duplicate (no double sound).
+5. ☐ The receiver (TV/display) shows **title, artist, and album** where the
+   receiver renders them; the seek bar reflects the track **duration**.
+6. ☐ **Artwork** appears for Jellyfin tracks (its cover art is a token-free URL);
+   Subsonic tracks show no artwork by design (see the cast doc) — neither leaks a
+   token.
+7. ☐ Receiver **app branding**: with the *default* media receiver the device
+   shows "Default Media Receiver" / the cast device name, **not** a Linthra
+   name/logo. This is expected — true app branding needs a custom receiver app
+   (see [cast.md](cast.md#receiver-app-name--logo-branding)). Do **not** fail the
+   pass on this.
+8. ☐ **Skip to next** track.
+9. ☐ The receiver's metadata (title/artist/album/artwork/duration) **updates** to
+   the new track, and position resets to 0 (no flash of the old track's
+   progress).
+10. ☐ **Background the app for ~5 minutes** while casting.
+11. ☐ Cast **keeps playing** on the receiver throughout.
+12. ☐ **Reopen** the app.
+13. ☐ Now Playing/mini-player are **still in sync** with the receiver (position,
+    track, casting indicator); no second local stream started.
+14. ☐ Adjust the **Cast volume** slider / mute — it drives the *device* volume and
+    follows the receiver's reported level; a fixed-volume device shows an honest
+    disabled state.
+15. ☐ **Disconnect** cast.
+16. ☐ Local playback returns **paused** at the receiver's last position (never
+    surprise-starts audio).
+17. ☐ Throughout, **no token / authenticated URL** appears in the UI, in
+    `adb logcat | grep -iE "api_key|AccessToken|Bearer"`, or in a saved
+    diagnostics snapshot.
+
+Additional cast checks:
+
+- ☐ Play / pause / seek route to the receiver while connected.
 - ☑ Cast icon/status is consistent between mini-player, Now Playing, and sheet.
-- ☐ Cast device volume slider/mute work when the receiver supports it; an
-  honest disabled note shows when it doesn't.
 - ☐ Casting a **local** file shows the friendly "streamed tracks only"
   limitation, leaving local playback untouched.
 - ☐ Cast failure (Wi-Fi off, receiver gone) shows a friendly, token-free error.
+- ☐ A dropped receiver (power it off mid-stream) returns the phone to a clear,
+  **paused** state — it never restarts unexpectedly.
+- ☐ Reconnecting after a disconnect re-casts the current track once (no duplicate
+  local + cast audio).
 
 ## 5. Android Auto
 
