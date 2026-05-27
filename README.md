@@ -100,7 +100,9 @@ phone, and allow "install from unknown sources" if prompted.
 
 **Build it yourself** — `flutter pub get && flutter build apk --debug`. Full
 setup, CI builds, and release details are in
-[docs/development.md](./docs/development.md).
+[docs/development.md](./docs/development.md). In most environments, run
+`./scripts/setup_flutter.sh` then `./scripts/verify_android.sh` to get the
+pinned Flutter toolchain and run the same checks as CI.
 
 > **Using Android Auto?** Sideloaded media apps only appear after you enable
 > Android Auto's developer **"Unknown sources"** toggle — a one-time step,
