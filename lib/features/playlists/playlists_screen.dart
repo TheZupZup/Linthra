@@ -46,6 +46,17 @@ class PlaylistsScreen extends ConsumerWidget {
             onTap: () => context.push(AppRoutes.favorites),
           ),
           const Divider(height: 0),
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: accent.withValues(alpha: 0.12),
+              child: Icon(Icons.auto_awesome, color: accent),
+            ),
+            title: const Text('Smart mixes'),
+            subtitle: const Text('Made by Linthra'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push(AppRoutes.smartMixes),
+          ),
+          const Divider(height: 0),
           Expanded(
             child: playlists.when(
               loading: () => const Center(child: CircularProgressIndicator()),

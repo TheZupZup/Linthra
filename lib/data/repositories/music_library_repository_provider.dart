@@ -4,6 +4,8 @@ import '../../core/repositories/music_library_repository.dart';
 import '../database/linthra_database_provider.dart';
 import 'drift_music_library_repository.dart';
 import 'in_memory_music_library_repository.dart';
+import 'library_added_store_provider.dart';
+import 'recording_music_library_repository.dart';
 
 /// The single [MusicLibraryRepository] the app reads its catalog from.
 ///
@@ -21,4 +23,18 @@ final musicLibraryRepositoryProvider = Provider<MusicLibraryRepository>((ref) {
 final driftMusicLibraryRepositoryOverride =
     musicLibraryRepositoryProvider.overrideWith(
   (ref) => DriftMusicLibraryRepository(ref.watch(linthraDatabaseProvider)),
+);
+
+/// Production binding used by `main`: the Drift repository wrapped so each
+/// scan/sync stamps newly-seen tracks with a first-seen time (the signal behind
+/// the "Recently added" smart mix). Reads pass straight through to Drift; only
+/// [MusicLibraryRepository.upsertCatalog]/[MusicLibraryRepository.removeTracks]
+/// also touch the timestamp store. Replaces [driftMusicLibraryRepositoryOverride]
+/// in the app's override list.
+final recordingDriftMusicLibraryRepositoryOverride =
+    musicLibraryRepositoryProvider.overrideWith(
+  (ref) => RecordingMusicLibraryRepository(
+    delegate: DriftMusicLibraryRepository(ref.watch(linthraDatabaseProvider)),
+    addedStore: ref.watch(libraryAddedStoreProvider),
+  ),
 );

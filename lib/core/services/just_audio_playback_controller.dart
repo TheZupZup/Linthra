@@ -16,6 +16,11 @@ import 'playback_controller.dart';
 import 'stability_diagnostics.dart';
 import 'stream_interruption.dart';
 
+/// Notified when a track finishes playing (reaches its natural end), so play
+/// history can be recorded. Carries only the catalog [Track] — never a resolved
+/// or authenticated stream URL.
+typedef TrackCompletionCallback = void Function(Track track);
+
 /// [PlaybackController] backed by `just_audio`.
 ///
 /// This is the only file in the app that knows `just_audio` exists. It adapts
@@ -34,9 +39,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     AudioPlayer? player,
     PlayableUriResolver resolver = const LocalPlayableUriResolver(),
     Random? random,
+    TrackCompletionCallback? onTrackCompleted,
   })  : _player = player ?? _defaultPlayer(),
         _resolver = resolver,
-        _random = random ?? Random() {
+        _random = random ?? Random(),
+        _onTrackCompleted = onTrackCompleted {
     _wire();
   }
 
@@ -73,6 +80,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   final AudioPlayer _player;
   final PlayableUriResolver _resolver;
   final Random _random;
+
+  /// Invoked once each time a track reaches its natural end, before the repeat
+  /// mode decides what plays next. Null when no listener is wired (tests, or the
+  /// default engine). Used to record play history.
+  final TrackCompletionCallback? _onTrackCompleted;
   final StreamController<PlaybackState> _states =
       StreamController<PlaybackState>.broadcast();
   final List<StreamSubscription<void>> _subscriptions =
@@ -375,6 +387,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// end), and off advances until the queue runs out and then settles on
   /// [PlaybackStatus.completed].
   void _onCompleted() {
+    // The track that just finished is still current here, before any advance.
+    // Record the completed play once, regardless of what plays next.
+    final Track? finished = _queue.current;
+    if (finished != null) _onTrackCompleted?.call(finished);
     switch (_repeatMode) {
       case RepeatMode.one:
         unawaited(_replayCurrent());

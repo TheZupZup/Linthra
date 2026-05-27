@@ -33,6 +33,15 @@ abstract final class AppRoutes {
   /// Builds the [playlistDetail] location for a given playlist [id].
   static String playlistDetailPath(String id) => '$playlistDetail/$id';
 
+  /// The "Smart mixes" section (automatic, Made-by-Linthra collections), reached
+  /// from the Playlists tab. A child of [playlists] so it keeps the bottom nav
+  /// and pops back into that tab.
+  static const String smartMixes = '/playlists/smart';
+
+  /// Builds the location for a single smart mix, identified by its kind [id]
+  /// (`SmartPlaylistKind.id`), which rides as a path segment.
+  static String smartMixPath(String id) => '$smartMixes/$id';
+
   static const String downloads = '/downloads';
   static const String settings = '/settings';
 

@@ -43,6 +43,12 @@ void main() {
           findsOneWidget);
     });
 
+    testWidgets('pins the Smart mixes section', (tester) async {
+      await _pump(tester, InMemoryPlaylistStore());
+      expect(find.text('Smart mixes'), findsOneWidget);
+      expect(find.text('Made by Linthra'), findsOneWidget);
+    });
+
     testWidgets('lists existing playlists with a song count', (tester) async {
       final InMemoryPlaylistStore store = InMemoryPlaylistStore();
       await store.save(<Playlist>[

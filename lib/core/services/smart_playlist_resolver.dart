@@ -1,0 +1,109 @@
+import 'dart:math';
+
+import '../models/play_history.dart';
+import '../models/smart_playlist.dart';
+import '../models/track.dart';
+
+/// Turns a [SmartPlaylistKind] plus the on-device signals into an ordered track
+/// list. Pure and synchronous: it takes everything it needs as arguments and
+/// performs no IO, so each mix is trivially unit-testable in isolation.
+///
+/// All inputs are catalog [Track]s and non-secret track ids — the resolver
+/// never sees (or produces) a token or authenticated URL, so the resulting mix
+/// is safe to render and queue as-is.
+class SmartPlaylistResolver {
+  const SmartPlaylistResolver({this.maxTracks = 100});
+
+  /// Upper bound on the size of an open-ended, signal-ranked mix (recently
+  /// added/played, most played, random, never played). Keeps a mix a digestible
+  /// set — and keeps the random mix bounded — rather than the whole library.
+  /// User-curated mixes (favourites, downloaded) are not capped: they're only as
+  /// large as the user made them.
+  final int maxTracks;
+
+  /// Resolves the tracks for [kind]. Missing data degrades gracefully: an empty
+  /// catalog (or empty signal) yields an empty list rather than throwing.
+  ///
+  /// [random] seeds the shuffle for [SmartPlaylistKind.random]; pass a seeded
+  /// [Random] for deterministic tests. It's ignored by every other kind.
+  List<Track> resolve(
+    SmartPlaylistKind kind, {
+    required List<Track> allTracks,
+    required PlayHistory history,
+    required Map<String, DateTime> addedAt,
+    required Set<String> favoriteIds,
+    required Set<String> downloadedIds,
+    Random? random,
+  }) {
+    switch (kind) {
+      case SmartPlaylistKind.recentlyAdded:
+        return _recentlyAdded(allTracks, addedAt);
+      case SmartPlaylistKind.recentlyPlayed:
+        return _byIdOrder(allTracks, history.recentlyPlayedIds);
+      case SmartPlaylistKind.mostPlayed:
+        return _byIdOrder(allTracks, history.mostPlayedIds);
+      case SmartPlaylistKind.favorites:
+        return _filter(allTracks, favoriteIds);
+      case SmartPlaylistKind.downloaded:
+        return _filter(allTracks, downloadedIds);
+      case SmartPlaylistKind.random:
+        return _random(allTracks, random);
+      case SmartPlaylistKind.neverPlayed:
+        return _bounded(
+          <Track>[
+            for (final Track track in allTracks)
+              if (!history.hasPlayed(track.id)) track,
+          ],
+        );
+    }
+  }
+
+  /// Tracks newest-first by first-seen time. Tracks with no recorded timestamp
+  /// (e.g. before timestamping was wired) sort oldest, so they still appear but
+  /// never crowd out genuinely new additions.
+  List<Track> _recentlyAdded(
+    List<Track> allTracks,
+    Map<String, DateTime> addedAt,
+  ) {
+    final List<Track> sorted = List<Track>.of(allTracks)
+      ..sort((a, b) {
+        final DateTime ta = addedAt[a.id] ?? _epoch;
+        final DateTime tb = addedAt[b.id] ?? _epoch;
+        return tb.compareTo(ta);
+      });
+    return _bounded(sorted);
+  }
+
+  /// Resolves [orderedIds] against the catalog, preserving the given order and
+  /// dropping ids the catalog no longer has.
+  List<Track> _byIdOrder(List<Track> allTracks, List<String> orderedIds) {
+    final Map<String, Track> byId = <String, Track>{
+      for (final Track track in allTracks) track.id: track,
+    };
+    return _bounded(<Track>[
+      for (final String id in orderedIds)
+        if (byId[id] != null) byId[id]!,
+    ]);
+  }
+
+  /// Catalog-ordered subset whose ids are in [ids]. Not bounded: favourites and
+  /// downloads are user-curated, so the mix shows all of them.
+  List<Track> _filter(List<Track> allTracks, Set<String> ids) {
+    return <Track>[
+      for (final Track track in allTracks)
+        if (ids.contains(track.id)) track,
+    ];
+  }
+
+  /// A bounded shuffle of the catalog. Shuffles a *copy* so the input is never
+  /// mutated, and is safe on an empty catalog (returns an empty list).
+  List<Track> _random(List<Track> allTracks, Random? random) {
+    final List<Track> shuffled = List<Track>.of(allTracks)..shuffle(random);
+    return _bounded(shuffled);
+  }
+
+  List<Track> _bounded(List<Track> tracks) =>
+      tracks.length <= maxTracks ? tracks : tracks.sublist(0, maxTracks);
+
+  static final DateTime _epoch = DateTime.fromMillisecondsSinceEpoch(0);
+}

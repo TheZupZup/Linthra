@@ -16,8 +16,15 @@ import 'package:linthra/core/services/local_playback_controller.dart';
 /// [ActivePlaybackController] in cast-routing tests: while suspended, queue
 /// changes update the current track without "playing" locally.
 class FakePlaybackController implements LocalPlaybackController {
-  FakePlaybackController({PlaybackState initial = PlaybackState.idle})
-      : _state = initial;
+  FakePlaybackController({
+    PlaybackState initial = PlaybackState.idle,
+    this.onTrackCompleted,
+  }) : _state = initial;
+
+  /// Mirrors the production controller's completion callback: invoked with the
+  /// finished track when [completeCurrent] runs, so play-history wiring can be
+  /// exercised without `just_audio`.
+  final void Function(Track track)? onTrackCompleted;
 
   final StreamController<PlaybackState> _states =
       StreamController<PlaybackState>.broadcast();
@@ -171,6 +178,10 @@ class FakePlaybackController implements LocalPlaybackController {
   /// Test seam mirroring the production controller's completion handling: drives
   /// what plays when the current track finishes, honouring the repeat mode.
   void completeCurrent() {
+    // The finished track is still current here, before any advance — matching
+    // JustAudioPlaybackController._onCompleted.
+    final Track? finished = _queue.current;
+    if (finished != null) onTrackCompleted?.call(finished);
     switch (_repeatMode) {
       case RepeatMode.one:
         _playCurrent();

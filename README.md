@@ -81,6 +81,9 @@ gradient, generated from one source design (not mockups).
   queue as a playlist — without building a playlist first ([docs](./docs/queue.md)).
 - **Playlists & favourites** — create/edit/reorder/delete playlists; favourite
   tracks. Both sync with Jellyfin where supported.
+- **Smart mixes** — automatic, Made-by-Linthra collections (Recently added /
+  played, Most played, Favorites, Downloaded, Random, Never played) built from
+  on-device signals that stay on the device ([docs](./docs/smart-mixes.md)).
 - **Background playback** — media notification with lock-screen, Bluetooth, and
   wired-headset controls, plus shuffle / repeat and synced lyrics.
 
@@ -168,8 +171,8 @@ lyrics & cover art · full playlist sync · album/playlist "download all" +
 background download manager · real connectivity detection for the Wi-Fi gate ·
 WebDAV / NAS sources.
 
-**Later:** local-file lyrics (`.lrc`/tags), ReplayGain, MPRIS, smart playlists,
-Linux desktop, richer Android Auto and Cast.
+**Later:** local-file lyrics (`.lrc`/tags), ReplayGain, MPRIS, Linux desktop,
+richer Android Auto and Cast.
 
 Honest gaps (no local tag parsing yet, single Jellyfin server, direct-play only,
 partial playlist sync, optimistic connectivity) are documented per feature.
@@ -190,6 +193,7 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 | Android Auto | [docs/android-auto.md](./docs/android-auto.md) |
 | Reporting a bug | [docs/reporting-bugs.md](./docs/reporting-bugs.md) |
 | Playlists & safe removal | [docs/playlists-and-delete.md](./docs/playlists-and-delete.md) |
+| Smart mixes (automatic playlists) | [docs/smart-mixes.md](./docs/smart-mixes.md) |
 | Manual QA checklist | [docs/manual-test-checklist.md](./docs/manual-test-checklist.md) |
 | Release process & signing | [docs/release-process.md](./docs/release-process.md) · [signing](./docs/release-signing.md) |
 | F-Droid readiness | [docs/fdroid-readiness.md](./docs/fdroid-readiness.md) |

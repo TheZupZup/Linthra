@@ -17,6 +17,7 @@ import '../../core/services/stream_preloading_resolver.dart';
 import '../../core/sources/jellyfin/jellyfin_playable_uri_resolver.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import '../../data/repositories/download_repository_provider.dart';
+import '../../data/repositories/play_history_repository_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
 import 'cast/cast_providers.dart';
@@ -77,6 +78,12 @@ final localPlaybackControllerProvider =
     Provider<LocalPlaybackController>((ref) {
   final controller = JustAudioPlaybackController(
     resolver: ref.read(playableUriResolverProvider),
+    // Record a completed play when a track reaches its end. Read lazily at
+    // completion time (not watched), so the play-history repository never ties
+    // into the engine's lifecycle. Only the track id is recorded; it stays
+    // on-device. Casting suspends the engine, so cast plays aren't counted.
+    onTrackCompleted: (track) => unawaited(
+        ref.read(playHistoryRepositoryProvider).recordCompletion(track)),
   );
   ref.onDispose(controller.dispose);
   return controller;

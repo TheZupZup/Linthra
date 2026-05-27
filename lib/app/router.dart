@@ -12,6 +12,8 @@ import '../features/playlists/playlists_screen.dart';
 import '../features/settings/bug_report/bug_report_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/shell/home_shell.dart';
+import '../features/smart_mixes/smart_mix_detail_screen.dart';
+import '../features/smart_mixes/smart_mixes_screen.dart';
 import 'routes.dart';
 
 /// Single source of truth for navigation. Exposed through Riverpod so future
@@ -63,6 +65,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     builder: (context, state) => PlaylistDetailScreen(
                       playlistId: state.pathParameters['id']!,
                     ),
+                  ),
+                  GoRoute(
+                    path: 'smart',
+                    builder: (context, state) => const SmartMixesScreen(),
+                    routes: [
+                      GoRoute(
+                        path: ':kind',
+                        builder: (context, state) => SmartMixDetailScreen(
+                          kindId: state.pathParameters['kind']!,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

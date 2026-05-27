@@ -8,7 +8,9 @@ import 'core/services/linthra_audio_handler.dart';
 import 'data/repositories/download_repository_provider.dart';
 import 'data/repositories/favorites_repository_provider.dart';
 import 'data/repositories/jellyfin_session_store_provider.dart';
+import 'data/repositories/library_added_store_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
+import 'data/repositories/play_history_repository_provider.dart';
 import 'data/repositories/playlist_repository_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
@@ -36,7 +38,10 @@ Future<void> main() async {
   // in-memory defaults unless they opt into these bindings.
   final container = ProviderContainer(
     overrides: [
-      driftMusicLibraryRepositoryOverride,
+      // The Drift catalog, wrapped so each scan/sync stamps newly-seen tracks
+      // with a first-seen time for the "Recently added" smart mix.
+      recordingDriftMusicLibraryRepositoryOverride,
+      sharedPreferencesLibraryAddedStoreOverride,
       sharedPreferencesSelectedMusicFolderRepositoryOverride,
       sharedPreferencesDownloadStoreOverride,
       sharedPreferencesDownloadPreferencesOverride,
@@ -49,6 +54,9 @@ Future<void> main() async {
       jellyfinFavoritesOverride,
       sharedPreferencesPlaylistStoreOverride,
       jellyfinPlaylistSyncOverride,
+      // Persist on-device play history (counts + last-played) for the
+      // "Recently played" / "Most played" / "Never played" smart mixes.
+      sharedPreferencesPlayHistoryStoreOverride,
       jellyfinLyricsOverride,
       // Real Chromecast backend (Android/iOS only); see cast_providers.dart.
       chromecastCastServiceOverride,
