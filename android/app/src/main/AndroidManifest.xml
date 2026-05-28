@@ -37,6 +37,12 @@
          Framework grant the user picks. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- ACCESS_NETWORK_STATE: lets Linthra distinguish Wi‑Fi, cellular, offline,
+         and unknown for the download/cache mobile-data policy. Playback
+         streaming is not gated by this; it only prevents background-heavy
+         downloads and smart pre-cache from assuming cellular is Wi‑Fi. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- CHANGE_WIFI_MULTICAST_STATE: lets the app receive multicast Wi-Fi
          packets so mDNS (`_googlecast._tcp`) discovery can find Chromecast
          devices on the local network. Required by the `bonsoir` discovery

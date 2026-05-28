@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/repositories/offline_file_store.dart';
 import 'package:linthra/data/repositories/file_system_offline_file_store.dart';
 
 void main() {
@@ -50,6 +52,57 @@ void main() {
     test('omits the extension when none is given', () async {
       final String fileName = await store.write('t2', const <int>[9]);
       expect(fileName, 't2');
+    });
+
+    test('streams bytes to a temp file and atomically commits it', () async {
+      final OfflineTempFile temp = await store.writeTemp(
+        'streamed',
+        Stream<List<int>>.fromIterable(<List<int>>[
+          <int>[1, 2],
+          <int>[3, 4],
+        ]),
+        extension: 'flac',
+      );
+
+      expect(temp.sizeBytes, 4);
+      expect(await File(temp.id).exists(), isTrue);
+      final String fileName =
+          await store.commitTemp('streamed', temp, extension: 'flac');
+
+      expect(fileName, 'streamed.flac');
+      expect(await File(temp.id).exists(), isFalse);
+      final String? path = await store.pathFor(fileName);
+      expect(await File(path!).readAsBytes(), <int>[1, 2, 3, 4]);
+    });
+
+    test('writeTemp deletes a partial temp file when the stream fails',
+        () async {
+      late String? tempPath;
+      final Stream<List<int>> chunks = (() async* {
+        yield <int>[1, 2];
+        throw StateError('boom');
+      })();
+
+      await expectLater(
+        store.writeTemp('broken', chunks),
+        throwsA(isA<StateError>()),
+      );
+
+      final List<FileSystemEntity> files = await tempDir.list().toList();
+      tempPath = files.isEmpty ? null : files.first.path;
+      expect(tempPath, isNull);
+    });
+
+    test('deleteTemp removes a staged file', () async {
+      final OfflineTempFile temp = await store.writeTemp(
+        'cancelled',
+        Stream<List<int>>.value(<int>[9]),
+      );
+      expect(await File(temp.id).exists(), isTrue);
+
+      await store.deleteTemp(temp);
+
+      expect(await File(temp.id).exists(), isFalse);
     });
 
     test('pathFor returns null for a file that was never written', () async {

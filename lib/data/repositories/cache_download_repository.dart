@@ -77,7 +77,13 @@ class CacheDownloadRepository
         _policy = policy,
         _scheduler = scheduler ?? DownloadScheduler(),
         _currentlyPlayingTrackId = currentlyPlayingTrackId,
-        _now = now ?? DateTime.now;
+        _now = now ?? DateTime.now {
+    _connectivitySub = _connectivity.statusStream.listen(
+      (_) => unawaited(resumeQueuedIfAllowed()),
+      onError: (_) {},
+      cancelOnError: false,
+    );
+  }
 
   final DownloadStore _store;
   final OfflineFileStore _files;
@@ -121,6 +127,16 @@ class CacheDownloadRepository
   /// stray file behind. A fresh [requestDownload] clears any stale entry, and
   /// the commit/cleanup paths drop it once handled.
   final Set<String> _canceled = <String>{};
+
+  /// Tracks queued only because the network policy currently blocks downloads
+  /// (offline, mobile data not allowed, or unknown treated conservatively). These
+  /// are the only queued downloads that auto-resume on connectivity changes; a
+  /// server/auth/cache failure becomes [DownloadStatus.failed] or not-downloaded
+  /// and is never retried forever.
+  final Map<String, Track> _networkQueued = <String, Track>{};
+
+  StreamSubscription<NetworkStatus>? _connectivitySub;
+  bool _autoResuming = false;
 
   /// Live byte progress for in-flight downloads, surfaced via [progressStream].
   final Map<String, DownloadProgress> _progress = <String, DownloadProgress>{};
@@ -254,6 +270,7 @@ class CacheDownloadRepository
   /// slot before fetching the bytes and committing them under the cache limit.
   Future<DownloadRequestOutcome> _runRemoteRequest(Track track) async {
     await _ensureLoaded();
+    _networkQueued.remove(track.id);
     // Already cached — nothing to do. (A track that is downloading or queued is
     // already in [_inFlight], so it never reaches here a second time.)
     if (_statuses[track.id] == DownloadStatus.downloaded) {
@@ -275,12 +292,18 @@ class CacheDownloadRepository
     }
 
     // The network gate only matters here, where there are bytes to pull over the
-    // network. When it blocks, the track waits as "queued" for an explicit
-    // retry once allowed (the in-flight reservation is released by the caller),
-    // and the outcome tells the UI why so it can prompt instead of failing.
+    // network. When it blocks, the track waits as "queued" in [_networkQueued]
+    // and auto-resumes when connectivity changes to an allowed state; the outcome
+    // still tells the UI why so it can prompt instead of failing silently.
     final _NetworkDecision decision = await _networkDecision();
     if (decision != _NetworkDecision.allowed) {
-      _set(track.id, DownloadStatus.queued);
+      _networkQueued[track.id] = track;
+      _set(
+        track.id,
+        decision == _NetworkDecision.offline
+            ? DownloadStatus.queuedWaitingForConnection
+            : DownloadStatus.queuedWaitingForWifi,
+      );
       return decision == _NetworkDecision.offline
           ? DownloadRequestOutcome.waitingForConnection
           : DownloadRequestOutcome.waitingForWifi;
@@ -290,34 +313,55 @@ class CacheDownloadRepository
     _set(track.id, DownloadStatus.queued);
     await _scheduler.schedule(() async {
       _set(track.id, DownloadStatus.downloading);
-      final RemoteTrackData data = await _downloader.fetch(
-        track,
-        onProgress: (int received, int? total) =>
-            _reportProgress(track.id, received, total),
-      );
-      // Commit serially so concurrent downloads can't jointly overshoot the
-      // limit; the (slow) byte fetch above already ran in parallel.
-      await _commit(() => _cacheRemote(track, data));
+      final RemoteTrackDownload download = await _downloader.open(track);
+      OfflineTempFile? temp;
+      try {
+        temp = await _files.writeTemp(
+          track.id,
+          download.chunks,
+          extension: download.fileExtension,
+          totalBytes: download.contentLength,
+          onProgress: (int received, int? total) =>
+              _reportProgress(track.id, received, total),
+        );
+        // Commit serially so concurrent downloads can't jointly overshoot the
+        // limit; the (slow) byte fetch/write above already ran in parallel.
+        await _commit(() => _cacheRemoteTemp(
+              track,
+              temp!,
+              extension: download.fileExtension,
+            ));
+        temp = null; // ownership moved to the cache or was cleaned up.
+      } finally {
+        if (temp != null) await _files.deleteTemp(temp);
+      }
     });
     return DownloadRequestOutcome.started;
   }
 
-  /// Writes a freshly fetched remote track's bytes, evicting first to stay under
-  /// the limit. A user download ([preloaded] `false`) takes on the `downloaded`
-  /// status; a [preloaded] one is cached but stays out of the status map.
+  /// Commits a freshly fetched remote track temp file, evicting first to stay
+  /// under the limit. A user download ([preloaded] `false`) takes on the
+  /// `downloaded` status; a [preloaded] one is cached but stays out of the status
+  /// map.
   ///
   /// Throws [CacheStorageException] (after resetting status) when a user
   /// download can't fit even after evicting everything safe to remove; a preload
-  /// that can't fit returns quietly (it's best-effort).
-  Future<void> _cacheRemote(
+  /// that can't fit returns quietly (it's best-effort). In every non-commit path
+  /// the temp file is deleted here so failed/cancelled downloads leave no broken
+  /// cache files behind.
+  Future<void> _cacheRemoteTemp(
     Track track,
-    RemoteTrackData data, {
+    OfflineTempFile temp, {
+    String? extension,
     bool preloaded = false,
   }) async {
     // The user removed or cleared this download while its bytes were still in
-    // flight: honour that and commit nothing — no file write, no metadata, no
+    // flight: honour that and commit nothing — no final file, no metadata, no
     // status — so a late fetch can't resurrect it or leave a stray file.
-    if (_canceled.remove(track.id)) return;
+    if (_canceled.remove(track.id)) {
+      await _files.deleteTemp(temp);
+      return;
+    }
     if (preloaded) {
       final CachedTrack? existing = _downloads[track.id];
       // A user download for the same track raced this preload (commits are
@@ -325,10 +369,12 @@ class CacheDownloadRepository
       // a real download with a preloaded copy — let the user's copy stand.
       if (_inFlight.contains(track.id) ||
           (existing != null && !existing.preloaded)) {
+        await _files.deleteTemp(temp);
         return;
       }
     }
-    final int incoming = data.bytes.length;
+
+    final int incoming = temp.sizeBytes;
     final int maxBytes = await _preferences.maxCacheBytes();
     final EvictionPlan plan = _policy.plan(
       cached: _downloads.values,
@@ -339,6 +385,7 @@ class CacheDownloadRepository
     );
 
     if (!plan.fits) {
+      await _files.deleteTemp(temp);
       if (preloaded) return;
       _set(track.id, DownloadStatus.notDownloaded);
       throw const CacheStorageException();
@@ -351,11 +398,25 @@ class CacheDownloadRepository
       if (_statuses.remove(victim.trackId) != null) evictedAStatus = true;
     }
 
-    final String fileName = await _files.write(
+    // A cancel can land while this commit waited for eviction I/O. Check again
+    // immediately before and after the atomic promote so a race never persists a
+    // cancelled entry.
+    if (_canceled.remove(track.id)) {
+      await _files.deleteTemp(temp);
+      return;
+    }
+
+    final String fileName = await _files.commitTemp(
       track.id,
-      data.bytes,
-      extension: data.fileExtension,
+      temp,
+      extension: extension,
     );
+
+    if (_canceled.remove(track.id)) {
+      await _files.delete(fileName);
+      return;
+    }
+
     final DateTime now = _now();
     _downloads[track.id] = CachedTrack(
       trackId: track.id,
@@ -400,10 +461,27 @@ class CacheDownloadRepository
       // best-effort preload can never fit — skip the fetch rather than pull
       // bytes we'd immediately discard. The exact fit is re-checked at commit.
       if (!_hasRoomForPrecache(await _preferences.maxCacheBytes())) return;
-      final RemoteTrackData data = await _downloader.fetch(track);
-      // Share the one commit lock so a preload write can't race a user
-      // download's and overshoot the limit.
-      await _commit(() => _cacheRemote(track, data, preloaded: true));
+      final RemoteTrackDownload download = await _downloader.open(track);
+      OfflineTempFile? temp;
+      try {
+        temp = await _files.writeTemp(
+          track.id,
+          download.chunks,
+          extension: download.fileExtension,
+          totalBytes: download.contentLength,
+        );
+        // Share the one commit lock so a preload write can't race a user
+        // download's and overshoot the limit.
+        await _commit(() => _cacheRemoteTemp(
+              track,
+              temp!,
+              extension: download.fileExtension,
+              preloaded: true,
+            ));
+        temp = null;
+      } finally {
+        if (temp != null) await _files.deleteTemp(temp);
+      }
     } catch (_) {
       // Best-effort: a failed preload caches nothing and changes no status; the
       // track still streams normally when it's reached.
@@ -416,6 +494,7 @@ class CacheDownloadRepository
   @override
   Future<void> removeDownload(String trackId) async {
     await _ensureLoaded();
+    _networkQueued.remove(trackId);
     // If a fetch for this track is still in flight, mark it cancelled so its
     // late commit won't re-add the entry or leave a managed file on disk.
     if (_inFlight.contains(trackId) || _preloading.contains(trackId)) {
@@ -488,6 +567,7 @@ class CacheDownloadRepository
     // it is unpinned by nature — correct to drop under either clear mode.
     _canceled.addAll(_inFlight);
     _canceled.addAll(_preloading);
+    _networkQueued.clear();
     await _ensureLoaded();
     final List<CachedTrack> victims = _downloads.values
         .where((CachedTrack c) => !(keepPinned && c.pinned))
@@ -505,9 +585,34 @@ class CacheDownloadRepository
 
   /// Releases the change streams. Call when the owning provider is disposed.
   Future<void> dispose() async {
+    await _connectivitySub?.cancel();
     await _changes.close();
     await _cacheChanges.close();
     await _progressChanges.close();
+  }
+
+  /// Auto-starts downloads that were queued only by the network policy once the
+  /// policy allows downloads again. Exposed so the mobile-data preference
+  /// controller can resume queues immediately when the user opts in; connectivity
+  /// changes call the same method. The guard coalesces noisy connectivity
+  /// streams, and only [_networkQueued] entries are retried, so auth/server/cache
+  /// failures never spin forever.
+  Future<void> resumeQueuedIfAllowed() async {
+    if (_autoResuming) return;
+    _autoResuming = true;
+    try {
+      while (_networkQueued.isNotEmpty) {
+        if (await _networkDecision() != _NetworkDecision.allowed) return;
+        final List<Track> toResume = _networkQueued.values.toList();
+        for (final Track track in toResume) {
+          if (!_networkQueued.containsKey(track.id)) continue;
+          _networkQueued.remove(track.id);
+          await requestDownload(track);
+        }
+      }
+    } finally {
+      _autoResuming = false;
+    }
   }
 
   /// Whether a best-effort pre-cache could plausibly fit right now: either the
@@ -646,5 +751,6 @@ class CacheDownloadRepository
 
 /// Whether the network policy lets a download run now, and why not when it
 /// doesn't: held for Wi-Fi (mobile data not allowed) or waiting for a
-/// connection (offline).
+/// connection (offline). Unknown is folded into [needsWifi] unless the user has
+/// explicitly allowed mobile/non-Wi-Fi downloads.
 enum _NetworkDecision { allowed, needsWifi, offline }

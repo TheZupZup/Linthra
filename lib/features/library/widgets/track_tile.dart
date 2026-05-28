@@ -200,6 +200,8 @@ class _StatusGlyph extends StatelessWidget {
           child: CircularProgressIndicator(strokeWidth: 2, value: progress),
         );
       case DownloadStatus.queued:
+      case DownloadStatus.queuedWaitingForWifi:
+      case DownloadStatus.queuedWaitingForConnection:
         return Icon(
           Icons.schedule,
           size: 18,
@@ -258,6 +260,8 @@ class _OverflowMenu extends ConsumerWidget {
           items.add(_item(_TrackAction.download, Icons.download_outlined,
               'Download for offline'));
         case DownloadStatus.queued:
+        case DownloadStatus.queuedWaitingForWifi:
+        case DownloadStatus.queuedWaitingForConnection:
         case DownloadStatus.downloading:
           items.add(_item(_TrackAction.cancel, Icons.close, 'Cancel download'));
         case DownloadStatus.downloaded:

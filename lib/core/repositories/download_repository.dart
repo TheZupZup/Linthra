@@ -2,7 +2,15 @@ import '../models/download_progress.dart';
 import '../models/track.dart';
 
 /// Where a track stands in the offline-download lifecycle.
-enum DownloadStatus { notDownloaded, queued, downloading, downloaded, failed }
+enum DownloadStatus {
+  notDownloaded,
+  queued,
+  queuedWaitingForWifi,
+  queuedWaitingForConnection,
+  downloading,
+  downloaded,
+  failed,
+}
 
 /// The result of a [DownloadRepository.requestDownload] call, so the UI can tell
 /// the user *why* a download didn't start instead of failing silently.
