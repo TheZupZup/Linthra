@@ -249,6 +249,26 @@ void main() {
         expect(state.processingState, audio.AudioProcessingState.loading);
       });
 
+      test('a car skip that loads the next track stays playing', () async {
+        // A skip (from the car/notification, screen off) briefly enters loading
+        // while the next track opens. The session must stay `playing` so the
+        // foreground service isn't demoted mid-transition — and the media item
+        // must already reflect the track being loaded.
+        await controller.playTracks(<Track>[_track('a'), _track('b')]);
+        await _settle();
+
+        controller.emit(controller.state.copyWith(
+          currentTrack: _track('b'),
+          status: PlaybackStatus.loading,
+        ));
+        await _settle();
+
+        final state = handler.playbackState.value;
+        expect(state.playing, isTrue);
+        expect(state.processingState, audio.AudioProcessingState.loading);
+        expect(handler.mediaItem.value?.id, 'b');
+      });
+
       test('a real user pause reports not-playing', () async {
         await controller.playTracks(<Track>[_track('a')]);
         await _settle();
@@ -348,6 +368,159 @@ void main() {
       });
     });
 
+    group('media-session queue (car / head-unit Up Next)', () {
+      test('publishes the queue as history + current + up-next, in order',
+          () async {
+        // Start at the middle track so there is both history and up-next.
+        await controller.playTracks(_library, startIndex: 1);
+        await _settle();
+
+        // history (a), current (b), up-next (c) — the flat order a head unit's
+        // Up Next list shows and skipToQueueItem indexes into.
+        expect(handler.queue.value.map((i) => i.id), ['a', 'b', 'c']);
+        // The now-playing item shares its id with its queue row, so the car
+        // highlights the right row.
+        expect(handler.mediaItem.value?.id, 'b');
+      });
+
+      test('republishes the queue on an edit, not on a position tick',
+          () async {
+        await controller.playTracks(<Track>[_track('a'), _track('b')]);
+        await _settle();
+
+        final List<List<audio.MediaItem>> pushes = <List<audio.MediaItem>>[];
+        final sub = handler.queue.listen(pushes.add);
+        addTearDown(sub.cancel);
+        await _settle();
+        // Listening replays the current value; count only pushes after that.
+        final int baseline = pushes.length;
+
+        // Position ticks don't change the queue contents → no new push.
+        for (int ms = 200; ms <= 800; ms += 200) {
+          controller.emit(
+            controller.state.copyWith(position: Duration(milliseconds: ms)),
+          );
+          await _settle();
+        }
+        expect(pushes.length, baseline);
+
+        // Adding a track grows up-next → exactly the queue is re-published.
+        controller.addToQueue(_track('c'));
+        await _settle();
+        expect(pushes.length, greaterThan(baseline));
+        expect(pushes.last.map((i) => i.id), ['a', 'b', 'c']);
+      });
+
+      test('skipToQueueItem jumps forward to an up-next row', () async {
+        await controller.playTracks(_library); // a current, [b, c] up-next
+        await _settle();
+
+        // queue = [a, b, c]; row 2 is up-next 'c'.
+        await handler.skipToQueueItem(2);
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'c');
+        expect(handler.mediaItem.value?.id, 'c');
+      });
+
+      test('skipToQueueItem steps back to a history row', () async {
+        await controller.playTracks(_library);
+        await controller.skipToNext();
+        await controller.skipToNext(); // current c, history [a, b]
+        await _settle();
+
+        // queue = [a, b, c]; row 0 is history 'a'.
+        await handler.skipToQueueItem(0);
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'a');
+        expect(handler.mediaItem.value?.id, 'a');
+      });
+
+      test('skipToQueueItem on the current row leaves it playing', () async {
+        await controller.playTracks(_library);
+        await controller.skipToNext(); // current b, history [a]
+        await _settle();
+        final int playedBefore = controller.playedTracks.length;
+
+        await handler.skipToQueueItem(1); // row 1 == current
+
+        await _settle();
+        expect(controller.state.currentTrack?.id, 'b');
+        expect(controller.playedTracks.length, playedBefore);
+      });
+
+      test('skipToQueueItem out of range is a safe no-op', () async {
+        await controller.playTracks(_library);
+        await _settle();
+        final int playedBefore = controller.playedTracks.length;
+
+        await handler.skipToQueueItem(99);
+        await handler.skipToQueueItem(-1);
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'a');
+        expect(controller.playedTracks.length, playedBefore);
+      });
+    });
+
+    group('car skip keeps the queue & metadata correct', () {
+      test('skipToNext updates the current media item', () async {
+        await controller.playTracks(_library);
+        await _settle();
+        expect(handler.mediaItem.value?.id, 'a');
+
+        await handler.skipToNext();
+        await _settle();
+
+        expect(handler.mediaItem.value?.id, 'b');
+        expect(handler.mediaItem.value?.title, 'Song b');
+        expect(handler.mediaItem.value?.artist, 'Artist b');
+      });
+
+      test('skipToPrevious updates the current media item', () async {
+        await controller.playTracks(_library, startIndex: 1);
+        await _settle();
+        expect(handler.mediaItem.value?.id, 'b');
+
+        await handler.skipToPrevious();
+        await _settle();
+
+        expect(handler.mediaItem.value?.id, 'a');
+      });
+
+      test('a queue selected from the car supports next & previous', () async {
+        // Selecting a library track in the car builds the queue (the rest of
+        // the library becomes up-next), then car skip moves within that queue.
+        await handler.playFromMediaId(MediaId.libraryTrack('a'));
+        await _settle();
+        expect(handler.mediaItem.value?.id, 'a');
+
+        await handler.skipToNext();
+        await _settle();
+        expect(controller.state.currentTrack?.id, 'b');
+        expect(handler.mediaItem.value?.id, 'b');
+
+        await handler.skipToPrevious();
+        await _settle();
+        expect(controller.state.currentTrack?.id, 'a');
+      });
+
+      test('car Next at the end and Previous at the start are safe no-ops',
+          () async {
+        await controller.playTracks(<Track>[_track('a')]); // single track
+        await _settle();
+
+        await handler.skipToNext();
+        await handler.skipToPrevious();
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'a');
+        expect(controller.skipCount, 1);
+        expect(controller.previousCount, 1);
+      });
+    });
+
     group('shuffle & repeat', () {
       test('forwards setShuffleMode to the controller', () async {
         await handler.setShuffleMode(audio.AudioServiceShuffleMode.all);
@@ -434,6 +607,46 @@ void main() {
           // We attach no extras, so nothing can leak through them.
           expect(item.extras, isNull);
           // The artwork URL (when present) is the token-free image endpoint.
+          final String art = item.artUri?.toString() ?? '';
+          expect(art, isNot(contains('api_key')));
+          expect(art.toLowerCase(), isNot(contains('token')));
+        }
+      });
+
+      test('now-playing item and queue rows are token-free, with no extras',
+          () async {
+        // The same secret-free guarantee must hold for what the car shows while
+        // playing — the now-playing media item and every published queue row —
+        // not just the browse tree.
+        final playController = FakePlaybackController();
+        final playHandler = LinthraAudioHandler(
+          playController,
+          MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: <Track>[jellyfin, local]),
+          ),
+        );
+        addTearDown(() async {
+          await playHandler.dispose();
+          await playController.dispose();
+        });
+
+        await playController.playTracks(<Track>[jellyfin, local]);
+        await _settle();
+
+        final nowPlaying = playHandler.mediaItem.value;
+        expect(nowPlaying, isNotNull);
+        // The id is the opaque catalog id, never the `jellyfin:` uri.
+        expect(nowPlaying!.id, 'jf-guid-123');
+
+        final queueRows = playHandler.queue.value;
+        expect(queueRows.map((i) => i.id), ['jf-guid-123', 'local-1']);
+
+        for (final item in <audio.MediaItem>[nowPlaying, ...queueRows]) {
+          expect(item.id, isNot(contains('api_key')));
+          expect(item.id.toLowerCase(), isNot(contains('token')));
+          expect(item.id, isNot(contains('jellyfin:')));
+          expect(item.id, isNot(contains('://')));
+          expect(item.extras, isNull);
           final String art = item.artUri?.toString() ?? '';
           expect(art, isNot(contains('api_key')));
           expect(art.toLowerCase(), isNot(contains('token')));

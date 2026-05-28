@@ -76,6 +76,12 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   // has drifted enough to re-sync.
   audio.MediaItem? _lastItem;
   audio.PlaybackState? _lastPlaybackState;
+
+  // The queue (as a flat track list) last published to the platform session.
+  // Re-publishing the queue on every position tick would thrash the car's
+  // "Up Next" list, so [_broadcast] pushes it only when the queue's contents or
+  // order actually change. Null until the first broadcast.
+  List<Track>? _lastQueueTracks;
   bool _seeded = false;
 
   /// How far the reported position may drift before a fresh playback-state push
@@ -100,6 +106,27 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 
   @override
   Future<void> skipToPrevious() => _controller.skipToPrevious();
+
+  /// Jumps to the [index]-th item of the published [queue] — the row a head
+  /// unit / Android Auto's "Up Next" list reports when tapped. The queue is
+  /// published as history, then the current track, then up-next (see
+  /// [_queueTracksFor]), so this maps the flat index back onto the controller's
+  /// history/up-next jumps. Out-of-range (a stale row after the queue shrank)
+  /// and the current row are safe no-ops; it never bypasses the controller, so
+  /// Cast routing and "no duplicate local playback" hold exactly as for a skip.
+  @override
+  Future<void> skipToQueueItem(int index) async {
+    final PlaybackState state = _controller.state;
+    final int historyLength = state.previous.length;
+    final int total = _queueTracksFor(state).length;
+    if (index < 0 || index >= total) return;
+    if (index < historyLength) {
+      await _controller.playFromHistory(index);
+    } else if (index > historyLength) {
+      await _controller.playFromQueue(index - historyLength - 1);
+    }
+    // index == historyLength is the current track: leave it playing untouched.
+  }
 
   @override
   Future<void> seek(Duration position) => _controller.seek(position);
@@ -164,6 +191,17 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
       _lastItem = item;
       mediaItem.add(item);
     }
+    // Publish the play queue so the car / head-unit "Up Next" list mirrors the
+    // controller's queue and a tapped row (skipToQueueItem) lands on the right
+    // track. Like the media item, it is pushed only when the queue's contents
+    // or order change — never on a position tick (which would thrash the list).
+    final List<Track> queueTracks = _queueTracksFor(state);
+    if (!_seeded || !_sameQueue(queueTracks, _lastQueueTracks)) {
+      _lastQueueTracks = queueTracks;
+      queue.add(<audio.MediaItem>[
+        for (final Track t in queueTracks) _trackMediaItem(t, id: t.id),
+      ]);
+    }
     final audio.PlaybackState next = _playbackStateFor(state);
     if (!_seeded || _shouldPushPlayback(next, _lastPlaybackState)) {
       _lastPlaybackState = next;
@@ -219,6 +257,30 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     return true;
   }
 
+  /// The live queue as one flat, ordered list: history, then the current track,
+  /// then up-next. This is the exact order published to the platform session's
+  /// [queue], so [skipToQueueItem] can map a flat row index straight back onto
+  /// the controller's history / up-next jumps.
+  static List<Track> _queueTracksFor(PlaybackState state) {
+    final Track? current = state.currentTrack;
+    return <Track>[
+      ...state.previous,
+      if (current != null) current,
+      ...state.upNext,
+    ];
+  }
+
+  /// Whether two queues would show the same list (same tracks, same order), so a
+  /// re-push can be skipped. [Track] equality is by id, which is all the queue
+  /// rows render from; the now-playing item carries any live metadata.
+  static bool _sameQueue(List<Track> a, List<Track>? b) {
+    if (b == null || a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   audio.MediaItem _mediaItemForNode(MediaNode node) {
     final track = node.track;
     if (node.playable && track != null) {
@@ -253,10 +315,19 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   audio.PlaybackState _playbackStateFor(PlaybackState state) {
     return audio.PlaybackState(
       controls: _controlsFor(state),
+      // The transport capabilities the platform (notification, lock screen,
+      // Android Auto, Bluetooth/steering-wheel media buttons) may invoke on the
+      // session. Every action here is implemented by this handler, so none is
+      // "unsupported": skip is advertised steadily (rather than toggled at queue
+      // edges) so a head unit that caches the capability set at connect time
+      // keeps its Next/Previous and queue-row buttons live; the *visible*
+      // notification controls are still gated on hasNext/hasPrevious by
+      // [_controlsFor], so no dead button is ever shown.
       systemActions: const <audio.MediaAction>{
         audio.MediaAction.seek,
         audio.MediaAction.skipToNext,
         audio.MediaAction.skipToPrevious,
+        audio.MediaAction.skipToQueueItem,
         audio.MediaAction.setShuffleMode,
         audio.MediaAction.setRepeatMode,
       },
