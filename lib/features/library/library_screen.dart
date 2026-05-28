@@ -10,6 +10,7 @@ import '../../core/models/track.dart';
 import '../../core/services/bulk_track_actions.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
+import '../settings/jellyfin/jellyfin_sync_controller.dart';
 import 'library_browse_providers.dart';
 import 'library_controller.dart';
 import 'library_search.dart';
@@ -86,6 +87,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     final LibraryState state = ref.watch(libraryControllerProvider);
     final AsyncValue<String?> selectedFolder =
         ref.watch(selectedFolderControllerProvider);
+    // While the first Jellyfin sync is running, an empty catalog should read as
+    // "filling up", not "nothing here" — so the library never looks broken
+    // during onboarding.
+    final bool jellyfinSyncing = ref.watch(
+      jellyfinSyncControllerProvider.select((s) => s.isSyncing),
+    );
 
     // Drop any selected ids that are no longer in the catalog (e.g. after a
     // removal) so the count and actions stay accurate.
@@ -127,7 +134,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       ),
       body: browsing
           ? _browseBody(state)
-          : _statusBody(state, selectedFolder.valueOrNull),
+          : _statusBody(state, selectedFolder.valueOrNull, jellyfinSyncing),
     );
   }
 
@@ -149,7 +156,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   /// Loading / error / folder-pick states, shown full-body without tabs.
-  Widget _statusBody(LibraryState state, String? selectedFolder) {
+  Widget _statusBody(
+    LibraryState state,
+    String? selectedFolder,
+    bool jellyfinSyncing,
+  ) {
     switch (state.status) {
       case LibraryStatus.loading:
         return const Center(child: CircularProgressIndicator());
@@ -159,6 +170,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           onRetry: () => ref.read(libraryControllerProvider.notifier).refresh(),
         );
       case LibraryStatus.loaded:
+        // A first Jellyfin sync in flight takes precedence over the folder-pick
+        // prompt: tell the user their library is on its way rather than implying
+        // it's empty.
+        if (jellyfinSyncing) {
+          return const _LibrarySyncing();
+        }
         return _LibraryEmpty(
           selectedFolder: selectedFolder,
           onPick: _pickAndScan,
@@ -356,6 +373,47 @@ class _NoResults extends StatelessWidget {
       icon: Icons.search_off,
       title: 'No results found.',
       message: 'Try a different search.',
+    );
+  }
+}
+
+/// Shown when the catalog is still empty but a first Jellyfin sync is running,
+/// so onboarding reads as "your library is on its way" rather than "nothing
+/// here". Replaced automatically once the synced tracks land.
+class _LibrarySyncing extends StatelessWidget {
+  const _LibrarySyncing();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox.square(
+              dimension: 36,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Your Jellyfin library is syncing',
+              style: theme.textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'This may take a moment. Your songs will appear here as soon as '
+              "they're in.",
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

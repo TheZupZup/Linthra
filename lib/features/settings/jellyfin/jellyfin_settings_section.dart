@@ -326,6 +326,10 @@ class _ConnectedView extends StatelessWidget {
           ),
         ],
         const SizedBox(height: AppSpacing.md),
+        // The manual "Sync library" stays available at all times (disabled only
+        // while a sync is running). After sign-in the first sync starts on its
+        // own down the same path, so this button doubles as the on-demand
+        // refresh — and, after a failure, the retry below points back to it.
         FilledButton.tonalIcon(
           onPressed: onSync,
           icon: syncState.isSyncing
@@ -336,9 +340,33 @@ class _ConnectedView extends StatelessWidget {
               : const Icon(Icons.sync_outlined),
           label: Text(syncState.isSyncing ? 'Syncing…' : 'Sync library'),
         ),
-        if (syncState.message != null && !syncState.isSyncing) ...[
+        if (syncState.isError) ...[
           const SizedBox(height: AppSpacing.sm),
-          _StatusLine(message: syncState.message!, isError: syncState.isError),
+          // Keep the connection plainly intact ("you're still signed in"), then
+          // the specific, secret-free reason from the sync controller, then a
+          // clear way to try again.
+          const _StatusLine(
+            message: "Connected, but the library sync didn't finish.",
+            isError: true,
+          ),
+          if (syncState.message != null) ...[
+            const SizedBox(height: AppSpacing.xs),
+            _StatusLine(message: syncState.message!, isError: true),
+          ],
+          const SizedBox(height: AppSpacing.sm),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: onSync,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Retry sync'),
+            ),
+          ),
+        ] else if (syncState.message != null) ...[
+          // Syncing ("Syncing your Jellyfin library…") or the success summary
+          // ("Synced N tracks…"); both read as friendly status, not an error.
+          const SizedBox(height: AppSpacing.sm),
+          _StatusLine(message: syncState.message!, isError: false),
         ],
         const SizedBox(height: AppSpacing.sm),
         OutlinedButton.icon(

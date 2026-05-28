@@ -7,6 +7,7 @@ import 'app/linthra_app.dart';
 import 'core/services/linthra_audio_handler.dart';
 import 'data/repositories/download_repository_provider.dart';
 import 'data/repositories/favorites_repository_provider.dart';
+import 'data/repositories/jellyfin_auto_sync_store_provider.dart';
 import 'data/repositories/jellyfin_session_store_provider.dart';
 import 'data/repositories/library_added_store_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
@@ -52,6 +53,9 @@ Future<void> main() async {
       remoteTrackDownloaderOverride,
       currentlyPlayingTrackIdOverride,
       secureJellyfinSessionStoreOverride,
+      // Remember which Jellyfin account has had its first auto-sync, so a
+      // reconnect after a restart doesn't trigger an unsolicited full re-sync.
+      sharedPreferencesJellyfinAutoSyncStoreOverride,
       secureSubsonicSessionStoreOverride,
       sharedPreferencesFavoritesStoreOverride,
       jellyfinFavoritesOverride,

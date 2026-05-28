@@ -9,10 +9,23 @@ guarantees. For connectivity (URLs, Cloudflare, version floor) see
 model and the capability matrix see
 [playlists-and-delete.md](playlists-and-delete.md).
 
+## When it syncs
+
+- **Automatically, once, right after you connect.** The first time you sign in
+  to a given server/account, Linthra starts a sync on its own so the library
+  fills in without you hunting for a button. It runs the **same** path as the
+  manual sync below. To avoid surprising background work, this only happens for a
+  **new** server/account — reconnecting an already-synced account, reopening
+  Settings, or relaunching the app does **not** trigger another full sync.
+  Signing in to a **different** server or as a **different** user starts a fresh
+  first sync.
+- **Manually, any time.** The **Sync library** button stays available for an
+  on-demand refresh, and is also the **Retry** if the first sync couldn't finish.
+
 ## What syncs by default
 
-When you sign in to Jellyfin and run **Sync library** (and on each app launch),
-Linthra pulls:
+When you connect to Jellyfin (the automatic first sync), tap **Sync library**, or
+on each app launch, Linthra pulls:
 
 - **Tracks**, **albums**, and **artists** into the local catalog (the Library).
 - **Playlists** — your Jellyfin playlists are imported and listed on the
@@ -96,6 +109,18 @@ favourites and **local-only** playlists are kept.
 
 ## Troubleshooting
 
+- **The first sync is taking a while.** A large library takes a moment to pull;
+  the app stays responsive and the Library shows a "syncing" note until the
+  tracks land. There's nothing to do but wait — it finishes in the background.
+- **"Connected, but the library sync didn't finish."** The connection is fine,
+  but the sync hit a snag (server briefly unreachable, an expired session, a
+  hiccup saving locally). Tap **Retry** on the Jellyfin card. Your sign-in is
+  untouched, and nothing was half-written.
+- **Server unreachable.** If the sync can't reach the server, you'll see a
+  friendly "couldn't reach your Jellyfin server" message — check the server is
+  online and reachable from the device, then Retry.
+- **Session expired.** A sync (or stream) may report your session has expired;
+  sign out and sign in again to refresh it, and the next connect re-syncs.
 - **Playlists not showing.** Make sure you're signed in (Settings → Jellyfin)
   and run **Sync library**. The Playlists tab's empty state tells you whether
   you're signed in. If the status line says "playlists could not be loaded", the
@@ -118,6 +143,12 @@ favourites and **local-only** playlists are kept.
 - **No authenticated URLs persisted.** Stream/download URLs are minted on demand
   at play/download time from the live session and discarded; the persisted track
   URI stays the token-free `jellyfin:<id>`.
+- **The auto-sync marker is a one-way fingerprint.** To remember which account
+  has already had its first sync, Linthra stores a SHA-256 hash of the server
+  URL + user id — never the token, the URL, or the user id themselves — so the
+  marker reveals nothing and lives in plain storage safely.
+- **Metadata only.** This sync never starts a download or cache fetch; offline
+  copies stay explicit and user-initiated, exactly as before.
 - **Friendly, redacted errors.** Sync/favourite/playlist failures surface as
   friendly messages branched on a typed error kind (not signed in, expired
   session, server unreachable, permission/API error) — never a raw error or a

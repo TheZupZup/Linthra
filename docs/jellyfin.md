@@ -20,9 +20,20 @@ Open **Settings → Jellyfin** and:
    gentle "untested" note; it is never blocked.
 3. **Username + password → Sign in** — authenticates and stores the resulting
    session encrypted on-device. Your **password is never saved**.
-4. **Sync library** — pulls your artists/albums/tracks **and your playlists and
+   - **Linthra starts a first sync automatically** right after you sign in, so
+     your library fills in on its own — you don't have to find the Sync button.
+     The Jellyfin card shows _"Syncing your Jellyfin library…"_ while it runs and
+     a short summary when it's done, and the Library shows a friendly _"Your
+     Jellyfin library is syncing"_ note instead of looking empty.
+   - This first sync runs **once per server/account**. Reconnecting the same
+     account (or just reopening Settings or relaunching the app) won't kick off
+     another full sync on its own. Connecting a **different** server or signing
+     in as a **different** user starts a fresh first sync.
+4. **Sync library** — the manual sync is always available for an on-demand
+   refresh. It pulls your artists/albums/tracks **and your playlists and
    liked/favourite tracks** into the local catalog so they appear in Library,
-   Playlists, and Favorites.
+   Playlists, and Favorites. If the first sync didn't finish (e.g. the server
+   was briefly unreachable), the card shows a friendly message and a **Retry**.
 5. Tap a synced track to **stream** it, or use the download control to keep it
    **offline** (see [offline-cache.md](offline-cache.md)).
 6. **Copy Jellyfin diagnostics** — a short, **secret-free** report for bug
