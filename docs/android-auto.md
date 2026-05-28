@@ -19,6 +19,10 @@ troubleshoot.
 | Browsable tree (Library / Queue / Playlists / Favorites) | ✅ |
 | Play a track from the car; queue the rest | ✅ |
 | Transport controls (play / pause / next / previous / seek) | ✅ |
+| Hardware / steering-wheel / Bluetooth Next / Previous | ✅ (same media session) |
+| Lock-screen / notification Next / Previous | ✅ |
+| Now-playing **queue / Up Next** on the head unit | ✅ (mirrors the app's queue) |
+| Tap a row in the car's Up Next list (skip-to-queue-item) | ✅ |
 | Shuffle / repeat from the car | ✅ |
 | Now-playing metadata (title / artist / album / artwork) | ✅ (artwork depends on `Track.artworkUri`) |
 | Cast-safe (no duplicate local playback while casting) | ✅ |
@@ -59,7 +63,36 @@ recommended model for a media app.
 - `lib/core/services/linthra_audio_handler.dart` (`LinthraAudioHandler`) is the
   only file that imports `audio_service`. It maps `MediaNode`s to media items,
   forwards transport commands to the single `PlaybackController`, and turns a
-  selected item into a `PlaybackController.playTracks(...)` call.
+  selected item into a `PlaybackController.playTracks(...)` call. It also mirrors
+  the controller's queue out as the session's **Up Next** list and maps a tapped
+  queue row (`skipToQueueItem`) back onto the controller's history / up-next
+  jumps — so the car's queue stays in sync and is navigable without the handler
+  ever touching `just_audio` or the cast SDK.
+
+### Transport controls & hardware buttons
+
+The car's Next / Previous / Play / Pause — whether tapped on the head-unit
+screen, pressed on the steering wheel, or sent over Bluetooth / a wired headset
+— all arrive as the same media-session callbacks (`onSkipToNext`,
+`onSkipToPrevious`, `onPlay`, …). audio_service forwards them to
+`LinthraAudioHandler`, which calls the matching `PlaybackController` method
+(`skipToNext`, `skipToPrevious`, `play`, `pause`, `seek`, `skipToQueueItem`).
+There is no separate Android-Auto playback path: the car drives the **same**
+controller as the in-app player, so playback, queue, history, shuffle, and
+repeat stay consistent however you press a button.
+
+- The handler advertises the transport capabilities it implements (skip,
+  skip-to-queue-item, seek, shuffle, repeat) **steadily** in `systemActions`, so
+  a head unit that caches the capability set when it connects keeps its
+  Next / Previous and queue-row buttons live regardless of where you are in the
+  queue.
+- The **visible** notification / lock-screen buttons are still gated: the
+  `skipToPrevious` button only appears once a previous track exists and
+  `skipToNext` only while one is queued, so no dead button is ever shown.
+- At a queue boundary (Next on the last track, Previous on the first) the action
+  is a safe no-op — the queue and the now-playing state are left untouched.
+- Previous always steps to the previous track (it does not restart the current
+  track first); there is no "double-press to go back" behaviour.
 
 ### Browse tree
 
@@ -187,10 +220,24 @@ mode → **Add unknown sources** enabled for a sideloaded build.
 8. Open Linthra.
 9. Browse **Library** (and **Playlists** / **Favorites** if you have any).
 10. Play a track — confirm it starts and the rest of the list becomes up-next.
-11. Test **play / pause / next / previous** (and shuffle/repeat).
-12. Disconnect and reconnect — confirm the app still appears and resumes.
-13. With a **Cast** session active, select a track from Android Auto and confirm
-    **no duplicate audio starts on the phone** (it should follow the receiver).
+11. Press the car / head-unit **Next** — confirm Linthra skips to the next track.
+12. Press the car / head-unit **Previous** — confirm it goes to the previous
+    track (it steps back; it does not restart the current track first).
+13. Press **Play / Pause** — confirm the play state stays in sync both ways.
+14. Open the car's **Up Next** list and tap a row — confirm playback jumps to it.
+15. Test **shuffle / repeat** from the car.
+16. **Lock the phone screen** and press car **Next** — confirm music keeps
+    playing and skips correctly (no drop-out during the track change).
+17. If you have a steering wheel or **Bluetooth** remote / headset, test its
+    **Next / Previous / Play-Pause** — they should drive Linthra too.
+18. Reopen Linthra on the phone — confirm it shows the **correct current track**
+    after using the car controls.
+19. Disconnect and reconnect — confirm the app still appears and resumes.
+20. With a **Cast** session active, select a track (and press Next) from Android
+    Auto and confirm **no duplicate audio starts on the phone** (it follows the
+    receiver).
+21. Skim `adb logcat | grep Linthra.AndroidAuto` — confirm **no tokens or
+    authenticated stream URLs** appear (only category labels and counts).
 
 ## Troubleshooting
 
@@ -244,7 +291,14 @@ mode → **Add unknown sources** enabled for a sideloaded build.
   not something Linthra can change.
 - The browse tree is **flat**: no album/artist/folder grouping and no
   search-from-Auto; large libraries are not paged.
-- **Queue** browsing is read + jump only (no reorder/remove from the car).
+- The now-playing **Up Next** list mirrors the app's queue and you can tap a row
+  to jump to it, but you **can't reorder or remove** queue items from the car
+  (do that in the app). The browsable **Queue** category is likewise read + jump.
+- **Previous** always steps to the previous track; there's no restart-then-go-back
+  (single vs. double press) behaviour some apps use.
+- Next on the last track / Previous on the first is a **no-op**; Next does not
+  wrap to the start even with repeat-all on (only auto-advance at end-of-track
+  wraps).
 - The car experience is **basic browsing**, not a custom/polished car UI (no
   tabs, content-style hints, lyrics, or now-playing artwork tuning).
 - Lock-screen / car artwork depends on `Track.artworkUri`; local-folder scanning

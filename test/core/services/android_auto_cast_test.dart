@@ -69,6 +69,48 @@ void main() {
     expect(controller.state.currentTrack?.id, 'b');
   });
 
+  test(
+      'with Cast active, a car skip advances the queue but plays nothing local',
+      () async {
+    // Requirement: a media-session skip (car / steering-wheel Next) while
+    // casting must route through the single PlaybackController and advance the
+    // queue, but must NOT start a second, duplicate stream on the phone — the
+    // local engine is suspended for the cast session's duration.
+    final library = <Track>[_track('a'), _track('b'), _track('c')];
+    final local = FakePlaybackController();
+    final cast = FakeCastService();
+    final controller = ActivePlaybackController(local: local, cast: cast);
+    final handler = LinthraAudioHandler(
+      controller,
+      MediaBrowserTree(FakeMusicLibraryRepository(tracks: library)),
+    );
+    addTearDown(() async {
+      await handler.dispose();
+      await controller.dispose();
+      await cast.dispose();
+      await local.dispose();
+    });
+
+    // A real queue exists locally first (current a, up-next b, c).
+    await controller.playTracks(library);
+    await _settle();
+
+    // Casting begins → the local engine is suspended.
+    cast.emit(_casting());
+    await _settle();
+    expect(local.isSuspended, isTrue);
+    final int playedBefore = local.playedTracks.length;
+
+    // Car Next.
+    await handler.skipToNext();
+    await _settle();
+
+    // The queue advanced so the receiver can be told what to play, but the
+    // local engine started no new track — no duplicate audio on the phone.
+    expect(controller.state.currentTrack?.id, 'b');
+    expect(local.playedTracks.length, playedBefore);
+  });
+
   test('without Cast, an Android Auto selection plays locally as normal',
       () async {
     final library = <Track>[_track('a'), _track('b'), _track('c')];
