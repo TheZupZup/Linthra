@@ -306,6 +306,10 @@ class _ActiveSubtitle extends StatelessWidget {
     switch (status) {
       case DownloadStatus.queued:
         return 'Queued';
+      case DownloadStatus.queuedWaitingForWifi:
+        return 'Queued — waiting for Wi‑Fi';
+      case DownloadStatus.queuedWaitingForConnection:
+        return 'Queued — waiting for connection';
       case DownloadStatus.failed:
         return 'Download failed';
       case DownloadStatus.downloading:

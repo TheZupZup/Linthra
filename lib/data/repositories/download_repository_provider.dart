@@ -7,8 +7,8 @@ import '../../core/repositories/download_store.dart';
 import '../../core/repositories/offline_file_store.dart';
 import '../../core/services/cached_track_locator.dart';
 import '../../core/services/connectivity_service.dart';
+import '../../core/services/platform_connectivity_service.dart';
 import '../../core/services/offline_cache_manager.dart';
-import '../../core/services/optimistic_connectivity_service.dart';
 import '../../core/services/remote_track_downloader.dart';
 import '../../core/services/track_prefetcher.dart';
 import 'cache_download_repository.dart';
@@ -36,7 +36,7 @@ final offlineFileStoreProvider = Provider<OfflineFileStore>((ref) {
 
 /// Fetches bytes for remote (e.g. Jellyfin) tracks. The data layer's default
 /// handles no source — keeping it free of any source-specific or feature
-/// dependency — so the Jellyfin-backed downloader is wired in as an override at
+/// dependency — so the remote-source downloader is wired in as an override at
 /// the composition root (see `jellyfinRemoteTrackDownloaderOverride`). Tests
 /// override it with a fake that returns canned bytes.
 final remoteTrackDownloaderProvider = Provider<RemoteTrackDownloader>((ref) {
@@ -50,10 +50,11 @@ final downloadPreferencesProvider = Provider<DownloadPreferences>((ref) {
 });
 
 /// Network reachability used to honor the mobile-data download preference. The
-/// default optimistically reports Wi-Fi until real detection lands; tests inject
-/// a fake to drive the policy's mobile/offline/unknown paths.
+/// production default uses platform connectivity and fails closed as
+/// [NetworkStatus.unknown] when it cannot determine the active transport; tests
+/// inject fakes to drive the Wi-Fi/mobile/offline/unknown paths.
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
-  return const OptimisticConnectivityService();
+  return const PlatformConnectivityService();
 });
 
 /// Supplies the id of the currently playing track so the cache policy never
@@ -143,10 +144,7 @@ class _UnsupportedRemoteTrackDownloader implements RemoteTrackDownloader {
   bool isRemote(Track track) => false;
 
   @override
-  Future<RemoteTrackData> fetch(
-    Track track, {
-    void Function(int received, int? total)? onProgress,
-  }) {
+  Future<RemoteTrackDownload> open(Track track) {
     throw UnsupportedError('No remote downloader is configured.');
   }
 }

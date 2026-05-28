@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -62,11 +64,12 @@ void main() {
       final downloader =
           JellyfinTrackDownloader(() => source, httpClient: client);
 
-      final RemoteTrackData data = await downloader.fetch(_track);
+      final RemoteTrackDownload data = await downloader.open(_track);
 
       expect(source.verifyCount, 1);
       expect(requested, uri);
-      expect(data.bytes, <int>[10, 20, 30]);
+      expect(await _collect(data.chunks), <int>[10, 20, 30]);
+      expect(data.contentLength, 3);
       expect(data.fileExtension, 'flac');
     });
 
@@ -84,15 +87,16 @@ void main() {
 
       final data =
           await JellyfinTrackDownloader(() => source, httpClient: client)
-              .fetch(_track);
+              .open(_track);
 
+      expect(await _collect(data.chunks), <int>[1]);
       expect(data.fileExtension, 'mp3');
     });
 
     test('throws when not signed in', () async {
       final downloader = JellyfinTrackDownloader(() => null);
 
-      await expectLater(downloader.fetch(_track), throwsA(isA<Object>()));
+      await expectLater(downloader.open(_track), throwsA(isA<Object>()));
     });
 
     test('surfaces a verification failure', () async {
@@ -101,7 +105,7 @@ void main() {
       );
 
       await expectLater(
-        JellyfinTrackDownloader(() => source).fetch(_track),
+        JellyfinTrackDownloader(() => source).open(_track),
         throwsA(isA<JellyfinException>()),
       );
     });
@@ -110,7 +114,7 @@ void main() {
       final source = _FakeDownloadSource(downloadUri: null);
 
       await expectLater(
-        JellyfinTrackDownloader(() => source).fetch(_track),
+        JellyfinTrackDownloader(() => source).open(_track),
         throwsA(isA<Object>()),
       );
     });
@@ -122,7 +126,7 @@ void main() {
       final client = MockClient((request) async => http.Response('no', 404));
 
       await expectLater(
-        JellyfinTrackDownloader(() => source, httpClient: client).fetch(_track),
+        JellyfinTrackDownloader(() => source, httpClient: client).open(_track),
         throwsA(isA<Object>()),
       );
     });
@@ -141,12 +145,20 @@ void main() {
           JellyfinTrackDownloader(() => source, httpClient: client);
 
       try {
-        await downloader.fetch(_track);
-        fail('expected fetch to throw');
+        await downloader.open(_track);
+        fail('expected open to throw');
       } catch (error) {
         expect(error.toString(), isNot(contains('SECRET-TOKEN')));
         expect(error.toString(), isNot(contains('api_key')));
       }
     });
   });
+}
+
+Future<List<int>> _collect(Stream<List<int>> chunks) async {
+  final List<int> bytes = <int>[];
+  await for (final List<int> chunk in chunks) {
+    bytes.addAll(chunk);
+  }
+  return bytes;
 }

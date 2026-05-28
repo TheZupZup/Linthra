@@ -18,10 +18,13 @@ void main() {
     Future<void> pump(WidgetTester tester, FakeMusicLibraryRepository repo) {
       return tester.pumpWidget(
         ProviderScope(
-          // Default download providers are plugin-free (in-memory store +
-          // optimistic connectivity), so the screen works without overrides.
+          // Download stores are plugin-free in tests; connectivity is faked so
+          // the production platform channel is not touched.
           overrides: [
             musicLibraryRepositoryProvider.overrideWithValue(repo),
+            connectivityServiceProvider.overrideWithValue(
+              _FakeConnectivity(NetworkStatus.wifi),
+            ),
           ],
           child: const MaterialApp(home: DownloadsScreen()),
         ),
@@ -176,7 +179,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('In progress'), findsOneWidget);
-      expect(find.text('Queued'), findsOneWidget);
+      expect(find.text('Queued — waiting for Wi‑Fi'), findsOneWidget);
       expect(find.byTooltip('Cancel download'), findsOneWidget);
     });
   });
@@ -211,17 +214,20 @@ class _FakeRemoteDownloader implements RemoteTrackDownloader {
   bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
 
   @override
-  Future<RemoteTrackData> fetch(
-    Track track, {
-    void Function(int received, int? total)? onProgress,
-  }) async {
-    onProgress?.call(2, 4);
-    final Future<void>? pending = gate;
-    if (pending != null) await pending;
+  Future<RemoteTrackDownload> open(Track track) async {
     final Object? err = error;
     if (err != null) throw err;
-    onProgress?.call(4, 4);
-    return const RemoteTrackData(
-        bytes: <int>[1, 2, 3, 4], fileExtension: 'mp3');
+    return RemoteTrackDownload(
+      chunks: _chunks(),
+      contentLength: 4,
+      fileExtension: 'mp3',
+    );
+  }
+
+  Stream<List<int>> _chunks() async* {
+    yield <int>[1, 2];
+    final Future<void>? pending = gate;
+    if (pending != null) await pending;
+    yield <int>[3, 4];
   }
 }

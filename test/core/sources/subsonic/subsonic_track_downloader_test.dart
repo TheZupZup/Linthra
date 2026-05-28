@@ -37,7 +37,7 @@ void main() {
     );
   });
 
-  test('fetches the bytes and infers the extension from the content type',
+  test('opens a streamed download and infers the extension from the content type',
       () async {
     final mock = MockClient((http.Request request) async {
       return http.Response(
@@ -51,9 +51,10 @@ void main() {
       httpClient: mock,
     );
 
-    final data = await downloader.fetch(_track);
+    final data = await downloader.open(_track);
 
-    expect(utf8.decode(data.bytes), 'audio-bytes');
+    expect(utf8.decode(await _collect(data.chunks)), 'audio-bytes');
+    expect(data.contentLength, 'audio-bytes'.length);
     expect(data.fileExtension, 'flac');
   });
 
@@ -68,7 +69,7 @@ void main() {
     );
 
     await expectLater(
-      downloader.fetch(_track),
+      downloader.open(_track),
       throwsA(
         isA<StateError>().having(
           (e) => e.message,
@@ -81,6 +82,14 @@ void main() {
 
   test('throws when not signed in', () async {
     final downloader = SubsonicTrackDownloader(() => null);
-    await expectLater(downloader.fetch(_track), throwsA(isA<StateError>()));
+    await expectLater(downloader.open(_track), throwsA(isA<StateError>()));
   });
+}
+
+Future<List<int>> _collect(Stream<List<int>> chunks) async {
+  final List<int> bytes = <int>[];
+  await for (final List<int> chunk in chunks) {
+    bytes.addAll(chunk);
+  }
+  return bytes;
 }
