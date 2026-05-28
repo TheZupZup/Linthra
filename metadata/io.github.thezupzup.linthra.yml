@@ -1,0 +1,126 @@
+# =============================================================================
+# F-Droid metadata DRAFT for Linthra — NOT SUBMITTED.
+#
+# Linthra is NOT on F-Droid and no submission/merge request has been made. This
+# file is a *draft* kept in the app repository so a future submission to
+# fdroiddata (https://gitlab.com/fdroid/fdroiddata) is straightforward and
+# accurate. The real entry lives in fdroiddata's `metadata/` directory, not
+# here; copy/adapt this file there when submitting.
+#
+# Status notes for reviewers:
+#   * Early alpha, unofficial community project. Not affiliated with or endorsed
+#     by Jellyfin, Navidrome, or the Subsonic project.
+#   * No tracking, no analytics, no ads, no telemetry/crash-reporting SDK.
+#   * No tagged release exists yet, so the `Builds:` `commit:` below is a
+#     PLACEHOLDER for the first real `v*` tag and MUST be set to a real tag
+#     before submission.
+#   * When F-Droid builds, `Summary`/`Description` are normally taken from the
+#     Fastlane files under `fastlane/metadata/android/en-US/`. The inline
+#     `Summary`/`Description` here are provided for review per the readiness
+#     task; the Fastlane `full_description.txt` should be refreshed to match the
+#     current feature set before submission (see docs/fdroid-readiness.md).
+#
+# See docs/fdroid-readiness.md, docs/fdroid-build-recipe.md, and
+# docs/dependency-license-audit.md for the full reasoning behind every value.
+# =============================================================================
+
+Categories:
+  - Multimedia
+License: MPL-2.0
+AuthorName: TheZupZup
+# WebSite: intentionally omitted — there is no separate project website; the
+# source repository below is the canonical home. F-Droid falls back to
+# SourceCode when WebSite is unset.
+SourceCode: https://github.com/thezupzup/linthra
+IssueTracker: https://github.com/thezupzup/linthra/issues
+# Changelog: set this only once tagged GitHub Releases exist. Until then,
+# per-version notes live in fastlane/metadata/android/en-US/changelogs/.
+# Changelog: https://github.com/thezupzup/linthra/releases
+
+Name: Linthra
+AutoName: Linthra
+Summary: Local-first music player for your own self-hosted library
+
+Description: |-
+  Linthra is an open-source, local-first music player for Android, for people
+  who own their music. Point it at a folder of local files, or connect your own
+  self-hosted Jellyfin, Navidrome, or Subsonic server — your library, your
+  server, your rules.
+
+  Linthra is an unofficial community project. It is not affiliated with or
+  endorsed by Jellyfin, Navidrome, or the Subsonic project; you bring your own
+  server and credentials.
+
+  Privacy by design:
+
+  * No tracking, no analytics, no ads, and no crash-reporting/telemetry SDK.
+  * No account and no phoning home — nothing leaves your device unless you ask
+    for it.
+  * Streaming is the default; offline downloads are always explicit and
+    user-initiated (Wi-Fi only unless you opt in to mobile data).
+  * The server password is used once to obtain a session token, then discarded;
+    the token is stored encrypted and never logged.
+
+  What works today:
+
+  * Local library: pick a folder via the Storage Access Framework (no broad
+    storage permission), scan it, and browse Songs / Albums / Artists.
+  * Self-hosted streaming from your own Jellyfin or Navidrome / Subsonic server,
+    including over HTTPS.
+  * Smart offline cache, queue / up-next, playlists and favourites, and
+    automatic "smart mixes" built from on-device signals.
+  * Background playback with a media notification and lock-screen, Bluetooth,
+    and wired-headset controls.
+  * Android Auto browsing, and Cast to a Chromecast / speaker / TV using a
+    pure-Dart Cast implementation — no Google Play Services.
+
+  This is early-alpha software: it is usable for testing on a real device, but
+  it is not production-stable and has documented rough edges. It is distributed
+  for testing today only via GitHub Releases (sideloaded APK), and is NOT yet on
+  F-Droid.
+
+RepoType: git
+Repo: https://github.com/thezupzup/linthra.git
+
+# -----------------------------------------------------------------------------
+# Builds — DRAFT. Verify against a real tagged build before submitting.
+#
+#  * `commit:` is a PLACEHOLDER. No `v*` tag exists yet; set it to the real
+#    annotated release tag (e.g. v0.1.0-alpha.15) at submission time.
+#  * versionName/versionCode below match pubspec.yaml (0.1.0-alpha.15+15), which
+#    is what a plain `flutter build` (what F-Droid runs) produces.
+#    NOTE: the GitHub-Release workflow derives a different, larger versionCode
+#    from the tag (v0.1.0-alpha.15 -> 100015 via tool/version_from_tag.dart).
+#    These two channels MUST be reconciled before submission — either bump
+#    pubspec.yaml at the tagged commit or pass --build-name/--build-number in
+#    the recipe so the F-Droid versionCode matches. See docs/fdroid-readiness.md
+#    §"Release / tagging" and docs/fdroid-build-recipe.md §5.
+#  * Generated Drift files (lib/data/database/linthra_database.g.dart) are
+#    committed, so NO build_runner/codegen prebuild step is required.
+#  * The only native component is SQLite via sqlite3_flutter_libs, compiled from
+#    source (public domain) — no prebuilt closed blobs.
+#  * The exact Flutter-on-F-Droid build incantation (Flutter srclib vs. a
+#    sudo-installed SDK, ABI splitting, output path) must be validated against
+#    fdroiddata's current Flutter recipes at submission time.
+# -----------------------------------------------------------------------------
+Builds:
+  - versionName: 0.1.0-alpha.15
+    versionCode: 15
+    commit: PLACEHOLDER_SET_TO_REAL_TAG # e.g. v0.1.0-alpha.15 — no tag exists yet
+    sudo:
+      - # toolchain provisioning, if the recipe installs Flutter itself
+    output: build/app/outputs/flutter-apk/app-release.apk
+    srclibs:
+      - # Flutter 3.27.4 srclib, if used (Dart 3.6.x, JDK 17, Gradle 8.3)
+    build: |
+      flutter pub get
+      flutter build apk --release
+
+AutoUpdateMode: Version v%v
+# UpdateCheckMode: track v* tags. Linthra currently ships only pre-release
+# (-alpha.N) versions, so the regex must accept the alpha/beta/rc suffix and be
+# validated against the first real tag. F-Droid may need configuring to accept
+# pre-release tags at all; revisit when a stable (non-pre-release) tag exists.
+UpdateCheckMode: Tags ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$
+CurrentVersion: 0.1.0-alpha.15
+CurrentVersionCode: 15

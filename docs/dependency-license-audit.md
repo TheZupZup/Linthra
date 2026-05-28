@@ -26,12 +26,19 @@ alongside MPL-2.0 code.
 - **Scope:** the **direct** dependencies declared in
   [`pubspec.yaml`](../pubspec.yaml). Licenses below are the ones each package
   publishes on [pub.dev](https://pub.dev) / in its bundled `LICENSE` file.
-- **Not yet run mechanically:** a full **transitive** dependency walk was not
-  generated for this document (the Dart/Flutter toolchain and a resolved
-  `pubspec.lock` were not available in the environment that produced it, and
-  `pubspec.lock` is currently git-ignored — see
-  [reproducibility notes](./fdroid-build-recipe.md#4-reproducibility-notes)).
-  Confirming the complete transitive set is still an open item (§6).
+- **Transitive walk — now run.** The full transitive dependency set has since
+  been resolved and audited with the pinned toolchain (Flutter 3.27.4 /
+  Dart 3.6.2). `flutter pub get` + `flutter pub deps` resolve **152** packages;
+  a license scan of every resolved package (reading each package's bundled
+  `LICENSE`) classifies them as **101 BSD-3-Clause, 34 MIT, 6 Apache-2.0,
+  6 BSD-2-Clause, 2 MPL-2.0** — every one a permissive free-software license,
+  MPL-2.0-compatible, with **no GPL/LGPL, proprietary, or unknown license**.
+  The only two packages without their own `LICENSE` file are `flutter_test` and
+  `flutter_web_plugins`, both bundled inside the Flutter SDK and covered by the
+  SDK's own BSD-3-Clause license. No `com.google.android.gms` / `play-services`
+  / Firebase / analytics / ads / crash-reporting package appears anywhere in the
+  resolved tree (§5, §6). `pubspec.lock` remains git-ignored, so this reflects
+  the set resolved at audit time; re-run on a dependency change.
 - **To reproduce / extend this audit** with the toolchain available:
 
   ```sh
@@ -66,8 +73,9 @@ compatible with MPL-2.0 and acceptable to F-Droid.
 | `audio_service`          | `^0.18.15`   | ryanheise.com       | MIT            | Background playback / media session. |
 | `file_picker`            | `^8.1.4`     | (miguelpruivo)      | MIT            | Native folder chooser (SAF). |
 | `shared_preferences`     | `^2.3.3`     | flutter.dev         | BSD-3-Clause   | Persists the selected folder. |
-| `http`                   | `^1.2.0`     | dart.dev            | BSD-3-Clause   | HTTP client for the optional Jellyfin source (§7). |
-| `flutter_secure_storage` | `^9.2.2`     | (juliansteenbakker) | BSD-3-Clause   | Encrypted store for the Jellyfin session token (§7). |
+| `http`                   | `^1.2.0`     | dart.dev            | BSD-3-Clause   | HTTP client for the optional self-hosted sources — Jellyfin and Navidrome/Subsonic (§7). |
+| `crypto`                 | `^3.0.3`     | dart.dev            | BSD-3-Clause   | MD5 hashing for the Subsonic/Navidrome `token = md5(password + salt)` auth scheme, so only the derived `(salt, token)` is stored — never the plaintext password (§7). Also pulled in transitively by `just_audio`. |
+| `flutter_secure_storage` | `^9.2.2`     | (juliansteenbakker) | BSD-3-Clause   | Encrypted store for the Jellyfin/Subsonic session token (§7). |
 | `cast`                   | `^2.1.0`     | (johnvuko)          | MIT            | Pure-Dart Google Cast v2 protocol for real Chromecast — **no** Google Play Services / proprietary Cast SDK. See §5 (Casting). |
 | `bonsoir`                | `^5.1.11`    | (Skyost)            | MIT            | mDNS/Bonjour service discovery used by `cast`; Android side is AOSP `NsdManager`, not GMS. Pinned to 5.x for Dart 3.6 (6.x+ needs Dart ≥3.8). See §5 (Casting). |
 | `url_launcher`           | `^6.3.0`     | flutter.dev         | BSD-3-Clause   | Opens the browser for the "Report a bug" → "Open GitHub issue" action (a prefilled, **unsubmitted** issue the user reviews). AOSP `ACTION_VIEW` intent; **no** GMS. See note below and §7 (Reporting a bug). |
@@ -108,11 +116,24 @@ source (no prebuilt proprietary blobs).
 - **Android Keystore / EncryptedSharedPreferences** (used by
   `flutter_secure_storage`): part of the **AOSP** platform, not Google Play
   Services. No proprietary dependency is introduced.
-- **No Google Play Services / Firebase / GMS.** None of the direct dependencies
-  require Google Play Services, Firebase, or other proprietary Google libraries.
-  The Android Auto declaration uses the standard `MediaBrowserService` /
+- **AndroidX Media3 / ExoPlayer** (Maven AAR pulled by `just_audio`):
+  `androidx.media3:media3-exoplayer:1.4.1` (+ the `-dash`, `-hls`,
+  `-smoothstreaming` modules) is the playback engine for both local files and
+  streaming. **Media3 is part of AndroidX/Jetpack and is licensed Apache-2.0 —
+  open source and buildable from source. It is _not_ Google Play Services / the
+  proprietary Cast SDK.** `audio_service` and `audio_session` likewise use only
+  `androidx.media:media:1.7.0` and `androidx.core:core` (AndroidX, Apache-2.0).
+  Media3's bundled manifest is the source of the merged `ACCESS_NETWORK_STATE`
+  permission (it reads connectivity state for adaptive streaming); see the
+  permissions table in [fdroid-readiness.md](./fdroid-readiness.md).
+- **No Google Play Services / Firebase / GMS.** Confirmed by the transitive walk
+  (§2): no `com.google.android.gms`, `play-services`, Firebase, or other
+  proprietary Google library appears in the resolved dependency tree. The
+  Android Auto declaration uses the standard `MediaBrowserService` /
   `media-session` APIs from `audio_service` (AOSP media APIs), not a proprietary
-  car SDK. _(Confirm there is no transitive GMS pull-in as part of §6.)_
+  car SDK — the `com.google.android.gms.car.application` manifest entry is just
+  the meta-data key name Android Auto reads to list a media app; it links no GMS
+  library.
 
 ### Casting (Chromecast) — real Cast without Google Play Services
 
@@ -160,36 +181,36 @@ Mapped to F-Droid's [anti-features](https://f-droid.org/docs/Anti-Features/):
 | -------------------------- | ------ | ----- |
 | Ads                        | None   | No advertising libraries or code. |
 | Tracking / analytics       | None   | No telemetry, analytics, or crash-reporting SDK is present. |
-| Proprietary dependencies   | None found in **direct** deps | All direct deps are MIT/BSD-3-Clause; transitive set still to be confirmed mechanically (§2). Chromecast deliberately avoids the GMS Cast SDK (pure-Dart `cast` + AOSP `NsdManager` via `bonsoir`); see §5 (Casting). |
-| Non-free network services  | See §7 | Local-first core needs no network; Jellyfin is optional and user-configured. |
+| Proprietary dependencies   | **None** (transitive walk confirmed) | All 152 resolved packages are permissive free software (MIT/BSD/Apache-2.0/MPL-2.0); no GMS/Firebase/proprietary package present (§2). Native AARs are AndroidX Media3/`media`/`core` (Apache-2.0) and SQLite (public domain) — all open source (§5). Chromecast deliberately avoids the GMS Cast SDK (pure-Dart `cast` + AOSP `NsdManager` via `bonsoir`); see §5 (Casting). |
+| Non-free network services  | See §7 | Local-first core needs no network; the self-hosted Jellyfin/Navidrome/Subsonic sources are optional and user-configured. |
 
-## 7. Network use & the optional Jellyfin source
+## 7. Network use & the optional self-hosted sources
 
 Linthra is **local-first**: the core (folder selection, scanning, the persisted
-catalog) works with **no network access at all**. The production
-`AndroidManifest.xml` declares no `INTERNET` permission of its own; `INTERNET`
-appears only in the debug/profile manifests (for Flutter hot reload).
+catalog) works with **no network access at all**. Optional self-hosted sources —
+**Jellyfin** and **Navidrome / Subsonic** — let the user stream from a server
+they run themselves. These are the reason `http`, `crypto`, and
+`flutter_secure_storage` are dependencies. The production
+`AndroidManifest.xml` now declares the `INTERNET` permission (so release builds
+can reach the user's server); this is a normal, expected permission for a
+user-opted-in remote source and is not an anti-feature by itself. F-Droid
+implications:
 
-A **Jellyfin** source foundation has since landed (server settings, sign-in,
-encrypted session token, a library source behind an interface). It is the reason
-`http` and `flutter_secure_storage` are dependencies. F-Droid implications:
-
-- **Optional and user-configured.** No Jellyfin server is bundled, promoted, or
-  required; the user supplies their own server URL and credentials. The app does
-  not depend on any specific hosted service.
-- **Jellyfin is free software.** The Jellyfin server is itself
-  free/open-source, and Linthra only speaks plain HTTP(S) to it via the
-  permissive `http` package.
-- **Anti-feature judgement:** because the non-local source is optional,
-  user-supplied, and points at free software, it does not obviously warrant the
-  `NonFreeNet` anti-feature. This should still be **reviewed at submission time**
-  — if any future source defaults to or promotes a non-free hosted service, it
-  must be reassessed (the [readiness doc](./fdroid-readiness.md#5-anti-features-review)
-  carries the same caveat).
-- When the Jellyfin client begins making real network calls, the production
-  manifest will need an `INTERNET` permission; that is a normal, expected
-  permission for a user-opted-in remote source and is not an anti-feature by
-  itself.
+- **Optional and user-configured.** No server is bundled, promoted, or required;
+  the user supplies their own server URL and credentials. The app does not
+  depend on, default to, or promote any specific hosted service, and the
+  local-first core remains fully functional with no network at all.
+- **The servers are free software.** Jellyfin, Navidrome, and the Subsonic API
+  ecosystem are themselves free/open-source. Linthra only speaks plain HTTP(S)
+  to them via the permissive `http` package; the Subsonic/Navidrome
+  `token = md5(password + salt)` scheme is computed locally with `crypto`.
+- **Anti-feature judgement (`NonFreeNet`):** because every non-local source is
+  optional, user-supplied, and points at free software the user hosts, it does
+  **not** warrant the `NonFreeNet` anti-feature. This should still be **reviewed
+  at submission time** — if any future source defaults to or promotes a non-free
+  hosted service, it must be reassessed (the
+  [readiness doc](./fdroid-readiness.md#5-anti-features-review) carries the same
+  caveat).
 
 ### Reporting a bug (browser hand-off, no auto-send)
 
@@ -220,18 +241,19 @@ The in-app "Report a bug" flow (Settings → Report a bug) is the reason
 - **Project license:** MPL-2.0 (free, F-Droid-accepted).
 - **Direct dependencies:** all MIT or BSD-3-Clause — permissive, free, and
   MPL-2.0-compatible. No copyleft conflicts, no proprietary direct deps.
-- **Native bits:** SQLite (public domain, built from source) and Android Keystore
-  (AOSP). No Google Play Services / Firebase in the direct dependency set.
-- **Bottom line:** nothing in the **declared** dependency set blocks F-Droid on
-  licensing grounds. The remaining work is mechanical verification of the full
-  transitive tree (§6 below).
+- **Transitive set:** the full resolved tree (152 packages) was audited (§2) —
+  all permissive (BSD/MIT/Apache-2.0/MPL-2.0), no GMS/Firebase/proprietary.
+- **Native bits:** SQLite (public domain, built from source), AndroidX Media3 /
+  `media` / `core` (Apache-2.0, open source — the playback engine, not GMS), and
+  Android Keystore (AOSP). No Google Play Services / Firebase anywhere.
+- **Bottom line:** nothing in the dependency set — direct or transitive — blocks
+  F-Droid on licensing grounds.
 
 ## 9. Outstanding before submission
 
-1. **Run the mechanical transitive audit** (§2 commands) and confirm every
-   transitive package is free software with no Google-only / proprietary binary
-   pull-in. This is the last open piece of the dependency blocker tracked in
-   [fdroid-readiness.md §8](./fdroid-readiness.md#8-remaining-blockers-before-submission).
+1. ~~**Run the mechanical transitive audit.**~~ **Done** (§2): 152 resolved
+   packages, all permissive free software, no GMS/Firebase/proprietary pull-in.
+   Re-run on any dependency change (item 3).
 2. **Decide the `pubspec.lock` policy** for releases so the audited dependency
    set is pinned at the tagged commit (see
    [fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).

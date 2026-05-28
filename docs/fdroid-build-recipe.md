@@ -163,47 +163,17 @@ These must be resolved before an actual F-Droid submission (see also
 6. **Gradle wrapper jar.** Confirm the recipe handles the missing committed
    `gradle-wrapper.jar` (§3) reproducibly.
 
-## 7. Suggested draft F-Droid metadata snippet
+## 7. Draft F-Droid metadata recipe
 
-Draft only — to be finalized and verified against a real tagged build before any
-fdroiddata merge request. `commit`/`versionName`/`versionCode` are placeholders
-for the first real release.
+A complete, current draft recipe now lives in the repo at
+[`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml)
+(versioned to the current `0.1.0-alpha.15`, with the `commit:` left as a
+placeholder until the first real `v*` tag). That file is the canonical draft;
+edit it there rather than duplicating a snippet here.
 
-```yaml
-# metadata/io.github.thezupzup.linthra.yml  (DRAFT — not submitted)
-Categories:
-  - Multimedia
-License: MPL-2.0
-SourceCode: https://github.com/thezupzup/linthra
-IssueTracker: https://github.com/thezupzup/linthra/issues
-# Changelog: https://github.com/thezupzup/linthra/releases  # only once Releases exist
-
-AutoName: Linthra
-
-RepoType: git
-Repo: https://github.com/thezupzup/linthra.git
-
-Builds:
-  - versionName: 0.1.0
-    versionCode: 1
-    commit: v0.1.0
-    # Generated Drift files are committed, so no build_runner prebuild is needed.
-    sudo:
-      - # (toolchain provisioning, if the recipe installs Flutter itself)
-    output: build/app/outputs/flutter-apk/app-release.apk
-    srclibs:
-      - # Flutter 3.27.4 srclib, if used
-    build: |
-      flutter pub get
-      flutter build apk --release
-
-AutoUpdateMode: Version v%v
-UpdateCheckMode: Tags ^v[0-9.]+$
-CurrentVersion: 0.1.0
-CurrentVersionCode: 1
-```
-
-> The exact Flutter-on-F-Droid build incantation (srclib vs. `sudo`-installed
-> SDK, ABI splitting, `output` path) must be validated against fdroiddata's
-> current Flutter recipes at submission time. Treat the block above as a
-> starting point, not a finished recipe.
+> **Still a draft — not submitted.** The exact Flutter-on-F-Droid build
+> incantation (Flutter srclib vs. `sudo`-installed SDK, ABI splitting, `output`
+> path) must be validated against fdroiddata's current Flutter recipes at
+> submission time, and the `commit:`/`versionName`/`versionCode` must be set to a
+> real tagged release. See the [readiness checklist](./fdroid-readiness.md#8-remaining-blockers-before-submission)
+> for the version-reconciliation and pre-release-tag caveats.
