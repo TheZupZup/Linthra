@@ -4,26 +4,33 @@ This document tracks what Linthra needs before it can be submitted to
 [F-Droid](https://f-droid.org/). It is a planning aid, not a claim of
 availability.
 
-> **Linthra is _not_ on F-Droid, and no submission has been made.** This
-> checklist exists so that a future submission is straightforward and accurate.
+> Linthra isn't on F-Droid, and nothing has been submitted yet. This checklist is
+> here so that when we do submit, it's accurate and goes smoothly.
 
 ## 1. Current status
 
-- **Stage:** early **alpha** (`0.1.0-alpha.15`), usable for testing on a real
-  device. Working today: local-folder library (SAF scan + browse), self-hosted
-  streaming from Jellyfin and Navidrome/Subsonic, smart offline cache, queue,
-  playlists & favourites, smart mixes, background playback (media notification /
-  lock screen / Bluetooth), Android Auto, and Cast (pure-Dart, no Google Play
-  Services). Not production-stable; documented rough edges remain.
-- **Distribution:** GitHub Releases only (sideloaded APK / Obtainium). **No
-  tagged release exists yet**, no F-Droid metadata has been submitted, and
-  Linthra is **not on F-Droid**.
-- **Groundwork in place:** stable application ID, MPL-2.0 license, a real
-  Linthra app/launcher icon, Fastlane-style store metadata under
-  `fastlane/metadata/android/en-US/` (text + real icon and feature graphic;
-  screenshots still pending), a completed dependency/license audit, and a draft
-  F-Droid recipe at [`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml).
-- **Not ready to submit.** See [Remaining blockers](#8-remaining-blockers-before-submission).
+- **Stage:** early alpha, usable for testing on a real device. Working today:
+  local-folder library (SAF scan and browse), streaming from Jellyfin and
+  Navidrome/Subsonic, a smart offline cache, queue, playlists and favourites,
+  smart mixes, background playback (media notification / lock screen /
+  Bluetooth), Android Auto, and Cast (pure-Dart, no Google Play Services). It
+  isn't production-stable, and the rough edges are documented.
+- **Distribution:** GitHub Releases only, as a sideloaded APK (Obtainium works
+  too). No F-Droid metadata has been submitted, and Linthra isn't on F-Droid.
+- **Tagged releases now exist:** `v0.1.0-alpha.1` … `v0.1.0-alpha.25`, each built
+  by `.github/workflows/android-release-build.yml`. The F-Droid target is the
+  latest one that launches, `v0.1.0-alpha.25` (versionName `0.1.0-alpha.25`,
+  tag-derived versionCode `100025`). Skip `v0.1.0-alpha.24`: its GitHub Release
+  is marked "Broken release — do not install … startup regression", and alpha.25
+  is the hotfix that reverts it.
+- **Groundwork in place:** a stable application ID, the MPL-2.0 license, a real
+  app/launcher icon, Fastlane-style store metadata under
+  `fastlane/metadata/android/en-US/` (text plus the real icon and feature
+  graphic; screenshots still to come), a finished dependency/license audit, the
+  draft recipe at [`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml)
+  (pinned to `v0.1.0-alpha.25`), and the submission package at
+  [`docs/fdroid-submission.md`](./fdroid-submission.md).
+- **Not submitted yet.** See [Remaining blockers](#8-remaining-blockers-before-submission).
 
 ## 2. App identity
 
@@ -175,9 +182,9 @@ crucially **no broad-storage `MANAGE_EXTERNAL_STORAGE`**.
 > committed manifest. `ACCESS_NETWORK_STATE` is contributed by the Media3 AAR at
 > Gradle manifest-merge time; the exact merged set should be re-confirmed against
 > the merged manifest of a release build (`flutter build apk --release`) at
-> submission time — this readiness pass could not run the Android build locally
-> (see [§11 Verification](#11-verification-performed-in-this-readiness-pass) and
-> §8.5). No permission is requested speculatively in code.
+> submission time — this preparation pass could not run the Android build locally
+> (see [§11 Verification](#11-verification-status) and
+> §8.2). No permission is requested speculatively in code.
 
 - **`MANAGE_EXTERNAL_STORAGE` is intentionally not used.** It is an "all files
   access" permission Google restricts and F-Droid users distrust; it is the
@@ -210,14 +217,17 @@ including the GitHub-Release flow — is in
 5. The F-Droid recipe should use `AutoUpdateMode`/`UpdateCheckMode` tied to tags
    so new tagged releases are picked up.
 
-> **F-Droid caveat.** F-Droid builds **from source** at the tag and does **not**
-> run our release workflow, so a plain `flutter build` there takes the version
-> from `pubspec.yaml`, not the tag. When Linthra is submitted, keep the F-Droid
-> build consistent by either (a) bumping `pubspec.yaml` to the tag-derived
-> `versionName`/`versionCode` at the tagged commit, or (b) having the recipe's
-> build pass `--build-name`/`--build-number` and pinning the metadata
-> `versionCode` to the derived value. This affects only the F-Droid channel — the
-> GitHub-Release build already bakes in the tag-derived version.
+> **How the F-Droid build gets the right version.** F-Droid builds from source at
+> the tag and doesn't run our release workflow, so a plain `flutter build` there
+> would read the version from `pubspec.yaml` (`0.1.0-alpha.15+15`) and label every
+> tag as versionCode 15 — which F-Droid can't tell apart. The draft recipe avoids
+> that by deriving the version from the checked-out tag with
+> `tool/version_from_tag.dart` and passing `--build-name`/`--build-number`, so
+> `v0.1.0-alpha.25` builds to `0.1.0-alpha.25` / `100025` — the same value the
+> GitHub release build uses, distinct and increasing per tag, and still correct
+> under `AutoUpdateMode` for future tags. (Bumping `pubspec.yaml` at each tagged
+> commit would also work and is cleaner long-term, but it changes the release
+> process; see [docs/fdroid-submission.md §2](./fdroid-submission.md).)
 
 ## 7. Metadata checklist
 
@@ -225,13 +235,16 @@ Stored under `fastlane/metadata/android/en-US/`:
 
 - [x] `title.txt` — app name.
 - [x] `short_description.txt` — one-line summary (under F-Droid's 80-char limit).
-- [x] `full_description.txt` — long description. **Stale — refresh before
-  submission** (§8.3): it still lists now-shipped features as "planned" and lacks
+- [x] `full_description.txt` — long description. **Refreshed** to match the
+  current alpha (shipped features no longer listed as "planned") and now carries
   the "unofficial / not affiliated" framing. F-Droid uses this as the listing
   Description.
-- [x] `changelogs/1.txt`, `9.txt`, `15.txt` — per-version notes (named by the
-  current `pubspec.yaml` `versionCode`). Keep the filename in lockstep with the
-  built APK's `versionCode` (§6, §8.2).
+- [x] `changelogs/1.txt`, `9.txt`, `15.txt` — legacy per-version notes (named by
+  the old hand-numbered `versionCode`); kept as-is.
+- [x] `changelogs/100025.txt` — notes for the F-Droid target `v0.1.0-alpha.25`,
+  named by the **derived** versionCode `100025` (the convention going forward —
+  see [release-process.md §1](./release-process.md#1-versioning-model)). Keep new
+  changelog filenames in lockstep with the built APK's derived `versionCode`.
 - [x] `images/icon.png` — 512×512 real Linthra store icon. The launcher icons
   under `android/app/src/main/res/mipmap-*` are now the same real mark (adaptive
   + legacy), generated from `tool/branding/` — no longer the default Flutter
@@ -250,64 +263,74 @@ step-by-step capture instructions live in
 
 ## 8. Remaining blockers before submission
 
-1. **No tagged release yet.** A `v*` tag (e.g. `v0.1.0-alpha.15`) must exist for
-   F-Droid to build; the draft recipe's `commit:` is a placeholder until then.
-2. **versionCode reconciliation.** A from-source F-Droid build takes the version
-   from `pubspec.yaml` (`0.1.0-alpha.15+15` → versionCode **15**), while the
-   GitHub-Release workflow derives **100015** from the tag. Pick one scheme for
-   the F-Droid channel (bump `pubspec.yaml` at the tagged commit, or pass
-   `--build-name/--build-number` in the recipe) so the metadata `versionCode`
-   and the `changelogs/<code>.txt` filename match the built APK. See §6.
-3. **Fastlane description is stale.** `fastlane/metadata/android/en-US/full_description.txt`
-   still lists shipped features (artist/album browsing, search, playlists,
-   Navidrome/Subsonic) as "planned". Because F-Droid pulls the listing
-   Description from this file, refresh it to match the current alpha — and add
-   the "unofficial / not affiliated" framing — before submission. (The draft
-   `metadata/<appid>.yml` Description is already accurate.)
-4. **Screenshots missing.** The real icon and feature graphic are committed; only
+1. **Screenshots missing.** The real icon and feature graphic are committed; only
    screenshots remain, captured from a real build (see
-   [docs/listing-assets.md](./listing-assets.md)).
-5. **Reproducible build verification.** `flutter pub get`, `dart format`,
-   `flutter analyze`, and `flutter test` (1149 tests) all pass with the pinned
-   toolchain. The **Android APK build could not be run in this readiness
-   environment** (no Android SDK; the network policy here blocks the Android SDK
-   / JDK download hosts) — but CI builds the debug APK on every PR
-   (`android-debug-apk.yml`, JDK 17 + Flutter 3.27.4). Confirm a clean
-   `flutter build apk --release` and the NDK/CMake native build of
-   `sqlite3_flutter_libs` on F-Droid's build server.
-6. **Release signing (GitHub channel only).** Not an F-Droid blocker (F-Droid
+   [docs/listing-assets.md](./listing-assets.md)). Tracked by **issue #77**.
+   Not strictly required for an fdroiddata MR, but strongly recommended for the
+   listing.
+2. **Reproducible build verification.** CI runs `dart format`, `flutter analyze`,
+   and `flutter test` green on every PR (`ci.yml`) and builds a debug APK per PR
+   (`android-debug-apk.yml`, JDK 17 + Flutter 3.27.4); the tagged release APK is
+   built by `android-release-build.yml`. This preparation pass could only
+   validate the **metadata YAML** (no Flutter/Android SDK / fdroidserver in the
+   environment). Before submitting, re-confirm a clean from-source
+   `flutter build apk --release` (incl. the NDK/CMake native build of
+   `sqlite3_flutter_libs`) on an SDK-equipped machine, and run `fdroid lint` +
+   `fdroid build -l` in an fdroiddata checkout (commands in
+   [docs/fdroid-submission.md §7](./fdroid-submission.md)).
+3. **Toolchain provisioning in the recipe** must be matched to fdroiddata's
+   current Flutter convention (sudo git-clone vs. the `flutter` srclib) and
+   validated by an actual `fdroid build` — see
+   [docs/fdroid-submission.md §3](./fdroid-submission.md) and
+   [fdroid-build-recipe.md](./fdroid-build-recipe.md).
+4. **Feature maturity / pre-release tag (judgment call).** Decide whether to
+   submit at the current early-alpha stage or wait for a stable (non-pre-release)
+   tag — and confirm whether F-Droid will track/suggest an `-alpha`
+   CurrentVersion at all.
+5. **Release signing (GitHub channel only).** Not an F-Droid blocker (F-Droid
    signs its own builds), but the debug-key fallback should be replaced with real
    release signing for GitHub-Release artifacts (see
    [docs/release-signing.md](./release-signing.md)).
-7. **Feature maturity (judgment call).** Decide whether to submit at the current
-   early-alpha stage or wait for a stable (non-pre-release) tag — F-Droid may
-   need configuring to accept pre-release tags at all.
+6. **`pubspec.lock` policy** for reproducibility — still git-ignored; decide
+   whether to commit it at the tagged commit (§4 action items).
 
-**Resolved since the previous pass:** the full transitive dependency/license
-audit is complete (§4 — 152 packages, all permissive, no GMS); Drift generated
-files are committed so no codegen prebuild is needed; the full permission set is
-documented (§5).
+**Resolved since the previous passes:**
+
+- **A tagged release now exists.** `v0.1.0-alpha.25` is the latest **working**
+  alpha and is the recipe's `commit:`. The withdrawn, broken `v0.1.0-alpha.24` is
+  explicitly **not** targeted.
+- **versionCode reconciliation decided.** The recipe derives the version from the
+  tag (→ `0.1.0-alpha.25` / `100025`), matching the GitHub channel and staying
+  monotonic/AutoUpdate-safe (§6).
+- **Fastlane description refreshed** to match the current alpha, with the
+  "unofficial / not affiliated" framing (§7).
+- Full transitive dependency/license audit complete (§4 — 152 packages, all
+  permissive, no GMS); Drift generated files committed so no codegen prebuild is
+  needed; full permission set documented (§5).
 
 ## 9. Submission checklist (suggested order)
 
+The full step-by-step submission flow and the ready-to-adapt MR text live in
+[docs/fdroid-submission.md](./fdroid-submission.md). Summary:
+
 1. ✅ **Dependency/license audit** — done (§4;
    [audit doc](./dependency-license-audit.md)). Re-run on any dependency change.
-2. **Refresh the Fastlane `full_description.txt`** to match the current alpha and
-   add the "unofficial / not affiliated" framing (§8.3).
-3. **Verify a clean `flutter build apk --release`** on a machine with the Android
+2. ✅ **Fastlane `full_description.txt` refreshed** to match the current alpha,
+   with the "unofficial / not affiliated" framing (§7).
+3. ✅ **Target tag + versionCode decided** — `v0.1.0-alpha.25` / `100025`, with a
+   matching `changelogs/100025.txt`; the recipe derives the version from the tag
+   (§6). The broken `v0.1.0-alpha.24` is excluded.
+4. **Capture and commit real screenshots** (§7; icon and feature graphic already
+   done — see [docs/listing-assets.md](./listing-assets.md); tracked by #77).
+5. **Verify a clean `flutter build apk --release`** on a machine with the Android
    SDK + NDK (the from-source path F-Droid uses), and re-confirm the merged
    manifest permission set (§5 verification note).
-4. **Capture and commit real screenshots** (§7; icon and feature graphic already
-   done — see [docs/listing-assets.md](./listing-assets.md)).
-5. **Decide the `versionCode` scheme and `pubspec.lock` policy** for the F-Droid
-   channel (§8.2, §4), then **cut a `v*` tag** with a matching
-   `changelogs/<code>.txt` (§6; steps in
-   [docs/release-process.md](./release-process.md)).
 6. **Finalize the recipe** from the draft
    [`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml)
-   (set the real `commit:`/version, validate the Flutter build incantation), then
-   submit a merge request to
-   [fdroiddata](https://gitlab.com/fdroid/fdroiddata).
+   (match fdroiddata's Flutter convention, run `fdroid lint`/`fdroid build -l`),
+   then submit a merge request to
+   [fdroiddata](https://gitlab.com/fdroid/fdroiddata) using the text in
+   [docs/fdroid-submission.md §9](./fdroid-submission.md).
 
 The metadata field reference, build-source/toolchain expectations, and
 reproducibility notes are in
@@ -337,15 +360,19 @@ must-pass items:
 - [ ] No crash/telemetry network traffic at rest (verify with a network monitor:
       nothing leaves the device unless the user configures a server).
 
-## 11. Verification performed in this readiness pass
+## 11. Verification status
 
-Run with the pinned toolchain (Flutter 3.27.4 / Dart 3.6.2):
+**This submission-prep pass had no Flutter/Dart/Android SDK and no fdroidserver
+in the environment**, so it validated only the metadata YAML. The Flutter checks
+below run **green in CI on every PR** (`ci.yml`) and were green in the earlier
+readiness pass with the pinned toolchain (Flutter 3.27.4 / Dart 3.6.2); they are
+**not** re-asserted as run here.
 
 | Check | Result |
 | ----- | ------ |
-| `flutter pub get` | ✅ resolves (152 packages) |
-| `dart format --set-exit-if-changed .` | ✅ 410 files, 0 changed |
-| `flutter analyze` | ✅ no issues |
-| `flutter test` | ✅ all 1149 tests passed |
-| transitive license audit | ✅ all permissive, no GMS (§4) |
-| `flutter build apk --debug/--release` | ⚠️ **not run here** — no Android SDK; this environment's network policy blocks the Android SDK/JDK download hosts. CI builds the debug APK on every PR. Run on an SDK-equipped machine (next step §9.3). |
+| Metadata YAML parses (PyYAML) | ✅ this pass — valid YAML; fields/types as expected (Summary 57 ≤ 80 chars; versionCode integer `100025`). Not a full `fdroid lint`. |
+| `dart format` / `flutter analyze` / `flutter test` | ✅ green in CI (`ci.yml`) on every PR. Not re-run in this pass (no toolchain). |
+| transitive license audit | ✅ all permissive, no GMS (§4). |
+| `flutter build apk --debug` | ✅ built by CI per PR (`android-debug-apk.yml`). |
+| `flutter build apk --release` (from source) | ⏳ re-confirm on an SDK-equipped machine before submitting (§8.2). The tagged release APK is built by `android-release-build.yml`. |
+| `fdroid lint` / `fdroid build -l` | ⏳ run in an fdroiddata checkout (commands in [docs/fdroid-submission.md §7](./fdroid-submission.md)). |

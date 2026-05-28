@@ -51,6 +51,27 @@ embeds, Releases page), so they only need to be produced once.
 
 All paths are relative to `fastlane/metadata/android/en-US/`.
 
+### A good phone shot list
+
+Show the things that actually work today — four to six shots is plenty
+(collection is tracked by issue #77):
+
+- [ ] Library — Songs / Albums / Artists with search.
+- [ ] Now Playing — the player (artwork, controls, queue).
+- [ ] Settings → Jellyfin (or Subsonic) connection screen.
+- [ ] Downloads / offline cache.
+- [ ] Cast device picker, if you have a Cast device (optional).
+- [ ] Android Auto, on a head unit or the Desktop Head Unit (optional).
+
+A few things to keep in mind while capturing:
+
+- Don't show a personal server URL — blank it out, or use a throwaway/local
+  server.
+- Don't show private library or account data unless you're happy for it to be
+  public.
+- Real captures only, no mockups. If a mockup is ever used somewhere else, label
+  it clearly and keep it out of the F-Droid `phoneScreenshots/` folder.
+
 ## 3. Exact sizes and formats
 
 | Asset            | Format    | Size / constraints                                              |

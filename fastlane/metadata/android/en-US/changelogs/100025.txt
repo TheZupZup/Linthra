@@ -1,0 +1,10 @@
+Linthra 0.1.0-alpha.25 — startup hotfix.
+
+Fixed:
+- Reverts the change that caused a startup regression in 0.1.0-alpha.24, which
+  could fail to launch on Android. The app launches reliably again.
+
+If you installed 0.1.0-alpha.24, update to this build — alpha.24 is withdrawn
+and should not be used.
+
+Still an alpha — expect rough edges. Not on F-Droid yet.
