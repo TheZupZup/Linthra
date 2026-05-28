@@ -111,4 +111,73 @@ void main() {
       expect(map(false, ProcessingState.completed), PlaybackStatus.completed);
     });
   });
+
+  group('engine state forwarding (foreground-service safety)', () {
+    // The screen-off cutout bug: just_audio emits a transient
+    // ProcessingState.idle at the *start* of every setUrl/setAudioSource (it
+    // pushes a fresh, default PlaybackEvent before loading) — so on every track
+    // transition and every mid-stream retry reload, while `playing` is still
+    // true. If that idle reached the media session, audio_service would report
+    // `playing: false` + `idle` and demote the foreground media service
+    // mid-transition, letting the OS freeze background playback until the app is
+    // reopened. The controller must drop it.
+
+    test('a transient engine idle during a reload is not forwarded', () async {
+      final controller = JustAudioPlaybackController();
+      addTearDown(controller.dispose);
+
+      final statuses = <PlaybackStatus>[];
+      final sub = controller.stateStream.listen((s) => statuses.add(s.status));
+      addTearDown(sub.cancel);
+
+      // Steady playback, then the exact sequence a setUrl reload produces: a
+      // fresh (idle) PlaybackEvent while still "playing", then loading, then
+      // ready again.
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+      controller.handleEngineState(PlayerState(true, ProcessingState.idle));
+      controller.handleEngineState(PlayerState(true, ProcessingState.loading));
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        statuses,
+        isNot(contains(PlaybackStatus.idle)),
+        reason: 'a transient engine idle mid-reload would demote the '
+            'foreground media service with the screen off',
+      );
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    test('engine buffering and loading are still forwarded (kept playing)', () {
+      final controller = JustAudioPlaybackController();
+      addTearDown(controller.dispose);
+
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      // A mid-stream re-buffer must reach the session (it maps to a still-
+      // playing buffering state), so the service is never demoted on a stall.
+      controller
+          .handleEngineState(PlayerState(true, ProcessingState.buffering));
+      expect(controller.state.status, PlaybackStatus.buffering);
+
+      controller.handleEngineState(PlayerState(true, ProcessingState.loading));
+      expect(controller.state.status, PlaybackStatus.loading);
+    });
+
+    test('a real engine pause is still forwarded (the filter is idle-only)',
+        () {
+      final controller = JustAudioPlaybackController();
+      addTearDown(controller.dispose);
+
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+      expect(controller.state.status, PlaybackStatus.playing);
+
+      // ready + not-playing is a genuine user pause: it must still report
+      // not-playing so the service is released on a real pause (not suppressed
+      // like the transient reload idle).
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+      expect(controller.state.status, PlaybackStatus.paused);
+    });
+  });
 }

@@ -39,7 +39,15 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(notificationPermissionProvider).ensureGranted();
+      // Best-effort and defensive: a notification-permission seam that fails (a
+      // plugin hiccup, or a denied/unavailable grant) must never crash startup
+      // or playback — background audio works without the notification. The
+      // production seam already swallows its own errors; guarding the call site
+      // too keeps "permission denied does not crash the app" true end to end.
+      ref
+          .read(notificationPermissionProvider)
+          .ensureGranted()
+          .catchError((Object _) {});
     });
   }
 

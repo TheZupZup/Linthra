@@ -21,6 +21,20 @@ class _SilentNotificationPermission implements NotificationPermission {
       NotificationPermissionStatus.unknown;
 }
 
+/// Notification-permission seam whose request *fails* (denied + a plugin
+/// hiccup), so a test can prove a failing request never crashes startup. The
+/// async throw becomes a rejected Future, exactly as a real plugin failure
+/// would surface to the fire-and-forget call site.
+class _FailingNotificationPermission implements NotificationPermission {
+  @override
+  Future<void> ensureGranted() async =>
+      throw Exception('notification permission request failed');
+
+  @override
+  Future<NotificationPermissionStatus> status() async =>
+      NotificationPermissionStatus.denied;
+}
+
 const _playingTrack = Track(id: 'a', title: 'Song A', uri: '/a.mp3');
 
 /// Drives the app from `resumed` down to `paused` through the legal lifecycle
@@ -40,7 +54,10 @@ Future<void> _foreground(WidgetTester tester) async {
   await tester.pump();
 }
 
-Future<FakePlaybackController> _pumpApp(WidgetTester tester) async {
+Future<FakePlaybackController> _pumpApp(
+  WidgetTester tester, {
+  NotificationPermission? permission,
+}) async {
   final controller = FakePlaybackController(
     initial: const PlaybackState(
       status: PlaybackStatus.playing,
@@ -51,7 +68,7 @@ Future<FakePlaybackController> _pumpApp(WidgetTester tester) async {
     ProviderScope(
       overrides: [
         notificationPermissionProvider
-            .overrideWithValue(_SilentNotificationPermission()),
+            .overrideWithValue(permission ?? _SilentNotificationPermission()),
         playbackControllerProvider.overrideWithValue(controller),
       ],
       child: const LinthraApp(),
@@ -100,5 +117,20 @@ void main() {
     // background boundary is captured (here, playing) for the bug report.
     expect(StabilityDiagnostics.playbackStateAtBackground, 'playing');
     expect(StabilityDiagnostics.lastLifecycleState, 'paused');
+  });
+
+  testWidgets(
+      'a failing notification-permission request never crashes startup or '
+      'disturbs playback', (tester) async {
+    final controller =
+        await _pumpApp(tester, permission: _FailingNotificationPermission());
+
+    // The Android 13+ POST_NOTIFICATIONS request rejected, but the app built
+    // and playback was untouched — background audio works without the grant
+    // (only the notification / lock-screen controls are suppressed).
+    expect(tester.takeException(), isNull);
+    expect(controller.pauseCount, 0);
+    expect(controller.stopCount, 0);
+    expect(controller.playedTracks, isEmpty);
   });
 }

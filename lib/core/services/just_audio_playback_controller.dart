@@ -132,25 +132,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Stream<PlaybackState> get stateStream => _states.stream;
 
   void _wire() {
-    _subscriptions.add(_player.playerStateStream.listen((playerState) {
-      // While suspended a cast receiver owns playback; ignore the (paused) local
-      // engine's events entirely, so it can never auto-advance or report stale
-      // status underneath the cast session.
-      if (_suspended) return;
-      final status = _statusFor(playerState);
-      // Playback is healthy again: give a later, independent drop a fresh retry.
-      if (status == PlaybackStatus.playing) _retriesForCurrent = 0;
-      // When a track finishes, what happens next depends on the repeat mode.
-      if (status == PlaybackStatus.completed) {
-        _onCompleted();
-        return;
-      }
-      _emit(_state.copyWith(status: status));
-    }, onError: (Object _, StackTrace __) {
-      // Engine errors are recovered via [playbackEventStream] below; swallow any
-      // duplicate that the player-state stream may forward so it never becomes
-      // an unhandled async error (and so we never act on it twice).
-    }));
+    _subscriptions.add(_player.playerStateStream.listen(
+      handleEngineState,
+      onError: (Object _, StackTrace __) {
+        // Engine errors are recovered via [playbackEventStream] below; swallow
+        // any duplicate that the player-state stream may forward so it never
+        // becomes an unhandled async error (and so we never act on it twice).
+      },
+    ));
     _subscriptions.add(_player.positionStream.listen((position) {
       if (_suspended) return;
       // Coalesce raw position ticks onto a steady ~4 Hz flush so a high (or
@@ -168,6 +157,43 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _subscriptions.add(
       _player.playbackEventStream.listen((_) {}, onError: _onEngineError),
     );
+  }
+
+  /// Maps one raw engine [PlayerState] onto the unified [PlaybackState] and
+  /// emits it. The [_wire] player-state subscription forwards every event here;
+  /// it is exposed for tests so the screen-off transient-idle guard below can be
+  /// exercised without a platform channel.
+  @visibleForTesting
+  void handleEngineState(PlayerState playerState) {
+    // While suspended a cast receiver owns playback; ignore the (paused) local
+    // engine's events entirely, so it can never auto-advance or report stale
+    // status underneath the cast session.
+    if (_suspended) return;
+    final status = _statusFor(playerState);
+    // just_audio pushes a fresh, default PlaybackEvent — whose processingState
+    // is `idle` — synchronously at the *start* of every setAudioSource/setUrl
+    // call, before the new source begins loading. That happens on every track
+    // transition and every mid-stream retry reload, while `playing` is still
+    // true. Forwarding that idle would make the media session report
+    // `playing: false` + `idle` mid-transition, demoting audio_service's
+    // foreground media service (and dropping the CPU/Wi-Fi wake locks it holds)
+    // at the exact moment a new track loads with the screen off — letting the
+    // OS freeze the backgrounded process so audio only resumes when the app is
+    // reopened (the screen-off cutout bug). The controller is the sole
+    // authority on going idle: it starts idle and emits its own idle from
+    // stop(), so a raw engine idle is never needed here — drop it so a reload
+    // can never demote the service. Buffering/loading still flow through (they
+    // map to a still-`playing` session) and a real pause/completion/error is
+    // unaffected.
+    if (status == PlaybackStatus.idle) return;
+    // Playback is healthy again: give a later, independent drop a fresh retry.
+    if (status == PlaybackStatus.playing) _retriesForCurrent = 0;
+    // When a track finishes, what happens next depends on the repeat mode.
+    if (status == PlaybackStatus.completed) {
+      _onCompleted();
+      return;
+    }
+    _emit(_state.copyWith(status: status));
   }
 
   /// Recovers from an engine error that happens **while streaming**. A transient
