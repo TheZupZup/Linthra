@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -14,10 +13,9 @@ import '../../core/repositories/offline_file_store.dart';
 /// The base directory is injected so tests can point it at a temp folder; the
 /// app uses `path_provider`'s application-support directory by default.
 ///
-/// Security: cache and temp file names are built only from the *non-secret*
-/// track id plus a local nonce — sanitized to filename-safe characters so an odd
-/// id can't escape the offline directory — never from a token or an
-/// authenticated URL.
+/// Security: the cache file name is built only from the *non-secret* track id —
+/// sanitized to filename-safe characters so an odd id can't escape the offline
+/// directory — never from a token or an authenticated URL.
 class FileSystemOfflineFileStore implements OfflineFileStore {
   FileSystemOfflineFileStore({Future<Directory> Function()? directory})
       : _directory = directory ?? _defaultDirectory;
@@ -35,81 +33,14 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
     List<int> bytes, {
     String? extension,
   }) async {
-    final OfflineTempFile temp = await writeTemp(
-      trackId,
-      Stream<List<int>>.value(bytes),
-      extension: extension,
-    );
-    try {
-      return await commitTemp(trackId, temp, extension: extension);
-    } catch (_) {
-      await deleteTemp(temp);
-      rethrow;
-    }
-  }
-
-  @override
-  Future<OfflineTempFile> writeTemp(
-    String trackId,
-    Stream<List<int>> chunks, {
-    String? extension,
-    int? totalBytes,
-    void Function(int received, int? total)? onProgress,
-  }) async {
-    final Directory dir = await _ensureDirectory();
-    final String tempName = _tempFileNameFor(trackId);
-    final File file = File(p.join(dir.path, tempName));
-    final IOSink sink = file.openWrite();
-    int received = 0;
-    onProgress?.call(received, totalBytes);
-    try {
-      await for (final List<int> chunk in chunks) {
-        sink.add(chunk);
-        received += chunk.length;
-        onProgress?.call(received, totalBytes);
-      }
-      await sink.flush();
-      await sink.close();
-      return OfflineTempFile(id: file.path, sizeBytes: received);
-    } catch (_) {
-      try {
-        await sink.close();
-      } catch (_) {
-        // Best effort: the original stream/write error is more useful.
-      }
-      if (await file.exists()) {
-        await file.delete();
-      }
-      rethrow;
-    }
-  }
-
-  @override
-  Future<String> commitTemp(
-    String trackId,
-    OfflineTempFile temp, {
-    String? extension,
-  }) async {
-    final Directory dir = await _ensureDirectory();
-    final File tempFile = File(temp.id);
-    if (!await tempFile.exists()) {
-      throw StateError('Temp cache file is missing.');
+    final Directory dir = await _directory();
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
     }
     final String fileName = _fileNameFor(trackId, extension);
-    final File finalFile = File(p.join(dir.path, fileName));
-    if (await finalFile.exists()) {
-      await finalFile.delete();
-    }
-    await tempFile.rename(finalFile.path);
+    final File file = File(p.join(dir.path, fileName));
+    await file.writeAsBytes(bytes, flush: true);
     return fileName;
-  }
-
-  @override
-  Future<void> deleteTemp(OfflineTempFile temp) async {
-    final File file = File(temp.id);
-    if (await file.exists()) {
-      await file.delete();
-    }
   }
 
   @override
@@ -135,31 +66,14 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
     }
   }
 
-  Future<Directory> _ensureDirectory() async {
-    final Directory dir = await _directory();
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return dir;
-  }
-
   /// Builds a safe cache file name from the non-secret [trackId] (never a
   /// token): keeps only filename-safe characters, so an odd id can't smuggle
   /// path separators or escape the offline directory.
   static String _fileNameFor(String trackId, String? extension) {
-    final String safeId = _safeId(trackId);
+    final String safeId = trackId.replaceAll(RegExp('[^A-Za-z0-9_-]'), '_');
     final String ext = (extension != null && extension.isNotEmpty)
         ? '.${extension.replaceAll(RegExp('[^A-Za-z0-9]'), '')}'
         : '';
     return '$safeId$ext';
   }
-
-  static String _tempFileNameFor(String trackId) {
-    final String safeId = _safeId(trackId);
-    final int nonce = DateTime.now().microsecondsSinceEpoch;
-    return '.$safeId-$nonce.tmp';
-  }
-
-  static String _safeId(String trackId) =>
-      trackId.replaceAll(RegExp('[^A-Za-z0-9_-]'), '_');
 }

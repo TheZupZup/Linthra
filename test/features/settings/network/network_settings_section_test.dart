@@ -1,9 +1,6 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:linthra/core/services/connectivity_service.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_download_preferences.dart';
 import 'package:linthra/features/settings/network/network_settings_section.dart';
@@ -16,7 +13,6 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           downloadPreferencesProvider.overrideWithValue(preferences),
-          connectivityServiceProvider.overrideWithValue(_FakeConnectivity()),
         ],
       );
       addTearDown(container.dispose);
@@ -94,12 +90,4 @@ void main() {
       expect(await preferences.allowMobileData(), isFalse);
     });
   });
-}
-
-class _FakeConnectivity implements ConnectivityService {
-  @override
-  Stream<NetworkStatus> get statusStream => const Stream<NetworkStatus>.empty();
-
-  @override
-  Future<NetworkStatus> currentStatus() async => NetworkStatus.wifi;
 }

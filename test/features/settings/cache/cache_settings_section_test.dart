@@ -1,10 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
-import 'package:linthra/core/services/connectivity_service.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/features/settings/cache/cache_settings_section.dart';
 
@@ -19,7 +16,6 @@ void main() {
         overrides: [
           remoteTrackDownloaderProvider
               .overrideWithValue(FakeRemoteTrackDownloader()),
-          connectivityServiceProvider.overrideWithValue(_FakeConnectivity()),
         ],
       );
       addTearDown(container.dispose);
@@ -77,12 +73,4 @@ void main() {
       expect(find.textContaining('0 B of'), findsOneWidget);
     });
   });
-}
-
-class _FakeConnectivity implements ConnectivityService {
-  @override
-  Stream<NetworkStatus> get statusStream => const Stream<NetworkStatus>.empty();
-
-  @override
-  Future<NetworkStatus> currentStatus() async => NetworkStatus.wifi;
 }

@@ -28,9 +28,7 @@ guest. Linthra flips that around:
 Point it at your Jellyfin / Navidrome / Subsonic server, or a folder of
 local files.
 
-Streaming is the default. Manual "Keep offline" downloads happen only when you
-tap download; optional smart pre-cache may warm a few upcoming queued tracks
-under the same Wi-Fi/mobile-data rules.
+Streaming is the default. Nothing downloads unless you tap download.
 
 Your whole library is browsable instantly because the app reads from a local
 catalog, not the network.
@@ -71,9 +69,8 @@ gradient, generated from one source design (not mockups).
 - **Self-hosted streaming** — connect your own **Jellyfin** or
   **Navidrome / Subsonic** server: test, sign in, sync, and stream. Works over
   HTTPS / Cloudflare-proxied domains.
-- **Smart offline cache** — tap to keep tracks offline, plus optional evictable
-  pre-cache for a few upcoming queue items; downloads/cache are Wi-Fi-only by
-  default, with a size limit and "Keep offline" pinning.
+- **Smart offline cache** — tap to download the tracks you want offline; Wi-Fi
+  only by default, with a size limit and "Keep offline" pinning.
 - **Cast / Chromecast** — hand a stream off to a speaker or TV, with device
   volume control and track metadata (title/artist/album/artwork) on the receiver.
   Pure-Dart Cast, no Google Play Services. (App-name/logo branding on the receiver

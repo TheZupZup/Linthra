@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -12,11 +13,11 @@ import 'jellyfin_track_mapper.dart';
 ///
 /// Resolves the authenticated download URL only at fetch time — through the live
 /// signed-in [JellyfinDownloadSource], read via a getter so signing in or out is
-/// picked up without a rebuild — then streams the bytes over HTTP. The URL, and
-/// the token woven into it, never leaves [open]: it is not stored, not returned,
-/// and not placed in any thrown error (a transport failure is re-raised as a
-/// generic message so a `ClientException` carrying the tokenized URL can't
-/// escape).
+/// picked up without a rebuild — then fetches the bytes over HTTP. The URL, and
+/// the token woven into it, never leaves [fetch]: it is not stored, not
+/// returned, and not placed in any thrown error (a transport failure is
+/// re-raised as a generic message so a `ClientException` carrying the tokenized
+/// URL can't escape).
 class JellyfinTrackDownloader implements RemoteTrackDownloader {
   JellyfinTrackDownloader(this._source, {http.Client? httpClient})
       : _client = httpClient ?? http.Client();
@@ -33,7 +34,10 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
       track.uri.startsWith(JellyfinTrackMapper.uriScheme);
 
   @override
-  Future<RemoteTrackDownload> open(Track track) async {
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
     final JellyfinDownloadSource? source = _source();
     if (source == null) {
       throw StateError('Not signed in to Jellyfin.');
@@ -49,10 +53,10 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
     }
 
     try {
-      // The request carries the token in its URL, but the URL never leaves this
-      // method, is never logged, and transport errors are replaced with generic
-      // messages so they can't escape either. The response body is returned as a
-      // stream so the cache can write it to disk without buffering the whole file.
+      // Stream the body so progress can be reported as bytes arrive. The
+      // request carries the token in its URL, but the URL never leaves this
+      // method, is never logged, and any transport error below is replaced
+      // with a generic message so it can't escape either.
       final http.StreamedResponse response =
           await _client.send(http.Request('GET', uri)).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -65,9 +69,17 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
           (response.contentLength != null && response.contentLength! > 0)
               ? response.contentLength
               : null;
-      return RemoteTrackDownload(
-        chunks: _safeStream(response.stream),
-        contentLength: total,
+      final BytesBuilder builder = BytesBuilder(copy: false);
+      int received = 0;
+      onProgress?.call(received, total);
+      await for (final List<int> chunk in response.stream.timeout(_timeout)) {
+        builder.add(chunk);
+        received += chunk.length;
+        onProgress?.call(received, total);
+      }
+
+      return RemoteTrackData(
+        bytes: builder.takeBytes(),
         fileExtension:
             AudioFileExtension.forContentType(response.headers['content-type']),
       );
@@ -78,17 +90,6 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
     } on Exception {
       // Never rethrow the original error: a ClientException/SocketException (or
       // a TimeoutException) can embed the tokenized URL in its message.
-      throw StateError('Jellyfin download failed.');
-    }
-  }
-
-  Stream<List<int>> _safeStream(Stream<List<int>> stream) async* {
-    try {
-      await for (final List<int> chunk in stream.timeout(_timeout)) {
-        yield chunk;
-      }
-    } on Exception {
-      // A body-stream error can also carry transport detail. Keep it generic.
       throw StateError('Jellyfin download failed.');
     }
   }

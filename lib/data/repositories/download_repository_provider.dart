@@ -8,7 +8,7 @@ import '../../core/repositories/offline_file_store.dart';
 import '../../core/services/cached_track_locator.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/offline_cache_manager.dart';
-import '../../core/services/platform_connectivity_service.dart';
+import '../../core/services/optimistic_connectivity_service.dart';
 import '../../core/services/remote_track_downloader.dart';
 import '../../core/services/track_prefetcher.dart';
 import 'cache_download_repository.dart';
@@ -36,7 +36,7 @@ final offlineFileStoreProvider = Provider<OfflineFileStore>((ref) {
 
 /// Fetches bytes for remote (e.g. Jellyfin) tracks. The data layer's default
 /// handles no source — keeping it free of any source-specific or feature
-/// dependency — so the remote-source downloader is wired in as an override at
+/// dependency — so the Jellyfin-backed downloader is wired in as an override at
 /// the composition root (see `jellyfinRemoteTrackDownloaderOverride`). Tests
 /// override it with a fake that returns canned bytes.
 final remoteTrackDownloaderProvider = Provider<RemoteTrackDownloader>((ref) {
@@ -50,11 +50,10 @@ final downloadPreferencesProvider = Provider<DownloadPreferences>((ref) {
 });
 
 /// Network reachability used to honor the mobile-data download preference. The
-/// production default uses platform connectivity and fails closed as
-/// [NetworkStatus.unknown] when it cannot determine the active transport; tests
-/// inject fakes to drive the Wi-Fi/mobile/offline/unknown paths.
+/// default optimistically reports Wi-Fi until real detection lands; tests inject
+/// a fake to drive the policy's mobile/offline/unknown paths.
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
-  return const PlatformConnectivityService();
+  return const OptimisticConnectivityService();
 });
 
 /// Supplies the id of the currently playing track so the cache policy never
@@ -69,7 +68,7 @@ final currentlyPlayingTrackIdProvider =
 /// through. It composes the seams above and centralizes the user-initiated,
 /// source-aware, Wi-Fi-respecting, limit-bounded cache policy. Held as the
 /// concrete type so the cache-manager provider can expose the same instance.
-final cacheDownloadRepositoryProvider =
+final _cacheDownloadRepositoryProvider =
     Provider<CacheDownloadRepository>((ref) {
   final repository = CacheDownloadRepository(
     store: ref.watch(downloadStoreProvider),
@@ -85,14 +84,14 @@ final cacheDownloadRepositoryProvider =
 
 /// The download lifecycle surface (request/remove/status) the UI uses.
 final downloadRepositoryProvider = Provider<DownloadRepository>((ref) {
-  return ref.watch(cacheDownloadRepositoryProvider);
+  return ref.watch(_cacheDownloadRepositoryProvider);
 });
 
 /// The cache-maintenance surface (usage stream, pin, clear, note-played),
 /// backed by the *same* instance as [downloadRepositoryProvider] so a cleared
 /// or pinned track stays consistent with download status.
 final offlineCacheManagerProvider = Provider<OfflineCacheManager>((ref) {
-  return ref.watch(cacheDownloadRepositoryProvider);
+  return ref.watch(_cacheDownloadRepositoryProvider);
 });
 
 /// The pre-cache surface (warm an upcoming track ahead of play), backed by the
@@ -100,7 +99,7 @@ final offlineCacheManagerProvider = Provider<OfflineCacheManager>((ref) {
 /// the one cache limit and eviction policy with user downloads. Driven by the
 /// `SmartPrecacheService`, never by the UI directly.
 final trackPrefetcherProvider = Provider<TrackPrefetcher>((ref) {
-  return ref.watch(cacheDownloadRepositoryProvider);
+  return ref.watch(_cacheDownloadRepositoryProvider);
 });
 
 /// Resolves a track to its cached-on-disk file when one exists. Read by the
@@ -144,7 +143,10 @@ class _UnsupportedRemoteTrackDownloader implements RemoteTrackDownloader {
   bool isRemote(Track track) => false;
 
   @override
-  Future<RemoteTrackDownload> open(Track track) {
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) {
     throw UnsupportedError('No remote downloader is configured.');
   }
 }

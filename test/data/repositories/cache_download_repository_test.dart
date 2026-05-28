@@ -20,28 +20,19 @@ class _FakeConnectivity implements ConnectivityService {
   _FakeConnectivity(this.status);
 
   NetworkStatus status;
-  final StreamController<NetworkStatus> _changes =
-      StreamController<NetworkStatus>.broadcast();
-
-  void setStatus(NetworkStatus value) {
-    status = value;
-    _changes.add(value);
-  }
 
   @override
-  Stream<NetworkStatus> get statusStream => _changes.stream;
+  Stream<NetworkStatus> get statusStream => Stream<NetworkStatus>.value(status);
 
   @override
   Future<NetworkStatus> currentStatus() async => status;
-
-  Future<void> dispose() => _changes.close();
 }
 
 /// A remote downloader fake: treats `jellyfin:` tracks as remote and returns
 /// canned bytes, or throws when [error] is set, so the repository's remote path
 /// can be driven without a server or HTTP.
 ///
-/// When [gate] is set, every [open] awaits it before completing, so a test can
+/// When [gate] is set, every [fetch] awaits it before completing, so a test can
 /// hold downloads in flight and observe how many run at once ([maxActive]).
 /// [error] is mutable so a test can fail an attempt, then clear it and retry.
 class _FakeRemoteDownloader implements RemoteTrackDownloader {
@@ -50,10 +41,10 @@ class _FakeRemoteDownloader implements RemoteTrackDownloader {
   /// The canned bytes every successful fetch returns.
   static const List<int> bytes = <int>[1, 2, 3, 4];
 
-  /// When set, [open] throws this instead of returning bytes.
+  /// When set, [fetch] throws this instead of returning bytes.
   Object? error;
 
-  /// When set, [open] awaits this before completing.
+  /// When set, [fetch] awaits this before completing.
   final Future<void>? gate;
 
   int fetchCount = 0;
@@ -65,29 +56,22 @@ class _FakeRemoteDownloader implements RemoteTrackDownloader {
   bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
 
   @override
-  Future<RemoteTrackDownload> open(Track track) async {
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
     fetchCount++;
     activeNow++;
     if (activeNow > maxActive) maxActive = activeNow;
     fetched.add(track);
-    final Object? err = error;
-    if (err != null) {
-      activeNow--;
-      throw err;
-    }
-    return RemoteTrackDownload(
-      chunks: _chunks(),
-      contentLength: bytes.length,
-      fileExtension: 'mp3',
-    );
-  }
-
-  Stream<List<int>> _chunks() async* {
     try {
-      yield bytes.sublist(0, 2);
+      onProgress?.call(2, bytes.length);
       final Future<void>? pending = gate;
       if (pending != null) await pending;
-      yield bytes.sublist(2);
+      final Object? err = error;
+      if (err != null) throw err;
+      onProgress?.call(bytes.length, bytes.length);
+      return const RemoteTrackData(bytes: bytes, fileExtension: 'mp3');
     } finally {
       activeNow--;
     }
@@ -107,33 +91,6 @@ class _SpyOfflineFileStore implements OfflineFileStore {
   @override
   Future<String> write(String trackId, List<int> bytes, {String? extension}) =>
       _inner.write(trackId, bytes, extension: extension);
-
-  @override
-  Future<OfflineTempFile> writeTemp(
-    String trackId,
-    Stream<List<int>> chunks, {
-    String? extension,
-    int? totalBytes,
-    void Function(int received, int? total)? onProgress,
-  }) =>
-      _inner.writeTemp(
-        trackId,
-        chunks,
-        extension: extension,
-        totalBytes: totalBytes,
-        onProgress: onProgress,
-      );
-
-  @override
-  Future<String> commitTemp(
-    String trackId,
-    OfflineTempFile temp, {
-    String? extension,
-  }) =>
-      _inner.commitTemp(trackId, temp, extension: extension);
-
-  @override
-  Future<void> deleteTemp(OfflineTempFile temp) => _inner.deleteTemp(temp);
 
   @override
   Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);
@@ -175,10 +132,6 @@ void main() {
       preferences = InMemoryDownloadPreferences();
       connectivity = _FakeConnectivity(NetworkStatus.wifi);
       downloader = _FakeRemoteDownloader();
-    });
-
-    tearDown(() async {
-      await connectivity.dispose();
     });
 
     test('a Jellyfin track starts not downloaded', () async {
@@ -345,10 +298,7 @@ void main() {
             await repository.requestDownload(_jellyfin('j1'));
 
         expect(outcome, DownloadRequestOutcome.waitingForWifi);
-        expect(
-          await repository.statusFor('j1'),
-          DownloadStatus.queuedWaitingForWifi,
-        );
+        expect(await repository.statusFor('j1'), DownloadStatus.queued);
         expect(downloader.fetchCount, 0);
         expect(await store.loadDownloads(), isEmpty);
       });
@@ -387,10 +337,7 @@ void main() {
             await repository.requestDownload(_jellyfin('j1'));
 
         expect(outcome, DownloadRequestOutcome.waitingForConnection);
-        expect(
-          await repository.statusFor('j1'),
-          DownloadStatus.queuedWaitingForConnection,
-        );
+        expect(await repository.statusFor('j1'), DownloadStatus.queued);
         expect(downloader.fetchCount, 0);
       });
 
@@ -404,10 +351,7 @@ void main() {
           await repository.requestDownload(_jellyfin('j1')),
           DownloadRequestOutcome.waitingForWifi,
         );
-        expect(
-          await repository.statusFor('j1'),
-          DownloadStatus.queuedWaitingForWifi,
-        );
+        expect(await repository.statusFor('j1'), DownloadStatus.queued);
 
         // …and allowed once the user opts into mobile data.
         await preferences.setAllowMobileData(true);
@@ -435,127 +379,11 @@ void main() {
         connectivity.status = NetworkStatus.mobile;
         final repository = build();
         await repository.requestDownload(_jellyfin('j1'));
-        expect(
-          await repository.statusFor('j1'),
-          DownloadStatus.queuedWaitingForWifi,
-        );
+        expect(await repository.statusFor('j1'), DownloadStatus.queued);
 
         connectivity.status = NetworkStatus.wifi;
         await repository.requestDownload(_jellyfin('j1'));
 
-        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
-      });
-
-      test('queued offline download auto-resumes when Wi-Fi returns', () async {
-        connectivity.status = NetworkStatus.offline;
-        final repository = build();
-
-        await repository.requestDownload(_jellyfin('j1'));
-        expect(
-          await repository.statusFor('j1'),
-          DownloadStatus.queuedWaitingForConnection,
-        );
-        expect(downloader.fetchCount, 0);
-
-        connectivity.setStatus(NetworkStatus.wifi);
-        await _pumpUntil(() => downloader.fetchCount == 1);
-
-        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
-      });
-
-      test('queued mobile-blocked download auto-resumes when Wi-Fi appears',
-          () async {
-        connectivity.status = NetworkStatus.mobile;
-        final repository = build();
-
-        await repository.requestDownload(_jellyfin('j1'));
-        expect(
-          await repository.statusFor('j1'),
-          DownloadStatus.queuedWaitingForWifi,
-        );
-
-        connectivity.setStatus(NetworkStatus.wifi);
-        await _pumpUntil(() => downloader.fetchCount == 1);
-
-        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
-      });
-
-      test('queued mobile-blocked download resumes when preference is enabled',
-          () async {
-        connectivity.status = NetworkStatus.mobile;
-        final repository = build();
-
-        await repository.requestDownload(_jellyfin('j1'));
-        expect(
-          await repository.statusFor('j1'),
-          DownloadStatus.queuedWaitingForWifi,
-        );
-
-        await preferences.setAllowMobileData(true);
-        await repository.resumeQueuedIfAllowed();
-
-        expect(downloader.fetchCount, 1);
-        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
-      });
-
-      test('queued mobile-blocked download resumes on mobile only when allowed',
-          () async {
-        connectivity.status = NetworkStatus.mobile;
-        final repository = build();
-
-        await repository.requestDownload(_jellyfin('j1'));
-        expect(
-          await repository.statusFor('j1'),
-          DownloadStatus.queuedWaitingForWifi,
-        );
-
-        // A noisy mobile event still cannot spend data while the preference is off.
-        connectivity.setStatus(NetworkStatus.mobile);
-        await _settle();
-        expect(downloader.fetchCount, 0);
-
-        await preferences.setAllowMobileData(true);
-        connectivity.setStatus(NetworkStatus.mobile);
-        await _pumpUntil(() => downloader.fetchCount == 1);
-
-        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
-      });
-
-      test('server failures are not retried forever by connectivity changes',
-          () async {
-        downloader = _FakeRemoteDownloader(error: Exception('server down'));
-        final repository = build();
-
-        await repository.requestDownload(_jellyfin('j1'));
-        expect(await repository.statusFor('j1'), DownloadStatus.failed);
-        expect(downloader.fetchCount, 1);
-
-        connectivity.setStatus(NetworkStatus.wifi);
-        connectivity.setStatus(NetworkStatus.mobile);
-        connectivity.setStatus(NetworkStatus.wifi);
-        await _settle();
-
-        expect(downloader.fetchCount, 1);
-        expect(await repository.statusFor('j1'), DownloadStatus.failed);
-      });
-
-      test('connectivity noise does not start duplicate queued downloads',
-          () async {
-        connectivity.status = NetworkStatus.offline;
-        final gate = Completer<void>();
-        downloader = _FakeRemoteDownloader(gate: gate.future);
-        final repository = build();
-
-        await repository.requestDownload(_jellyfin('j1'));
-        connectivity.setStatus(NetworkStatus.wifi);
-        connectivity.setStatus(NetworkStatus.wifi);
-        connectivity.setStatus(NetworkStatus.wifi);
-        await _pumpUntil(() => downloader.fetchCount == 1);
-
-        gate.complete();
-        await _pumpUntil(() => downloader.activeNow == 0);
-
-        expect(downloader.fetchCount, 1);
         expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
       });
 

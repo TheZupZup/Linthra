@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -12,10 +13,10 @@ import 'subsonic_track_mapper.dart';
 ///
 /// Resolves the authenticated original-file download URL only at fetch time —
 /// through the live signed-in [SubsonicStreamSource], read via a getter so
-/// signing in or out is picked up without a rebuild — then streams the bytes
-/// over HTTP. The URL, and the salt+token woven into it, never leave [open]: not
-/// stored, not returned, and not placed in any thrown error (a transport failure
-/// is re-raised as a generic message so a `ClientException` carrying the
+/// signing in or out is picked up without a rebuild — then fetches the bytes
+/// over HTTP. The URL, and the salt+token woven into it, never leave [fetch]:
+/// not stored, not returned, and not placed in any thrown error (a transport
+/// failure is re-raised as a generic message so a `ClientException` carrying the
 /// credentialed URL can't escape).
 class SubsonicTrackDownloader implements RemoteTrackDownloader {
   SubsonicTrackDownloader(this._source, {http.Client? httpClient})
@@ -33,24 +34,29 @@ class SubsonicTrackDownloader implements RemoteTrackDownloader {
       track.uri.startsWith(SubsonicTrackMapper.uriScheme);
 
   @override
-  Future<RemoteTrackDownload> open(Track track) async {
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
     final SubsonicStreamSource? source = _source();
     if (source == null) {
-      throw StateError('Not signed in to Subsonic/Navidrome.');
+      throw StateError('Not signed in to your Subsonic server.');
     }
 
+    // Confirm the session still works before fetching; the SubsonicException
+    // this may throw is friendly and credential-free by design.
     await source.verifyReachable();
 
-    final Uri? uri = await source.resolvePlayableUri(track);
+    final Uri? uri = await source.resolveDownloadUri(track);
     if (uri == null) {
       throw StateError('No download URL for this track.');
     }
 
     try {
-      // The request carries the credential in its URL, but the URL never leaves
-      // this method, is never logged, and any transport error below is replaced
-      // with a generic message so it can't escape either. The body is returned as
-      // a stream so the cache can write it to disk without buffering all bytes.
+      // Stream the body so progress can be reported as bytes arrive. The request
+      // carries the credential in its URL, but the URL never leaves this method,
+      // is never logged, and any transport error below is replaced with a
+      // generic message so it can't escape either.
       final http.StreamedResponse response =
           await _client.send(http.Request('GET', uri)).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -62,9 +68,17 @@ class SubsonicTrackDownloader implements RemoteTrackDownloader {
           (response.contentLength != null && response.contentLength! > 0)
               ? response.contentLength
               : null;
-      return RemoteTrackDownload(
-        chunks: _safeStream(response.stream),
-        contentLength: total,
+      final BytesBuilder builder = BytesBuilder(copy: false);
+      int received = 0;
+      onProgress?.call(received, total);
+      await for (final List<int> chunk in response.stream.timeout(_timeout)) {
+        builder.add(chunk);
+        received += chunk.length;
+        onProgress?.call(received, total);
+      }
+
+      return RemoteTrackData(
+        bytes: builder.takeBytes(),
         fileExtension:
             AudioFileExtension.forContentType(response.headers['content-type']),
       );
@@ -75,17 +89,6 @@ class SubsonicTrackDownloader implements RemoteTrackDownloader {
     } on Exception {
       // Never rethrow the original error: a ClientException/SocketException (or
       // a TimeoutException) can embed the credentialed URL in its message.
-      throw StateError('Download failed.');
-    }
-  }
-
-  Stream<List<int>> _safeStream(Stream<List<int>> stream) async* {
-    try {
-      await for (final List<int> chunk in stream.timeout(_timeout)) {
-        yield chunk;
-      }
-    } on Exception {
-      // A body-stream error can also carry transport detail. Keep it generic.
       throw StateError('Download failed.');
     }
   }

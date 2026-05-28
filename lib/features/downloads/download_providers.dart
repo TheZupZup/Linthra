@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/cache_size.dart';
@@ -96,8 +94,6 @@ int _activeStatusRank(DownloadStatus status) {
     case DownloadStatus.downloading:
       return 0;
     case DownloadStatus.queued:
-    case DownloadStatus.queuedWaitingForWifi:
-    case DownloadStatus.queuedWaitingForConnection:
       return 1;
     case DownloadStatus.failed:
       return 2;
@@ -161,14 +157,6 @@ class AllowMobileDataController extends AsyncNotifier<bool> {
   Future<void> setAllowMobileData(bool value) async {
     await ref.read(downloadPreferencesProvider).setAllowMobileData(value);
     state = AsyncData<bool>(value);
-    if (value) {
-      // Enabling mobile/non-Wi-Fi downloads can make existing network-policy
-      // queued downloads eligible immediately, even if the transport did not
-      // change and therefore emitted no connectivity event.
-      unawaited(
-        ref.read(cacheDownloadRepositoryProvider).resumeQueuedIfAllowed(),
-      );
-    }
   }
 }
 
