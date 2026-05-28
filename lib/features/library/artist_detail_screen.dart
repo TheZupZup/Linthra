@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
+import '../../core/catalog/library_grouping.dart';
 import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
@@ -11,7 +12,6 @@ import '../../shared/widgets/empty_state.dart';
 import '../player/player_providers.dart';
 import 'library_browse_providers.dart';
 import 'library_controller.dart';
-import 'library_grouping.dart';
 import 'library_state.dart';
 import 'widgets/album_tile.dart';
 import 'widgets/track_tile.dart';

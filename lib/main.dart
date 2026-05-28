@@ -73,15 +73,16 @@ Future<void> main() async {
   // Attaching the session is best-effort: on a platform without the native
   // audio_service setup it returns null and basic playback still works. The
   // handler mirrors the controller and outlives this scope with the container.
-  // Passing the playlist + favourites repositories lets Android Auto browse
-  // Playlists/Favorites (when the user has any) alongside Library/Queue — all
-  // read straight from the persisted stores, so the car tree is answerable even
-  // before any phone screen is opened.
+  // Passing the playlist + favourites + downloads repositories lets Android Auto
+  // browse Playlists/Favorites/Offline (when the user has any) alongside
+  // Songs/Albums/Artists/Queue — all read straight from the persisted stores, so
+  // the car tree is answerable even before any phone screen is opened.
   await connectMediaSession(
     container.read(playbackControllerProvider),
     container.read(musicLibraryRepositoryProvider),
     playlists: container.read(playlistRepositoryProvider),
     favorites: container.read(favoritesRepositoryProvider),
+    downloads: container.read(downloadRepositoryProvider),
   );
 
   // Start smart pre-cache: as playback advances it warms the next queued tracks

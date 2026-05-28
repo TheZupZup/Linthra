@@ -6,6 +6,7 @@ import 'package:audio_service/audio_service.dart' as audio;
 import '../models/playback_state.dart';
 import '../models/repeat_mode.dart';
 import '../models/track.dart';
+import '../repositories/download_repository.dart';
 import '../repositories/favorites_repository.dart';
 import '../repositories/music_library_repository.dart';
 import '../repositories/playlist_repository.dart';
@@ -29,14 +30,23 @@ void _log(String message) => developer.log(message, name: _logName);
 String _categoryOf(String id) {
   if (id == MediaId.root) return 'root';
   if (id == MediaId.library) return 'library';
+  if (id == MediaId.albums) return 'albums';
+  if (id == MediaId.artists) return 'artists';
   if (id == MediaId.queue) return 'queue';
   if (id == MediaId.playlists) return 'playlists';
   if (id == MediaId.favorites) return 'favorites';
+  if (id == MediaId.offline) return 'offline';
+  if (id == MediaId.empty) return 'empty';
+  if (MediaId.isAlbumTrack(id)) return 'album-track';
+  if (MediaId.isAlbumCategory(id)) return 'album';
+  if (MediaId.isArtistTrack(id)) return 'artist-track';
+  if (MediaId.isArtistCategory(id)) return 'artist';
   if (MediaId.isPlaylistTrack(id)) return 'playlist-track';
   if (MediaId.isPlaylistCategory(id)) return 'playlist';
   if (MediaId.isLibraryTrack(id)) return 'library-track';
   if (MediaId.isQueueItem(id)) return 'queue-item';
   if (MediaId.isFavoriteItem(id)) return 'favorite';
+  if (MediaId.isOfflineItem(id)) return 'offline-item';
   return 'other';
 }
 
@@ -49,8 +59,9 @@ String _categoryOf(String id) {
 /// controller and mirrors the controller's [PlaybackState] back out as
 /// audio_service playback state + media item, so the notification, lock screen,
 /// and Android Auto reflect what is playing. For Android Auto it also exposes a
-/// browsable tree (Library / Queue) built by [MediaBrowserTree] and turns a
-/// selected item into a [PlaybackController.playTracks] call. The controller
+/// browsable tree (Songs / Albums / Artists / Playlists / Favorites / Offline /
+/// Queue) built by [MediaBrowserTree] and turns a selected item into a
+/// [PlaybackController.playTracks] call. The controller
 /// stays the single source of truth and owns `just_audio`; the UI never touches
 /// this class.
 class LinthraAudioHandler extends audio.BaseAudioHandler {
@@ -286,11 +297,14 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     if (node.playable && track != null) {
       return _trackMediaItem(track, id: node.id);
     }
+    // A browsable container (album/artist) may carry token-free cover art so the
+    // car shows artwork on the row; categories and placeholders leave it null.
     return audio.MediaItem(
       id: node.id,
       title: node.title,
       playable: false,
       displaySubtitle: node.subtitle,
+      artUri: node.artworkUri,
     );
   }
 
@@ -434,12 +448,12 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 /// Registers [controller] with the platform media session so playback appears
 /// in the notification / lock screen and is reachable from Android Auto, with a
 /// browsable tree backed by [library] and — when supplied — the user's
-/// [playlists] and [favorites].
+/// [playlists], [favorites], and offline [downloads].
 ///
 /// Runs entirely off repository seams, so when Android Auto starts the media
 /// service cold (before any phone screen is opened) the browse tree is already
-/// answerable from the persisted catalog/playlists/favourites — it does not wait
-/// on the Flutter UI.
+/// answerable from the persisted catalog/playlists/favourites/downloads — it
+/// does not wait on the Flutter UI.
 ///
 /// Best-effort by design: returns `null` when `audio_service` can't initialise
 /// (a platform without the native setup, or a test environment). Playback still
@@ -452,12 +466,18 @@ Future<LinthraAudioHandler?> connectMediaSession(
   MusicLibraryRepository library, {
   PlaylistRepository? playlists,
   FavoritesRepository? favorites,
+  DownloadRepository? downloads,
 }) async {
   try {
     final handler = await audio.AudioService.init(
       builder: () => LinthraAudioHandler(
         controller,
-        MediaBrowserTree(library, playlists: playlists, favorites: favorites),
+        MediaBrowserTree(
+          library,
+          playlists: playlists,
+          favorites: favorites,
+          downloads: downloads,
+        ),
       ),
       config: const audio.AudioServiceConfig(
         androidNotificationChannelId: 'com.linthra.audio',

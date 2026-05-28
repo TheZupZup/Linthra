@@ -1,5 +1,7 @@
+import 'package:linthra/core/models/download_progress.dart';
 import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/download_repository.dart';
 import 'package:linthra/core/repositories/favorites_repository.dart';
 import 'package:linthra/core/repositories/playlist_repository.dart';
 import 'package:linthra/core/repositories/remote_sync_result.dart';
@@ -110,4 +112,38 @@ class FakeFavoritesRepository implements FavoritesRepository {
 
   @override
   Future<void> clearRemote() async {}
+}
+
+/// Minimal [DownloadRepository] for browse-tree tests: reports a fixed set of
+/// downloaded (offline) track ids. Only the read the media browser uses
+/// ([downloadedTrackIds]) is implemented; the download lifecycle surface throws,
+/// so a test that accidentally relied on it would fail loudly.
+class FakeDownloadRepository implements DownloadRepository {
+  FakeDownloadRepository(Set<String> downloadedIds) : _ids = downloadedIds;
+
+  final Set<String> _ids;
+
+  @override
+  Future<List<String>> downloadedTrackIds() async => _ids.toList();
+
+  // Download lifecycle surface — not exercised by the media browser, so it
+  // throws to fail loudly if a test ever depends on it.
+  @override
+  Stream<Map<String, DownloadStatus>> get statusStream =>
+      throw UnimplementedError();
+
+  @override
+  Stream<Map<String, DownloadProgress>> get progressStream =>
+      throw UnimplementedError();
+
+  @override
+  Future<DownloadStatus> statusFor(String trackId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<DownloadRequestOutcome> requestDownload(Track track) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> removeDownload(String trackId) => throw UnimplementedError();
 }

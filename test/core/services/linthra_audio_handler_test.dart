@@ -8,6 +8,7 @@ import 'package:linthra/core/services/media_browser_tree.dart';
 
 import '../../features/library/fake_music_library_repository.dart';
 import '../../features/player/fake_playback_controller.dart';
+import 'fake_browse_repositories.dart';
 
 Track _track(String id) {
   return Track(
@@ -307,10 +308,19 @@ void main() {
     });
 
     group('media browser', () {
-      test('root lists Library and Queue as browsable categories', () async {
+      test('root lists the library categories and Queue', () async {
         final children = await handler.getChildren(MediaId.root);
 
-        expect(children.map((i) => i.id), [MediaId.library, MediaId.queue]);
+        // No playlists/favorites/downloads wired here, so just the always-on
+        // library categories plus Queue.
+        expect(children.map((i) => i.id), [
+          MediaId.library,
+          MediaId.albums,
+          MediaId.artists,
+          MediaId.queue,
+        ]);
+        expect(children.map((i) => i.title),
+            ['Songs', 'Albums', 'Artists', 'Queue']);
         expect(children.every((i) => i.playable == false), isTrue);
       });
 
@@ -324,6 +334,41 @@ void main() {
         ]);
         expect(children.first.title, 'Song a');
         expect(children.first.playable, isTrue);
+      });
+
+      test('albums are browsable containers; opening one lists playable tracks',
+          () async {
+        final albums = await handler.getChildren(MediaId.albums);
+        // Each _track('x') has album 'Album x', so there is one album per track.
+        expect(albums, hasLength(3));
+        expect(albums.every((i) => i.playable == false), isTrue);
+
+        final tracks = await handler.getChildren(albums.first.id);
+        expect(tracks, isNotEmpty);
+        expect(tracks.every((i) => i.playable == true), isTrue);
+      });
+
+      test('selecting an album track plays the album queue', () async {
+        final albums = await handler.getChildren(MediaId.albums);
+        final albumTracks = await handler.getChildren(albums.first.id);
+
+        await handler.playFromMediaId(albumTracks.first.id);
+        await _settle();
+
+        expect(controller.state.currentTrack, isNotNull);
+        expect(controller.playedTracks, isNotEmpty);
+      });
+
+      test(
+          'artists are browsable containers; opening one lists playable tracks',
+          () async {
+        final artists = await handler.getChildren(MediaId.artists);
+        expect(artists, hasLength(3));
+        expect(artists.every((i) => i.playable == false), isTrue);
+
+        final tracks = await handler.getChildren(artists.first.id);
+        expect(tracks, isNotEmpty);
+        expect(tracks.every((i) => i.playable == true), isTrue);
       });
 
       test('queue reflects the controller current track and up-next', () async {
@@ -365,6 +410,53 @@ void main() {
         await _settle();
 
         expect(controller.playedTracks, isEmpty);
+      });
+    });
+
+    group('offline & favorites browsing', () {
+      late FakePlaybackController offController;
+      late LinthraAudioHandler offHandler;
+
+      setUp(() {
+        offController = FakePlaybackController();
+        offHandler = LinthraAudioHandler(
+          offController,
+          MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: _library),
+            favorites: FakeFavoritesRepository({'a'}),
+            downloads: FakeDownloadRepository({'b', 'c'}),
+          ),
+        );
+      });
+
+      tearDown(() async {
+        await offHandler.dispose();
+        await offController.dispose();
+      });
+
+      test('root surfaces Favorites and Offline when the user has some',
+          () async {
+        final ids =
+            (await offHandler.getChildren(MediaId.root)).map((i) => i.id);
+        expect(
+            ids,
+            containsAllInOrder(<String>[
+              MediaId.favorites,
+              MediaId.offline,
+            ]));
+      });
+
+      test('offline lists the downloaded tracks; selecting one plays it',
+          () async {
+        final offline = await offHandler.getChildren(MediaId.offline);
+        expect(offline.map((i) => i.title), ['Song b', 'Song c']);
+        expect(offline.every((i) => i.playable == true), isTrue);
+
+        await offHandler.playFromMediaId(offline.first.id);
+        await _settle();
+        expect(offController.state.currentTrack?.id, 'b');
+        // The offline section seeds the queue with the offline list.
+        expect(offController.state.upNext.map((t) => t.id), ['c']);
       });
     });
 
@@ -647,6 +739,34 @@ void main() {
           expect(item.id, isNot(contains('jellyfin:')));
           expect(item.id, isNot(contains('://')));
           expect(item.extras, isNull);
+          final String art = item.artUri?.toString() ?? '';
+          expect(art, isNot(contains('api_key')));
+          expect(art.toLowerCase(), isNot(contains('token')));
+        }
+      });
+
+      test('album containers carry token-free art and no extras', () async {
+        final albController = FakePlaybackController();
+        final albHandler = LinthraAudioHandler(
+          albController,
+          MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: <Track>[jellyfin, local]),
+          ),
+        );
+        addTearDown(() async {
+          await albHandler.dispose();
+          await albController.dispose();
+        });
+
+        final albums = await albHandler.getChildren(MediaId.albums);
+        expect(albums, isNotEmpty);
+        for (final item in albums) {
+          // Browsable container: not playable, but may carry the album's
+          // token-free cover art for the car row.
+          expect(item.playable, isFalse);
+          expect(item.extras, isNull);
+          expect(item.id, isNot(contains('jellyfin:')));
+          expect(item.id, isNot(contains('://')));
           final String art = item.artUri?.toString() ?? '';
           expect(art, isNot(contains('api_key')));
           expect(art.toLowerCase(), isNot(contains('token')));
