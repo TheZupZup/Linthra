@@ -5,6 +5,9 @@ is committed, so no `flutter create` step is needed. Other native platform
 folders (`linux/`, …) are generated locally when you need them, so the repo stays
 focused on the cross-platform Dart code.
 
+> New to the code itself? The [codebase tour](codebase-tour.md) maps where each
+> feature lives and how the pieces fit together.
+
 ## Required Flutter version
 
 This project is pinned to **Flutter 3.27.4 (stable)**. The version lives in one

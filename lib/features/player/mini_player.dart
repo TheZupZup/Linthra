@@ -121,13 +121,8 @@ class MiniPlayer extends ConsumerWidget {
   /// Artist • album when present; falls back to artist or album alone, and to
   /// nothing when the track carries no metadata.
   static String? _subtitle(Track track) {
-    final parts = <String>[
-      if (track.artistName != null && track.artistName!.isNotEmpty)
-        track.artistName!,
-      if (track.albumName != null && track.albumName!.isNotEmpty)
-        track.albumName!,
-    ];
-    return parts.isEmpty ? null : parts.join(' • ');
+    final String label = track.artistAlbumLabel;
+    return label.isEmpty ? null : label;
   }
 }
 

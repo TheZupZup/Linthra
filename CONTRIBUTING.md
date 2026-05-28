@@ -27,6 +27,14 @@ downloads the pinned version into the git-ignored `.tool/flutter`.
 details, troubleshooting, and the manual path are in
 [docs/development.md](./docs/development.md).
 
+## Finding your way around the code
+
+When you're ready to dig in, the [codebase tour](./docs/codebase-tour.md) is a
+map of where each feature lives — playback, Cast, the Jellyfin/Subsonic
+providers, downloads, diagnostics, settings — and how they're wired together.
+[docs/architecture.md](./docs/architecture.md) covers the layering and the
+extension points behind it.
+
 ## Picking something to work on
 
 - Browse the [issue tracker](https://github.com/thezupzup/linthra/issues).

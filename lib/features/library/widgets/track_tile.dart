@@ -155,13 +155,8 @@ class TrackTile extends ConsumerWidget {
   /// Prefer human-readable artist/album metadata; fall back to the raw
   /// uri/path when a track has no tags yet.
   static String _subtitle(Track track) {
-    final parts = <String>[
-      if (track.artistName != null && track.artistName!.isNotEmpty)
-        track.artistName!,
-      if (track.albumName != null && track.albumName!.isNotEmpty)
-        track.albumName!,
-    ];
-    return parts.isEmpty ? track.uri : parts.join(' • ');
+    final String label = track.artistAlbumLabel;
+    return label.isEmpty ? track.uri : label;
   }
 }
 

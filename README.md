@@ -192,6 +192,7 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 | --- | --- |
 | Contributing & setup | [CONTRIBUTING.md](./CONTRIBUTING.md) |
 | Where to help (contributor roadmap) | [docs/contributor-roadmap.md](./docs/contributor-roadmap.md) |
+| Codebase tour (where everything lives) | [docs/codebase-tour.md](./docs/codebase-tour.md) |
 | Architecture & extension points | [docs/architecture.md](./docs/architecture.md) |
 | Development, build & CI | [docs/development.md](./docs/development.md) |
 | Library browsing & search | [docs/library.md](./docs/library.md) |
