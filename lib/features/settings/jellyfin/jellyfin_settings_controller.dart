@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/app_info.dart';
@@ -142,6 +144,15 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
         serverVersion: newSession.serverVersion,
         productName: newSession.productName,
         statusMessage: _connectedMessage(newSession),
+      );
+      // Onboarding: start the first library sync for this connection so the
+      // library fills in on its own, without the user hunting for "Sync
+      // library". Fire-and-forget — sign-in returns now and the UI reflects the
+      // sync's progress/result through JellyfinSyncState — and it only actually
+      // syncs the first time for a given server/account (see autoSyncIfNeeded),
+      // so reconnecting the same account won't trigger an unsolicited resync.
+      unawaited(
+        ref.read(jellyfinSyncControllerProvider.notifier).autoSyncIfNeeded(),
       );
       return true;
     } on JellyfinException catch (error) {

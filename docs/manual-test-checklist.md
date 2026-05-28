@@ -38,7 +38,9 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
 ## 2. Library
 
 - ☑ Local tracks appear after picking a folder (SAF) and a sync.
-- ☑ Jellyfin tracks appear after sign-in + sync.
+- ☑ Jellyfin tracks appear automatically after sign-in (no manual Sync needed).
+- ☐ While that first sync runs, the empty Library shows "Your Jellyfin library
+  is syncing" rather than the folder-pick prompt.
 - ☐ Alphabet fast-scroller jumps to the right section and does not overlap rows
   or the overflow menu (narrow phones included).
 - ☐ Row overflow menu (download / add to playlist / favorite / delete) works.
@@ -202,6 +204,13 @@ Additional cast checks:
 ## 11. Settings
 
 - ☐ Jellyfin connect: test, sign in, sign out & clear.
+- ☐ **Auto-sync on connect**: signing in starts a sync on its own (card shows
+  "Syncing your Jellyfin library…", then a summary). *(New this release.)*
+- ☐ Closing/reopening Settings, or relaunching the app, does **not** start
+  another full sync for the same account. *(New this release.)*
+- ☐ Connecting a **different** server/user starts a fresh first sync.
+- ☐ A failed first sync shows "Connected, but the library sync didn't finish."
+  with a **Retry** that works. *(New this release.)*
 - ☐ Subsonic/Navidrome connect: test, sign in, sign out & clear.
 - ☐ Sign out resets the sync status line (no stale "Synced N tracks" after
   signing back in). *(Fixed this release.)*

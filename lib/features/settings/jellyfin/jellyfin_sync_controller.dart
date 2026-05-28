@@ -1,9 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/repositories/jellyfin_auto_sync_store.dart';
 import '../../../core/repositories/remote_sync_result.dart';
+import '../../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../../core/sources/jellyfin/jellyfin_music_source.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
+import '../../../data/repositories/jellyfin_auto_sync_store_provider.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../library/library_controller.dart';
@@ -26,18 +29,74 @@ import 'jellyfin_sync_state.dart';
 /// a partial outcome reads honestly ("Tracks synced, but playlists could not be
 /// loaded.").
 ///
+/// Onboarding: a fresh Jellyfin connection triggers [autoSyncIfNeeded] once, so
+/// the library populates on its own without the user discovering the manual
+/// "Sync library" button. It runs the exact same path as the manual [sync] and
+/// is gated by a persisted per-account fingerprint, so it fires for a new
+/// server/account but not on a reconnect, a rebuild, a reopened Settings screen,
+/// or an app restart of an already-synced account. The manual [sync] is always
+/// available.
+///
 /// Security: the source mints any authenticated streaming URL lazily at play
 /// time, so nothing persisted here carries a token. This controller never logs
 /// the session, and surfaces only friendly, secret-free messages through
 /// [JellyfinSyncState].
 class JellyfinSyncController extends Notifier<JellyfinSyncState> {
+  /// Guards against overlapping syncs (an auto-sync racing a manual tap). Set
+  /// synchronously before any await so a second concurrent call simply bails,
+  /// satisfying "never run two syncs at once" without cancelling the first.
+  bool _syncing = false;
+
   @override
   JellyfinSyncState build() => const JellyfinSyncState();
 
-  /// Pulls artists/albums/tracks from Jellyfin and upserts them into the local
-  /// catalog, then refreshes Jellyfin playlists and favourites. Reflects
-  /// loading/success/error through [state]; never throws.
-  Future<void> sync() async {
+  /// The manual "Sync library" action. Pulls artists/albums/tracks and upserts
+  /// them into the local catalog, then refreshes Jellyfin playlists and
+  /// favourites. Reflects loading/success/error through [state]; never throws.
+  Future<void> sync() => _runSync();
+
+  /// Runs the **first** automatic sync for a freshly connected server/account.
+  ///
+  /// Idempotent by account: if this exact server+user has already been
+  /// auto-synced before, it does nothing — so a reconnect, a provider rebuild, a
+  /// reopened Settings screen, or an app restart never re-pulls the whole
+  /// library on its own. Changing the server URL or signing in as a different
+  /// user is a new account, and syncs again. The manual [sync] stays available
+  /// for an on-demand refresh. Never throws.
+  Future<void> autoSyncIfNeeded() async {
+    final JellyfinMusicSource? source = ref.read(jellyfinMusicSourceProvider);
+    if (source == null) {
+      // Not connected (shouldn't happen right after a sign-in) — nothing to do.
+      return;
+    }
+    final String fingerprint = jellyfinAccountFingerprint(source.session);
+    final JellyfinAutoSyncStore store = ref.read(jellyfinAutoSyncStoreProvider);
+    String? lastSynced;
+    try {
+      lastSynced = await store.read();
+    } catch (_) {
+      // A storage hiccup must never block onboarding; treat it as "not synced
+      // yet" and let the sync proceed — re-running it is safe and idempotent.
+      lastSynced = null;
+    }
+    if (lastSynced == fingerprint) {
+      // This account's first sync already happened; don't resync on its own.
+      return;
+    }
+    await _runSync(recordFingerprint: fingerprint);
+  }
+
+  /// The shared sync path behind both [sync] and [autoSyncIfNeeded].
+  ///
+  /// When [recordFingerprint] is non-null (an auto-sync), the account is
+  /// remembered **only after a successful sync**, so a sync that failed is
+  /// retried automatically on the next fresh connection rather than being
+  /// silently marked done.
+  Future<void> _runSync({String? recordFingerprint}) async {
+    if (_syncing) {
+      // A sync is already in flight; never stack a second concurrent one.
+      return;
+    }
     final JellyfinMusicSource? source = ref.read(jellyfinMusicSourceProvider);
     if (source == null) {
       state = const JellyfinSyncState.error(
@@ -46,6 +105,7 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       return;
     }
 
+    _syncing = true;
     state = const JellyfinSyncState.syncing();
     try {
       final tracks = await source.fetchTracks();
@@ -83,6 +143,19 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
           favorites: favorites,
         ),
       );
+
+      // Remember this account only now that the sync landed, so an auto-sync
+      // that failed above is retried on the next fresh connection.
+      if (recordFingerprint != null) {
+        try {
+          await ref
+              .read(jellyfinAutoSyncStoreProvider)
+              .write(recordFingerprint);
+        } catch (_) {
+          // Failing to persist the marker only risks one extra (idempotent)
+          // auto-sync next time — harmless, and never surfaced to the user.
+        }
+      }
     } on JellyfinException catch (error) {
       state = JellyfinSyncState.error(_friendlyMessage(error));
     } catch (_) {
@@ -91,6 +164,8 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       state = const JellyfinSyncState.error(
         "Something went wrong saving your Jellyfin library. Please try again.",
       );
+    } finally {
+      _syncing = false;
     }
   }
 
