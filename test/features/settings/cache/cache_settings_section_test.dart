@@ -81,7 +81,7 @@ void main() {
 
 class _FakeConnectivity implements ConnectivityService {
   @override
-  Stream<NetworkStatus> get statusStream => Stream<NetworkStatus>.empty();
+  Stream<NetworkStatus> get statusStream => const Stream<NetworkStatus>.empty();
 
   @override
   Future<NetworkStatus> currentStatus() async => NetworkStatus.wifi;

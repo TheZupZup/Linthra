@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/connectivity_service.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/features/library/library_screen.dart';
@@ -17,15 +18,19 @@ void main() {
     Future<void> pump(WidgetTester tester, List<Track> tracks) async {
       await tester.pumpWidget(
         ProviderScope(
-          // Default download providers are plugin-free (in-memory store +
-          // optimistic connectivity); only the remote downloader is faked so a
-          // `jellyfin:` track counts as remote/offline-capable.
+          // Default download providers are plugin-free (in-memory store); the
+          // remote downloader is faked so a `jellyfin:` track counts as
+          // remote/offline-capable, and connectivity is faked to Wi-Fi so the
+          // network policy lets the download proceed (the production default
+          // fails closed without the platform channel).
           overrides: [
             musicLibraryRepositoryProvider.overrideWithValue(
               FakeMusicLibraryRepository(tracks: tracks),
             ),
             remoteTrackDownloaderProvider
                 .overrideWithValue(FakeRemoteTrackDownloader()),
+            connectivityServiceProvider
+                .overrideWithValue(const _FakeConnectivity()),
           ],
           child: const MaterialApp(home: LibraryScreen()),
         ),
@@ -82,4 +87,17 @@ void main() {
       expect(find.text('Play next'), findsOneWidget);
     });
   });
+}
+
+/// A connectivity stand-in reporting Wi-Fi so the download policy allows
+/// downloads without the platform channel.
+class _FakeConnectivity implements ConnectivityService {
+  const _FakeConnectivity();
+
+  @override
+  Stream<NetworkStatus> get statusStream =>
+      Stream<NetworkStatus>.value(NetworkStatus.wifi);
+
+  @override
+  Future<NetworkStatus> currentStatus() async => NetworkStatus.wifi;
 }

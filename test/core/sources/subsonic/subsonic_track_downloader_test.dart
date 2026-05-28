@@ -37,7 +37,8 @@ void main() {
     );
   });
 
-  test('opens a streamed download and infers the extension from the content type',
+  test(
+      'opens a streamed download and infers the extension from the content type',
       () async {
     final mock = MockClient((http.Request request) async {
       return http.Response(

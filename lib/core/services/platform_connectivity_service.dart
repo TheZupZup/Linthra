@@ -38,7 +38,8 @@ class PlatformConnectivityService implements ConnectivityService {
   @override
   Future<NetworkStatus> currentStatus() async {
     try {
-      final String? value = await _methods.invokeMethod<String>('currentStatus');
+      final String? value =
+          await _methods.invokeMethod<String>('currentStatus');
       return statusFromPlatform(value);
     } catch (_) {
       return NetworkStatus.unknown;

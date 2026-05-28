@@ -75,7 +75,8 @@ void main() {
       expect(await File(path!).readAsBytes(), <int>[1, 2, 3, 4]);
     });
 
-    test('writeTemp deletes a partial temp file when the stream fails', () async {
+    test('writeTemp deletes a partial temp file when the stream fails',
+        () async {
       late String? tempPath;
       final Stream<List<int>> chunks = (() async* {
         yield <int>[1, 2];

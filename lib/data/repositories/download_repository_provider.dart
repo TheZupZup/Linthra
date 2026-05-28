@@ -7,8 +7,8 @@ import '../../core/repositories/download_store.dart';
 import '../../core/repositories/offline_file_store.dart';
 import '../../core/services/cached_track_locator.dart';
 import '../../core/services/connectivity_service.dart';
-import '../../core/services/platform_connectivity_service.dart';
 import '../../core/services/offline_cache_manager.dart';
+import '../../core/services/platform_connectivity_service.dart';
 import '../../core/services/remote_track_downloader.dart';
 import '../../core/services/track_prefetcher.dart';
 import 'cache_download_repository.dart';
@@ -69,7 +69,7 @@ final currentlyPlayingTrackIdProvider =
 /// through. It composes the seams above and centralizes the user-initiated,
 /// source-aware, Wi-Fi-respecting, limit-bounded cache policy. Held as the
 /// concrete type so the cache-manager provider can expose the same instance.
-final _cacheDownloadRepositoryProvider =
+final cacheDownloadRepositoryProvider =
     Provider<CacheDownloadRepository>((ref) {
   final repository = CacheDownloadRepository(
     store: ref.watch(downloadStoreProvider),
@@ -85,14 +85,14 @@ final _cacheDownloadRepositoryProvider =
 
 /// The download lifecycle surface (request/remove/status) the UI uses.
 final downloadRepositoryProvider = Provider<DownloadRepository>((ref) {
-  return ref.watch(_cacheDownloadRepositoryProvider);
+  return ref.watch(cacheDownloadRepositoryProvider);
 });
 
 /// The cache-maintenance surface (usage stream, pin, clear, note-played),
 /// backed by the *same* instance as [downloadRepositoryProvider] so a cleared
 /// or pinned track stays consistent with download status.
 final offlineCacheManagerProvider = Provider<OfflineCacheManager>((ref) {
-  return ref.watch(_cacheDownloadRepositoryProvider);
+  return ref.watch(cacheDownloadRepositoryProvider);
 });
 
 /// The pre-cache surface (warm an upcoming track ahead of play), backed by the
@@ -100,7 +100,7 @@ final offlineCacheManagerProvider = Provider<OfflineCacheManager>((ref) {
 /// the one cache limit and eviction policy with user downloads. Driven by the
 /// `SmartPrecacheService`, never by the UI directly.
 final trackPrefetcherProvider = Provider<TrackPrefetcher>((ref) {
-  return ref.watch(_cacheDownloadRepositoryProvider);
+  return ref.watch(cacheDownloadRepositoryProvider);
 });
 
 /// Resolves a track to its cached-on-disk file when one exists. Read by the

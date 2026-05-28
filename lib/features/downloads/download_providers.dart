@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/cache_size.dart';
@@ -163,7 +165,9 @@ class AllowMobileDataController extends AsyncNotifier<bool> {
       // Enabling mobile/non-Wi-Fi downloads can make existing network-policy
       // queued downloads eligible immediately, even if the transport did not
       // change and therefore emitted no connectivity event.
-      unawaited(ref.read(_cacheDownloadRepositoryProvider).resumeQueuedIfAllowed());
+      unawaited(
+        ref.read(cacheDownloadRepositoryProvider).resumeQueuedIfAllowed(),
+      );
     }
   }
 }
