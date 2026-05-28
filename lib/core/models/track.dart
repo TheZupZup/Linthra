@@ -31,6 +31,17 @@ class Track {
   /// [ReplayGain.none]; sources that read it populate this when available.
   final ReplayGain replayGain;
 
+  /// "Artist • Album" with whichever parts are present, joined by " • ".
+  /// Empty when the track carries neither, so callers pick their own fallback
+  /// (the raw [uri], a hidden subtitle, …).
+  String get artistAlbumLabel {
+    final parts = <String>[
+      if (artistName != null && artistName!.isNotEmpty) artistName!,
+      if (albumName != null && albumName!.isNotEmpty) albumName!,
+    ];
+    return parts.join(' • ');
+  }
+
   Track copyWith({
     String? id,
     String? title,

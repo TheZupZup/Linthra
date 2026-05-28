@@ -5,6 +5,9 @@ Linthra is a Flutter app, layered and feature-first. The golden rule:
 storage.** That seam is what makes the Jellyfin / Subsonic / WebDAV roadmap
 possible without rewriting the UI.
 
+> This doc covers the *why*. For *where things live and how to navigate the
+> code*, see the [codebase tour](codebase-tour.md).
+
 ## Philosophy
 
 - **Local-first & offline-first** — the UI always reads from a local cache.

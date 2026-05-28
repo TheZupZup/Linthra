@@ -382,13 +382,8 @@ class MediaBrowserTree {
 
   /// "Artist • Album", dropping whichever parts are missing.
   static String? _subtitle(Track track) {
-    final List<String> parts = <String>[
-      if (track.artistName != null && track.artistName!.isNotEmpty)
-        track.artistName!,
-      if (track.albumName != null && track.albumName!.isNotEmpty)
-        track.albumName!,
-    ];
-    return parts.isEmpty ? null : parts.join(' • ');
+    final String label = track.artistAlbumLabel;
+    return label.isEmpty ? null : label;
   }
 
   /// A track count for a playlist category row, e.g. "1 track" / "12 tracks".
