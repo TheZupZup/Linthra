@@ -1,0 +1,69 @@
+name: Jellyfin compatibility report
+description: Tell us how Linthra works (or doesn't) with your Jellyfin server.
+labels: ["testing", "jellyfin"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing against a real Jellyfin server! Reports like this are
+        the fastest way to make Linthra solid.
+
+        **Please don't paste tokens, passwords, or full private server URLs.** A
+        version number and a description are plenty. **Settings → Report a bug**
+        builds a secret-free diagnostics blob you can paste below.
+  - type: input
+    id: jellyfin-version
+    attributes:
+      label: Jellyfin server version
+      placeholder: "e.g. 10.9.11"
+    validations:
+      required: true
+  - type: input
+    id: android-version
+    attributes:
+      label: Android version (and phone model if handy)
+      placeholder: "e.g. Android 14, Pixel 7"
+    validations:
+      required: false
+  - type: input
+    id: proxy
+    attributes:
+      label: Reverse proxy / Cloudflare Tunnel, if any
+      placeholder: "e.g. nginx + Cloudflare Tunnel, or direct"
+    validations:
+      required: false
+  - type: input
+    id: library-size
+    attributes:
+      label: Approximate library size
+      placeholder: "e.g. ~8,000 tracks / ~600 albums"
+    validations:
+      required: false
+  - type: checkboxes
+    id: results
+    attributes:
+      label: What worked?
+      options:
+        - label: Test connection + sign-in
+        - label: Library sync
+        - label: Streaming
+        - label: Playlists sync
+        - label: Favorites sync
+        - label: Cache / download
+        - label: Cast
+  - type: textarea
+    id: details
+    attributes:
+      label: What happened?
+      description: Anything that broke, behaved oddly, or was slower than expected.
+      placeholder: Sync finished but album artwork was missing for…
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics (optional)
+      description: Paste the output of Settings → Diagnostics → Copy diagnostics.
+      render: text
+    validations:
+      required: false

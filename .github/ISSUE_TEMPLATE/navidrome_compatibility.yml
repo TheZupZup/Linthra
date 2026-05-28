@@ -1,0 +1,54 @@
+name: Navidrome / Subsonic compatibility report
+description: Tell us how Linthra works with your Navidrome or Subsonic-compatible server.
+labels: ["testing", "navidrome"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing the Subsonic path! Linthra speaks the Subsonic API, so
+        it should work with Navidrome and other compatible servers — real reports
+        help confirm that.
+
+        **Please don't paste tokens, passwords, or full private server URLs.**
+        Known follow-ups on this path are **favourites, lyrics, and cover art** —
+        if those are missing, note it here rather than filing separate bugs.
+  - type: input
+    id: server
+    attributes:
+      label: Server type and version
+      placeholder: "e.g. Navidrome 0.52.5, or Gonic / Airsonic-Advanced"
+    validations:
+      required: true
+  - type: input
+    id: android-version
+    attributes:
+      label: Android version (and phone model if handy)
+      placeholder: "e.g. Android 13, Samsung S22"
+    validations:
+      required: false
+  - type: checkboxes
+    id: results
+    attributes:
+      label: What worked?
+      options:
+        - label: Login / test connection
+        - label: Library sync
+        - label: Streaming
+        - label: Cache / download
+        - label: Cast
+  - type: textarea
+    id: details
+    attributes:
+      label: What happened?
+      description: Anything that broke or behaved unexpectedly.
+      placeholder: Streaming worked, but favourites didn't sync back to the server…
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics (optional)
+      description: Paste the output of Settings → Diagnostics → Copy diagnostics.
+      render: text
+    validations:
+      required: false

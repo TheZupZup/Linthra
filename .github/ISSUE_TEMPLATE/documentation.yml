@@ -1,0 +1,32 @@
+name: Documentation improvement
+description: Suggest a fix or addition to the docs, README, or setup guides.
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make Linthra easier to understand! Confusing steps,
+        missing gotchas, and out-of-date instructions are all worth flagging —
+        and fixing the docs is a great first contribution.
+  - type: input
+    id: location
+    attributes:
+      label: Which doc or page?
+      description: A file path or URL is ideal.
+      placeholder: "e.g. docs/jellyfin.md, or the README 'Try it' section"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's confusing, missing, or wrong?
+      placeholder: The Cloudflare Tunnel step doesn't mention that…
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement (optional)
+      description: If you already know how you'd word it, drop it here.
+    validations:
+      required: false

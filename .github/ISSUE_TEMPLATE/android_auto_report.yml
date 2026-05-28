@@ -1,0 +1,48 @@
+name: Android Auto test report
+description: Tell us how Linthra behaves in your car or head unit.
+labels: ["testing", "android-auto"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Android Auto! Head units and car displays vary widely,
+        so reports from real setups are genuinely useful.
+
+        **Heads up:** sideloaded builds only appear after you enable Android
+        Auto's developer **"Unknown sources"** toggle — a one-time step described
+        in [docs/android-auto.md](../../docs/android-auto.md). Flag any
+        **duplicate playback** (phone + car at once) explicitly.
+  - type: input
+    id: head-unit
+    attributes:
+      label: Car make / model or head unit type
+      placeholder: "e.g. VW Golf 2021 built-in, or Desktop Head Unit"
+    validations:
+      required: true
+  - type: checkboxes
+    id: results
+    attributes:
+      label: What worked?
+      options:
+        - label: App appears in the Android Auto launcher
+        - label: Library browsing
+        - label: Queue browsing
+        - label: Play / pause / next / previous
+        - label: No duplicate playback (phone + car at once)
+        - label: No token or secret visible in any text on screen
+  - type: textarea
+    id: details
+    attributes:
+      label: What happened?
+      description: Describe anything that broke or behaved oddly.
+      placeholder: App showed up, but the Queue tab was empty until I…
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics (optional)
+      description: Paste the output of Settings → Diagnostics → Copy diagnostics.
+      render: text
+    validations:
+      required: false

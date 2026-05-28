@@ -1,0 +1,48 @@
+name: Cast device test report
+description: Tell us how casting works with your Chromecast / speaker / TV.
+labels: ["testing", "cast"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Cast! Linthra uses a pure-Dart Cast implementation (no
+        Google Play Services), and devices vary a lot — so real results are
+        really helpful.
+
+        Watch specifically for **duplicate playback** (audio playing locally and
+        on the Cast device at the same time) and call it out if you see it.
+  - type: input
+    id: device
+    attributes:
+      label: Cast device make / model
+      placeholder: "e.g. Chromecast with Google TV, Nest Audio, Sony Bravia"
+    validations:
+      required: true
+  - type: checkboxes
+    id: results
+    attributes:
+      label: What worked?
+      options:
+        - label: Device shows up in discovery
+        - label: Connect / disconnect is reliable
+        - label: Playback (start, pause, seek, track changes)
+        - label: Volume control
+        - label: Mute
+        - label: Disconnect behaves correctly (playback stops/returns cleanly)
+        - label: No duplicate local + Cast playback
+  - type: textarea
+    id: details
+    attributes:
+      label: What happened?
+      description: Describe anything that broke or behaved oddly.
+      placeholder: Connected fine, but seeking jumped back to the start on…
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics (optional)
+      description: Paste the output of Settings → Diagnostics → Copy diagnostics.
+      render: text
+    validations:
+      required: false

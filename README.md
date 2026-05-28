@@ -121,22 +121,28 @@ pinned Flutter toolchain and run the same checks as CI.
 Linthra is small and friendly — good first contributions are very welcome, and
 many don't need a single line of code:
 
--  **Test with your server** — does it work with your **Jellyfin**? Your
+- **Test with your server** — does it work with your **Jellyfin**? Your
   **Navidrome / Subsonic**? Tell us what broke.
-   **Try Cast** — connect a Chromecast/speaker/TV and report device
+- **Try Cast** — connect a Chromecast / speaker / TV and report device
   compatibility.
--  **Test Android Auto** — on a head unit or the Desktop Head Unit.
--  **Capture screenshots** for the README and store listing.
--  **Improve docs** — fix a confusing step, add a setup gotcha.
--  **Report bugs in one tap** — **Settings → Report a bug** builds a
+- **Test Android Auto** — on a head unit or the Desktop Head Unit.
+- **Capture screenshots** for the README and store listing.
+- **Improve docs** — fix a confusing step, add a setup gotcha.
+- **Report bugs in one tap** — **Settings → Report a bug** builds a
   **secret-free** report on your device (no tokens, no passwords); review it,
   then copy it or open a prefilled GitHub issue.
   ([how it works](./docs/reporting-bugs.md))
--  **Polish UI/UX** — small refinements add up.
--  **Help future providers** — WebDAV/NAS support behind the same interface.
+- **Improve accessibility** — better screen-reader labels and TalkBack support.
+- **Polish UI/UX** — small refinements add up.
+- **Help future providers** — WebDAV / NAS support behind the same interface.
 
-Found Linthra useful? A **GitHub star** helps others discover it. Start at the
-[issue tracker](https://github.com/thezupzup/linthra/issues).
+New here? [CONTRIBUTING.md](./CONTRIBUTING.md) walks through setup in two
+commands, and the [contributor roadmap](./docs/contributor-roadmap.md) shows
+where help is most useful right now. The
+[issue tracker](https://github.com/thezupzup/linthra/issues) has tasks tagged
+`good first issue` and `help wanted`.
+
+Found Linthra useful? A **GitHub star** helps others discover it.
 
 ## Self-hosted sources
 
@@ -181,6 +187,8 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 
 | Topic | Doc |
 | --- | --- |
+| Contributing & setup | [CONTRIBUTING.md](./CONTRIBUTING.md) |
+| Where to help (contributor roadmap) | [docs/contributor-roadmap.md](./docs/contributor-roadmap.md) |
 | Architecture & extension points | [docs/architecture.md](./docs/architecture.md) |
 | Development, build & CI | [docs/development.md](./docs/development.md) |
 | Library browsing & search | [docs/library.md](./docs/library.md) |
