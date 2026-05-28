@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
@@ -17,13 +17,13 @@ class _FakeDownloader implements RemoteTrackDownloader {
   bool isRemote(Track track) => track.uri.startsWith(scheme);
 
   @override
-  Future<RemoteTrackDownload> open(Track track) async {
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
     fetched.add(track.id);
-    return RemoteTrackDownload(
-      chunks: Stream<List<int>>.value(<int>[1]),
-      contentLength: 1,
-      fileExtension: tag,
-    );
+    return RemoteTrackData(
+        bytes: Uint8List.fromList(<int>[1]), fileExtension: tag);
   }
 }
 
@@ -56,9 +56,9 @@ void main() {
     );
   });
 
-  test('open routes to the member that owns the scheme', () async {
+  test('fetch routes to the member that owns the scheme', () async {
     final data = await router
-        .open(const Track(id: 's1', title: 'x', uri: 'subsonic:s1'));
+        .fetch(const Track(id: 's1', title: 'x', uri: 'subsonic:s1'));
 
     expect(data.fileExtension, 's');
     expect(subsonic.fetched, <String>['s1']);
@@ -67,7 +67,7 @@ void main() {
 
   test('throws for a track no member can fetch', () {
     expect(
-      () => router.open(const Track(id: 'l', title: 'x', uri: '/a.mp3')),
+      () => router.fetch(const Track(id: 'l', title: 'x', uri: '/a.mp3')),
       throwsA(isA<StateError>()),
     );
   });

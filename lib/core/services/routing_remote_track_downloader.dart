@@ -7,7 +7,7 @@ import 'remote_track_downloader.dart';
 ///
 /// Mirrors `RoutingPlayableUriResolver`/`RoutingCastMediaResolver`: each source
 /// contributes its own downloader, composed here. [isRemote] is true when any
-/// member claims the track; [open] uses the first member that does. An
+/// member claims the track; [fetch] uses the first member that does. An
 /// on-device track (no member claims it) reports `isRemote == false`, so the
 /// download policy skips it — it is already local.
 class RoutingRemoteTrackDownloader implements RemoteTrackDownloader {
@@ -20,10 +20,13 @@ class RoutingRemoteTrackDownloader implements RemoteTrackDownloader {
       _downloaders.any((RemoteTrackDownloader d) => d.isRemote(track));
 
   @override
-  Future<RemoteTrackDownload> open(Track track) async {
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
     for (final RemoteTrackDownloader downloader in _downloaders) {
       if (downloader.isRemote(track)) {
-        return downloader.open(track);
+        return downloader.fetch(track, onProgress: onProgress);
       }
     }
     throw StateError('No remote downloader can fetch this track.');

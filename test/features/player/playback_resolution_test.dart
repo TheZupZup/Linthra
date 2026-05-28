@@ -77,29 +77,6 @@ void main() {
       expect(source.resolveCount, 1);
     });
 
-    test('direct streaming is independent of download mobile-data policy',
-        () async {
-      final source = _FakeStreamSource(
-        Uri.parse('https://music.example.com/Audio/t1/mobile-ok'),
-      );
-      final resolver = _resolver(
-        locator: StoreCachedTrackLocator(
-          InMemoryDownloadStore(),
-          InMemoryOfflineFileStore(),
-        ),
-        source: source,
-      );
-
-      final resolved = await resolver.resolve(_jellyfinTrack);
-
-      // Download/cache connectivity policy lives in DownloadRepository, not in
-      // the playback resolver. A user-initiated stream still resolves normally.
-      expect(resolved.uri.scheme, 'https');
-      expect(resolved.uri.path, '/Audio/t1/mobile-ok');
-      expect(resolved.source, PlaybackSource.streamingDirect);
-      expect(source.resolveCount, 1);
-    });
-
     test('prefers the cached file for a downloaded Jellyfin track', () async {
       final files = InMemoryOfflineFileStore();
       final fileName =

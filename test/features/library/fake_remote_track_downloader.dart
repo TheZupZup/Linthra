@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/remote_track_downloader.dart';
 
@@ -14,11 +12,12 @@ class FakeRemoteTrackDownloader implements RemoteTrackDownloader {
   bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
 
   @override
-  Future<RemoteTrackDownload> open(Track track) async {
-    return RemoteTrackDownload(
-      chunks: Stream<List<int>>.value(<int>[1, 2, 3, 4]),
-      contentLength: 4,
-      fileExtension: 'mp3',
-    );
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    onProgress?.call(4, 4);
+    return const RemoteTrackData(
+        bytes: <int>[1, 2, 3, 4], fileExtension: 'mp3');
   }
 }
