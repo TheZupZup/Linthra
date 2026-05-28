@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/catalog/library_grouping.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/track.dart';
-import 'package:linthra/features/library/library_grouping.dart';
 
 /// A track shaped like the Jellyfin mapper's output: an opaque `jellyfin:<id>`
 /// uri (never a stream URL) and a token-free primary-image artwork URL.

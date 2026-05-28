@@ -61,7 +61,8 @@ class is bound to its interface, and where tests swap in fakes.
 | Downloads & offline cache | `lib/data/repositories/cache_download_repository.dart` |
 | Smart pre-cache | `lib/core/services/smart_precache_service.dart` |
 | The local library the UI reads | `lib/core/repositories/music_library_repository.dart` + `lib/data/database/` |
-| Search / albums / artists grouping | `lib/features/library/library_search.dart`, `library_grouping.dart` |
+| Search | `lib/features/library/library_search.dart` |
+| Albums / artists grouping + text folding | `lib/core/catalog/library_grouping.dart`, `lib/core/catalog/text_folding.dart` (shared by the Library UI and the Android Auto browse tree) |
 | Playlists & favorites | `lib/features/playlists/`, `lib/features/favorites/` |
 | Smart mixes | `lib/features/smart_mixes/`, `lib/core/services/smart_playlist_resolver.dart` |
 | Diagnostics & "Report a bug" | `lib/core/diagnostics/`, `lib/features/settings/bug_report/` |
@@ -224,8 +225,9 @@ reads the local catalog through `MusicLibraryRepository`
   `library_search.dart` filter the in-memory list as you type, normalizing case
   and accents so "Bjork" finds "Björk".
 - **Albums & artists** aren't stored as separate rows — they're *derived* from
-  the track list by `library_grouping.dart`, which is the one place grouping
-  and stable IDs live so the list and the detail screens never disagree.
+  the track list by `lib/core/catalog/library_grouping.dart`, which is the one
+  place grouping and stable IDs live so the list, the detail screens, and the
+  Android Auto browse tree never disagree.
 - **Playlists** (`lib/features/playlists/`) are user-authored and have their own
   lifecycle (`PlaylistRepository`), separate from the source-derived catalog;
   they sync to Jellyfin where supported.

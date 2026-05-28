@@ -1,9 +1,9 @@
 import 'dart:convert';
 
-import '../../core/models/album.dart';
-import '../../core/models/artist.dart';
-import '../../core/models/track.dart';
-import 'library_search.dart' show foldText;
+import '../models/album.dart';
+import '../models/artist.dart';
+import '../models/track.dart';
+import 'text_folding.dart';
 
 /// Derives [Album] and [Artist] groupings from the flat track catalog.
 ///
@@ -16,10 +16,12 @@ import 'library_search.dart' show foldText;
 /// and so fold into a single "Unknown Album" / "Unknown Artist"). Persisting
 /// source album/artist IDs for sharper grouping is a documented follow-up.
 ///
-/// Grouping keys are built from [foldText], so case and accents never split one
-/// album/artist into two. Album identity is (album title + artist) so two
-/// different artists' "Greatest Hits" stay distinct; tracks with no album fold
-/// into one "Unknown Album" regardless of artist. All ordering uses total
+/// Lives in `core` so both the Library UI and the Android Auto browse tree share
+/// one grouping implementation (the browse tree must not reach into the library
+/// feature). Grouping keys are built from [foldText], so case and accents never
+/// split one album/artist into two. Album identity is (album title + artist) so
+/// two different artists' "Greatest Hits" stay distinct; tracks with no album
+/// fold into one "Unknown Album" regardless of artist. All ordering uses total
 /// comparators (every tie broken down to the stable id), so a given catalog
 /// always produces the exact same order — sorting is predictable and stable.
 
@@ -44,8 +46,8 @@ String _albumKey(String album, String artist) =>
 /// The stable album id [track] belongs to. Tracks with no album title share the
 /// single [_unknownAlbumId]; otherwise the id is `al-` + a base64url encoding of
 /// the (title, artist) key. Every character is URL-safe (so the id can ride in
-/// a route path untouched) and the `al-` prefix can never produce the unknown
-/// sentinel, so the two never collide.
+/// a route path — or an Android Auto media id — untouched) and the `al-` prefix
+/// can never produce the unknown sentinel, so the two never collide.
 String albumIdForTrack(Track track) {
   final String album = foldText(track.albumName ?? '');
   if (album.isEmpty) return _unknownAlbumId;

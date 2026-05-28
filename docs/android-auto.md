@@ -16,7 +16,8 @@ troubleshoot.
 | Capability | Status |
 | --- | --- |
 | Listed as an Android Auto **media app** | ✅ (manifest + automotive descriptor; needs "unknown sources" for sideloaded builds — see below) |
-| Browsable tree (Library / Queue / Playlists / Favorites) | ✅ |
+| Browsable tree (Songs / Albums / Artists / Playlists / Favorites / Offline / Queue) | ✅ |
+| Album / artist grouping in the car | ✅ (derived from the synced catalog, same grouping as the phone) |
 | Play a track from the car; queue the rest | ✅ |
 | Transport controls (play / pause / next / previous / seek) | ✅ |
 | Hardware / steering-wheel / Bluetooth Next / Previous | ✅ (same media session) |
@@ -25,9 +26,11 @@ troubleshoot.
 | Tap a row in the car's Up Next list (skip-to-queue-item) | ✅ |
 | Shuffle / repeat from the car | ✅ |
 | Now-playing metadata (title / artist / album / artwork) | ✅ (artwork depends on `Track.artworkUri`) |
+| Offline / downloaded section | ✅ (user downloads only — smart pre-cache is not listed) |
 | Cast-safe (no duplicate local playback while casting) | ✅ |
-| Search from Android Auto | ❌ (not implemented) |
-| Album / artist / folder grouping in the car | ❌ (flat lists) |
+| Search from Android Auto | ❌ (not implemented — [follow-up](#known-limitations)) |
+| Folder grouping in the car | ❌ (Songs is a flat list; albums/artists are grouped) |
+| Recently added / smart mixes in the car | ❌ ([follow-up](#known-limitations)) |
 | Custom car screens / content-style hints | ❌ (intentionally — safe browsing only) |
 
 Linthra exposes a **standard `MediaBrowserService` + media session** via the
@@ -58,8 +61,18 @@ recommended model for a media app.
 - `lib/core/services/media_browser_tree.dart` (`MediaBrowserTree`) is **pure
   Dart**: it builds the browse tree from the `MusicLibraryRepository`, a
   `PlaybackState` snapshot, and (when wired) the `PlaylistRepository` /
-  `FavoritesRepository`. No `audio_service` type and no widget dependency, so it
-  is fully unit-tested.
+  `FavoritesRepository` / `DownloadRepository`. No `audio_service` type and no
+  widget dependency, so it is fully unit-tested.
+- Albums and artists are **derived from the track catalog** (Linthra stores no
+  album/artist ids), via the shared grouping in
+  `lib/core/catalog/library_grouping.dart` — the **same** grouping the in-app
+  Library tabs use, so the car and the phone show identical albums/artists.
+  Browsing reads only the local synced catalog; it never calls a remote server
+  or mints a stream URL.
+- The **Offline** section reads `DownloadRepository.downloadedTrackIds()`, which
+  reports only **user-initiated downloads** — smart pre-cached tracks are
+  deliberately not marked downloaded, so they never appear here (it mirrors the
+  in-app Downloads screen exactly).
 - `lib/core/services/linthra_audio_handler.dart` (`LinthraAudioHandler`) is the
   only file that imports `audio_service`. It maps `MediaNode`s to media items,
   forwards transport commands to the single `PlaybackController`, and turns a
@@ -98,30 +111,57 @@ repeat stay consistent however you press a button.
 
 ```
 root
-├── Library    → every catalog track
-├── Queue      → current track + up-next (only populated while something plays)
+├── Songs      → every catalog track (flat list)
+├── Albums     → albums (browsable)
+│   └── <album>   → that album's tracks, in track-number order
+├── Artists    → artists (browsable)
+│   └── <artist>  → that artist's tracks, album by album
 ├── Playlists  → your playlists (only shown when you have some)
 │   └── <playlist> → that playlist's tracks
-└── Favorites  → your favourited tracks (only shown when you have some)
+├── Favorites  → your liked tracks (only shown when you have some)
+├── Offline    → your downloaded tracks (only shown when you have some)
+└── Queue      → current track + up-next (only populated while something plays)
 ```
+
+Selecting a track plays it and queues the rest of **the list it was opened
+from** (the album's tracks for an album track, the artist's for an artist track,
+the playlist's for a playlist track, …) — exactly like tapping a track in that
+screen on the phone.
 
 Stable media IDs:
 
 | Node | ID form |
 | --- | --- |
-| Library category | `library` |
-| Library track | `library/<trackId>` |
-| Queue category | `queue` |
-| Queue item | `queue/<index>` |
+| Songs category | `library` |
+| Song / library track | `library/<trackId>` |
+| Albums category | `albums` |
+| An album (container) | `album/<albumId>` |
+| Album track | `album/<albumId>/<index>` |
+| Artists category | `artists` |
+| An artist (container) | `artist/<artistId>` |
+| Artist track | `artist/<artistId>/<index>` |
 | Playlists category | `playlists` |
-| A playlist | `playlist/<playlistId>` |
+| A playlist (container) | `playlist/<playlistId>` |
 | Playlist track | `playlist/<playlistId>/<index>` |
 | Favorites category | `favorites` |
 | Favorite track | `favorite/<index>` |
+| Offline category | `offline` |
+| Offline track | `offline/<index>` |
+| Queue category | `queue` |
+| Queue item | `queue/<index>` |
+| Empty-state placeholder | `empty` |
 
-`Playlists` and `Favorites` only appear when you actually have some, so the car
-never shows an empty dead-end. A favourite / playlist track id that isn't in the
-on-device catalog yet is skipped (it can't be played until synced).
+`<albumId>` / `<artistId>` are URL-safe, **opaque** grouping ids (a base64url
+token, or an `unknown-album` / `unknown-artist` sentinel) — never a name, path,
+or token.
+
+- **Songs / Albums / Artists** are always shown (they reflect the catalog). When
+  the catalog is empty, opening one shows a friendly placeholder ("Sync your
+  library first", "No albums yet", …) instead of a blank screen.
+- **Playlists / Favorites / Offline** only appear when you actually have some, so
+  the car never shows an empty dead-end. A favourite / playlist / downloaded
+  track id that isn't in the on-device catalog yet is skipped (it can't be played
+  until synced).
 
 ## Security / token notes
 
@@ -138,8 +178,11 @@ Android Auto media items are deliberately **secret-free**:
   Jellyfin, and `null` for Subsonic/local — so no credential rides along in
   artwork either.
 - The diagnostic log (see below) prints only the **category** of a media id
-  (e.g. `library`, `playlist`, `favorite`) and small counts — never a raw id,
-  title, URI, or token.
+  (e.g. `library`, `album`, `artist`, `playlist`, `favorite`, `offline`) and
+  small counts — never a raw id, title, URI, or token.
+- Album/artist grouping ids and the cover-art URL never carry a token: art is
+  the **token-free** `Track.artworkUri` (the public image endpoint, or null),
+  the same source the now-playing card already uses.
 
 ## Diagnostics / logging
 
@@ -160,9 +203,10 @@ You should see, in order:
 - `browse: root -> N children` — Android Auto bound and requested the root. If
   you never see a `browse:` line after connecting, Android Auto isn't binding
   (usually the "unknown sources" gate — see troubleshooting).
-- `browse: library -> N children` — a category was opened; `N` tells you whether
-  the catalog is populated.
-- `play: library resolved=true` — a selection resolved to something playable.
+- `browse: albums -> N children` (or `library`, `artists`, `offline`, …) — a
+  category was opened; `N` tells you whether the catalog is populated.
+- `play: album-track resolved=true` — a selection resolved to something
+  playable. `resolved=false` means a stale id resolved to nothing.
 
 ## Build / install
 
@@ -198,8 +242,8 @@ verify the browse tree and playback from a desk.
    $ANDROID_SDK/extras/google/auto/desktop-head-unit
    ```
 5. In the DHU, open the **media app launcher** and confirm **Linthra** is listed.
-   Open it, browse **Library / Playlists / Favorites**, play a track, and test
-   the transport controls.
+   Open it, browse **Songs / Albums / Artists** (and **Playlists / Favorites /
+   Offline** if you have any), play a track, and test the transport controls.
 
 Reference: <https://developer.android.com/training/cars/testing/dhu>
 
@@ -212,31 +256,36 @@ mode → **Add unknown sources** enabled for a sideloaded build.
 
 1. Build and install the debug or release APK (see [Build / install](#build--install)).
 2. **Open Linthra once on the phone.**
-3. Sign in / sync Jellyfin or Navidrome if you use one (so the catalog persists).
+3. Sign in / sync Jellyfin or Navidrome if you use one (so the catalog persists);
+   download a couple of tracks for offline if you want to test the Offline row.
 4. Enable Android Auto **Developer mode → Add unknown sources** (sideloaded builds).
 5. Connect the phone to Android Auto (USB or wireless) — or start the DHU.
-6. Open the Android Auto **app launcher / media list**.
-7. Confirm **Linthra appears**.
-8. Open Linthra.
-9. Browse **Library** (and **Playlists** / **Favorites** if you have any).
-10. Play a track — confirm it starts and the rest of the list becomes up-next.
-11. Press the car / head-unit **Next** — confirm Linthra skips to the next track.
-12. Press the car / head-unit **Previous** — confirm it goes to the previous
-    track (it steps back; it does not restart the current track first).
-13. Press **Play / Pause** — confirm the play state stays in sync both ways.
+6. Open the Android Auto **app launcher / media list** and confirm **Linthra
+   appears**; open it.
+7. Browse **Songs** and play a track — confirm it starts and the rest of the list
+   becomes up-next.
+8. Browse **Albums**, open an album, play a track — confirm the queue is that
+   album, in track order.
+9. Browse **Artists**, open an artist, play a track — confirm the queue is that
+   artist's tracks.
+10. Browse **Playlists**, open a playlist, play a track (if you have any).
+11. Browse **Favorites** and play a track (if you have any liked tracks).
+12. Browse **Offline** and play a downloaded track (if you have any) — confirm it
+    plays (ideally with the phone offline, to prove no network is needed).
+13. Press the car / head-unit **Next** / **Previous** — confirm Linthra skips
+    correctly (Previous steps back; it does not restart the current track first).
 14. Open the car's **Up Next** list and tap a row — confirm playback jumps to it.
-15. Test **shuffle / repeat** from the car.
+15. Test **shuffle / repeat** and **Play / Pause** — confirm both stay in sync.
 16. **Lock the phone screen** and press car **Next** — confirm music keeps
     playing and skips correctly (no drop-out during the track change).
-17. If you have a steering wheel or **Bluetooth** remote / headset, test its
-    **Next / Previous / Play-Pause** — they should drive Linthra too.
-18. Reopen Linthra on the phone — confirm it shows the **correct current track**
-    after using the car controls.
-19. Disconnect and reconnect — confirm the app still appears and resumes.
-20. With a **Cast** session active, select a track (and press Next) from Android
+17. Reopen Linthra on the phone — confirm it shows the **correct current track**
+    and **no duplicate playback**.
+18. With a **Cast** session active, select a track (and press Next) from Android
     Auto and confirm **no duplicate audio starts on the phone** (it follows the
     receiver).
-21. Skim `adb logcat | grep Linthra.AndroidAuto` — confirm **no tokens or
+19. On the car screen, confirm **no private server URL, token, or file path** is
+    ever shown (only titles, artists, albums).
+20. Skim `adb logcat | grep Linthra.AndroidAuto` — confirm **no tokens or
     authenticated stream URLs** appear (only category labels and counts).
 
 ## Troubleshooting
@@ -257,13 +306,19 @@ mode → **Add unknown sources** enabled for a sideloaded build.
 4. **Re-install and reconnect.** Android Auto caches its media-app list; toggling
    the connection or restarting Android Auto refreshes it.
 
-### Library (or a category) is empty
+### A section is empty
 
 - The browse tree reads the **persisted** catalog. Open Linthra on the phone and
   let it scan a local folder and/or sync your Jellyfin/Navidrome library first.
-- `Playlists` / `Favorites` only show when you have some; a favourite or playlist
-  track that hasn't been synced to the on-device catalog is skipped.
-- Check `adb logcat | grep Linthra.AndroidAuto` for `browse: library -> 0
+  Until then, **Songs / Albums / Artists** show a friendly placeholder ("Sync
+  your library first", "No albums yet", …) rather than a blank screen.
+- `Playlists` / `Favorites` / `Offline` only show at the root when you have some;
+  a favourite / playlist / downloaded track that hasn't been synced to the
+  on-device catalog is skipped.
+- **Offline** lists only **user-downloaded** tracks. Smart pre-cached tracks are
+  not counted as downloads, so they don't appear here — download a track from the
+  app to see it in the car.
+- Check `adb logcat | grep Linthra.AndroidAuto` for `browse: albums -> 0
   children` — that confirms the bind works but the catalog is empty.
 
 ### Playback controls don't work
@@ -289,8 +344,19 @@ mode → **Add unknown sources** enabled for a sideloaded build.
 
 - **Sideloaded builds need "unknown sources"** (see above) — a device setting,
   not something Linthra can change.
-- The browse tree is **flat**: no album/artist/folder grouping and no
-  search-from-Auto; large libraries are not paged.
+- **Search from Android Auto is not implemented** (voice "play …" and the car's
+  search box). It's a planned follow-up: the browse leaves already have stable,
+  resolvable ids, so search can return them without new playback plumbing.
+- **No folder grouping** and **no "Recently added" / smart-mixes** rows in the
+  car yet (both are deliberate follow-ups to keep this change focused and the car
+  tree simple). Songs is a flat list; Albums and Artists are grouped.
+- **Large libraries are not paged**: the browse tree reads the whole synced
+  catalog into memory and groups it per request. This is local-only (it never
+  calls a server), but a very large catalog builds a long list. Paging via the
+  `MediaBrowser` page options is a follow-up.
+- **Artists open a flat track list** (album by album), not a list of album
+  sub-folders. Selecting a track queues the whole artist; album sub-folders under
+  an artist are a possible follow-up.
 - The now-playing **Up Next** list mirrors the app's queue and you can tap a row
   to jump to it, but you **can't reorder or remove** queue items from the car
   (do that in the app). The browsable **Queue** category is likewise read + jump.
