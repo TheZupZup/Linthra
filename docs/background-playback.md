@@ -36,6 +36,23 @@ track — and reports `playing: false` only on a real user pause, stop, idle,
 completion, or error. The buffering/loading state still drives the notification
 spinner; the foreground service stays up.
 
+### A second screen-off cause: the transient reload idle
+
+Keeping the session `playing` across buffering and `loading` closed most of the
+gap, but one transition could still demote the service. The `just_audio` engine
+pushes a fresh, default playback event — whose processing state is `idle` — at
+the very *start* of every source load (`setUrl`), i.e. on **every track change
+and every mid-stream retry reload**, while it is still "playing". Forwarding
+that momentary `idle` made the session report `playing: false` for an instant
+exactly as the next track loaded — long enough, with the screen off, for the OS
+to freeze the backgrounded process (so audio cut out a short time in, typically
+at the first track boundary, and only resumed when the app was reopened).
+
+The fix: the controller is the **sole authority on going idle** — it starts idle
+and emits its own idle from `stop()` — so it drops the engine's raw `idle` event
+entirely. A reload now moves `playing → loading → playing` with no
+`playing: false` gap, while a real stop still releases the service.
+
 ## Notification permission (Android 13+)
 
 On Android 13+ the media notification and its lock-screen / Bluetooth transport
