@@ -48,6 +48,9 @@ Play or F-Droid**, and it has honest, documented rough edges (see
 [Roadmap](#-roadmap) and the per-feature docs). That's exactly why it's a great
 time to jump in — small contributions land fast and shape where it goes.
 
+> **F-Droid readiness is in progress** (not yet submitted, not yet on F-Droid) —
+> see [docs/fdroid-readiness.md](./docs/fdroid-readiness.md).
+
 ## 📸 Screenshots
 
 Linthra ships with real branding — an equalizer mark carrying a violet→orange
