@@ -20,14 +20,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Build on JDK 21 to match F-Droid's build servers, so this PR's CI
-      # exercises the same Java the F-Droid build uses. The Android Gradle
-      # tooling (AGP 8.2.1 / Gradle 8.7 / Kotlin 1.9.24) supports JDK 21.
+      # Pin to Temurin JDK 17 — the version this Android toolchain
+      # (AGP 8.2.1 / Gradle 8.7 / Kotlin 1.9.24) is built and tested against.
+      # Kept in sync with android-release-build.yml so debug and release CI
+      # builds use the same JDK as the release artifacts. setup-java exports
+      # JAVA_HOME, which Flutter and the Gradle daemon pick up for the build.
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "17"
 
       # Keep this Flutter version in sync with .github/workflows/ci.yml.
       - name: Set up Flutter
