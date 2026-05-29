@@ -156,7 +156,7 @@ reusable copies under `fastlane/metadata/android/en-US/images/`):
 
 Google Play requires a **Data Safety** form for every app. A Linthra-specific
 draft of the likely answers lives in
-[docs/google-play-data-safety.md](./google-play-data-safety.md). Before
+[docs/play-store-data-safety.md](./play-store-data-safety.md). Before
 submission:
 
 - [ ] Confirm **no ads** SDK is present (none today).
@@ -202,7 +202,7 @@ internal/closed testing.
 3. **Privacy policy published at a public URL** **(closed-testing blocker)** —
    draft in [docs/privacy-policy.md](./privacy-policy.md).
 4. **Data Safety form completed** in the Play Console **(closed-testing
-   blocker)** — draft in [docs/google-play-data-safety.md](./google-play-data-safety.md).
+   blocker)** — draft in [docs/play-store-data-safety.md](./play-store-data-safety.md).
 5. **Target API level** meets Play's current minimum. Linthra inherits
    `targetSdk` from `flutter.targetSdkVersion` (`android/app/build.gradle`), so
    the effective value depends on the pinned Flutter SDK. Play raises the
@@ -348,16 +348,89 @@ or other access restriction, so a reviewer can reach it.
   credentials to the repo or this doc. This is optional: the reviewer can fully
   exercise the local-playback experience without it.
 
+> A ready-to-paste **App-access instructions** template and a full reviewer
+> walkthrough (local-file testing, what the optional server login means) live in
+> [docs/play-store-review-notes.md](./play-store-review-notes.md).
+
 ### Government / financial / health declarations
 
 - Linthra is **none of these** (it is a music player). Answer the Console's
   "Is your app a government app / financial app / health app?" prompts **No**.
 
-## 14. Related docs
+## 14. Release checklist (consolidated)
+
+A single pass to run when preparing a Play upload. Most items link to the
+section/doc with the detail; this is the at-a-glance list. **Nothing here
+publishes automatically — every Play Console step is a manual action by the
+maintainer.**
+
+### Before the Play Console
+
+- [ ] Merge the stable release PR(s) to `main`; CI green (analyze, test, format).
+- [ ] Create the release **tag** (`vX.Y.Z[-suffix]`) — the version source of
+      truth (§11, [release-process.md §2](./release-process.md#2-tagging)).
+- [ ] Verify **versionName / versionCode** are tag-derived and `versionCode` is
+      **strictly greater** than every code ever uploaded to Play, on any track
+      (§11). Preview with `dart run tool/version_from_tag.dart vX.Y.Z`.
+- [ ] Build a **release-signed AAB** locally or via the release workflow
+      (§3–§4, [release-signing.md](./release-signing.md)). A **debug-signed**
+      build must never be uploaded.
+- [ ] **Install and test the release build** on a real device:
+  - [ ] app **starts** cleanly;
+  - [ ] **local playback** works (pick a folder, scan, play);
+  - [ ] **Jellyfin / Navidrome / Subsonic** connect + stream, *if a server is
+        available*;
+  - [ ] **background playback** continues with the **screen off**;
+  - [ ] **Cast** works, *if a Cast device is available*;
+  - [ ] **Android Auto** browse/play works, *if a head unit / DHU is available*.
+- [ ] Verify **no private URLs, usernames, tokens, or local paths** appear in the
+      screenshots, the listing copy, this repo's docs, or any pasted logs
+      (§6, [listing-assets.md §6](./listing-assets.md#6-committed-screenshots)).
+
+### In the Play Console
+
+- [ ] **App name** (`Linthra`) and **short description** (§1 of
+      [play-store-listing.md](./play-store-listing.md)).
+- [ ] **Full description** (paste
+      `fastlane/metadata/android/en-US/full_description.txt`).
+- [ ] **App category** — *Music & Audio* (§13).
+- [ ] **Screenshots** — 2–8 phone shots, cropped to Play's ≤ 2:1 ratio
+      ([play-store-listing.md §7](./play-store-listing.md#7-screenshots--recommended-play-order)).
+- [ ] **Feature graphic** (1024×500, `images/featureGraphic.png`).
+- [ ] **Privacy policy URL** — publish [privacy-policy.md](./privacy-policy.md)
+      at a stable public URL and paste it (§8).
+- [ ] **Data Safety** form
+      ([play-store-data-safety.md](./play-store-data-safety.md), §7).
+- [ ] **Content rating** questionnaire (answer from the shipped build, §9.8).
+- [ ] **Target audience and content** — general audience, not child-directed
+      (§13).
+- [ ] **App access** instructions — local-first works with no account; add
+      optional throwaway server creds in the Console only
+      ([play-store-review-notes.md](./play-store-review-notes.md), §13).
+- [ ] Upload to **internal testing** first; smoke-test the whole flow end to end.
+- [ ] **Closed / open testing** as required (note the newer-account 12-tester /
+      14-day rule, §5).
+- [ ] **Production** only after internal/closed testing and the §9 blockers are
+      cleared.
+
+### After release
+
+- [ ] Monitor crashes/ANRs via **Play Console native vitals only** — do **not**
+      add a third-party crash/analytics SDK (it would change the Data Safety
+      answers and the privacy posture).
+- [ ] Track user feedback (Play reviews + GitHub issues).
+- [ ] Keep **GitHub Releases aligned** with what is on Play (same tag/version).
+- [ ] Keep the **F-Droid** work separate — F-Droid builds and signs from source
+      on its own infrastructure ([fdroid-readiness.md](./fdroid-readiness.md));
+      a Play upload does not change anything for F-Droid.
+
+## 15. Related docs
 
 - [docs/privacy-policy.md](./privacy-policy.md) — privacy policy draft.
-- [docs/google-play-listing.md](./google-play-listing.md) — store listing draft.
-- [docs/google-play-data-safety.md](./google-play-data-safety.md) — Data Safety
+- [docs/play-store-listing.md](./play-store-listing.md) — store listing draft.
+- [docs/play-store-review-notes.md](./play-store-review-notes.md) — reviewer /
+  app-access notes.
+- [docs/play-store-data-safety.md](./play-store-data-safety.md) — Data Safety
   form prep.
 - [docs/release-process.md](./release-process.md) — versioning, tagging, and the
   release-build workflow.
