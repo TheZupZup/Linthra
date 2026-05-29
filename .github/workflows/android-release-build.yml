@@ -185,14 +185,25 @@ jobs:
           echo "LINTHRA_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
           echo "Release keystore decoded to a temporary path."
 
-      # Build on JDK 21 to match F-Droid's build servers and modern Android
-      # toolchains. The Android Gradle tooling (AGP 8.2.1 / Gradle 8.7 / Kotlin
-      # 1.9.24) supports JDK 21; the release artifacts build identically on it.
+      # Pin to Temurin JDK 17 — the version this Android toolchain
+      # (AGP 8.2.1 / Gradle 8.7 / Kotlin 1.9.24) is built and tested against.
+      # Newer JDKs on the GitHub runner have caused the lint/Jetifier step to
+      # die on byte-buddy's multi-release classes ("Unsupported class file
+      # major version 68"); JDK 17 keeps Gradle's bundled ASM compatible with
+      # every class file it has to scan. setup-java exports JAVA_HOME, which
+      # Flutter and the Gradle daemon pick up as the JDK for the build.
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "17"
+
+      # Quick sanity check so a future JDK drift shows up directly in the log
+      # instead of as a confusing lint/Jetifier crash.
+      - name: Show Java environment
+        run: |
+          java -version
+          echo "JAVA_HOME=$JAVA_HOME"
 
       # Keep this Flutter version in sync with .github/workflows/ci.yml.
       - name: Set up Flutter
