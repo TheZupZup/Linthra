@@ -306,7 +306,7 @@ them honestly in the Console. Drafted answers for Linthra:
 - **Tags:** Play allows a few descriptive tags; pick the relevant ones (e.g.
   *music player*, *audio player*) without keyword-stuffing. These are distinct
   from the listing keywords in
-  [google-play-listing.md §6](./google-play-listing.md#6-suggested-keywords).
+  [play-store-listing.md §6](./play-store-listing.md#6-suggested-keywords).
 - **Contains ads:** **No.** Linthra has no ad SDK and shows no ads (keep this
   consistent with the Data Safety form and listing).
 
