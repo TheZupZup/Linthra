@@ -1,11 +1,20 @@
-/// Derives Android/app version metadata from a Git release tag.
+/// Canonical encoding of a Git release tag to a `versionName`/`versionCode`
+/// pair.
 ///
-/// This is the **single source of truth** for how a `v*` tag becomes the
-/// `versionName`/`versionCode` baked into a release build. The release workflow
-/// (`.github/workflows/android-release-build.yml`) runs this on the pushed tag
-/// and feeds the result to `flutter build` (`--build-name`/`--build-number`)
-/// and to the in-app version (`--dart-define=LINTHRA_VERSION_NAME=...`).
-/// `test/tooling/version_from_tag_test.dart` exercises the rules below.
+/// `pubspec.yaml` is the single source of truth for what a build actually
+/// ships (see docs/release-process.md §1) — a plain `flutter build` (CI,
+/// local, and F-Droid alike) reads `versionName`/`versionCode` straight from
+/// it, with no `--build-name`/`--build-number`/`--dart-define` flags.
+///
+/// What this tool defines is the *rule* a tag's `+versionCode` must follow:
+/// for any supported `v*` tag, the canonical `versionCode` is the one this
+/// tool computes. `scripts/release_preflight.sh` (called locally before
+/// tagging and by the GitHub release workflow on a `v*` push) verifies that
+/// `pubspec.yaml`'s `version: <name>+<code>` matches that canonical encoding —
+/// so the tag, `pubspec.yaml`, and F-Droid can never disagree. The bash
+/// encoding in that script mirrors this Dart encoding, and
+/// `test/tooling/version_from_tag_test.dart` plus
+/// `test/tooling/release_preflight_test.dart` keep the two in lockstep.
 ///
 /// ## Tag format
 ///
