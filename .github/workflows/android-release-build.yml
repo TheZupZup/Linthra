@@ -218,40 +218,49 @@ jobs:
 
       # pubspec.yaml is the source of truth for the release version; each release
       # bumps `version: <name>+<code>` to match the tag (docs/release-process.md
-      # §1 & §3). Re-derive the canonical versionName/versionCode from the pushed
-      # tag (tool/version_from_tag.dart) and FAIL FAST if pubspec.yaml does not
-      # match it — so a tag is never built against a stale pubspec, and the
-      # F-Droid build (which reads pubspec.yaml) always agrees with this one. A
-      # malformed tag also stops the run here, before any expensive build. The
-      # verified values are exported for the APK-verification and summary steps.
+      # §1 & §3). scripts/release_preflight.sh re-derives the canonical
+      # versionName/versionCode from the pushed tag (same rules as
+      # tool/version_from_tag.dart, kept in lockstep by
+      # test/tooling/release_preflight_test.dart) and FAILS FAST if pubspec.yaml
+      # does not match it — so a tag is never built against a stale pubspec, and
+      # the F-Droid build (which reads pubspec.yaml) always agrees with this one.
+      # A malformed tag also stops the run here, before any expensive build.
+      #
+      # On a tag/pubspec mismatch we ALSO write a clearly-labeled
+      # "Version mismatch: release was not built." entry to the job summary so
+      # the GitHub Actions run page reads as a release that did not build —
+      # never confused with an APK build failure (the build never ran). The
+      # contributor sees the same wording locally because they ran the same
+      # script (see docs/release-process.md §3 step 9). We pass --no-app-info
+      # here because the AppInfo drift is already covered by the CI workflow's
+      # `flutter test` step (test/core/app_info_version_test.dart).
       - name: Verify the tag matches pubspec.yaml
         if: ${{ steps.mode.outputs.trigger == 'tag' }}
         id: version
         run: |
           set -euo pipefail
-          if ! derived="$(dart run tool/version_from_tag.dart "$GITHUB_REF_NAME")"; then
-            echo "::error::Could not derive a version from tag '$GITHUB_REF_NAME' (see the error above). Use a tag like v0.1.0-alpha.16, v0.1.0-rc.1, or v1.2.3."
-            exit 1
+          out_file="$RUNNER_TEMP/release-preflight.out"
+          status=0
+          scripts/release_preflight.sh "$GITHUB_REF_NAME" --no-app-info > "$out_file" 2>&1 || status=$?
+          cat "$out_file"
+          if [ "$status" -ne 0 ]; then
+            # printf with single-quoted format strings: backslash is preserved
+            # literally inside single quotes, so do not escape the backticks
+            # (they're not metacharacters here either).
+            {
+              printf '### Version mismatch: release was not built.\n\n'
+              printf 'The pushed tag did not match `pubspec.yaml` (or was malformed). '
+              printf 'This is **not** an APK build failure — `flutter build` never ran.\n\n'
+              printf 'See the workflow log for the exact tag/pubspec mismatch and the fix '
+              printf '(usually: bump `pubspec.yaml` in a PR, merge it, then create the next '
+              printf 'release tag from `main` — do not move the existing tag). '
+              printf 'See docs/release-process.md §3.\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Version mismatch: release was not built. See log above for the exact tag/pubspec mismatch and fix."
+            exit "$status"
           fi
-          name="$(printf '%s\n' "$derived" | sed -n 's/^LINTHRA_VERSION_NAME=//p')"
-          code="$(printf '%s\n' "$derived" | sed -n 's/^LINTHRA_VERSION_CODE=//p')"
-
-          # Read `version: <name>+<code>` from pubspec.yaml and split on '+'.
-          pubspec="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n1)"
-          pubspec_name="${pubspec%%+*}"
-          pubspec_code="${pubspec#*+}"
-
-          echo "Tag '$GITHUB_REF_NAME' encodes to: ${name}+${code}"
-          echo "pubspec.yaml version:            ${pubspec_name}+${pubspec_code}"
-          if [ "$pubspec_name" != "$name" ] || [ "$pubspec_code" != "$code" ]; then
-            echo "::error::pubspec.yaml version (${pubspec_name}+${pubspec_code}) does not match tag '$GITHUB_REF_NAME' (expected ${name}+${code}). Bump pubspec.yaml's 'version:' to match the tag before tagging — see docs/release-process.md §1 & §3."
-            exit 1
-          fi
-          echo "Verified: pubspec.yaml matches the tag."
-          {
-            printf 'LINTHRA_VERSION_NAME=%s\n' "$name"
-            printf 'LINTHRA_VERSION_CODE=%s\n' "$code"
-          } | tee -a "$GITHUB_ENV" >> "$GITHUB_OUTPUT"
+          grep -E '^LINTHRA_VERSION_(NAME|CODE)=' "$out_file" \
+            | tee -a "$GITHUB_ENV" >> "$GITHUB_OUTPUT"
 
       # Plain release builds: both manual and tag builds read
       # versionName/versionCode (and the in-app version) from pubspec.yaml —

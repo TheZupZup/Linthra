@@ -189,7 +189,10 @@ F-Droid (and our own release tracking) builds from a **git tag**.
 
 Every release requires three version-linked actions — **bump `pubspec.yaml`**,
 **add the Fastlane changelog**, and **tag the matching version** — plus the usual
-green-CI / generated-files hygiene:
+green-CI / generated-files hygiene. The flow below is the *safe* order; doing
+the version bump in a merged PR **before** creating the tag is what stops the
+"tag pushed against a stale `pubspec.yaml`" failure mode that wasted
+`v0.1.0-alpha.35`.
 
 1. **Choose the version** = the tag you will push, e.g. `v0.1.0-alpha.31`.
    Preview its canonical `versionCode`:
@@ -201,7 +204,7 @@ green-CI / generated-files hygiene:
    ```
 
 2. **Bump the version in `pubspec.yaml` (and its in-app mirror)** — in one
-   commit, since a drift test enforces they agree:
+   commit on a PR, since a drift test enforces they agree:
    - `pubspec.yaml` → `version: 0.1.0-alpha.31+100031` (the `versionName` plus the
      canonical `versionCode` from step 1).
    - `lib/core/app_info.dart` → `AppInfo._devVersionName = '0.1.0-alpha.31'`.
@@ -221,13 +224,74 @@ green-CI / generated-files hygiene:
    `dart run build_runner build --delete-conflicting-outputs` locally, and commit
    the result. The committed output means the F-Droid build needs no `build_runner`
    prebuild (see [fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
-5. **CI is green** (`flutter analyze`, `flutter test`, formatting) on the
-   commit — this includes the version-drift test from step 2.
+5. **Open the version-bump PR and wait for CI green**
+   (`flutter analyze`, `flutter test`, formatting) — this includes the
+   version-drift test from step 2.
 6. **Confirm licensing** is still accurate if dependencies changed — re-run the
    [dependency & license audit](./dependency-license-audit.md).
-7. **Create the annotated tag (§2)** — `vX.Y.Z(-suffix.N)` must equal the
-   `versionName` you set in `pubspec.yaml` (step 2). The tag build re-verifies
-   the match (§4) and fails fast if they diverge.
+7. **Merge the version-bump PR.** Do **not** tag yet — see the warning box
+   below.
+8. **Pull latest `main` locally** so the tag points at the merged bump:
+
+   ```sh
+   git checkout main
+   git pull origin main
+   ```
+
+9. **Run the release preflight script** — the same script the GitHub release
+   workflow runs, so any mismatch fails locally with the same wording instead
+   of wasting a tag:
+
+   ```sh
+   ./scripts/release_preflight.sh v0.1.0-alpha.31
+   # OK: v0.1.0-alpha.31 matches pubspec.yaml version 0.1.0-alpha.31+100031.
+   # ...
+   # Next safe commands:
+   #   git tag -a v0.1.0-alpha.31 -m "Linthra 0.1.0-alpha.31"
+   #   git push origin v0.1.0-alpha.31
+   ```
+
+   The preflight is pure bash — it needs **no** Flutter/Dart toolchain. It
+   checks the same things CI checks: tag shape, canonical `versionCode`,
+   `pubspec.yaml` `version:`, and (locally — CI's `flutter test` already
+   covers it) `AppInfo._devVersionName`. On any mismatch it prints the
+   pushed tag, the expected `pubspec.yaml` version, the actual `pubspec.yaml`
+   version, and the exact fix; nothing is tagged.
+10. **Create the annotated tag (§2)** — `vX.Y.Z(-suffix.N)` must equal the
+    `versionName` you set in `pubspec.yaml` (step 2). The tag build re-verifies
+    the match (§4) and fails fast if they diverge.
+
+    ```sh
+    git tag -a v0.1.0-alpha.31 -m "Linthra 0.1.0-alpha.31"
+    git push origin v0.1.0-alpha.31
+    ```
+
+11. **Watch GitHub Actions.** The Android Release Build workflow runs
+    automatically on a `v*` tag push, re-verifies `pubspec.yaml` matches the
+    tag (§4), builds the APK/AAB, and attaches them to a Release (pre-release
+    for alpha/beta/rc; existing Release only for stable).
+12. **Install the APK and smoke-test** the build before announcing.
+
+> **Warnings (the "lost-tag" failure mode).**
+>
+> * **Never push the tag before the version-bump PR is merged into `main`.**
+>   If `pubspec.yaml` still lists the previous version when the tag lands, the
+>   release workflow's preflight will refuse to build — and the workflow
+>   summary will say so explicitly ("Version mismatch: release was not
+>   built.") so it is not confused with an APK build failure.
+> * **Never reuse or move an already-pushed release tag.** Tags are immutable
+>   to downstream consumers (Android updaters, F-Droid mirrors, GitHub Release
+>   pages). If a wrong tag was pushed, **skip to the next version** — bump
+>   `pubspec.yaml` again, merge, and tag `v0.1.0-alpha.<N+1>`. The skipped
+>   version stays unbuilt; that is the safe outcome.
+> * **The git tag does NOT include the `+versionCode`.** It looks like
+>   `v0.1.0-alpha.31`. `pubspec.yaml`'s `version:` **does** include
+>   `+versionCode` — `0.1.0-alpha.31+100031` — and the canonical encoding
+>   from `tool/version_from_tag.dart` is what `+` must contain.
+> * **A tag/pubspec mismatch is "release was not built"**, not an APK build
+>   failure. The preflight step fails *before* `flutter build` runs, so
+>   nothing was compiled or signed; the fix is to bump `pubspec.yaml` (or
+>   skip to the next version), not to debug Gradle.
 
 ## 4. GitHub Releases (notes manual, artifact build & attachment automatic)
 
@@ -324,7 +388,7 @@ F-Droid does **not** consume our signed artifacts. When/if Linthra is submitted:
 | Quality CI (analyze/test/format) on PRs & `main` | **Automatic** (`ci.yml`). |
 | Debug APK build | Manual (`workflow_dispatch`) + on PRs (`android-debug-apk.yml`). |
 | Release APK/AAB build | **Manual** (`workflow_dispatch`) **and automatic on `v*` tags** (`android-release-build.yml`). |
-| Verifying the tag matches `pubspec.yaml` (versionName/versionCode) | **Automatic** on a `v*` tag build (`tool/version_from_tag.dart`); fails fast on a mismatch. Both manual and tag builds take the version from `pubspec.yaml`. |
+| Verifying the tag matches `pubspec.yaml` (versionName/versionCode) | **Automatic** on a `v*` tag build (`scripts/release_preflight.sh`, encoding-checked against `tool/version_from_tag.dart`); fails fast on a mismatch and the workflow summary explicitly says "Version mismatch: release was not built." so it is not confused with an APK build failure. The same script is intended to be run locally before tagging (§3 step 9). Both manual and tag builds take the version from `pubspec.yaml`. |
 | Attaching APK/AAB to a Release | **Automatic** on a `v*` tag build. Alpha/beta/rc tags attach (debug- or release-signed) to a **pre-release**; stable tags attach **release-signed** assets to an existing Release only. |
 | Creating a GitHub **pre-release** (alpha/beta/rc) | **Automatic** on the tag build if no Release exists yet (placeholder notes; edit afterwards). |
 | Creating a stable GitHub Release | **Manual** (operator, §4); never auto-created. |
