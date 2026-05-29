@@ -53,17 +53,17 @@ time to jump in — small contributions land fast and shape where it goes.
 
 ## 📸 Screenshots
 
-Linthra ships with real branding — an equalizer mark carrying a violet→orange
-gradient, generated from one source design (not mockups).
+Real captures from a running build — Now Playing, your Library, and the
+auto-built Smart mixes:
 
-| App icon | Feature graphic |
-| --- | --- |
-| ![Linthra icon](fastlane/metadata/android/en-US/images/icon.png) | ![Linthra feature graphic](fastlane/metadata/android/en-US/images/featureGraphic.png) |
+| Now Playing | Library | Smart mixes |
+| --- | --- | --- |
+| ![Now Playing](fastlane/metadata/android/en-US/images/phoneScreenshots/01-now-playing-carefree.png) | ![Library — Albums](fastlane/metadata/android/en-US/images/phoneScreenshots/02-library-albums.png) | ![Smart mixes](fastlane/metadata/android/en-US/images/phoneScreenshots/04-smart-mixes.png) |
 
-> **In-app screenshots aren't committed yet.** Rather than ship mock images, no
-> screenshots from a running build are included until real ones are captured —
-> [a great first contribution](#-ways-to-help)! The capture checklist and sizes
-> are in [docs/listing-assets.md](./docs/listing-assets.md).
+More are in [`phoneScreenshots/`](fastlane/metadata/android/en-US/images/phoneScreenshots/);
+the full set and capture notes are in [docs/listing-assets.md](./docs/listing-assets.md).
+The app icon and the feature-graphic banner (above) are generated from one source
+design — not mockups.
 
 ## What works today
 
@@ -129,7 +129,8 @@ many don't need a single line of code:
 - **Try Cast** — connect a Chromecast / speaker / TV and report device
   compatibility.
 - **Test Android Auto** — on a head unit or the Desktop Head Unit.
-- **Capture screenshots** for the README and store listing.
+- **Capture more screenshots** — Downloads with tracks, Android Auto, Cast, or a
+  tablet layout.
 - **Improve docs** — fix a confusing step, add a setup gotcha.
 - **Report bugs in one tap** — **Settings → Report a bug** builds a
   **secret-free** report on your device (no tokens, no passwords); review it,

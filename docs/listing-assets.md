@@ -4,14 +4,15 @@ This document describes the **image assets** a Linthra store/repository listing
 needs (app icon, feature graphic, screenshots), the exact paths and sizes they
 go in, and how to capture them from a real build.
 
-> **Status:** the real Linthra **app icon and feature graphic now exist**, and
-> the Android launcher icons under `android/app/src/main/res/mipmap-*` are the
-> real Linthra mark (adaptive + legacy), no longer the default Flutter icon. All
-> of these are generated deterministically from one source design by
-> [`tool/branding/generate_icons.py`](../tool/branding/generate_icons.py)
-> (vector source: `tool/branding/linthra_icon.svg`). **Screenshots are the only
-> remaining listing asset** and must be captured from a real build — never
-> mocked. See also [docs/fdroid-readiness.md](./fdroid-readiness.md).
+> **Status:** all three listing-asset types now exist. The real Linthra **app
+> icon and feature graphic** are generated deterministically from one source
+> design by [`tool/branding/generate_icons.py`](../tool/branding/generate_icons.py)
+> (vector source: `tool/branding/linthra_icon.svg`) — the same mark the Android
+> launcher icons under `android/app/src/main/res/mipmap-*` use (adaptive +
+> legacy, no longer the default Flutter icon). A set of **eight real phone
+> screenshots**, captured from a running build rather than mocked, now lives
+> under `images/phoneScreenshots/` — described in full in §6. See also
+> [docs/fdroid-readiness.md](./fdroid-readiness.md).
 
 ## 1. Where assets live
 
@@ -26,13 +27,13 @@ fastlane/metadata/android/en-US/
 └── images/
     ├── icon.png                  (present, 512×512)
     ├── featureGraphic.png        (present, 1024×500)
-    ├── phoneScreenshots/         (MISSING — capture from a real build)
-    │   ├── 1.png
-    │   ├── 2.png
-    │   └── …
-    ├── sevenInchScreenshots/     (optional, MISSING)
+    ├── phoneScreenshots/         (present — 8 real captures, see §6)
+    │   ├── 01-now-playing-carefree.png
+    │   ├── 02-library-albums.png
+    │   └── …                     (through 08-favorites.png)
+    ├── sevenInchScreenshots/     (optional, not committed)
     │   └── 1.png …
-    └── tenInchScreenshots/       (optional, MISSING)
+    └── tenInchScreenshots/       (optional, not committed)
         └── 1.png …
 ```
 
@@ -45,30 +46,29 @@ embeds, Releases page), so they only need to be produced once.
 | ---------------- | ------------------------------------------------------ | -------- | ------- |
 | App icon         | `images/icon.png`                                      | Yes      | Present |
 | Feature graphic  | `images/featureGraphic.png`                            | Yes      | Present |
-| Phone screenshots| `images/phoneScreenshots/1.png` … (2–8)                | Yes      | Missing |
-| 7-inch tablet    | `images/sevenInchScreenshots/1.png` …                  | Optional | Missing |
-| 10-inch tablet   | `images/tenInchScreenshots/1.png` …                    | Optional | Missing |
+| Phone screenshots| `images/phoneScreenshots/01-…png` … (8 committed)      | Yes      | Present |
+| 7-inch tablet    | `images/sevenInchScreenshots/1.png` …                  | Optional | Not committed |
+| 10-inch tablet   | `images/tenInchScreenshots/1.png` …                    | Optional | Not committed |
 
 All paths are relative to `fastlane/metadata/android/en-US/`.
 
-### A good phone shot list
+### The committed shot list
 
-Show the things that actually work today — four to six shots is plenty
-(collection is tracked by issue #77):
+The eight shots under `images/phoneScreenshots/` are described in full in §6.
+Between them they cover Now Playing, the Library (Albums and Artists), Smart
+mixes, both provider setup screens, the diagnostics / bug-report screen, a
+library-syncing state, and Favorites — all captured from a running build, not
+mocked.
 
-- [ ] Library — Songs / Albums / Artists with search.
-- [ ] Now Playing — the player (artwork, controls, queue).
-- [ ] Settings → Jellyfin (or Subsonic) connection screen.
-- [ ] Downloads / offline cache.
-- [ ] Cast device picker, if you have a Cast device (optional).
-- [ ] Android Auto, on a head unit or the Desktop Head Unit (optional).
+A few things that were kept in mind while capturing, worth repeating for any
+re-captures or extra shots:
 
-A few things to keep in mind while capturing:
-
-- Don't show a personal server URL — blank it out, or use a throwaway/local
-  server.
-- Don't show private library or account data unless you're happy for it to be
-  public.
+- No personal server URL, username, password, or token on screen — the provider
+  screen is shown with empty fields, and the diagnostics screen shows only the
+  buttons and the app version, never the report contents.
+- No private account data you wouldn't want public. (Library / Favorites show
+  ordinary album, artist, and track names, which is the point of a music-player
+  shot.)
 - Real captures only, no mockups. If a mockup is ever used somewhere else, label
   it clearly and keep it out of the F-Droid `phoneScreenshots/` folder.
 
@@ -78,20 +78,24 @@ A few things to keep in mind while capturing:
 | ---------------- | --------- | --------------------------------------------------------------- |
 | App icon         | PNG       | 512×512, square. Real Linthra icon, not the default Flutter logo. |
 | Feature graphic  | PNG/JPG   | 1024×500 exactly. No essential text near edges (gets cropped).  |
-| Screenshots      | PNG/JPG   | Each side 320–3840 px; aspect ratio between 1:2 and 2:1; portrait phone capture is fine as-is. |
+| Screenshots      | PNG/JPG   | F-Droid sets **no** strict size or aspect-ratio limit — PNG or JPG at a sensible phone resolution. A full-height portrait capture is fine as-is. (Google Play is stricter; see the note below.) |
 
 Screenshot notes:
 
 - Use **real** captures from a running build — never mockups, stock UI, or
   upscaled placeholders.
-- 2–8 phone screenshots is the practical range; show the flows that actually
-  work today (folder selection, scan, the persisted track list).
-- F-Droid rejects screenshots whose aspect ratio is outside 1:2–2:1, so a raw
-  capture from an unusually tall/narrow device may need cropping (not stretching).
-- Keep filenames numeric and sequential (`1.png`, `2.png`, …); ordering on the
-  listing follows the filename **string** sort order, so `10.png` sorts before
-  `2.png`. Stay under 10 screenshots, or zero-pad (`01.png`, `02.png`, …) to keep
-  the intended order.
+- 2–8 phone screenshots is the practical range; the committed set is eight (§6).
+- **Aspect ratio:** F-Droid itself imposes no aspect-ratio limit — a full-height
+  portrait phone capture is accepted as-is. The committed shots are 1008×2244
+  (≈9:20), which is fine for F-Droid and for GitHub embeds. **Google Play** is
+  stricter (the longer side may be at most twice the shorter), so these
+  full-height captures would need cropping before they could be reused for a Play
+  listing — see [docs/play-store-readiness.md](./play-store-readiness.md).
+- Filenames: F-Droid accepts any `.png` / `.jpg` / `.jpeg` name and orders the
+  listing by the filename **string** sort. The committed shots use descriptive,
+  zero-padded names (`01-now-playing-carefree.png` … `08-favorites.png`) so they
+  stay in the intended order — zero-padding matters because `10.png` would
+  otherwise sort before `2.png`.
 - Tablet screenshots are optional. Only add them if the layout is genuinely
   worth showing on a larger screen — otherwise omit those folders entirely
   rather than padding them with stretched phone captures.
@@ -161,23 +165,70 @@ Both are generated from one source design, so they never drift:
 To evolve the brand, change the palette/bar constants in the generator (and the
 matching values in `lib/app/colors.dart` / the gradient drawable) and re-run.
 
-## 6. Remaining: screenshots
+## 6. Committed screenshots
 
-The icon and feature graphic are committed. The only missing listing assets are
-**screenshots**, which must be captured from a real build (§4) — they are
-intentionally left out rather than faked. Once real screenshots are committed:
+Eight real phone screenshots are committed under
+`fastlane/metadata/android/en-US/images/phoneScreenshots/`, captured from a
+running build (not mocked). F-Droid orders the listing by filename, so the
+zero-padded prefixes set the order shown below.
 
-1. Update `images/NEEDED-ASSETS.txt` (or delete it once screenshots also land).
-2. Tick the screenshot row in
-   [docs/fdroid-readiness.md](./fdroid-readiness.md) §7 (metadata checklist) and
-   clear the remaining image blocker in §8.
-3. Update the README "F-Droid metadata" section accordingly.
+### Main F-Droid screenshots
+
+These six lead the listing — the core of day-to-day use:
+
+| File | Shows |
+| ---- | ----- |
+| `01-now-playing-carefree.png` | Now Playing — artwork, transport controls, queue actions, and the "Streaming direct" badge. The track is Kevin MacLeod's *Carefree* (Creative Commons), so no private library content is on screen. |
+| `02-library-albums.png`       | Library → **Albums**, with the search field. |
+| `03-library-artists.png`      | Library → **Artists**, with the search field. |
+| `04-smart-mixes.png`          | Smart mixes (Recently added / played, Most played, Favorites, Downloaded, Random, Never played) — counts only. |
+| `05-settings-providers.png`   | Settings → providers: the Jellyfin and Navidrome / Subsonic setup cards, shown with **empty** Server URL / Username / Password fields. |
+| `06-settings-diagnostics.png` | Settings → diagnostics & bug report: the buttons and the app version, with the on-screen note that diagnostics never include passwords, tokens, or full server URLs. |
+
+### Optional docs / GitHub screenshots
+
+More supplementary, and they trail the listing:
+
+| File | Shows |
+| ---- | ----- |
+| `07-jellyfin-syncing.png` | The Library "Your Jellyfin library is syncing" state — just the spinner and copy. |
+| `08-favorites.png`        | The Favorites list (ordinary track / artist names). |
+
+### Privacy / redaction notes
+
+Every committed shot was reviewed to confirm it does **not** expose:
+
+- private server URLs, usernames, passwords, tokens, or authenticated links —
+  the provider screen is shown with empty fields, and the diagnostics screen
+  shows only buttons and the version;
+- local file paths or raw provider IDs (e.g. `jellyfin:…`);
+- any viewer / gallery / browser chrome around the app — all eight are clean,
+  cropped, full-screen captures.
+
+Library and Favorites do show ordinary album, artist, and track names — that is
+the normal content of a music-player screenshot, not private account data. The
+Now Playing shot deliberately uses a Creative Commons track (Kevin MacLeod —
+*Carefree*) rather than anything from a personal library.
+
+### Still optional, if anyone wants to add them
+
+Nice-to-have, not required:
+
+- Downloads / offline cache **with tracks actually downloaded** — the current
+  "Downloaded" count is 0, so a populated Downloads screen would show the
+  feature off better.
+- Android Auto, captured on a head unit or the Desktop Head Unit.
+- The Cast device picker, if you have a Cast device.
+- 7-inch / 10-inch tablet screenshots, only if the larger layout is worth
+  showing (otherwise leave those folders out rather than padding them).
+
+When new shots land, keep the zero-padded naming so the order stays predictable,
+and re-run the privacy check above.
 
 ## 7. Related docs
 
 - [docs/fdroid-readiness.md](./fdroid-readiness.md) — full F-Droid submission
   checklist (identity, build, dependencies, anti-features, signing, tagging).
-- [README.md](../README.md) — project overview and the "F-Droid metadata
-  (work in progress)" section.
-- `fastlane/metadata/android/en-US/images/NEEDED-ASSETS.txt` — short in-place
-  reminder pointing back to this guide.
+- [docs/fdroid-submission.md](./fdroid-submission.md) — the submission package
+  and listing-asset status.
+- [README.md](../README.md) — project overview and the Screenshots section.

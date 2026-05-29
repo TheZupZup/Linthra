@@ -131,14 +131,16 @@ reusable copies under `fastlane/metadata/android/en-US/images/`):
 | --------------------- | -------------------------------------------------- | ------- |
 | **App icon**          | 512×512 PNG, 32-bit with alpha.                    | Present (`images/icon.png`). |
 | **Feature graphic**   | 1024×500 PNG/JPG. Required to publish on any track.| Present (`images/featureGraphic.png`). |
-| **Phone screenshots** | 2–8, each side 320–3840 px, 16:9 or 9:16-ish.      | **Missing** — must be captured from a real build. |
+| **Phone screenshots** | 2–8, each side 320–3840 px, long side ≤ 2× short.  | Real captures exist for F-Droid (`images/phoneScreenshots/`), but at 1008×2244 (≈9:20) they exceed Play's 2:1 limit — **crop before using on Play**. |
 | **7-inch tablet**     | Optional.                                          | Missing (optional). |
 | **10-inch tablet**    | Optional.                                          | Missing (optional). |
 
-- Screenshots are the **only missing image asset** and the main asset blocker.
-  Capture them from a **real** running build — never mockups or upscaled
-  placeholders. Exact sizes and `adb` capture steps are in
-  [docs/listing-assets.md](./listing-assets.md).
+- Phone screenshots **exist for F-Droid / GitHub** — eight real captures under
+  `images/phoneScreenshots/` — but they're full-height 1008×2244 (≈9:20), which
+  exceeds Play's "long side ≤ 2× short side" rule, so they must be **cropped**
+  before reuse on a Play listing (still the main image to-do for Play). Always
+  from a **real** running build, never mockups or upscaled placeholders. Sizes
+  and `adb` capture steps are in [docs/listing-assets.md](./listing-assets.md).
 - The icon and feature graphic are generated deterministically from one source
   design (`tool/branding/`), so the Play and F-Droid copies never drift.
 
@@ -181,8 +183,9 @@ These do **not** all block *closed testing*, but they block a *production*
 launch. Items marked **(closed-testing blocker)** must be done before even
 internal/closed testing.
 
-1. **Real screenshots** captured from a running build **(closed-testing
-   blocker)** — see [docs/listing-assets.md](./listing-assets.md).
+1. **Play-ratio screenshots** **(closed-testing blocker)** — real captures exist
+   for F-Droid (`images/phoneScreenshots/`), but Play needs them cropped to its
+   ≤ 2:1 ratio; see [docs/listing-assets.md](./listing-assets.md).
 2. **Release/upload keystore provisioned** and Play App Signing enrolled
    **(closed-testing blocker)** — see
    [docs/release-signing.md](./release-signing.md). A debug-signed build cannot

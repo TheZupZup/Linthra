@@ -143,7 +143,10 @@ field — weave naturally, do not keyword-stuff):
 
 Play requires **2–8 phone screenshots**; they must be **real** captures from a
 running build (see [docs/listing-assets.md](./listing-assets.md) for sizes and
-`adb` capture steps). Suggested set, showing only what works today:
+`adb` capture steps). Eight real captures already exist for F-Droid under
+`images/phoneScreenshots/` and can be reused here once **cropped** to Play's
+≤ 2:1 ratio (the F-Droid originals are full-height ≈9:20). Suggested set, showing
+only what works today:
 
 - [ ] Library / track list after a scan.
 - [ ] Now Playing screen (with shuffle/repeat/favorite controls).

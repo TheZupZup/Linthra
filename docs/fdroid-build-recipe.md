@@ -150,24 +150,24 @@ These must be resolved before an actual F-Droid submission (see also
    signs its own builds, so this does not block F-Droid functionally, but the
    debug-key fallback should be removed / replaced with a proper release signing
    story before publishing anywhere. **No signing secrets are added in this PR.**
-2. **Screenshots.** The store **icon and feature graphic are committed**; only
-   **screenshots** remain, captured from a real build (tracked by issue #77). See
-   [docs/listing-assets.md](./listing-assets.md). Not a hard MR blocker.
-3. **Android storage / SAF limitations.** Scanning relies on the Storage Access
+2. **Android storage / SAF limitations.** Scanning relies on the Storage Access
    Framework; `SafTreeUriResolver` currently maps only the common
    `com.android.externalstorage.documents` provider to a real path, and other
    SAF providers / fully content-resolver-based scanning are still follow-ups
    (see README "Android folder selection & known limitations"). This is a
    functionality maturity note, not an F-Droid build blocker per se.
-4. **Toolchain provisioning + `fdroid build` validation.** The Flutter-on-F-Droid
+3. **Toolchain provisioning + `fdroid build` validation.** The Flutter-on-F-Droid
    incantation (sudo git-clone vs. `flutter` srclib) must match fdroiddata's
    current convention and be validated by an actual `fdroid build`.
-5. **Gradle wrapper jar.** Confirm the recipe handles the missing committed
+4. **Gradle wrapper jar.** Confirm the recipe handles the missing committed
    `gradle-wrapper.jar` (§3) reproducibly.
 
-**Resolved:** a `v*` tag now exists (target `v0.1.0-alpha.25`; the broken
-`v0.1.0-alpha.24` is excluded); the versionCode scheme is decided (tag-derived
-`100025`, §5.1); and the full transitive dependency audit is complete
+**Resolved:** the store icon, feature graphic, and eight real phone screenshots
+are committed (the core set tracked by issue #77; see
+[docs/listing-assets.md §6](./listing-assets.md)); a `v*` tag now exists (target
+`v0.1.0-alpha.25`; the broken `v0.1.0-alpha.24` is excluded); the versionCode
+scheme is decided (tag-derived `100025`, §5.1); and the full transitive
+dependency audit is complete
 ([dependency-license-audit.md](./dependency-license-audit.md)).
 
 ## 7. Draft F-Droid metadata recipe

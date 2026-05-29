@@ -153,12 +153,15 @@ submitting.
 
 Tracked in [listing-assets.md](./listing-assets.md). The app icon (512×512) and
 feature graphic (1024×500) are committed, generated from
-`tool/branding/linthra_icon.svg`. The one thing missing is screenshots, which
-need to be captured from a real build rather than mocked. That's already tracked
-by issue #77, which lists the screens to capture (Now Playing, Library,
-Settings → Jellyfin, Downloads, Cast, Android Auto) and the no-private-data rule.
-Screenshots aren't strictly required for the merge request, but they help the
-listing, so it's worth capturing them around the same time.
+`tool/branding/linthra_icon.svg`. Eight real phone screenshots — captured from a
+running build, not mocked — are now committed under
+`fastlane/metadata/android/en-US/images/phoneScreenshots/` (Now Playing, the
+Library Albums/Artists views, Smart mixes, both provider setup screens, the
+diagnostics / bug-report screen, a library-syncing state, and Favorites). What
+each shows and the privacy review are in
+[listing-assets.md §6](./listing-assets.md). This is the core set tracked by
+issue #77; optional extras (Downloads with tracks downloaded, Android Auto, Cast,
+tablet layouts) remain nice-to-haves, none of them a merge-request blocker.
 
 ## 7. Verification status
 
@@ -201,7 +204,8 @@ fdroid build -v -l io.github.thezupzup.linthra        # full from-source build t
 
 ## 8. Steps to submit to fdroiddata
 
-1. Capture and commit screenshots (issue #77) — nice to have before submitting.
+1. ✅ Screenshots committed (issue #77) — eight phone screenshots under
+   `images/phoneScreenshots/` (see [listing-assets.md §6](./listing-assets.md)).
 2. Re-confirm a clean `flutter build apk --release` from source on a machine with
    the Android SDK, and re-check the merged-manifest permission set.
 3. Fork https://gitlab.com/fdroid/fdroiddata and make a branch.
@@ -271,8 +275,7 @@ builds via the release workflow. I'll also run `fdroid lint` and `fdroid build
 
 **Known limitations:** it's early alpha; local files show file names until tag
 parsing lands; one Jellyfin server at a time; some Subsonic features (favourites,
-lyrics, cover art) are still follow-ups; and screenshots are being captured from
-real builds.
+lyrics, cover art) are still follow-ups.
 
 ---
 
@@ -299,8 +302,8 @@ The target is the latest alpha that launches, `v0.1.0-alpha.25` (versionCode
 
 ### Checklist
 
-- [ ] Capture and commit real screenshots (#77) — nice to have before
-      submitting.
+- [x] Screenshots committed (#77) — eight phone screenshots under
+      `images/phoneScreenshots/`.
 - [ ] Re-confirm a clean from-source `flutter build apk --release` on a machine
       with the SDK; re-check the merged-manifest permissions.
 - [ ] Decide the `pubspec.lock` policy for the tagged commit.
@@ -329,7 +332,7 @@ The target is the latest alpha that launches, `v0.1.0-alpha.25` (versionCode
 
 ### Status
 
-The metadata, audit, permissions, anti-feature review, build recipe, and
-submission text are ready and point at `v0.1.0-alpha.25`. What's left before the
-merge request: screenshots, an SDK-machine release-build re-confirmation, and
-`fdroid lint` / `fdroid build` in an fdroiddata checkout.
+The metadata, audit, permissions, anti-feature review, build recipe, screenshots,
+and submission text are ready and point at `v0.1.0-alpha.25`. What's left before
+the merge request: an SDK-machine release-build re-confirmation, and `fdroid lint`
+/ `fdroid build` in an fdroiddata checkout.
