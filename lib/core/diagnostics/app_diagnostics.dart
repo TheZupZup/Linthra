@@ -39,7 +39,7 @@ class AppDiagnosticsData {
     this.smartPrecacheEnabled,
   });
 
-  /// The app `versionName` (e.g. `0.1.0-alpha.15`). Always present.
+  /// The app `versionName` (e.g. `0.1.0-alpha.30`). Always present.
   final String appVersion;
 
   /// The Android OS version string, when running on Android. Null elsewhere.

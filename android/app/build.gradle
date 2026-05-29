@@ -62,7 +62,11 @@ android {
         applicationId = "io.github.thezupzup.linthra"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        // From Flutter (pubspec.yaml); tag release builds override these via --build-name/--build-number derived from the git tag — see docs/release-process.md §1.
+        // From Flutter (pubspec.yaml's `version: <name>+<code>`), the single
+        // source of truth for the release version, kept in lockstep with the
+        // release tag (CI verifies the match before building). A plain
+        // `flutter build` — here and on F-Droid — reads both from pubspec.yaml;
+        // no build-time override. See docs/release-process.md §1.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }

@@ -28,53 +28,64 @@ tagging), and the draft recipe at
 | Issues  | https://github.com/TheZupZup/Linthra/issues |
 | Category| Multimedia                    |
 
-## 2. Target version: the latest working alpha
+## 2. Target version and auto-update
 
 F-Droid builds from a git tag, and Linthra now has tags (`v0.1.0-alpha.1` …
-`v0.1.0-alpha.29`, built by the Android Release Build workflow). The submission
+`v0.1.0-alpha.30`, built by the Android Release Build workflow). The submission
 targets the latest one that launches cleanly:
 
 | Item            | Value                                   |
 | --------------- | --------------------------------------- |
-| Target tag      | `v0.1.0-alpha.29` (commit `ab0006b`)     |
-| versionName     | `0.1.0-alpha.29`                        |
-| versionCode     | `100029`                                |
-| Changelog file  | `fastlane/metadata/android/en-US/changelogs/100029.txt` |
+| Target tag      | `v0.1.0-alpha.30`                        |
+| versionName     | `0.1.0-alpha.30`                        |
+| versionCode     | `100030`                                |
+| Changelog file  | `fastlane/metadata/android/en-US/changelogs/100030.txt` |
 
-One thing to be careful about: don't target `v0.1.0-alpha.24`. Its GitHub
-Release is marked "Broken release — do not install … startup regression," and
-alpha.25 was the hotfix that reverted it. The target here is the latest working
-alpha, `v0.1.0-alpha.29`, so the recipe's `commit:` and the
-`CurrentVersion`/`CurrentVersionCode` all point at alpha.29.
+Don't target `v0.1.0-alpha.24`: its GitHub Release is marked "Broken release — do
+not install … startup regression," and alpha.25 was the hotfix that reverted it.
 
-### Why versionCode `100029` and not `15`
+### Auto-update is enabled (versionName/versionCode come from `pubspec.yaml`)
 
-`pubspec.yaml` keeps a fixed dev version, `0.1.0-alpha.15+15`, that's the same at
-every tagged commit (the release workflow overrides it per release, so it never
-gets bumped). That has two consequences:
+`pubspec.yaml` now carries the release version in lockstep with the tag
+(`version: 0.1.0-alpha.30+100030`; see
+[release-process.md §1](./release-process.md#1-versioning-model)), so F-Droid
+reads it at each tag and tracks new releases **automatically**. The fields that
+enable this:
 
-- A plain `flutter build apk` at any tag produces versionName `0.1.0-alpha.15`
-  and versionCode `15`. Every F-Droid build would then look like the same
-  version, which F-Droid can't work with — so this is a real blocker, not a
-  detail.
-- The upstream GitHub release build avoids that by deriving the version from the
-  tag with `tool/version_from_tag.dart` (the single source of truth):
-  `v0.1.0-alpha.29` → `0.1.0-alpha.29` / `100029`.
+```yaml
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+UpdateCheckData: pubspec.yaml|version:\s.+\+(\d+)|.|version:\s(.+)\+
+CurrentVersion: 0.1.0-alpha.30
+CurrentVersionCode: 100030
+```
 
-So the F-Droid recipe does the same thing — it derives the version from the
-checked-out tag and passes `--build-name`/`--build-number`. The APK then reports
-`0.1.0-alpha.29` / `100029`, matching the metadata and the GitHub build. That
-keeps each tag's versionCode distinct and increasing, keeps the F-Droid and
-GitHub codes identical for the same tag, and stays correct under `AutoUpdateMode`
-for future tags (since the version isn't hard-coded). The changelog file is
-named by that derived code (`100029.txt`), in line with
+`UpdateCheckData` is **required** for a Flutter app: F-Droid's default `Tags`
+path reads only `AndroidManifest.xml`/`build.gradle`, which carry no literal
+version for Flutter, so it must be pointed at `pubspec.yaml`. It splits the
+`version:` line on `+` — group 1 of the first regex is the `versionCode` (after
+`+`), group 1 of the second is the `versionName` (before `+`). F-Droid picks the
+highest `versionCode` across the tags, and `AutoUpdateMode: Version` adds a
+**plain-build** entry (`flutter build apk --release`, no
+`--build-name`/`--build-number`) using the tag as the commit. The changelog file
+is named by that `versionCode` (`100030.txt`), in line with
 [release-process.md §1](./release-process.md#1-versioning-model) (the older
 `1.txt`/`9.txt`/`15.txt` stay as they are).
 
-There's a cleaner long-term option — bump `pubspec.yaml` to the tag version at
-each tagged commit, so a plain build is correct and the recipe needs no flags —
-but that changes the release process, so it's out of scope here. The
-derive-from-tag approach works for this submission without touching anything.
+### One-time transition for the `v0.1.0-alpha.30` tag
+
+`v0.1.0-alpha.30` was tagged **before** `pubspec.yaml` started tracking the
+version, so at that exact commit `pubspec.yaml` is still `0.1.0-alpha.15+15` and a
+plain build there would report `0.1.0-alpha.15` / `15`. So the single seed
+`Builds` entry passes explicit
+`--build-name=0.1.0-alpha.30 --build-number=100030 --dart-define=LINTHRA_VERSION_NAME=0.1.0-alpha.30`
+to build it as `0.1.0-alpha.30` / `100030`. **From `v0.1.0-alpha.31` onward** the
+committed `pubspec.yaml` matches the tag, so those flags are dropped and the build
+is a plain `flutter build apk --release`; when `AutoUpdateMode` adds the first new
+entry, remove the flags it inherits from the seed (a one-time edit). The draft
+recipe at
+[`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml)
+carries exactly this, with the transition spelled out in comments.
 
 ## 3. Build recipe status
 
@@ -177,13 +188,13 @@ submitting.
 
 | Check | Status |
 | ----- | ------ |
-| Metadata YAML parses (PyYAML) | Done here — valid YAML, fields and types as expected (no inline Summary/Description; F-Droid pulls them from Fastlane; versionCode an integer, `100029`). This only checks the YAML, not F-Droid's schema (see below). |
+| Metadata YAML parses (PyYAML) | Done here — valid YAML, fields and types as expected (no inline Summary/Description; F-Droid pulls them from Fastlane; versionCode an integer, `100030`; `UpdateCheckData` regexes extract `100030` / `0.1.0-alpha.30` from the `pubspec.yaml` `version:` line). This only checks the YAML, not F-Droid's schema (see below). |
 | `flutter pub get` | Not run here (no toolchain). Run locally / in CI. |
 | `dart format --set-exit-if-changed .` | Not run here. CI (`ci.yml`) runs it on every PR. |
 | `flutter analyze` | Not run here. CI runs it on every PR. |
 | `flutter test` | Not run here. CI runs it on every PR. |
 | `flutter build apk --debug` | Not run here (no Android SDK). CI (`android-debug-apk.yml`) builds it on every PR. |
-| `flutter build apk --release` | Not run here. The tag build (`android-release-build.yml`) produced the alpha.29 APK; re-confirm a clean from-source release build on a machine with the SDK. |
+| `flutter build apk --release` | Not run here. The tag build (`android-release-build.yml`) produced the alpha.30 APK; re-confirm a clean from-source release build on a machine with the SDK. |
 | `fdroid lint` / `fdroid build -l io.github.thezupzup.linthra` | Not run here (no fdroidserver). Run inside an fdroiddata checkout (§8). |
 
 A note on that first row: a YAML parse isn't the same as F-Droid validation. The
@@ -198,8 +209,10 @@ flutter pub get
 dart format --set-exit-if-changed .
 flutter analyze
 flutter test
-flutter build apk --release \
-  --build-name=0.1.0-alpha.29 --build-number=100029   # what the recipe derives
+flutter build apk --release    # reads versionName/versionCode from pubspec.yaml
+# NOTE: at the pre-change v0.1.0-alpha.30 tag pubspec.yaml is still
+# 0.1.0-alpha.15+15, so to reproduce that exact tag add (one-time, see §2):
+#   --build-name=0.1.0-alpha.30 --build-number=100030 --dart-define=LINTHRA_VERSION_NAME=0.1.0-alpha.30
 
 # In an fdroiddata checkout, once metadata/io.github.thezupzup.linthra.yml is in:
 fdroid readmeta
@@ -225,9 +238,9 @@ fdroid build -v -l io.github.thezupzup.linthra        # full from-source build t
    there.
 6. Open or update the merge request using fdroiddata's **"App inclusion"**
    merge-request template (§9) and check the boxes that apply. Be upfront that
-   it's an early-alpha, pre-release submission, and that auto-update is disabled
-   on purpose (pubspec doesn't track the tags), so each version is added
-   manually.
+   it's an early-alpha, pre-release submission, and that auto-update is enabled
+   (pubspec.yaml tracks the tags) with a one-time explicit-flag entry for the
+   pre-change `v0.1.0-alpha.30` tag (§2).
 7. Don't describe Linthra as being on F-Droid until the merge request is merged
    and the build publishes.
 
@@ -246,7 +259,7 @@ Adds Linthra, an open-source, local-first Android music player for local files
 and self-hosted servers (Jellyfin, Navidrome/Subsonic). Unofficial community
 client — not affiliated with Jellyfin, Navidrome, or Subsonic. MPL-2.0; no ads,
 tracking, analytics, crash-reporting SDK, or Google Play Services. Initial
-target: `v0.1.0-alpha.29` (versionCode `100029`); the broken `v0.1.0-alpha.24`
+target: `v0.1.0-alpha.30` (versionCode `100030`); the broken `v0.1.0-alpha.24`
 is skipped. Early alpha, usable for testing.
 
 ### Required
@@ -260,7 +273,7 @@ is skipped. Early alpha, usable for testing.
 ### Strongly Recommended
 
 - [x] The upstream repo contains the app metadata (summary/description/images/changelog) in a Fastlane structure — `fastlane/metadata/android/en-US/` (short_description, full_description, title, changelogs, icon, feature graphic, 8 screenshots). Summary/Description are intentionally **not** set in fdroiddata; F-Droid pulls them from Fastlane.
-- [ ] Releases are tagged and auto update is enabled — releases are tagged (`v0.1.0-alpha.29`), but auto-update is intentionally **disabled** (`AutoUpdateMode`/`UpdateCheckMode: None`): `pubspec.yaml` carries a fixed dev version that does not track the tags, so each release is added manually with explicit `versionName`/`versionCode`.
+- [x] Releases are tagged and auto update is enabled — releases are tagged (`v0.1.0-alpha.30`), and auto-update is **enabled**: `AutoUpdateMode: Version`, `UpdateCheckMode: Tags`, and `UpdateCheckData` reading `versionName`/`versionCode` from `pubspec.yaml` (which now tracks the tags). The single seed `Builds` entry passes explicit `versionName`/`versionCode` only because the pre-change `v0.1.0-alpha.30` tag predates pubspec tracking; new tags build plainly (§2).
 
 ### Suggested
 
@@ -292,9 +305,9 @@ Tracks the actual submission of Linthra to
 Linthra is on F-Droid — it's the submission work itself. The readiness
 groundwork is done (#87); this covers cutting the merge request.
 
-The target is the latest alpha that launches, `v0.1.0-alpha.29` (versionCode
-`100029`). The withdrawn, broken `v0.1.0-alpha.24` is skipped — alpha.25 was its
-hotfix, and the target has since moved on to alpha.29.
+The target is the latest alpha that launches, `v0.1.0-alpha.30` (versionCode
+`100030`). The withdrawn, broken `v0.1.0-alpha.24` is skipped — alpha.25 was its
+hotfix, and the target has since moved on to alpha.30.
 
 ### Checklist
 
@@ -329,6 +342,6 @@ hotfix, and the target has since moved on to alpha.29.
 ### Status
 
 The metadata, audit, permissions, anti-feature review, build recipe, screenshots,
-and submission text are ready and point at `v0.1.0-alpha.29`. What's left before
+and submission text are ready and point at `v0.1.0-alpha.30`. What's left before
 the merge request: an SDK-machine release-build re-confirmation, and `fdroid lint`
 / `fdroid build` in an fdroiddata checkout.

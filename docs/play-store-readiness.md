@@ -15,13 +15,12 @@ identity, version source, and assets but differ on signing and submission.
 
 ## 1. Current status
 
-- **Stage:** early alpha. The released version comes from the pushed `v*` tag,
-  not `pubspec.yaml`: the latest released alpha is `v0.1.0-alpha.29` (versionName
-  `0.1.0-alpha.29`, tag-derived `versionCode` `100029`). `pubspec.yaml`'s
-  `version:` (currently `0.1.0-alpha.15+15`) only seeds local/dev builds and
-  intentionally trails the tags. See [§11](#11-versioning-for-play-uploads) and
-  [release-process.md §1](./release-process.md#1-versioning-model) — the tag is
-  the source of truth.
+- **Stage:** early alpha. The released version lives in `pubspec.yaml`
+  (`version: <versionName>+<versionCode>`) in lockstep with the pushed `v*` tag:
+  the latest released alpha is `v0.1.0-alpha.30` (versionName `0.1.0-alpha.30`,
+  versionCode `100030`). See [§11](#11-versioning-for-play-uploads) and
+  [release-process.md §1](./release-process.md#1-versioning-model) — `pubspec.yaml`
+  is the source of truth and the tag must match it.
 - **Distribution:** sideloadable pre-release APK/AAB attached to GitHub
   Releases. **Not** on Google Play, **not** on F-Droid; nothing publishes
   automatically.
@@ -239,25 +238,25 @@ Play enforces a **strictly increasing `versionCode`** per package: an upload
 with an equal or lower code than any previous upload (on any track) is rejected.
 Linthra's versioning model supports this safely:
 
-- **The Git tag is the source of truth for a release.** The release build derives
-  `versionName`/`versionCode` from the tag and bakes them in — the strictly
-  monotonic, fully-encoded `versionCode` (e.g. `v0.1.0-alpha.16` → `100016`)
-  satisfies Play's strictly-increasing requirement by construction. `pubspec.yaml`
-  only sets the version for local/dev builds. See
+- **`pubspec.yaml` is the source of truth for a release's version**, bumped to
+  match the tag each release. The strictly monotonic, fully-encoded `versionCode`
+  (e.g. `0.1.0-alpha.16` → `100016`) satisfies Play's strictly-increasing
+  requirement by construction. A plain `flutter build appbundle --release` reads
+  `versionName`/`versionCode` straight from `pubspec.yaml`. See
   [release-process.md §1](./release-process.md#1-versioning-model).
 - The in-app About/Settings string (`AppInfo.version` in
-  `lib/core/app_info.dart`) shows the **effective** version: the tag-derived value
-  on a release build (via `--dart-define`), or a `const` mirror of `pubspec.yaml`
-  on dev builds that a CI test (`test/core/app_info_version_test.dart`) **fails
-  the build if it drifts**. Either way the displayed version matches the shipped
-  one. **No manual versioning edits are needed for Play.**
+  `lib/core/app_info.dart`) mirrors `pubspec.yaml`'s `versionName` via a `const`
+  that a CI test (`test/core/app_info_version_test.dart`) **fails the build if it
+  drifts**, so the displayed version matches the shipped one. **No manual
+  versioning edits beyond bumping `pubspec.yaml` (and that mirror) are needed for
+  Play.**
 
 **Per-upload checklist (in addition to
 [release-process.md §3](./release-process.md#3-pre-tag-checklist)):**
 
-- [ ] The upload is built from a `vX.Y.Z[-suffix]` tag, so `versionName`,
-      `versionCode`, and the in-app `AppInfo.version` are all tag-derived and
-      consistent — no manual version edits.
+- [ ] The upload is built from a `vX.Y.Z[-suffix.N]` tag whose `versionName`
+      matches `pubspec.yaml`, so `versionName`, `versionCode`, and the in-app
+      `AppInfo.version` are all consistent — CI verifies the tag matches pubspec.
 - [ ] `versionCode` is **strictly greater** than every code ever uploaded to
       Play — across **all** tracks, not just the current one (the encoded scheme
       guarantees this for increasing tags). Once a code is consumed by an upload
@@ -367,11 +366,12 @@ maintainer.**
 ### Before the Play Console
 
 - [ ] Merge the stable release PR(s) to `main`; CI green (analyze, test, format).
-- [ ] Create the release **tag** (`vX.Y.Z[-suffix]`) — the version source of
-      truth (§11, [release-process.md §2](./release-process.md#2-tagging)).
-- [ ] Verify **versionName / versionCode** are tag-derived and `versionCode` is
-      **strictly greater** than every code ever uploaded to Play, on any track
-      (§11). Preview with `dart run tool/version_from_tag.dart vX.Y.Z`.
+- [ ] Bump `pubspec.yaml` (and `AppInfo._devVersionName`) and create the matching
+      release **tag** (`vX.Y.Z[-suffix.N]`) — the version source of truth (§11,
+      [release-process.md §2](./release-process.md#2-tagging)).
+- [ ] Verify **versionName / versionCode** in `pubspec.yaml` match the tag and the
+      `versionCode` is **strictly greater** than every code ever uploaded to Play,
+      on any track (§11). Preview with `dart run tool/version_from_tag.dart vX.Y.Z`.
 - [ ] Build a **release-signed AAB** locally or via the release workflow
       (§3–§4, [release-signing.md](./release-signing.md)). A **debug-signed**
       build must never be uploaded.

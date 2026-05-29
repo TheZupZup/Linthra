@@ -5,7 +5,7 @@ git tagging, changelogs, and the (manual) GitHub-Release flow. The F-Droid
 docs reference this document rather than restating the plan.
 
 > **Sideloadable alphas only; nothing here publishes to a store.** Linthra has
-> tagged pre-release alphas (latest `v0.1.0-alpha.15`) attached to GitHub
+> tagged pre-release alphas (latest `v0.1.0-alpha.30`) attached to GitHub
 > Releases as sideloadable APKs/AABs, but is **not** on F-Droid. Pushing a `v*`
 > tag builds the release artifacts automatically. For **alpha/beta/rc** tags the
 > build can create a GitHub **pre-release** and attach the APK/AAB to it; for
@@ -15,17 +15,28 @@ docs reference this document rather than restating the plan.
 
 ## 1. Versioning model
 
-**The Git tag is the source of truth for a release; `pubspec.yaml` is the
-default for local/dev builds.** A tagged release build derives its version from
-the tag and bakes the same value into the APK/AAB metadata *and* the in-app
-display, so they can never drift. You do **not** edit any version constant to
-cut a release — you just push the tag.
+**`pubspec.yaml` is the single source of truth for the version; each release
+bumps it to match the tag.** Its `version: <versionName>+<versionCode>` feeds
+Android's `versionName`/`versionCode` *and* the in-app display alike, for **every**
+build — a plain `flutter build` locally, in CI, and on F-Droid. The release tag
+must match it, and CI **fails the build** if they disagree (§4), so the tag,
+`pubspec.yaml`, the APK/AAB metadata, and the in-app version can never drift. To
+cut a release you bump the version in `pubspec.yaml` (and its in-app mirror) and
+tag the matching version (§3) — there are no per-release `--build-name`/
+`--build-number` flags to pass anywhere.
 
 ```
-                       ┌─ --build-name / --build-number ─▶ Android versionName/versionCode (APK/AAB)
-push tag  ─▶  parse ───┤
-v0.1.0-alpha.16        └─ --dart-define=LINTHRA_VERSION_NAME ─▶ AppInfo.version (Settings/About, diagnostics, Jellyfin header)
+pubspec.yaml                     ┌─▶ Android versionName/versionCode (APK/AAB)
+version: 0.1.0-alpha.30+100030  ─┤
+   ( == tag v0.1.0-alpha.30 )    └─▶ AppInfo.version (Settings/About, diagnostics, Jellyfin header)
 ```
+
+> **Why this matters for F-Droid.** Because the version lives in `pubspec.yaml`
+> at each tagged commit, F-Droid reads it directly and **auto-detects new
+> releases** (`UpdateCheckMode: Tags` + `UpdateCheckData`, `AutoUpdateMode:
+> Version`) from a plain build, instead of needing a hand-written `Builds` entry
+> per release. See
+> [fdroid-build-recipe.md §2](./fdroid-build-recipe.md#2-expected-f-droid-metadata-repo-fields).
 
 ### versionName
 
@@ -75,26 +86,31 @@ the build** (see "Malformed tags" below) instead of shipping guessed metadata.
 > at `fastlane/metadata/android/en-US/changelogs/<encoded code>.txt` (e.g.
 > `100016.txt`); the historical `1.txt`/`9.txt`/`15.txt` stay as-is.
 
-The parsing/encoding rules live in **`tool/version_from_tag.dart`** (the single
-source of truth), exercised by `test/tooling/version_from_tag_test.dart`. The
-release workflow calls it; nothing else needs to know the formula.
+The encoding rules live in **`tool/version_from_tag.dart`**, exercised by
+`test/tooling/version_from_tag_test.dart`. You use it to **preview** the
+`versionCode` for a version before bumping `pubspec.yaml` (§3); CI uses it to
+**verify** the tag matches `pubspec.yaml` (§4); and
+`test/core/app_info_version_test.dart` uses it to confirm `pubspec.yaml`'s
+`versionCode` is the canonical encoding of its `versionName`. Nothing bakes the
+version in from the tag — `pubspec.yaml` carries it.
 
 ### In-app version (`AppInfo.version`)
 
 Settings/About, the diagnostics / "Report a bug" output, and the Jellyfin
-client-version header all read `AppInfo.version` in `lib/core/app_info.dart`:
+client-version header all read `AppInfo.version` in `lib/core/app_info.dart`.
+For **every** build — local, CI release, and F-Droid — it resolves to
+`AppInfo._devVersionName`, a `const` that mirrors `pubspec.yaml`'s `versionName`,
+so the in-app version always matches the released APK/AAB.
+`test/core/app_info_version_test.dart` **fails CI** if `_devVersionName` drifts
+from `pubspec.yaml`, or if `pubspec.yaml`'s `versionCode` is not the canonical
+encoding of its `versionName` — so the two files (and the tag) can never diverge.
 
-- **Tagged release build:** the workflow passes
-  `--dart-define=LINTHRA_VERSION_NAME=<derived versionName>`, so `AppInfo.version`
-  is exactly the tag's version — matching the APK/AAB metadata.
-- **Local/dev build & the test suite** (no dart-define): `AppInfo.version` falls
-  back to `AppInfo._devVersionName`, a `const` that mirrors `pubspec.yaml`'s
-  `versionName`. `test/core/app_info_version_test.dart` **fails CI if that
-  fallback drifts from `pubspec.yaml`**, so the two stay aligned for dev builds.
-
-A runtime package-metadata plugin was deliberately avoided: the dart-define keeps
+A runtime package-metadata plugin was deliberately avoided: the `const` keeps
 `AppInfo.version` resolvable without a plugin and uses the *same* value the
 Android build metadata gets, so there is only one effective version per build.
+An optional `--dart-define=LINTHRA_VERSION_NAME=...` override remains as an
+escape hatch (normally unused; see `AppInfo._definedVersionName`), but standard
+builds need it nowhere.
 
 ### Rules
 
@@ -109,31 +125,43 @@ Android build metadata gets, so there is only one effective version per build.
 ### Malformed tags
 
 The build **fails fast** — before producing any artifact — when the tag is not a
-supported release tag. `tool/version_from_tag.dart` exits non-zero (failing the
-"Derive version from tag" step) for, e.g.:
+supported release tag, **or when `pubspec.yaml` does not match the tag** (§4).
+The "Verify the tag matches pubspec.yaml" step runs `tool/version_from_tag.dart`,
+which exits non-zero for, e.g.:
 
 - a non-`X.Y.Z` core (`v1.2`, `v1.2.3.4`, `vfoo`);
 - an unknown or numberless pre-release (`v1.2.3-alpha`, `v1.2.3-preview.1`);
 - SemVer build metadata (`v1.2.3-alpha.1+build`);
 - fields outside the encodable range (`v0.100.0`, `v0.1.0-alpha.300`).
 
-The error names the offending tag and the expected format. Fix it (delete the
-bad tag, push a corrected one) and re-run — nothing stale is ever published.
+The error names the offending tag (or the `pubspec.yaml` mismatch) and the
+expected value. Fix it — bump `pubspec.yaml` to match, or delete the bad tag and
+push a corrected one — and re-run; nothing stale is ever published.
 
 ### Manual builds vs. tag builds
 
-A manual `workflow_dispatch` run is **not** a release: it passes none of the
-version flags, builds the `pubspec.yaml` version, and names its artifacts without
-a tag (`linthra-<signing>.apk`) so it can't be mistaken for a tagged release.
-Only a `v*` tag push derives the version from the tag.
+Both a manual `workflow_dispatch` run and a tag build are a plain `flutter build`
+that takes the version from `pubspec.yaml`. The difference is only naming and
+attachment: a manual run names its artifacts without a tag
+(`linthra-<signing>.apk`) so it can't be mistaken for a tagged release, and it
+neither verifies against nor attaches to any tag. Only a `v*` tag push verifies
+that `pubspec.yaml` matches the tag (§4) and can attach to a Release.
 
-### Do not hand-edit version metadata
+### What to bump for a release
 
-There is **no generated version file to edit.** For a release, edit nothing — push
-the tag. `AppInfo._devVersionName` and `pubspec.yaml` only affect local/dev builds
-and are kept in lock-step by the drift test; bump them together (in one commit) if
-you want dev builds to show a newer baseline, but they are not what a release
-ships.
+To cut a release you edit the version in **two files in the same commit** (a
+drift test enforces they agree), then tag:
+
+1. `pubspec.yaml` → `version: <versionName>+<versionCode>` (e.g.
+   `0.1.0-alpha.31+100031`).
+2. `lib/core/app_info.dart` → `AppInfo._devVersionName` = the same `versionName`
+   (e.g. `0.1.0-alpha.31`).
+
+That's the whole version change. `test/core/app_info_version_test.dart` fails CI
+if the two drift, or if the `versionCode` is not the canonical encoding of the
+`versionName` (preview it with `tool/version_from_tag.dart`). There is **no
+generated version file** and **no `--build-name`/`--build-number` to pass** — the
+tag (§2) just has to match what you put in `pubspec.yaml`.
 
 ## 2. Tagging
 
@@ -147,40 +175,46 @@ F-Droid (and our own release tracking) builds from a **git tag**.
   git push origin v0.1.0
   ```
 
-- The tag's `vX.Y.Z` should match the released `versionName`. Note that
-  `pubspec.yaml` currently keeps a fixed dev version that does **not** track the
-  tags, so F-Droid uses manual `Builds` entries with `AutoUpdateMode`/
-  `UpdateCheckMode: None` (see [fdroid-build-recipe.md §2](./fdroid-build-recipe.md#2-expected-f-droid-metadata-repo-fields)).
-  Keeping `pubspec.yaml` in lockstep with the tag is the future option that would
-  let F-Droid auto-update instead.
+- **The tag must match `pubspec.yaml`'s version.** `vX.Y.Z(-suffix.N)` is the
+  `versionName`, and the `+<versionCode>` in `pubspec.yaml` must be its canonical
+  encoding (§1). Bump `pubspec.yaml` (and `AppInfo._devVersionName`) **before**
+  tagging (§3); the tag build verifies the match and fails fast if they diverge
+  (§4). Because `pubspec.yaml` now tracks the tag in lockstep, F-Droid
+  auto-detects new releases (`AutoUpdateMode: Version`, `UpdateCheckMode: Tags`)
+  instead of needing a manual `Builds` entry per release — see
+  [fdroid-build-recipe.md §2](./fdroid-build-recipe.md#2-expected-f-droid-metadata-repo-fields).
 - Tag only commits where CI is green **and** generated files are current (§3).
 
 ## 3. Pre-tag checklist
 
-Before creating a release tag:
+Every release requires three version-linked actions — **bump `pubspec.yaml`**,
+**add the Fastlane changelog**, and **tag the matching version** — plus the usual
+green-CI / generated-files hygiene:
 
-1. **Choose the version** = the tag you will push, e.g. `v0.1.0-alpha.16`. The
-   build derives `versionName`/`versionCode` from it automatically (§1); there is
-   **no version constant to bump** for the release. Preview the derived values:
+1. **Choose the version** = the tag you will push, e.g. `v0.1.0-alpha.31`.
+   Preview its canonical `versionCode`:
 
    ```sh
-   dart run tool/version_from_tag.dart v0.1.0-alpha.16
-   # LINTHRA_VERSION_NAME=0.1.0-alpha.16
-   # LINTHRA_VERSION_CODE=100016
+   dart run tool/version_from_tag.dart v0.1.0-alpha.31
+   # LINTHRA_VERSION_NAME=0.1.0-alpha.31
+   # LINTHRA_VERSION_CODE=100031
    ```
 
-2. **(Optional) Refresh the dev baseline.** `pubspec.yaml`'s `version:` and
-   `AppInfo._devVersionName` only drive local/dev builds; bump them together (the
-   drift test `test/core/app_info_version_test.dart` enforces they match) if you
-   want `flutter run` to show the new version. **Not required** for the release —
-   the tag overrides both.
-3. **Add a changelog** named by the **derived `versionCode`** at
+2. **Bump the version in `pubspec.yaml` (and its in-app mirror)** — in one
+   commit, since a drift test enforces they agree:
+   - `pubspec.yaml` → `version: 0.1.0-alpha.31+100031` (the `versionName` plus the
+     canonical `versionCode` from step 1).
+   - `lib/core/app_info.dart` → `AppInfo._devVersionName = '0.1.0-alpha.31'`.
+
+   This is **required** — it is the version the release (and F-Droid) ships.
+   `test/core/app_info_version_test.dart` fails CI if the two files drift or if
+   the `versionCode` is not the canonical encoding of the `versionName`.
+3. **Add the Fastlane changelog** named by that `versionCode` at
    `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` — e.g.
-   `100016.txt` for `v0.1.0-alpha.16` (use the value `tool/version_from_tag.dart`
-   prints). Keep it short and factual; this is what F-Droid shows. A longer
-   GitHub-Release body lives under `docs/release-notes/vX.Y.Z*.md` (see the
-   [v0.1.0-alpha.9 notes](./release-notes/v0.1.0-alpha.9.md)). The `vX.Y.Z` in the
-   file name and the version inside it must match the tag.
+   `100031.txt`. Keep it short and factual; this is what F-Droid shows. A longer
+   GitHub-Release body can live under `docs/release-notes/vX.Y.Z*.md` (see the
+   [v0.1.0-alpha.9 notes](./release-notes/v0.1.0-alpha.9.md)); the version inside
+   it must match the tag.
 4. **Regenerate committed generated files** (Drift `*.g.dart`) so they match the
    schema at the tagged commit — run the
    [Generate Drift files workflow](../README.md#generating-drift-files-in-ci) or
@@ -191,19 +225,22 @@ Before creating a release tag:
    commit — this includes the version-drift test from step 2.
 6. **Confirm licensing** is still accurate if dependencies changed — re-run the
    [dependency & license audit](./dependency-license-audit.md).
-7. Create the annotated tag (§2).
+7. **Create the annotated tag (§2)** — `vX.Y.Z(-suffix.N)` must equal the
+   `versionName` you set in `pubspec.yaml` (step 2). The tag build re-verifies
+   the match (§4) and fails fast if they diverge.
 
 ## 4. GitHub Releases (notes manual, artifact build & attachment automatic)
 
 Pushing a `v*` tag starts the build. The **Android Release Build** workflow
 (`.github/workflows/android-release-build.yml`) runs automatically on a `v*`
-tag, **derives the version from the tag** (§1), builds the APK/AAB with that
-version, verifies the built APK carries it, and attaches them to a GitHub
-Release. **Writing the
-release notes stays manual** — the workflow never authors production notes,
-publishes to a store, or submits to F-Droid. It listens only to the tag `push`
-(not to `release: published`), so a tag builds exactly once. See
-[docs/release-signing.md](./release-signing.md) for the signing details.
+tag, **verifies that `pubspec.yaml` matches the tag** (§1; it fails fast on a
+mismatch or a malformed tag, before any build), builds the APK/AAB with the
+`pubspec.yaml` version, verifies the built APK carries it, and attaches them to a
+GitHub Release. **Writing the release notes stays manual** — the workflow never
+authors production notes, publishes to a store, or submits to F-Droid. It listens
+only to the tag `push` (not to `release: published`), so a tag builds exactly
+once. See [docs/release-signing.md](./release-signing.md) for the signing
+details.
 
 The attachment behavior depends on whether the tag is a **pre-release**:
 
@@ -287,7 +324,7 @@ F-Droid does **not** consume our signed artifacts. When/if Linthra is submitted:
 | Quality CI (analyze/test/format) on PRs & `main` | **Automatic** (`ci.yml`). |
 | Debug APK build | Manual (`workflow_dispatch`) + on PRs (`android-debug-apk.yml`). |
 | Release APK/AAB build | **Manual** (`workflow_dispatch`) **and automatic on `v*` tags** (`android-release-build.yml`). |
-| Deriving versionName/versionCode + in-app version from the tag | **Automatic** on a `v*` tag build (`tool/version_from_tag.dart`); manual runs use `pubspec.yaml`. |
+| Verifying the tag matches `pubspec.yaml` (versionName/versionCode) | **Automatic** on a `v*` tag build (`tool/version_from_tag.dart`); fails fast on a mismatch. Both manual and tag builds take the version from `pubspec.yaml`. |
 | Attaching APK/AAB to a Release | **Automatic** on a `v*` tag build. Alpha/beta/rc tags attach (debug- or release-signed) to a **pre-release**; stable tags attach **release-signed** assets to an existing Release only. |
 | Creating a GitHub **pre-release** (alpha/beta/rc) | **Automatic** on the tag build if no Release exists yet (placeholder notes; edit afterwards). |
 | Creating a stable GitHub Release | **Manual** (operator, §4); never auto-created. |
@@ -306,7 +343,7 @@ Release, writes production notes, signs a store build, or submits to F-Droid.
    GitHub-Release artifact is wanted — see
    [release-signing.md](./release-signing.md). (Not needed for F-Droid itself,
    which signs its own builds.)
-2. **A `vX.Y.Z` tag** exists — alpha tags through `v0.1.0-alpha.15` have been
+2. **A `vX.Y.Z` tag** exists — alpha tags through `v0.1.0-alpha.30` have been
    cut; F-Droid submission itself is still pending the other blockers.
 3. **Decide the `pubspec.lock` policy** for reproducible release builds
    ([fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
