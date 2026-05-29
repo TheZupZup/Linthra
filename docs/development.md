@@ -121,8 +121,9 @@ do not.
 ## Building a debug APK (Android)
 
 You need a working Android SDK (`ANDROID_HOME` / `ANDROID_SDK_ROOT` set) and a
-JDK that matches the bundled Gradle wrapper — **JDK 17** is the safe choice for
-the Gradle 8.3 / Android Gradle Plugin 8.1 the scaffold ships with. Run
+JDK that matches the bundled Gradle wrapper — **JDK 21** is the safe choice for
+the Gradle 8.7 / Android Gradle Plugin 8.2.1 the scaffold ships with (JDK 17
+also works). Run
 `flutter doctor` to confirm your toolchain.
 
 ```bash

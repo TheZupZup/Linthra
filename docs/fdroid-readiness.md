@@ -55,7 +55,7 @@ pinned and matches CI (`.github/workflows/ci.yml`, `android-debug-apk.yml`).
 | -------- | ------ |
 | **Flutter version required?** | **3.27.4**, `stable` channel — pinned in [`.flutter-version`](../.flutter-version) and both CI workflows. `scripts/setup_flutter.sh` installs exactly this version locally. |
 | **Dart SDK?** | `>=3.6.0 <4.0.0` (`pubspec.yaml`); satisfied by Flutter 3.27.4 (Dart 3.6.2). |
-| **JDK / Gradle?** | JDK 17 (Temurin in CI), Gradle 8.3, Android Gradle Plugin 8.1.0, Kotlin 1.8.22. |
+| **JDK / Gradle?** | JDK 21 (Temurin in CI), Gradle 8.7, Android Gradle Plugin 8.2.1, Kotlin 1.9.24. |
 | **Android SDK required?** | **Yes.** A standard Android SDK (`platform-tools`, `platforms;android-35`, `build-tools;35.0.0`) plus the NDK + CMake are needed to compile the one native component (SQLite, below). `compileSdk`/`minSdk`/`targetSdk` come from Flutter, not hard-coded. |
 | **Signing keys required to build?** | **No.** A from-source build needs no signing material; F-Droid signs its own builds. Linthra's release signing is optional and supplied at build time via env vars / `android/key.properties`, falling back to the debug key when absent (see [release-signing.md](./release-signing.md)). No keystore or secret is committed. |
 | **Build commands** | `flutter pub get` then `flutter build apk --release` (or `--debug`; split-per-ABI is fine — appbundle is for Play, not F-Droid). |
@@ -270,7 +270,7 @@ What each one shows, plus the privacy review and the still-optional extras, is i
 
 1. **Reproducible build verification.** CI runs `dart format`, `flutter analyze`,
    and `flutter test` green on every PR (`ci.yml`) and builds a debug APK per PR
-   (`android-debug-apk.yml`, JDK 17 + Flutter 3.27.4); the tagged release APK is
+   (`android-debug-apk.yml`, JDK 21 + Flutter 3.27.4); the tagged release APK is
    built by `android-release-build.yml`. This preparation pass could only
    validate the **metadata YAML** (no Flutter/Android SDK / fdroidserver in the
    environment). Before submitting, re-confirm a clean from-source

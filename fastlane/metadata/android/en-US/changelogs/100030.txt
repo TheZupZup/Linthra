@@ -1,0 +1,8 @@
+Linthra 0.1.0-alpha.30 — build & packaging maintenance.
+
+Changed:
+- Updated the Android Gradle tooling (Android Gradle Plugin, the Gradle wrapper,
+  and Kotlin) so Linthra builds on Java 21 toolchains, including F-Droid's build
+  servers. No app features, permissions, or behavior change.
+
+Still an alpha — expect rough edges. Not on F-Droid yet.

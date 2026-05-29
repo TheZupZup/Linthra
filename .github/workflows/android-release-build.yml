@@ -182,11 +182,14 @@ jobs:
           echo "LINTHRA_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
           echo "Release keystore decoded to a temporary path."
 
+      # Build on JDK 21 to match F-Droid's build servers and modern Android
+      # toolchains. The Android Gradle tooling (AGP 8.2.1 / Gradle 8.7 / Kotlin
+      # 1.9.24) supports JDK 21; the release artifacts build identically on it.
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       # Keep this Flutter version in sync with .github/workflows/ci.yml.
       - name: Set up Flutter
