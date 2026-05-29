@@ -25,8 +25,8 @@ availability.
   is the hotfix that reverts it.
 - **Groundwork in place:** a stable application ID, the MPL-2.0 license, a real
   app/launcher icon, Fastlane-style store metadata under
-  `fastlane/metadata/android/en-US/` (text plus the real icon and feature
-  graphic; screenshots still to come), a finished dependency/license audit, the
+  `fastlane/metadata/android/en-US/` (text plus the real icon, feature graphic,
+  and eight real phone screenshots), a finished dependency/license audit, the
   draft recipe at [`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml)
   (pinned to `v0.1.0-alpha.25`), and the submission package at
   [`docs/fdroid-submission.md`](./fdroid-submission.md).
@@ -250,25 +250,21 @@ Stored under `fastlane/metadata/android/en-US/`:
   + legacy), generated from `tool/branding/` — no longer the default Flutter
   placeholder.
 - [x] `images/featureGraphic.png` — 1024×500, the Linthra brand banner.
-- [ ] `images/phoneScreenshots/*.png` — 2–8 real screenshots from a device.
+- [x] `images/phoneScreenshots/*.png` — eight real phone screenshots from a
+  running build (see [docs/listing-assets.md §6](./listing-assets.md)).
 - [ ] `images/sevenInchScreenshots/*.png` / `images/tenInchScreenshots/*.png` —
   optional tablet screenshots (only if the larger layout is worth showing).
 
 The icon and feature graphic are committed (generated deterministically from
-`tool/branding/linthra_icon.svg`). No placeholder/mock **screenshots** are
-committed on purpose; they must be captured from a real build. Exact sizes and
-step-by-step capture instructions live in
-[docs/listing-assets.md](./listing-assets.md); see also F-Droid's
+`tool/branding/linthra_icon.svg`), and eight real phone screenshots — captured
+from a running build, not mocked — are committed under `images/phoneScreenshots/`.
+What each one shows, plus the privacy review and the still-optional extras, is in
+[docs/listing-assets.md §6](./listing-assets.md); see also F-Droid's
 [descriptions, graphics & screenshots guide](https://f-droid.org/docs/All_About_Descriptions_Graphics_and_Screenshots/).
 
 ## 8. Remaining blockers before submission
 
-1. **Screenshots missing.** The real icon and feature graphic are committed; only
-   screenshots remain, captured from a real build (see
-   [docs/listing-assets.md](./listing-assets.md)). Tracked by **issue #77**.
-   Not strictly required for an fdroiddata MR, but strongly recommended for the
-   listing.
-2. **Reproducible build verification.** CI runs `dart format`, `flutter analyze`,
+1. **Reproducible build verification.** CI runs `dart format`, `flutter analyze`,
    and `flutter test` green on every PR (`ci.yml`) and builds a debug APK per PR
    (`android-debug-apk.yml`, JDK 17 + Flutter 3.27.4); the tagged release APK is
    built by `android-release-build.yml`. This preparation pass could only
@@ -278,24 +274,30 @@ step-by-step capture instructions live in
    `sqlite3_flutter_libs`) on an SDK-equipped machine, and run `fdroid lint` +
    `fdroid build -l` in an fdroiddata checkout (commands in
    [docs/fdroid-submission.md §7](./fdroid-submission.md)).
-3. **Toolchain provisioning in the recipe** must be matched to fdroiddata's
+2. **Toolchain provisioning in the recipe** must be matched to fdroiddata's
    current Flutter convention (sudo git-clone vs. the `flutter` srclib) and
    validated by an actual `fdroid build` — see
    [docs/fdroid-submission.md §3](./fdroid-submission.md) and
    [fdroid-build-recipe.md](./fdroid-build-recipe.md).
-4. **Feature maturity / pre-release tag (judgment call).** Decide whether to
+3. **Feature maturity / pre-release tag (judgment call).** Decide whether to
    submit at the current early-alpha stage or wait for a stable (non-pre-release)
    tag — and confirm whether F-Droid will track/suggest an `-alpha`
    CurrentVersion at all.
-5. **Release signing (GitHub channel only).** Not an F-Droid blocker (F-Droid
+4. **Release signing (GitHub channel only).** Not an F-Droid blocker (F-Droid
    signs its own builds), but the debug-key fallback should be replaced with real
    release signing for GitHub-Release artifacts (see
    [docs/release-signing.md](./release-signing.md)).
-6. **`pubspec.lock` policy** for reproducibility — still git-ignored; decide
+5. **`pubspec.lock` policy** for reproducibility — still git-ignored; decide
    whether to commit it at the tagged commit (§4 action items).
 
 **Resolved since the previous passes:**
 
+- **Screenshots landed.** Eight real phone screenshots, captured from a running
+  build (not mocked), are committed under `images/phoneScreenshots/` — the core
+  set tracked by **issue #77**. What each shows and the privacy review are in
+  [docs/listing-assets.md §6](./listing-assets.md). Optional extras
+  (Downloads-with-tracks, Android Auto, Cast, tablet) remain nice-to-haves, not
+  blockers.
 - **A tagged release now exists.** `v0.1.0-alpha.25` is the latest **working**
   alpha and is the recipe's `commit:`. The withdrawn, broken `v0.1.0-alpha.24` is
   explicitly **not** targeted.
@@ -320,8 +322,10 @@ The full step-by-step submission flow and the ready-to-adapt MR text live in
 3. ✅ **Target tag + versionCode decided** — `v0.1.0-alpha.25` / `100025`, with a
    matching `changelogs/100025.txt`; the recipe derives the version from the tag
    (§6). The broken `v0.1.0-alpha.24` is excluded.
-4. **Capture and commit real screenshots** (§7; icon and feature graphic already
-   done — see [docs/listing-assets.md](./listing-assets.md); tracked by #77).
+4. ✅ **Screenshots committed** — eight real phone screenshots under
+   `images/phoneScreenshots/` (§7; see [docs/listing-assets.md §6](./listing-assets.md);
+   the core set for #77). Optional extras (Downloads-with-tracks, Android Auto,
+   Cast, tablet) remain.
 5. **Verify a clean `flutter build apk --release`** on a machine with the Android
    SDK + NDK (the from-source path F-Droid uses), and re-confirm the merged
    manifest permission set (§5 verification note).

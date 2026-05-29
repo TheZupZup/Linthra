@@ -30,9 +30,10 @@ version number and a description are plenty.
 
 ## Documentation
 
-- **Screenshots** of a running build for the README and store listing
-  ([#77](https://github.com/thezupzup/linthra/issues/77)), and a short demo
-  GIF/video ([#91](https://github.com/thezupzup/linthra/issues/91)).
+- **More screenshots** — the core set is committed
+  ([#77](https://github.com/thezupzup/linthra/issues/77)); still useful are
+  Downloads with tracks downloaded, Android Auto, Cast, or a tablet layout, plus
+  a short demo GIF/video ([#91](https://github.com/thezupzup/linthra/issues/91)).
 - **Install & setup guides** — make first-run smoother for newcomers.
 - **Troubleshooting** — capture the gotchas you hit so the next person doesn't.
 - **Bug-report docs** — help testers write clear, secret-free reports
