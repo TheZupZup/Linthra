@@ -1,0 +1,28 @@
+# Example release-signing configuration for LOCAL release builds.
+#
+# This is a TEMPLATE ONLY. It contains no secrets and is safe to commit.
+# To use it:
+#
+#   1. Copy it to android/key.properties
+#        cp android/key.properties.example android/key.properties
+#   2. Fill in the four values below with your own release keystore details.
+#   3. NEVER commit android/key.properties or the keystore itself — both are
+#      git-ignored (see android/.gitignore: `key.properties`, `**/*.keystore`,
+#      `**/*.jks`). Do not paste real passwords into code, CI YAML, or a commit
+#      message.
+#
+# These four keys are read by android/app/build.gradle. If all four are present
+# AND the keystore file exists, release builds are signed with this key;
+# otherwise they fall back to the DEBUG key (not a real release). CI supplies
+# the same values via the LINTHRA_* environment variables instead of this file
+# (env vars take precedence). See docs/release-signing.md for keystore
+# generation, CI secrets, rotation, and Google Play App Signing notes.
+
+# Absolute path to your release keystore (e.g. /home/you/keys/linthra-release.keystore).
+storeFile=/absolute/path/to/linthra-release.keystore
+# The keystore (store) password.
+storePassword=CHANGEME
+# The key alias inside the keystore (matches the -alias used with keytool).
+keyAlias=linthra
+# The password for that key.
+keyPassword=CHANGEME
