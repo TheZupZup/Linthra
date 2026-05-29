@@ -40,17 +40,30 @@ submission time.
 | `SourceCode`      | `https://github.com/TheZupZup/Linthra` | Public repository. |
 | `IssueTracker`    | `https://github.com/TheZupZup/Linthra/issues` | GitHub issues. |
 | `Changelog`       | `https://github.com/TheZupZup/Linthra/releases` | Tagged GitHub Releases now exist, so this is set. |
-| `AutoUpdateMode`  | `None` | Disabled on purpose — see the note below. |
-| `UpdateCheckMode` | `None` | Disabled on purpose — see the note below. |
+| `AutoUpdateMode`  | `Version` | **Enabled** — adds a build per new tag. See the note. |
+| `UpdateCheckMode` | `Tags` (with `UpdateCheckData`) | **Enabled** — scans `v*` tags, reading the version from `pubspec.yaml`. See the note. |
 
-`AutoUpdateMode`/`UpdateCheckMode` are **disabled** (`None`). They would only
-work if the release tag and the `pubspec.yaml` version stayed in lockstep, but
-`pubspec.yaml` keeps a fixed dev version (`0.1.0-alpha.15+15`) that does not move
-with the tags — the real version is derived at build time (§5). F-Droid's
-pubspec/tag update detection would therefore read the wrong versionCode, so each
-release is added as a manual `Builds` entry with explicit
-`versionName`/`versionCode`. (This is also what the fdroiddata maintainer
-confirmed on MR !39253.)
+`AutoUpdateMode`/`UpdateCheckMode` are now **enabled**, because `pubspec.yaml`
+carries the release version (`version: <versionName>+<versionCode>`) in lockstep
+with the tag (see [release-process.md §1](./release-process.md#1-versioning-model)).
+F-Droid's default `Tags` path reads only `AndroidManifest.xml`/`build.gradle`,
+which for a Flutter app hold no literal version, so an `UpdateCheckData` entry
+points it at `pubspec.yaml`:
+
+```
+UpdateCheckMode: Tags
+UpdateCheckData: pubspec.yaml|version:\s.+\+(\d+)|.|version:\s(.+)\+
+AutoUpdateMode: Version
+```
+
+At each tag F-Droid extracts the `versionCode` (digits after `+`) and the
+`versionName` (before `+`), picks the highest `versionCode`, and `AutoUpdateMode:
+Version` adds a **plain-build** entry for it. (The earlier MR !39253 used
+`None`/`None` with manual `Builds` entries because `pubspec.yaml` then kept a
+fixed dev version that didn't track the tags; that no longer applies.) The exact
+fdroiddata changes — and the one-time transition for the pre-change
+`v0.1.0-alpha.30` tag — are in
+[fdroid-submission.md §2](./fdroid-submission.md#2-target-version-the-latest-working-alpha).
 
 ## 3. Build source expectations
 
@@ -122,28 +135,27 @@ process (and the GitHub-Release flow) is in
 [docs/release-process.md](./release-process.md), and it is consistent with
 [fdroid-readiness.md §6](./fdroid-readiness.md):
 
-1. **Source of truth:** for a release the **git tag** drives
-   `versionName`/`versionCode` (derived by `tool/version_from_tag.dart`, see
-   [release-process.md §1](./release-process.md#1-versioning-model));
-   `pubspec.yaml` `version: x.y.z+<versionCode>` is the local/dev default.
-   **F-Droid handling (decided):** F-Droid builds from source and does not run
-   our workflow, so a plain `flutter build` would take the static
-   `pubspec.yaml` version (versionCode **15** for every tag). The recipe
-   therefore passes explicit `--build-name`/`--build-number` matching what
-   `tool/version_from_tag.dart` produces for the tag, so `v0.1.0-alpha.29` builds
-   to `0.1.0-alpha.29` / **100029** — matching the metadata and the GitHub
-   channel. Because `pubspec.yaml` doesn't track the tags, `AutoUpdateMode`/
-   `UpdateCheckMode` are `None` and each release is a manual entry (§2). See
-   [fdroid-submission.md §2](./fdroid-submission.md).
+1. **Source of truth:** `pubspec.yaml`'s `version: <versionName>+<versionCode>`
+   drives the version and is bumped to match the tag each release (see
+   [release-process.md §1](./release-process.md#1-versioning-model)). A plain
+   `flutter build apk --release` — the upstream CI build *and* the F-Droid build
+   alike — takes `versionName`/`versionCode` straight from `pubspec.yaml`, so the
+   two channels agree with **no** `--build-name`/`--build-number` flags. Because
+   `pubspec.yaml` now tracks the tags, `AutoUpdateMode`/`UpdateCheckMode` are
+   enabled (§2) — F-Droid auto-detects new releases instead of needing a manual
+   entry each time. (Transition: the pre-change `v0.1.0-alpha.30` tag still
+   carries the old fixed `pubspec.yaml`, so its single entry passes explicit
+   flags as a one-time bridge; new tags don't — see
+   [fdroid-submission.md §2](./fdroid-submission.md#2-target-version-the-latest-working-alpha).)
 2. **`versionCode` increases monotonically** by construction (the encoding can
    never go backwards); never reuse or decrease it.
-3. **Tag format suggestion:** annotated tag `vX.Y.Z` (e.g. `v0.1.0`) on the
-   commit to be built. This matches the `UpdateCheckMode`/`AutoUpdateMode`
-   recommendation in §2.
+3. **Tag format:** annotated tag `vX.Y.Z(-suffix.N)` (e.g. `v0.1.0`) on the
+   commit to be built, matching `pubspec.yaml`'s `versionName`. This is what
+   `UpdateCheckMode: Tags` / `AutoUpdateMode: Version` track in §2.
 4. **Changelog expectations:** add a per-version Fastlane changelog at
    `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` for each
-   release (e.g. `1.txt` for `0.1.0+1`). If GitHub Releases are also published,
-   the `Changelog` metadata field (§2) can point there.
+   release (e.g. `100030.txt` for `0.1.0-alpha.30+100030`). If GitHub Releases are
+   also published, the `Changelog` metadata field (§2) can point there.
 5. Ensure committed generated files (§4.1) are current on the tagged commit.
 
 ## 6. Known blockers
@@ -172,24 +184,26 @@ These must be resolved before an actual F-Droid submission (see also
 **Resolved:** the store icon, feature graphic, and eight real phone screenshots
 are committed (the core set tracked by issue #77; see
 [docs/listing-assets.md §6](./listing-assets.md)); a `v*` tag now exists (target
-`v0.1.0-alpha.29`; the broken `v0.1.0-alpha.24` is excluded); the versionCode
-scheme is decided (tag-derived `100029`, §5.1); and the full transitive
-dependency audit is complete
+`v0.1.0-alpha.30`; the broken `v0.1.0-alpha.24` is excluded); the versionCode
+scheme is decided and now lives in `pubspec.yaml` (`0.1.0-alpha.30+100030`, §5.1),
+enabling auto-update (§2); and the full transitive dependency audit is complete
 ([dependency-license-audit.md](./dependency-license-audit.md)).
 
 ## 7. Draft F-Droid metadata recipe
 
 A complete, current draft recipe now lives in the repo at
 [`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml),
-pinned to the latest working alpha (`commit: v0.1.0-alpha.29`, versionName
-`0.1.0-alpha.29`, versionCode `100029`). That file is the canonical draft; edit
-it there rather than duplicating a snippet here.
+pinned to the latest working alpha (`commit: v0.1.0-alpha.30`, versionName
+`0.1.0-alpha.30`, versionCode `100030`) with auto-update enabled
+(`AutoUpdateMode: Version`, `UpdateCheckMode: Tags`, `UpdateCheckData` reading
+`pubspec.yaml`). That file is the canonical draft; edit it there rather than
+duplicating a snippet here.
 
 > **Still a draft — not submitted.** The recipe now uses the `flutter` srclib
 > method from `templates/build-flutter.yml` and a single universal APK, but it
 > must still be validated against fdroiddata via an actual `fdroid build` at
 > submission time (in particular any NDK/CMake the native SQLite build needs).
-> The version target and tag-derived versionCode are set; see the
+> The version target lives in `pubspec.yaml` and auto-update is wired up; see the
 > [submission package](./fdroid-submission.md) for the MR checklist and next
 > steps and the [readiness checklist](./fdroid-readiness.md#8-remaining-blockers-before-submission)
 > for the remaining blockers.

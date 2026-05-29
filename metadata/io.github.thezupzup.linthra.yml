@@ -28,14 +28,26 @@
 # matching CI). No Flutter submodule is added upstream and no SDK is cloned by
 # hand.
 #
-# AutoUpdateMode/UpdateCheckMode are disabled on purpose. pubspec.yaml carries a
-# fixed dev version (0.1.0-alpha.15+15) that does NOT track the release tags, so
-# F-Droid's pubspec/tag update detection would read the wrong versionCode. Each
-# release is therefore a manual Builds entry whose versionName/versionCode are
-# set explicitly via --build-name/--build-number. Those values match what
-# tool/version_from_tag.dart derives from the tag (v0.1.0-alpha.29 -> versionName
-# 0.1.0-alpha.29, versionCode 100029), so the F-Droid APK and the upstream
-# GitHub-release APK agree.
+# Auto-update is ENABLED. pubspec.yaml now carries the release version
+# (version: <versionName>+<versionCode>, e.g. 0.1.0-alpha.30+100030) in lockstep
+# with the release tag, so:
+#   * UpdateCheckMode: Tags scans the v* tags;
+#   * UpdateCheckData reads the versionCode/versionName from pubspec.yaml at each
+#     tag (F-Droid does not parse pubspec.yaml on its own — its default Tags path
+#     reads only AndroidManifest.xml/build.gradle, which for Flutter hold no
+#     literal version — so UpdateCheckData is REQUIRED for a Flutter app);
+#   * AutoUpdateMode: Version adds a build for each new tag;
+#   * a plain `flutter build apk --release` takes versionName/versionCode straight
+#     from pubspec.yaml, so the F-Droid APK and the upstream GitHub-release APK
+#     agree without any --build-name/--build-number flags.
+#
+# TRANSITION CAVEAT: the v0.1.0-alpha.30 tag below was cut BEFORE pubspec.yaml
+# tracked the release version, so at that exact tag pubspec.yaml is still
+# 0.1.0-alpha.15+15. The single Builds entry therefore passes explicit
+# --build-name/--build-number/--dart-define to build it as 0.1.0-alpha.30 /
+# 100030. From v0.1.0-alpha.31 onward pubspec.yaml matches the tag, so new
+# entries — including those AutoUpdateMode adds — must DROP those flags and be a
+# plain `flutter build apk --release`.
 #
 # Native code: the only native component is SQLite via sqlite3_flutter_libs,
 # compiled from source by the Android Gradle build (no prebuilt blobs). If
@@ -61,9 +73,9 @@ RepoType: git
 Repo: https://github.com/TheZupZup/Linthra.git
 
 Builds:
-  - versionName: 0.1.0-alpha.29
-    versionCode: 100029
-    commit: v0.1.0-alpha.29
+  - versionName: 0.1.0-alpha.30
+    versionCode: 100030
+    commit: v0.1.0-alpha.30
     output: build/app/outputs/flutter-apk/app-release.apk
     srclibs:
       - flutter@stable
@@ -78,9 +90,15 @@ Builds:
       - .pub-cache
     build:
       - export PUB_CACHE=$(pwd)/.pub-cache
-      - $$flutter$$/bin/flutter build apk --release --build-name=0.1.0-alpha.29 --build-number=100029 --dart-define=LINTHRA_VERSION_NAME=0.1.0-alpha.29
+      # TRANSITION (see header): the v0.1.0-alpha.30 tag predates pubspec.yaml
+      # version tracking (its committed pubspec is 0.1.0-alpha.15+15), so these
+      # explicit flags override it to build as 0.1.0-alpha.30 / 100030. From
+      # v0.1.0-alpha.31 onward, DROP these flags — a plain `flutter build apk
+      # --release` reads the version from pubspec.yaml.
+      - $$flutter$$/bin/flutter build apk --release --build-name=0.1.0-alpha.30 --build-number=100030 --dart-define=LINTHRA_VERSION_NAME=0.1.0-alpha.30
 
-AutoUpdateMode: None
-UpdateCheckMode: None
-CurrentVersion: 0.1.0-alpha.29
-CurrentVersionCode: 100029
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+UpdateCheckData: pubspec.yaml|version:\s.+\+(\d+)|.|version:\s(.+)\+
+CurrentVersion: 0.1.0-alpha.30
+CurrentVersionCode: 100030

@@ -1,7 +1,15 @@
 name: linthra
 description: A modern, local-first, privacy-focused music player.
 publish_to: "none"
-version: 0.1.0-alpha.15+15
+# Single source of truth for the release version: <versionName>+<versionCode>.
+# Bumped to match each release tag (see docs/release-process.md §1 & §3). The
+# versionCode is the canonical encoding of the versionName from
+# tool/version_from_tag.dart (0.1.0-alpha.30 -> 100030);
+# test/core/app_info_version_test.dart enforces that. Flutter reads both into the
+# Android build (versionName/versionCode) and the in-app version mirrors it via
+# AppInfo._devVersionName, so a plain `flutter build` (CI and F-Droid alike) and
+# the tag all agree.
+version: 0.1.0-alpha.30+100030
 
 environment:
   sdk: ">=3.6.0 <4.0.0"

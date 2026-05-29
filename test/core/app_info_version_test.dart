@@ -4,17 +4,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/app_info.dart';
 import 'package:linthra/core/diagnostics/app_diagnostics.dart';
 
+import '../../tool/version_from_tag.dart';
+
 /// Guards the version strategy described in docs/release-process.md §1:
 ///
-/// * On a **tagged release build**, the version comes from the Git tag, injected
-///   via `--dart-define=LINTHRA_VERSION_NAME=...` (see tool/version_from_tag.dart),
-///   so the in-app version always matches the released APK/AAB.
-/// * On **local/dev and CI-test builds** (no dart-define), [AppInfo.version]
-///   falls back to a `const` mirror of `pubspec.yaml`'s `versionName`. This is
-///   the value the suite below sees, since `flutter test` passes no dart-define.
+/// * `pubspec.yaml`'s `version: <name>+<code>` is the single source of truth and
+///   is kept in lockstep with the release tag. A plain `flutter build` — local,
+///   CI release, and F-Droid alike — takes the version from there.
+/// * [AppInfo.version] mirrors `pubspec.yaml`'s `versionName` via a `const`
+///   ([AppInfo] reads no override in tests, since `flutter test` passes no
+///   dart-define), and the `+versionCode` must be the canonical encoding of that
+///   name (tool/version_from_tag.dart), so the tag, `pubspec.yaml`, and the
+///   F-Droid build can never disagree.
 ///
 /// Before this guard existed the app shipped `alpha.9` while still displaying
-/// `alpha.1`; the drift test keeps the dev fallback honest against pubspec.
+/// `alpha.1`; the drift tests keep the in-app version and the encoded
+/// versionCode honest against `pubspec.yaml`.
 void main() {
   // `version: x.y.z(-suffix)(+buildNumber)` — capture the SemVer part only;
   // the `+versionCode` is Android-internal and intentionally not in AppInfo.
@@ -50,10 +55,30 @@ void main() {
       expect(
         pubspec.code,
         isNotNull,
-        reason: 'pubspec.yaml `version:` must end in `+<versionCode>` so local '
+        reason: 'pubspec.yaml `version:` must end in `+<versionCode>` so '
             'Android builds get a monotonic build number.',
       );
       expect(pubspec.code, greaterThan(0));
+    });
+
+    test('versionCode is the canonical encoding of the versionName', () {
+      // pubspec.yaml is now in lockstep with the release tag, so its
+      // versionCode must be exactly what tool/version_from_tag.dart encodes for
+      // the versionName. This keeps the tag, pubspec.yaml, and the F-Droid build
+      // (which reads versionName/versionCode straight from pubspec.yaml) in
+      // agreement — see docs/release-process.md §1 & §3.
+      final ({String name, int? code}) pubspec = readPubspecVersion();
+      expect(
+        pubspec.code,
+        versionFromTag(pubspec.name).code,
+        reason:
+            'pubspec.yaml versionCode (${pubspec.code}) is not the canonical '
+            'encoding of its versionName (${pubspec.name}); '
+            'tool/version_from_tag.dart encodes that as '
+            '${versionFromTag(pubspec.name).code}. Use that exact value so the '
+            'tag, pubspec.yaml, and F-Droid agree. Preview it with '
+            '`dart run tool/version_from_tag.dart ${pubspec.name}`.',
+      );
     });
 
     test('is a SemVer string without a build suffix', () {

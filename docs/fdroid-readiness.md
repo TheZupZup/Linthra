@@ -17,19 +17,20 @@ availability.
   isn't production-stable, and the rough edges are documented.
 - **Distribution:** GitHub Releases only, as a sideloaded APK (Obtainium works
   too). No F-Droid metadata has been submitted, and Linthra isn't on F-Droid.
-- **Tagged releases now exist:** `v0.1.0-alpha.1` … `v0.1.0-alpha.29`, each built
+- **Tagged releases now exist:** `v0.1.0-alpha.1` … `v0.1.0-alpha.30`, each built
   by `.github/workflows/android-release-build.yml`. The F-Droid target is the
-  latest one that launches, `v0.1.0-alpha.29` (versionName `0.1.0-alpha.29`,
-  tag-derived versionCode `100029`). Skip `v0.1.0-alpha.24`: its GitHub Release
-  is marked "Broken release — do not install … startup regression"; alpha.25 was
-  the hotfix that reverted it, and the target has since moved on to alpha.29.
+  latest one that launches, `v0.1.0-alpha.30` (versionName `0.1.0-alpha.30`,
+  versionCode `100030`, carried in `pubspec.yaml`). Skip `v0.1.0-alpha.24`: its
+  GitHub Release is marked "Broken release — do not install … startup
+  regression"; alpha.25 was the hotfix that reverted it, and the target has since
+  moved on to alpha.30.
 - **Groundwork in place:** a stable application ID, the MPL-2.0 license, a real
   app/launcher icon, Fastlane-style store metadata under
   `fastlane/metadata/android/en-US/` (text plus the real icon, feature graphic,
   and eight real phone screenshots), a finished dependency/license audit, the
   draft recipe at [`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml)
-  (pinned to `v0.1.0-alpha.29`), and the submission package at
-  [`docs/fdroid-submission.md`](./fdroid-submission.md).
+  (pinned to `v0.1.0-alpha.30`, auto-update enabled), and the submission package
+  at [`docs/fdroid-submission.md`](./fdroid-submission.md).
 - **Not submitted yet.** See [Remaining blockers](#8-remaining-blockers-before-submission).
 
 ## 2. App identity
@@ -204,30 +205,31 @@ F-Droid builds from a git tag. Summary (the canonical, step-by-step process —
 including the GitHub-Release flow — is in
 [docs/release-process.md](./release-process.md)):
 
-1. The **git tag** is the source of truth for a release's version; the build
-   derives `versionName`/`versionCode` from it (see
-   [release-process.md §1](./release-process.md#1-versioning-model)).
-   `pubspec.yaml` only sets the version for local/dev builds.
-2. Tag releases as `vX.Y.Z[-suffix]` (annotated tag) on the commit to be built.
-3. `versionCode` is derived to be **strictly monotonic** automatically (encoded
-   from the version); never reuse or decrease it.
+1. **`pubspec.yaml`** is the source of truth for a release's version
+   (`version: <versionName>+<versionCode>`), bumped to match the tag each release
+   (see [release-process.md §1](./release-process.md#1-versioning-model)). A plain
+   `flutter build` reads it.
+2. Tag releases as `vX.Y.Z[-suffix.N]` (annotated tag) on the commit to be built,
+   matching `pubspec.yaml`'s `versionName`.
+3. `versionCode` is the **strictly monotonic** canonical encoding of the version
+   (`tool/version_from_tag.dart`); never reuse or decrease it.
 4. Add a matching changelog file at
    `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`, named by the
-   **derived** code (e.g. `100016.txt` for `v0.1.0-alpha.16`).
-5. The F-Droid recipe should use `AutoUpdateMode`/`UpdateCheckMode` tied to tags
-   so new tagged releases are picked up.
+   code (e.g. `100030.txt` for `0.1.0-alpha.30+100030`).
+5. The F-Droid recipe uses `AutoUpdateMode: Version` / `UpdateCheckMode: Tags`
+   (with `UpdateCheckData` reading `pubspec.yaml`) so new tagged releases are
+   picked up automatically.
 
 > **How the F-Droid build gets the right version.** F-Droid builds from source at
-> the tag and doesn't run our release workflow, so a plain `flutter build` there
-> would read the version from `pubspec.yaml` (`0.1.0-alpha.15+15`) and label every
-> tag as versionCode 15 — which F-Droid can't tell apart. The draft recipe avoids
-> that by deriving the version from the checked-out tag with
-> `tool/version_from_tag.dart` and passing `--build-name`/`--build-number`, so
-> `v0.1.0-alpha.29` builds to `0.1.0-alpha.29` / `100029` — the same value the
-> GitHub release build uses, distinct and increasing per tag, and still correct
-> under `AutoUpdateMode` for future tags. (Bumping `pubspec.yaml` at each tagged
-> commit would also work and is cleaner long-term, but it changes the release
-> process; see [docs/fdroid-submission.md §2](./fdroid-submission.md).)
+> the tag and doesn't run our release workflow, but `pubspec.yaml` now carries the
+> release version in lockstep with the tag, so a plain `flutter build apk
+> --release` reads `0.1.0-alpha.30` / `100030` directly — the same value the
+> GitHub release build uses, distinct and increasing per tag. F-Droid's default
+> `Tags` path doesn't read `pubspec.yaml`, so the recipe adds an `UpdateCheckData`
+> entry pointing at it; see
+> [docs/fdroid-submission.md §2](./fdroid-submission.md#2-target-version-and-auto-update).
+> (Transition: the pre-change `v0.1.0-alpha.30` tag still has the old fixed
+> `pubspec.yaml`, so its one seed entry passes explicit flags; new tags don't.)
 
 ## 7. Metadata checklist
 
@@ -241,14 +243,14 @@ Stored under `fastlane/metadata/android/en-US/`:
   Description.
 - [x] `changelogs/1.txt`, `9.txt`, `15.txt` — legacy per-version notes (named by
   the old hand-numbered `versionCode`); kept as-is.
-- [x] `changelogs/100025.txt` — notes for the earlier alpha.25 target, named by
-  its derived versionCode `100025`; kept as history now that the target has moved
-  on to alpha.29.
-- [x] `changelogs/100029.txt` — notes for the current F-Droid target
-  `v0.1.0-alpha.29`, named by the **derived** versionCode `100029` (the
-  convention going forward — see
+- [x] `changelogs/100025.txt`, `100029.txt` — notes for the earlier alpha.25 /
+  alpha.29 targets, named by their `versionCode`; kept as history now that the
+  target has moved on to alpha.30.
+- [x] `changelogs/100030.txt` — notes for the current F-Droid target
+  `v0.1.0-alpha.30`, named by its `versionCode` `100030` (the convention going
+  forward — see
   [release-process.md §1](./release-process.md#1-versioning-model)). Keep new
-  changelog filenames in lockstep with the built APK's derived `versionCode`.
+  changelog filenames in lockstep with `pubspec.yaml`'s `versionCode`.
 - [x] `images/icon.png` — 512×512 real Linthra store icon. The launcher icons
   under `android/app/src/main/res/mipmap-*` are now the same real mark (adaptive
   + legacy), generated from `tool/branding/` — no longer the default Flutter
@@ -302,12 +304,12 @@ What each one shows, plus the privacy review and the still-optional extras, is i
   [docs/listing-assets.md §6](./listing-assets.md). Optional extras
   (Downloads-with-tracks, Android Auto, Cast, tablet) remain nice-to-haves, not
   blockers.
-- **A tagged release now exists.** `v0.1.0-alpha.29` is the latest **working**
+- **A tagged release now exists.** `v0.1.0-alpha.30` is the latest **working**
   alpha and is the recipe's `commit:`. The withdrawn, broken `v0.1.0-alpha.24` is
   explicitly **not** targeted.
-- **versionCode reconciliation decided.** The recipe derives the version from the
-  tag (→ `0.1.0-alpha.29` / `100029`), matching the GitHub channel and staying
-  monotonic/AutoUpdate-safe (§6).
+- **versionCode reconciliation decided.** `pubspec.yaml` now carries the version
+  (`0.1.0-alpha.30` / `100030`), matching the GitHub channel and staying
+  monotonic; auto-update is enabled off the tags (§6).
 - **Fastlane description refreshed** to match the current alpha, with the
   "unofficial / not affiliated" framing (§7).
 - Full transitive dependency/license audit complete (§4 — 152 packages, all
@@ -323,9 +325,9 @@ The full step-by-step submission flow and the ready-to-adapt MR text live in
    [audit doc](./dependency-license-audit.md)). Re-run on any dependency change.
 2. ✅ **Fastlane `full_description.txt` refreshed** to match the current alpha,
    with the "unofficial / not affiliated" framing (§7).
-3. ✅ **Target tag + versionCode decided** — `v0.1.0-alpha.29` / `100029`, with a
-   matching `changelogs/100029.txt`; the recipe derives the version from the tag
-   (§6). The broken `v0.1.0-alpha.24` is excluded.
+3. ✅ **Target tag + versionCode decided** — `v0.1.0-alpha.30` / `100030`, with a
+   matching `changelogs/100030.txt`; `pubspec.yaml` carries the version and
+   auto-update tracks the tags (§6). The broken `v0.1.0-alpha.24` is excluded.
 4. ✅ **Screenshots committed** — eight real phone screenshots under
    `images/phoneScreenshots/` (§7; see [docs/listing-assets.md §6](./listing-assets.md);
    the core set for #77). Optional extras (Downloads-with-tracks, Android Auto,
@@ -378,7 +380,7 @@ readiness pass with the pinned toolchain (Flutter 3.27.4 / Dart 3.6.2); they are
 
 | Check | Result |
 | ----- | ------ |
-| Metadata YAML parses (PyYAML) | ✅ this pass — valid YAML; fields/types as expected (Summary 57 ≤ 80 chars; versionCode integer `100029`). Not a full `fdroid lint`. |
+| Metadata YAML parses (PyYAML) | ✅ this pass — valid YAML; fields/types as expected (Summary 57 ≤ 80 chars; versionCode integer `100030`; `UpdateCheckData` regexes match the `pubspec.yaml` `version:` line). Not a full `fdroid lint`. |
 | `dart format` / `flutter analyze` / `flutter test` | ✅ green in CI (`ci.yml`) on every PR. Not re-run in this pass (no toolchain). |
 | transitive license audit | ✅ all permissive, no GMS (§4). |
 | `flutter build apk --debug` | ✅ built by CI per PR (`android-debug-apk.yml`). |
