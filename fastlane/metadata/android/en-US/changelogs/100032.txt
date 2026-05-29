@@ -1,0 +1,8 @@
+Linthra 0.1.0-alpha.32 — release & packaging maintenance.
+
+Changed:
+- Release builds now take the version straight from pubspec.yaml, so the in-app
+  version, the published APK, and the release tag always stay in lockstep. No
+  app features, permissions, or behavior change.
+
+Still an alpha — expect rough edges. Not on F-Droid yet.

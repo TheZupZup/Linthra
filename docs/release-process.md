@@ -5,7 +5,7 @@ git tagging, changelogs, and the (manual) GitHub-Release flow. The F-Droid
 docs reference this document rather than restating the plan.
 
 > **Sideloadable alphas only; nothing here publishes to a store.** Linthra has
-> tagged pre-release alphas (latest `v0.1.0-alpha.30`) attached to GitHub
+> tagged pre-release alphas (latest `v0.1.0-alpha.32`) attached to GitHub
 > Releases as sideloadable APKs/AABs, but is **not** on F-Droid. Pushing a `v*`
 > tag builds the release artifacts automatically. For **alpha/beta/rc** tags the
 > build can create a GitHub **pre-release** and attach the APK/AAB to it; for
@@ -27,8 +27,8 @@ tag the matching version (§3) — there are no per-release `--build-name`/
 
 ```
 pubspec.yaml                     ┌─▶ Android versionName/versionCode (APK/AAB)
-version: 0.1.0-alpha.30+100030  ─┤
-   ( == tag v0.1.0-alpha.30 )    └─▶ AppInfo.version (Settings/About, diagnostics, Jellyfin header)
+version: 0.1.0-alpha.32+100032  ─┤
+   ( == tag v0.1.0-alpha.32 )    └─▶ AppInfo.version (Settings/About, diagnostics, Jellyfin header)
 ```
 
 > **Why this matters for F-Droid.** Because the version lives in `pubspec.yaml`
@@ -343,7 +343,7 @@ Release, writes production notes, signs a store build, or submits to F-Droid.
    GitHub-Release artifact is wanted — see
    [release-signing.md](./release-signing.md). (Not needed for F-Droid itself,
    which signs its own builds.)
-2. **A `vX.Y.Z` tag** exists — alpha tags through `v0.1.0-alpha.30` have been
+2. **A `vX.Y.Z` tag** exists — alpha tags through `v0.1.0-alpha.32` have been
    cut; F-Droid submission itself is still pending the other blockers.
 3. **Decide the `pubspec.lock` policy** for reproducible release builds
    ([fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
