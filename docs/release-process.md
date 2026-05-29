@@ -147,10 +147,12 @@ F-Droid (and our own release tracking) builds from a **git tag**.
   git push origin v0.1.0
   ```
 
-- The tag's `vX.Y.Z` must match `pubspec.yaml`'s `versionName`. This keeps the
-  F-Droid `UpdateCheckMode: Tags ^v[0-9.]+$` / `AutoUpdateMode: Version v%v`
-  recommendation (see [fdroid-build-recipe.md §2](./fdroid-build-recipe.md#2-expected-f-droid-metadata-repo-fields))
-  working without false positives.
+- The tag's `vX.Y.Z` should match the released `versionName`. Note that
+  `pubspec.yaml` currently keeps a fixed dev version that does **not** track the
+  tags, so F-Droid uses manual `Builds` entries with `AutoUpdateMode`/
+  `UpdateCheckMode: None` (see [fdroid-build-recipe.md §2](./fdroid-build-recipe.md#2-expected-f-droid-metadata-repo-fields)).
+  Keeping `pubspec.yaml` in lockstep with the tag is the future option that would
+  let F-Droid auto-update instead.
 - Tag only commits where CI is green **and** generated files are current (§3).
 
 ## 3. Pre-tag checklist

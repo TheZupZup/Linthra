@@ -24,8 +24,8 @@ tagging), and the draft recipe at
 | Name    | Linthra                       |
 | App ID  | `io.github.thezupzup.linthra` |
 | License | `MPL-2.0` (SPDX)              |
-| Source  | https://github.com/thezupzup/linthra |
-| Issues  | https://github.com/thezupzup/linthra/issues |
+| Source  | https://github.com/TheZupZup/Linthra |
+| Issues  | https://github.com/TheZupZup/Linthra/issues |
 | Category| Multimedia                    |
 
 ## 2. Target version: the latest working alpha
@@ -99,17 +99,21 @@ What makes it a good fit for building from source:
 
 A few things still need checking against fdroiddata before submitting:
 
-1. How Flutter gets provisioned. The draft clones `flutter/flutter` at the
-   `3.27.4` tag in a `sudo:` step; fdroiddata may prefer its `flutter` srclib
-   (`srclibs: [flutter@3.27.4]`, referenced as `$$flutter$$`). Either is fine —
-   match the current convention. Flutter's engine artifacts are fetched at the
-   pinned version, which is normal for Flutter on F-Droid and stays pinned and
-   reproducible.
-2. The `git describe --tags --exact-match HEAD` the build uses to find the tag —
-   confirm F-Droid's checkout of `commit: v0.1.0-alpha.29` leaves the tag
-   resolvable (it should, since F-Droid checks out the tag ref).
-3. The output path. `build/app/outputs/flutter-apk/app-release.apk` is the
-   single-APK output; adjust `output:` if you'd rather split per ABI.
+1. How Flutter gets provisioned. The draft now uses the **`flutter` srclib**
+   method from `templates/build-flutter.yml` (`srclibs: [flutter@stable]`,
+   referenced as `$$flutter$$`), checking out the version from `.flutter-version`
+   (3.27.4) in `prebuild`. No Flutter submodule is added upstream and no SDK is
+   cloned by hand. Flutter's engine artifacts are fetched at the pinned version,
+   which is normal for Flutter on F-Droid and stays pinned and reproducible.
+2. Native toolchain. The only native component is SQLite (`sqlite3_flutter_libs`,
+   built from source). If `fdroid build -l` reports a missing NDK/CMake, pin the
+   build server's NDK with an `ndk:` field and/or install CMake in `prebuild`
+   (`sudo sdkmanager 'cmake;<version>'`), as some Flutter recipes do.
+3. The output path. `build/app/outputs/flutter-apk/app-release.apk` is the single
+   universal-APK output, matching the upstream GitHub-release artifact. Splitting
+   per ABI would also need a per-ABI `versionCode` scheme (a `VercodeOperation`
+   plus a `build.gradle` override) that upstream does not currently use, so a
+   single universal APK is built.
 4. The `pubspec.lock` policy — still git-ignored. Decide whether to commit it at
    the tagged commit for a fully pinned dependency set
    ([fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
@@ -173,7 +177,7 @@ submitting.
 
 | Check | Status |
 | ----- | ------ |
-| Metadata YAML parses (PyYAML) | Done here — valid YAML, fields and types as expected (Summary 57 chars, versionCode an integer, `100029`). This only checks the YAML, not F-Droid's schema (see below). |
+| Metadata YAML parses (PyYAML) | Done here — valid YAML, fields and types as expected (no inline Summary/Description; F-Droid pulls them from Fastlane; versionCode an integer, `100029`). This only checks the YAML, not F-Droid's schema (see below). |
 | `flutter pub get` | Not run here (no toolchain). Run locally / in CI. |
 | `dart format --set-exit-if-changed .` | Not run here. CI (`ci.yml`) runs it on every PR. |
 | `flutter analyze` | Not run here. CI runs it on every PR. |
@@ -210,73 +214,63 @@ fdroid build -v -l io.github.thezupzup.linthra        # full from-source build t
 2. Re-confirm a clean `flutter build apk --release` from source on a machine with
    the Android SDK, and re-check the merged-manifest permission set.
 3. Fork https://gitlab.com/fdroid/fdroiddata and make a branch.
-4. Copy `metadata/io.github.thezupzup.linthra.yml` into fdroiddata's `metadata/`
-   directory. In the real entry you'd normally drop the inline `Summary`/
-   `Description` and let the Fastlane files provide them, unless you specifically
-   want to override them.
-5. Settle the Builds toolchain to fdroiddata's current Flutter convention
-   (srclib vs. sudo-clone — §3), and run `fdroid lint` + `fdroid build -l` until
-   they're green (§7).
-6. Open the merge request using the text in §9. Be upfront that it's an
-   early-alpha, pre-release submission, and ask the maintainers whether they're
-   happy tracking an `-alpha` tag or would rather wait for a stable one.
+4. Copy the non-comment content of `metadata/io.github.thezupzup.linthra.yml`
+   into fdroiddata's `metadata/` directory. It deliberately has **no** inline
+   `Summary`/`Description` — F-Droid pulls them from the Fastlane files (the
+   fdroiddata maintainer's request on !39253). Then run `fdroid rewritemeta
+   io.github.thezupzup.linthra` (it canonicalises the file and strips comments).
+5. Run `fdroid lint io.github.thezupzup.linthra` and `fdroid build -v -l
+   io.github.thezupzup.linthra` until green (§7). The draft uses the `flutter`
+   srclib method (§3); if the native build needs an NDK/CMake, add it as noted
+   there.
+6. Open or update the merge request using fdroiddata's **"App inclusion"**
+   merge-request template (§9) and check the boxes that apply. Be upfront that
+   it's an early-alpha, pre-release submission, and that auto-update is disabled
+   on purpose (pubspec doesn't track the tags), so each version is added
+   manually.
 7. Don't describe Linthra as being on F-Droid until the merge request is merged
    and the build publishes.
 
-## 9. Merge-request description (ready to adapt)
+## 9. Merge-request description — use fdroiddata's "App inclusion" template
 
-Paste this into the fdroiddata merge request and adjust as needed.
+Edit the existing merge request (!39253 — do **not** open a new one) and select
+fdroiddata's **"App inclusion"** merge-request template, delete the instruction
+lines it tells you to remove, then check the boxes that apply. A short intro plus
+the filled checklist below works. The app's summary/description are **not**
+restated here — F-Droid takes them from the Fastlane files (§6), which is what
+the maintainer asked for.
 
 ---
 
-**New app: Linthra — `io.github.thezupzup.linthra`**
+Adds Linthra, an open-source, local-first Android music player for local files
+and self-hosted servers (Jellyfin, Navidrome/Subsonic). Unofficial community
+client — not affiliated with Jellyfin, Navidrome, or Subsonic. MPL-2.0; no ads,
+tracking, analytics, crash-reporting SDK, or Google Play Services. Initial
+target: `v0.1.0-alpha.29` (versionCode `100029`); the broken `v0.1.0-alpha.24`
+is skipped. Early alpha, usable for testing.
 
-Linthra is an open-source Android music player for people who keep their music on
-their own devices or self-hosted servers. It plays local files and streams from
-self-hosted servers such as Jellyfin and Navidrome/Subsonic. It's an unofficial
-community client — not affiliated with Jellyfin, Navidrome, or Subsonic.
+### Required
 
-Why I think it's a good fit for F-Droid:
+- [x] The app complies with the [inclusion criteria](https://f-droid.org/docs/Inclusion_Policy)
+- [x] The original app author has been notified (and does not oppose the inclusion) — I am the upstream author/maintainer.
+- [ ] All related fdroiddata and RFP issues have been referenced — there is no existing RFP or fdroiddata issue.
+- [ ] Builds with `fdroid build` and all pipelines pass — pending CI / `fdroid build -l`.
+- [x] There is an issue tracker and contact info of the author — https://github.com/TheZupZup/Linthra/issues
 
-- **License:** MPL-2.0 (FSF/OSI-approved), in `LICENSE`.
-- **Builds from source** with no signing keys — F-Droid signs its own builds.
-- **No proprietary dependencies.** I audited the full transitive tree (152
-  packages) and found only permissive licenses (BSD/MIT/Apache-2.0/MPL-2.0) and
-  no Google Play Services, Firebase, analytics, ads, or crash-reporting. The one
-  native component is SQLite (public domain, built from source); playback is
-  AndroidX Media3 (Apache-2.0); casting is a pure-Dart implementation, not the
-  GMS Cast SDK.
-- **No anti-features.** No ads, no tracking, nothing phones home. The self-hosted
-  sources are optional servers the user runs themselves, so I don't think
-  `NonFreeNet` applies — happy to add it if you read it differently.
-- **Minimal permissions.** No storage, location, contacts, camera, mic, or phone
-  permission, and no `MANAGE_EXTERNAL_STORAGE` — folder access uses the Storage
-  Access Framework.
+### Strongly Recommended
 
-Source and issues: https://github.com/thezupzup/linthra (issues at `/issues`).
+- [x] The upstream repo contains the app metadata (summary/description/images/changelog) in a Fastlane structure — `fastlane/metadata/android/en-US/` (short_description, full_description, title, changelogs, icon, feature graphic, 8 screenshots). Summary/Description are intentionally **not** set in fdroiddata; F-Droid pulls them from Fastlane.
+- [ ] Releases are tagged and auto update is enabled — releases are tagged (`v0.1.0-alpha.29`), but auto-update is intentionally **disabled** (`AutoUpdateMode`/`UpdateCheckMode: None`): `pubspec.yaml` carries a fixed dev version that does not track the tags, so each release is added manually with explicit `versionName`/`versionCode`.
 
-**Build target:** tag `v0.1.0-alpha.29`, versionName `0.1.0-alpha.29`,
-versionCode `100029`. The build derives the version from the tag (using the
-project's `tool/version_from_tag.dart`), so the versionCode is distinct and
-increasing per release and matches the upstream GitHub-release APK. (For context:
-`v0.1.0-alpha.24` was a broken release that was withdrawn; alpha.25 was the
-hotfix, and alpha.29 is the current working build.)
+### Suggested
 
-**On status — being honest about scope:** this is early-alpha, pre-release
-software. It's usable for testing on a real device, but it isn't
-production-stable and has some documented rough edges, and right now it's only
-distributed as a sideloaded APK from GitHub Releases. I'd welcome your guidance
-on whether you'd prefer to track this `-alpha` tag now or wait for a first stable
-(`vX.Y.Z`) release.
+- [ ] External repos are added as git submodules instead of srclibs — this recipe uses the `flutter` srclib (per `templates/build-flutter.yml`); no Flutter submodule is added upstream.
+- [ ] Enable Reproducible Builds — not enabled yet (early alpha); the APK is signed with F-Droid's key.
+- [ ] Multiple apks for native code — a single universal APK is built (matching the upstream release); the only native code is SQLite, which is small.
 
-**Build verification:** `flutter analyze`, `flutter test`, and formatting run
-green in CI on every PR, and CI builds a debug APK per PR; the tagged release APK
-builds via the release workflow. I'll also run `fdroid lint` and `fdroid build
--l` and confirm a clean from-source `flutter build apk --release`.
+No RFP or fdroiddata issue to close.
 
-**Known limitations:** it's early alpha; local files show file names until tag
-parsing lands; one Jellyfin server at a time; some Subsonic features (favourites,
-lyrics, cover art) are still follow-ups.
+`/label ~"New App"`
 
 ---
 

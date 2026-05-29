@@ -1,130 +1,86 @@
 # -----------------------------------------------------------------------------
-# Draft F-Droid metadata for Linthra. This is a working copy kept in the app
-# repo; Linthra hasn't been submitted to F-Droid yet, and isn't on it. When we
-# do submit, the real entry lives in fdroiddata's metadata/ directory
-# (https://gitlab.com/fdroid/fdroiddata) — copy this there and adapt it.
-# docs/fdroid-submission.md has the rest: the merge-request text, the remaining
-# steps, and the open questions.
+# Draft F-Droid metadata for Linthra — a working copy kept in the app repo.
 #
-# A few things worth knowing:
-#   * Linthra is an early-alpha, unofficial community client. It is not
-#     affiliated with Jellyfin, Navidrome, or Subsonic.
-#   * No tracking, no analytics, no ads, no crash-reporting SDK.
-#   * Tagged releases exist (v0.1.0-alpha.1 … v0.1.0-alpha.29, built by
-#     .github/workflows/android-release-build.yml). We target the latest one
-#     that actually launches, v0.1.0-alpha.29.
-#   * Skip v0.1.0-alpha.24 — it has a startup regression, and its GitHub Release
-#     is marked "Broken release — do not install". alpha.25 was the hotfix that
-#     reverted it; alpha.29 is the current working build, so that's the build
-#     target and CurrentVersion, not alpha.24.
-#   * F-Droid takes Summary/Description from the Fastlane files under
-#     fastlane/metadata/android/en-US/. The inline copies below are here so the
-#     listing is easy to review in one place; in the real fdroiddata entry you'd
-#     usually drop them and let Fastlane provide them.
+# Linthra has NOT been accepted on F-Droid. This is the entry proposed in
+# fdroiddata merge request !39253. The real entry lives in fdroiddata's
+# metadata/ directory (https://gitlab.com/fdroid/fdroiddata). To submit, copy
+# the non-comment content below into fdroiddata's
+# metadata/io.github.thezupzup.linthra.yml, then run:
 #
-# The reasoning behind each value lives in docs/fdroid-submission.md,
-# docs/fdroid-readiness.md, docs/fdroid-build-recipe.md, and
-# docs/dependency-license-audit.md.
+#   fdroid rewritemeta io.github.thezupzup.linthra   # canonicalises + strips comments
+#   fdroid lint        io.github.thezupzup.linthra
+#   fdroid build -v -l io.github.thezupzup.linthra   # full from-source build test
+#
+# docs/fdroid-submission.md has the merge-request checklist (use fdroiddata's
+# "App inclusion" template) and the remaining steps.
+#
+# Summary and Description are intentionally NOT set here. F-Droid pulls them from
+# the upstream Fastlane metadata in this repo, which is the fdroiddata
+# maintainer's request on !39253 ("Do not add summary and description in
+# fdroiddata"):
+#   * Summary     <- fastlane/metadata/android/en-US/short_description.txt
+#   * Description <- fastlane/metadata/android/en-US/full_description.txt
+# The icon, feature graphic, screenshots, and per-versionCode changelogs under
+# fastlane/metadata/android/en-US/ are pulled the same way.
+#
+# The build follows fdroiddata's templates/build-flutter.yml using the `flutter`
+# srclib method, with Flutter pinned to the version in .flutter-version (3.27.4,
+# matching CI). No Flutter submodule is added upstream and no SDK is cloned by
+# hand.
+#
+# AutoUpdateMode/UpdateCheckMode are disabled on purpose. pubspec.yaml carries a
+# fixed dev version (0.1.0-alpha.15+15) that does NOT track the release tags, so
+# F-Droid's pubspec/tag update detection would read the wrong versionCode. Each
+# release is therefore a manual Builds entry whose versionName/versionCode are
+# set explicitly via --build-name/--build-number. Those values match what
+# tool/version_from_tag.dart derives from the tag (v0.1.0-alpha.29 -> versionName
+# 0.1.0-alpha.29, versionCode 100029), so the F-Droid APK and the upstream
+# GitHub-release APK agree.
+#
+# Native code: the only native component is SQLite via sqlite3_flutter_libs,
+# compiled from source by the Android Gradle build (no prebuilt blobs). If
+# `fdroid build -l` reports a missing toolchain, pin the build server's NDK with
+# an `ndk:` field and/or install CMake in prebuild (e.g. sudo sdkmanager
+# 'cmake;<version>'), as some Flutter recipes do.
+#
+# More reasoning: docs/fdroid-submission.md, docs/fdroid-readiness.md,
+# docs/fdroid-build-recipe.md, docs/dependency-license-audit.md.
 # -----------------------------------------------------------------------------
 
 Categories:
   - Multimedia
 License: MPL-2.0
 AuthorName: TheZupZup
-# No WebSite on purpose — there's no separate project site; the source repo is
-# the canonical home, and F-Droid falls back to SourceCode when WebSite is unset.
-SourceCode: https://github.com/thezupzup/linthra
-IssueTracker: https://github.com/thezupzup/linthra/issues
-# Tagged GitHub Releases exist now, so the changelog can point at them.
-Changelog: https://github.com/thezupzup/linthra/releases
+SourceCode: https://github.com/TheZupZup/Linthra
+IssueTracker: https://github.com/TheZupZup/Linthra/issues
+Changelog: https://github.com/TheZupZup/Linthra/releases
 
 Name: Linthra
-Summary: Local-first music player for your own self-hosted library
-
-Description: |-
-  Linthra is an open-source Android music player for people who keep their music
-  on their own devices or self-hosted servers. It plays local files, and it
-  streams from self-hosted music servers such as Jellyfin and Navidrome/Subsonic
-  — you bring your own server and sign in with your own account.
-
-  Linthra is an unofficial community client. It is not affiliated with Jellyfin,
-  Navidrome, or Subsonic.
-
-  It tries to stay out of your way and respect your privacy: no ads, no tracking,
-  no analytics, and no crash-reporting SDK. There's no account to create and
-  nothing phones home — streaming is the default, and downloads only happen when
-  you ask for them. When you sign in to a server, the password is used once to
-  get a session token and then dropped; the token is stored encrypted and never
-  logged.
-
-  The app is still early alpha. It's usable for testing on a real device, but it
-  isn't production-stable and has a few rough edges. For now it's distributed
-  only as a sideloaded APK from GitHub Releases — it isn't on F-Droid yet. The
-  full feature list is in the Fastlane description
-  (fastlane/metadata/android/en-US/full_description.txt).
 
 RepoType: git
-Repo: https://github.com/thezupzup/linthra.git
+Repo: https://github.com/TheZupZup/Linthra.git
 
-# -----------------------------------------------------------------------------
-# Build — draft, targeting v0.1.0-alpha.29 (the latest alpha that launches; see
-# the note above about skipping alpha.24).
-#
-# On the version handling: pubspec.yaml keeps a fixed dev version
-# (0.1.0-alpha.15+15) that doesn't move with the tags, so a plain `flutter build`
-# would label every tag as versionCode 15 and F-Droid couldn't tell releases
-# apart. Instead the build derives the version from the checked-out tag with
-# tool/version_from_tag.dart — the same tool the GitHub release build uses — so
-# v0.1.0-alpha.29 becomes 0.1.0-alpha.29 / 100029. Both channels then agree on
-# the versionCode, and AutoUpdateMode still works for future tags because nothing
-# is hard-coded.
-#
-# A few things that keep this easy to build from source: the generated Drift file
-# (lib/data/database/linthra_database.g.dart) is committed, so there's no
-# build_runner/codegen step; the only native piece is SQLite (via
-# sqlite3_flutter_libs, built from source, public domain), with no prebuilt
-# blobs; and no signing keys are needed, since F-Droid signs its own builds.
-#
-# Still to confirm: how Flutter 3.27.4 is provisioned (the sudo git-clone shown
-# here vs. fdroiddata's `flutter` srclib), ABI splitting, and the output path all
-# need checking against fdroiddata's current Flutter recipes — see
-# docs/fdroid-build-recipe.md.
-# -----------------------------------------------------------------------------
 Builds:
   - versionName: 0.1.0-alpha.29
     versionCode: 100029
     commit: v0.1.0-alpha.29
-    # Provision the pinned Flutter 3.27.4 toolchain (matches .flutter-version and
-    # CI). An alternative is fdroiddata's `flutter` srclib
-    # (srclibs: [flutter@3.27.4], referenced as $$flutter$$) — use whichever fits
-    # fdroiddata's current convention.
-    sudo:
-      - apt-get update
-      - apt-get install -y git curl unzip xz-utils
-      - git clone --branch 3.27.4 --depth 1 https://github.com/flutter/flutter /opt/flutter
-      - chown -R vagrant:vagrant /opt/flutter
     output: build/app/outputs/flutter-apk/app-release.apk
-    build: |
-      export PATH="/opt/flutter/bin:$PATH"
-      git config --global --add safe.directory /opt/flutter
-      flutter config --no-analytics
-      flutter pub get
-      # Work out the real version from the tag (see the build note above).
-      tag="$(git describe --tags --exact-match HEAD)"
-      eval "$(dart run tool/version_from_tag.dart "$tag")"
-      flutter build apk --release \
-        --build-name="$LINTHRA_VERSION_NAME" \
-        --build-number="$LINTHRA_VERSION_CODE"
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get
+    scandelete:
+      - .pub-cache
+    build:
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --build-name=0.1.0-alpha.29 --build-number=100029 --dart-define=LINTHRA_VERSION_NAME=0.1.0-alpha.29
 
-# Track annotated tags shaped like v<versionName>. Because the build derives the
-# versionCode from the tag, an auto-generated entry for a future tag will build
-# the right version without anyone editing it by hand.
-AutoUpdateMode: Version v%v
-# Linthra has only shipped pre-release (-alpha.N) tags so far, so the pattern has
-# to allow the alpha/beta/rc suffix. F-Droid usually prefers a non-pre-release
-# CurrentVersion, so it's worth checking whether the maintainers are happy
-# tracking an -alpha tag or would rather wait for a stable one — see
-# docs/fdroid-readiness.md §8.
-UpdateCheckMode: Tags ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$
+AutoUpdateMode: None
+UpdateCheckMode: None
 CurrentVersion: 0.1.0-alpha.29
 CurrentVersionCode: 100029

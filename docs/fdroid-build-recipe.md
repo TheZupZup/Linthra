@@ -37,15 +37,20 @@ submission time.
 | `Categories`      | `Multimedia` _(draft)_ | A music player fits Multimedia; `Internet` is **not** appropriate (local-first, no required network). |
 | `License`         | `MPL-2.0` | SPDX identifier; matches `LICENSE`. |
 | `AuthorName`      | TheZupZup _(draft)_ | Optional; confirm preferred attribution. |
-| `SourceCode`      | `https://github.com/thezupzup/linthra` | Public repository. |
-| `IssueTracker`    | `https://github.com/thezupzup/linthra/issues` | GitHub issues. |
-| `Changelog`       | `https://github.com/thezupzup/linthra/releases` | Tagged GitHub Releases now exist, so this is set. |
-| `AutoUpdateMode`  | `Version v%v` | Track annotated git tags of the form `v<versionName>` (see § release plan). |
-| `UpdateCheckMode` | `Tags ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha\|beta\|rc)\.[0-9]+)?$` | Linthra ships only pre-release `-alpha.N` tags so far; the regex must accept the alpha/beta/rc suffix. Confirm with F-Droid whether it will track a pre-release CurrentVersion (see [fdroid-readiness.md §8](./fdroid-readiness.md#8-remaining-blockers-before-submission)). |
+| `SourceCode`      | `https://github.com/TheZupZup/Linthra` | Public repository. |
+| `IssueTracker`    | `https://github.com/TheZupZup/Linthra/issues` | GitHub issues. |
+| `Changelog`       | `https://github.com/TheZupZup/Linthra/releases` | Tagged GitHub Releases now exist, so this is set. |
+| `AutoUpdateMode`  | `None` | Disabled on purpose — see the note below. |
+| `UpdateCheckMode` | `None` | Disabled on purpose — see the note below. |
 
-`AutoUpdateMode`/`UpdateCheckMode` only work cleanly if the tag and the
-`pubspec.yaml` version stay in lockstep (§5). Confirm the exact regex against
-the first real tag before submission.
+`AutoUpdateMode`/`UpdateCheckMode` are **disabled** (`None`). They would only
+work if the release tag and the `pubspec.yaml` version stayed in lockstep, but
+`pubspec.yaml` keeps a fixed dev version (`0.1.0-alpha.15+15`) that does not move
+with the tags — the real version is derived at build time (§5). F-Droid's
+pubspec/tag update detection would therefore read the wrong versionCode, so each
+release is added as a manual `Builds` entry with explicit
+`versionName`/`versionCode`. (This is also what the fdroiddata maintainer
+confirmed on MR !39253.)
 
 ## 3. Build source expectations
 
@@ -123,11 +128,12 @@ process (and the GitHub-Release flow) is in
    `pubspec.yaml` `version: x.y.z+<versionCode>` is the local/dev default.
    **F-Droid handling (decided):** F-Droid builds from source and does not run
    our workflow, so a plain `flutter build` would take the static
-   `pubspec.yaml` version (versionCode **15** for every tag). The draft recipe
-   therefore derives the version from the checked-out tag with
-   `tool/version_from_tag.dart` and passes `--build-name`/`--build-number`, so
-   `v0.1.0-alpha.29` builds to `0.1.0-alpha.29` / **100029** — matching the
-   metadata and the GitHub channel, and AutoUpdate-safe for future tags. See
+   `pubspec.yaml` version (versionCode **15** for every tag). The recipe
+   therefore passes explicit `--build-name`/`--build-number` matching what
+   `tool/version_from_tag.dart` produces for the tag, so `v0.1.0-alpha.29` builds
+   to `0.1.0-alpha.29` / **100029** — matching the metadata and the GitHub
+   channel. Because `pubspec.yaml` doesn't track the tags, `AutoUpdateMode`/
+   `UpdateCheckMode` are `None` and each release is a manual entry (§2). See
    [fdroid-submission.md §2](./fdroid-submission.md).
 2. **`versionCode` increases monotonically** by construction (the encoding can
    never go backwards); never reuse or decrease it.
@@ -156,9 +162,10 @@ These must be resolved before an actual F-Droid submission (see also
    SAF providers / fully content-resolver-based scanning are still follow-ups
    (see README "Android folder selection & known limitations"). This is a
    functionality maturity note, not an F-Droid build blocker per se.
-3. **Toolchain provisioning + `fdroid build` validation.** The Flutter-on-F-Droid
-   incantation (sudo git-clone vs. `flutter` srclib) must match fdroiddata's
-   current convention and be validated by an actual `fdroid build`.
+3. **`fdroid build` validation.** The recipe uses the `flutter` srclib method
+   (matching `templates/build-flutter.yml`); a real `fdroid build` must still
+   confirm it builds from source, including any NDK/CMake the native SQLite
+   component needs.
 4. **Gradle wrapper jar.** Confirm the recipe handles the missing committed
    `gradle-wrapper.jar` (§3) reproducibly.
 
@@ -178,11 +185,11 @@ pinned to the latest working alpha (`commit: v0.1.0-alpha.29`, versionName
 `0.1.0-alpha.29`, versionCode `100029`). That file is the canonical draft; edit
 it there rather than duplicating a snippet here.
 
-> **Still a draft — not submitted.** The exact Flutter-on-F-Droid build
-> incantation (Flutter srclib vs. `sudo`-installed SDK, ABI splitting, `output`
-> path) must still be validated against fdroiddata's current Flutter recipes via
-> an actual `fdroid build` at submission time. The version target and
-> tag-derived versionCode are now set; see the
-> [submission package](./fdroid-submission.md) for the MR text and next steps and
-> the [readiness checklist](./fdroid-readiness.md#8-remaining-blockers-before-submission)
+> **Still a draft — not submitted.** The recipe now uses the `flutter` srclib
+> method from `templates/build-flutter.yml` and a single universal APK, but it
+> must still be validated against fdroiddata via an actual `fdroid build` at
+> submission time (in particular any NDK/CMake the native SQLite build needs).
+> The version target and tag-derived versionCode are set; see the
+> [submission package](./fdroid-submission.md) for the MR checklist and next
+> steps and the [readiness checklist](./fdroid-readiness.md#8-remaining-blockers-before-submission)
 > for the remaining blockers.
