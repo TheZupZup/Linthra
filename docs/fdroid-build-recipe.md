@@ -126,7 +126,7 @@ process (and the GitHub-Release flow) is in
    `pubspec.yaml` version (versionCode **15** for every tag). The draft recipe
    therefore derives the version from the checked-out tag with
    `tool/version_from_tag.dart` and passes `--build-name`/`--build-number`, so
-   `v0.1.0-alpha.25` builds to `0.1.0-alpha.25` / **100025** — matching the
+   `v0.1.0-alpha.29` builds to `0.1.0-alpha.29` / **100029** — matching the
    metadata and the GitHub channel, and AutoUpdate-safe for future tags. See
    [fdroid-submission.md §2](./fdroid-submission.md).
 2. **`versionCode` increases monotonically** by construction (the encoding can
@@ -165,8 +165,8 @@ These must be resolved before an actual F-Droid submission (see also
 **Resolved:** the store icon, feature graphic, and eight real phone screenshots
 are committed (the core set tracked by issue #77; see
 [docs/listing-assets.md §6](./listing-assets.md)); a `v*` tag now exists (target
-`v0.1.0-alpha.25`; the broken `v0.1.0-alpha.24` is excluded); the versionCode
-scheme is decided (tag-derived `100025`, §5.1); and the full transitive
+`v0.1.0-alpha.29`; the broken `v0.1.0-alpha.24` is excluded); the versionCode
+scheme is decided (tag-derived `100029`, §5.1); and the full transitive
 dependency audit is complete
 ([dependency-license-audit.md](./dependency-license-audit.md)).
 
@@ -174,8 +174,8 @@ dependency audit is complete
 
 A complete, current draft recipe now lives in the repo at
 [`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml),
-pinned to the latest working alpha (`commit: v0.1.0-alpha.25`, versionName
-`0.1.0-alpha.25`, versionCode `100025`). That file is the canonical draft; edit
+pinned to the latest working alpha (`commit: v0.1.0-alpha.29`, versionName
+`0.1.0-alpha.29`, versionCode `100029`). That file is the canonical draft; edit
 it there rather than duplicating a snippet here.
 
 > **Still a draft — not submitted.** The exact Flutter-on-F-Droid build

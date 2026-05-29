@@ -17,18 +17,18 @@ availability.
   isn't production-stable, and the rough edges are documented.
 - **Distribution:** GitHub Releases only, as a sideloaded APK (Obtainium works
   too). No F-Droid metadata has been submitted, and Linthra isn't on F-Droid.
-- **Tagged releases now exist:** `v0.1.0-alpha.1` … `v0.1.0-alpha.25`, each built
+- **Tagged releases now exist:** `v0.1.0-alpha.1` … `v0.1.0-alpha.29`, each built
   by `.github/workflows/android-release-build.yml`. The F-Droid target is the
-  latest one that launches, `v0.1.0-alpha.25` (versionName `0.1.0-alpha.25`,
-  tag-derived versionCode `100025`). Skip `v0.1.0-alpha.24`: its GitHub Release
-  is marked "Broken release — do not install … startup regression", and alpha.25
-  is the hotfix that reverts it.
+  latest one that launches, `v0.1.0-alpha.29` (versionName `0.1.0-alpha.29`,
+  tag-derived versionCode `100029`). Skip `v0.1.0-alpha.24`: its GitHub Release
+  is marked "Broken release — do not install … startup regression"; alpha.25 was
+  the hotfix that reverted it, and the target has since moved on to alpha.29.
 - **Groundwork in place:** a stable application ID, the MPL-2.0 license, a real
   app/launcher icon, Fastlane-style store metadata under
   `fastlane/metadata/android/en-US/` (text plus the real icon, feature graphic,
   and eight real phone screenshots), a finished dependency/license audit, the
   draft recipe at [`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml)
-  (pinned to `v0.1.0-alpha.25`), and the submission package at
+  (pinned to `v0.1.0-alpha.29`), and the submission package at
   [`docs/fdroid-submission.md`](./fdroid-submission.md).
 - **Not submitted yet.** See [Remaining blockers](#8-remaining-blockers-before-submission).
 
@@ -223,7 +223,7 @@ including the GitHub-Release flow — is in
 > tag as versionCode 15 — which F-Droid can't tell apart. The draft recipe avoids
 > that by deriving the version from the checked-out tag with
 > `tool/version_from_tag.dart` and passing `--build-name`/`--build-number`, so
-> `v0.1.0-alpha.25` builds to `0.1.0-alpha.25` / `100025` — the same value the
+> `v0.1.0-alpha.29` builds to `0.1.0-alpha.29` / `100029` — the same value the
 > GitHub release build uses, distinct and increasing per tag, and still correct
 > under `AutoUpdateMode` for future tags. (Bumping `pubspec.yaml` at each tagged
 > commit would also work and is cleaner long-term, but it changes the release
@@ -241,9 +241,13 @@ Stored under `fastlane/metadata/android/en-US/`:
   Description.
 - [x] `changelogs/1.txt`, `9.txt`, `15.txt` — legacy per-version notes (named by
   the old hand-numbered `versionCode`); kept as-is.
-- [x] `changelogs/100025.txt` — notes for the F-Droid target `v0.1.0-alpha.25`,
-  named by the **derived** versionCode `100025` (the convention going forward —
-  see [release-process.md §1](./release-process.md#1-versioning-model)). Keep new
+- [x] `changelogs/100025.txt` — notes for the earlier alpha.25 target, named by
+  its derived versionCode `100025`; kept as history now that the target has moved
+  on to alpha.29.
+- [x] `changelogs/100029.txt` — notes for the current F-Droid target
+  `v0.1.0-alpha.29`, named by the **derived** versionCode `100029` (the
+  convention going forward — see
+  [release-process.md §1](./release-process.md#1-versioning-model)). Keep new
   changelog filenames in lockstep with the built APK's derived `versionCode`.
 - [x] `images/icon.png` — 512×512 real Linthra store icon. The launcher icons
   under `android/app/src/main/res/mipmap-*` are now the same real mark (adaptive
@@ -298,11 +302,11 @@ What each one shows, plus the privacy review and the still-optional extras, is i
   [docs/listing-assets.md §6](./listing-assets.md). Optional extras
   (Downloads-with-tracks, Android Auto, Cast, tablet) remain nice-to-haves, not
   blockers.
-- **A tagged release now exists.** `v0.1.0-alpha.25` is the latest **working**
+- **A tagged release now exists.** `v0.1.0-alpha.29` is the latest **working**
   alpha and is the recipe's `commit:`. The withdrawn, broken `v0.1.0-alpha.24` is
   explicitly **not** targeted.
 - **versionCode reconciliation decided.** The recipe derives the version from the
-  tag (→ `0.1.0-alpha.25` / `100025`), matching the GitHub channel and staying
+  tag (→ `0.1.0-alpha.29` / `100029`), matching the GitHub channel and staying
   monotonic/AutoUpdate-safe (§6).
 - **Fastlane description refreshed** to match the current alpha, with the
   "unofficial / not affiliated" framing (§7).
@@ -319,8 +323,8 @@ The full step-by-step submission flow and the ready-to-adapt MR text live in
    [audit doc](./dependency-license-audit.md)). Re-run on any dependency change.
 2. ✅ **Fastlane `full_description.txt` refreshed** to match the current alpha,
    with the "unofficial / not affiliated" framing (§7).
-3. ✅ **Target tag + versionCode decided** — `v0.1.0-alpha.25` / `100025`, with a
-   matching `changelogs/100025.txt`; the recipe derives the version from the tag
+3. ✅ **Target tag + versionCode decided** — `v0.1.0-alpha.29` / `100029`, with a
+   matching `changelogs/100029.txt`; the recipe derives the version from the tag
    (§6). The broken `v0.1.0-alpha.24` is excluded.
 4. ✅ **Screenshots committed** — eight real phone screenshots under
    `images/phoneScreenshots/` (§7; see [docs/listing-assets.md §6](./listing-assets.md);
@@ -374,7 +378,7 @@ readiness pass with the pinned toolchain (Flutter 3.27.4 / Dart 3.6.2); they are
 
 | Check | Result |
 | ----- | ------ |
-| Metadata YAML parses (PyYAML) | ✅ this pass — valid YAML; fields/types as expected (Summary 57 ≤ 80 chars; versionCode integer `100025`). Not a full `fdroid lint`. |
+| Metadata YAML parses (PyYAML) | ✅ this pass — valid YAML; fields/types as expected (Summary 57 ≤ 80 chars; versionCode integer `100029`). Not a full `fdroid lint`. |
 | `dart format` / `flutter analyze` / `flutter test` | ✅ green in CI (`ci.yml`) on every PR. Not re-run in this pass (no toolchain). |
 | transitive license audit | ✅ all permissive, no GMS (§4). |
 | `flutter build apk --debug` | ✅ built by CI per PR (`android-debug-apk.yml`). |

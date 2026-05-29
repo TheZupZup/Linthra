@@ -10,12 +10,13 @@
 #   * Linthra is an early-alpha, unofficial community client. It is not
 #     affiliated with Jellyfin, Navidrome, or Subsonic.
 #   * No tracking, no analytics, no ads, no crash-reporting SDK.
-#   * Tagged releases exist (v0.1.0-alpha.1 … v0.1.0-alpha.25, built by
+#   * Tagged releases exist (v0.1.0-alpha.1 … v0.1.0-alpha.29, built by
 #     .github/workflows/android-release-build.yml). We target the latest one
-#     that actually launches, v0.1.0-alpha.25.
+#     that actually launches, v0.1.0-alpha.29.
 #   * Skip v0.1.0-alpha.24 — it has a startup regression, and its GitHub Release
-#     is marked "Broken release — do not install". alpha.25 is the hotfix that
-#     reverts it, so that's the build target and CurrentVersion, not alpha.24.
+#     is marked "Broken release — do not install". alpha.25 was the hotfix that
+#     reverted it; alpha.29 is the current working build, so that's the build
+#     target and CurrentVersion, not alpha.24.
 #   * F-Droid takes Summary/Description from the Fastlane files under
 #     fastlane/metadata/android/en-US/. The inline copies below are here so the
 #     listing is easy to review in one place; in the real fdroiddata entry you'd
@@ -66,7 +67,7 @@ RepoType: git
 Repo: https://github.com/thezupzup/linthra.git
 
 # -----------------------------------------------------------------------------
-# Build — draft, targeting v0.1.0-alpha.25 (the latest alpha that launches; see
+# Build — draft, targeting v0.1.0-alpha.29 (the latest alpha that launches; see
 # the note above about skipping alpha.24).
 #
 # On the version handling: pubspec.yaml keeps a fixed dev version
@@ -74,7 +75,7 @@ Repo: https://github.com/thezupzup/linthra.git
 # would label every tag as versionCode 15 and F-Droid couldn't tell releases
 # apart. Instead the build derives the version from the checked-out tag with
 # tool/version_from_tag.dart — the same tool the GitHub release build uses — so
-# v0.1.0-alpha.25 becomes 0.1.0-alpha.25 / 100025. Both channels then agree on
+# v0.1.0-alpha.29 becomes 0.1.0-alpha.29 / 100029. Both channels then agree on
 # the versionCode, and AutoUpdateMode still works for future tags because nothing
 # is hard-coded.
 #
@@ -90,9 +91,9 @@ Repo: https://github.com/thezupzup/linthra.git
 # docs/fdroid-build-recipe.md.
 # -----------------------------------------------------------------------------
 Builds:
-  - versionName: 0.1.0-alpha.25
-    versionCode: 100025
-    commit: v0.1.0-alpha.25
+  - versionName: 0.1.0-alpha.29
+    versionCode: 100029
+    commit: v0.1.0-alpha.29
     # Provision the pinned Flutter 3.27.4 toolchain (matches .flutter-version and
     # CI). An alternative is fdroiddata's `flutter` srclib
     # (srclibs: [flutter@3.27.4], referenced as $$flutter$$) — use whichever fits
@@ -125,5 +126,5 @@ AutoUpdateMode: Version v%v
 # tracking an -alpha tag or would rather wait for a stable one — see
 # docs/fdroid-readiness.md §8.
 UpdateCheckMode: Tags ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$
-CurrentVersion: 0.1.0-alpha.25
-CurrentVersionCode: 100025
+CurrentVersion: 0.1.0-alpha.29
+CurrentVersionCode: 100029

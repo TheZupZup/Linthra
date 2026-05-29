@@ -1,0 +1,14 @@
+Linthra 0.1.0-alpha.29 — cumulative alpha since alpha.25.
+
+New:
+- Android Auto: the play queue now mirrors to the car, you can tap a queued
+  track to jump straight to it, and the browse tree adds Albums, Artists, and
+  Offline.
+- Connecting a Jellyfin server now starts its first library sync automatically.
+
+Fixed:
+- Audio no longer cuts out when the screen turns off mid-playback.
+
+Also: the store listing now ships eight real phone screenshots.
+
+Still an alpha — expect rough edges.
