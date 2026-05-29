@@ -1,9 +1,9 @@
 # Linthra
 
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-brightgreen.svg)](./LICENSE)
-[![Platform: Android](https://img.shields.io/badge/platform-Android-3ddc84.svg)](#-try-it)
+[![Platform: Android](https://img.shields.io/badge/platform-Android-3ddc84.svg)](#install)
 [![Built with Flutter](https://img.shields.io/badge/built%20with-Flutter-02569B.svg)](https://flutter.dev)
-[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#-status)
+[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#status)
 [![Releases](https://img.shields.io/badge/download-releases-blue.svg)](https://github.com/thezupzup/linthra/releases)
 
 ![Linthra](fastlane/metadata/android/en-US/images/featureGraphic.png)
@@ -82,15 +82,20 @@ design — not mockups.
 
 Each feature has a deep-dive in [the docs](#-documentation).
 
-## Try it
+## Install
 
 > Linthra is **not on Google Play or F-Droid**. It's distributed as a
 > sideloadable APK from **[GitHub Releases](https://github.com/thezupzup/linthra/releases)**.
 > Alpha releases are GitHub **pre-releases**.
 
 **Obtainium (recommended)** — [Obtainium](https://github.com/ImranR98/Obtainium)
-installs straight from GitHub Releases and keeps you updated. Add app, paste
-`https://github.com/thezupzup/linthra`, enable **"Include prereleases"**, install.
+installs straight from GitHub Releases and keeps Linthra updated:
+
+1. Install Obtainium.
+2. Tap **Add App** and paste the source URL:
+   `https://github.com/thezupzup/linthra`
+3. Enable **"Include prereleases"** — alpha builds are GitHub pre-releases.
+4. Install the latest release; Obtainium handles updates from then on.
 
 **Manual APK** — download the `.apk` from the
 [latest release](https://github.com/thezupzup/linthra/releases), open it on your
