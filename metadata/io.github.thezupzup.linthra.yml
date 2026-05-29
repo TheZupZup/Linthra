@@ -100,5 +100,5 @@ Builds:
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
 UpdateCheckData: pubspec.yaml|version:\s.+\+(\d+)|.|version:\s(.+)\+
-CurrentVersion: 0.1.0-alpha.32
-CurrentVersionCode: 100032
+CurrentVersion: 0.1.0-alpha.34
+CurrentVersionCode: 100034
