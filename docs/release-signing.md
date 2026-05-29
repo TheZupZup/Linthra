@@ -112,7 +112,14 @@ keytool -genkey -v \
 distinguished-name details. Record the alias and both passwords in your
 password manager.
 
-For a **local** release build, create `android/key.properties` (git-ignored):
+For a **local** release build, create `android/key.properties` (git-ignored).
+A committed, secret-free template is provided at
+[`android/key.properties.example`](../android/key.properties.example) — copy it
+and fill in your own values:
+
+```sh
+cp android/key.properties.example android/key.properties
+```
 
 ```properties
 storeFile=/absolute/path/to/linthra-release.keystore

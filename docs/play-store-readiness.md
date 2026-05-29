@@ -15,7 +15,13 @@ identity, version source, and assets but differ on signing and submission.
 
 ## 1. Current status
 
-- **Stage:** early alpha. Current version `0.1.0-alpha.9+9` (see `pubspec.yaml`).
+- **Stage:** early alpha. The released version comes from the pushed `v*` tag,
+  not `pubspec.yaml`: the latest released alpha is `v0.1.0-alpha.29` (versionName
+  `0.1.0-alpha.29`, tag-derived `versionCode` `100029`). `pubspec.yaml`'s
+  `version:` (currently `0.1.0-alpha.15+15`) only seeds local/dev builds and
+  intentionally trails the tags. See [§11](#11-versioning-for-play-uploads) and
+  [release-process.md §1](./release-process.md#1-versioning-model) — the tag is
+  the source of truth.
 - **Distribution:** sideloadable pre-release APK/AAB attached to GitHub
   Releases. **Not** on Google Play, **not** on F-Droid; nothing publishes
   automatically.
@@ -87,8 +93,10 @@ them.
 
 - Linthra's release build reads signing material from environment variables or a
   git-ignored `android/key.properties`, falling back to the **debug** key when
-  none is present. Full details, secret names, and `keytool` generation steps
-  are in [docs/release-signing.md](./release-signing.md).
+  none is present. A secret-free template lives at
+  [`android/key.properties.example`](../android/key.properties.example). Full
+  details, secret names, and `keytool` generation steps are in
+  [docs/release-signing.md](./release-signing.md).
 - For Play, generate a release keystore (see release-signing.md §4) and use it
   as the **upload key**. Keep it backed up; reuse it for every upload.
 - **Debug-signed builds must never be uploaded to Play**, not even to internal
@@ -154,12 +162,13 @@ submission:
 - [ ] Confirm **no ads** SDK is present (none today).
 - [ ] Confirm **no third-party analytics / crash-reporting** SDK is present
       (none today — verify against `pubspec.yaml` at submission time).
-- [ ] Declare the Jellyfin **server URL + credentials/session token** as data
-      stored **on the device** (encrypted), not collected by us — Linthra runs
-      no server of its own.
+- [ ] Declare the **server URL + credentials/session token** (for a user's
+      Jellyfin **or** Subsonic/Navidrome server) as data stored **on the device**
+      (encrypted), not collected by us — Linthra runs no server of its own.
 - [ ] Declare **no data sold** and **no data shared** with third parties.
-- [ ] State that traffic to a Jellyfin server is **encrypted in transit when the
-      user's server uses HTTPS** (the user controls this).
+- [ ] State that traffic to a Jellyfin or Subsonic/Navidrome server is
+      **encrypted in transit when the user's server uses HTTPS** (the user
+      controls this).
 - [ ] Re-check the form whenever a dependency is added (a new SDK can change the
       honest answers).
 
@@ -263,7 +272,7 @@ Play's Data Safety and review process expects each to be justified.
 
 | Permission | Why Linthra needs it |
 | ---------- | -------------------- |
-| `INTERNET` | Reach the **user-configured** Jellyfin server (connection test, sign-in, library sync, streaming) and run the Cast session to a chosen device. No server is bundled or contacted unless the user configures one. |
+| `INTERNET` | Reach the **user-configured** Jellyfin or Subsonic/Navidrome server (connection test, sign-in, library sync, streaming) and run the Cast session to a chosen device. No server is bundled or contacted unless the user configures one. |
 | `FOREGROUND_SERVICE` | Run the `audio_service` playback service in the foreground so audio keeps playing while the app is backgrounded. |
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | The typed-foreground-service grant required on Android 14+ (API 34) for a `mediaPlayback` service; without it the playback service cannot start on new devices. |
 | `POST_NOTIFICATIONS` | Android 13+ runtime permission for the media notification and its lock-screen / transport controls. Requested once on first launch; denial only suppresses the notification, playback still works. |
@@ -284,7 +293,67 @@ Notes:
 - The same permission rationale, with more F-Droid framing, is in
   [docs/fdroid-readiness.md §5](./fdroid-readiness.md#5-anti-features-review).
 
-## 13. Related docs
+## 13. Play Console declarations to prepare (category, target audience, app access)
+
+Beyond the listing copy and Data Safety form, the Play Console asks for a few
+**store-presence declarations**. None require code changes; decide and enter
+them honestly in the Console. Drafted answers for Linthra:
+
+### App category and tags
+
+- **App or game:** App.
+- **Category:** **Music & Audio** — Linthra is a music player.
+- **Tags:** Play allows a few descriptive tags; pick the relevant ones (e.g.
+  *music player*, *audio player*) without keyword-stuffing. These are distinct
+  from the listing keywords in
+  [google-play-listing.md §6](./google-play-listing.md#6-suggested-keywords).
+- **Contains ads:** **No.** Linthra has no ad SDK and shows no ads (keep this
+  consistent with the Data Safety form and listing).
+
+### Target audience and content
+
+Play's **"Target audience and content"** section asks which age groups the app
+targets, then drives the Families policy and the ads/data declarations.
+
+- **Target age group:** Linthra is a **general-audience utility** (a music
+  player), **not** designed for or directed at children. Select an adult/teen
+  target (e.g. **13+**, or 18+ if preferred) and **do not** opt into the
+  **"Designed for Families"** program. Answer the Console's exact questions
+  honestly rather than copying a number from here.
+- This is easy for Linthra because there are **no ads** and **no data
+  collection** (see §7), so the follow-up questions about ads/data shown to
+  children do not apply.
+- The separate **content rating questionnaire** (§9 item 8) still has to be
+  completed; a no-ads, no-objectionable-content music player typically lands at
+  the lowest ratings, but answer the questionnaire from the shipped build.
+
+### App access (important — Linthra's server login is optional)
+
+Play's **"App access"** section asks whether any functionality is behind a login
+or other access restriction, so a reviewer can reach it.
+
+- **Linthra is local-first and usable with no account.** The core experience —
+  pick a music folder, scan, browse, play, queue, background playback, Android
+  Auto, cast — works **without signing in to anything**. There is **no Linthra
+  account** and **no universal login gate**.
+- Connecting a **self-hosted server (Jellyfin or Subsonic/Navidrome)** is
+  **optional** and entirely user-configured. So the honest default answer is
+  **"All functionality is available without special access"** for the
+  local-first features.
+- **If you want reviewers to evaluate server sync/streaming**, provide a
+  **demo/throwaway server URL and a test account** in the App-access
+  *instructions* field (server URL, username, password, and a one-line "Settings
+  → connect a server" walkthrough). Use a **disposable test account on a server
+  you control** — **never** a personal account, and **never** commit any
+  credentials to the repo or this doc. This is optional: the reviewer can fully
+  exercise the local-playback experience without it.
+
+### Government / financial / health declarations
+
+- Linthra is **none of these** (it is a music player). Answer the Console's
+  "Is your app a government app / financial app / health app?" prompts **No**.
+
+## 14. Related docs
 
 - [docs/privacy-policy.md](./privacy-policy.md) — privacy policy draft.
 - [docs/google-play-listing.md](./google-play-listing.md) — store listing draft.

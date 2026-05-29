@@ -24,105 +24,69 @@ Open-source, local-first music player for music you own. No forced sync.
 
 ## 2. Full description
 
-Play limit: **4000 characters.** Suggested draft (keep the "works today" vs
-"planned" split honest):
+Play limit: **4000 characters.**
 
-```
-Linthra is an open-source, local-first music player for people who own their
-music. Your library lives on your device, and you stay in control of it.
+The **canonical full description is
+[`fastlane/metadata/android/en-US/full_description.txt`](../fastlane/metadata/android/en-US/full_description.txt)**
+— it is kept current with the shipped build, separates "works today" from
+"planned," states the privacy posture (no ads, no tracking, no analytics, no
+crash-reporting / telemetry SDK, no Google Play Services), and makes clear that
+Linthra is an **unofficial community client, not affiliated with Jellyfin,
+Navidrome, or Subsonic**. It is comfortably under 4000 characters.
 
-Linthra is early-stage alpha software. This listing separates what works today
-from what is planned, so nothing here overpromises.
-
-WHAT LINTHRA IS ABOUT
-• Local-first — your music files stay on your device; the app reads from a
-  local catalog rather than depending on a remote service.
-• Music you own — Linthra plays files you already have. No store, no account,
-  no requirement to use anyone's cloud.
-• Privacy-focused — no ads, no telemetry, no forced sync. The app does not
-  phone home or upload your library, and offline downloads only happen when you
-  ask for them.
-• Open source — released under the Mozilla Public License 2.0; anyone can read,
-  audit, build, and contribute.
-
-WORKS TODAY
-• Pick a folder of music with the Android folder picker, scan it, and browse
-  your tracks. Your folder and scanned library survive a restart.
-• Play your local tracks with an up-next queue, plus shuffle and repeat.
-• Background playback with a media notification and lock-screen, Bluetooth, and
-  wired-headset controls.
-• Android Auto: browse your Library and Queue from the car screen.
-• Connect to your own Jellyfin server, sign in, sync your library, and stream.
-  The session token is stored encrypted and your password is never saved.
-• Explicit, user-initiated offline downloads with a smart cache and a size
-  limit you set — Wi-Fi only by default, with an optional "Allow mobile data"
-  toggle. Never automatic.
-• Cast to Chromecast-compatible devices on your local network.
-
-PLANNED (NOT FINISHED YET)
-• Tag/metadata parsing and album artwork (tracks currently show file names).
-• Browsing by artist and album, plus search.
-• Playlist creation and editing, and queue reorder.
-• Album- and playlist-level "download all" and a background download manager.
-• Additional sources such as WebDAV and NAS, behind the same interface.
-
-SELF-HOSTED FRIENDLY
-Linthra works great with a self-hosted Jellyfin server you run yourself — on a
-home server or NAS. The server is entirely optional and entirely yours; Linthra
-bundles no server and runs no cloud service of its own.
-
-NO SURPRISES
-No ads. No account. No forced sync. No surprise downloads — Linthra never
-downloads your library in the background; downloads happen only when you ask,
-and they use Wi-Fi only by default unless you allow mobile data.
-
-Linthra is alpha software with honest, documented limitations. Expect rough
-edges, and please share feedback.
-```
-
-If this exceeds 4000 characters after edits, trim the "Planned" section first.
+**Paste that file's contents into the Play Console.** Do **not** keep a second
+full-description copy in this doc — a duplicate drifts from the shipped app (as
+it did before). The sections below are Play-Console guidance only (limits,
+keywords, screenshots, do's and don'ts) and defer to that file for the actual
+copy.
 
 ## 3. Feature list (for the listing / promo copy)
 
-- Local-first library: scan a folder, browse, and play music you own.
+- Local-first library: scan a folder (Storage Access Framework — no broad
+  storage permission), then browse Songs, Albums, and Artists with search.
 - Background playback with media notification and lock-screen / Bluetooth /
-  headset controls.
-- Up-next queue, shuffle, and repeat.
-- Android Auto browsing (Library and Queue).
-- Optional Jellyfin connection: sign in, sync, and stream from **your** server.
+  headset controls, plus shuffle, repeat, and synced lyrics.
+- Up-next queue, playlists, favourites, and automatic "smart mixes."
+- Android Auto browsing.
+- Optional self-hosted connection: sign in, sync, and stream from **your own**
+  Jellyfin or Navidrome / Subsonic server (including over HTTPS).
 - Explicit offline downloads with a smart, size-limited cache and a "Wi-Fi
-  only" option.
-- Casting to Chromecast-compatible devices on the local network.
+  only" default.
+- Casting to Chromecast-compatible devices on the local network (pure-Dart, no
+  Google Play Services).
 - Open source (MPL-2.0), no ads, no telemetry, no forced sync.
 
 ## 4. What works today
 
-Use this as the truthful baseline; do not list planned items as if shipped.
+Use this as the truthful baseline; keep it consistent with the canonical
+description (§2). The shipped feature set:
 
-- Folder selection (Android folder picker), scanning, and a persisted track
-  list.
-- Local playback with an up-next queue, shuffle, and repeat.
+- Folder selection (Storage Access Framework), scanning, and browsing Songs,
+  Albums, and Artists **with search**; the library persists across restarts.
+- Local playback with an up-next queue, shuffle, repeat, and synced lyrics.
+- Playlists, favourites, and automatic "smart mixes."
 - Background playback + media session (notification, lock screen, Bluetooth,
   wired headset).
-- Android Auto: browse Library and Queue.
-- Jellyfin: connect, sign in (token stored encrypted; password never saved),
-  sync, stream, and synced favorites/lyrics.
-- Explicit offline downloads with a smart cache and a configurable size limit.
-- Chromecast/Cast foundation to local-network devices.
+- Android Auto browsing.
+- Jellyfin **and** Navidrome / Subsonic: connect, sign in (the session
+  credential is stored encrypted; the password is never saved), sync, and stream
+  — including over HTTPS.
+- Explicit, user-initiated offline downloads with a smart cache and a
+  configurable size limit (Wi-Fi only by default).
+- Casting to Chromecast-compatible local-network devices (pure-Dart, no Google
+  Play Services).
 
 ## 5. Known alpha limitations
 
-Be upfront in the listing and/or release notes:
+Be upfront in the listing and/or release notes (keep consistent with the
+"planned" section of the canonical description in §2):
 
-- Tracks currently show **file names**; tag/metadata parsing and **album
-  artwork** are not implemented yet.
-- No browse-by-artist/album and **no search** yet.
-- **No playlist** creation/editing yet; queue reordering is limited.
-- No album/playlist "download all" or background download manager yet.
-- The Wi-Fi / mobile-data gate relies on basic connectivity handling; robust
-  connectivity detection is still planned.
-- Some Android 11+ scoped-storage folders may be unreadable; the app surfaces a
-  clear error rather than a silent empty library.
+- Local files currently show **file names**; reading **tags and album art** from
+  local files is not implemented yet.
+- For **Subsonic/Navidrome**, favourites, lyrics, cover art, and fuller playlist
+  sync are still in progress.
+- No album/playlist **"download all"** yet.
+- Additional sources (WebDAV / NAS) are planned, behind the same interface.
 - Alpha overall — expect rough edges and changing behavior between versions.
 
 ## 6. Suggested keywords
@@ -130,14 +94,16 @@ Be upfront in the listing and/or release notes:
 For the title/short description and ASO thinking (Play has no separate keyword
 field — weave naturally, do not keyword-stuff):
 
-`music player`, `local music`, `offline music`, `Jellyfin`, `self-hosted`,
-`open source`, `privacy`, `no ads`, `Chromecast`, `Android Auto`, `NAS`,
-`media player`, `audio player`.
+`music player`, `local music`, `offline music`, `Jellyfin`, `Navidrome`,
+`Subsonic`, `self-hosted`, `open source`, `privacy`, `no ads`, `Chromecast`,
+`Android Auto`, `NAS`, `media player`, `audio player`.
 
-> Use third-party names like **Jellyfin**, **Chromecast**, **Android Auto**, and
-> **NAS** only to describe genuine compatibility — never in a way that implies
-> endorsement or affiliation. Do **not** describe Linthra as a clone of, or
-> drop-in replacement for, any specific commercial app.
+> Use third-party names like **Jellyfin**, **Navidrome**, **Subsonic**,
+> **Chromecast**, **Android Auto**, and **NAS** only to describe genuine
+> compatibility — never in a way that implies endorsement or affiliation.
+> Linthra is an **unofficial community client and is not affiliated with
+> Jellyfin, Navidrome, or Subsonic.** Do **not** describe Linthra as a clone of,
+> or drop-in replacement for, any specific commercial app.
 
 ## 7. Screenshot checklist
 
@@ -170,8 +136,9 @@ A core promise worth stating plainly in the listing and release notes:
 ## 9. Jellyfin / NAS / self-hosted positioning
 
 - Position Linthra as a **player for music you own**, that **optionally** works
-  with a **self-hosted Jellyfin server** (e.g. on a home server or NAS).
-- The Jellyfin connection is **optional and user-configured**: Linthra bundles
+  with a **self-hosted Jellyfin or Navidrome / Subsonic server** (e.g. on a home
+  server or NAS).
+- The server connection is **optional and user-configured**: Linthra bundles
   no server, promotes no hosted service, and runs **no cloud service of its
   own**.
 - Frame self-hosting as a benefit for people who want their library on their own
@@ -185,8 +152,9 @@ A core promise worth stating plainly in the listing and release notes:
 - **Do not** overclaim production stability — it is alpha; say so.
 - **Do not** claim availability on F-Droid or Google Play before it is actually
   published there.
-- **Do not** use third-party trademark names (Jellyfin, Chromecast, Android
-  Auto, NAS vendors) in a confusing way that implies affiliation or endorsement.
+- **Do not** use third-party trademark names (Jellyfin, Navidrome, Subsonic,
+  Chromecast, Android Auto, NAS vendors) in a confusing way that implies
+  affiliation or endorsement. Linthra is an unofficial community client.
 
 ## 11. Related docs
 
