@@ -33,21 +33,28 @@ device unless **you** point the app at a server you control.
 All of the following is stored **locally on your device**. None of it is sent to
 the Linthra project or to any third party operated by us.
 
-### Jellyfin connection details (only if you connect a server)
+### Server connection details (only if you connect a server)
 
-If you choose to connect Linthra to a [Jellyfin](https://jellyfin.org/) media
-server, the app stores what it needs to keep you signed in:
+If you choose to connect Linthra to a self-hosted music server —
+[Jellyfin](https://jellyfin.org/) or Navidrome / Subsonic — the app stores what
+it needs to keep you signed in:
 
 - the **server URL** you entered;
 - your **username** (as returned by the server) and the server's identifying
   details;
-- a **session token** issued by your server.
+- a **session credential**: a **session token** for Jellyfin, or a
+  `salt`+`token` pair for Navidrome / Subsonic.
 
 These are stored together in the device's **encrypted** secure storage
-(Android Keystore-backed), so the session token is not kept in plaintext.
+(Android Keystore-backed), so the session credential is not kept in plaintext.
 
-Your **password is never stored.** It is sent once to your Jellyfin server to
-obtain a session token, then discarded from memory.
+Your **password is never stored.** How it is used depends on the server type:
+
+- **Jellyfin:** the password is sent once to your server to obtain a session
+  token, then discarded from memory.
+- **Navidrome / Subsonic:** the password is used **only on your device** to
+  compute a `salt`+`token` (`token = md5(password + salt)`); the plaintext
+  password is not sent to the server and is then discarded.
 
 This information is used **only** to talk to the server you configured. Linthra
 does not transmit it anywhere else.
@@ -79,12 +86,12 @@ preference storage.
 Linthra makes network connections only in these situations, all under your
 control:
 
-- **Talking to your Jellyfin server.** When you have configured a server,
-  Linthra contacts **that server** (and only that server) to test the
-  connection, sign in, sync your library, stream music, and download tracks you
-  request. If your server uses **HTTPS**, this traffic is **encrypted in
-  transit**; whether HTTPS is used is determined by **your** server
-  configuration.
+- **Talking to your music server.** When you have configured a server (Jellyfin
+  or Navidrome / Subsonic), Linthra contacts **that server** (and only that
+  server) to test the connection, sign in, sync your library, stream music, and
+  download tracks you request. If your server uses **HTTPS**, this traffic is
+  **encrypted in transit**; whether HTTPS is used is determined by **your**
+  server configuration.
 - **Casting to a device on your local network.** When you choose to cast,
   Linthra discovers and communicates with Cast/Chromecast-compatible devices on
   your **local network**. This uses a local-network protocol implementation and

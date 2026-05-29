@@ -160,8 +160,10 @@ A core promise worth stating plainly in the listing and release notes:
 
 - [docs/play-store-readiness.md](./play-store-readiness.md) — overall Play
   readiness and submission path.
-- [docs/google-play-data-safety.md](./google-play-data-safety.md) — Data Safety
+- [docs/play-store-data-safety.md](./play-store-data-safety.md) — Data Safety
   form prep.
+- [docs/play-store-review-notes.md](./play-store-review-notes.md) — reviewer /
+  app-access notes.
 - [docs/privacy-policy.md](./privacy-policy.md) — privacy policy draft.
 - [docs/listing-assets.md](./listing-assets.md) — image asset sizes and capture.
 - `fastlane/metadata/android/en-US/` — the canonical short/full description and
