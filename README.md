@@ -8,36 +8,26 @@
 
 ![Linthra](fastlane/metadata/android/en-US/images/featureGraphic.png)
 
-### Your music. Your server. Your rules.
+### Your music, your server.
 
-**Linthra is an open-source Android music player for people who own their
-music** — with Jellyfin/Navidrome streaming, a smart offline cache, Cast,
-Android Auto, and **no surprise downloads**.
+**Linthra is an open-source Android music player for people who keep their music
+on their own devices or self-hosted servers.** It plays local files and streams
+from your own Jellyfin or Navidrome / Subsonic server. No ads, no tracking, no
+account.
 
 ---
 
 ## 🎧 Why Linthra?
 
-You ripped the CDs. You pay for the server. You shouldn't have to rent your own
-music back from someone else's app.
+Point it at your Jellyfin / Navidrome / Subsonic server, or a folder of local
+files, and it plays from there.
 
-Most "music apps" are storefronts that happen to play audio — they nudge you
-toward a catalog, sync things you didn't ask for, and treat your library as a
-guest. Linthra flips that around:
+Streaming is the default — nothing downloads unless you ask. Browsing stays fast
+because the app reads from a local catalog rather than the network, and nothing
+phones home: no telemetry, no ads, no account.
 
-Point it at your Jellyfin / Navidrome / Subsonic server, or a folder of
-local files.
-
-Streaming is the default. Nothing downloads unless you tap download.
-
-Your whole library is browsable instantly because the app reads from a local
-catalog, not the network.
-
-No telemetry, no ads, no account, no phoning home.
-
-
-If you self-host your music and want a clean Android player that respects that,
-Linthra is for you.
+If you self-host your music and want a straightforward Android player for it,
+give Linthra a try.
 
 ## Status
 
