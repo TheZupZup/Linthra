@@ -1,0 +1,14 @@
+Linthra 0.1.0-alpha.36 — build & packaging maintenance.
+
+Changed:
+- The Android build no longer runs Jetifier. Every dependency is already
+  AndroidX, so the rewrite step was redundant overhead. No app features,
+  permissions, or behavior change.
+
+Note:
+- v0.1.0-alpha.35 was skipped: that tag was pushed while pubspec.yaml still
+  read 0.1.0-alpha.34+100034, so its build failed the tag/pubspec
+  version-match check. The existing v0.1.0-alpha.35 tag is left untouched;
+  this is a clean v0.1.0-alpha.36 instead.
+
+Still an alpha — expect rough edges. Not on F-Droid yet.
