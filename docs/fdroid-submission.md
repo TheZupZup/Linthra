@@ -86,8 +86,8 @@ What makes it a good fit for building from source:
   optional release signing only applies to the GitHub channel and is injected at
   build time (see [release-signing.md](./release-signing.md)); no keystore or
   secret is committed.
-- The toolchain is pinned: Flutter `3.27.4` (stable), Dart `3.6.x`, JDK 17,
-  Gradle 8.3 — the same versions as `.flutter-version` and CI.
+- The toolchain is pinned: Flutter `3.27.4` (stable), Dart `3.6.x`, JDK 21,
+  Gradle 8.7 — the same versions as `.flutter-version` and CI.
 - No codegen step: the Drift output
   `lib/data/database/linthra_database.g.dart` is committed, so there's no
   `build_runner` to run.
