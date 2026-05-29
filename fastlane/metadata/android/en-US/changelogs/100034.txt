@@ -1,0 +1,8 @@
+Linthra 0.1.0-alpha.34 — build & packaging maintenance.
+
+Changed:
+- The Android release and debug CI builds are now pinned to Temurin JDK 17, so
+  the published APK/AAB matches the JDK F-Droid's build servers use. No app
+  features, permissions, or behavior change.
+
+Still an alpha — expect rough edges. Not on F-Droid yet.
