@@ -45,10 +45,22 @@ name: Android Release Build
 #     If the secrets are missing: a pre-release tag degrades to clearly-labeled
 #     debug-signed artifacts (for testing only); a stable tag fails fast.
 #
-# Artifact naming carries both the version (tag) and the signing label so a
-# debug-signed build can never be mistaken for a production release, e.g.
-#   linthra-v0.1.0-alpha.1-debug-signed.apk / .aab
-#   linthra-v0.1.0-alpha.1-release-signed.apk / .aab
+# Artifact naming:
+#
+#   * Tag builds — always upload the public Release asset under the canonical
+#     name `linthra-<tag>-release-signed.apk / .aab`. This is the URL F-Droid's
+#     `Binaries:` field points at, so the file name must be stable across
+#     releases regardless of whether the underlying build happened to fall back
+#     to a debug key (pre-release tags only). The ACTUAL signing mode is still
+#     reported authoritatively in the GitHub Release notes and the workflow's
+#     build summary (debug-signed fallbacks are flagged there as
+#     testing-only), so a debug-signed pre-release is never silently passed off
+#     as a production build.
+#
+#   * Manual (workflow_dispatch) builds — keep the signing label in the
+#     workflow-artifact name (`linthra-debug-signed` / `linthra-release-signed`)
+#     because these never reach a public Release and the label is useful for
+#     telling local artifacts apart at a glance.
 #
 # Version derivation (tag builds):
 #
@@ -153,7 +165,7 @@ jobs:
               echo "::error::Signed release requested but signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). See docs/release-signing.md."
               exit 1
             elif [ "$prerelease" = "true" ]; then
-              echo "::warning::Pre-release tag but signing secrets are missing; producing DEBUG-KEY signed artifacts (labeled -debug-signed). These are FOR TESTING ONLY, not a production release, and will be attached to a GitHub PRE-RELEASE labeled as such. Configure the LINTHRA_* secrets to get release-signed builds. See docs/release-signing.md."
+              echo "::warning::Pre-release tag but signing secrets are missing; producing DEBUG-KEY signed artifacts. These are FOR TESTING ONLY, not a production release. The Release asset is uploaded under the canonical -release-signed file name (kept stable for F-Droid), and the GitHub PRE-RELEASE notes flag the testing-only signing explicitly. Configure the LINTHRA_* secrets to get a truly release-signed build. See docs/release-signing.md."
               signing=debug-signed
             else
               echo "::error::Stable tag '${{ github.ref_name }}' requires release signing, but the signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). Stable releases must not ship debug-signed artifacts. Configure the secrets, or use an alpha/beta/rc tag for a testing pre-release. See docs/release-signing.md."
@@ -163,8 +175,12 @@ jobs:
             signing=debug-signed
           fi
 
+          # Tag builds always publish the Release asset under the canonical
+          # `-release-signed` name so the F-Droid `Binaries:` URL stays stable
+          # across releases. The actual signing mode is still surfaced in the
+          # Release notes and build summary below — see the header comment.
           if [ "$trigger" = "tag" ]; then
-            asset_base="linthra-${{ github.ref_name }}-${signing}"
+            asset_base="linthra-${{ github.ref_name }}-release-signed"
           else
             asset_base="linthra-${signing}"
           fi
@@ -302,9 +318,13 @@ jobs:
           fi
           echo "Verified: APK version matches the tag-derived version."
 
-      # Give the outputs descriptive, self-documenting names that carry the
-      # version (tag) and the signing label, so a debug-signed build can never
-      # be mistaken for a production release once downloaded or attached.
+      # Stage the outputs under the asset_base computed above:
+      #   * Tag builds get the canonical `linthra-<tag>-release-signed.{apk,aab}`
+      #     name so the F-Droid `Binaries:` URL stays stable across releases.
+      #   * Manual builds keep the signing label so local previews stay
+      #     distinguishable at a glance.
+      # In both cases the build summary + Release notes are the authoritative
+      # record of the actual signing mode.
       - name: Stage named artifacts
         run: |
           mkdir -p dist
