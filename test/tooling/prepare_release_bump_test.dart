@@ -21,9 +21,11 @@ void main() {
     if (!File(script).existsSync()) {
       fail('Prepare-release script not found at $script');
     }
-    final ProcessResult which = Process.runSync('python3', <String>['--version']);
+    final ProcessResult which =
+        Process.runSync('python3', <String>['--version']);
     if (which.exitCode != 0) {
-      fail('python3 is not on PATH; the prepare-release-bump script requires it.');
+      fail(
+          'python3 is not on PATH; the prepare-release-bump script requires it.');
     }
   });
 
@@ -90,7 +92,8 @@ void main() {
           _runScript(script, '0.1.0-alpha.37', repoRoot: tmp.path);
       expect(r.exitCode, 0,
           reason: 'stdout:\n${r.stdout}\nstderr:\n${r.stderr}');
-      final String after = File(p.join(tmp.path, 'pubspec.yaml')).readAsStringSync();
+      final String after =
+          File(p.join(tmp.path, 'pubspec.yaml')).readAsStringSync();
       expect(after, contains('version: 0.1.0-alpha.37+100037'));
       // The blank line between `version:` and `environment:` must survive.
       expect(after, contains('100037\n\nenvironment:'));
@@ -109,7 +112,8 @@ void main() {
       expect(r.exitCode, 0,
           reason: 'stdout:\n${r.stdout}\nstderr:\n${r.stderr}');
       final String after =
-          File(p.join(tmp.path, 'lib', 'core', 'app_info.dart')).readAsStringSync();
+          File(p.join(tmp.path, 'lib', 'core', 'app_info.dart'))
+              .readAsStringSync();
       expect(after, contains("_devVersionName = '0.1.0-alpha.37'"));
       expect(after, isNot(contains("'0.1.0-alpha.36'")));
     });
@@ -239,11 +243,7 @@ void main() {
         script,
         '0.1.0-alpha.37',
         repoRoot: tmp.path,
-        extraArgs: <String>[
-          '--changelog',
-          'new content',
-          '--force-changelog'
-        ],
+        extraArgs: <String>['--changelog', 'new content', '--force-changelog'],
       );
       expect(r.exitCode, 0,
           reason: 'stdout:\n${r.stdout}\nstderr:\n${r.stderr}');
@@ -408,8 +408,8 @@ Future<Directory> _fixtureRepo({
     'changelogs',
   )).createSync(recursive: true);
 
-  final String pubspec = pubspecBody ??
-      'name: linthra\nversion: $pubspecVersion+$pubspecCode\n';
+  final String pubspec =
+      pubspecBody ?? 'name: linthra\nversion: $pubspecVersion+$pubspecCode\n';
   File(p.join(dir.path, 'pubspec.yaml')).writeAsStringSync(pubspec);
 
   final String appInfo = appInfoBody ??
