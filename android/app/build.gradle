@@ -57,6 +57,21 @@ android {
         jvmTarget = JavaVersion.VERSION_1_8
     }
 
+    // F-Droid's `check apk` step rejects any APK that carries extra APK
+    // Signing Block entries, and AGP 8.x defaults to embedding a compressed
+    // Maven dependency list (block id 0x504b4453, "Dependency metadata") so
+    // Play Console can flag vulnerable libraries. The matching
+    // android.dependenciesInfo.* flags in android/gradle.properties are NOT a
+    // documented AGP knob — AGP only reads this setting from the DSL block
+    // below, so the properties alone left the metadata in v0.1.0-alpha.38.
+    // This DSL block is the supported off-switch and strips the block from
+    // both APK and AAB outputs. Disabling has no runtime effect; it only
+    // suppresses metadata that Google would have read.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
     defaultConfig {
         // Stable application ID for F-Droid / GitHub Releases distribution.
         applicationId = "io.github.thezupzup.linthra"
