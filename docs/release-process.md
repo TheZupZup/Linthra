@@ -194,6 +194,58 @@ the version bump in a merged PR **before** creating the tag is what stops the
 "tag pushed against a stale `pubspec.yaml`" failure mode that wasted
 `v0.1.0-alpha.35`.
 
+### Recommended flow — `Prepare release bump` workflow
+
+The fast path is the manual **Prepare release bump** GitHub Action
+(`.github/workflows/prepare-release-bump.yml`). It runs the same edits a
+contributor would do by hand — pubspec, in-app mirror, Fastlane changelog,
+F-Droid metadata — and opens a draft PR. It does NOT create the tag and does
+NOT publish a release; those still happen manually after the PR is merged.
+
+1. **Run the workflow** — GitHub Actions ▸ *Prepare release bump* ▸ *Run workflow*.
+   Enter the **version name** (e.g. `0.1.0-alpha.37`, no leading `v`, no
+   `+versionCode`). Leave **changelog text** empty for a safe maintenance default,
+   or paste a hand-written body.
+2. **Review the generated PR** (`chore(release): prepare v0.1.0-alpha.37`).
+   Confirm the computed `versionCode`, the updated files, and the changelog
+   body. Edit the changelog in the PR if you want to refine it.
+3. **Wait for CI green** — `flutter analyze`, `flutter test`, formatting all run
+   against the bump, including the version-drift test.
+4. **Merge the PR** into `main`. Do **not** tag yet.
+5. **Confirm** that `main`'s `pubspec.yaml` now reads
+   `version: 0.1.0-alpha.37+100037`.
+6. **Draft/publish the GitHub Release** with tag `v0.1.0-alpha.37` targeting
+   `main`. (Or push the annotated tag from git, then add notes — see §4.)
+7. **Watch the Android Release Build** workflow on the pushed tag; install the
+   resulting APK and smoke-test.
+8. **Update `fdroiddata`** to the new tag/version if the F-Droid submission has
+   landed (see [fdroid-submission.md](./fdroid-submission.md)).
+
+> **The workflow never creates the tag.** The tag is created only after the
+> bump PR is merged. Never publish a release tag before the bump PR is
+> merged — that is exactly the "lost-tag" failure mode the warnings below
+> describe. If a wrong tag was pushed, skip to the next version.
+
+The workflow refuses to run when the tag already exists locally or on origin,
+when `pubspec.yaml` is already at the requested version, when `app_info.dart`
+has no `_devVersionName` to update, or when an existing Fastlane changelog
+would be overwritten without `--force-changelog`. See
+[scripts/prepare_release_bump.py](../scripts/prepare_release_bump.py) for the
+full safety list — that is the same script the workflow invokes, so you can
+run it locally:
+
+```sh
+python3 scripts/prepare_release_bump.py 0.1.0-alpha.37
+# (optionally with --changelog "..." or --force-changelog)
+./scripts/release_preflight.sh v0.1.0-alpha.37
+```
+
+### Manual flow (the long form)
+
+If you prefer to bump everything by hand — or if the workflow doesn't fit your
+PR — the steps below are what `prepare_release_bump.py` automates. They remain
+the canonical source of truth for what the bump must contain.
+
 1. **Choose the version** = the tag you will push, e.g. `v0.1.0-alpha.31`.
    Preview its canonical `versionCode`:
 
@@ -388,6 +440,7 @@ F-Droid does **not** consume our signed artifacts. When/if Linthra is submitted:
 | Quality CI (analyze/test/format) on PRs & `main` | **Automatic** (`ci.yml`). |
 | Debug APK build | Manual (`workflow_dispatch`) + on PRs (`android-debug-apk.yml`). |
 | Release APK/AAB build | **Manual** (`workflow_dispatch`) **and automatic on `v*` tags** (`android-release-build.yml`). |
+| Preparing the version-bump PR (pubspec, in-app mirror, Fastlane changelog, F-Droid `CurrentVersion`) | **Manual** (`workflow_dispatch`, `prepare-release-bump.yml`); opens a draft PR but never tags, builds, or publishes. The same edits are reproducible locally with `scripts/prepare_release_bump.py`. |
 | Verifying the tag matches `pubspec.yaml` (versionName/versionCode) | **Automatic** on a `v*` tag build (`scripts/release_preflight.sh`, encoding-checked against `tool/version_from_tag.dart`); fails fast on a mismatch and the workflow summary explicitly says "Version mismatch: release was not built." so it is not confused with an APK build failure. The same script is intended to be run locally before tagging (§3 step 9). Both manual and tag builds take the version from `pubspec.yaml`. |
 | Attaching APK/AAB to a Release | **Automatic** on a `v*` tag build. Alpha/beta/rc tags attach (debug- or release-signed) to a **pre-release**; stable tags attach **release-signed** assets to an existing Release only. |
 | Creating a GitHub **pre-release** (alpha/beta/rc) | **Automatic** on the tag build if no Release exists yet (placeholder notes; edit afterwards). |

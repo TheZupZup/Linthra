@@ -1,0 +1,236 @@
+name: Prepare release bump
+
+# Manual workflow that opens a PR updating every file that has to agree on the
+# release version — pubspec.yaml, lib/core/app_info.dart, the Fastlane
+# changelog, and the F-Droid metadata's CurrentVersion/CurrentVersionCode.
+#
+# It does NOT create a git tag, build the APK/AAB, or publish a GitHub Release.
+# Those steps still happen manually after the generated PR is merged. See
+# docs/release-process.md for the full flow.
+#
+# All the file edits are delegated to scripts/prepare_release_bump.py so a
+# contributor can reproduce the same bump locally:
+#
+#   python3 scripts/prepare_release_bump.py 0.1.0-alpha.37
+#
+# Then this workflow runs scripts/release_preflight.sh as a final
+# tag/pubspec/AppInfo consistency check before opening the PR.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Version name, e.g. 0.1.0-alpha.37 (no leading v, no +versionCode)."
+        required: true
+        type: string
+      changelog_text:
+        description: "Optional Fastlane changelog body. Leave empty for a safe maintenance default."
+        required: false
+        type: string
+        default: ""
+      force_changelog:
+        description: "Overwrite the Fastlane changelog if one already exists at <versionCode>.txt."
+        required: false
+        type: boolean
+        default: false
+
+# Need write to push the release branch and open the PR. Nothing else is touched.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    name: Prepare release bump PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate inputs and refuse if tag already exists
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VERSION_NAME}" ]; then
+            echo "ERROR: version_name is required." >&2
+            exit 1
+          fi
+          if [[ "$VERSION_NAME" == v* ]]; then
+            echo "ERROR: version_name must not start with 'v' (got: $VERSION_NAME). Pass the versionName, e.g. 0.1.0-alpha.37." >&2
+            exit 1
+          fi
+          if [[ "$VERSION_NAME" == *+* ]]; then
+            echo "ERROR: version_name must not contain '+versionCode' (got: $VERSION_NAME). The versionCode is computed." >&2
+            exit 1
+          fi
+          # Refuse to run if the matching tag already exists locally or on origin.
+          # The workflow never creates tags, but pushing a bump PR for an existing
+          # tag is almost always a mistake — skip to the next version instead.
+          if git rev-parse -q --verify "refs/tags/v${VERSION_NAME}" >/dev/null; then
+            echo "ERROR: tag v${VERSION_NAME} already exists locally. Skip to the next version." >&2
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/v${VERSION_NAME}" | grep -q .; then
+            echo "ERROR: tag v${VERSION_NAME} already exists on origin. Skip to the next version." >&2
+            exit 1
+          fi
+
+      - name: Compute canonical versionName / versionCode
+        id: encode
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, sys
+          sys.path.insert(0, "scripts")
+          from prepare_release_bump import version_from_tag, VersionError
+          try:
+              name, code = version_from_tag(os.environ["VERSION_NAME"])
+          except VersionError as e:
+              print("ERROR:", e, file=sys.stderr)
+              sys.exit(1)
+          print(f"name={name}")
+          print(f"code={code}")
+          print(f"full={name}+{code}")
+          PY
+
+      - name: Update version files
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          CHANGELOG_TEXT: ${{ inputs.changelog_text }}
+          FORCE_CHANGELOG: ${{ inputs.force_changelog }}
+        run: |
+          set -euo pipefail
+          args=("$VERSION_NAME")
+          if [ -n "${CHANGELOG_TEXT}" ]; then
+            args+=("--changelog" "$CHANGELOG_TEXT")
+          fi
+          if [ "${FORCE_CHANGELOG}" = "true" ]; then
+            args+=("--force-changelog")
+          fi
+          python3 scripts/prepare_release_bump.py "${args[@]}"
+
+      - name: Run release preflight
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/release_preflight.sh
+          ./scripts/release_preflight.sh "v${VERSION_NAME}"
+
+      - name: Fail if nothing changed
+        env:
+          VERSION_FULL: ${{ steps.encode.outputs.full }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "ERROR: no files changed. pubspec.yaml is already at ${VERSION_FULL}; nothing to bump." >&2
+            exit 1
+          fi
+
+      - name: Create release branch and commit
+        id: branch
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          set -euo pipefail
+          BRANCH="release/v${VERSION_NAME}"
+          echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Fetch any stale branch from a prior abandoned run so --force-with-lease
+          # has the remote-tracking ref it needs; silently ignore if absent.
+          git fetch origin "$BRANCH" 2>/dev/null || true
+          git checkout -B "$BRANCH"
+          git add -A pubspec.yaml lib/core/app_info.dart fastlane/metadata metadata
+          git commit -m "chore(release): prepare v${VERSION_NAME}"
+          git push --force-with-lease -u origin "$BRANCH"
+
+      - name: Open pull request
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ steps.encode.outputs.code }}
+          VERSION_FULL: ${{ steps.encode.outputs.full }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git diff --name-only HEAD~1..HEAD \
+            | awk '{print "- `" $0 "`"}' > /tmp/changed_files.md
+
+          # Build the body via python so indentation is exact (no YAML drift).
+          python3 - <<'PY' > /tmp/pr_body.md
+          import os
+          name = os.environ["VERSION_NAME"]
+          code = os.environ["VERSION_CODE"]
+          full = os.environ["VERSION_FULL"]
+          with open("/tmp/changed_files.md") as f:
+              changed = f.read().rstrip() or "- (none)"
+          print(f"""## Release bump for v{name}
+
+          Generated by the **Prepare release bump** workflow. This PR updates every
+          file that must agree on the release version. The git tag and the GitHub
+          Release are intentionally NOT created here — they happen manually after
+          this PR is merged. See [docs/release-process.md](docs/release-process.md).
+
+          ### Computed values
+
+          - versionName: `{name}`
+          - versionCode: `{code}`
+          - full pubspec version: `{full}`
+          - tag (after merge): `v{name}`
+
+          ### Files changed
+
+          {changed}
+
+          ### Next steps
+
+          1. Wait for CI green on this PR.
+          2. Merge this PR into `main`.
+          3. Verify `pubspec.yaml` on `main` reads `version: {full}`.
+          4. Create a GitHub Release with tag `v{name}` targeting `main`.
+          5. Publish the release.
+          6. Watch the **Android Release Build** workflow on the pushed tag.
+
+          ### What this PR intentionally does NOT do
+
+          - Does not create the git tag `v{name}`.
+          - Does not publish a GitHub Release.
+          - Does not build the release APK / AAB.
+          - Does not change any app feature, playback, Cast, Android Auto, cache,
+            Jellyfin, or UI behavior.
+
+          ### Safety checks already run
+
+          - Version string is well-formed (`vMAJOR.MINOR.PATCH(-tier.N)`).
+          - Canonical `versionCode` matches the `versionName`.
+          - Tag `v{name}` does NOT already exist locally or on origin.
+          - `pubspec.yaml` did not already carry the requested version.
+          - `lib/core/app_info.dart` had exactly one `_devVersionName` to update.
+          - Existing changelog at `{code}.txt` was not silently overwritten.
+          - `scripts/release_preflight.sh v{name}` passed.
+
+          See `scripts/prepare_release_bump.py` and
+          `.github/workflows/prepare-release-bump.yml` for the source of these checks.
+          """)
+          PY
+
+          gh pr create \
+            --base main \
+            --head "${BRANCH}" \
+            --title "chore(release): prepare v${VERSION_NAME}" \
+            --body-file /tmp/pr_body.md \
+            --draft
