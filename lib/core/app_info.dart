@@ -14,7 +14,7 @@ abstract final class AppInfo {
   /// the in-app version always matches the released APK/AAB without any
   /// build-time injection. `test/core/app_info_version_test.dart` fails CI if
   /// this constant ever drifts from `pubspec.yaml`, so bump both together.
-  static const String _devVersionName = '0.1.0-alpha.38';
+  static const String _devVersionName = '0.1.0-alpha.39';
 
   /// Optional build-time override for the in-app `versionName`, read from
   /// `--dart-define=LINTHRA_VERSION_NAME=...`. Normally **empty** — `pubspec.yaml`
