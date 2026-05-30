@@ -17,6 +17,9 @@ Builds:
   - versionName: 0.1.0-alpha.39
     versionCode: 100039
     commit: 1e015a18bc9ec412b9ce52a400c4f00c00419bea
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
     output: build/app/outputs/flutter-apk/app-release.apk
     srclibs:
       - flutter@stable
@@ -24,14 +27,26 @@ Builds:
       - flutterVersion=$(cat .flutter-version)
       - '[[ $flutterVersion ]]'
       - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
       - export PUB_CACHE=$(pwd)/.pub-cache
       - $$flutter$$/bin/flutter config --no-analytics
       - $$flutter$$/bin/flutter pub get
+      - popd
+      - mv $repo io.github.thezupzup.linthra
     scandelete:
       - .pub-cache
     build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
       - export PUB_CACHE=$(pwd)/.pub-cache
       - $$flutter$$/bin/flutter build apk --release
+      - popd
+      - mv $repo io.github.thezupzup.linthra
 
 AllowedAPKSigningKeys: 93ab06094c6f07780f862ed585a433c5e175d61685f09242bbbc9eeddf692528
 
