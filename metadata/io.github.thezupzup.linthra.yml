@@ -11,7 +11,8 @@ AutoName: Linthra
 
 RepoType: git
 Repo: https://github.com/TheZupZup/Linthra.git
-Binaries: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-release-signed.apk
+Binaries: 
+  https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-release-signed.apk
 
 Builds:
   - versionName: 0.1.0-alpha.39
