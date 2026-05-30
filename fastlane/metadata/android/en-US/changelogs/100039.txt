@@ -1,0 +1,6 @@
+Linthra 0.1.0-alpha.39 — maintenance update.
+
+No app feature, permission, or behavior change in this build. See the
+GitHub release notes for any build/packaging details.
+
+Still an alpha — expect rough edges. Not on F-Droid yet.
