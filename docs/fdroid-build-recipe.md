@@ -86,8 +86,19 @@ Linthra is a Flutter (Dart) application targeting Android.
 
 ```
 flutter pub get
-flutter build apk --release   # or split-per-ABI; appbundle is for stores, not F-Droid
+flutter build apk --release --split-per-abi   # F-Droid recipe path: three per-ABI APKs
+flutter build apk --release                   # GitHub-Release CI path: one universal APK
+# appbundle is for stores, not F-Droid.
 ```
+
+The F-Droid recipe uses `--split-per-abi` so it can ship one APK per ABI; the
+GitHub-Release CI keeps the single universal APK so the existing sideload URL
+is unchanged. `android/app/build.gradle` applies a per-ABI `versionCodeOverride`
+(`base * 10 + 1/2/3` for armeabi-v7a / arm64-v8a / x86_64) only when an ABI
+filter is present on a variant output, so the two paths share one source of
+truth: the universal APK stays at the base `versionCode` from `pubspec.yaml`,
+and the per-ABI APKs match the `VercodeOperation` block in
+`metadata/io.github.thezupzup.linthra.yml`.
 
 Because the Drift output is committed, **no `dart run build_runner build`
 prebuild step is required** as long as the committed `*.g.dart` is in sync with
@@ -199,11 +210,14 @@ pinned to the latest working alpha (`commit: v0.1.0-alpha.30`, versionName
 `pubspec.yaml`). That file is the canonical draft; edit it there rather than
 duplicating a snippet here.
 
-> **Still a draft — not submitted.** The recipe now uses the `flutter` srclib
-> method from `templates/build-flutter.yml` and a single universal APK, but it
-> must still be validated against fdroiddata via an actual `fdroid build` at
-> submission time (in particular any NDK/CMake the native SQLite build needs).
-> The version target lives in `pubspec.yaml` and auto-update is wired up; see the
-> [submission package](./fdroid-submission.md) for the MR checklist and next
-> steps and the [readiness checklist](./fdroid-readiness.md#8-remaining-blockers-before-submission)
+> **Still a draft — not submitted.** The recipe uses the `flutter` srclib
+> method from `templates/build-flutter.yml` and ships **per-ABI APKs**
+> (armeabi-v7a / arm64-v8a / x86_64) via three `Builds` entries plus a
+> matching `VercodeOperation`, mirroring the `versionCodeOverride` in
+> `android/app/build.gradle`. It must still be validated against fdroiddata
+> via an actual `fdroid build` at submission time (in particular any NDK/CMake
+> the native SQLite build needs). The version target lives in `pubspec.yaml`
+> and auto-update is wired up; see the [submission package](./fdroid-submission.md)
+> for the MR checklist and next steps and the
+> [readiness checklist](./fdroid-readiness.md#8-remaining-blockers-before-submission)
 > for the remaining blockers.

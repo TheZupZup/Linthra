@@ -78,6 +78,17 @@ stays a valid Android `versionCode` (1‥2,100,000,000) and the tiers never
 collide. A tag that violates these bounds, or is otherwise malformed, **fails
 the build** (see "Malformed tags" below) instead of shipping guessed metadata.
 
+> **Per-ABI versionCode on the F-Droid recipe path.** When `flutter build apk
+> --release --split-per-abi` produces per-ABI APKs (used only by F-Droid; the
+> GitHub-Release CI keeps the universal APK), `android/app/build.gradle`
+> applies a `versionCodeOverride = base * 10 + abi` per output, where
+> `armeabi-v7a = 1`, `arm64-v8a = 2`, `x86_64 = 3`. The matching
+> `VercodeOperation` in `metadata/io.github.thezupzup.linthra.yml` keeps the
+> recipe and the gradle build in lockstep. The override is silently skipped
+> when no ABI filter is present, so the universal APK still ships at the base
+> `versionCode` and a plain tag build is unchanged. Added in response to the
+> F-Droid maintainer's feedback on MR !39329.
+
 > **Note — the encoding intentionally jumps from the legacy hand-numbered
 > codes.** Alphas through `0.1.0-alpha.15` used `versionCode = N` (so `+15`).
 > The first encoded build, `v0.1.0-alpha.16`, is `100016` — far larger than `15`,
