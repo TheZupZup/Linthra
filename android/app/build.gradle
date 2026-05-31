@@ -106,27 +106,60 @@ android {
             signingConfig = hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
         }
     }
+}
 
-    // Per-ABI versionCode scheme for F-Droid's split-APK flow (MR !39329).
-    //
-    // When `flutter build apk --release --split-per-abi` runs, AGP produces one
-    // APK per ABI and each output carries an "ABI" filter. F-Droid needs a
-    // strictly distinct, monotonically ordered `versionCode` per ABI so the
-    // store can track each variant independently (and avoid the "APK has
-    // different libs in different ABI" code-quality finding flagged on MR
-    // !39329). The override below is the Groovy translation of the snippet the
-    // maintainer asked for; it leaves the base versionCode from `pubspec.yaml`
-    // untouched (so a plain `flutter build apk --release` — what the GitHub
-    // release CI runs — still ships the universal APK at e.g. `100039`) and
-    // only fires for outputs that have an ABI filter, encoding the ABI rank as
-    //
-    //     versionCodeOverride = baseVersionCode * 10 + abiRank
-    //
-    // with armeabi-v7a=1, arm64-v8a=2, x86_64=3. The matching `VercodeOperation`
-    // and per-ABI `Builds` entries live in
-    // metadata/io.github.thezupzup.linthra.yml.
-    def abiCodes = ["armeabi-v7a": 1, "arm64-v8a": 2, "x86_64": 3]
-    applicationVariants.configureEach { variant ->
+// Per-ABI versionCode scheme for F-Droid's split-APK flow (MR !39329).
+//
+// When `flutter build apk --release --split-per-abi` runs, AGP produces one
+// APK per ABI and each output carries an "ABI" filter. F-Droid needs a
+// strictly distinct, monotonically ordered `versionCode` per ABI so the store
+// can track each variant independently (and avoid the "APK has different libs
+// in different ABI" code-quality finding flagged on MR !39329). The override
+// leaves the base versionCode from `pubspec.yaml` untouched (so a plain
+// `flutter build apk --release` — what the GitHub release CI runs — still
+// ships the universal APK at e.g. `100039`) and only fires for outputs that
+// have an ABI filter, encoding the ABI rank as
+//
+//     versionCodeOverride = baseVersionCode * 10 + abiRank
+//
+// with armeabi-v7a=1, arm64-v8a=2, x86_64=3. The matching `VercodeOperation`
+// and per-ABI `Builds` entries live in
+// metadata/io.github.thezupzup.linthra.yml.
+//
+// MUST run AFTER the Flutter Gradle plugin's per-ABI override. The Flutter
+// plugin (packages/flutter_tools/gradle/.../flutter.groovy, the
+// `addFlutterDeps` closure called from `applicationVariants.all { variant ->
+// ... addFlutterDeps(variant) ... }` at the bottom of `addFlutterTasks`)
+// itself sets
+//
+//     output.versionCodeOverride = abiVersionCode * 1000 + variant.versionCode
+//
+// (with abiVersionCode = 1/2/4 for armeabi-v7a/arm64-v8a/x86_64) whenever
+// `-Psplit-per-abi=true` is set — which `flutter build --split-per-abi`
+// passes. For base versionCode 100039 that yields
+//
+//     armeabi-v7a -> 101039   arm64-v8a -> 102039   x86_64 -> 104039
+//
+// which is what alpha.39's F-Droid build hit: `Unexpected versionCode in
+// output; APK: '101039', Expected: '1000391'`.
+//
+// The previous override sat inside the `android { }` block as
+// `applicationVariants.configureEach { ... }`. Empirically that callback
+// fired BEFORE Flutter's `.all` on each variant in AGP 8.2 — even though it
+// was registered second — so Flutter's eager `.all` ran last and silently
+// overwrote our `base * 10 + abi` with its own `abi * 1000 + base`. (In a
+// vanilla `DomainObjectSet` both hooks fire in registration order, but AGP's
+// legacy variants collection appears to drain `.configureEach` callbacks at
+// a different lifecycle point than `.all`, and `.all` wins.)
+//
+// Switching to `.all` puts our callback in the same hook lane as Flutter's,
+// and wrapping it in `afterEvaluate` defers our registration until after the
+// Flutter plugin's `apply()` has already registered its `.all` — so within
+// that single lane our action is queued last and fires last per variant,
+// making the maintainer-requested scheme win.
+def abiCodes = ["armeabi-v7a": 1, "arm64-v8a": 2, "x86_64": 3]
+afterEvaluate {
+    android.applicationVariants.all { variant ->
         variant.outputs.each { output ->
             def abiName = output.filters.find { it.filterType == "ABI" }?.identifier
             def abiCode = abiCodes[abiName]
