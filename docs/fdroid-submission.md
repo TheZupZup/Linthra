@@ -120,11 +120,20 @@ A few things still need checking against fdroiddata before submitting:
    built from source). If `fdroid build -l` reports a missing NDK/CMake, pin the
    build server's NDK with an `ndk:` field and/or install CMake in `prebuild`
    (`sudo sdkmanager 'cmake;<version>'`), as some Flutter recipes do.
-3. The output path. `build/app/outputs/flutter-apk/app-release.apk` is the single
-   universal-APK output, matching the upstream GitHub-release artifact. Splitting
-   per ABI would also need a per-ABI `versionCode` scheme (a `VercodeOperation`
-   plus a `build.gradle` override) that upstream does not currently use, so a
-   single universal APK is built.
+3. The output path. F-Droid now builds **per-ABI APKs** (armeabi-v7a / arm64-v8a
+   / x86_64) via `flutter build apk --release --split-per-abi`, with three
+   `Builds` entries selecting one output each
+   (`build/app/outputs/flutter-apk/app-<abi>-release.apk`) and a matching
+   `VercodeOperation` block (`%c*10 + 1/2/3`) so auto-update keeps generating
+   one entry per ABI per tag. The `versionCodeOverride` in
+   `android/app/build.gradle` applies the same `base * 10 + abi` rule to each
+   variant output, so the gradle build and the recipe's `versionCode` always
+   agree. The GitHub-Release CI still produces the single universal APK at the
+   base `versionCode` (no `--split-per-abi`), so the sideload URL is unchanged.
+   This decoupled the recipe from the upstream `Binaries:` URL (which points at
+   the universal APK and therefore cannot match per-ABI F-Droid builds), so the
+   `Binaries:` field is no longer set; `AllowedAPKSigningKeys` stays as a
+   sideload-source check.
 4. The `pubspec.lock` policy — still git-ignored. Decide whether to commit it at
    the tagged commit for a fully pinned dependency set
    ([fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
@@ -279,7 +288,7 @@ is skipped. Early alpha, usable for testing.
 
 - [ ] External repos are added as git submodules instead of srclibs — this recipe uses the `flutter` srclib (per `templates/build-flutter.yml`); no Flutter submodule is added upstream.
 - [ ] Enable Reproducible Builds — not enabled yet (early alpha); the APK is signed with F-Droid's key.
-- [ ] Multiple apks for native code — a single universal APK is built (matching the upstream release); the only native code is SQLite, which is small.
+- [x] Multiple apks for native code — per-ABI APKs (armeabi-v7a / arm64-v8a / x86_64) via `flutter build apk --release --split-per-abi`, three `Builds` entries, and a `VercodeOperation` mirroring the `versionCodeOverride` in `android/app/build.gradle`. Added in response to maintainer feedback on MR !39329; the GitHub-Release CI keeps the universal APK for sideload.
 
 No RFP or fdroiddata issue to close.
 

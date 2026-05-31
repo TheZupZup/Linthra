@@ -11,17 +11,40 @@ AutoName: Linthra
 
 RepoType: git
 Repo: https://github.com/TheZupZup/Linthra.git
-Binaries: 
-  https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-release-signed.apk
 
+# Per-ABI APK split (MR !39329). The base versionCode in `pubspec.yaml` is
+# `MAJOR*10_000_000 + MINOR*100_000 + PATCH*1_000 + preReleaseRank` (see
+# docs/release-process.md §1). For each tag F-Droid derives the per-ABI
+# versionCode by multiplying the base by ten and adding the ABI rank — the
+# same `versionCodeOverride` rule applied by `android/app/build.gradle`, so
+# the F-Droid build and the gradle override always agree:
+#
+#     armeabi-v7a → %c*10 + 1
+#     arm64-v8a   → %c*10 + 2
+#     x86_64      → %c*10 + 3
+#
+# AutoUpdateMode below uses these operations to add one Build entry per ABI
+# per tag (so v0.1.0-alpha.40 → 1000401/1000402/1000403, and so on).
+VercodeOperation:
+  - "%c*10 + 1"
+  - "%c*10 + 2"
+  - "%c*10 + 3"
+
+# Three per-ABI Builds entries for v0.1.0-alpha.39 — the same source tag as
+# before; only the per-APK versionCode and output path differ. The build
+# command is the universal `flutter build apk --release --split-per-abi`,
+# which produces all three per-ABI APKs in one invocation; each entry just
+# selects its own output. The `--split-per-abi` flag (combined with the
+# `applicationVariants.configureEach` override in `android/app/build.gradle`)
+# is what gives each APK the matching `versionCodeOverride`.
 Builds:
   - versionName: 0.1.0-alpha.39
-    versionCode: 100039
+    versionCode: 1000391
     commit: 1e015a18bc9ec412b9ce52a400c4f00c00419bea
     sudo:
       - mkdir -p /home/runner/work/Linthra
       - chown -R vagrant /home/runner/work
-    output: build/app/outputs/flutter-apk/app-release.apk
+    output: build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
     srclibs:
       - flutter@stable
     prebuild:
@@ -45,14 +68,90 @@ Builds:
       - mv io.github.thezupzup.linthra $repo
       - pushd $repo
       - export PUB_CACHE=$(pwd)/.pub-cache
-      - $$flutter$$/bin/flutter build apk --release
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi
       - popd
       - mv $repo io.github.thezupzup.linthra
 
-AllowedAPKSigningKeys: 93ab06094c6f07780f862ed585a433c5e175d61685f09242bbbc9eeddf692528
+  - versionName: 0.1.0-alpha.39
+    versionCode: 1000392
+    commit: 1e015a18bc9ec412b9ce52a400c4f00c00419bea
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+
+  - versionName: 0.1.0-alpha.39
+    versionCode: 1000393
+    commit: 1e015a18bc9ec412b9ce52a400c4f00c00419bea
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-x86_64-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+
+# AllowedAPKSigningKeys is kept so an F-Droid client can still warn users who
+# sideload a wrong-keyed APK with the same App ID. The `Binaries:` URL used to
+# point at the upstream GitHub release artifact, but that artifact is a single
+# universal APK while every Build above is now per-ABI at a different
+# versionCode — so F-Droid's reproducible-build comparison cannot match. The
+# field is removed deliberately (per the maintainer's "unless the split APK
+# flow requires changing Binaries" carve-out); the GitHub release itself is
+# untouched and v0.1.0-alpha.39 remains downloadable from there for sideload.
+AllowedAPKSigningKeys: 835189ae30df4d23588580e0a86e5e9b67ea2a2745fda510759f22a3d0a78b6c
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
 UpdateCheckData: pubspec.yaml|version:\s*[^+]+\+(\d+)|.|version:\s*([^\+]+)\+
 CurrentVersion: 0.1.0-alpha.39
-CurrentVersionCode: 100039
+CurrentVersionCode: 1000393
