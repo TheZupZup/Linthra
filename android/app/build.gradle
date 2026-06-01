@@ -123,7 +123,7 @@ android {
 //     versionCodeOverride = baseVersionCode * 10 + abiRank
 //
 // with armeabi-v7a=1, arm64-v8a=2, x86_64=3. The matching `VercodeOperation`
-// and per-ABI `Builds` entries live in
+// and per-ABI `Builds` entries (versionCodes 1000391/1000392/1000393) live in
 // metadata/io.github.thezupzup.linthra.yml.
 //
 // MUST run AFTER the Flutter Gradle plugin's per-ABI override. The Flutter
@@ -143,29 +143,36 @@ android {
 // which is what alpha.39's F-Droid build hit: `Unexpected versionCode in
 // output; APK: '101039', Expected: '1000391'`.
 //
-// The previous override sat inside the `android { }` block as
-// `applicationVariants.configureEach { ... }`. Empirically that callback
-// fired BEFORE Flutter's `.all` on each variant in AGP 8.2 — even though it
-// was registered second — so Flutter's eager `.all` ran last and silently
-// overwrote our `base * 10 + abi` with its own `abi * 1000 + base`. (In a
-// vanilla `DomainObjectSet` both hooks fire in registration order, but AGP's
-// legacy variants collection appears to drain `.configureEach` callbacks at
-// a different lifecycle point than `.all`, and `.all` wins.)
+// Registration / lifecycle ordering — why this is at script top-level and
+// NOT inside an `afterEvaluate { }`:
 //
-// Switching to `.all` puts our callback in the same hook lane as Flutter's,
-// and wrapping it in `afterEvaluate` defers our registration until after the
-// Flutter plugin's `apply()` has already registered its `.all` — so within
-// that single lane our action is queued last and fires last per variant,
-// making the maintainer-requested scheme win.
-def abiCodes = ["armeabi-v7a": 1, "arm64-v8a": 2, "x86_64": 3]
-afterEvaluate {
-    android.applicationVariants.all { variant ->
-        variant.outputs.each { output ->
-            def abiName = output.filters.find { it.filterType == "ABI" }?.identifier
-            def abiCode = abiCodes[abiName]
-            if (abiCode != null) {
-                output.versionCodeOverride = variant.versionCode * 10 + abiCode
-            }
+//   * The Flutter plugin registers its own `applicationVariants.all { ... }`
+//     callback eagerly from `apply()` (at the `id "dev.flutter..."` line at
+//     the top of this script), i.e. during the script's configuration phase.
+//   * AGP's `DomainObjectCollection.all { }` queues actions in registration
+//     order and fires them per variant as each variant is realized. So a
+//     second `.all { }` registered later in the same script is guaranteed
+//     to run AFTER Flutter's action on every variant, which is exactly what
+//     "last writer wins" needs for `output.versionCodeOverride`.
+//   * `afterEvaluate { }` (what alpha.39 used) is too late: by the time the
+//     afterEvaluate queue drains, AGP has already locked the variant output
+//     DSL properties as part of finalizing the project — assigning
+//     `output.versionCodeOverride` then throws "The value for this property
+//     cannot be changed any further", which is the F-Droid build failure
+//     after PR #134.
+//   * Registering here — at script top-level, AFTER the `android { }` block
+//     so `android.applicationVariants` is reachable, but BEFORE
+//     `flutter { source = "../.." }` and BEFORE project evaluation finishes
+//     — puts our callback in the same hook lane as Flutter's and after
+//     Flutter's registration, but still inside the configuration phase, so
+//     AGP has not yet finalized the output properties when our action runs.
+def fdroidAbiCodes = ["armeabi-v7a": 1, "arm64-v8a": 2, "x86_64": 3]
+android.applicationVariants.all { variant ->
+    variant.outputs.all { output ->
+        def abiName = output.filters.find { it.filterType == "ABI" }?.identifier
+        def abiCode = fdroidAbiCodes[abiName]
+        if (abiCode != null) {
+            output.versionCodeOverride = variant.versionCode * 10 + abiCode
         }
     }
 }
