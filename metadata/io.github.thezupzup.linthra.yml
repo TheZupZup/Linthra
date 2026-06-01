@@ -17,7 +17,7 @@ Repo: https://github.com/TheZupZup/Linthra.git
 Builds:
   - versionName: 0.1.0-alpha.39
     versionCode: 1000391
-    commit: 1e015a18bc9ec412b9ce52a400c4f00c00419bea
+    commit: 0c7ca8d1fe55576e869e3ecc5c1d43f2dbeda871
     sudo:
       - mkdir -p /home/runner/work/Linthra
       - chown -R vagrant /home/runner/work
@@ -51,7 +51,7 @@ Builds:
 
   - versionName: 0.1.0-alpha.39
     versionCode: 1000392
-    commit: 1e015a18bc9ec412b9ce52a400c4f00c00419bea
+    commit: 0c7ca8d1fe55576e869e3ecc5c1d43f2dbeda871
     sudo:
       - mkdir -p /home/runner/work/Linthra
       - chown -R vagrant /home/runner/work
@@ -85,7 +85,7 @@ Builds:
 
   - versionName: 0.1.0-alpha.39
     versionCode: 1000393
-    commit: 1e015a18bc9ec412b9ce52a400c4f00c00419bea
+    commit: 0c7ca8d1fe55576e869e3ecc5c1d43f2dbeda871
     sudo:
       - mkdir -p /home/runner/work/Linthra
       - chown -R vagrant /home/runner/work
