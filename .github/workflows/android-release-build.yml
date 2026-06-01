@@ -9,7 +9,17 @@ name: Android Release Build
 #
 #   * workflow_dispatch (manual): produces test builds. The `signed` input
 #     chooses real release signing vs. a debug-key build, exactly as before.
-#     Manual runs never touch any GitHub Release.
+#     Manual runs without a `release_tag` input never touch any GitHub Release.
+#
+#     With the optional `release_tag` input set to an existing tag (e.g.
+#     v0.1.0-alpha.39), the run behaves like the tag build below: it uses the
+#     canonical -release-signed asset names for that tag, runs the same pubspec
+#     preflight and APK version verification against the tag, and uploads
+#     (--clobber) the built universal APK, per-ABI APKs, and AAB to the existing
+#     GitHub Release for the tag. The git tag itself is not moved or recreated,
+#     and pubspec.yaml is not modified. This lets us rebuild the assets for an
+#     existing release using the workflow as it exists on `main`, instead of the
+#     workflow snapshot at the tag commit.
 #
 #   * push of a tag matching `v*` (e.g. v0.1.0-alpha.1): an automatic release
 #     build. There is exactly one build per tag (we listen only to the tag push,
@@ -103,6 +113,10 @@ on:
         description: "Sign with the release keystore (requires LINTHRA_* secrets). If false, builds are debug-signed and labeled as such."
         type: boolean
         default: false
+      release_tag:
+        description: "Optional. Existing release tag (e.g. v0.1.0-alpha.39) to build against and attach assets to. When set, the run uses this tag's canonical asset names, runs the same pubspec preflight + APK version verification as a tag build, and uploads/clobbers the built APK/AAB onto the existing GitHub Release for the tag. The git tag is not moved or recreated. Leave empty for a normal manual artifact build."
+        type: string
+        default: ""
   push:
     tags:
       - "v*"
@@ -130,6 +144,7 @@ jobs:
       trigger: ${{ steps.mode.outputs.trigger }}
       prerelease: ${{ steps.mode.outputs.prerelease }}
       asset_base: ${{ steps.mode.outputs.asset_base }}
+      target_tag: ${{ steps.mode.outputs.target_tag }}
       version_name: ${{ steps.version.outputs.LINTHRA_VERSION_NAME }}
       version_code: ${{ steps.version.outputs.LINTHRA_VERSION_CODE }}
     steps:
@@ -152,22 +167,38 @@ jobs:
         id: mode
         env:
           LINTHRA_KEYSTORE_BASE64: ${{ secrets.LINTHRA_KEYSTORE_BASE64 }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
         run: |
           have_secrets=true
           for v in "$LINTHRA_KEYSTORE_BASE64" "$LINTHRA_KEYSTORE_PASSWORD" "$LINTHRA_KEY_ALIAS" "$LINTHRA_KEY_PASSWORD"; do
             [ -z "$v" ] && have_secrets=false
           done
 
-          prerelease=false
+          target_tag=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            trigger=manual
-            want_signed="${{ inputs.signed }}"
+            if [ -n "$RELEASE_TAG_INPUT" ]; then
+              # Manual run targeting an existing release tag: behave like a tag
+              # build (canonical asset names, pubspec preflight, APK version
+              # check, attach to the GitHub Release for the tag), but use the
+              # provided tag instead of github.ref_name (which is the branch
+              # the workflow was dispatched from, not a tag).
+              trigger=tag
+              want_signed=true
+              target_tag="$RELEASE_TAG_INPUT"
+            else
+              trigger=manual
+              want_signed="${{ inputs.signed }}"
+            fi
           else
             trigger=tag
             want_signed=true
-            tag="${{ github.ref_name }}"
+            target_tag="${{ github.ref_name }}"
+          fi
+
+          prerelease=false
+          if [ "$trigger" = "tag" ]; then
             # A SemVer pre-release: any tag containing alpha, beta, or rc.
-            if printf '%s' "$tag" | grep -qiE '(alpha|beta|rc)'; then
+            if printf '%s' "$target_tag" | grep -qiE '(alpha|beta|rc)'; then
               prerelease=true
             fi
           fi
@@ -182,7 +213,7 @@ jobs:
               echo "::warning::Pre-release tag but signing secrets are missing; producing DEBUG-KEY signed artifacts. These are FOR TESTING ONLY, not a production release. The Release asset is uploaded under the canonical -release-signed file name (kept stable for F-Droid), and the GitHub PRE-RELEASE notes flag the testing-only signing explicitly. Configure the LINTHRA_* secrets to get a truly release-signed build. See docs/release-signing.md."
               signing=debug-signed
             else
-              echo "::error::Stable tag '${{ github.ref_name }}' requires release signing, but the signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). Stable releases must not ship debug-signed artifacts. Configure the secrets, or use an alpha/beta/rc tag for a testing pre-release. See docs/release-signing.md."
+              echo "::error::Stable tag '${target_tag}' requires release signing, but the signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). Stable releases must not ship debug-signed artifacts. Configure the secrets, or use an alpha/beta/rc tag for a testing pre-release. See docs/release-signing.md."
               exit 1
             fi
           else
@@ -194,7 +225,7 @@ jobs:
           # across releases. The actual signing mode is still surfaced in the
           # Release notes and build summary below — see the header comment.
           if [ "$trigger" = "tag" ]; then
-            asset_base="linthra-${{ github.ref_name }}-release-signed"
+            asset_base="linthra-${target_tag}-release-signed"
           else
             asset_base="linthra-${signing}"
           fi
@@ -203,7 +234,8 @@ jobs:
           echo "signing=$signing" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "asset_base=$asset_base" >> "$GITHUB_OUTPUT"
-          echo "Trigger: $trigger | Signing: $signing | Pre-release: $prerelease | Asset base: $asset_base"
+          echo "target_tag=$target_tag" >> "$GITHUB_OUTPUT"
+          echo "Trigger: $trigger | Signing: $signing | Pre-release: $prerelease | Asset base: $asset_base | Target tag: $target_tag"
 
       - name: Decode release keystore
         if: ${{ steps.mode.outputs.signing == 'release-signed' }}
@@ -267,11 +299,13 @@ jobs:
       - name: Verify the tag matches pubspec.yaml
         if: ${{ steps.mode.outputs.trigger == 'tag' }}
         id: version
+        env:
+          TARGET_TAG: ${{ steps.mode.outputs.target_tag }}
         run: |
           set -euo pipefail
           out_file="$RUNNER_TEMP/release-preflight.out"
           status=0
-          scripts/release_preflight.sh "$GITHUB_REF_NAME" --no-app-info > "$out_file" 2>&1 || status=$?
+          scripts/release_preflight.sh "$TARGET_TAG" --no-app-info > "$out_file" 2>&1 || status=$?
           cat "$out_file"
           if [ "$status" -ne 0 ]; then
             # printf with single-quoted format strings: backslash is preserved
@@ -331,11 +365,13 @@ jobs:
       # metadata/io.github.thezupzup.linthra.yml — F-Droid downloads exactly
       # these file names from the GitHub Release as reference binaries.
       - name: Stash per-ABI APKs
+        env:
+          TARGET_TAG: ${{ steps.mode.outputs.target_tag }}
         run: |
           set -euo pipefail
           trigger="${{ steps.mode.outputs.trigger }}"
           signing="${{ steps.mode.outputs.signing }}"
-          tag="${{ github.ref_name }}"
+          tag="$TARGET_TAG"
           for abi in armeabi-v7a arm64-v8a x86_64; do
             src="build/app/outputs/flutter-apk/app-${abi}-release.apk"
             if [ ! -f "$src" ]; then
@@ -446,7 +482,7 @@ jobs:
           {
             echo "## Linthra release build"
             echo ""
-            echo "**Trigger:** ${{ steps.mode.outputs.trigger }}${{ github.event_name == 'push' && format(' (tag {0})', github.ref_name) || '' }}"
+            echo "**Trigger:** ${{ steps.mode.outputs.trigger }}${{ steps.mode.outputs.target_tag != '' && format(' (tag {0}{1})', steps.mode.outputs.target_tag, github.event_name == 'workflow_dispatch' && ', manual dispatch' || '') || '' }}"
             echo ""
             if [ "${{ steps.mode.outputs.trigger }}" = "tag" ]; then
               echo "**Version:** \`${LINTHRA_VERSION_NAME}\` (universal versionName) / \`${LINTHRA_VERSION_CODE}\` (universal versionCode), from \`pubspec.yaml\` and verified to match the tag. The APK/AAB metadata and the in-app Settings/About version all use this value. The per-ABI APKs share the versionName and override the versionCode to \`${LINTHRA_VERSION_CODE}1\` / \`${LINTHRA_VERSION_CODE}2\` / \`${LINTHRA_VERSION_CODE}3\` (armeabi-v7a / arm64-v8a / x86_64), matching \`metadata/io.github.thezupzup.linthra.yml\`."
@@ -498,7 +534,7 @@ jobs:
   attach-release:
     name: Attach artifacts to GitHub Release
     needs: build-release
-    if: ${{ github.event_name == 'push' && (needs.build-release.outputs.signing == 'release-signed' || needs.build-release.outputs.prerelease == 'true') }}
+    if: ${{ needs.build-release.outputs.target_tag != '' && (needs.build-release.outputs.signing == 'release-signed' || needs.build-release.outputs.prerelease == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -511,7 +547,7 @@ jobs:
       - name: Attach to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.build-release.outputs.target_tag }}
           SIGNING: ${{ needs.build-release.outputs.signing }}
           PRERELEASE: ${{ needs.build-release.outputs.prerelease }}
         run: |
