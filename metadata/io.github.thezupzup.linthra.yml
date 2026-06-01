@@ -48,6 +48,15 @@ Builds:
       - $$flutter$$/bin/flutter build apk --release --split-per-abi
       - popd
       - mv $repo io.github.thezupzup.linthra
+    # Upstream-signed reference APK for this ABI on the matching GitHub Release.
+    # %v expands to the build's versionName (e.g. 0.1.0-alpha.39); there is no
+    # %a placeholder for ABI in F-Droid metadata, so the ABI slug is hardcoded
+    # per Build entry. The Android Release Build workflow uploads the per-ABI
+    # APK under exactly this name. (Per-Build `binary` overrides any top-level
+    # `Binaries`; see fdroidserver build.py: `url := build.binary or
+    # app.Binaries`.) Added in response to the F-Droid maintainer's feedback on
+    # MR !39329 ("add binary to every version").
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-armeabi-v7a-release-signed.apk
 
   - versionName: 0.1.0-alpha.39
     versionCode: 1000392
@@ -82,6 +91,7 @@ Builds:
       - $$flutter$$/bin/flutter build apk --release --split-per-abi
       - popd
       - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-arm64-v8a-release-signed.apk
 
   - versionName: 0.1.0-alpha.39
     versionCode: 1000393
@@ -116,6 +126,7 @@ Builds:
       - $$flutter$$/bin/flutter build apk --release --split-per-abi
       - popd
       - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-x86_64-release-signed.apk
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags

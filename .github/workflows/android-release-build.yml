@@ -48,19 +48,33 @@ name: Android Release Build
 # Artifact naming:
 #
 #   * Tag builds — always upload the public Release asset under the canonical
-#     name `linthra-<tag>-release-signed.apk / .aab`. This is the URL F-Droid's
-#     `Binaries:` field points at, so the file name must be stable across
-#     releases regardless of whether the underlying build happened to fall back
-#     to a debug key (pre-release tags only). The ACTUAL signing mode is still
-#     reported authoritatively in the GitHub Release notes and the workflow's
-#     build summary (debug-signed fallbacks are flagged there as
-#     testing-only), so a debug-signed pre-release is never silently passed off
-#     as a production build.
+#     names. The file names must be stable across releases because the F-Droid
+#     per-Build `binary:` URLs in metadata/io.github.thezupzup.linthra.yml
+#     point at them with `%v` expanding to the versionName. This is regardless
+#     of whether the underlying build happened to fall back to a debug key
+#     (pre-release tags only). The ACTUAL signing mode is still reported
+#     authoritatively in the GitHub Release notes and the workflow's build
+#     summary (debug-signed fallbacks are flagged there as testing-only), so a
+#     debug-signed pre-release is never silently passed off as a production
+#     build. The names produced:
+#
+#       Universal APK   linthra-<tag>-release-signed.apk
+#       Universal AAB   linthra-<tag>-release-signed.aab
+#       Per-ABI APKs    linthra-<tag>-armeabi-v7a-release-signed.apk
+#                       linthra-<tag>-arm64-v8a-release-signed.apk
+#                       linthra-<tag>-x86_64-release-signed.apk
+#
+#     The per-ABI APKs are added so F-Droid can reference reproducible upstream
+#     binaries for each ABI build, as requested by the F-Droid maintainer on
+#     MR !39329 ("Please host per-abi apks in github release and add binary to
+#     every version"). The universal APK/AAB stay so the existing sideload URL
+#     and AAB pipeline are unchanged.
 #
 #   * Manual (workflow_dispatch) builds — keep the signing label in the
 #     workflow-artifact name (`linthra-debug-signed` / `linthra-release-signed`)
 #     because these never reach a public Release and the label is useful for
-#     telling local artifacts apart at a glance.
+#     telling local artifacts apart at a glance. Per-ABI APKs get the ABI
+#     appended (`linthra-<signing>-<abi>.apk`).
 #
 # Version derivation (tag builds):
 #
@@ -282,22 +296,84 @@ jobs:
       # versionName/versionCode (and the in-app version) from pubspec.yaml —
       # exactly as the F-Droid build does. For a tag build the step above has
       # already verified pubspec.yaml matches the tag, and the verification step
-      # below confirms the built APK carries that version.
-      - name: Build release APK
+      # below confirms the built APKs carry that version.
+      #
+      # We do THREE builds and stash each before the next runs so they cannot
+      # clobber one another in build/app/outputs/:
+      #   1. universal APK (`flutter build apk --release`)
+      #   2. per-ABI APKs (`flutter build apk --release --split-per-abi`)
+      #      → armeabi-v7a / arm64-v8a / x86_64, with versionCodeOverride from
+      #      android/app/build.gradle (base * 10 + abi rank) so each per-ABI
+      #      APK matches the corresponding `versionCode` (1000391 / 1000392 /
+      #      1000393) in metadata/io.github.thezupzup.linthra.yml.
+      #   3. AAB (`flutter build appbundle --release`) — still universal; AAB
+      #      already provides per-ABI delivery on its own.
+      #
+      # The per-ABI APKs are uploaded to the GitHub Release so F-Droid can use
+      # them as reproducible upstream binaries (`binary:` URL per Build entry).
+      # See the "Artifact naming" comment block at the top of this file.
+      - name: Build release APK (universal)
         run: flutter build apk --release
+
+      # Stash the universal APK immediately — the next `flutter build apk` run
+      # uses the same gradle output directory and could clobber it.
+      - name: Stash universal APK
+        run: |
+          mkdir -p dist
+          base="${{ steps.mode.outputs.asset_base }}"
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/${base}.apk"
+
+      - name: Build release APK (per-ABI)
+        run: flutter build apk --release --split-per-abi
+
+      # Stash the per-ABI APKs under their public/canonical names. The naming
+      # MUST stay aligned with the per-Build `binary:` URLs in
+      # metadata/io.github.thezupzup.linthra.yml — F-Droid downloads exactly
+      # these file names from the GitHub Release as reference binaries.
+      - name: Stash per-ABI APKs
+        run: |
+          set -euo pipefail
+          trigger="${{ steps.mode.outputs.trigger }}"
+          signing="${{ steps.mode.outputs.signing }}"
+          tag="${{ github.ref_name }}"
+          for abi in armeabi-v7a arm64-v8a x86_64; do
+            src="build/app/outputs/flutter-apk/app-${abi}-release.apk"
+            if [ ! -f "$src" ]; then
+              echo "::error::Per-ABI APK missing: $src"
+              exit 1
+            fi
+            if [ "$trigger" = "tag" ]; then
+              name="linthra-${tag}-${abi}-release-signed"
+            else
+              name="linthra-${signing}-${abi}"
+            fi
+            cp "$src" "dist/${name}.apk"
+            echo "Staged dist/${name}.apk"
+          done
 
       - name: Build release AAB
         run: flutter build appbundle --release
 
-      # Confirm the built APK actually carries the tag-derived version, so a
-      # release can never ship stale metadata. Uses aapt from the Android SDK the
-      # build just used; if it cannot be located the check warns rather than
-      # blocks (a missing tool is not a version mismatch).
-      - name: Verify APK version matches the tag
+      - name: Stash AAB
+        run: |
+          base="${{ steps.mode.outputs.asset_base }}"
+          cp build/app/outputs/bundle/release/app-release.aab "dist/${base}.aab"
+          ls -l dist
+
+      # Confirm the built APKs actually carry the tag-derived version, so a
+      # release can never ship stale metadata. Uses aapt from the Android SDK
+      # the build just used; if it cannot be located the check warns rather
+      # than blocks (a missing tool is not a version mismatch).
+      #
+      # The universal APK must match versionName/versionCode exactly. Each
+      # per-ABI APK must match versionName, and its versionCode must equal
+      # `base * 10 + abi_rank` (armeabi-v7a=1, arm64-v8a=2, x86_64=3) — the
+      # same rule encoded in android/app/build.gradle's versionCodeOverride
+      # and in metadata/io.github.thezupzup.linthra.yml's VercodeOperation.
+      - name: Verify APK versions match the tag
         if: ${{ steps.mode.outputs.trigger == 'tag' }}
         run: |
           set -euo pipefail
-          apk="build/app/outputs/flutter-apk/app-release.apk"
           sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
           aapt=""
           if [ -n "$sdk" ]; then
@@ -307,31 +383,36 @@ jobs:
             echo "::warning::aapt not found (ANDROID_HOME/ANDROID_SDK_ROOT); skipping APK version verification."
             exit 0
           fi
-          badging="$("$aapt" dump badging "$apk")"
-          got_name="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
-          got_code="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
-          echo "APK reports versionName=$got_name versionCode=$got_code"
-          echo "Tag derived  versionName=$LINTHRA_VERSION_NAME versionCode=$LINTHRA_VERSION_CODE"
-          if [ "$got_name" != "$LINTHRA_VERSION_NAME" ] || [ "$got_code" != "$LINTHRA_VERSION_CODE" ]; then
-            echo "::error::Built APK version ($got_name/$got_code) does not match the tag-derived version ($LINTHRA_VERSION_NAME/$LINTHRA_VERSION_CODE)."
-            exit 1
-          fi
-          echo "Verified: APK version matches the tag-derived version."
 
-      # Stage the outputs under the asset_base computed above:
-      #   * Tag builds get the canonical `linthra-<tag>-release-signed.{apk,aab}`
-      #     name so the F-Droid `Binaries:` URL stays stable across releases.
-      #   * Manual builds keep the signing label so local previews stay
-      #     distinguishable at a glance.
-      # In both cases the build summary + Release notes are the authoritative
-      # record of the actual signing mode.
-      - name: Stage named artifacts
-        run: |
-          mkdir -p dist
-          base="${{ steps.mode.outputs.asset_base }}"
-          cp build/app/outputs/flutter-apk/app-release.apk "dist/${base}.apk"
-          cp build/app/outputs/bundle/release/app-release.aab "dist/${base}.aab"
-          ls -l dist
+          check_apk() {
+            local apk="$1"
+            local expected_name="$2"
+            local expected_code="$3"
+            local badging got_name got_code
+            badging="$("$aapt" dump badging "$apk")"
+            got_name="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+            got_code="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+            echo "  $apk reports versionName=$got_name versionCode=$got_code (expected $expected_name / $expected_code)"
+            if [ "$got_name" != "$expected_name" ] || [ "$got_code" != "$expected_code" ]; then
+              echo "::error::APK $apk version ($got_name/$got_code) does not match expected ($expected_name/$expected_code)."
+              return 1
+            fi
+          }
+
+          echo "Verifying universal APK against tag-derived version..."
+          check_apk "build/app/outputs/flutter-apk/app-release.apk" \
+            "$LINTHRA_VERSION_NAME" "$LINTHRA_VERSION_CODE"
+
+          echo "Verifying per-ABI APKs against base * 10 + abi rank..."
+          for pair in armeabi-v7a:1 arm64-v8a:2 x86_64:3; do
+            abi="${pair%%:*}"
+            rank="${pair##*:}"
+            expected_code=$((LINTHRA_VERSION_CODE * 10 + rank))
+            check_apk "build/app/outputs/flutter-apk/app-${abi}-release.apk" \
+              "$LINTHRA_VERSION_NAME" "$expected_code"
+          done
+
+          echo "Verified: all APK versions match the tag-derived version."
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
@@ -347,6 +428,19 @@ jobs:
           path: dist/${{ steps.mode.outputs.asset_base }}.aab
           if-no-files-found: error
 
+      # One zipped artifact for all three per-ABI APKs, downloaded together by
+      # the attach-release job. The names inside the zip stay canonical so
+      # they upload to the GitHub Release verbatim.
+      - name: Upload per-ABI APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: linthra-${{ steps.mode.outputs.signing }}-apk-per-abi
+          path: |
+            dist/*-armeabi-v7a*.apk
+            dist/*-arm64-v8a*.apk
+            dist/*-x86_64*.apk
+          if-no-files-found: error
+
       - name: Build summary
         run: |
           {
@@ -355,13 +449,18 @@ jobs:
             echo "**Trigger:** ${{ steps.mode.outputs.trigger }}${{ github.event_name == 'push' && format(' (tag {0})', github.ref_name) || '' }}"
             echo ""
             if [ "${{ steps.mode.outputs.trigger }}" = "tag" ]; then
-              echo "**Version:** \`${LINTHRA_VERSION_NAME}\` (versionName) / \`${LINTHRA_VERSION_CODE}\` (versionCode), from \`pubspec.yaml\` and verified to match the tag. The APK/AAB metadata and the in-app Settings/About version all use this value."
+              echo "**Version:** \`${LINTHRA_VERSION_NAME}\` (universal versionName) / \`${LINTHRA_VERSION_CODE}\` (universal versionCode), from \`pubspec.yaml\` and verified to match the tag. The APK/AAB metadata and the in-app Settings/About version all use this value. The per-ABI APKs share the versionName and override the versionCode to \`${LINTHRA_VERSION_CODE}1\` / \`${LINTHRA_VERSION_CODE}2\` / \`${LINTHRA_VERSION_CODE}3\` (armeabi-v7a / arm64-v8a / x86_64), matching \`metadata/io.github.thezupzup.linthra.yml\`."
               echo ""
             else
               echo "**Version:** from \`pubspec.yaml\` (manual build — not a tagged release)."
               echo ""
             fi
-            echo "**Artifacts:** \`${{ steps.mode.outputs.asset_base }}.apk\`, \`${{ steps.mode.outputs.asset_base }}.aab\`"
+            echo "**Artifacts:**"
+            echo ""
+            for f in dist/*.apk dist/*.aab; do
+              [ -f "$f" ] || continue
+              echo "- \`$(basename "$f")\`"
+            done
             echo ""
             if [ "${{ steps.mode.outputs.signing }}" = "release-signed" ]; then
               echo "**Signing:** release-signed with the configured keystore."
@@ -418,14 +517,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          apk="$(find artifacts -name '*.apk' -print -quit)"
-          aab="$(find artifacts -name '*.aab' -print -quit)"
-          if [ -z "$apk" ] || [ -z "$aab" ]; then
-            echo "::error::Could not locate built APK/AAB among downloaded artifacts."
+          # Collect every APK and the AAB. The universal APK, the three
+          # per-ABI APKs, and the AAB all need to land on the Release — the
+          # per-ABI APKs are what F-Droid's `binary:` URLs point at (see
+          # metadata/io.github.thezupzup.linthra.yml).
+          mapfile -t assets < <(find artifacts -type f \( -name '*.apk' -o -name '*.aab' \) | sort)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "::error::Could not locate any APK/AAB among downloaded artifacts."
             exit 1
           fi
-          echo "APK: $apk"
-          echo "AAB: $aab"
+          aab_count=0
+          apk_count=0
+          per_abi_count=0
+          for f in "${assets[@]}"; do
+            case "$f" in
+              *.aab) aab_count=$((aab_count + 1));;
+              *armeabi-v7a*.apk|*arm64-v8a*.apk|*x86_64*.apk) per_abi_count=$((per_abi_count + 1));;
+              *.apk) apk_count=$((apk_count + 1));;
+            esac
+            echo "  - $f"
+          done
+          echo "Found $apk_count universal APK(s), $per_abi_count per-ABI APK(s), $aab_count AAB(s)."
+          if [ "$apk_count" -lt 1 ] || [ "$aab_count" -lt 1 ] || [ "$per_abi_count" -lt 3 ]; then
+            echo "::error::Expected at least one universal APK, three per-ABI APKs, and one AAB."
+            exit 1
+          fi
 
           release_exists=false
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -434,8 +550,8 @@ jobs:
 
           if [ "$release_exists" = "true" ]; then
             echo "GitHub Release '$TAG' exists; uploading/replacing assets."
-            gh release upload "$TAG" "$apk" "$aab" --clobber --repo "$GITHUB_REPOSITORY"
-            echo "Attached $SIGNING APK/AAB to Release '$TAG'."
+            gh release upload "$TAG" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+            echo "Attached $SIGNING universal + per-ABI APKs and AAB to Release '$TAG'."
             exit 0
           fi
 
@@ -462,14 +578,15 @@ jobs:
             } > "$notes_file"
           fi
           {
+            printf '%s\n' 'Per-ABI APKs are attached alongside the universal APK and the AAB so F-Droid can reference reproducible upstream binaries for each ABI build (MR !39329).'
             printf '%s\n' 'This Release was created automatically by the Android Release Build workflow on a pre-release tag. Edit these notes to describe the build.'
             printf '%s\n' 'Nothing here is published to the Play Store or F-Droid (F-Droid builds and signs separately).'
           } >> "$notes_file"
 
           echo "No GitHub Release for pre-release tag '$TAG'; creating one (pre-release)."
-          gh release create "$TAG" "$apk" "$aab" \
+          gh release create "$TAG" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
             --prerelease \
             --notes-file "$notes_file"
-          echo "Created pre-release '$TAG' and attached $SIGNING APK/AAB."
+          echo "Created pre-release '$TAG' and attached $SIGNING universal + per-ABI APKs and AAB."
