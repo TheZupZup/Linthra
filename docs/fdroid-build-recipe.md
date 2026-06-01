@@ -88,17 +88,23 @@ Linthra is a Flutter (Dart) application targeting Android.
 flutter pub get
 flutter build apk --release --split-per-abi   # F-Droid recipe path: three per-ABI APKs
 flutter build apk --release                   # GitHub-Release CI path: one universal APK
+# (GitHub-Release CI also runs --split-per-abi so it can publish per-ABI APKs
+# alongside the universal one for F-Droid's reproducible `binary:` URLs.)
 # appbundle is for stores, not F-Droid.
 ```
 
-The F-Droid recipe uses `--split-per-abi` so it can ship one APK per ABI; the
-GitHub-Release CI keeps the single universal APK so the existing sideload URL
-is unchanged. `android/app/build.gradle` applies a per-ABI `versionCodeOverride`
-(`base * 10 + 1/2/3` for armeabi-v7a / arm64-v8a / x86_64) only when an ABI
-filter is present on a variant output, so the two paths share one source of
-truth: the universal APK stays at the base `versionCode` from `pubspec.yaml`,
-and the per-ABI APKs match the `VercodeOperation` block in
-`metadata/io.github.thezupzup.linthra.yml`.
+The F-Droid recipe uses `--split-per-abi` so it can ship one APK per ABI. The
+GitHub-Release CI now runs **both** the universal `flutter build apk --release`
+and the `--split-per-abi` build on each tag, and attaches all four signed APKs
+(universal + three per-ABI) plus the AAB to the Release — the universal APK
+keeps the existing sideload URL unchanged, and the per-ABI APKs are the upstream
+binaries F-Droid points at via per-Build `binary:` URLs in
+`metadata/io.github.thezupzup.linthra.yml`. `android/app/build.gradle` applies a
+per-ABI `versionCodeOverride` (`base * 10 + 1/2/3` for armeabi-v7a / arm64-v8a /
+x86_64) only when an ABI filter is present on a variant output, so the two
+paths share one source of truth: the universal APK stays at the base
+`versionCode` from `pubspec.yaml`, and the per-ABI APKs match the
+`VercodeOperation` block in `metadata/io.github.thezupzup.linthra.yml`.
 
 Because the Drift output is committed, **no `dart run build_runner build`
 prebuild step is required** as long as the committed `*.g.dart` is in sync with

@@ -128,12 +128,16 @@ A few things still need checking against fdroiddata before submitting:
    one entry per ABI per tag. The `versionCodeOverride` in
    `android/app/build.gradle` applies the same `base * 10 + abi` rule to each
    variant output, so the gradle build and the recipe's `versionCode` always
-   agree. The GitHub-Release CI still produces the single universal APK at the
-   base `versionCode` (no `--split-per-abi`), so the sideload URL is unchanged.
-   This decoupled the recipe from the upstream `Binaries:` URL (which points at
-   the universal APK and therefore cannot match per-ABI F-Droid builds), so the
-   `Binaries:` field is no longer set; `AllowedAPKSigningKeys` stays as a
-   sideload-source check.
+   agree. The GitHub-Release CI now publishes the per-ABI APKs alongside the
+   universal APK and the AAB (the universal sideload URL is unchanged), and the
+   metadata uses per-Build `binary:` URLs pointing at each per-ABI asset on the
+   matching GitHub Release — added in response to the F-Droid maintainer's
+   feedback on MR !39329 ("Please host per-abi apks in github release and add
+   binary to every version"). Per-Build `binary:` overrides any top-level
+   `Binaries:` in fdroidserver (`url := build.binary or app.Binaries`), and
+   F-Droid metadata has no `%a` ABI placeholder, so the ABI slug is hardcoded
+   per Build entry while `%v` expands to the versionName.
+   `AllowedAPKSigningKeys` also stays as a sideload-source check.
 4. The `pubspec.lock` policy — still git-ignored. Decide whether to commit it at
    the tagged commit for a fully pinned dependency set
    ([fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
