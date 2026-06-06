@@ -5,10 +5,12 @@ in [fdroiddata](https://gitlab.com/fdroid/fdroiddata)) for Linthra and records
 the reproducible-build groundwork needed before any submission. It is a
 planning aid only.
 
-> **Linthra is _not_ on F-Droid and has _not_ been submitted.** Nothing here
-> publishes, signs, or submits anything. The snippets below are drafts to be
-> finalized — and verified against an actual build — before a future merge
-> request to fdroiddata.
+> **Linthra is now on F-Droid** (accepted `0.1.0-alpha.40+100040`). The notes
+> below are the historical recipe-planning material that got it there, kept for
+> reference; the live recipe is in fdroiddata. For the current release process and
+> the next release (the stable `v0.1.1`), see
+> [release-process.md](./release-process.md). This document still never publishes,
+> signs, or pushes to fdroiddata.
 
 See also the broader [F-Droid readiness checklist](./fdroid-readiness.md),
 which tracks assets, anti-features, and overall submission status.

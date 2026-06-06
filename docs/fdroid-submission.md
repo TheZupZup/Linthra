@@ -5,9 +5,12 @@ description you can adapt for [fdroiddata](https://gitlab.com/fdroid/fdroiddata)
 the build-recipe and version decisions, where verification stands, the remaining
 blockers, and the steps to actually submit.
 
-Linthra hasn't been submitted to F-Droid and isn't on it — this is the prep that
-comes before someone opens the merge request. Nothing here publishes or submits
-anything.
+> **Status update: Linthra is now on F-Droid** (accepted `0.1.0-alpha.40+100040`).
+> The material below is the historical submission prep that got it there, kept for
+> reference; some lines still read as pre-submission. For the **current** release
+> process — and the next release, the stable `v0.1.1` (`0.1.1+101999`) — see
+> [release-process.md](./release-process.md). This repo never pushes to fdroiddata
+> directly.
 
 Related docs: [fdroid-readiness.md](./fdroid-readiness.md) (the overall
 checklist), [fdroid-build-recipe.md](./fdroid-build-recipe.md) (recipe and

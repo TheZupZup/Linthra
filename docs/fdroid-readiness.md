@@ -4,8 +4,11 @@ This document tracks what Linthra needs before it can be submitted to
 [F-Droid](https://f-droid.org/). It is a planning aid, not a claim of
 availability.
 
-> Linthra isn't on F-Droid, and nothing has been submitted yet. This checklist is
-> here so that when we do submit, it's accurate and goes smoothly.
+> **Status update: Linthra is now on F-Droid** (accepted `0.1.0-alpha.40+100040`).
+> The checklist below is the historical readiness prep that got it there, kept for
+> reference; some items still read "not submitted yet." For the **current** release
+> process and the next release (the stable `v0.1.1`), see
+> [release-process.md](./release-process.md).
 
 ## 1. Current status
 
