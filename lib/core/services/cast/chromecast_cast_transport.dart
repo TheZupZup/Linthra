@@ -235,6 +235,23 @@ class _ChromecastSessionHandle implements CastSessionHandle {
     _poll = null;
   }
 
+  /// Adjusts polling to the receiver's current play state: polls only while
+  /// actively playing (or loading/buffering) so the CPU is not woken every
+  /// second when the session is paused or idle.
+  void _adjustPolling(PlaybackStatus playbackStatus) {
+    switch (playbackStatus) {
+      case PlaybackStatus.playing:
+      case PlaybackStatus.buffering:
+      case PlaybackStatus.loading:
+        _startPolling();
+      case PlaybackStatus.paused:
+      case PlaybackStatus.idle:
+      case PlaybackStatus.completed:
+      case PlaybackStatus.error:
+        _stopPolling();
+    }
+  }
+
   /// Routes an incoming receiver message: media status drives playback, receiver
   /// status carries the device volume. Other types are ignored.
   void _onMessage(Map<String, dynamic> payload) {
@@ -275,6 +292,9 @@ class _ChromecastSessionHandle implements CastSessionHandle {
       duration: _lastDuration,
     );
     if (!_status.isClosed) _status.add(status);
+    // Stop polling when paused/idle so the CPU is not woken every second with
+    // the screen off; resume polling when playing again.
+    _adjustPolling(status.status);
   }
 
   /// Parses the device volume out of a `RECEIVER_STATUS` payload and forwards a

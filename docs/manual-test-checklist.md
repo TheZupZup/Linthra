@@ -106,6 +106,11 @@ files can't cast):
 14. ☐ Adjust the **Cast volume** slider / mute — it drives the *device* volume and
     follows the receiver's reported level; a fixed-volume device shows an honest
     disabled state.
+14b.☐ **Cast-paused battery check**: start a track casting, then pause it. Turn
+    the screen off for ≥ 5 minutes. Verify via *Settings → Battery → Linthra*
+    (or `adb shell dumpsys batterystats`) that Linthra's background CPU use is
+    negligible — confirming the 1 Hz poll stopped when paused (it must not
+    wake the CPU every second while the session is idle).
 15. ☐ **Disconnect** cast.
 16. ☐ Local playback returns **paused** at the receiver's last position (never
     surprise-starts audio).
