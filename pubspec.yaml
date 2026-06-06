@@ -9,7 +9,7 @@ publish_to: "none"
 # Android build (versionName/versionCode) and the in-app version mirrors it via
 # AppInfo._devVersionName, so a plain `flutter build` (CI and F-Droid alike) and
 # the tag all agree.
-version: 0.1.0-alpha.40+100040
+version: 0.1.1+101999
 
 environment:
   sdk: ">=3.6.0 <4.0.0"

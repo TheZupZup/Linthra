@@ -1,0 +1,12 @@
+Linthra 0.1.1 — now available on F-Droid.
+
+Changed:
+- Improved Chromecast battery behavior while paused: receiver polling now
+  stops while paused/idle and resumes on play, cutting background CPU wake-ups.
+
+Maintenance (no app behavior change):
+- Added audit coverage for Bluetooth, BLE/LE Audio output, and CPU efficiency.
+- Added F-Droid release guardrails (version code and release-asset checks).
+- Cleaned up the release-process documentation.
+
+No ads, no tracking, no analytics, no telemetry.
