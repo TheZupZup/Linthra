@@ -4,14 +4,105 @@ This is the canonical reference for how Linthra cuts a release: versioning,
 git tagging, changelogs, and the (manual) GitHub-Release flow. The F-Droid
 docs reference this document rather than restating the plan.
 
-> **Sideloadable alphas only; nothing here publishes to a store.** Linthra has
-> tagged pre-release alphas (latest `v0.1.0-alpha.36`) attached to GitHub
-> Releases as sideloadable APKs/AABs, but is **not** on F-Droid. Pushing a `v*`
-> tag builds the release artifacts automatically. For **alpha/beta/rc** tags the
-> build can create a GitHub **pre-release** and attach the APK/AAB to it; for
-> **stable** tags it only attaches to a Release you created. **Writing the
-> release notes stays manual** — and nothing is published to any store or to
-> F-Droid.
+> **Linthra is now on F-Droid.** The accepted F-Droid build is
+> `0.1.0-alpha.40+100040`; F-Droid builds it from source at the git tag and signs
+> with its own key. The **next clean release should be the stable `v0.1.1`**
+> (`pubspec.yaml` version `0.1.1+101999` — see the *Next release* checklist just
+> below, and §1 for the encoding). Pushing a `v*` tag still builds the
+> GitHub-Release artifacts automatically: **alpha/beta/rc** tags can create a
+> GitHub **pre-release** and attach the APK/AAB; a **stable** tag attaches only to
+> a Release you created and **requires** the release-signing secrets (§4).
+> **Writing the release notes stays manual.** F-Droid signs and publishes its own
+> builds; this repo never publishes to a store or pushes to fdroiddata.
+
+## Next release: `v0.1.1` — F-Droid-compatible quick checklist
+
+Linthra is already on F-Droid (accepted `0.1.0-alpha.40+100040`), so every future
+release must keep the version **monotonic** and the GitHub-Release **asset names
+stable**. This is the at-a-glance checklist for the next release; the numbered
+sections below are the full reference.
+
+**Target version**
+
+| Field | Value |
+| ----- | ----- |
+| Tag (annotated, created from `main`) | `v0.1.1` |
+| `pubspec.yaml` `version:` | `0.1.1+101999` |
+| `lib/core/app_info.dart` `_devVersionName` | `0.1.1` |
+| Fastlane changelog | `fastlane/metadata/android/en-US/changelogs/101999.txt` |
+| versionCode (universal / base) | `101999` |
+| versionCode (per-ABI — what F-Droid publishes) | `1019991` / `1019992` / `1019993` (armeabi-v7a / arm64-v8a / x86_64) |
+
+`101999` is the canonical encoding of `0.1.1` from `tool/version_from_tag.dart`
+(`MAJOR*10_000_000 + MINOR*100_000 + PATCH*1_000 + 999` for a stable release; see
+§1). Preview it before bumping:
+
+```sh
+dart run tool/version_from_tag.dart v0.1.1
+# LINTHRA_VERSION_NAME=0.1.1
+# LINTHRA_VERSION_CODE=101999
+```
+
+**Why `101999` is safe (monotonic).** It is strictly greater than the accepted
+F-Droid build at every level, and the per-ABI override (`base*10 + abi`) preserves
+that order, so Android and F-Droid both accept it as an update:
+
+| Level | `0.1.0-alpha.40` (on F-Droid) | `v0.1.1` | Increases? |
+| ----- | ----- | ----- | ----- |
+| base / universal | `100040` | `101999` | ✅ |
+| per-ABI armeabi-v7a | `1000401` | `1019991` | ✅ |
+| per-ABI arm64-v8a | `1000402` | `1019992` | ✅ |
+| per-ABI x86_64 | `1000403` | `1019993` | ✅ |
+
+**Invariants that must hold before tagging**
+
+- [ ] `pubspec.yaml` (`0.1.1+101999`) and `lib/core/app_info.dart`
+      (`_devVersionName = '0.1.1'`) are bumped **together, in the same commit** —
+      they must stay in sync.
+- [ ] **Version-drift tests pass:** `flutter test
+      test/core/app_info_version_test.dart` (also run by CI). It fails if the two
+      files disagree, or if the `versionCode` is not the canonical encoding of the
+      `versionName`.
+- [ ] **`pubspec.lock` stays committed** (it is tracked — do **not** re-ignore
+      it). F-Droid runs `flutter pub get --enforce-lockfile`, which needs the
+      committed, in-sync lockfile (this is exactly why `alpha.40` was cut).
+      Regenerate it with pinned Flutter `3.27.4` only if dependencies changed.
+- [ ] The **tag is created from `main`**, on the merged version-bump commit —
+      never from a feature branch, and never before the bump PR is merged.
+- [ ] **Do not rewrite or move old tags**, and **do not replace old GitHub-Release
+      assets.** Tags and published assets are immutable to F-Droid mirrors and
+      Android updaters; if a tag is wrong, skip to the next version.
+- [ ] **Signing (GitHub-Release channel):** a stable tag **requires** the
+      `LINTHRA_*` signing secrets — the tag build fails fast without them (no
+      debug-key fallback, unlike alphas). F-Droid signs its own builds and needs
+      none. Configure the secrets before tagging.
+- [ ] **Verify the Release assets before assuming F-Droid can update.** A stable
+      tag does **not** auto-create a GitHub Release the way an alpha/beta/rc tag
+      does, so the F-Droid-referenced assets only appear once the Release exists
+      and the build has attached them. Confirm them by name (below).
+
+**F-Droid-compatible asset names (must not change).** F-Droid's per-Build
+`binary:` URLs point at these exact names on the GitHub Release, with `%v`
+expanding to the versionName (so `v%v` = `v0.1.1`):
+
+```
+linthra-v%v-armeabi-v7a-release-signed.apk   ->  linthra-v0.1.1-armeabi-v7a-release-signed.apk
+linthra-v%v-arm64-v8a-release-signed.apk     ->  linthra-v0.1.1-arm64-v8a-release-signed.apk
+linthra-v%v-x86_64-release-signed.apk        ->  linthra-v0.1.1-x86_64-release-signed.apk
+```
+
+(plus the universal `linthra-v0.1.1-release-signed.apk` / `.aab`). The tag build
+names assets `linthra-<tag>-…`, so they only line up when the tag is exactly
+`v` + versionName (`v0.1.1`). Keep the `vX.Y.Z` tag shape.
+
+**If fdroiddata ever needs a manual edit** (the normal path is automatic —
+`AutoUpdateMode: Version` + `UpdateCheckMode: Tags`; see §5): a `Builds` entry's
+`commit:` field must be the **full 40-character commit SHA** behind the tag,
+**not** the tag name. Resolve it with:
+
+```sh
+git rev-list -n 1 v0.1.1
+```
 
 ## 1. Versioning model
 
@@ -70,6 +161,7 @@ versionCode = MAJOR*10_000_000 + MINOR*100_000 + PATCH*1_000 + preReleaseRank
 | `v0.1.0-rc.1`     | `100601`    |
 | `v0.1.0`          | `100999`    |
 | `v0.1.1-alpha.1`  | `101001`    |
+| `v0.1.1`          | `101999`    |
 | `v0.2.0-alpha.1`  | `200001`    |
 | `v1.2.3`          | `10203999`  |
 
@@ -219,9 +311,11 @@ F-Droid metadata — and opens a draft PR. It does NOT create the tag and does
 NOT publish a release; those still happen manually after the PR is merged.
 
 1. **Run the workflow** — GitHub Actions ▸ *Prepare release bump* ▸ *Run workflow*.
-   Enter the **version name** (e.g. `0.1.0-alpha.37`, no leading `v`, no
-   `+versionCode`). Leave **changelog text** empty for a safe maintenance default,
-   or paste a hand-written body.
+   Enter the **version name** (e.g. `0.1.1`, no leading `v`, no `+versionCode`),
+   and paste a hand-written **changelog text**. For a **stable** release (e.g.
+   `v0.1.1`) do **not** leave the changelog empty: the empty-input default is an
+   alpha-worded, "not on F-Droid yet" maintenance note that is wrong for a stable,
+   on-F-Droid release.
 2. **Review the generated PR** (`chore(release): prepare v0.1.0-alpha.37`).
    Confirm the computed `versionCode`, the updated files, and the changelog
    body. Edit the changelog in the PR if you want to refine it.
@@ -391,6 +485,23 @@ Artifacts are named with the version and signing label, e.g.
 `linthra-v0.1.0-alpha.1-debug-signed.apk` or
 `linthra-v0.1.0-alpha.1-release-signed.aab`.
 
+> **F-Droid asset-name compatibility (do not change these names).** On a tag
+> build the public Release assets are named `linthra-<tag>-…-release-signed.…`,
+> and F-Droid's per-Build `binary:` URLs in
+> `metadata/io.github.thezupzup.linthra.yml` point at the per-ABI ones, with `%v`
+> expanding to the versionName (so for a `vX.Y.Z` release `v%v` equals the tag):
+>
+> ```
+> linthra-v%v-armeabi-v7a-release-signed.apk
+> linthra-v%v-arm64-v8a-release-signed.apk
+> linthra-v%v-x86_64-release-signed.apk
+> ```
+>
+> (plus the universal `linthra-v%v-release-signed.apk` / `.aab`). These names must
+> stay stable across releases, and the tag must be exactly `v` + versionName for
+> them to line up. **Never replace or rename the assets on an already-published
+> Release** — F-Droid and sideload users resolve these exact URLs.
+
 ### Recommended flow for an alpha/beta/rc pre-release (fully automatic)
 
 1. Ensure generated files are current (§3) and `pubspec.yaml` matches the tag.
@@ -409,10 +520,19 @@ Artifacts are named with the version and signing label, e.g.
 2. Configure the `LINTHRA_*` keystore secrets — **required** for stable tags
    (the tag build fails without them).
 3. In the GitHub UI, **create the Release** against a **new** stable tag
-   `vX.Y.Z`, write the notes. Creating the Release on a new tag also creates and
-   pushes that tag.
+   `vX.Y.Z` **targeting `main`**, write the notes. Creating the Release on a new
+   tag also creates and pushes that tag — so `main` must already carry the merged
+   version bump (§3).
 4. That tag push triggers **Android Release Build** automatically. When it
-   finishes, the **release-signed** APK/AAB are attached to the Release. Done.
+   finishes, the **release-signed** APK/AAB are attached to the Release.
+5. **Verify the attached assets before announcing or assuming F-Droid can
+   update.** A stable tag does **not** auto-create a pre-release the way an
+   alpha/beta/rc tag does, so if the Release did not already exist (or the signing
+   secrets were missing) nothing is attached. Confirm all five
+   F-Droid-referenced assets are present by name — the three per-ABI
+   `linthra-v%v-<abi>-release-signed.apk` plus the universal
+   `linthra-v%v-release-signed.apk` / `.aab` (see the asset-name box above). Only
+   once they are attached do F-Droid's `binary:` URLs resolve.
 
 ### Alternative flow (tag from git first)
 
@@ -440,14 +560,34 @@ never touch any GitHub Release.
 
 ## 5. F-Droid relationship
 
-F-Droid does **not** consume our signed artifacts. When/if Linthra is submitted:
+**Linthra is on F-Droid** (accepted `0.1.0-alpha.40+100040`). F-Droid does **not**
+consume our signed artifacts:
 
 - F-Droid builds **from source** at the `vX.Y.Z` tag on its own infrastructure
-  and signs with **F-Droid's** key.
-- The recipe tracks new releases via the `vX.Y.Z` tags this process creates.
-- The full submission flow, metadata fields, and draft recipe live in
-  [docs/fdroid-build-recipe.md](./fdroid-build-recipe.md); overall status and
-  blockers live in [docs/fdroid-readiness.md](./fdroid-readiness.md).
+  and signs with **F-Droid's** key. (So an F-Droid APK and a GitHub-Release APK of
+  the same version cannot update each other — call it out in the release notes.)
+- **Updates are auto-detected.** The fdroiddata recipe uses `UpdateCheckMode:
+  Tags` + `AutoUpdateMode: Version` with an `UpdateCheckData` regex that reads the
+  `versionName`/`versionCode` straight from `pubspec.yaml` at each tag. F-Droid
+  scans the tags, picks the highest `versionCode`, and auto-generates the per-ABI
+  `Builds` entries (`VercodeOperation: %c*10 + 1/2/3`). Because `0.1.1+101999` is
+  the highest, **no manual fdroiddata edit is needed for `v0.1.1`** in the normal
+  case.
+- **If a manual fdroiddata edit is ever required**, a `Builds` entry's `commit:`
+  field must be the **full 40-character commit SHA** behind the tag, **not** the
+  tag name (matching the existing entries). Resolve it with:
+
+  ```sh
+  git rev-list -n 1 v0.1.1
+  ```
+
+  Then set `CurrentVersion` / `CurrentVersionCode` to the new release (`0.1.1` /
+  `1019993`, the highest per-ABI code). **This repo never pushes to fdroiddata** —
+  that change, if needed, is made in the fdroiddata repo.
+- The submission flow, metadata fields, and recipe live in
+  [docs/fdroid-build-recipe.md](./fdroid-build-recipe.md) and
+  [docs/fdroid-submission.md](./fdroid-submission.md); overall status lives in
+  [docs/fdroid-readiness.md](./fdroid-readiness.md).
 
 ## 6. What is automated vs. manual
 
@@ -470,25 +610,25 @@ CI builds release artifacts on a tag and attaches them: it can auto-create a
 **pre-release** for alpha/beta/rc tags, but it never auto-creates a stable
 Release, writes production notes, signs a store build, or submits to F-Droid.
 
-## 7. Remaining blockers before a first release
+## 7. Release status
 
-1. **Real release signing secrets** are configured (`LINTHRA_*`) if a
-   GitHub-Release artifact is wanted — see
-   [release-signing.md](./release-signing.md). (Not needed for F-Droid itself,
-   which signs its own builds.)
-2. **A `vX.Y.Z` tag** exists — alpha tags through `v0.1.0-alpha.36` have been
-   cut; F-Droid submission itself is still pending the other blockers.
-3. **Decide the `pubspec.lock` policy** for reproducible release builds
-   ([fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
-4. **Feature-maturity call — made for the alpha.** `0.1.0-alpha.1` ships local
-   scanning + playback, background playback / media notification, an Android
-   Auto browse foundation, Jellyfin connect/sync/stream, and explicit offline
-   downloads. It is published as a sideloadable, pre-release alpha (no F-Droid
-   submission yet). See
-   [docs/release-notes/v0.1.0-alpha.1.md](./release-notes/v0.1.0-alpha.1.md).
+The blockers that gated the first F-Droid release are resolved:
 
-See [fdroid-readiness.md §8](./fdroid-readiness.md#8-remaining-blockers-before-submission)
-for the full F-Droid blocker list.
+1. **Release signing secrets** (`LINTHRA_*`) are used for the GitHub-Release
+   artifacts — see [release-signing.md](./release-signing.md). A **stable** tag
+   now **requires** them (the tag build fails fast without them); F-Droid itself
+   signs its own builds and needs none.
+2. **Tags exist and F-Droid is live.** Alpha tags through `v0.1.0-alpha.40` are
+   cut, and F-Droid accepted `0.1.0-alpha.40+100040`. The next release is the
+   stable `v0.1.1` (`0.1.1+101999`; see the checklist near the top of this doc).
+3. **`pubspec.lock` is committed** (decided as of `alpha.40`) so the F-Droid build
+   can run `flutter pub get --enforce-lockfile` against a pinned dependency set.
+   Keep it committed and in sync.
+4. **Feature maturity** is tracked per release in the GitHub Release notes and the
+   Fastlane changelogs; `0.1.0-alpha.1` shipped the initial feature set (see
+   [docs/release-notes/v0.1.0-alpha.1.md](./release-notes/v0.1.0-alpha.1.md)).
+
+See [fdroid-readiness.md](./fdroid-readiness.md) for the broader F-Droid status.
 
 ## 8. Related docs
 
