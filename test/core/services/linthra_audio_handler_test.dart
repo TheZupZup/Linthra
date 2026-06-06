@@ -652,6 +652,82 @@ void main() {
       });
     });
 
+    group('Bluetooth / car media-session surface', () {
+      // A Bluetooth headset, a car head unit, and the lock screen all drive the
+      // same MediaSession. These lock in the device-facing invariants the audit
+      // verified (see docs/audio-bluetooth-cpu-audit.md): a stable capability
+      // set, artwork in the now-playing item when the track has it, and a Stop
+      // control that is always offered.
+
+      test('advertises the full transport capability set even on one track',
+          () async {
+        // A single-track queue has no next/previous, so the *visible* controls
+        // omit skip (asserted above) — but the session must still advertise the
+        // skip capabilities steadily, so a head unit / Bluetooth device that
+        // cached them at connect time keeps its Next / Previous and queue-row
+        // buttons live regardless of position in the queue.
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+
+        expect(
+          handler.playbackState.value.systemActions,
+          containsAll(<audio.MediaAction>{
+            audio.MediaAction.seek,
+            audio.MediaAction.skipToNext,
+            audio.MediaAction.skipToPrevious,
+            audio.MediaAction.skipToQueueItem,
+          }),
+        );
+      });
+
+      test('mirrors artwork into the now-playing item when the track has it',
+          () async {
+        final withArt = Track(
+          id: 'art',
+          title: 'Song art',
+          uri: '/art.mp3',
+          artistName: 'Artist art',
+          albumName: 'Album art',
+          artworkUri: Uri.parse('https://music.example.com/art/primary'),
+        );
+        await controller.playTracks(<Track>[withArt]);
+        await _settle();
+
+        expect(
+          handler.mediaItem.value?.artUri,
+          Uri.parse('https://music.example.com/art/primary'),
+        );
+      });
+
+      test('omits artwork when the track has none ("when available")',
+          () async {
+        // _track('a') carries no artworkUri.
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+
+        expect(handler.mediaItem.value, isNotNull);
+        expect(handler.mediaItem.value?.artUri, isNull);
+      });
+
+      test('always offers the Stop control, playing and paused', () async {
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+        expect(
+          handler.playbackState.value.controls,
+          contains(audio.MediaControl.stop),
+        );
+
+        controller.emit(
+          controller.state.copyWith(status: PlaybackStatus.paused),
+        );
+        await _settle();
+        expect(
+          handler.playbackState.value.controls,
+          contains(audio.MediaControl.stop),
+        );
+      });
+    });
+
     group('safe media items', () {
       final jellyfin = Track(
         id: 'jf-guid-123',
