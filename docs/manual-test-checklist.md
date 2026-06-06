@@ -75,6 +75,68 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
   work; notification clears on stop.
 - ☐ A failed stream shows a friendly error on Now Playing (not a raw exception).
 
+## 3a. Bluetooth, wired & LE audio
+
+Linthra drives all of this through the **standard Android `MediaSession` + audio
+focus** (`audio_service` + `just_audio`) — there is no custom Bluetooth code (see
+[audio-bluetooth-cpu-audit.md](audio-bluetooth-cpu-audit.md)). CI can't exercise a
+real radio/headset/car, so verify on a device. Test what you have; mark the rest
+N/A.
+
+**Outputs — play/pause/next/previous/stop from the device's own buttons:**
+
+- ☐ **Wired / no Bluetooth** (phone speaker or wired headset): play, pause, next,
+  previous, stop all work; the wired in-line remote (if any) drives playback.
+- ☐ **Classic Bluetooth headphones** (A2DP/AVRCP): connect, play; the headset's
+  play/pause/next/previous work; track metadata (title/artist/album) shows on a
+  headset/watch display that renders it.
+- ☐ **Bluetooth speaker**: audio routes to the speaker; transport buttons (if the
+  speaker has them) work.
+- ☐ **Bluetooth car audio** *(if available)*: audio routes to the car; the head
+  unit's Play/Pause/Next/Previous and steering-wheel buttons work; the car display
+  shows title/artist/album (and artwork for Jellyfin tracks).
+- ☐ **LE Audio device** *(if available, Android 13+/14+)*: pairs and plays as a
+  media output; transport controls work the same as classic Bluetooth. (No
+  LE-specific code — confirming standard routing is enough.)
+
+**Metadata:**
+
+- ☐ Title, artist, and album appear on the device/car where it renders them;
+  **artwork** appears for Jellyfin tracks (token-free image URL) and is simply
+  absent for local/Subsonic tracks (not a failure).
+- ☐ Skipping a track updates the device's metadata to the new track (no stale
+  title lingering).
+
+**Disconnect / reconnect:**
+
+- ☐ **Disconnect while playing** (turn the headset off / walk out of range):
+  playback **pauses** (it must **not** keep blasting from the phone speaker) and the
+  app does **not** crash.
+- ☐ **Reconnect while paused**: reconnecting does **not** auto-start playback; the
+  queue/current track/position are unchanged; pressing play resumes the same track.
+- ☐ A phone call (or another media app) **pauses/ducks** Linthra and it resumes
+  afterwards only if it was playing — it never double-starts.
+
+**Lock screen / notification / Android Auto:**
+
+- ☐ **Lock-screen controls** (play/pause/next/previous/seek) work; metadata +
+  artwork show.
+- ☐ **Notification controls** work; the notification clears on stop; Previous is
+  hidden with no history and Next is hidden with nothing queued (no dead buttons).
+- ☐ **Android Auto** *(if available)* — see §5 for the full pass; in particular
+  confirm Bluetooth/steering-wheel Next/Previous reach the same session.
+
+**Long-idle CPU / wake-ups** (the battery-relevant part — pairs with the cast
+check in §4 #14b):
+
+- ☐ **Screen-off playback ≥ 30 min** over Bluetooth (and again wired): music keeps
+  playing without dropouts; afterwards *Settings → Battery → Linthra* (or
+  `adb shell dumpsys batterystats`) shows CPU in line with audio decoding, with no
+  excess background wake-ups.
+- ☐ **Paused ≥ 30 min** (Bluetooth connected, screen off): Linthra's background CPU
+  is **negligible** — confirming the position flush stopped on pause and nothing
+  polls while idle. This is the key "no unnecessary polling/wake-ups" check.
+
 ## 4. Cast / Chromecast
 
 Run the end-to-end pass in this order (a streamed track is required — local
