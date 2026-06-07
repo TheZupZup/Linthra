@@ -91,6 +91,8 @@ class SubsonicCastMediaResolver implements CastMediaResolver {
       case SubsonicErrorKind.streamUnavailable:
       case SubsonicErrorKind.unsupportedResponse:
       case SubsonicErrorKind.notReachable:
+      case SubsonicErrorKind.cleartextBlocked:
+      case SubsonicErrorKind.insecureConnection:
       case SubsonicErrorKind.serverError:
       case SubsonicErrorKind.invalidUrl:
       case SubsonicErrorKind.unexpected:

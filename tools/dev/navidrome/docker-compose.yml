@@ -1,0 +1,40 @@
+# Local Navidrome for testing Linthra's Subsonic/Navidrome provider.
+#
+# Navidrome (https://www.navidrome.org/) is a lightweight, self-hosted,
+# Subsonic-compatible music server. This compose file is for LOCAL DEVELOPMENT
+# ONLY: it serves over plain http and auto-creates a throwaway admin user on
+# first run. Do NOT expose it to the internet or reuse the password anywhere.
+#
+# Quick start (full walkthrough: docs/navidrome-dev-setup.md):
+#   1. Copy a few audio files into ./music
+#   2. docker compose -f tools/dev/navidrome/docker-compose.yml up -d
+#   3. Open http://localhost:4533 — the admin user below already exists.
+#   4. In Linthra → Settings → Navidrome / Subsonic:
+#        Server URL: http://<your-computer-LAN-IP>:4533  (e.g. http://192.168.1.50:4533)
+#        Username:   admin
+#        Password:   admin
+#      (From the Android emulator, use http://10.0.2.2:4533 instead.)
+#
+# Stop & remove:    docker compose -f tools/dev/navidrome/docker-compose.yml down
+# Wipe the library: delete ./data (keeps ./music)
+
+services:
+  navidrome:
+    image: deluan/navidrome:latest
+    container_name: linthra-navidrome-dev
+    ports:
+      - "4533:4533"
+    environment:
+      ND_LOGLEVEL: info
+      # Rescan the music folder every minute so files you drop in show up fast.
+      ND_SCANSCHEDULE: 1m
+      # LOCAL-TESTING CONVENIENCE ONLY: auto-create an "admin" user with this
+      # password on first run (when no users exist yet). Never use a real
+      # password here, and never run this config on a public server.
+      ND_DEVAUTOCREATEADMINPASSWORD: admin
+    volumes:
+      # Your test music (read-only — Navidrome only needs to read it).
+      - ./music:/music:ro
+      # Navidrome's database, cache and config (safe to delete to start fresh).
+      - ./data:/data
+    restart: unless-stopped

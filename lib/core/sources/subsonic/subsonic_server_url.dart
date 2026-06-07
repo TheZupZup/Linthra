@@ -16,6 +16,10 @@ import 'subsonic_exception.dart';
 ///    whatever base survives here.
 ///  - A trailing slash, query, and fragment are stripped so the result is a
 ///    clean base to append to.
+///  - A trailing `/rest` is stripped, so a user who pastes the API path
+///    (`http://host:4533/rest`) still gets a clean root — Linthra appends
+///    `/rest/<method>.view` itself, so a kept `/rest` would double it into
+///    `/rest/rest/ping.view`.
 abstract final class SubsonicServerUrl {
   /// Returns a clean base URL (no trailing slash) for [input], or throws a
   /// [SubsonicException] of kind [SubsonicErrorKind.invalidUrl] with a friendly
@@ -61,7 +65,7 @@ abstract final class SubsonicServerUrl {
         ..write(':')
         ..write(uri.port);
     }
-    base.write(_trimTrailingSlashes(uri.path));
+    base.write(_stripRestSuffix(_trimTrailingSlashes(uri.path)));
     return base.toString();
   }
 
@@ -81,5 +85,22 @@ abstract final class SubsonicServerUrl {
       end--;
     }
     return path.substring(0, end);
+  }
+
+  /// Drops a trailing `/rest` segment (the Subsonic API mount) from an otherwise
+  /// clean [path], so a pasted API path collapses back to the server root. Only
+  /// a whole final segment named `rest` is removed (case-insensitive): `/rest`
+  /// and `/navidrome/rest` lose it, while `/myrest` or `/restful` keep theirs.
+  /// A Navidrome base is never itself `…/rest` (that path is always the API
+  /// under the root), so this can't strip a legitimate reverse-proxy mount.
+  static String _stripRestSuffix(String path) {
+    const String marker = '/rest';
+    if (path.toLowerCase() == marker) {
+      return '';
+    }
+    if (path.toLowerCase().endsWith(marker)) {
+      return path.substring(0, path.length - marker.length);
+    }
+    return path;
   }
 }

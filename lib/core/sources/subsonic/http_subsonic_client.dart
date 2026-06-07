@@ -187,21 +187,43 @@ class HttpSubsonicClient implements SubsonicClient {
     return envelope;
   }
 
-  /// Runs a request with a timeout, turning any transport-level failure (DNS,
-  /// refused connection, TLS handshake, timeout) into a single friendly "not
-  /// reachable" error without leaking low-level details (which could include the
-  /// credential-bearing URL).
+  /// Runs a request with a timeout, turning any transport-level failure into a
+  /// friendly [SubsonicException] without leaking low-level details (which could
+  /// include the credential-bearing URL). A blocked cleartext request and a
+  /// failed TLS handshake get their own precise kinds; everything else (DNS,
+  /// refused connection, timeout) is "not reachable".
   Future<http.Response> _send(Future<http.Response> Function() request) async {
     try {
       return await request().timeout(_timeout);
     } on TimeoutException {
       throw SubsonicException.notReachable();
-    } on http.ClientException {
-      throw SubsonicException.notReachable();
-    } on Exception {
-      // SocketException / HandshakeException and friends: all "can't reach it".
-      throw SubsonicException.notReachable();
+    } on Exception catch (error) {
+      throw _classifyTransportError(error);
     }
+  }
+
+  /// Infers the *kind* of a transport failure from [error] and returns the
+  /// matching friendly exception.
+  ///
+  /// Security: the error text can contain the request URL (and thus the
+  /// salt+token), so it is only inspected here to classify — it is NEVER placed
+  /// into the thrown message, which is always one of the static, secret-free
+  /// factories. A platform cleartext block surfaces with "Cleartext HTTP
+  /// traffic … not permitted"; a self-signed/untrusted certificate surfaces as
+  /// a `HandshakeException`/TLS error.
+  SubsonicException _classifyTransportError(Object error) {
+    final String text = '${error.runtimeType} $error'.toLowerCase();
+    if (text.contains('cleartext')) {
+      return SubsonicException.cleartextBlocked();
+    }
+    if (text.contains('handshake') ||
+        text.contains('certificate') ||
+        text.contains('tlsexception')) {
+      return SubsonicException.insecureConnection();
+    }
+    // SocketException (DNS / refused) and any other transport error: all "can't
+    // reach it".
+    return SubsonicException.notReachable();
   }
 
   /// Maps an HTTP status to a [SubsonicException]. 2xx passes (the envelope is

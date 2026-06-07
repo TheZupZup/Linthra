@@ -88,6 +88,12 @@ class SubsonicPlayableUriResolver implements PlayableUriResolver {
           "Couldn't reach your music server.",
           kind: PlaybackResolutionErrorKind.serverUnreachable,
         );
+      case SubsonicErrorKind.cleartextBlocked:
+      case SubsonicErrorKind.insecureConnection:
+        return const PlaybackResolutionException(
+          "Couldn't make a secure connection to your music server.",
+          kind: PlaybackResolutionErrorKind.serverUnreachable,
+        );
       case SubsonicErrorKind.invalidUrl:
       case SubsonicErrorKind.unexpected:
         return const PlaybackResolutionException(

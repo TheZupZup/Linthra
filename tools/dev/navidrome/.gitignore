@@ -1,0 +1,5 @@
+# Local-only test data — never commit music files or the Navidrome database.
+/music/*
+/data/*
+!/music/.gitkeep
+!/data/.gitkeep
