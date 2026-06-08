@@ -60,8 +60,7 @@ void main() {
       expect(await service.lyricsFor(_track), isNull);
     });
 
-    test('propagates an error from a backend (so the UI can show '
-        '"couldn\'t load")', () async {
+    test('propagates an error from a backend', () async {
       final service = CompositeLyricsService(<LyricsService>[
         _StubLyricsService(error: StateError('offline')),
       ]);

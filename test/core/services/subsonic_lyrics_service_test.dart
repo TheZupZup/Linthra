@@ -22,8 +22,8 @@ void main() {
     SubsonicLyricsService build({SubsonicSession? session}) =>
         SubsonicLyricsService(client: client, session: () => session);
 
-    test('fetches lyrics for a Subsonic track by its song id, forwarding '
-        'artist and title for the legacy fallback', () async {
+    test('fetches a Subsonic track by song id, forwarding artist and title',
+        () async {
       client.lyrics = const Lyrics(lines: <LyricLine>[LyricLine(text: 'la la')]);
       final service = build(session: _session);
 

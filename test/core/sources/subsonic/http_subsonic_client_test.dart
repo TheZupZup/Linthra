@@ -254,26 +254,28 @@ void main() {
 
   group('fetchLyrics', () {
     // Builds a getLyricsBySongId envelope from one structured-lyrics set.
-    http.Response structured(Map<String, dynamic> set) => _ok(<String, dynamic>{
-          'lyricsList': <String, dynamic>{
-            'structuredLyrics': <Map<String, dynamic>>[set],
-          },
-        });
+    http.Response structured(Map<String, dynamic> set) {
+      return _ok(<String, dynamic>{
+        'lyricsList': <String, dynamic>{
+          'structuredLyrics': <Map<String, dynamic>>[set],
+        },
+      });
+    }
 
     test('parses synced structuredLyrics with millisecond starts', () async {
-      final client = _client(MockClient((_) async => structured(
-            <String, dynamic>{
-              'displayArtist': 'Kavinsky',
-              'displayTitle': 'Nightcall',
-              'lang': 'eng',
-              'offset': 0,
-              'synced': true,
-              'line': <Map<String, dynamic>>[
-                <String, dynamic>{'start': 0, 'value': 'First line'},
-                <String, dynamic>{'start': 1500, 'value': 'Second line'},
-              ],
-            },
-          )));
+      final client = _client(MockClient((_) async {
+        return structured(<String, dynamic>{
+          'displayArtist': 'Kavinsky',
+          'displayTitle': 'Nightcall',
+          'lang': 'eng',
+          'offset': 0,
+          'synced': true,
+          'line': <Map<String, dynamic>>[
+            <String, dynamic>{'start': 0, 'value': 'First line'},
+            <String, dynamic>{'start': 1500, 'value': 'Second line'},
+          ],
+        });
+      }));
 
       final lyrics = await client.fetchLyrics(_session, 's1');
 
@@ -288,15 +290,15 @@ void main() {
     });
 
     test('applies the entry offset to every synced start', () async {
-      final client = _client(MockClient((_) async => structured(
-            <String, dynamic>{
-              'synced': true,
-              'offset': 250,
-              'line': <Map<String, dynamic>>[
-                <String, dynamic>{'start': 1000, 'value': 'x'},
-              ],
-            },
-          )));
+      final client = _client(MockClient((_) async {
+        return structured(<String, dynamic>{
+          'synced': true,
+          'offset': 250,
+          'line': <Map<String, dynamic>>[
+            <String, dynamic>{'start': 1000, 'value': 'x'},
+          ],
+        });
+      }));
 
       final lyrics = await client.fetchLyrics(_session, 's1');
 
@@ -304,14 +306,14 @@ void main() {
     });
 
     test('parses plain structuredLyrics (no timestamps) as untimed', () async {
-      final client = _client(MockClient((_) async => structured(
-            <String, dynamic>{
-              'line': <Map<String, dynamic>>[
-                <String, dynamic>{'value': 'la la'},
-                <String, dynamic>{'value': 'la la la'},
-              ],
-            },
-          )));
+      final client = _client(MockClient((_) async {
+        return structured(<String, dynamic>{
+          'line': <Map<String, dynamic>>[
+            <String, dynamic>{'value': 'la la'},
+            <String, dynamic>{'value': 'la la la'},
+          ],
+        });
+      }));
 
       final lyrics = await client.fetchLyrics(_session, 's1');
 
@@ -323,15 +325,15 @@ void main() {
 
     test('treats a set flagged synced:false as plain even with starts',
         () async {
-      final client = _client(MockClient((_) async => structured(
-            <String, dynamic>{
-              'synced': false,
-              'line': <Map<String, dynamic>>[
-                <String, dynamic>{'start': 0, 'value': 'a'},
-                <String, dynamic>{'start': 0, 'value': 'b'},
-              ],
-            },
-          )));
+      final client = _client(MockClient((_) async {
+        return structured(<String, dynamic>{
+          'synced': false,
+          'line': <Map<String, dynamic>>[
+            <String, dynamic>{'start': 0, 'value': 'a'},
+            <String, dynamic>{'start': 0, 'value': 'b'},
+          ],
+        });
+      }));
 
       final lyrics = await client.fetchLyrics(_session, 's1');
 
@@ -341,24 +343,26 @@ void main() {
 
     test('uses the first structured set when several languages are present',
         () async {
-      final client = _client(MockClient((_) async => _ok(<String, dynamic>{
-            'lyricsList': <String, dynamic>{
-              'structuredLyrics': <Map<String, dynamic>>[
-                <String, dynamic>{
-                  'lang': 'eng',
-                  'line': <Map<String, dynamic>>[
-                    <String, dynamic>{'value': 'english'},
-                  ],
-                },
-                <String, dynamic>{
-                  'lang': 'fra',
-                  'line': <Map<String, dynamic>>[
-                    <String, dynamic>{'value': 'french'},
-                  ],
-                },
-              ],
-            },
-          })));
+      final client = _client(MockClient((_) async {
+        return _ok(<String, dynamic>{
+          'lyricsList': <String, dynamic>{
+            'structuredLyrics': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'lang': 'eng',
+                'line': <Map<String, dynamic>>[
+                  <String, dynamic>{'value': 'english'},
+                ],
+              },
+              <String, dynamic>{
+                'lang': 'fra',
+                'line': <Map<String, dynamic>>[
+                  <String, dynamic>{'value': 'french'},
+                ],
+              },
+            ],
+          },
+        });
+      }));
 
       final lyrics = await client.fetchLyrics(_session, 's1');
 
@@ -471,8 +475,7 @@ void main() {
 
     test('never echoes a credential-bearing error message', () async {
       final client = _client(MockClient((_) async => throw http.ClientException(
-            'Connection failed: '
-            '$_base/rest/getLyricsBySongId.view?u=alice&t=tok1&s=salt1',
+            'Connection failed: $_base/rest/getLyricsBySongId.view?t=tok1&s=salt1',
           )));
 
       await expectLater(
