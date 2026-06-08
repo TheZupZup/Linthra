@@ -1,13 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/catalog/source_priority.dart';
+import 'package:linthra/core/catalog/source_strategy.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/features/downloads/download_providers.dart';
 import 'package:linthra/features/library/library_controller.dart';
 import 'package:linthra/features/library/playback_candidates_provider.dart';
+import 'package:linthra/features/library/playback_source_strategy_controller.dart';
 import 'package:linthra/features/library/source_preference_controller.dart';
 
 final Uri _jellyArt =
@@ -40,10 +43,20 @@ class _FixedPreference extends SourcePreferenceController {
   SourcePriority build() => _priority;
 }
 
+/// Pins the playback source strategy for a deterministic test.
+class _FixedStrategy extends PlaybackSourceStrategyController {
+  _FixedStrategy(this._strategy);
+  final PlaybackSourceStrategy _strategy;
+  @override
+  PlaybackSourceStrategy build() => _strategy;
+}
+
 Future<ProviderContainer> _seed({
   required SourcePriority priority,
   required List<Track> jellyfin,
   required List<Track> subsonic,
+  PlaybackSourceStrategy strategy = PlaybackSourceStrategy.preferDefault,
+  Set<String> cachedIds = const <String>{},
 }) async {
   final repo = InMemoryMusicLibraryRepository();
   final container = ProviderContainer(
@@ -51,6 +64,9 @@ Future<ProviderContainer> _seed({
       musicLibraryRepositoryProvider.overrideWithValue(repo),
       librarySourcePriorityProvider
           .overrideWith(() => _FixedPreference(priority)),
+      playbackSourceStrategyProvider
+          .overrideWith(() => _FixedStrategy(strategy)),
+      offlineAvailableTrackIdsProvider.overrideWithValue(cachedIds),
     ],
   );
   addTearDown(container.dispose);
@@ -121,6 +137,58 @@ void main() {
           container.read(playbackCandidatesProvider);
 
       expect(map, isEmpty);
+    });
+  });
+
+  group('playbackCandidatesProvider — strategy ordering', () {
+    test('preferDefault leaves the default-source order unchanged', () async {
+      final container = await _seed(
+        priority: const SourcePriority(<String>['jellyfin', 'subsonic']),
+        jellyfin: <Track>[_jelly('j', title: 'Hello')],
+        subsonic: <Track>[_sub('s', title: 'Hello')],
+        strategy: PlaybackSourceStrategy.preferDefault,
+      );
+
+      final Map<String, List<Track>> map =
+          container.read(playbackCandidatesProvider);
+      expect(map['j']!.map((Track t) => t.uri).toList(),
+          <String>['jellyfin:j', 'subsonic:s']);
+    });
+
+    test('preferLocalCache promotes a cached copy ahead of the default',
+        () async {
+      // Jellyfin is the default (so leads by default), but the Subsonic copy is
+      // downloaded — "prefer local/cache" must play the cached copy first.
+      final container = await _seed(
+        priority: const SourcePriority(<String>['jellyfin', 'subsonic']),
+        jellyfin: <Track>[_jelly('j', title: 'Hello')],
+        subsonic: <Track>[_sub('s', title: 'Hello')],
+        strategy: PlaybackSourceStrategy.preferLocalCache,
+        cachedIds: <String>{'s'},
+      );
+
+      final Map<String, List<Track>> map =
+          container.read(playbackCandidatesProvider);
+      // Same display id (Jellyfin primary), but the cached Subsonic copy leads.
+      expect(map['j']!.map((Track t) => t.uri).toList(),
+          <String>['subsonic:s', 'jellyfin:j']);
+    });
+
+    test(
+        'preferLocalCache keeps the default order when nothing is cached/local',
+        () async {
+      final container = await _seed(
+        priority: const SourcePriority(<String>['jellyfin', 'subsonic']),
+        jellyfin: <Track>[_jelly('j', title: 'Hello')],
+        subsonic: <Track>[_sub('s', title: 'Hello')],
+        strategy: PlaybackSourceStrategy.preferLocalCache,
+        // No offline copies.
+      );
+
+      final Map<String, List<Track>> map =
+          container.read(playbackCandidatesProvider);
+      expect(map['j']!.map((Track t) => t.uri).toList(),
+          <String>['jellyfin:j', 'subsonic:s']);
     });
   });
 }

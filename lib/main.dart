@@ -14,6 +14,7 @@ import 'data/repositories/library_added_store_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
 import 'data/repositories/play_history_repository_provider.dart';
 import 'data/repositories/playback_preferences_provider.dart';
+import 'data/repositories/playback_source_strategy_store_provider.dart';
 import 'data/repositories/playlist_repository_provider.dart';
 import 'data/repositories/preferred_source_store_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
@@ -55,6 +56,11 @@ Future<void> main() async {
       // Persist the user's explicit default-source choice (Settings), which
       // pins a provider ahead of the most-recently-signed-in order.
       sharedPreferencesDefaultProviderStoreOverride,
+      // Persist the chosen playback source strategy (prefer local/cache, highest
+      // quality, lower data, balanced, or default).
+      sharedPreferencesPlaybackSourceStrategyStoreOverride,
+      // Make the playback source strategy cache-aware from the live offline set.
+      offlineAvailableTrackIdsOverride,
       sharedPreferencesDownloadStoreOverride,
       sharedPreferencesDownloadPreferencesOverride,
       sharedPreferencesPlaybackPreferencesOverride,

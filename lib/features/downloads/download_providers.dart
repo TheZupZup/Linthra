@@ -125,6 +125,29 @@ final cacheEntriesByIdProvider = Provider<Map<String, CachedTrack>>((ref) {
   };
 });
 
+/// The ids of tracks that have an offline copy on disk (a downloaded or
+/// pre-cached copy with managed bytes) — the safe, in-memory signal the playback
+/// source strategy uses to favour cache/local copies, without a disk scan or any
+/// path/URL.
+///
+/// Defaults to empty so the library/playback layers don't pull the whole cache
+/// stack in tests; `main` applies [offlineAvailableTrackIdsOverride] to derive
+/// it live from the cache snapshot. Tests override it directly with a set.
+final offlineAvailableTrackIdsProvider =
+    Provider<Set<String>>((ref) => const <String>{});
+
+/// Production binding: the live set of offline-available track ids, recomputed
+/// from [cacheEntriesByIdProvider] whenever the cache changes. Only entries with
+/// managed bytes count (an on-device marker with no file is not a cached copy).
+final offlineAvailableTrackIdsOverride =
+    offlineAvailableTrackIdsProvider.overrideWith((ref) {
+  final Map<String, CachedTrack> entries = ref.watch(cacheEntriesByIdProvider);
+  return <String>{
+    for (final CachedTrack entry in entries.values)
+      if (entry.isManaged) entry.trackId,
+  };
+});
+
 /// Owns the "Maximum cache size" limit: loads the persisted value and writes
 /// changes back through [DownloadPreferences]. Clamped to the supported range.
 class MaxCacheBytesController extends AsyncNotifier<int> {

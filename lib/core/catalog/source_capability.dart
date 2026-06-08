@@ -125,13 +125,27 @@ class PlaybackSourceCapability {
   /// and its *inherent* delivery (local file vs. remote stream), plus the
   /// duration when present. Quality, size, transcoding, and LAN-vs-remote are
   /// unknown (not carried by `Track`). No network call, no disk read, no guess.
-  factory PlaybackSourceCapability.fromTrack(Track track) {
+  ///
+  /// [cachedOffline] is a safe, in-memory signal (e.g. the downloaded-track set)
+  /// that a *remote* candidate already has an offline copy: when `true` such a
+  /// candidate's delivery becomes [SourceDelivery.cache], so "prefer cache"
+  /// strategies can favour it without a disk scan. It never upgrades a local
+  /// file (already on device) or an unknown source, and defaults to `false`.
+  factory PlaybackSourceCapability.fromTrack(
+    Track track, {
+    bool cachedOffline = false,
+  }) {
     final String id = trackSourceId(track);
     final SourceProviderType provider = _providerTypeFor(id);
+    final SourceDelivery inherent = _inherentDeliveryFor(provider);
+    final SourceDelivery delivery =
+        (cachedOffline && inherent == SourceDelivery.remoteStream)
+            ? SourceDelivery.cache
+            : inherent;
     return PlaybackSourceCapability(
       sourceId: id,
       providerType: provider,
-      delivery: _inherentDeliveryFor(provider),
+      delivery: delivery,
       duration: track.duration > Duration.zero ? track.duration : null,
     );
   }
