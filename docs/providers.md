@@ -33,7 +33,7 @@ persisted catalog.
 | --------------------- | ---------- | :----: | :---: | :-------: | :-------: | :----: | :--: |
 | On this device        | `local`    |   ✅   |  —    | ✅ local  | ✅ local  |   —    |  —   |
 | Jellyfin              | `jellyfin` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
-| Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜     |    🔜     |   🔜   |  ✅  |
+| Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  ✅  |
 
 ✅ implemented · 🔜 planned follow-up · — not applicable. "local" favourites/
 playlists stay on-device; "synced" ones mirror with the server (server is the
@@ -87,6 +87,12 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
 - **Offline cache**: a Subsonic track can be downloaded for offline use (the
   original file via `download.view`).
 - **Cast**: a Subsonic track casts to a Chromecast as a live stream.
+- **Lyrics**: synced or plain lyrics are fetched on demand via the OpenSubsonic
+  `getLyricsBySongId` extension (how Navidrome exposes embedded/sidecar lyrics),
+  with a fallback to the legacy `getLyrics` (plain text, matched by artist +
+  title) for servers without the extension. When a server has none, the lyrics
+  panel keeps its calm "no lyrics" state; the credential is never logged or put
+  in an error.
 
 ### Server URL & local testing
 
@@ -129,7 +135,10 @@ actions stay hidden/disabled rather than failing:
 
 - **Favorites** — Subsonic exposes `star`/`unstar`/`getStarred2`; wiring them
   through Linthra's favorites repository is a follow-up.
-- **Lyrics** — `getLyrics`/`getLyricsBySongId` (OpenSubsonic) is a follow-up.
+- **Synced lyrics from the legacy endpoint** — the OpenSubsonic
+  `getLyricsBySongId` path returns synced lyrics today; the legacy `getLyrics`
+  fallback is treated as plain text, so any LRC-style timestamps embedded in its
+  value aren't time-synced yet. That refinement is a follow-up.
 - **Cover art** — `getCoverArt` requires the auth query, so a cover URL would
   embed the credential, and artwork is persisted in the catalog. To keep the
   security invariant, Subsonic tracks have no `artworkUri` yet; token-free

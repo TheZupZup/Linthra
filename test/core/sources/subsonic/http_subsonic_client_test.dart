@@ -251,4 +251,236 @@ void main() {
       expect(probe.isAudio, isTrue);
     });
   });
+
+  group('fetchLyrics', () {
+    // Builds a getLyricsBySongId envelope from one structured-lyrics set.
+    http.Response structured(Map<String, dynamic> set) => _ok(<String, dynamic>{
+          'lyricsList': <String, dynamic>{
+            'structuredLyrics': <Map<String, dynamic>>[set],
+          },
+        });
+
+    test('parses synced structuredLyrics with millisecond starts', () async {
+      final client = _client(MockClient((_) async => structured(
+            <String, dynamic>{
+              'displayArtist': 'Kavinsky',
+              'displayTitle': 'Nightcall',
+              'lang': 'eng',
+              'offset': 0,
+              'synced': true,
+              'line': <Map<String, dynamic>>[
+                <String, dynamic>{'start': 0, 'value': 'First line'},
+                <String, dynamic>{'start': 1500, 'value': 'Second line'},
+              ],
+            },
+          )));
+
+      final lyrics = await client.fetchLyrics(_session, 's1');
+
+      expect(lyrics, isNotNull);
+      expect(lyrics!.isSynced, isTrue);
+      expect(
+        lyrics.lines.map((l) => l.text),
+        <String>['First line', 'Second line'],
+      );
+      expect(lyrics.lines.first.start, Duration.zero);
+      expect(lyrics.lines.last.start, const Duration(milliseconds: 1500));
+    });
+
+    test('applies the entry offset to every synced start', () async {
+      final client = _client(MockClient((_) async => structured(
+            <String, dynamic>{
+              'synced': true,
+              'offset': 250,
+              'line': <Map<String, dynamic>>[
+                <String, dynamic>{'start': 1000, 'value': 'x'},
+              ],
+            },
+          )));
+
+      final lyrics = await client.fetchLyrics(_session, 's1');
+
+      expect(lyrics!.lines.single.start, const Duration(milliseconds: 1250));
+    });
+
+    test('parses plain structuredLyrics (no timestamps) as untimed', () async {
+      final client = _client(MockClient((_) async => structured(
+            <String, dynamic>{
+              'line': <Map<String, dynamic>>[
+                <String, dynamic>{'value': 'la la'},
+                <String, dynamic>{'value': 'la la la'},
+              ],
+            },
+          )));
+
+      final lyrics = await client.fetchLyrics(_session, 's1');
+
+      expect(lyrics, isNotNull);
+      expect(lyrics!.isSynced, isFalse);
+      expect(lyrics.lines.every((l) => l.start == null), isTrue);
+      expect(lyrics.lines.map((l) => l.text), <String>['la la', 'la la la']);
+    });
+
+    test('treats a set flagged synced:false as plain even with starts',
+        () async {
+      final client = _client(MockClient((_) async => structured(
+            <String, dynamic>{
+              'synced': false,
+              'line': <Map<String, dynamic>>[
+                <String, dynamic>{'start': 0, 'value': 'a'},
+                <String, dynamic>{'start': 0, 'value': 'b'},
+              ],
+            },
+          )));
+
+      final lyrics = await client.fetchLyrics(_session, 's1');
+
+      expect(lyrics!.isSynced, isFalse);
+      expect(lyrics.lines.every((l) => l.start == null), isTrue);
+    });
+
+    test('uses the first structured set when several languages are present',
+        () async {
+      final client = _client(MockClient((_) async => _ok(<String, dynamic>{
+            'lyricsList': <String, dynamic>{
+              'structuredLyrics': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'lang': 'eng',
+                  'line': <Map<String, dynamic>>[
+                    <String, dynamic>{'value': 'english'},
+                  ],
+                },
+                <String, dynamic>{
+                  'lang': 'fra',
+                  'line': <Map<String, dynamic>>[
+                    <String, dynamic>{'value': 'french'},
+                  ],
+                },
+              ],
+            },
+          })));
+
+      final lyrics = await client.fetchLyrics(_session, 's1');
+
+      expect(lyrics!.lines.single.text, 'english');
+    });
+
+    test('sends the song id and does not fall back when lyrics are found',
+        () async {
+      final List<String> paths = <String>[];
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        paths.add(request.url.path);
+        captured = request;
+        return structured(<String, dynamic>{
+          'line': <Map<String, dynamic>>[
+            <String, dynamic>{'value': 'found'},
+          ],
+        });
+      }));
+
+      final lyrics = await client.fetchLyrics(
+        _session,
+        's-42',
+        artist: 'Kavinsky',
+        title: 'Nightcall',
+      );
+
+      expect(lyrics!.lines.single.text, 'found');
+      // Only the primary endpoint was hit — the legacy fallback is skipped.
+      expect(paths, <String>['/rest/getLyricsBySongId.view']);
+      expect(captured!.url.queryParameters['id'], 's-42');
+    });
+
+    test('falls back to legacy getLyrics when the primary has none', () async {
+      http.Request? legacy;
+      final client = _client(MockClient((http.Request request) async {
+        if (request.url.path.endsWith('getLyricsBySongId.view')) {
+          // Server supports the call but has no lyrics for this song.
+          return _ok(<String, dynamic>{'lyricsList': <String, dynamic>{}});
+        }
+        legacy = request;
+        return _ok(<String, dynamic>{
+          'lyrics': <String, dynamic>{
+            'artist': 'Kavinsky',
+            'title': 'Nightcall',
+            'value': 'Line one\r\nLine two',
+          },
+        });
+      }));
+
+      final lyrics = await client.fetchLyrics(
+        _session,
+        's1',
+        artist: 'Kavinsky',
+        title: 'Nightcall',
+      );
+
+      expect(lyrics, isNotNull);
+      expect(lyrics!.isSynced, isFalse);
+      expect(lyrics.lines.map((l) => l.text), <String>['Line one', 'Line two']);
+      expect(legacy!.url.queryParameters['artist'], 'Kavinsky');
+      expect(legacy!.url.queryParameters['title'], 'Nightcall');
+    });
+
+    test('returns null when neither endpoint has lyrics', () async {
+      final client = _client(MockClient((http.Request request) async {
+        if (request.url.path.endsWith('getLyricsBySongId.view')) {
+          return _ok(<String, dynamic>{'lyricsList': <String, dynamic>{}});
+        }
+        return _ok(<String, dynamic>{
+          'lyrics': <String, dynamic>{'value': ''},
+        });
+      }));
+
+      final lyrics = await client.fetchLyrics(
+        _session,
+        's1',
+        artist: 'A',
+        title: 'T',
+      );
+
+      expect(lyrics, isNull);
+    });
+
+    test('a failed/unsupported primary response yields null, never throws',
+        () async {
+      // A server without the extension answers with a Subsonic error envelope;
+      // with no artist/title to fall back on, that's a calm "no lyrics", not an
+      // error.
+      final client = _client(
+        MockClient((_) async => _failed(0, 'Wrong arguments')),
+      );
+
+      final lyrics = await client.fetchLyrics(_session, 's1');
+
+      expect(lyrics, isNull);
+    });
+
+    test('a transport failure throws notReachable', () async {
+      final client = _client(
+        MockClient((_) async => throw http.ClientException('refused')),
+      );
+
+      await expectLater(
+        () => client.fetchLyrics(_session, 's1'),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.kind, 'kind', SubsonicErrorKind.notReachable)),
+      );
+    });
+
+    test('never echoes a credential-bearing error message', () async {
+      final client = _client(MockClient((_) async => throw http.ClientException(
+            'Connection failed: '
+            '$_base/rest/getLyricsBySongId.view?u=alice&t=tok1&s=salt1',
+          )));
+
+      await expectLater(
+        () => client.fetchLyrics(_session, 's1'),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.message, 'message', isNot(contains('tok1')))
+            .having((e) => e.message, 'message', isNot(contains('salt1')))),
+      );
+    });
+  });
 }

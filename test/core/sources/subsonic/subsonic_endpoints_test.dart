@@ -70,6 +70,30 @@ void main() {
       expect(download.queryParameters['id'], 's-7');
     });
 
+    test('getLyricsBySongId targets its endpoint and carries the song id', () {
+      final Uri uri = SubsonicEndpoints.getLyricsBySongId(
+        _base,
+        username: _user,
+        credentials: _creds,
+        songId: 's-7',
+      );
+      expect(uri.path, '/rest/getLyricsBySongId.view');
+      expect(uri.queryParameters['id'], 's-7');
+    });
+
+    test('getLyrics targets its endpoint and carries the artist and title', () {
+      final Uri uri = SubsonicEndpoints.getLyrics(
+        _base,
+        username: _user,
+        credentials: _creds,
+        artist: 'Boards of Canada',
+        title: 'Roygbiv',
+      );
+      expect(uri.path, '/rest/getLyrics.view');
+      expect(uri.queryParameters['artist'], 'Boards of Canada');
+      expect(uri.queryParameters['title'], 'Roygbiv');
+    });
+
     test('preserves a reverse-proxy subpath, then appends /rest', () {
       // A server mounted under a subpath keeps it ahead of the API path.
       final Uri uri = SubsonicEndpoints.ping(
