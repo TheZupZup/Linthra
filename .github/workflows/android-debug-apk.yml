@@ -39,11 +39,33 @@ jobs:
           flutter-version: 3.27.4
           cache: true
 
+      # --enforce-lockfile builds the APK from the exact committed dependency
+      # set (same as the CI quality job and the reproducible F-Droid build),
+      # failing loudly if pubspec.lock has drifted rather than resolving anew.
       - name: Install dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
       - name: Build debug APK
         run: flutter build apk --debug
+
+      # Fail fast if the build produced no usable artifact. The upload step
+      # below also guards with if-no-files-found: error, but checking here gives
+      # a clearer "build produced nothing" signal independent of the uploader,
+      # and rejects a truncated/empty APK a debug build should never emit.
+      - name: Verify build output exists
+        run: |
+          set -euo pipefail
+          apk="build/app/outputs/flutter-apk/app-debug.apk"
+          if [ ! -f "$apk" ]; then
+            echo "::error::Expected debug APK not found at $apk after the build."
+            exit 1
+          fi
+          bytes=$(stat -c%s "$apk")
+          if [ "$bytes" -lt 1000000 ]; then
+            echo "::error::Debug APK at $apk is only ${bytes} bytes (<1 MB); the build looks broken."
+            exit 1
+          fi
+          echo "Debug APK present: $apk (${bytes} bytes)."
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

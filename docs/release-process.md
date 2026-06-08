@@ -593,8 +593,11 @@ consume our signed artifacts:
 
 | Action | Automated? |
 | ------ | ---------- |
-| Quality CI (analyze/test/format) on PRs & `main` | **Automatic** (`ci.yml`). |
-| Debug APK build | Manual (`workflow_dispatch`) + on PRs (`android-debug-apk.yml`). |
+| Quality CI (format/analyze/test) + lockfile-enforced `pub get` on PRs & `main` | **Automatic** (`ci.yml`, job `flutter`; `flutter pub get --enforce-lockfile` catches a dependency change that forgot to refresh `pubspec.lock`). |
+| Secret & privacy scan on PRs & `main` | **Automatic** (`ci.yml`, job `secret-scan`; runs `scripts/check_secrets.sh` — offline, no secrets). |
+| Fastlane changelog exists for the current `versionCode` | **Automatic** on PRs & `main` (`flutter test` ▸ `test/tooling/release_changelog_test.dart`). |
+| Release-bump PR touches only version files | **Automatic** on `release/*` PRs only (`ci.yml`, job `release-bump-guard`; `scripts/check_release_bump_files.sh`). |
+| Debug APK build + build-output verification | Manual (`workflow_dispatch`) + on PRs (`android-debug-apk.yml`; a "Verify build output exists" step rejects a missing/empty APK). |
 | Release APK/AAB build | **Manual** (`workflow_dispatch`) **and automatic on `v*` tags** (`android-release-build.yml`). |
 | Preparing the version-bump PR (pubspec, in-app mirror, Fastlane changelog, F-Droid `CurrentVersion`) | **Manual** (`workflow_dispatch`, `prepare-release-bump.yml`); opens a draft PR but never tags, builds, or publishes. The same edits are reproducible locally with `scripts/prepare_release_bump.py`. |
 | Verifying the tag matches `pubspec.yaml` (versionName/versionCode) | **Automatic** on a `v*` tag build (`scripts/release_preflight.sh`, encoding-checked against `tool/version_from_tag.dart`); fails fast on a mismatch and the workflow summary explicitly says "Version mismatch: release was not built." so it is not confused with an APK build failure. The same script is intended to be run locally before tagging (§3 step 9). Both manual and tag builds take the version from `pubspec.yaml`. |
@@ -609,6 +612,68 @@ consume our signed artifacts:
 CI builds release artifacts on a tag and attaches them: it can auto-create a
 **pre-release** for alpha/beta/rc tags, but it never auto-creates a stable
 Release, writes production notes, signs a store build, or submits to F-Droid.
+
+### Which workflow runs on PRs, `main`, and tags
+
+| Workflow · job | PR | Push to `main` | `v*` tag | Manual |
+| -------------- | -- | -------------- | -------- | ------ |
+| `ci.yml` · `flutter` — format, analyze, test, `pub get --enforce-lockfile` | ✅ | ✅ | — | — |
+| `ci.yml` · `secret-scan` — `scripts/check_secrets.sh` | ✅ | ✅ | — | — |
+| `ci.yml` · `release-bump-guard` — `scripts/check_release_bump_files.sh` | ✅ (only `release/*` branches) | — | — | — |
+| `android-debug-apk.yml` — build debug APK + verify output | ✅ | — | — | ✅ |
+| `android-release-build.yml` — release APK/AAB, tag↔pubspec preflight, attach | — | — | ✅ | ✅ |
+| `prepare-release-bump.yml` — open the version-bump PR | — | — | — | ✅ |
+| `generate-drift.yml` — regenerate `*.g.dart` | — | — | — | ✅ |
+
+The `flutter` job also runs the whole `test/` suite, which includes the
+release-safety guardrail tests below — so those gate every PR, not just release
+PRs. Nothing in `ci.yml` uses a secret, so all three jobs run identically on
+fork PRs.
+
+### What the guardrails catch (and how to run them locally)
+
+These complement, and do not replace, the release invariants already enforced
+elsewhere: the in-app/`pubspec.yaml` version-drift and canonical-`versionCode`
+checks (`test/core/app_info_version_test.dart`); the cross-file F-Droid
+invariants — monotonic `versionCode`, per-ABI `base*10 + rank`, stable release
+asset names, tracked `pubspec.lock` (`test/tooling/fdroid_release_guardrails_test.dart`);
+and the tag↔`pubspec.yaml` preflight (`scripts/release_preflight.sh`, run on a
+`v*` tag and locally before tagging — §3 step 9, §4).
+
+- **Lockfile drift** — `flutter pub get --enforce-lockfile` (CI `flutter` job;
+  also in `scripts/verify_android.sh` and `android-debug-apk.yml`). Fails if a
+  dependency change did not refresh `pubspec.lock`, keeping it in sync with the
+  lockfile the reproducible F-Droid build resolves against (§7).
+- **Committed secrets / private data** — `./scripts/check_secrets.sh` (CI
+  `secret-scan` job). Offline, dependency-free. Flags committed `.env` files,
+  keystores (`*.jks`/`*.keystore`), private keys, `key.properties`, Play
+  service-account JSON, and high-signal tokens (GitHub / Slack / AWS / Google);
+  `*.example`/`*.sample`/`*.template` placeholders are allowed. It also scans any
+  committed diagnostics **fixture/snapshot** for a real private URL, credential,
+  token, or home path — reserved example hosts (`example.com`, `localhost`,
+  RFC1918, TEST-NET) are allowed. The runtime diagnostics redaction itself is
+  unit-tested in `test/core/diagnostics/`.
+- **Missing release changelog** — `test/tooling/release_changelog_test.dart`
+  (runs in `flutter test`). Fails if there is no non-empty
+  `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` for the version
+  in `pubspec.yaml`. The `Prepare release bump` workflow creates it; this catches
+  a hand-edited bump that forgot it.
+- **Release-bump scope creep** — `./scripts/check_release_bump_files.sh` (CI
+  `release-bump-guard`, `release/*` PRs only). A version bump must be a clean,
+  version-only diff (pubspec, `app_info.dart`, the Fastlane changelog, the
+  F-Droid metadata, optionally `pubspec.lock`/`docs/release-notes/**`).
+- **Debug build sanity** — `android-debug-apk.yml` verifies the debug APK exists
+  and is a sane size before uploading, so a silent build failure is caught.
+
+Run the Flutter checks plus the secret scan in one local pass with
+`./scripts/verify_android.sh`. The two guard scripts also run standalone with no
+Flutter toolchain:
+
+```sh
+./scripts/check_secrets.sh
+# A release-bump PR's changed files (compare against the base branch):
+git diff --name-only origin/main...HEAD | ./scripts/check_release_bump_files.sh
+```
 
 ## 7. Release status
 
