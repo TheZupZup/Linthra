@@ -3,7 +3,8 @@
 # verify_android.sh — run the same checks CI runs, locally.
 #
 # Order mirrors .github/workflows/ci.yml:
-#   flutter pub get  ->  dart format (check)  ->  flutter analyze  ->  flutter test
+#   flutter pub get --enforce-lockfile  ->  dart format (check)  ->
+#   flutter analyze  ->  flutter test  ->  secret & privacy scan
 #
 # If an Android SDK is available it additionally builds a debug APK. A missing
 # Android SDK only skips the APK build — it never fails verification. Any real
@@ -67,10 +68,15 @@ main() {
   cd "$REPO_ROOT"
   resolve_flutter
 
-  run_step "flutter pub get" "$FLUTTER" pub get
+  run_step "flutter pub get --enforce-lockfile" "$FLUTTER" pub get --enforce-lockfile
   run_step "dart format --set-exit-if-changed ." dart format --set-exit-if-changed .
   run_step "flutter analyze" "$FLUTTER" analyze
   run_step "flutter test" "$FLUTTER" test
+
+  # Flutter-independent guardrail (the CI "secret-scan" job runs the same
+  # script): catches a committed keystore/.env/private key/token or a
+  # diagnostics fixture carrying real private data.
+  run_step "secret & privacy scan" "$REPO_ROOT/scripts/check_secrets.sh"
 
   if android_sdk_available; then
     run_step "flutter build apk --debug" "$FLUTTER" build apk --debug
