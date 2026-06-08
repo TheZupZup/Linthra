@@ -13,6 +13,7 @@ import '../player/widgets/album_artwork.dart';
 import 'library_browse_providers.dart';
 import 'library_controller.dart';
 import 'library_state.dart';
+import 'unified_library_providers.dart';
 import 'widgets/track_tile.dart';
 
 /// One album's tracks, in album order, with Play / Shuffle and tap-to-play.
@@ -49,7 +50,8 @@ class AlbumDetailScreen extends ConsumerWidget {
         break;
       }
     }
-    final List<Track> tracks = tracksForAlbum(state.tracks, albumId);
+    final List<Track> tracks =
+        tracksForAlbum(ref.watch(libraryUnifiedTracksProvider), albumId);
     if (album == null || tracks.isEmpty) {
       return Scaffold(
         appBar: AppBar(),

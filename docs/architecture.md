@@ -77,6 +77,13 @@ lib/
 - **`MusicLibraryRepository`** (`core/repositories/`) — the local SQLite cache
   the UI reads from. Sources *sync into* it; the UI never talks to a source
   directly. This is what keeps the app fast and fully offline.
+- **Unified library layer** (`core/catalog/track_unifier.dart`) — a pure,
+  display-time transform that collapses the per-provider rows the repository
+  stores (*source tracks*) into one *logical track* per song, keeping every copy
+  as an ordered playback candidate. The browse UI reads the logical tracks; the
+  repository and storage are untouched (no migration). Source preference
+  (active/default-first, with deterministic fallback) decides which copy plays.
+  See [unified-library.md](unified-library.md).
 - **`PlaybackController`** (`core/services/playback_controller.dart`) — playback
   *and* the up-next queue, fully decoupled from `just_audio`. It owns a pure
   `PlaybackQueue` model (current track + upcoming tracks) and exposes

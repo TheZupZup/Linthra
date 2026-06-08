@@ -9,9 +9,11 @@ import '../../../core/sources/jellyfin/jellyfin_diagnostics.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../../core/sources/jellyfin/jellyfin_music_source.dart';
 import '../../../core/sources/jellyfin/jellyfin_server_capabilities.dart';
+import '../../../core/sources/music_provider.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/jellyfin_session_store_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
+import '../../library/source_preference_controller.dart';
 import 'jellyfin_settings_providers.dart';
 import 'jellyfin_settings_state.dart';
 import 'jellyfin_sync_controller.dart';
@@ -136,6 +138,14 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
               );
       await ref.read(jellyfinSessionStoreProvider).write(newSession);
       _session = newSession;
+      // The just-signed-in server becomes the active/default provider for
+      // picking among duplicate sources, so a song that also lives on another
+      // server now prefers Jellyfin. Persisted and best-effort.
+      unawaited(
+        ref
+            .read(librarySourcePriorityProvider.notifier)
+            .markPreferred(MusicProviders.jellyfin.sourceId),
+      );
       state = JellyfinSettingsState(
         phase: JellyfinConnectionPhase.connected,
         baseUrl: newSession.baseUrl,

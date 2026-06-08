@@ -14,6 +14,7 @@ import 'data/repositories/music_library_repository_provider.dart';
 import 'data/repositories/play_history_repository_provider.dart';
 import 'data/repositories/playback_preferences_provider.dart';
 import 'data/repositories/playlist_repository_provider.dart';
+import 'data/repositories/preferred_source_store_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
 import 'features/downloads/download_providers.dart';
@@ -46,6 +47,9 @@ Future<void> main() async {
       recordingDriftMusicLibraryRepositoryOverride,
       sharedPreferencesLibraryAddedStoreOverride,
       sharedPreferencesSelectedMusicFolderRepositoryOverride,
+      // Persist which server the user most recently signed into, so the
+      // active/default provider for de-duplicated songs survives a restart.
+      sharedPreferencesPreferredSourceStoreOverride,
       sharedPreferencesDownloadStoreOverride,
       sharedPreferencesDownloadPreferencesOverride,
       sharedPreferencesPlaybackPreferencesOverride,

@@ -199,8 +199,9 @@ class _LiveControls extends ConsumerWidget {
 
 /// Under the metadata: while casting, a clear `Casting to …` indicator;
 /// otherwise a friendly error message when playback failed, or the
-/// playback-source badge (LOCAL FILE / STREAMING DIRECT / OFFLINE CACHE) once a
-/// track has resolved. Shows nothing while a track is still loading locally.
+/// playback-source badge ("Playing from Navidrome / Jellyfin / Local files /
+/// Cache") once a track has resolved — naming the copy actually playing, not the
+/// active/default provider. Shows nothing while a track is still loading locally.
 class _SourceOrError extends ConsumerWidget {
   const _SourceOrError({required this.state});
 
@@ -239,7 +240,10 @@ class _SourceOrError extends ConsumerWidget {
     if (source == null) {
       return const SizedBox(height: 28);
     }
-    return PlaybackSourceChip(source: source);
+    return PlaybackSourceChip(
+      source: source,
+      trackUri: state.currentTrack?.uri,
+    );
   }
 }
 

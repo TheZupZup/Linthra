@@ -39,6 +39,16 @@ persisted catalog.
 playlists stay on-device; "synced" ones mirror with the server (server is the
 source of truth on refresh).
 
+## One library across providers
+
+Because two servers can expose the **same** music, Linthra unifies the catalog:
+it **stores** every provider's copy of a song but **displays** one row per
+logical track, and plays the copy from your active/default provider (the server
+you most recently signed into), falling back to another source when that
+provider doesn't have the song. De-duplication is conservative and never deletes
+data. See [unified-library.md](unified-library.md) for the model, the matching
+rules, and the "Playing from …" source indicator.
+
 ## Local files
 
 Pick a folder with the Android Storage Access Framework picker and scan it.

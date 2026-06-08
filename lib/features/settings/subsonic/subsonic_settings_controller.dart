@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/subsonic_session.dart';
+import '../../../core/sources/music_provider.dart';
 import '../../../core/sources/subsonic/subsonic_api.dart';
 import '../../../core/sources/subsonic/subsonic_exception.dart';
 import '../../../core/sources/subsonic/subsonic_music_source.dart';
 import '../../../data/repositories/subsonic_session_store_provider.dart';
+import '../../library/source_preference_controller.dart';
 import 'subsonic_settings_providers.dart';
 import 'subsonic_settings_state.dart';
 import 'subsonic_sync_controller.dart';
@@ -123,6 +127,14 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
               );
       await ref.read(subsonicSessionStoreProvider).write(newSession);
       _session = newSession;
+      // The just-signed-in server becomes the active/default provider for
+      // picking among duplicate sources: a song that also lives on Jellyfin now
+      // prefers Navidrome/Subsonic. Persisted and best-effort.
+      unawaited(
+        ref
+            .read(librarySourcePriorityProvider.notifier)
+            .markPreferred(MusicProviders.subsonic.sourceId),
+      );
       state = SubsonicSettingsState(
         phase: SubsonicConnectionPhase.connected,
         baseUrl: newSession.baseUrl,
