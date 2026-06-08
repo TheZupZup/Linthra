@@ -360,4 +360,46 @@ void main() {
       expect(shuffled.isShuffled, isTrue);
     });
   });
+
+  group('replaceCurrent (runtime source fallback)', () {
+    test('swaps the current track in place, keeping position and queue', () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c')],
+        startIndex: 1,
+      );
+
+      final replaced = queue.replaceCurrent(_track('B'));
+
+      expect(replaced.current, _track('B'));
+      expect(replaced.currentIndex, 1);
+      expect(replaced.history, [_track('a')]);
+      expect(replaced.upNext, [_track('c')]);
+    });
+
+    test('is a no-op on an empty queue', () {
+      expect(
+        PlaybackQueue.empty.replaceCurrent(_track('a')),
+        PlaybackQueue.empty,
+      );
+    });
+
+    test('is a no-op when replacing the current with an equal track', () {
+      final queue = PlaybackQueue.of([_track('a')]);
+      expect(identical(queue.replaceCurrent(_track('a')), queue), isTrue);
+    });
+
+    test('a later unshuffle keeps the replaced copy, not the original', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b'), _track('c')])
+          .shuffled(Random(1));
+      // shuffled keeps the current track ('a') at the front.
+      final replaced = queue.replaceCurrent(_track('A'));
+
+      final restored = replaced.unshuffled();
+
+      final ids = restored.tracks.map((Track t) => t.id);
+      expect(ids, contains('A'));
+      expect(ids, isNot(contains('a')));
+      expect(restored.current, _track('A'));
+    });
+  });
 }

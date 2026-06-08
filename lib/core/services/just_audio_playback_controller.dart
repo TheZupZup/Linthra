@@ -13,6 +13,7 @@ import '../models/track.dart';
 import 'local_playable_uri_resolver.dart';
 import 'local_playback_controller.dart';
 import 'playable_uri_resolver.dart';
+import 'playback_candidate_source.dart';
 import 'playback_controller.dart';
 import 'stability_diagnostics.dart';
 import 'stream_interruption.dart';
@@ -39,10 +40,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   JustAudioPlaybackController({
     AudioPlayer? player,
     PlayableUriResolver resolver = const LocalPlayableUriResolver(),
+    PlaybackCandidateSource candidates = const NoFallbackCandidateSource(),
     Random? random,
     TrackCompletionCallback? onTrackCompleted,
   })  : _player = player ?? _defaultPlayer(),
         _resolver = resolver,
+        _candidates = candidates,
         _random = random ?? Random(),
         _onTrackCompleted = onTrackCompleted {
     _wire();
@@ -80,6 +83,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   final AudioPlayer _player;
   final PlayableUriResolver _resolver;
+
+  /// Supplies the ordered source candidates for the track being played, so a
+  /// failed preferred copy can fall back to another copy of the same song. The
+  /// default returns just the track itself (no fallback), so single-source
+  /// playback is unchanged.
+  final PlaybackCandidateSource _candidates;
   final Random _random;
 
   /// Invoked once each time a track reaches its natural end, before the repeat
@@ -541,48 +550,98 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       ));
     }
 
-    final ResolvedPlayable resolved;
+    // Try the track's source candidates in deterministic, most-preferred-first
+    // order, falling back to the next copy of the same song when the preferred
+    // one can't resolve or start. A single-source track has just one candidate,
+    // so this behaves exactly as a direct load did.
+    final List<Track> candidates = _candidates.candidatesFor(track);
+    final ({Track track, ResolvedPlayable resolved}) outcome;
     try {
-      resolved = await _resolver.resolve(track);
+      outcome = await _loadFirstWorkingCandidate(candidates);
     } on PlaybackResolutionException catch (error) {
-      // A resolver failure carries its own friendly, secret-free message.
-      StabilityDiagnostics.playbackError('resolution');
+      // Every candidate failed: surface one friendly, secret-free message.
       _emitError(track, error.message);
       return;
-    } catch (_) {
-      // An unexpected error before we even know the source: stay generic.
-      StabilityDiagnostics.playbackError('resolution-unknown');
-      _emitError(track, "Couldn't play this track.");
-      return;
     }
 
-    // Record where the audio is coming from so the UI can show an honest
-    // source badge. It rides along on every later position/status update via
-    // copyWith until the next track loads (which resets it).
-    _emit(_state.copyWith(source: resolved.source));
+    // Make the copy that actually started the current one, so the queue, the
+    // mini-player, and the "Playing from …" indicator all reflect the source
+    // that succeeded — not the preferred one that may have failed. The resolved
+    // source rides along on later position/status updates until the next load.
+    final Track played = outcome.track;
+    if (played.id != track.id) _queue = _queue.replaceCurrent(played);
+    _emit(_state.copyWith(
+      currentTrack: played,
+      source: outcome.resolved.source,
+      upNext: _queue.upNext,
+      previous: _queue.history,
+      hasPrevious: _queue.hasPrevious,
+    ));
 
-    try {
-      // setUrl handles file://, content:// (Android), and https:// URIs alike,
-      // so local files, SAF documents, and Jellyfin streams share one path. The
-      // resolver guarantees this is never a bare `jellyfin:<id>` — that scheme
-      // is turned into an authenticated stream URL (or a friendly error) before
-      // it ever reaches here.
-      await _player.setUrl(resolved.uri.toString());
-      // Level this track before it's heard: apply its ReplayGain (or full
-      // volume when normalization is off), so the very first moment of audio is
-      // already at the right loudness rather than jumping after a beat.
-      await _applyVolume();
-      // Resuming on this device after casting picks up where the receiver left
-      // off, paused unless asked to play.
-      if (startAt > Duration.zero) await _player.seek(startAt);
-      // play()'s future completes when playback ends, so we don't await it.
-      if (autoplay) unawaited(_player.play());
-    } catch (_) {
-      // The URL resolved and (for streams) probed OK, so a failure here is the
-      // engine itself. Word it for the source the listener can see on the badge.
-      StabilityDiagnostics.playbackError('load');
-      _emitError(track, _loadErrorFor(resolved.source));
+    // Level this track before it's heard (its ReplayGain, or full volume when
+    // normalization is off); resume at the preserved position after a cast
+    // handoff; then start — the source is already loaded.
+    await _applyVolume();
+    if (startAt > Duration.zero) await _player.seek(startAt);
+    // play()'s future completes when playback ends, so we don't await it.
+    if (autoplay) unawaited(_player.play());
+  }
+
+  /// Tries [candidates] in order — **at most once each** — resolving and loading
+  /// the first that works, returning it with its resolved source. Throws a
+  /// single, safe [PlaybackResolutionException] when every candidate fails.
+  ///
+  /// A one-candidate list (the common, single-source case) rethrows that
+  /// candidate's own specific failure, so single-source playback errors are
+  /// worded exactly as before; only a genuine multi-source all-fail collapses to
+  /// the generic "any available source" message. It makes a single pass and
+  /// never retries, so it always terminates.
+  Future<({Track track, ResolvedPlayable resolved})> _loadFirstWorkingCandidate(
+    List<Track> candidates,
+  ) async {
+    final List<PlaybackResolutionException> failures =
+        <PlaybackResolutionException>[];
+    for (final Track candidate in candidates) {
+      final ResolvedPlayable resolved;
+      try {
+        resolved = await _resolver.resolve(candidate);
+      } on PlaybackResolutionException catch (error) {
+        // A resolver failure carries its own friendly, secret-free message.
+        StabilityDiagnostics.playbackError('resolution');
+        failures.add(error);
+        continue;
+      } catch (_) {
+        // An unexpected error before we even know the source: stay generic.
+        StabilityDiagnostics.playbackError('resolution-unknown');
+        failures.add(const PlaybackResolutionException(
+          "Couldn't play this track.",
+          kind: PlaybackResolutionErrorKind.streamUnavailable,
+        ));
+        continue;
+      }
+      try {
+        // setUrl handles file://, content:// (Android), and https:// URIs alike,
+        // so local files, SAF documents, and remote streams share one path. The
+        // resolver guarantees this is never a bare `jellyfin:`/`subsonic:` scheme
+        // — that is turned into an authenticated stream URL before it gets here.
+        await _player.setUrl(resolved.uri.toString());
+        return (track: candidate, resolved: resolved);
+      } catch (_) {
+        // Resolved (and, for streams, probed) OK but the engine couldn't open
+        // it: a start failure. Word it for the source, then try the next copy.
+        StabilityDiagnostics.playbackError('load');
+        failures.add(PlaybackResolutionException(
+          _loadErrorFor(resolved.source),
+          kind: PlaybackResolutionErrorKind.streamUnavailable,
+        ));
+        continue;
+      }
     }
+    if (failures.length == 1) throw failures.first;
+    throw const PlaybackResolutionException(
+      "Couldn't play this track from any available source.",
+      kind: PlaybackResolutionErrorKind.streamUnavailable,
+    );
   }
 
   /// The generic message for an engine load failure *after* a successful
