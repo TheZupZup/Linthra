@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../models/lyrics.dart';
 import '../../models/subsonic_session.dart';
 import 'subsonic_api.dart';
 import 'subsonic_auth.dart';
@@ -145,6 +146,47 @@ class HttpSubsonicClient implements SubsonicClient {
   }
 
   @override
+  Future<Lyrics?> fetchLyrics(
+    SubsonicSession session,
+    String songId, {
+    String? artist,
+    String? title,
+  }) async {
+    final SubsonicCredentials credentials = _credentials(session);
+    // Primary: the OpenSubsonic `getLyricsBySongId` extension, keyed by the song
+    // id we already hold. This is what Navidrome (and other OpenSubsonic
+    // servers) answer with embedded/sidecar lyrics, synced or plain.
+    final Lyrics? structured = await _tryLyrics(
+      SubsonicEndpoints.getLyricsBySongId(
+        session.baseUrl,
+        username: session.username,
+        credentials: credentials,
+        songId: songId,
+      ),
+      _parseStructuredLyrics,
+    );
+    if (structured != null) return structured;
+    // Fallback: the legacy `getLyrics` (plain text, matched by artist + title)
+    // for servers without the extension. Skipped when we lack both fields.
+    if (artist != null &&
+        artist.isNotEmpty &&
+        title != null &&
+        title.isNotEmpty) {
+      return _tryLyrics(
+        SubsonicEndpoints.getLyrics(
+          session.baseUrl,
+          username: session.username,
+          credentials: credentials,
+          artist: artist,
+          title: title,
+        ),
+        _parseLegacyLyrics,
+      );
+    }
+    return null;
+  }
+
+  @override
   Future<SubsonicStreamProbe> probeStream(Uri url) async {
     // A one-byte ranged GET: enough to see the real status and content type the
     // engine will get, without downloading the track. The credential rides in
@@ -165,6 +207,36 @@ class HttpSubsonicClient implements SubsonicClient {
 
   SubsonicCredentials _credentials(SubsonicSession session) =>
       SubsonicCredentials(salt: session.salt, token: session.token);
+
+  /// GETs a lyrics endpoint and runs [parse] on a successful envelope.
+  ///
+  /// Lyrics are best-effort: only a transport failure (from [_send]) propagates
+  /// — surfacing the UI's "couldn't load lyrics" hint when offline. Every other
+  /// outcome (an HTTP error status, a non-Subsonic body, or a Subsonic error
+  /// inside a 200: no match, unsupported method, an old server) means "no lyrics
+  /// here" and yields `null`, so the UI keeps its calm empty state rather than a
+  /// scary error. The credential-bearing URL is never logged or thrown.
+  Future<Lyrics?> _tryLyrics(
+    Uri uri,
+    Lyrics? Function(SubsonicEnvelope envelope) parse,
+  ) async {
+    final http.Response response = await _send(
+      () => _client.get(uri, headers: const <String, String>{
+        'Accept': 'application/json',
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) return null;
+    final Map<String, dynamic> body;
+    try {
+      body = _decodeObject(response);
+    } on SubsonicException {
+      // A 2xx body that isn't JSON — treat as "no lyrics here", not an error.
+      return null;
+    }
+    final SubsonicEnvelope? envelope = SubsonicEnvelope.fromJson(body);
+    if (envelope == null || !envelope.isOk) return null;
+    return parse(envelope);
+  }
 
   /// Performs a JSON `GET`, then decodes and validates the `subsonic-response`
   /// envelope — throwing a friendly [SubsonicException] for a transport failure,
@@ -263,6 +335,75 @@ class HttpSubsonicClient implements SubsonicClient {
         return SubsonicException.serverError();
     }
   }
+
+  /// Parses an OpenSubsonic `getLyricsBySongId` envelope
+  /// (`lyricsList.structuredLyrics[]`) into [Lyrics], or `null` when it carries
+  /// no usable lines.
+  ///
+  /// Each line has a `value` (text) and, for synced lyrics, a `start` in
+  /// **milliseconds**; an entry-level `offset` (ms, default 0) shifts every
+  /// timestamp. A line with no `start` (or a set explicitly flagged
+  /// `synced: false`) maps to a plain, untimed [LyricLine], so [Lyrics.isSynced]
+  /// then reports plain — exactly what the UI needs to pick the static vs. the
+  /// timed view. The first structured set with lines is used (servers list
+  /// multiple only for alternate languages).
+  static Lyrics? _parseStructuredLyrics(SubsonicEnvelope envelope) {
+    final Object? root = envelope.data['lyricsList'];
+    if (root is! Map<String, dynamic>) return null;
+    final Object? sets = root['structuredLyrics'];
+    if (sets is! List) return null;
+    for (final Object? set in sets) {
+      if (set is! Map<String, dynamic>) continue;
+      final Object? rawLines = set['line'];
+      if (rawLines is! List || rawLines.isEmpty) continue;
+      // Honor an explicit unsynced flag so a server that tags plain lyrics with
+      // stray zero timestamps isn't mistaken for a (mis)timed track; otherwise
+      // per-line `start` presence decides plain vs. synced.
+      final bool unsynced = set['synced'] == false;
+      final int offsetMs = _asInt(set['offset']) ?? 0;
+      final List<LyricLine> lines = <LyricLine>[];
+      for (final Object? raw in rawLines) {
+        if (raw is! Map<String, dynamic>) continue;
+        final Object? value = raw['value'];
+        if (value is! String) continue;
+        final int? startMs = unsynced ? null : _asInt(raw['start']);
+        lines.add(LyricLine(
+          text: value,
+          start: startMs == null ? null : _durationFromMs(startMs + offsetMs),
+        ));
+      }
+      if (lines.isNotEmpty) return Lyrics(lines: lines);
+    }
+    return null;
+  }
+
+  /// Parses a legacy `getLyrics` envelope (`lyrics.value`, plain text) into
+  /// [Lyrics], or `null` when there's no (non-blank) text. The text is split
+  /// into untimed lines on newlines (CRLF normalized), so it renders in the same
+  /// plain-lyrics view. Any LRC-style timestamps embedded in the text are left
+  /// as-is for now (synced parsing here is a documented follow-up).
+  static Lyrics? _parseLegacyLyrics(SubsonicEnvelope envelope) {
+    final Object? root = envelope.data['lyrics'];
+    if (root is! Map<String, dynamic>) return null;
+    final Object? value = root['value'];
+    if (value is! String || value.trim().isEmpty) return null;
+    final List<LyricLine> lines = value
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .split('\n')
+        .map((String line) => LyricLine(text: line))
+        .toList();
+    return lines.isEmpty ? null : Lyrics(lines: lines);
+  }
+
+  /// A non-negative [Duration] from milliseconds; clamps a negative result (an
+  /// offset can push an early line below zero) to zero.
+  static Duration _durationFromMs(int milliseconds) =>
+      Duration(milliseconds: milliseconds < 0 ? 0 : milliseconds);
+
+  /// Reads a numeric JSON field as an `int`, or `null` when it's absent or not a
+  /// number — so a malformed `start`/`offset` can't throw or mistime a line.
+  static int? _asInt(Object? value) => value is num ? value.toInt() : null;
 
   /// Decodes a JSON object body, or throws [SubsonicErrorKind.notSubsonic] when
   /// the body isn't JSON (e.g. an HTML error page) or isn't an object.

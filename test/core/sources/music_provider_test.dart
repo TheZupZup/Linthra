@@ -27,18 +27,20 @@ void main() {
       expect(caps.canCast, isTrue);
     });
 
-    test('subsonic: stream/cache/cast implemented; favorites & lyrics are not',
+    test('subsonic: stream/cache/cast/lyrics implemented; favorites are not',
         () {
       final caps = MusicProviders.subsonic.capabilities;
       expect(caps.canStream, isTrue);
       expect(caps.canCache, isTrue);
       expect(caps.canCast, isTrue);
+      // Lyrics arrive via the OpenSubsonic getLyricsBySongId extension
+      // (Navidrome) with a legacy getLyrics fallback.
+      expect(caps.canLyrics, isTrue);
       // Declared unsupported so their actions stay hidden/disabled.
       expect(caps.canFavoriteTracks, isFalse);
       expect(caps.canReadFavoriteState, isFalse);
       expect(caps.canSyncFavorites, isFalse);
       expect(caps.canListPlaylists, isFalse);
-      expect(caps.canLyrics, isFalse);
     });
 
     test('identity fields', () {

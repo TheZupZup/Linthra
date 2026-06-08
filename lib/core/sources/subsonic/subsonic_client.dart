@@ -1,3 +1,4 @@
+import '../../models/lyrics.dart';
 import '../../models/subsonic_session.dart';
 import 'subsonic_api.dart';
 import 'subsonic_auth.dart';
@@ -41,6 +42,23 @@ abstract interface class SubsonicClient {
     SubsonicSession session,
     String albumId,
   );
+
+  /// Fetches lyrics for the song [songId], or `null` when none are available.
+  ///
+  /// Tries the OpenSubsonic `getLyricsBySongId` extension first (synced or plain
+  /// lyrics, as Navidrome exposes them), then falls back to the legacy
+  /// `getLyrics` (plain text, matched by [artist] + [title]) for servers without
+  /// the extension. Lyrics are best-effort: only a transport failure throws a
+  /// [SubsonicException]; a server that has no lyrics, doesn't support the
+  /// endpoint, or returns an unusable body yields `null` so the UI keeps its
+  /// calm "no lyrics" state. The credential is woven into the request URL and is
+  /// never logged or placed in a thrown error.
+  Future<Lyrics?> fetchLyrics(
+    SubsonicSession session,
+    String songId, {
+    String? artist,
+    String? title,
+  });
 
   /// Probes a minted stream [url] with a tiny ranged request to confirm the
   /// server returns playable audio *before* the URL is handed to the audio
