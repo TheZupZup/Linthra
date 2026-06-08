@@ -5,7 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../../app/colors.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
+import '../../core/models/playback_source.dart';
+import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
+import '../../core/services/playback_source_label.dart';
 import 'cast/cast_providers.dart';
 import 'player_providers.dart';
 import 'widgets/album_artwork.dart';
@@ -25,15 +28,20 @@ class MiniPlayer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Watch only the current track (id-distinct), so the ~5 Hz position ticks
-    // rebuild just the thin progress line and the play/pause button below — not
-    // the whole bar (artwork, text) on every screen, every tick. Falls back to
-    // the controller's latest state until the first stream event arrives.
-    final Track? streamed = ref.watch(
-      playbackStateProvider.select((s) => s.valueOrNull?.currentTrack),
+    // Watch only the current track (id-distinct) and its resolved source, so the
+    // ~5 Hz position ticks rebuild just the thin progress line and the play/pause
+    // button below — not the whole bar (artwork, text) on every screen, every
+    // tick. The source changes only when the track does, so including it adds no
+    // tick rebuilds. Falls back to the controller's latest state until the first
+    // stream event arrives.
+    final (Track?, PlaybackSource?) streamed = ref.watch(
+      playbackStateProvider.select(
+        (s) => (s.valueOrNull?.currentTrack, s.valueOrNull?.source),
+      ),
     );
-    final Track? track =
-        streamed ?? ref.read(playbackControllerProvider).state.currentTrack;
+    final PlaybackState fallback = ref.read(playbackControllerProvider).state;
+    final Track? track = streamed.$1 ?? fallback.currentTrack;
+    final PlaybackSource? source = streamed.$2 ?? fallback.source;
 
     // Collapse entirely when there is nothing to show, so screens without a
     // loaded track look exactly as they did before.
@@ -46,6 +54,12 @@ class MiniPlayer extends ConsumerWidget {
       castStateProvider.select((s) => s.valueOrNull?.isConnected ?? false),
     );
     final subtitle = _subtitle(track);
+    // The copy actually playing (Navidrome / Jellyfin / Local files / Cache),
+    // shown as a faint tag beside the metadata. Hidden while casting, where the
+    // cast indicator already says where the audio is going.
+    final String? sourceName = (!isCasting && source != null)
+        ? PlaybackSourceLabel.of(trackUri: track.uri, source: source)
+        : null;
 
     return Material(
       color: theme.colorScheme.surfaceContainerHigh,
@@ -84,15 +98,10 @@ class MiniPlayer extends ConsumerWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            if (subtitle != null)
-                              Text(
-                                subtitle,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurface
-                                      .withValues(alpha: 0.6),
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                            if (subtitle != null || sourceName != null)
+                              _MiniSubtitle(
+                                subtitle: subtitle,
+                                sourceName: sourceName,
                               ),
                           ],
                         ),
@@ -123,6 +132,53 @@ class MiniPlayer extends ConsumerWidget {
   static String? _subtitle(Track track) {
     final String label = track.artistAlbumLabel;
     return label.isEmpty ? null : label;
+  }
+}
+
+/// The mini-player's second line: the artist • album metadata and, when known, a
+/// faint trailing tag for the copy actually playing (Navidrome / Jellyfin /
+/// Local files / Cache). Both halves shrink and ellipsize so a long title or a
+/// narrow screen never overflows the bar.
+class _MiniSubtitle extends StatelessWidget {
+  const _MiniSubtitle({required this.subtitle, required this.sourceName});
+
+  final String? subtitle;
+  final String? sourceName;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final TextStyle? metaStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+    );
+    final TextStyle? sourceStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
+    );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (subtitle != null)
+          Flexible(
+            child: Text(
+              subtitle!,
+              style: metaStyle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        if (subtitle != null && sourceName != null)
+          Text('  •  ', style: sourceStyle),
+        if (sourceName != null)
+          Flexible(
+            child: Text(
+              sourceName!,
+              style: sourceStyle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
+    );
   }
 }
 

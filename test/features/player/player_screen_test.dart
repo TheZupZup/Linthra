@@ -87,13 +87,15 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('shows the LOCAL FILE badge', (tester) async {
+    testWidgets('shows the Local files source for an on-device track',
+        (tester) async {
       await _pumpScreen(tester, _playing(source: PlaybackSource.localFile));
 
-      expect(find.text('LOCAL FILE'), findsOneWidget);
+      expect(find.text('Playing from Local files'), findsOneWidget);
     });
 
-    testWidgets('shows the STREAMING DIRECT badge', (tester) async {
+    testWidgets('names the owning server (Jellyfin) for a direct stream',
+        (tester) async {
       await _pumpScreen(
         tester,
         _playing(
@@ -102,10 +104,22 @@ void main() {
         ),
       );
 
-      expect(find.text('STREAMING DIRECT'), findsOneWidget);
+      expect(find.text('Playing from Jellyfin'), findsOneWidget);
     });
 
-    testWidgets('shows the OFFLINE CACHE badge', (tester) async {
+    testWidgets('names Navidrome for a Subsonic direct stream', (tester) async {
+      await _pumpScreen(
+        tester,
+        _playing(
+          track: const Track(id: 't1', title: 'Remote', uri: 'subsonic:t1'),
+          source: PlaybackSource.streamingDirect,
+        ),
+      );
+
+      expect(find.text('Playing from Navidrome'), findsOneWidget);
+    });
+
+    testWidgets('shows the Cache source for offline playback', (tester) async {
       await _pumpScreen(
         tester,
         _playing(
@@ -114,7 +128,7 @@ void main() {
         ),
       );
 
-      expect(find.text('OFFLINE CACHE'), findsOneWidget);
+      expect(find.text('Playing from Cache'), findsOneWidget);
     });
 
     testWidgets('play/pause delegates to the controller', (tester) async {

@@ -306,7 +306,12 @@ class _OverflowMenu extends ConsumerWidget {
       case _TrackAction.removeOffline:
         await SongActions.removeOfflineCopies(context, ref, <Track>[track]);
       case _TrackAction.removeFromLibrary:
-        await SongActions.removeFromLibrary(context, ref, <Track>[track]);
+        await SongActions.removeFromLibrary(
+          context,
+          ref,
+          <Track>[track],
+          expandLogicalSources: true,
+        );
     }
   }
 

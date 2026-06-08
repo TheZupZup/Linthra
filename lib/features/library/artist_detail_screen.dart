@@ -13,6 +13,7 @@ import '../player/player_providers.dart';
 import 'library_browse_providers.dart';
 import 'library_controller.dart';
 import 'library_state.dart';
+import 'unified_library_providers.dart';
 import 'widgets/album_tile.dart';
 import 'widgets/track_tile.dart';
 
@@ -50,7 +51,8 @@ class ArtistDetailScreen extends ConsumerWidget {
         break;
       }
     }
-    final List<Track> tracks = tracksForArtist(state.tracks, artistId);
+    final List<Track> songs = ref.watch(libraryUnifiedTracksProvider);
+    final List<Track> tracks = tracksForArtist(songs, artistId);
     if (artist == null || tracks.isEmpty) {
       return Scaffold(
         appBar: AppBar(),
@@ -62,7 +64,7 @@ class ArtistDetailScreen extends ConsumerWidget {
       );
     }
 
-    final List<Album> albums = albumsForArtist(state.tracks, artistId);
+    final List<Album> albums = albumsForArtist(songs, artistId);
 
     return Scaffold(
       appBar: AppBar(

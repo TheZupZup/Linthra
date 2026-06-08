@@ -8,6 +8,7 @@ import '../../shared/widgets/confirm_dialog.dart';
 import '../player/player_providers.dart';
 import '../playlists/playlist_providers.dart';
 import 'library_controller.dart';
+import 'unified_library_providers.dart';
 
 /// The shared, safe song remove/delete actions used by the Library and playlist
 /// screens. Centralized so the confirmation wording, the currently-playing
@@ -30,6 +31,7 @@ abstract final class SongActions {
     WidgetRef ref,
     List<Track> tracks, {
     String? playlistId,
+    bool expandLogicalSources = false,
   }) async {
     if (tracks.isEmpty) return false;
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
@@ -45,9 +47,9 @@ abstract final class SongActions {
     );
     if (!confirmed) return false;
 
-    await ref.read(musicLibraryRepositoryProvider).removeTracks(
-      <String>[for (final Track track in tracks) track.id],
-    );
+    await ref
+        .read(musicLibraryRepositoryProvider)
+        .removeTracks(_removalIds(ref, tracks, expandLogicalSources));
     // Refresh the library view; if we're inside a playlist, re-resolve its
     // tracks so a now-removed item is reflected.
     await ref.read(libraryControllerProvider.notifier).refresh();
@@ -113,6 +115,28 @@ abstract final class SongActions {
       SnackBar(content: Text(_offlineSummary(removed, failed, skipped))),
     );
     return true;
+  }
+
+  /// The track ids to forget for [tracks]. When [expandLogicalSources] is set
+  /// (library/album/artist surfaces, where each row is a logical track), a
+  /// row's id is expanded to every provider copy via [logicalSourceIdsProvider]
+  /// so removing the row can't leave a hidden duplicate behind. Elsewhere (a
+  /// playlist's specific tracks) the ids are taken verbatim.
+  static List<String> _removalIds(
+    WidgetRef ref,
+    List<Track> tracks,
+    bool expandLogicalSources,
+  ) {
+    if (!expandLogicalSources) {
+      return <String>[for (final Track track in tracks) track.id];
+    }
+    final Map<String, List<String>> bySource =
+        ref.read(logicalSourceIdsProvider);
+    final List<String> ids = <String>[];
+    for (final Track track in tracks) {
+      ids.addAll(bySource[track.id] ?? <String>[track.id]);
+    }
+    return ids;
   }
 
   static String _offlineSummary(int removed, int failed, int skipped) {

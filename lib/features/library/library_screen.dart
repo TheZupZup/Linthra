@@ -17,6 +17,7 @@ import 'library_search.dart';
 import 'library_state.dart';
 import 'selected_folder_controller.dart';
 import 'song_actions.dart';
+import 'unified_library_providers.dart';
 import 'widgets/album_tile.dart';
 import 'widgets/alphabet_track_list.dart';
 import 'widgets/artist_tile.dart';
@@ -85,6 +86,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   @override
   Widget build(BuildContext context) {
     final LibraryState state = ref.watch(libraryControllerProvider);
+    // The de-duplicated catalog the whole screen renders from: one row per
+    // logical song, even when the same track is served by more than one provider.
+    final List<Track> songs = ref.watch(libraryUnifiedTracksProvider);
     final AsyncValue<String?> selectedFolder =
         ref.watch(selectedFolderControllerProvider);
     // While the first Jellyfin sync is running, an empty catalog should read as
@@ -97,7 +101,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     // Drop any selected ids that are no longer in the catalog (e.g. after a
     // removal) so the count and actions stay accurate.
     final List<Track> selected = <Track>[
-      for (final Track track in state.tracks)
+      for (final Track track in songs)
         if (_selectedIds.contains(track.id)) track,
     ];
 
@@ -109,7 +113,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         },
         child: Scaffold(
           appBar: _selectionAppBar(selected),
-          body: _songsList(_filteredSongs(state)),
+          body: _songsList(_filteredSongs(songs)),
         ),
       );
     }
@@ -118,7 +122,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     // browse; loading, error, and the folder-pick empty state take the whole
     // body (and no tabs), exactly as before.
     final bool browsing =
-        state.status == LibraryStatus.loaded && state.tracks.isNotEmpty;
+        state.status == LibraryStatus.loaded && songs.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -133,7 +137,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         bottom: browsing ? _tabBar() : null,
       ),
       body: browsing
-          ? _browseBody(state)
+          ? _browseBody(songs)
           : _statusBody(state, selectedFolder.valueOrNull, jellyfinSyncing),
     );
   }
@@ -186,7 +190,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   /// Search box + the three browse tabs. Only built when there's content.
-  Widget _browseBody(LibraryState state) {
+  Widget _browseBody(List<Track> songs) {
     return Column(
       children: <Widget>[
         LibrarySearchField(
@@ -198,7 +202,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           child: TabBarView(
             controller: _tabController,
             children: <Widget>[
-              _songsTab(state),
+              _songsTab(songs),
               _albumsTab(),
               _artistsTab(),
             ],
@@ -210,8 +214,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   // --- Tabs -------------------------------------------------------------
 
-  Widget _songsTab(LibraryState state) {
-    final List<Track> filtered = _filteredSongs(state);
+  Widget _songsTab(List<Track> songs) {
+    final List<Track> filtered = _filteredSongs(songs);
     if (filtered.isEmpty) return const _NoResults();
     return _songsList(filtered);
   }
@@ -250,8 +254,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     );
   }
 
-  List<Track> _filteredSongs(LibraryState state) =>
-      filterTracks(state.tracks, _query);
+  List<Track> _filteredSongs(List<Track> songs) => filterTracks(songs, _query);
 
   Widget _songsList(List<Track> tracks) {
     return AlphabetTrackList(
@@ -331,8 +334,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   Future<void> _removeFromLibrary(List<Track> selected) async {
-    final bool removed =
-        await SongActions.removeFromLibrary(context, ref, selected);
+    // Removing a logical row forgets every provider copy of the song, so a
+    // hidden duplicate can't resurrect the row on the next reload.
+    final bool removed = await SongActions.removeFromLibrary(
+      context,
+      ref,
+      selected,
+      expandLogicalSources: true,
+    );
     if (removed) _exitSelection();
   }
 

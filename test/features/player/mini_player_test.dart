@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:linthra/app/routes.dart';
+import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/features/player/mini_player.dart';
@@ -79,6 +80,23 @@ void main() {
       expect(find.text('Artist A • Album B'), findsOneWidget);
       // While playing it offers a Pause control.
       expect(find.byTooltip('Pause'), findsOneWidget);
+    });
+
+    testWidgets('shows the resolved source beside the metadata',
+        (tester) async {
+      final controller = FakePlaybackController(
+        initial: const PlaybackState(
+          status: PlaybackStatus.playing,
+          currentTrack: Track(id: 'r', title: 'Remote', uri: 'subsonic:r'),
+          source: PlaybackSource.streamingDirect,
+        ),
+      );
+      await _pump(tester, controller);
+      await tester.pumpAndSettle();
+
+      // The mini-player names the copy actually playing (a Navidrome stream),
+      // not the active/default provider.
+      expect(find.text('Navidrome'), findsOneWidget);
     });
 
     testWidgets('play/pause delegates to the controller', (tester) async {
