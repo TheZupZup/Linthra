@@ -27,6 +27,17 @@ class MainActivity : AudioServiceActivity() {
                                 .listAudioDocuments(treeUri, result)
                         }
                     }
+                    "hasPersistedPermission" -> {
+                        val treeUri = call.argument<String>("treeUri")
+                        if (treeUri == null) {
+                            result.error("bad_args", "treeUri is required", null)
+                        } else {
+                            result.success(
+                                SafDocumentScanner(applicationContext)
+                                    .hasPersistedPermission(treeUri),
+                            )
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

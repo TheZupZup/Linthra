@@ -289,4 +289,99 @@ void main() {
       expect(report.toLowerCase(), isNot(contains('bearer')));
     });
   });
+
+  group('AppDiagnostics.report local scan diagnostics', () {
+    test('reports the selected folder, access, scan counts, and error', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          localFolderSelected: true,
+          localPersistedPermission: true,
+          localScanFilesVisited: 120,
+          localScanAudioCandidates: 98,
+          localScanSkippedUnsupported: 22,
+          localScanReadFailures: 0,
+        ),
+      );
+
+      expect(report, contains('Local folder: selected'));
+      expect(report, contains('Local folder access: persisted'));
+      expect(
+        report,
+        contains('Local scan: visited 120, audio 98, skipped 22, '
+            'read failures 0'),
+      );
+    });
+
+    test('reports a missing folder and a lost grant plainly', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          localFolderSelected: false,
+        ),
+      );
+
+      expect(report, contains('Local folder: not selected'));
+      // No persisted-permission line when the flag is unknown/not applicable.
+      expect(report, isNot(contains('Local folder access:')));
+    });
+
+    test('reports a not-persisted SAF grant — the removable-SD signal', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          localFolderSelected: true,
+          localPersistedPermission: false,
+          localScanFilesVisited: 0,
+          localScanAudioCandidates: 0,
+          localScanSkippedUnsupported: 0,
+          localScanReadFailures: 4,
+        ),
+      );
+
+      expect(report, contains('Local folder access: not persisted'));
+      expect(report, contains('read failures 4'));
+    });
+
+    test('reports the last scan error kind when present', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          localScanError: 'safTraversal',
+        ),
+      );
+
+      expect(report, contains('Local scan error: safTraversal'));
+    });
+
+    test('omits the local-scan lines when the fields are absent', () {
+      final String report =
+          AppDiagnostics.report(const AppDiagnosticsData(appVersion: '0.1.0'));
+
+      expect(report, isNot(contains('Local folder:')));
+      expect(report, isNot(contains('Local folder access:')));
+      expect(report, isNot(contains('Local scan:')));
+      expect(report, isNot(contains('Local scan error:')));
+    });
+
+    test('the local-scan lines carry no path, URI, or file name', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          localFolderSelected: true,
+          localPersistedPermission: false,
+          localScanFilesVisited: 3,
+          localScanAudioCandidates: 1,
+          localScanSkippedUnsupported: 2,
+          localScanReadFailures: 1,
+          localScanError: 'safTraversal',
+        ),
+      );
+
+      expect(report.toLowerCase(), isNot(contains('content://')));
+      expect(report, isNot(contains('/storage/')));
+      expect(report.toLowerCase(), isNot(contains('.mp3')));
+      expect(report.toLowerCase(), isNot(contains('http')));
+    });
+  });
 }

@@ -6,7 +6,9 @@ import '../../core/services/file_picker_folder_picker_service.dart';
 import '../../core/services/folder_picker_service.dart';
 import '../../core/sources/local/audio_file_scanner.dart';
 import '../../core/sources/local/method_channel_saf_document_lister.dart';
+import '../../core/sources/local/method_channel_saf_permission_probe.dart';
 import '../../core/sources/local/saf_document_lister.dart';
+import '../../core/sources/local/saf_permission_probe.dart';
 
 /// The storage seam the library scan uses to discover audio files.
 ///
@@ -36,4 +38,15 @@ final safDocumentListerProvider = Provider<SafDocumentLister>((ref) {
   return Platform.isAndroid
       ? const MethodChannelSafDocumentLister()
       : const UnsupportedSafDocumentLister();
+});
+
+/// The seam diagnostics use to check whether a persisted SAF read grant is still
+/// held for the selected `content://` folder — the removable-SD-card signal that
+/// tells "no music found" apart from a lost folder permission. Android-only;
+/// elsewhere (desktop, tests) the unsupported binding reports `null` so the
+/// persisted-permission line is simply omitted. Tests override it with a fake.
+final safPermissionProbeProvider = Provider<SafPermissionProbe>((ref) {
+  return Platform.isAndroid
+      ? const MethodChannelSafPermissionProbe()
+      : const UnsupportedSafPermissionProbe();
 });

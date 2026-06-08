@@ -67,4 +67,51 @@ void main() {
       );
     });
   });
+
+  group('AudioFileTypes.isAudioMimeType', () {
+    test('recognizes any audio/* MIME type, case-insensitively', () {
+      expect(AudioFileTypes.isAudioMimeType('audio/mpeg'), isTrue);
+      expect(AudioFileTypes.isAudioMimeType('audio/flac'), isTrue);
+      expect(AudioFileTypes.isAudioMimeType('AUDIO/MP4'), isTrue);
+      expect(AudioFileTypes.isAudioMimeType('  audio/ogg  '), isTrue);
+    });
+
+    test('rejects non-audio and missing MIME types', () {
+      expect(AudioFileTypes.isAudioMimeType('image/jpeg'), isFalse);
+      expect(AudioFileTypes.isAudioMimeType('text/plain'), isFalse);
+      expect(AudioFileTypes.isAudioMimeType(''), isFalse);
+      expect(AudioFileTypes.isAudioMimeType(null), isFalse);
+    });
+  });
+
+  group('AudioFileTypes.isSupportedDocument', () {
+    test('keeps a known extension even when the MIME is unknown', () {
+      // A valid extension with an opaque/unknown MIME is still audio.
+      expect(
+        AudioFileTypes.isSupportedDocument('Song.mp3', 'text/plain'),
+        isTrue,
+      );
+      expect(AudioFileTypes.isSupportedDocument('Song.flac', null), isTrue);
+    });
+
+    test('keeps an audio MIME even when the extension is unknown', () {
+      // No recognised extension, but the provider reported audio content.
+      expect(
+        AudioFileTypes.isSupportedDocument('recording', 'audio/mpeg'),
+        isTrue,
+      );
+      expect(
+        AudioFileTypes.isSupportedDocument('track.weird', 'audio/x-wav'),
+        isTrue,
+      );
+    });
+
+    test('drops a document that is neither a known extension nor audio', () {
+      expect(
+        AudioFileTypes.isSupportedDocument('cover.jpg', 'image/jpeg'),
+        isFalse,
+      );
+      expect(AudioFileTypes.isSupportedDocument('notes.txt', null), isFalse);
+    });
+  });
 }

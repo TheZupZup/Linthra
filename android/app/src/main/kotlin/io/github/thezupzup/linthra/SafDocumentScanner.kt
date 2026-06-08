@@ -9,8 +9,8 @@ import java.util.ArrayDeque
 
 /**
  * Walks a user-picked Storage Access Framework tree URI through the content
- * resolver and returns the audio documents under it (recursively) as
- * `{uri, name}` maps.
+ * resolver and returns the audio documents under it (recursively), together
+ * with secret-free counts the Dart diagnostics layer surfaces.
  *
  * This is the scoped-storage way to read a chosen folder: it uses only the
  * access the system granted when the user picked the tree, so it needs no
@@ -18,6 +18,12 @@ import java.util.ArrayDeque
  * audio is intentionally generous (an "audio/" MIME type or a known
  * extension); the Dart layer re-filters by its own supported-types list,
  * keeping that list in one place.
+ *
+ * Resilience: an unreadable subfolder (a provider hiccup, a vanished entry on a
+ * removable SD card) is counted and skipped rather than aborting the whole
+ * walk, so one bad subtree can't zero out an otherwise-readable library. A
+ * total access denial (a revoked grant) still surfaces as a SecurityException
+ * so the user sees a clear "no access" message instead of a silent empty.
  */
 class SafDocumentScanner(private val context: Context) {
 
@@ -32,7 +38,19 @@ class SafDocumentScanner(private val context: Context) {
         }
     }
 
-    private fun walk(treeUri: Uri): List<Map<String, String>> {
+    /**
+     * Whether the app currently holds a persisted *read* grant for [treeUri] —
+     * the diagnostic that tells "no music found" apart from a lost folder grant
+     * (e.g. after a reboot, or a removable SD card that was remounted).
+     */
+    fun hasPersistedPermission(treeUri: String): Boolean {
+        val target = Uri.parse(treeUri)
+        return context.contentResolver.persistedUriPermissions.any {
+            it.uri == target && it.isReadPermission
+        }
+    }
+
+    private fun walk(treeUri: Uri): Map<String, Any?> {
         // Persist the grant when possible so a folder picked once can still be
         // scanned after a restart; harmless (and ignored) when not persistable.
         try {
@@ -44,39 +62,72 @@ class SafDocumentScanner(private val context: Context) {
             // The grant wasn't persistable; traversal still works this session.
         }
 
-        val out = ArrayList<Map<String, String>>()
+        val documents = ArrayList<Map<String, String?>>()
+        var filesVisited = 0
+        var readFailures = 0
         val queue = ArrayDeque<String>()
         queue.add(DocumentsContract.getTreeDocumentId(treeUri))
         while (queue.isNotEmpty()) {
             val parentDocId = queue.poll()
             val childrenUri =
                 DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
-            context.contentResolver.query(
-                childrenUri,
-                arrayOf(
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                    DocumentsContract.Document.COLUMN_MIME_TYPE,
-                ),
-                null,
-                null,
-                null,
-            )?.use { cursor ->
-                while (cursor.moveToNext()) {
-                    val docId = cursor.getString(0) ?: continue
-                    val name = cursor.getString(1) ?: continue
-                    val mime = cursor.getString(2)
-                    if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                        queue.add(docId)
-                    } else if (isAudio(mime, name)) {
-                        val docUri =
-                            DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-                        out.add(mapOf("uri" to docUri.toString(), "name" to name))
+            try {
+                val cursor = context.contentResolver.query(
+                    childrenUri,
+                    arrayOf(
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                        DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    ),
+                    null,
+                    null,
+                    null,
+                )
+                if (cursor == null) {
+                    // The provider returned nothing for this subtree; count it
+                    // as a read failure and move on.
+                    readFailures++
+                    continue
+                }
+                cursor.use { c ->
+                    while (c.moveToNext()) {
+                        val docId = c.getString(0) ?: continue
+                        val name = c.getString(1) ?: continue
+                        val mime = c.getString(2)
+                        if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                            queue.add(docId)
+                        } else {
+                            filesVisited++
+                            if (isAudio(mime, name)) {
+                                val docUri = DocumentsContract.buildDocumentUriUsingTree(
+                                    treeUri,
+                                    docId,
+                                )
+                                documents.add(
+                                    mapOf(
+                                        "uri" to docUri.toString(),
+                                        "name" to name,
+                                        "mime" to mime,
+                                    ),
+                                )
+                            }
+                        }
                     }
                 }
+            } catch (e: SecurityException) {
+                // A total access denial must surface as a clear error, not a
+                // silent empty — rethrow so listAudioDocuments reports it.
+                throw e
+            } catch (e: Exception) {
+                // One unreadable subtree shouldn't fail the whole scan.
+                readFailures++
             }
         }
-        return out
+        return mapOf(
+            "documents" to documents,
+            "filesVisited" to filesVisited,
+            "readFailures" to readFailures,
+        )
     }
 
     private fun isAudio(mime: String?, name: String): Boolean {
