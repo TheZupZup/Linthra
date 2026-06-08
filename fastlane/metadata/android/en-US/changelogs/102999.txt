@@ -1,0 +1,19 @@
+Linthra 0.1.2 — unified multi-source library & smarter playback.
+
+Added:
+- Tracks available from more than one source (local files, Jellyfin, and
+  Subsonic/Navidrome) are now unified into a single library entry instead of
+  appearing as duplicates.
+- A default playback source setting, so you can choose which provider a
+  unified track plays from.
+- Smarter playback source selection, with automatic fallback to another
+  source at runtime when the preferred one can't play.
+
+Changed:
+- Clearer Subsonic/Navidrome connection error messages.
+
+Fixed:
+- Artwork now falls back per provider, and duplicate matching is more
+  conservative so distinct tracks are no longer merged by mistake.
+
+No ads, no tracking, no analytics, no telemetry.
