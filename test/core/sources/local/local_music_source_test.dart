@@ -162,4 +162,152 @@ void main() {
       );
     });
   });
+
+  group('LocalMusicSource.scanTracks reports', () {
+    test('reports the counts for a filesystem scan', () async {
+      final scanner = _FakeScanner(<String>[
+        '/music/One.mp3',
+        '/music/cover.jpg',
+        '/music/Two.flac',
+        '/music/notes.txt',
+      ]);
+      final source = LocalMusicSource(folderPath: '/music', scanner: scanner);
+
+      final scan = await source.scanTracks();
+
+      expect(scan.tracks.map((track) => track.title), <String>['One', 'Two']);
+      expect(scan.report.folderSelected, isTrue);
+      expect(scan.report.isContentUri, isFalse);
+      expect(scan.report.filesVisited, 4);
+      expect(scan.report.audioCandidates, 2);
+      expect(scan.report.skippedUnsupported, 2);
+      expect(scan.report.readFailures, 0);
+      expect(scan.report.error, isNull);
+    });
+
+    test('counts every recursively discovered file as visited', () async {
+      final scanner = _FakeScanner(<String>[
+        '/music/A.mp3',
+        '/music/Album/B.flac',
+        '/music/Album/Disc 2/C.ogg',
+      ]);
+      final source = LocalMusicSource(folderPath: '/music', scanner: scanner);
+
+      final scan = await source.scanTracks();
+
+      expect(scan.tracks, hasLength(3));
+      expect(scan.report.filesVisited, 3);
+      expect(scan.report.audioCandidates, 3);
+      expect(scan.report.skippedUnsupported, 0);
+    });
+
+    test('no folder selected reports folderSelected = false', () async {
+      const source = LocalMusicSource(folderPath: null);
+
+      final scan = await source.scanTracks();
+
+      expect(scan.tracks, isEmpty);
+      expect(scan.report.folderSelected, isFalse);
+      expect(scan.report.filesVisited, 0);
+      expect(scan.report.hadError, isFalse);
+    });
+
+    test('an empty SAF folder returns a clear, error-free empty result',
+        () async {
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(const <String>[]),
+        safDocumentLister: FakeSafDocumentLister(),
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.tracks, isEmpty);
+      expect(scan.report.folderSelected, isTrue);
+      expect(scan.report.isContentUri, isTrue);
+      expect(scan.report.filesVisited, 0);
+      expect(scan.report.audioCandidates, 0);
+      expect(scan.report.skippedUnsupported, 0);
+      expect(scan.report.readFailures, 0);
+      expect(scan.report.hadError, isFalse);
+    });
+
+    test('keeps a SAF document with a valid extension but unknown MIME',
+        () async {
+      final saf = FakeSafDocumentLister(
+        documents: const <SafAudioDocument>[
+          SafAudioDocument(
+            uri: 'content://doc/1',
+            name: 'Song.mp3',
+            mimeType: 'application/octet-stream',
+          ),
+        ],
+        filesVisited: 1,
+      );
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(const <String>[]),
+        safDocumentLister: saf,
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.tracks.single.title, 'Song');
+      expect(scan.report.audioCandidates, 1);
+      expect(scan.report.skippedUnsupported, 0);
+    });
+
+    test('keeps a SAF document with an audio MIME but no known extension',
+        () async {
+      final saf = FakeSafDocumentLister(
+        documents: const <SafAudioDocument>[
+          // No recognised extension, but the provider reported audio content,
+          // so it must not be dropped.
+          SafAudioDocument(
+            uri: 'content://doc/9',
+            name: 'recording',
+            mimeType: 'audio/mpeg',
+          ),
+        ],
+        filesVisited: 1,
+      );
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(const <String>[]),
+        safDocumentLister: saf,
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.tracks, hasLength(1));
+      expect(scan.tracks.single.uri, 'content://doc/9');
+      expect(scan.report.audioCandidates, 1);
+    });
+
+    test('an unreadable subtree is skipped, counted, and never fatal',
+        () async {
+      // The native walk found one good audio document but also reported a
+      // subtree it could not read; the scan must still return the track and
+      // record the failure rather than throwing.
+      final saf = FakeSafDocumentLister(
+        documents: const <SafAudioDocument>[
+          SafAudioDocument(uri: 'content://doc/1', name: 'Good.mp3'),
+        ],
+        filesVisited: 1,
+        readFailures: 2,
+      );
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(const <String>[]),
+        safDocumentLister: saf,
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.tracks.single.title, 'Good');
+      expect(scan.report.readFailures, 2);
+      expect(scan.report.audioCandidates, 1);
+      expect(scan.report.hadError, isFalse);
+    });
+  });
 }

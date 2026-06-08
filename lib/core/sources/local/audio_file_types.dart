@@ -29,4 +29,24 @@ abstract final class AudioFileTypes {
     }
     return supportedExtensions.contains(ext.substring(1));
   }
+
+  /// Whether [mimeType] denotes audio content (an `audio/*` type), regardless of
+  /// the file name. Lets the scanner keep a file the platform recognized by
+  /// content type even when its display name lacks a known extension. Matching
+  /// is case-insensitive; null/blank is not audio.
+  static bool isAudioMimeType(String? mimeType) {
+    if (mimeType == null) {
+      return false;
+    }
+    return mimeType.trim().toLowerCase().startsWith('audio/');
+  }
+
+  /// Whether a discovered document should be treated as audio: either its [name]
+  /// carries a recognized extension or its [mimeType] is `audio/*`.
+  ///
+  /// This keeps the supported-types decision in one place while accepting both
+  /// signals a content provider can offer, so neither an unknown MIME with a
+  /// valid extension nor a valid audio MIME with an odd extension is dropped.
+  static bool isSupportedDocument(String name, String? mimeType) =>
+      isSupported(name) || isAudioMimeType(mimeType);
 }

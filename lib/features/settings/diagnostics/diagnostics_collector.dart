@@ -11,8 +11,13 @@ import '../../../core/services/active_playback_controller.dart';
 import '../../../core/services/notification_permission.dart';
 import '../../../core/services/playback_diagnostics.dart';
 import '../../../core/services/stability_diagnostics.dart';
+import '../../../core/sources/local/folder_location.dart';
+import '../../../core/sources/local/local_scan_diagnostics.dart';
+import '../../../core/sources/local/local_scan_report.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
+import '../../../data/repositories/selected_music_folder_repository_provider.dart';
 import '../../downloads/download_providers.dart';
+import '../../library/library_providers.dart';
 import '../../player/cast/cast_providers.dart';
 import '../../player/player_providers.dart';
 import '../jellyfin/jellyfin_settings_controller.dart';
@@ -49,6 +54,19 @@ class DiagnosticsCollector {
         _ref.read(subsonicSettingsControllerProvider);
     final CastState cast = _ref.read(castServiceProvider).state;
 
+    // Local-folder scan diagnostics: whether a folder is selected, whether a
+    // persisted SAF grant is still held for it (the removable-SD-card signal),
+    // and the counts from the last scan. All secret-free — never the path/URI.
+    final String? selectedFolder = await _selectedFolder();
+    final bool folderSelected =
+        selectedFolder != null && selectedFolder.isNotEmpty;
+    final bool isContentFolder = selectedFolder != null &&
+        selectedFolder.isNotEmpty &&
+        FolderLocation.parse(selectedFolder).isContentUri;
+    final bool? persistedPermission =
+        await _persistedPermission(selectedFolder, isContentFolder);
+    final LocalScanReport? scan = LocalScanDiagnostics.last;
+
     return AppDiagnosticsData(
       appVersion: AppInfo.version,
       androidVersion: _androidVersion(),
@@ -60,6 +78,13 @@ class DiagnosticsCollector {
       subsonicState: _subsonicStateLabel(subsonic),
       subsonicHost: subsonic.baseUrl,
       libraryTrackCount: await _libraryTrackCount(),
+      localFolderSelected: folderSelected,
+      localPersistedPermission: persistedPermission,
+      localScanFilesVisited: scan?.filesVisited,
+      localScanAudioCandidates: scan?.audioCandidates,
+      localScanSkippedUnsupported: scan?.skippedUnsupported,
+      localScanReadFailures: scan?.readFailures,
+      localScanError: scan?.error?.name,
       cacheUsedBytes: _cacheUsedBytes(),
       cacheLimitBytes: _cacheLimitBytes(),
       playbackOutput: _playbackOutput(),
@@ -133,6 +158,39 @@ class DiagnosticsCollector {
       return tracks.length;
     } catch (_) {
       // A storage hiccup must not break the report; just omit the count.
+      return null;
+    }
+  }
+
+  /// The selected music folder path/URI, read best-effort. Used only to derive
+  /// the secret-free "selected / not selected" and persisted-permission flags —
+  /// the value itself never reaches the report.
+  Future<String?> _selectedFolder() async {
+    try {
+      return await _ref
+          .read(selectedMusicFolderRepositoryProvider)
+          .getSelectedFolder();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Whether a persisted SAF read grant is still held for a `content://`
+  /// selection. Null when not applicable (no selection or a plain path) or not
+  /// determinable (off Android); best-effort so a probe failure can't break the
+  /// report.
+  Future<bool?> _persistedPermission(
+    String? folder,
+    bool isContentFolder,
+  ) async {
+    if (folder == null || !isContentFolder) {
+      return null;
+    }
+    try {
+      return await _ref
+          .read(safPermissionProbeProvider)
+          .hasPersistedPermission(folder);
+    } catch (_) {
       return null;
     }
   }

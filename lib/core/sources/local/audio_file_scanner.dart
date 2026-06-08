@@ -33,19 +33,33 @@ class IoAudioFileScanner implements AudioFileScanner {
 
   @override
   Future<List<String>> listFiles(String folder) async {
-    final Directory directory = Directory(folder);
-    if (!await directory.exists()) {
+    final Directory root = Directory(folder);
+    if (!await root.exists()) {
       return const <String>[];
     }
 
+    // Walk one directory at a time (rather than `list(recursive: true)`) so a
+    // single unreadable subfolder — common under scoped storage / on removable
+    // SD cards — is skipped instead of aborting the whole scan and zeroing out
+    // the library. `followLinks: false` keeps symlinked directories from being
+    // descended, avoiding cycles.
     final List<String> paths = <String>[];
-    final Stream<FileSystemEntity> entities = directory.list(
-      recursive: true,
-      followLinks: false,
-    );
-    await for (final FileSystemEntity entity in entities) {
-      if (entity is File) {
-        paths.add(entity.absolute.path);
+    final List<Directory> pending = <Directory>[root];
+    while (pending.isNotEmpty) {
+      final Directory directory = pending.removeLast();
+      try {
+        await for (final FileSystemEntity entity in directory.list(
+          followLinks: false,
+        )) {
+          if (entity is File) {
+            paths.add(entity.absolute.path);
+          } else if (entity is Directory) {
+            pending.add(entity);
+          }
+        }
+      } on FileSystemException {
+        // Unreadable subtree: skip it and keep scanning the rest.
+        continue;
       }
     }
     return paths;

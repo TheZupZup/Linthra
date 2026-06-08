@@ -22,6 +22,13 @@ class AppDiagnosticsData {
     this.subsonicState,
     this.subsonicHost,
     this.libraryTrackCount,
+    this.localFolderSelected,
+    this.localPersistedPermission,
+    this.localScanFilesVisited,
+    this.localScanAudioCandidates,
+    this.localScanSkippedUnsupported,
+    this.localScanReadFailures,
+    this.localScanError,
     this.cacheUsedBytes,
     this.cacheLimitBytes,
     this.playbackOutput,
@@ -65,6 +72,33 @@ class AppDiagnosticsData {
 
   /// How many tracks are in the local catalog, when known.
   final int? libraryTrackCount;
+
+  /// Whether a local music folder is currently selected, when known. The folder
+  /// path/URI itself is never carried — only its presence.
+  final bool? localFolderSelected;
+
+  /// For a `content://` (SAF) selection: whether the app still holds a persisted
+  /// read grant for it. Null when not applicable (no selection, a plain path) or
+  /// not determinable (off Android). The removable-SD-card "no access" signal.
+  final bool? localPersistedPermission;
+
+  /// How many non-directory entries the last local scan walked, when a scan has
+  /// run. Counts only — never a path or file name.
+  final int? localScanFilesVisited;
+
+  /// How many of those entries the last scan kept as playable audio.
+  final int? localScanAudioCandidates;
+
+  /// How many entries the last scan skipped as unsupported (e.g. artwork/notes).
+  final int? localScanSkippedUnsupported;
+
+  /// How many entries/subfolders the last scan could not read and skipped — the
+  /// scoped-storage / removable-storage signal.
+  final int? localScanReadFailures;
+
+  /// The last local-scan failure kind (a stable enum name like `safTraversal`),
+  /// when the last scan threw. Null when it completed (even with zero audio).
+  final String? localScanError;
 
   /// App-managed cache bytes in use, when known.
   final int? cacheUsedBytes;
@@ -156,6 +190,13 @@ abstract final class AppDiagnostics {
       if (subsonicHost != null) 'Subsonic host: $subsonicHost',
       if (data.libraryTrackCount != null)
         'Library tracks: ${data.libraryTrackCount}',
+      if (data.localFolderSelected != null)
+        'Local folder: ${data.localFolderSelected! ? 'selected' : 'not selected'}',
+      if (data.localPersistedPermission != null)
+        'Local folder access: '
+            '${data.localPersistedPermission! ? 'persisted' : 'not persisted'}',
+      if (data.localScanFilesVisited != null) _localScanLine(data),
+      if (_has(data.localScanError)) 'Local scan error: ${data.localScanError}',
       if (cache != null) cache,
       if (includePlayback && data.playbackOutput != null)
         'Playback output: ${data.playbackOutput}',
@@ -180,6 +221,16 @@ abstract final class AppDiagnostics {
         'Smart pre-cache: ${_enabledDisabled(data.smartPrecacheEnabled!)}',
     ];
     return lines.join('\n');
+  }
+
+  /// The single-line local-scan summary: how many entries the last scan walked,
+  /// how many were kept as audio, how many were skipped as unsupported, and how
+  /// many could not be read. Only counts — never a path or file name.
+  static String _localScanLine(AppDiagnosticsData data) {
+    return 'Local scan: visited ${data.localScanFilesVisited ?? 0}, '
+        'audio ${data.localScanAudioCandidates ?? 0}, '
+        'skipped ${data.localScanSkippedUnsupported ?? 0}, '
+        'read failures ${data.localScanReadFailures ?? 0}';
   }
 
   static String? _cacheLine(AppDiagnosticsData data) {

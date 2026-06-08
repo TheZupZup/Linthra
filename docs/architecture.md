@@ -160,6 +160,22 @@ How a selection is addressed (path vs `content://`) is decided once by
 `FolderLocation`; nothing downstream re-parses the string, SAF traversal stays
 behind the `SafDocumentLister` seam, and the UI never sees a platform channel.
 
+**Resilience.** Neither walk lets one bad entry zero out the library. The native
+SAF walk skips (and counts) a subfolder whose listing fails — a provider hiccup,
+a vanished entry on a removable SD card — instead of aborting; only a *total*
+access denial (a revoked grant) still surfaces as a clear error. The filesystem
+walk likewise skips an unreadable subtree rather than throwing. An audio file is
+kept when **either** its name has a known extension **or** the provider reports
+an `audio/*` MIME type, so a file recognised only by content type isn't dropped.
+
+**Diagnostics.** Each scan records a secret-free `LocalScanReport` into
+`LocalScanDiagnostics` — files visited, audio candidates, skipped-unsupported,
+read failures, and the last error *kind* (an enum name, never a path/URI). The
+Settings ▸ Diagnostics report surfaces these alongside whether a folder is
+selected and whether a persisted SAF read grant is still held, so a "no music
+found" report distinguishes an empty folder from a permission loss (the common
+removable-SD-card cause) without revealing anything private.
+
 > **No broad storage permission is requested.** `MANAGE_EXTERNAL_STORAGE` ("all
 > files access") is intentionally *not* used — it is the opposite of the
 > scoped-storage approach this project prefers. A narrow `READ_MEDIA_AUDIO` flow

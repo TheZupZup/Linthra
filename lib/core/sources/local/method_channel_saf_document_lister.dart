@@ -24,14 +24,14 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
   static const MethodChannel _channel = MethodChannel(_channelName);
 
   @override
-  Future<List<SafAudioDocument>> listAudioDocuments(String treeUri) async {
+  Future<SafScanResult> listAudioDocuments(String treeUri) async {
     if (!Platform.isAndroid) {
       throw const SafUnsupportedException();
     }
 
-    final List<Object?>? result;
+    final Map<Object?, Object?>? result;
     try {
-      result = await _channel.invokeListMethod<Object?>(
+      result = await _channel.invokeMapMethod<Object?, Object?>(
         'listAudioDocuments',
         <String, Object?>{'treeUri': treeUri},
       );
@@ -47,19 +47,45 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
       );
     }
 
+    return parseScanResult(result);
+  }
+
+  /// Parses the native `listAudioDocuments` reply into a [SafScanResult].
+  ///
+  /// Pure and public so the parsing — the part with real logic — is unit-testable
+  /// without a device or platform channel. Deliberately tolerant: a null reply,
+  /// a malformed entry, or a missing count never throws; counts fall back so an
+  /// older native build that only returned documents still scans.
+  static SafScanResult parseScanResult(Map<Object?, Object?>? result) {
     if (result == null) {
-      return const <SafAudioDocument>[];
+      return const SafScanResult();
     }
     final List<SafAudioDocument> documents = <SafAudioDocument>[];
-    for (final Object? entry in result) {
-      if (entry is Map) {
-        final Object? uri = entry['uri'];
-        final Object? name = entry['name'];
-        if (uri is String && uri.isNotEmpty && name is String) {
-          documents.add(SafAudioDocument(uri: uri, name: name));
+    final Object? rawDocuments = result['documents'];
+    if (rawDocuments is List) {
+      for (final Object? entry in rawDocuments) {
+        if (entry is Map) {
+          final Object? uri = entry['uri'];
+          final Object? name = entry['name'];
+          final Object? mime = entry['mime'];
+          if (uri is String && uri.isNotEmpty && name is String) {
+            documents.add(SafAudioDocument(
+              uri: uri,
+              name: name,
+              mimeType: mime is String ? mime : null,
+            ));
+          }
         }
       }
     }
-    return documents;
+    final Object? filesVisited = result['filesVisited'];
+    final Object? readFailures = result['readFailures'];
+    return SafScanResult(
+      documents: documents,
+      // Fall back to the document count if the native side is an older build
+      // that didn't report a visited total, so the scan still works.
+      filesVisited: filesVisited is int ? filesVisited : documents.length,
+      readFailures: readFailures is int ? readFailures : 0,
+    );
   }
 }
