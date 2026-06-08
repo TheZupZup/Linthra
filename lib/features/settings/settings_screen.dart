@@ -11,6 +11,7 @@ import 'network/network_settings_section.dart';
 import 'playback/playback_settings_section.dart';
 import 'precache/precache_settings_section.dart';
 import 'source/default_provider_section.dart';
+import 'source/local_music_settings_section.dart';
 import 'source/playback_source_strategy_section.dart';
 import 'subsonic/subsonic_settings_section.dart';
 
@@ -29,6 +30,8 @@ class SettingsScreen extends StatelessWidget {
           JellyfinSettingsSection(),
           SizedBox(height: AppSpacing.md),
           SubsonicSettingsSection(),
+          SizedBox(height: AppSpacing.md),
+          LocalMusicSettingsSection(),
           SizedBox(height: AppSpacing.md),
           DefaultProviderSettingsSection(),
           SizedBox(height: AppSpacing.md),

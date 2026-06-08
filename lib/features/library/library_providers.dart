@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/services/file_picker_folder_picker_service.dart';
 import '../../core/services/folder_picker_service.dart';
+import '../../core/services/platform_folder_picker_service.dart';
 import '../../core/sources/local/audio_file_scanner.dart';
 import '../../core/sources/local/method_channel_saf_document_lister.dart';
 import '../../core/sources/local/method_channel_saf_permission_probe.dart';
@@ -24,10 +24,12 @@ final audioFileScannerProvider = Provider<AudioFileScanner>((ref) {
 });
 
 /// The folder-chooser seam the Library uses to let the user pick a music
-/// folder. Defaults to the `file_picker`-backed implementation; tests override
-/// it with a fake so the pick-and-scan flow runs without a real OS dialog.
+/// folder. Defaults to [PlatformFolderPickerService], which on Android returns
+/// the picked `content://` tree URI (with a persisted read grant) and elsewhere
+/// falls back to the `file_picker` filesystem chooser. Tests override it with a
+/// fake so the pick-and-scan flow runs without a real OS dialog.
 final folderPickerServiceProvider = Provider<FolderPickerService>((ref) {
-  return const FilePickerFolderPickerService();
+  return const PlatformFolderPickerService();
 });
 
 /// The SAF traversal seam used to scan an Android `content://` folder through

@@ -64,7 +64,12 @@ class SafDocumentScanner(private val context: Context) {
 
         val documents = ArrayList<Map<String, String?>>()
         var filesVisited = 0
+        var foldersVisited = 0
         var readFailures = 0
+        // The first entry is the selected root. A failure there is fatal (no
+        // access at all), not a skippable subtree — surfacing it keeps a dead
+        // root from looking like a successful empty scan that wipes the catalog.
+        var isRoot = true
         val queue = ArrayDeque<String>()
         queue.add(DocumentsContract.getTreeDocumentId(treeUri))
         while (queue.isNotEmpty()) {
@@ -84,11 +89,20 @@ class SafDocumentScanner(private val context: Context) {
                     null,
                 )
                 if (cursor == null) {
+                    if (isRoot) {
+                        // The selected folder itself can't be listed — a real
+                        // failure, not an empty folder. Surface it.
+                        throw IllegalStateException("root folder is not listable")
+                    }
                     // The provider returned nothing for this subtree; count it
                     // as a read failure and move on.
                     readFailures++
+                    isRoot = false
                     continue
                 }
+                // A listable folder (the root or a subfolder) — count it.
+                foldersVisited++
+                isRoot = false
                 cursor.use { c ->
                     while (c.moveToNext()) {
                         val docId = c.getString(0) ?: continue
@@ -119,6 +133,11 @@ class SafDocumentScanner(private val context: Context) {
                 // silent empty — rethrow so listAudioDocuments reports it.
                 throw e
             } catch (e: Exception) {
+                if (isRoot) {
+                    // A failure listing the selected root is fatal, not a
+                    // skippable subtree — surface it instead of returning empty.
+                    throw e
+                }
                 // One unreadable subtree shouldn't fail the whole scan.
                 readFailures++
             }
@@ -126,6 +145,7 @@ class SafDocumentScanner(private val context: Context) {
         return mapOf(
             "documents" to documents,
             "filesVisited" to filesVisited,
+            "foldersVisited" to foldersVisited,
             "readFailures" to readFailures,
         )
     }

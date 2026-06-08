@@ -113,7 +113,13 @@ class LocalMusicSource implements MusicSource {
           tracks.add(LocalTrackMapper.fromSafDocument(document));
         }
       }
-      final int candidates = tracks.length;
+      // `candidates` is what the provider's audio filter (extension OR audio/*
+      // MIME) returned; `imported` is what the catalog's own filter kept. The
+      // two predicates match today, so these are normally equal — reported
+      // separately so a future divergence (a stricter catalog filter) is visible
+      // in diagnostics rather than silent.
+      final int candidates = result.documents.length;
+      final int imported = tracks.length;
       final int skipped = result.filesVisited > candidates
           ? result.filesVisited - candidates
           : 0;
@@ -123,7 +129,9 @@ class LocalMusicSource implements MusicSource {
           folderSelected: true,
           isContentUri: true,
           filesVisited: result.filesVisited,
+          foldersVisited: result.foldersVisited,
           audioCandidates: candidates,
+          importedTracks: imported,
           skippedUnsupported: skipped,
           readFailures: result.readFailures,
         ),
@@ -152,7 +160,10 @@ class LocalMusicSource implements MusicSource {
         folderSelected: true,
         isContentUri: isContentUri,
         filesVisited: visited,
+        // The filesystem walk reports files, not a directory count.
+        foldersVisited: 0,
         audioCandidates: candidates,
+        importedTracks: candidates,
         skippedUnsupported: visited - candidates,
         readFailures: 0,
       ),

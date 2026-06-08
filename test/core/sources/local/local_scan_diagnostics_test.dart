@@ -72,6 +72,26 @@ void main() {
       expect(summary, isNot(contains('error=')));
     });
 
+    test('includes folders, imported, and recursive counts', () {
+      const report = LocalScanReport(
+        folderSelected: true,
+        isContentUri: true,
+        filesVisited: 10,
+        foldersVisited: 4,
+        audioCandidates: 7,
+        importedTracks: 6,
+        skippedUnsupported: 3,
+        readFailures: 1,
+        recursive: true,
+      );
+
+      final summary = LocalScanDiagnostics.describe(report);
+
+      expect(summary, contains('folders=4'));
+      expect(summary, contains('imported=6'));
+      expect(summary, contains('recursive=yes'));
+    });
+
     test('summarizes a failure with the error kind', () {
       const report = LocalScanReport.failure(
         folderSelected: true,

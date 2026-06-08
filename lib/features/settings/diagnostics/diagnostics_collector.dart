@@ -11,6 +11,7 @@ import '../../../core/services/active_playback_controller.dart';
 import '../../../core/services/notification_permission.dart';
 import '../../../core/services/playback_diagnostics.dart';
 import '../../../core/services/stability_diagnostics.dart';
+import '../../../core/sources/local/audio_file_types.dart';
 import '../../../core/sources/local/folder_location.dart';
 import '../../../core/sources/local/local_scan_diagnostics.dart';
 import '../../../core/sources/local/local_scan_report.dart';
@@ -81,9 +82,15 @@ class DiagnosticsCollector {
       localFolderSelected: folderSelected,
       localPersistedPermission: persistedPermission,
       localScanFilesVisited: scan?.filesVisited,
+      localScanFoldersVisited: scan?.foldersVisited,
       localScanAudioCandidates: scan?.audioCandidates,
+      localScanImportedTracks: scan?.importedTracks,
       localScanSkippedUnsupported: scan?.skippedUnsupported,
       localScanReadFailures: scan?.readFailures,
+      localScanRecursive: scan?.recursive,
+      // Static capability — always reportable, even before the first scan — so a
+      // "my format isn't recognized" report shows what Linthra accepts.
+      localSupportedExtensions: _supportedExtensions(),
       localScanError: scan?.error?.name,
       cacheUsedBytes: _cacheUsedBytes(),
       cacheLimitBytes: _cacheLimitBytes(),
@@ -103,6 +110,13 @@ class DiagnosticsCollector {
       offlineCacheEnabled: true,
       smartPrecacheEnabled: _ref.read(smartPrecacheEnabledProvider).valueOrNull,
     );
+  }
+
+  /// The recognized audio extensions, sorted for a stable report line.
+  List<String> _supportedExtensions() {
+    final List<String> extensions = AudioFileTypes.supportedExtensions.toList()
+      ..sort();
+    return extensions;
   }
 
   /// Reads (never prompts for) the notification permission state, so the report

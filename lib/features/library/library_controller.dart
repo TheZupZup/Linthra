@@ -3,11 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/sources/local/folder_location.dart';
 import '../../core/sources/local/folder_scan_exception.dart';
 import '../../core/sources/local/local_music_source.dart';
-import '../../core/sources/local/local_scan_diagnostics.dart';
 import '../../core/sources/local/local_scan_report.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
 import 'library_providers.dart';
 import 'library_state.dart';
+import 'local_scan_report_provider.dart';
 
 /// Drives the Library screen: loads tracks from the [MusicLibraryRepository]
 /// and exposes them as a [LibraryState]. Keeps the UI free of any direct
@@ -45,28 +45,29 @@ class LibraryController extends Notifier<LibraryState> {
         albums: albums,
         artists: artists,
       );
-      // Record the counts (visited / audio / skipped / read failures) so a
-      // "no music found" report can show what the scan actually saw.
-      LocalScanDiagnostics.record(scan.report);
+      // Record the counts (visited / folders / audio / imported / skipped /
+      // read failures) so a "no music found" report can show what the scan
+      // actually saw — reactively (Settings ▸ Local music) and in diagnostics.
+      ref.read(localScanReportProvider.notifier).record(scan.report);
       await _load();
     } on FolderScanException catch (error) {
       // The scanning layer already phrased a clear, secret-free message
       // (unreachable SAF tree, unreadable scoped-storage path, …); show it.
-      LocalScanDiagnostics.record(LocalScanReport.failure(
-        folderSelected: folderPath.isNotEmpty,
-        isContentUri: location.isContentUri,
-        error: LocalScanError.safTraversal,
-      ));
+      ref.read(localScanReportProvider.notifier).record(LocalScanReport.failure(
+            folderSelected: folderPath.isNotEmpty,
+            isContentUri: location.isContentUri,
+            error: LocalScanError.safTraversal,
+          ));
       state = LibraryState.error(error.message);
     } catch (_) {
       // Anything else is an unexpected scan failure — a raw `dart:io`
       // permission error or a plugin fault. Don't leak its text (errno codes,
       // paths) to the user; show one friendly, actionable line instead.
-      LocalScanDiagnostics.record(LocalScanReport.failure(
-        folderSelected: folderPath.isNotEmpty,
-        isContentUri: location.isContentUri,
-        error: LocalScanError.unexpected,
-      ));
+      ref.read(localScanReportProvider.notifier).record(LocalScanReport.failure(
+            folderSelected: folderPath.isNotEmpty,
+            isContentUri: location.isContentUri,
+            error: LocalScanError.unexpected,
+          ));
       state = const LibraryState.error(_scanFailedMessage);
     }
   }

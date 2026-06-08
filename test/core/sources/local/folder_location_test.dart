@@ -34,5 +34,35 @@ void main() {
       final location = FolderLocation.parse('file:///home/me/Music');
       expect(location.kind, FolderLocationKind.filesystemPath);
     });
+
+    group('displayLabel', () {
+      test('reduces a SAF tree URI to its decoded document id', () {
+        final location = FolderLocation.parse(
+          'content://com.android.externalstorage.documents/tree/'
+          'primary%3AMusic%2Fmusi5',
+        );
+        expect(location.displayLabel, 'primary:Music/musi5');
+      });
+
+      test('reduces an SD-card SAF tree URI to its volume:path id', () {
+        final location = FolderLocation.parse(
+          'content://com.android.externalstorage.documents/tree/'
+          '1A2B-3C4D%3AMusic',
+        );
+        expect(location.displayLabel, '1A2B-3C4D:Music');
+      });
+
+      test('returns a filesystem path unchanged', () {
+        final location =
+            FolderLocation.parse('/storage/emulated/0/Music/musi5');
+        expect(location.displayLabel, '/storage/emulated/0/Music/musi5');
+      });
+
+      test('falls back to the raw value for an unexpected content URI', () {
+        final location =
+            FolderLocation.parse('content://authority/document/only');
+        expect(location.displayLabel, 'content://authority/document/only');
+      });
+    });
   });
 }

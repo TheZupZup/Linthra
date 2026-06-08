@@ -79,12 +79,14 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
       }
     }
     final Object? filesVisited = result['filesVisited'];
+    final Object? foldersVisited = result['foldersVisited'];
     final Object? readFailures = result['readFailures'];
     return SafScanResult(
       documents: documents,
       // Fall back to the document count if the native side is an older build
       // that didn't report a visited total, so the scan still works.
       filesVisited: filesVisited is int ? filesVisited : documents.length,
+      foldersVisited: foldersVisited is int ? foldersVisited : 0,
       readFailures: readFailures is int ? readFailures : 0,
     );
   }
