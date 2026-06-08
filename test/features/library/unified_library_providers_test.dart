@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/catalog/library_grouping.dart';
 import 'package:linthra/core/catalog/source_priority.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
@@ -11,13 +12,16 @@ import 'package:linthra/features/library/library_search.dart';
 import 'package:linthra/features/library/source_preference_controller.dart';
 import 'package:linthra/features/library/unified_library_providers.dart';
 
-Track _jelly(String id, {required String title, String album = '25'}) => Track(
+Track _jelly(String id,
+        {required String title, String album = '25', Uri? artwork}) =>
+    Track(
       id: id,
       title: title,
       uri: 'jellyfin:$id',
       artistName: 'Adele',
       albumName: album,
       duration: const Duration(minutes: 3),
+      artworkUri: artwork,
     );
 
 Track _sub(String id, {required String title, String album = '25'}) => Track(
@@ -28,6 +32,9 @@ Track _sub(String id, {required String title, String album = '25'}) => Track(
       albumName: album,
       duration: const Duration(minutes: 3),
     );
+
+final Uri _jellyArt =
+    Uri.parse('https://music.example.com/Items/j/Images/Primary');
 
 /// Pins the source preference for a deterministic test, bypassing the async
 /// load from the store.
@@ -111,6 +118,40 @@ void main() {
         'hello',
       );
       expect(results, hasLength(1));
+    });
+  });
+
+  group('libraryUnifiedTracksProvider — artwork is not regressed', () {
+    test('a Subsonic-preferred row keeps the Jellyfin copy\'s cover', () async {
+      // Subsonic is active/preferred, but Subsonic tracks carry no artwork. The
+      // merged row must still show the Jellyfin copy's cover instead of going
+      // blank — the reported "covers disappeared after unification" bug.
+      final container = await _seed(
+        priority: const SourcePriority(<String>['subsonic', 'jellyfin']),
+        jellyfin: <Track>[_jelly('j', title: 'Hello', artwork: _jellyArt)],
+        subsonic: <Track>[_sub('s', title: 'Hello')],
+      );
+
+      final List<Track> songs = container.read(libraryUnifiedTracksProvider);
+      expect(songs, hasLength(1));
+      // Plays from the preferred (Subsonic) copy...
+      expect(songs.single.uri, 'subsonic:s');
+      // ...but displays the Jellyfin cover.
+      expect(songs.single.artworkUri, _jellyArt);
+    });
+
+    test('albums derived from the unified catalog keep their cover', () async {
+      final container = await _seed(
+        priority: const SourcePriority(<String>['subsonic', 'jellyfin']),
+        jellyfin: <Track>[_jelly('j', title: 'Hello', artwork: _jellyArt)],
+        subsonic: <Track>[_sub('s', title: 'Hello')],
+      );
+
+      final List<Album> albums = groupAlbums(
+        container.read(libraryUnifiedTracksProvider),
+      );
+      expect(albums, hasLength(1));
+      expect(albums.single.artworkUri, _jellyArt);
     });
   });
 

@@ -178,6 +178,76 @@ void main() {
     });
   });
 
+  group('unifyTracks — tolerant of real Jellyfin/Navidrome metadata drift', () {
+    test('a featured artist tagged on only one provider still merges', () {
+      // Jellyfin: "CAREFUL" by "NF"; Navidrome: "CAREFUL feat. Cordae" by
+      // "NF, Cordae" — the same song, the exact key used to split them.
+      final List<LogicalTrack> logical = unifyTracks(
+        <Track>[
+          _jelly('j', title: 'CAREFUL', artist: 'NF', album: 'The Search'),
+          _sub('s',
+              title: 'CAREFUL feat. Cordae',
+              artist: 'NF, Cordae',
+              album: 'The Search'),
+        ],
+        _subsonicPreferred,
+      );
+
+      expect(logical, hasLength(1));
+      expect(logical.single.allTrackIds, containsAll(<String>['j', 's']));
+    });
+
+    test('an album edition suffix does not split a match', () {
+      final List<LogicalTrack> logical = unifyTracks(
+        <Track>[
+          _jelly('j', title: 'Hello', album: '25'),
+          _sub('s', title: 'Hello', album: '25 (Deluxe)'),
+        ],
+        _subsonicPreferred,
+      );
+      expect(logical, hasLength(1));
+      expect(logical.single.hasMultipleSources, isTrue);
+    });
+
+    test('a near-but-not-equal duration (1s) still merges', () {
+      final List<LogicalTrack> logical = unifyTracks(
+        <Track>[
+          _jelly('j', title: 'Hello', duration: const Duration(seconds: 181)),
+          _sub('s', title: 'Hello', duration: const Duration(seconds: 182)),
+        ],
+        _subsonicPreferred,
+      );
+      expect(logical, hasLength(1));
+    });
+  });
+
+  group('unifyTracks — default-provider-first display & fallback', () {
+    test('a song on both providers shows and plays the default provider copy',
+        () {
+      final List<Track> tracks = <Track>[
+        _jelly('j', title: 'Hello'),
+        _sub('s', title: 'Hello'),
+      ];
+      // Jellyfin is the default/preferred provider here.
+      final LogicalTrack row = unifyTracks(tracks, _jellyfinPreferred).single;
+      expect(row.primary.sourceId, 'jellyfin');
+      expect(row.displayTrack.uri, 'jellyfin:j');
+      // The secondary copy is retained internally as a fallback candidate.
+      expect(row.sourceIds, <String>['jellyfin', 'subsonic']);
+    });
+
+    test('a secondary-only song is included and plays from the secondary', () {
+      // Jellyfin is default, but this song exists only on Navidrome.
+      final List<LogicalTrack> logical = unifyTracks(
+        <Track>[_sub('s', title: 'Navi Only')],
+        _jellyfinPreferred,
+      );
+      expect(logical, hasLength(1));
+      expect(logical.single.primary.sourceId, 'subsonic');
+      expect(logical.single.displayTrack.uri, 'subsonic:s');
+    });
+  });
+
   group('unifyTracks — output ordering', () {
     test('a merged row appears at its first occurrence; order is preserved',
         () {
