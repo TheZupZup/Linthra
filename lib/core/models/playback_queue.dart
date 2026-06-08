@@ -259,6 +259,30 @@ class PlaybackQueue {
     );
   }
 
+  /// Replaces the current track *in place* with [track], keeping its position,
+  /// up-next, history, and shuffle intact. Used when playback fell back to
+  /// another source copy of the same song, so the queue (and the now-playing UI)
+  /// reflects the copy that actually started. A no-op on an empty queue or when
+  /// [track] equals the current one. When shuffled, the same swap is applied to
+  /// [originalOrder] so a later [unshuffled] keeps the copy that played.
+  PlaybackQueue replaceCurrent(Track track) {
+    final Track? old = current;
+    if (old == null || old == track) return this;
+    final updated = List<Track>.of(tracks)..[currentIndex] = track;
+    List<Track>? updatedOriginal = originalOrder;
+    if (originalOrder != null) {
+      final int i = originalOrder!.indexOf(old);
+      if (i >= 0) {
+        updatedOriginal = List<Track>.of(originalOrder!)..[i] = track;
+      }
+    }
+    return PlaybackQueue(
+      tracks: updated,
+      currentIndex: currentIndex,
+      originalOrder: updatedOriginal,
+    );
+  }
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||

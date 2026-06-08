@@ -9,6 +9,7 @@ import '../../core/services/local_playable_uri_resolver.dart';
 import '../../core/services/local_playback_controller.dart';
 import '../../core/services/offline_first_playable_uri_resolver.dart';
 import '../../core/services/playable_uri_resolver.dart';
+import '../../core/services/playback_candidate_source.dart';
 import '../../core/services/playback_controller.dart';
 import '../../core/services/routing_playable_uri_resolver.dart';
 import '../../core/services/smart_precache_service.dart';
@@ -74,10 +75,23 @@ final playableUriResolverProvider = Provider<PlayableUriResolver>((ref) {
 /// would dispose the live `AudioPlayer` and cut the music. The resolver still
 /// reads the live signed-in Jellyfin source lazily at play time, so sign-in/out
 /// is picked up without rebuilding the engine.
+/// Supplies a track's ordered source candidates to the playback controller for
+/// runtime fallback. The default has **no** fallback (each track is its own only
+/// candidate), so playback is unchanged until a real, library-backed source is
+/// wired in. `main` overrides this with [playbackCandidateSourceOverride] so a
+/// failed preferred copy can fall back to another copy of the same song.
+final playbackCandidateSourceProvider = Provider<PlaybackCandidateSource>(
+  (ref) => const NoFallbackCandidateSource(),
+);
+
 final localPlaybackControllerProvider =
     Provider<LocalPlaybackController>((ref) {
   final controller = JustAudioPlaybackController(
     resolver: ref.read(playableUriResolverProvider),
+    // Read once at construction; the candidate source itself reads the live
+    // library lazily at play time, so the session-pinned engine still sees a
+    // fresh catalog (and default-source change) without being rebuilt.
+    candidates: ref.read(playbackCandidateSourceProvider),
     // Record a completed play when a track reaches its end. Read lazily at
     // completion time (not watched), so the play-history repository never ties
     // into the engine's lifecycle. Only the track id is recorded; it stays

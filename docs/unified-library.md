@@ -107,10 +107,42 @@ to another source when the preferred one does not have the song:
 - Song only on Navidrome → plays from Navidrome.
 - Song only local → plays from the device.
 
-> Fallback here is **selection-time** (pick the best source that *has* the song).
-> Runtime fail-over (preferred server unreachable mid-resolve → automatically try
-> another copy) is **not** in this change; the offline cache already provides
-> resilience (see below). It is a noted follow-up.
+Selection-time fallback (above) picks the best source that *has* the song.
+**Runtime fail-over** then handles the preferred copy *failing at play time*: if
+the preferred candidate can't resolve or start (server unreachable, session
+expired, a stream URL that won't open), playback tries the next candidate of the
+same logical track, in the same deterministic order — and the source indicator,
+queue, and mini-player follow the copy that actually started.
+
+- Default Jellyfin, song on both, Jellyfin fails → plays from Navidrome; the
+  indicator shows **Navidrome**.
+- Default Navidrome, Navidrome fails, song also on Jellyfin → plays from
+  Jellyfin; the indicator shows **Jellyfin**.
+- Each candidate is tried at most once per attempt (no loops); if all fail, one
+  clear, secret-free error is shown.
+
+### How runtime fail-over is wired
+
+The candidates are re-supplied to playback through a small seam, because the
+browse UI plays a logical row by passing only its single displayed `Track` (the
+sibling copies are lost at that boundary):
+
+- `PlaybackCandidateSource` (`core/services/playback_candidate_source.dart`)
+  returns a track's ordered candidates, or just `[track]` (no fallback) for a
+  single-source song or any non-library track — so single-source playback is
+  unchanged.
+- `playbackCandidatesProvider` (`features/library`) builds the map of display
+  track id → ordered candidates (each carrying the row's best cover) from the
+  unified library; `main` wires it in. It is read lazily at play time, so the
+  session-pinned engine always sees the latest catalog and default-source choice.
+- `JustAudioPlaybackController` tries the candidates in order, swapping the
+  queue's current entry to the copy that started (so `PlaybackState.source` and
+  the "Playing from …" indicator are honest), and shows one safe error if every
+  copy fails.
+
+> Mid-stream drops (a copy that *was* playing and then fails) keep their existing
+> one-shot retry of the same copy; the offline cache (below) still provides
+> offline resilience. Cast output resolves through its own path and is unchanged.
 
 ## Offline cache mapping
 

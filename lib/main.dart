@@ -19,6 +19,7 @@ import 'data/repositories/preferred_source_store_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
 import 'features/downloads/download_providers.dart';
+import 'features/library/playback_candidates_provider.dart';
 import 'features/player/cast/cast_providers.dart';
 import 'features/player/favorites_providers.dart';
 import 'features/player/lyrics_providers.dart';
@@ -59,6 +60,10 @@ Future<void> main() async {
       sharedPreferencesPlaybackPreferencesOverride,
       fileSystemOfflineFileStoreOverride,
       remoteTrackDownloaderOverride,
+      // Let playback fall back to another copy of the same song when the
+      // preferred source fails to resolve or start (the candidates come from the
+      // unified library, in default-source-first order).
+      playbackCandidateSourceOverride,
       currentlyPlayingTrackIdOverride,
       secureJellyfinSessionStoreOverride,
       // Remember which Jellyfin account has had its first auto-sync, so a
