@@ -10,6 +10,7 @@ import 'jellyfin/jellyfin_settings_section.dart';
 import 'network/network_settings_section.dart';
 import 'playback/playback_settings_section.dart';
 import 'precache/precache_settings_section.dart';
+import 'source/default_provider_section.dart';
 import 'subsonic/subsonic_settings_section.dart';
 
 /// Settings. Hosts the connection/source and offline-storage options, plus a
@@ -27,6 +28,8 @@ class SettingsScreen extends StatelessWidget {
           JellyfinSettingsSection(),
           SizedBox(height: AppSpacing.md),
           SubsonicSettingsSection(),
+          SizedBox(height: AppSpacing.md),
+          DefaultProviderSettingsSection(),
           SizedBox(height: AppSpacing.md),
           CacheSettingsSection(),
           SizedBox(height: AppSpacing.md),
