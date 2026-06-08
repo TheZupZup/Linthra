@@ -7,7 +7,9 @@ import '../../../core/models/playback_state.dart';
 import '../../../core/models/playlist.dart';
 import '../../../core/models/track.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
+import '../../../shared/widgets/now_playing_indicator.dart';
 import '../../playlists/widgets/create_playlist_dialog.dart';
+import '../now_playing.dart';
 import '../player_providers.dart';
 import 'album_artwork.dart';
 
@@ -225,16 +227,19 @@ class _SectionLabel extends StatelessWidget {
 }
 
 /// The current track row, highlighted with the warm "live" accent so it reads
-/// as the one playing now. Non-draggable and non-removable on purpose: the
-/// queue manager never yanks the playing track out from under playback.
-class _CurrentTile extends StatelessWidget {
+/// as the one playing now. Its trailing equalizer animates while playback is
+/// playing and rests while paused. Non-draggable and non-removable on purpose:
+/// the queue manager never yanks the playing track out from under playback.
+class _CurrentTile extends ConsumerWidget {
   const _CurrentTile({required this.track});
 
   final Track track;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final bool isPlaying =
+        ref.watch(nowPlayingProvider.select((n) => n.isPlaying));
     final String? artist = track.artistName;
     return ListTile(
       leading: SizedBox.square(
@@ -256,11 +261,7 @@ class _CurrentTile extends StatelessWidget {
       subtitle: artist == null || artist.isEmpty
           ? null
           : Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: const Icon(
-        Icons.graphic_eq,
-        color: AppColors.accent,
-        semanticLabel: 'Now playing',
-      ),
+      trailing: NowPlayingIndicator(animating: isPlaying),
     );
   }
 }

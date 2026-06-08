@@ -2,14 +2,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/lyrics.dart';
 import '../../core/models/track.dart';
+import '../../core/services/composite_lyrics_service.dart';
 import '../../core/services/jellyfin_lyrics_service.dart';
 import '../../core/services/lyrics_service.dart';
+import '../../core/services/subsonic_lyrics_service.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/jellyfin/jellyfin_settings_providers.dart';
+import '../settings/subsonic/subsonic_settings_controller.dart';
+import '../settings/subsonic/subsonic_settings_providers.dart';
 import 'player_providers.dart';
 
 /// The lyrics backend. Defaults to "no lyrics" so tests and local-only use need
-/// no Jellyfin wiring; the app overrides it with the Jellyfin-backed service.
+/// no server wiring; the app overrides it with the remote-backed service that
+/// reads from Jellyfin or Subsonic/Navidrome.
 final lyricsServiceProvider = Provider<LyricsService>((ref) {
   return const _NoLyricsService();
 });
@@ -50,15 +55,25 @@ final currentTrackLyricsProvider =
   return ref.watch(trackLyricsProvider(track));
 });
 
-/// Production binding: read lyrics from the signed-in Jellyfin server. Reads the
-/// live client + session lazily so signing in/out is picked up without a
-/// rebuild. Applied in `main`; tests keep the no-lyrics default.
-final jellyfinLyricsOverride = lyricsServiceProvider.overrideWith((ref) {
-  return JellyfinLyricsService(
-    client: ref.read(jellyfinClientProvider),
-    session: () =>
-        ref.read(jellyfinSettingsControllerProvider.notifier).session,
-  );
+/// Production binding: read lyrics from whichever signed-in remote server owns
+/// the track — Jellyfin or Subsonic/Navidrome. Each backend filters by the
+/// track's URI scheme, so a track resolves through exactly one of them (or none,
+/// for a local track). The live clients + sessions are read lazily so signing
+/// in/out is picked up without a rebuild. Applied in `main`; tests keep the
+/// no-lyrics default.
+final remoteLyricsServiceOverride = lyricsServiceProvider.overrideWith((ref) {
+  return CompositeLyricsService(<LyricsService>[
+    JellyfinLyricsService(
+      client: ref.read(jellyfinClientProvider),
+      session: () =>
+          ref.read(jellyfinSettingsControllerProvider.notifier).session,
+    ),
+    SubsonicLyricsService(
+      client: ref.read(subsonicClientProvider),
+      session: () =>
+          ref.read(subsonicSettingsControllerProvider.notifier).session,
+    ),
+  ]);
 });
 
 /// The honest local-only default: no lyrics source wired, so every track

@@ -11,8 +11,10 @@ import '../../data/repositories/playlist_repository_provider.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../library/song_actions.dart';
+import '../player/now_playing.dart';
 import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
+import '../player/widgets/track_artwork.dart';
 import 'playlist_providers.dart';
 import 'widgets/add_to_playlist_sheet.dart';
 import 'widgets/create_playlist_dialog.dart';
@@ -231,14 +233,14 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     required bool draggable,
   }) {
     final Track track = tracks[index];
+    final NowPlayingRowState? nowPlaying =
+        ref.watch(nowPlayingProvider.select((n) => n.stateForRow(track)));
     return ListTile(
       key: ValueKey<String>(track.id),
-      leading: SizedBox.square(
+      leading: TrackArtwork(
+        artworkUri: track.artworkUri,
+        nowPlaying: nowPlaying,
         dimension: 44,
-        child: AlbumArtwork(
-          artworkUri: track.artworkUri,
-          borderRadius: const BorderRadius.all(Radius.circular(AppRadii.sm)),
-        ),
       ),
       title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: _subtitleWidget(track),

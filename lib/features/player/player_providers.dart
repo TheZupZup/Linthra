@@ -22,6 +22,7 @@ import '../../data/repositories/play_history_repository_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
 import 'cast/cast_providers.dart';
+import 'now_playing.dart';
 
 /// The source router wrapped in the stream-preloading decorator.
 ///
@@ -180,3 +181,22 @@ final currentlyPlayingTrackIdOverride =
     currentlyPlayingTrackIdProvider.overrideWith(
   (ref) => () => ref.read(playbackControllerProvider).state.currentTrack?.id,
 );
+
+/// Production binding: drives the now-playing indicator on every track row from
+/// the live [PlaybackState]. Selected down to `(current track, isPlaying)` so it
+/// updates only on a track change or a play/pause flip — never on a position
+/// tick — keeping the indicator's rebuilds rare. Applied in `main`; tests keep
+/// the inert default ([nowPlayingProvider] — nothing playing) unless they
+/// override it, so no row animates and no audio plugin is touched in a test.
+final nowPlayingOverride = nowPlayingProvider.overrideWith((ref) {
+  final controller = ref.watch(playbackControllerProvider);
+  return ref.watch(
+    playbackStateProvider.select((async) {
+      final PlaybackState state = async.valueOrNull ?? controller.state;
+      return NowPlaying(
+        currentTrack: state.currentTrack,
+        isPlaying: state.isPlaying,
+      );
+    }),
+  );
+});

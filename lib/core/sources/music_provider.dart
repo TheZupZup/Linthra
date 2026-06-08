@@ -223,9 +223,9 @@ abstract final class MusicProviders {
     ),
   );
 
-  /// Subsonic/Navidrome. Streaming, offline caching, and casting are
-  /// implemented; favorites and lyrics are documented follow-ups, so they are
-  /// declared unsupported here and their actions stay hidden/disabled.
+  /// Subsonic/Navidrome. Streaming, offline caching, casting, and lyrics are
+  /// implemented; favorites are a documented follow-up, so they are declared
+  /// unsupported here and their actions stay hidden/disabled.
   static const MusicProvider subsonic = MusicProvider(
     sourceId: 'subsonic',
     displayName: 'Navidrome / Subsonic',
@@ -238,7 +238,9 @@ abstract final class MusicProviders {
       canFavoriteTracks: false,
       canReadFavoriteState: false,
       canSyncFavorites: false,
-      canLyrics: false,
+      // Lyrics via the OpenSubsonic getLyricsBySongId extension (Navidrome),
+      // with a legacy getLyrics fallback.
+      canLyrics: true,
       canCast: true,
       canRemoveFromLibrary: true,
       canRemoveOfflineCopy: true,

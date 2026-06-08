@@ -71,6 +71,10 @@ Future<void> main() async {
       // unified library, in default-source-first order).
       playbackCandidateSourceOverride,
       currentlyPlayingTrackIdOverride,
+      // Drive the now-playing indicator on track rows from live playback (the
+      // current logical track + play/pause), so every list surface marks the
+      // playing song. Inert by default in tests.
+      nowPlayingOverride,
       secureJellyfinSessionStoreOverride,
       // Remember which Jellyfin account has had its first auto-sync, so a
       // reconnect after a restart doesn't trigger an unsolicited full re-sync.
@@ -83,7 +87,9 @@ Future<void> main() async {
       // Persist on-device play history (counts + last-played) for the
       // "Recently played" / "Most played" / "Never played" smart mixes.
       sharedPreferencesPlayHistoryStoreOverride,
-      jellyfinLyricsOverride,
+      // Lyrics from whichever signed-in remote server owns the track (Jellyfin
+      // or Subsonic/Navidrome).
+      remoteLyricsServiceOverride,
       // Real Chromecast backend (Android/iOS only); see cast_providers.dart.
       chromecastCastServiceOverride,
     ],

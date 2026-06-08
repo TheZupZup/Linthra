@@ -47,9 +47,9 @@ void main() {
     expect(find.text('Streaming'), findsOneWidget);
     expect(find.text('Offline'), findsOneWidget);
     expect(find.text('Cast'), findsOneWidget);
+    expect(find.text('Lyrics'), findsOneWidget);
     // Not implemented for Subsonic yet → hidden (capability-based visibility).
     expect(find.text('Favorites'), findsNothing);
-    expect(find.text('Lyrics'), findsNothing);
   });
 
   testWidgets('Sign in is disabled until all three fields are filled',

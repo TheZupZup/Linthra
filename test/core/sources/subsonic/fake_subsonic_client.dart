@@ -1,3 +1,4 @@
+import 'package:linthra/core/models/lyrics.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_api.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_auth.dart';
@@ -32,6 +33,10 @@ class FakeSubsonicClient implements SubsonicClient {
   SubsonicStreamProbe? streamProbe;
   SubsonicException? probeError;
 
+  /// Canned lyrics for [fetchLyrics]; `null` models "no lyrics".
+  Lyrics? lyrics;
+  SubsonicException? lyricsError;
+
   // Recorded inputs.
   String? lastBaseUrl;
   String? lastUsername;
@@ -39,6 +44,9 @@ class FakeSubsonicClient implements SubsonicClient {
   int verifyCount = 0;
   final List<String> requestedAlbumIds = <String>[];
   Uri? lastProbedUrl;
+  String? lastLyricsSongId;
+  String? lastLyricsArtist;
+  String? lastLyricsTitle;
 
   @override
   Future<SubsonicServerInfo> ping(
@@ -89,6 +97,21 @@ class FakeSubsonicClient implements SubsonicClient {
     final SubsonicException? error = listError;
     if (error != null) throw error;
     return songsByAlbum[albumId] ?? const <SubsonicSongDto>[];
+  }
+
+  @override
+  Future<Lyrics?> fetchLyrics(
+    SubsonicSession session,
+    String songId, {
+    String? artist,
+    String? title,
+  }) async {
+    lastLyricsSongId = songId;
+    lastLyricsArtist = artist;
+    lastLyricsTitle = title;
+    final SubsonicException? error = lyricsError;
+    if (error != null) throw error;
+    return lyrics;
   }
 
   @override

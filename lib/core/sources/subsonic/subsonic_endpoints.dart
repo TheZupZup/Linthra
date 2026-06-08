@@ -74,6 +74,35 @@ abstract final class SubsonicEndpoints {
       _build(baseUrl, 'getAlbum', username, credentials,
           extra: {idParam: albumId});
 
+  /// `GET /rest/getLyricsBySongId.view?id=` — the OpenSubsonic `songLyrics`
+  /// extension: a song's synced or plain lyrics, keyed by its id (which Linthra
+  /// already holds in the track URI). Navidrome and other OpenSubsonic servers
+  /// expose tagged/sidecar lyrics here, so this is the primary lyrics lookup. A
+  /// server without the extension answers with a Subsonic error, which the
+  /// client treats as "no lyrics" rather than surfacing it.
+  static Uri getLyricsBySongId(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+    required String songId,
+  }) =>
+      _build(baseUrl, 'getLyricsBySongId', username, credentials,
+          extra: {idParam: songId});
+
+  /// `GET /rest/getLyrics.view?artist=&title=` — the legacy Subsonic lyrics
+  /// lookup (plain text only, matched by artist + title). Used as a fallback for
+  /// servers that don't implement the OpenSubsonic `getLyricsBySongId`
+  /// extension.
+  static Uri getLyrics(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+    required String artist,
+    required String title,
+  }) =>
+      _build(baseUrl, 'getLyrics', username, credentials,
+          extra: <String, String>{'artist': artist, 'title': title});
+
   /// The audio stream URL for a song: `/rest/stream.view?id=…` plus auth.
   ///
   /// The server serves a playable stream (transcoding to a broadly compatible
