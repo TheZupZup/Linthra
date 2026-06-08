@@ -39,6 +39,44 @@ void main() {
       );
     });
 
+    test('normalizes the task example (LAN root, no /rest needed)', () {
+      // Linthra appends /rest/<method>.view itself, so the user types the root.
+      expect(
+        SubsonicServerUrl.normalize('http://192.168.1.50:4533'),
+        'http://192.168.1.50:4533',
+      );
+    });
+
+    test('strips a trailing /rest the user pasted by mistake', () {
+      // Linthra appends /rest itself; keeping it would double to /rest/rest/…
+      expect(
+        SubsonicServerUrl.normalize('http://192.168.1.50:4533/rest'),
+        'http://192.168.1.50:4533',
+      );
+    });
+
+    test('strips a trailing /rest/ (with slash) too', () {
+      expect(
+        SubsonicServerUrl.normalize('https://music.example.com/rest/'),
+        'https://music.example.com',
+      );
+    });
+
+    test('strips /rest while preserving a reverse-proxy subpath', () {
+      expect(
+        SubsonicServerUrl.normalize('https://example.com/navidrome/rest'),
+        'https://example.com/navidrome',
+      );
+    });
+
+    test('does not strip a subpath that merely ends in "rest"', () {
+      // Only a whole final segment named "rest" is removed, not "…rest".
+      expect(
+        SubsonicServerUrl.normalize('https://example.com/myrest'),
+        'https://example.com/myrest',
+      );
+    });
+
     test('trims surrounding whitespace', () {
       expect(
         SubsonicServerUrl.normalize('  music.example.com  '),

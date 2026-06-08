@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Network security configuration.
+
+    Linthra is a self-hosted music player: people commonly run their own
+    Navidrome / Subsonic or Jellyfin server on the local network, reached over
+    plain http:// at an address like http://192.168.1.50:4533. Android blocks
+    cleartext (http) traffic by default on modern targets, so without this the
+    app could not connect to a LAN server at all — only to HTTPS endpoints.
+
+    Android's Network Security Config can only whitelist specific domains, not
+    private-IP ranges, and LAN servers use arbitrary private IPs, so cleartext
+    is permitted app-wide here. This is a deliberate connectivity choice for a
+    self-hosted app; it adds no tracking and sends nothing to any third party.
+    HTTPS is always preferred and is recommended for any server reachable from
+    outside the local network. The default (system) certificate trust anchors
+    are kept, so self-signed certificates are still rejected (the app surfaces a
+    clear "couldn't verify your server's certificate" message instead).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

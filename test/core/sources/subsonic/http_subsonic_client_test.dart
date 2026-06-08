@@ -114,6 +114,43 @@ void main() {
             .having((e) => e.kind, 'kind', SubsonicErrorKind.notReachable)),
       );
     });
+
+    test('maps a blocked cleartext request to cleartextBlocked', () async {
+      final client = _client(MockClient((_) async => throw http.ClientException(
+            'Cleartext HTTP traffic to 192.168.1.50 not permitted',
+          )));
+      expect(
+        () => client.ping(_base, username: 'a', credentials: _credentials),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.kind, 'kind', SubsonicErrorKind.cleartextBlocked)),
+      );
+    });
+
+    test('maps a TLS handshake failure to insecureConnection', () async {
+      final client = _client(MockClient((_) async => throw http.ClientException(
+            'HandshakeException: Handshake error in client '
+            '(OS Error: CERTIFICATE_VERIFY_FAILED: self signed certificate)',
+          )));
+      expect(
+        () => client.ping(_base, username: 'a', credentials: _credentials),
+        throwsA(isA<SubsonicException>().having(
+            (e) => e.kind, 'kind', SubsonicErrorKind.insecureConnection)),
+      );
+    });
+
+    test('never echoes a credential-bearing error message', () async {
+      // A ClientException's text can include the request URL (token+salt). The
+      // thrown message must be the static factory text, never the raw error.
+      final client = _client(MockClient((_) async => throw http.ClientException(
+            'Connection failed: $_base/rest/ping.view?u=a&t=tok1&s=salt1',
+          )));
+      await expectLater(
+        () => client.ping(_base, username: 'a', credentials: _credentials),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.message, 'message', isNot(contains('tok1')))
+            .having((e) => e.message, 'message', isNot(contains('salt1')))),
+      );
+    });
   });
 
   group('library listing', () {

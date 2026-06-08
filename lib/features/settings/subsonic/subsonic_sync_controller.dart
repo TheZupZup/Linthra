@@ -88,6 +88,10 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
             'server address in Settings.';
       case SubsonicErrorKind.serverError:
         return 'Your music server reported an error. Try again in a moment.';
+      // The factory messages for these already carry specific, actionable
+      // wording (which scheme to use, the certificate hint, …), so surface them.
+      case SubsonicErrorKind.cleartextBlocked:
+      case SubsonicErrorKind.insecureConnection:
       case SubsonicErrorKind.invalidUrl:
       case SubsonicErrorKind.streamUnavailable:
       case SubsonicErrorKind.unsupportedResponse:

@@ -78,6 +78,20 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
   original file via `download.view`).
 - **Cast**: a Subsonic track casts to a Chromecast as a live stream.
 
+### Server URL & local testing
+
+Enter the **server root** (e.g. `http://192.168.1.50:4533`) — Linthra appends
+the `/rest/<method>.view` API paths itself, so you never type `/rest` (and a
+trailing `/rest` you paste is stripped). A bare host defaults to HTTPS; an
+explicit `http://` is kept for a LAN server, and reverse-proxy subpaths are
+preserved. A shipped Android network-security config permits cleartext so a LAN
+`http://` server is reachable.
+
+No production server? A one-command local Navidrome (Docker Compose) and a manual
+test checklist live in
+**[navidrome-dev-setup.md](navidrome-dev-setup.md)** /
+[`tools/dev/navidrome/`](../tools/dev/navidrome/).
+
 ### Authentication & security (token+salt)
 
 Subsonic's modern auth sends, on every request,

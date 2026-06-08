@@ -7,9 +7,20 @@ enum SubsonicErrorKind {
   /// The address the user typed isn't a usable http(s) URL.
   invalidUrl,
 
-  /// The server couldn't be reached at all (DNS, connection refused, TLS
-  /// handshake, or timeout). Often a wrong address or an offline tunnel.
+  /// The server couldn't be reached at all (DNS, connection refused, or
+  /// timeout). Often a wrong address or an offline tunnel.
   notReachable,
+
+  /// The platform blocked an insecure cleartext `http://` request (Android
+  /// blocks cleartext by default on modern targets). Distinct from
+  /// [notReachable] so the user is told to use `https://` rather than to
+  /// "check the address".
+  cleartextBlocked,
+
+  /// The TLS handshake failed — typically a self-signed or otherwise untrusted
+  /// certificate. Distinct from [notReachable] so the user knows the server was
+  /// found but its certificate couldn't be verified.
+  insecureConnection,
 
   /// The server answered but rejected the credentials (Subsonic error 40/41/44,
   /// or HTTP 401/403).
@@ -61,6 +72,20 @@ class SubsonicException implements Exception {
         'If your server is behind a reverse proxy or Cloudflare, make sure it '
         'is running.',
         kind: SubsonicErrorKind.notReachable,
+      );
+
+  factory SubsonicException.cleartextBlocked() => const SubsonicException(
+        'The insecure http:// connection to your server was blocked. Use an '
+        'https:// address, or allow cleartext (http) access for a server on '
+        'your local network.',
+        kind: SubsonicErrorKind.cleartextBlocked,
+      );
+
+  factory SubsonicException.insecureConnection() => const SubsonicException(
+        "Couldn't verify your server's security certificate. If it uses a "
+        'self-signed certificate, put it behind a reverse proxy with a trusted '
+        'certificate, or use http:// on a trusted local network.',
+        kind: SubsonicErrorKind.insecureConnection,
       );
 
   factory SubsonicException.unauthorized() => const SubsonicException(
