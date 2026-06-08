@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../app/dimens.dart';
 import '../../../app/routes.dart';
 import '../../../core/models/track.dart';
 import '../../../core/repositories/download_repository.dart';
 import '../../../data/repositories/download_repository_provider.dart';
 import '../../downloads/download_providers.dart';
+import '../../player/now_playing.dart';
 import '../../player/player_providers.dart';
-import '../../player/widgets/album_artwork.dart';
+import '../../player/widgets/track_artwork.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../song_actions.dart';
 
@@ -80,6 +80,10 @@ class TrackTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final track = tracks[index];
     final theme = Theme.of(context);
+    // Only this row's own now-playing state is selected, so a track change that
+    // doesn't affect this row never rebuilds it.
+    final NowPlayingRowState? nowPlaying =
+        ref.watch(nowPlayingProvider.select((n) => n.stateForRow(track)));
     final status =
         ref.watch(trackDownloadStatusProvider(track.id)).valueOrNull ??
             DownloadStatus.notDownloaded;
@@ -95,12 +99,9 @@ class TrackTile extends ConsumerWidget {
 
     return ListTile(
       selected: selectionActive && selected,
-      leading: SizedBox.square(
-        dimension: 48,
-        child: AlbumArtwork(
-          artworkUri: track.artworkUri,
-          borderRadius: const BorderRadius.all(Radius.circular(AppRadii.sm)),
-        ),
+      leading: TrackArtwork(
+        artworkUri: track.artworkUri,
+        nowPlaying: nowPlaying,
       ),
       title: Text(
         track.title,
