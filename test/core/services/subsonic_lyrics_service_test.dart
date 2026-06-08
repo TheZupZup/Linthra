@@ -24,7 +24,9 @@ void main() {
 
     test('fetches a Subsonic track by song id, forwarding artist and title',
         () async {
-      client.lyrics = const Lyrics(lines: <LyricLine>[LyricLine(text: 'la la')]);
+      client.lyrics = const Lyrics(
+        lines: <LyricLine>[LyricLine(text: 'la la')],
+      );
       final service = build(session: _session);
 
       final lyrics = await service.lyricsFor(
