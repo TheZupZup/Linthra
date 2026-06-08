@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/linthra_app.dart';
 import 'core/services/linthra_audio_handler.dart';
+import 'data/repositories/default_provider_store_provider.dart';
 import 'data/repositories/download_repository_provider.dart';
 import 'data/repositories/favorites_repository_provider.dart';
 import 'data/repositories/jellyfin_auto_sync_store_provider.dart';
@@ -50,6 +51,9 @@ Future<void> main() async {
       // Persist which server the user most recently signed into, so the
       // active/default provider for de-duplicated songs survives a restart.
       sharedPreferencesPreferredSourceStoreOverride,
+      // Persist the user's explicit default-source choice (Settings), which
+      // pins a provider ahead of the most-recently-signed-in order.
+      sharedPreferencesDefaultProviderStoreOverride,
       sharedPreferencesDownloadStoreOverride,
       sharedPreferencesDownloadPreferencesOverride,
       sharedPreferencesPlaybackPreferencesOverride,
