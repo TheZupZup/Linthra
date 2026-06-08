@@ -71,6 +71,10 @@ Future<void> main() async {
       // unified library, in default-source-first order).
       playbackCandidateSourceOverride,
       currentlyPlayingTrackIdOverride,
+      // Drive the now-playing indicator on track rows from live playback (the
+      // current logical track + play/pause), so every list surface marks the
+      // playing song. Inert by default in tests.
+      nowPlayingOverride,
       secureJellyfinSessionStoreOverride,
       // Remember which Jellyfin account has had its first auto-sync, so a
       // reconnect after a restart doesn't trigger an unsolicited full re-sync.

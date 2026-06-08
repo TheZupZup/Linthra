@@ -10,7 +10,8 @@ import '../../core/repositories/download_store.dart';
 import '../../core/services/offline_cache_manager.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../shared/widgets/empty_state.dart';
-import '../player/widgets/album_artwork.dart';
+import '../player/now_playing.dart';
+import '../player/widgets/track_artwork.dart';
 import '../settings/network/network_settings_section.dart';
 import 'download_providers.dart';
 
@@ -202,14 +203,14 @@ class _ActiveDownloadTile extends ConsumerWidget {
     final DownloadProgress? progress = status == DownloadStatus.downloading
         ? ref.watch(trackDownloadProgressProvider(track.id)).valueOrNull
         : null;
+    final NowPlayingRowState? nowPlaying =
+        ref.watch(nowPlayingProvider.select((n) => n.stateForRow(track)));
 
     return ListTile(
-      leading: SizedBox.square(
+      leading: TrackArtwork(
+        artworkUri: track.artworkUri,
+        nowPlaying: nowPlaying,
         dimension: 44,
-        child: AlbumArtwork(
-          artworkUri: track.artworkUri,
-          borderRadius: BorderRadius.circular(AppRadii.sm),
-        ),
       ),
       title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: _ActiveSubtitle(status: status, progress: progress),
@@ -344,13 +345,13 @@ class _DownloadedTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final CachedTrack? entry = ref.watch(cacheEntriesByIdProvider)[track.id];
     final bool pinned = entry?.pinned ?? false;
+    final NowPlayingRowState? nowPlaying =
+        ref.watch(nowPlayingProvider.select((n) => n.stateForRow(track)));
     return ListTile(
-      leading: SizedBox.square(
+      leading: TrackArtwork(
+        artworkUri: track.artworkUri,
+        nowPlaying: nowPlaying,
         dimension: 44,
-        child: AlbumArtwork(
-          artworkUri: track.artworkUri,
-          borderRadius: BorderRadius.circular(AppRadii.sm),
-        ),
       ),
       title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: _subtitle(track, entry),
