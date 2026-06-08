@@ -33,24 +33,54 @@ album/artist detail screens all render the de-duplicated primaries, so none of
 them shows a song twice.
 
 The matching is deliberately **conservative** — it would rather leave two rows
-separate than merge songs that might be different:
+separate than merge songs that might be different. Because real Jellyfin and
+Navidrome servers rarely tag a song *identically*, matching is a **score with
+hard vetoes** (`core/catalog/track_identity.dart`), not one exact key:
 
-- A **match key** (`logicalMatchKey`) is built from the *folded* title, artist,
-  and album plus a coarse (2-second) duration bucket. Case and accents are
-  folded (`Beyoncé` ≡ `beyonce`); distinguishing words are **kept**, so
-  `Hello`, `Hello (Live)`, and `Hello (Radio Edit)` never collapse together.
+- Eligible tracks are first **blocked** by `matchBlockKey` (the folded primary
+  artist token + first title token, feat. qualifier stripped) so only plausible
+  pairs are ever compared.
+- Within a block, `trackMatchScore(a, b)` rates a pair in `[0, 1]` from the
+  strong, tag-derived signals: **title** token overlap (`1.0` when the
+  feat-stripped titles match), **album** containment (so `25` ⊆ `25 (Deluxe)`),
+  and **artist** containment (so `NF` ⊆ `NF, Cordae`). Two **hard vetoes**
+  force `0.0`: durations more than 2 seconds apart, or two conflicting track
+  numbers. A pair merges only at or above `kTrackMatchScore` (0.9).
+- This tolerates the real-world drift the exact key missed — `CAREFUL` vs
+  `CAREFUL feat. Cordae`, artist `NF` vs `NF, Cordae`, album editions, and a
+  1-second rounding gap that straddled the old bucket edge — while still keeping
+  `Hello`, `Hello (Live)`, and a same-title song on a *different* album as
+  separate rows (their score stays below 0.9).
 - A track with too little metadata to match — **missing** title, artist, album,
-  **or** a zero/unknown duration — gets **no key** and is **always** its own
-  row. Untagged local files therefore never merge.
-- Two tracks merge **only** when they share a key **and** come from **two or
-  more distinct providers**. A group that is entirely one provider's rows is
-  never merged. This is the safety invariant that guarantees an existing
+  **or** a zero/unknown duration — is **never** matchable and is **always** its
+  own row. Untagged local files therefore never merge.
+- Two tracks merge **only** when they are a confident match **and** come from
+  **two or more distinct providers**. A group that is entirely one provider's
+  rows is never merged. This is the safety invariant that guarantees an existing
   single-provider (or local-only) library is returned one-row-per-track,
   unchanged.
+
+Grouping stays **deterministic** even though a score is not a single
+equivalence key: a block's tracks are sorted by `(priority rank, id)` and each
+is attached to the first existing group whose *anchor* it matches (and whose
+provider it does not already duplicate), so the result never depends on the
+catalog's order.
 
 Removing a logical row from the library forgets **every** provider copy (via
 `logicalSourceIdsProvider`), so a hidden duplicate can't resurrect the row on the
 next reload. (Re-syncing a server brings its copy back, exactly as before.)
+
+### Artwork: prefer the displayed copy, fall back to the best available
+
+The displayed copy is the default/preferred provider's — but some providers
+(Subsonic/Navidrome today, untagged local files) carry **no** `artworkUri`. If
+the row simply showed the preferred copy's cover, unifying a song that the
+preferred provider lacks a cover for would *blank* a cover another copy still
+has. So `LogicalTrack.displayTrack` keeps the preferred copy's id and uri (play,
+source label, and removal are unchanged) but fills in `displayArtworkUri`: the
+first candidate, **in preference order**, that actually has artwork. The choice
+is deterministic, prefers the displayed provider, and never regresses an album
+cover that any merged copy provides.
 
 ## Source preference & fallback
 

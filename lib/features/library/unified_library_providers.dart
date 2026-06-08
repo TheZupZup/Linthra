@@ -19,17 +19,20 @@ final libraryLogicalTracksProvider = Provider<List<LogicalTrack>>((ref) {
   return unifyTracks(tracks, priority);
 });
 
-/// The de-duplicated catalog the Library UI renders and plays: the preferred
-/// copy ([LogicalTrack.primaryTrack]) of each logical track, in catalog order.
+/// The de-duplicated catalog the Library UI renders and plays: the displayed
+/// copy ([LogicalTrack.displayTrack]) of each logical track, in catalog order.
 ///
 /// Tapping one of these plays the active/default provider's copy (or the best
-/// available fallback) because the primary *is* that copy. The Songs/Albums/
-/// Artists tabs, search, and the album/artist detail screens all read from here
-/// so none of them shows the same song twice.
+/// available fallback) because the display track keeps the primary's id and uri.
+/// It only differs from the raw primary by carrying the best available cover
+/// ([LogicalTrack.displayArtworkUri]), so de-duplication never drops album
+/// artwork that one of the merged copies still has. The Songs/Albums/Artists
+/// tabs, search, and the album/artist detail screens all read from here so none
+/// of them shows the same song twice — or loses its cover.
 final libraryUnifiedTracksProvider = Provider<List<Track>>((ref) {
   return <Track>[
     for (final LogicalTrack logical in ref.watch(libraryLogicalTracksProvider))
-      logical.primaryTrack,
+      logical.displayTrack,
   ];
 });
 

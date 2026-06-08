@@ -57,6 +57,32 @@ class LogicalTrack {
   /// The preferred copy's catalog track (the playable, displayable [Track]).
   Track get primaryTrack => primary.track;
 
+  /// The artwork to show for this row, chosen deterministically: the displayed
+  /// (preferred) copy's own cover wins; if it has none, the first fallback
+  /// candidate — in the same preference order — that *does* carry artwork is
+  /// used. So unifying never blanks a cover the song actually has on another
+  /// provider (a common regression when the preferred provider — e.g. Subsonic,
+  /// whose mapper stores no `artworkUri` — shadows a Jellyfin copy that has one).
+  /// `null` only when no candidate has any artwork at all.
+  Uri? get displayArtworkUri {
+    for (final TrackSourceCandidate c in candidates) {
+      final Uri? art = c.track.artworkUri;
+      if (art != null) return art;
+    }
+    return null;
+  }
+
+  /// The [Track] the row should display and enqueue: the preferred copy, but
+  /// carrying the best available artwork ([displayArtworkUri]) so a primary that
+  /// lacks a cover does not hide one a fallback copy has. Its [Track.id] and
+  /// [Track.uri] are the primary's, so playback resolution, the "Playing from …"
+  /// source indicator, and removal are all unchanged — only the cover is filled.
+  Track get displayTrack {
+    final Uri? art = displayArtworkUri;
+    if (art == primaryTrack.artworkUri) return primaryTrack;
+    return primaryTrack.copyWith(artworkUri: art);
+  }
+
   /// A stable id for the logical row: the preferred copy's track id. Stable for
   /// a given catalog + preference, which is all the UI (keys, selection) needs.
   String get id => primaryTrack.id;
