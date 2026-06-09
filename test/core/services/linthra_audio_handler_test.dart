@@ -70,6 +70,38 @@ void main() {
       expect(item.album, 'Album a');
     });
 
+    group('media-session artwork stays loadable (no opaque refs reach artUri)',
+        () {
+      Future<Uri?> artUriFor(Uri? artworkUri) async {
+        await controller.playTracks(<Track>[
+          Track(
+              id: 'x',
+              title: 'Song',
+              uri: 'subsonic:x',
+              artworkUri: artworkUri),
+        ]);
+        await _settle();
+        return handler.mediaItem.value?.artUri;
+      }
+
+      test('drops an opaque subsonic-cover: reference to null', () async {
+        // The OS fetches MediaItem.artUri itself and can't reach the in-app
+        // resolver, so a custom-scheme reference must not reach the session (it
+        // would fail/log on the bad URI); null cleanly shows no art, as before.
+        expect(await artUriFor(Uri.parse('subsonic-cover:al-1')), isNull);
+      });
+
+      test('passes a Jellyfin token-free http(s) cover through', () async {
+        final art = Uri.parse('https://jelly.example/Items/1/Images/Primary');
+        expect(await artUriFor(art), art);
+      });
+
+      test('passes a local file: embedded cover through', () async {
+        final art = Uri.parse('file:///cache/linthra_local_artwork/a.img');
+        expect(await artUriFor(art), art);
+      });
+    });
+
     test('queue: state is ready with pause, stop and skip controls', () async {
       await controller.playTracks([_track('a'), _track('b')]);
       await _settle();
