@@ -70,7 +70,8 @@ void main() {
       expect(download.queryParameters['id'], 's-7');
     });
 
-    test('coverArt targets /rest/getCoverArt.view and carries the cover id', () {
+    test('coverArt targets /rest/getCoverArt.view and carries the cover id',
+        () {
       final Uri uri = SubsonicEndpoints.coverArt(
         _base,
         username: _user,
@@ -83,7 +84,8 @@ void main() {
       expect(uri.queryParameters.containsKey('size'), isFalse);
     });
 
-    test('coverArt weaves the auth query and keeps the credential out of the '
+    test(
+        'coverArt weaves the auth query and keeps the credential out of the '
         'path', () {
       final Uri uri = SubsonicEndpoints.coverArt(
         _base,

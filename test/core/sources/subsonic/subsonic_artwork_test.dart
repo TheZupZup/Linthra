@@ -102,7 +102,8 @@ void main() {
       expect(SubsonicArtwork.resolve(jellyfin, _session), isNull);
       // A local file cover is likewise not a Subsonic reference.
       expect(
-        SubsonicArtwork.resolve(Uri.parse('file:///cache/art/abc.img'), _session),
+        SubsonicArtwork.resolve(
+            Uri.parse('file:///cache/art/abc.img'), _session),
         isNull,
       );
     });
