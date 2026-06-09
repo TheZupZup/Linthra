@@ -58,7 +58,8 @@ like a server source, falling back cleanly to the file name and
 `…/Artist/Album/Track` folders when a tag is missing — see
 [local-music.md](local-music.md). The chosen folder and the scanned catalog
 survive a restart. No broad storage permission is requested (tags are read
-through the same folder grant). Embedded cover art is a documented follow-up.
+through the same folder grant). A file's **embedded** cover art is read during
+the same scan and cached privately, so local tracks show their artwork too.
 On-device files cannot be cast (a receiver can't reach a file on your phone).
 
 ## Jellyfin

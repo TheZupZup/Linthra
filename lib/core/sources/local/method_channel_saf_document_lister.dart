@@ -95,14 +95,15 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
 
   /// Builds the [LocalAudioMetadata] for one document [entry] from the optional
   /// tag fields the native walk attached (`title`, `artist`, `albumArtist`,
-  /// `album`, `track`, `durationMs`), or null when none are present — an older
-  /// native build, or a file the platform could not read tags from.
+  /// `album`, `track`, `durationMs`, `artworkUri`), or null when none are present
+  /// — an older native build, or a file the platform could not read tags from.
   ///
   /// Pure and tolerant so it is unit-testable and never throws on a malformed or
-  /// partial reply: a non-string text field, a `track` like `"3/12"`, and a
-  /// `durationMs` sent as either an int or a numeric string are all handled, and
-  /// a blank or unparseable value simply drops to null (the mapper then falls
-  /// back to the file name).
+  /// partial reply: a non-string text field, a `track` like `"3/12"`, a
+  /// `durationMs` sent as either an int or a numeric string, and a malformed
+  /// `artworkUri` are all handled, and a blank or unparseable value simply drops
+  /// to null (the mapper then falls back to the file name, and the row keeps the
+  /// artwork placeholder).
   static LocalAudioMetadata? parseMetadata(Map<Object?, Object?> entry) {
     final String? title = _string(entry['title']);
     final String? artist = _string(entry['artist']);
@@ -110,12 +111,14 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
     final String? album = _string(entry['album']);
     final int? trackNumber = _trackNumber(entry['track']);
     final Duration? duration = _durationMs(entry['durationMs']);
+    final Uri? artworkUri = _artworkUri(entry['artworkUri']);
     if (title == null &&
         artist == null &&
         albumArtist == null &&
         album == null &&
         trackNumber == null &&
-        duration == null) {
+        duration == null &&
+        artworkUri == null) {
       return null;
     }
     return LocalAudioMetadata(
@@ -125,6 +128,7 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
       album: album,
       trackNumber: trackNumber,
       duration: duration,
+      artworkUri: artworkUri,
     );
   }
 
@@ -159,5 +163,16 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
     }
     if (ms == null || ms <= 0) return null;
     return Duration(milliseconds: ms);
+  }
+
+  /// The native-reported cover-art location parsed to a [Uri], or null when
+  /// absent, blank, or unparseable. The native side sends a `file://` URI into
+  /// Linthra's own cache; an unparseable value simply leaves the track without
+  /// artwork (the calm placeholder) rather than throwing.
+  static Uri? _artworkUri(Object? value) {
+    if (value is! String) return null;
+    final String trimmed = value.trim();
+    if (trimmed.isEmpty) return null;
+    return Uri.tryParse(trimmed);
   }
 }

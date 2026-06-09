@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
+import '../../../shared/widgets/artwork_image.dart';
 
 /// The single place album artwork is turned into pixels.
 ///
-/// This is the app's *artwork resolver seam*: every artwork render goes through
-/// [_imageProviderFor], so if a source ever needs signed/tokenized image URLs
-/// they can be resolved here — at display time — without persisting a token or
-/// changing call sites. Today Jellyfin's primary-image URL needs no token
-/// (it is built token-free in the track mapper and stored as `Track.artworkUri`)
-/// and local tracks carry none, so a plain [NetworkImage] is enough.
+/// Artwork resolution lives in [artworkImageProvider] (the shared seam): a
+/// Jellyfin primary-image URL needs no token (it is built token-free in the
+/// track mapper and stored as `Track.artworkUri`) so it loads over the network,
+/// while a local file's embedded cover — extracted into Linthra's cache and
+/// stored as a `file://` URI — loads from disk. Subsonic and untagged local
+/// tracks carry no artwork and show the placeholder below.
 ///
 /// It fills whatever box the parent gives it (wrap in a `SizedBox`/`AspectRatio`
 /// to size it) and degrades gracefully: a missing URL, a load error, or a slow
@@ -25,9 +26,6 @@ class AlbumArtwork extends StatelessWidget {
   final Uri? artworkUri;
   final BorderRadius borderRadius;
 
-  static ImageProvider _imageProviderFor(Uri uri) =>
-      NetworkImage(uri.toString());
-
   @override
   Widget build(BuildContext context) {
     final Uri? uri = artworkUri;
@@ -36,7 +34,7 @@ class AlbumArtwork extends StatelessWidget {
       child: uri == null
           ? const _ArtworkPlaceholder()
           : Image(
-              image: _imageProviderFor(uri),
+              image: artworkImageProvider(uri),
               fit: BoxFit.cover,
               width: double.infinity,
               height: double.infinity,

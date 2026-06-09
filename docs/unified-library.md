@@ -72,9 +72,10 @@ next reload. (Re-syncing a server brings its copy back, exactly as before.)
 
 ### Artwork: prefer the displayed copy, fall back to the best available
 
-The displayed copy is the default/preferred provider's — but some providers
-(Subsonic/Navidrome today, local files — whose embedded cover art is a
-follow-up) carry **no** `artworkUri`. If
+The displayed copy is the default/preferred provider's — but some copies carry
+**no** `artworkUri` (Subsonic/Navidrome today, and a local file that has no
+embedded cover art — local files *with* embedded art now carry a `file://`
+cover). If
 the row simply showed the preferred copy's cover, unifying a song that the
 preferred provider lacks a cover for would *blank* a cover another copy still
 has. So `LogicalTrack.displayTrack` keeps the preferred copy's id and uri (play,

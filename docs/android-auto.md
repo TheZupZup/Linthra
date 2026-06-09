@@ -367,6 +367,11 @@ mode → **Add unknown sources** enabled for a sideloaded build.
   wraps).
 - The car experience is **basic browsing**, not a custom/polished car UI (no
   tabs, content-style hints, lyrics, or now-playing artwork tuning).
-- Lock-screen / car artwork depends on `Track.artworkUri`; local-folder scanning
-  does not populate it yet.
+- Lock-screen / now-playing artwork depends on `Track.artworkUri`, which now
+  includes a local file's embedded cover (extracted during the scan) as well as
+  server covers — `audio_service` loads it in-process for the media session. The
+  car **browse-tree** thumbnail for a local file is a private-cache `file://`
+  URI the car's own process may not be able to read, so a server cover remains
+  the most reliable browse thumbnail; this is a known limitation, not a
+  regression (local rows had no art before).
 - No MPRIS (Linux desktop media keys) yet.

@@ -96,10 +96,12 @@ only at play time.
   a tag is missing, falls back to the file name and the `…/Artist/Album/Track`
   folder layout — so a tagged or well-organized local library groups normally. A
   file with neither tags nor folder context still folds into a single
-  **Unknown Album** / **Unknown Artist**. Embedded cover art for local files is a
-  separate follow-up (see [local-music.md](./local-music.md)).
-- **Artwork may be missing** for some tracks (notably local files); a calm
-  placeholder is shown instead, and the layout never jumps.
+  **Unknown Album** / **Unknown Artist**. A local file's **embedded** cover art
+  is read during the scan and shown like any other cover (see
+  [local-music.md](./local-music.md)).
+- **Artwork may be missing** for some tracks (a local file with no embedded
+  cover, or a Subsonic/Navidrome track); a calm placeholder is shown instead,
+  and the layout never jumps.
 - **No stable source album/artist IDs yet.** Grouping uses folded names because
   source album/artist IDs (e.g. Jellyfin's `AlbumId`) aren't persisted on a
   track today. Persisting them — for sharper disambiguation and richer
@@ -110,4 +112,3 @@ only at play time.
 - Playlists / favorites integration from album & artist views.
 - Genre browsing.
 - Advanced filters and sort options (by year, recently added, duration).
-- Local tag/metadata parsing so on-device files get real album/artist/artwork.

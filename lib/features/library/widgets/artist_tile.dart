@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/models/artist.dart';
+import '../../../shared/widgets/artwork_image.dart';
 
 /// One row in the Artists list: a circular avatar (artwork or a placeholder
 /// glyph), the artist name, and an album/track-count subtitle. Long names
@@ -64,7 +65,7 @@ class _ArtistAvatar extends StatelessWidget {
         child: uri == null
             ? _placeholder(theme)
             : Image(
-                image: NetworkImage(uri.toString()),
+                image: artworkImageProvider(uri),
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
                 errorBuilder: (_, __, ___) => _placeholder(theme),
