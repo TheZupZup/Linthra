@@ -200,6 +200,7 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 | Streaming, buffering & recovery | [docs/streaming.md](./docs/streaming.md) |
 | Queue / Up Next | [docs/queue.md](./docs/queue.md) |
 | Offline cache & downloads | [docs/offline-cache.md](./docs/offline-cache.md) |
+| Battery usage | [docs/battery.md](./docs/battery.md) |
 | Cast / Chromecast | [docs/cast.md](./docs/cast.md) |
 | Android Auto | [docs/android-auto.md](./docs/android-auto.md) |
 | Reporting a bug | [docs/reporting-bugs.md](./docs/reporting-bugs.md) |

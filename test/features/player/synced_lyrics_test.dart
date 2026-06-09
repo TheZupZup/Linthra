@@ -121,6 +121,28 @@ void main() {
       expect(_styleOf(tester, 'line two').fontWeight, FontWeight.w500);
     });
 
+    testWidgets('keeps the highlight steady across sub-line position ticks',
+        (tester) async {
+      // The highlight is throttled to line changes (it follows the active-line
+      // index, not the raw position), so several ticks within one line must
+      // leave the same line highlighted — correctness is preserved while the
+      // synced list avoids rebuilding on every ~4 Hz tick.
+      final controller = FakePlaybackController(
+          initial: _playingAt(const Duration(seconds: 11)));
+      await pump(tester, controller: controller, lyrics: _synced);
+      await _openLyrics(tester);
+      expect(_styleOf(tester, 'line two').fontWeight, FontWeight.w700);
+
+      for (final int ms in <int>[12000, 14000, 17500, 19500]) {
+        controller.emit(
+          controller.state.copyWith(position: Duration(milliseconds: ms)),
+        );
+        await tester.pump();
+        expect(_styleOf(tester, 'line two').fontWeight, FontWeight.w700);
+        expect(_styleOf(tester, 'line three').fontWeight, FontWeight.w500);
+      }
+    });
+
     testWidgets('plain lyrics render without timed highlighting',
         (tester) async {
       await pump(

@@ -43,12 +43,24 @@ class QueueSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final controller = ref.watch(playbackControllerProvider);
-    final PlaybackState state =
-        ref.watch(playbackStateProvider).valueOrNull ?? controller.state;
+    // Battery: select only the queue identity (current track + up-next +
+    // history), not the whole PlaybackState, so the ~4 Hz position ticks don't
+    // rebuild the entire sheet while it's open. The controller reuses the same
+    // up-next/history list instances on a position tick (copyWith carries them
+    // through), so this record compares equal and the sheet stays put; it
+    // rebuilds only on a real queue change — skip, reorder, add, remove, clear,
+    // or a track change. The current-track equalizer still animates on
+    // play/pause via [_CurrentTile]'s own nowPlayingProvider watch.
+    final (Track?, List<Track>, List<Track>) queue = ref.watch(
+      playbackStateProvider.select((s) {
+        final PlaybackState state = s.valueOrNull ?? controller.state;
+        return (state.currentTrack, state.upNext, state.previous);
+      }),
+    );
 
-    final Track? current = state.currentTrack;
-    final List<Track> upNext = state.upNext;
-    final List<Track> history = state.previous;
+    final Track? current = queue.$1;
+    final List<Track> upNext = queue.$2;
+    final List<Track> history = queue.$3;
     final bool canClear = upNext.isNotEmpty || history.isNotEmpty;
     final bool canSave = current != null;
 
@@ -75,9 +87,8 @@ class QueueSheet extends ConsumerWidget {
                   Text('Queue', style: theme.textTheme.titleMedium),
                   const Spacer(),
                   IconButton(
-                    onPressed: canSave
-                        ? () => _saveAsPlaylist(context, ref, state)
-                        : null,
+                    onPressed:
+                        canSave ? () => _saveAsPlaylist(context, ref) : null,
                     icon: const Icon(Icons.playlist_add),
                     tooltip: 'Save queue as playlist',
                   ),
@@ -161,9 +172,12 @@ class QueueSheet extends ConsumerWidget {
   Future<void> _saveAsPlaylist(
     BuildContext context,
     WidgetRef ref,
-    PlaybackState state,
   ) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    // Read the freshest full queue at tap time rather than capturing it in
+    // build — build now selects only the queue identity (see above), and a save
+    // is a one-off action, not a hot path.
+    final PlaybackState state = ref.read(playbackControllerProvider).state;
     final List<Track> tracks = <Track>[
       ...state.previous,
       if (state.currentTrack != null) state.currentTrack!,
