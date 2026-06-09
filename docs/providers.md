@@ -102,20 +102,22 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
 - **Cover art**: album/artist/track artwork shows across the app. The catalog
   stores only a credential-free `subsonic-cover:<coverArtId>` reference; the
   authenticated `getCoverArt` URL is resolved on demand at render time (the
-  salt+token are woven in then, never persisted), exactly like stream URLs.
-  For the **media session** (lock screen / Android Auto now-playing card), which
-  loads `MediaItem.artUri` itself — somewhere the render-time resolver can't
-  reach, and where a credentialed URL must never go — Linthra instead fetches a
-  **server-downscaled** cover itself and caches the bytes to a private `file:`,
-  keyed by a hash of the credential-free reference, then hands the session only
-  that local file. To beat a head unit's metadata snapshot at the track change,
-  the now-playing + next few covers are **pre-warmed** off the playback path, so
-  the handler can attach the cached file synchronously. The credential is used
-  once to fetch and never stored, logged, or put in the cache filename; a failed
-  or slow fetch just leaves the session art-less (playback is unaffected). Cast
-  still omits Subsonic artwork (a credentialed URL must not reach the receiver).
-  Media-session artwork on a real head unit is **pending on-device verification**
-  (see `docs/android-auto.md`).
+  salt+token are woven in then, never persisted), exactly like stream URLs. This
+  in-app cover art is the part that **ships**.
+  - **Media-session cover (lock screen / Android Auto) is a parked follow-up,
+    not in `v0.1.4`.** The platform session loads `MediaItem.artUri` itself —
+    somewhere the render-time resolver can't reach, and where a credentialed URL
+    must never go — so Linthra fetches a **server-downscaled** cover itself,
+    caches it to a private file keyed by a hash of the credential-free reference,
+    and pre-warms the now-playing + next covers off the playback path. The
+    credential is used once and never stored, logged, or put in the filename.
+    Real head-unit testing showed this **fixes the playback smoothness** but a
+    private `file:` `artUri` still doesn't show the cover on Android Auto (it
+    loads the URI in its own process, where an app-private `file:` isn't
+    readable). The follow-up is a credential-free **`content://` (FileProvider)**
+    URI Android Auto can read — see `docs/android-auto.md`.
+  - Cast still omits Subsonic artwork (a credentialed URL must not reach the
+    receiver).
 - **Lyrics**: synced or plain lyrics are fetched on demand via the OpenSubsonic
   `getLyricsBySongId` extension (how Navidrome exposes embedded/sidecar lyrics),
   with a fallback to the legacy `getLyrics` (plain text, matched by artist +
