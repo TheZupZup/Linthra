@@ -61,9 +61,12 @@ class LogicalTrack {
   /// (preferred) copy's own cover wins; if it has none, the first fallback
   /// candidate — in the same preference order — that *does* carry artwork is
   /// used. So unifying never blanks a cover the song actually has on another
-  /// provider (a common regression when the preferred provider — e.g. Subsonic,
-  /// whose mapper stores no `artworkUri` — shadows a Jellyfin copy that has one).
-  /// `null` only when no candidate has any artwork at all.
+  /// provider (e.g. a preferred Subsonic copy the server reports no `coverArt`
+  /// for shadowing a Jellyfin copy that has one). Each candidate's artwork is
+  /// whatever its mapper stored — a Jellyfin http URL, a local `file:` cover, or
+  /// a credential-free `subsonic-cover:` reference — and is compared/forwarded
+  /// opaquely here; resolution happens later, at render time. `null` only when
+  /// no candidate has any artwork at all.
   Uri? get displayArtworkUri {
     for (final TrackSourceCandidate c in candidates) {
       final Uri? art = c.track.artworkUri;

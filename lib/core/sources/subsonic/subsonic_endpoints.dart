@@ -130,6 +130,25 @@ abstract final class SubsonicEndpoints {
       _build(baseUrl, 'download', username, credentials,
           extra: {idParam: songId});
 
+  /// The cover-art image URL: `/rest/getCoverArt.view?id=…` plus auth.
+  ///
+  /// [coverArtId] is the opaque handle a song/album/artist reports as its
+  /// `coverArt` (e.g. `al-123`). Like [stream] and [download], `getCoverArt`
+  /// requires the salt+token on every request, so this URL carries the
+  /// credential in its query — it is therefore woven in here, on demand at
+  /// render time, and never persisted on a track or in the catalog (the catalog
+  /// stores only a credential-free `subsonic-cover:` reference; see
+  /// `SubsonicArtwork`). No `size` is requested, so the server serves the
+  /// original art — matching how Jellyfin's primary image is loaded full-size.
+  static Uri coverArt(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+    required String coverArtId,
+  }) =>
+      _build(baseUrl, 'getCoverArt', username, credentials,
+          extra: {idParam: coverArtId});
+
   /// Builds `/rest/<method>.view` with the standard auth + format query and any
   /// method-specific [extra] parameters. The single place the salt+token are
   /// woven into a URL.

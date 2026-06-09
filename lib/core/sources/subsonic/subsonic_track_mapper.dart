@@ -2,6 +2,7 @@ import '../../models/album.dart';
 import '../../models/artist.dart';
 import '../../models/track.dart';
 import 'subsonic_api.dart';
+import 'subsonic_artwork.dart';
 
 /// Converts Subsonic wire items into Linthra's source-agnostic domain models.
 ///
@@ -14,10 +15,11 @@ import 'subsonic_api.dart';
 ///    The real stream/download URLs carry the salt+token, so building them
 ///    lazily in `SubsonicMusicSource` keeps the credential out of the persisted
 ///    catalog.
-///  - [Track.artworkUri] is intentionally left null. Subsonic cover art
-///    (`getCoverArt`) requires the auth query, so a cover URL would embed the
-///    credential — and `artworkUri` is persisted in the catalog. Token-free
-///    cover-art resolution is a documented follow-up (see docs/providers.md).
+///  - [Track.artworkUri] is a credential-free `subsonic-cover:<coverArtId>`
+///    reference, never a ready-to-load URL. Subsonic cover art (`getCoverArt`)
+///    requires the auth query, so a loadable URL would embed the credential —
+///    and `artworkUri` is persisted in the catalog. The credential is woven in
+///    on demand at render time instead (see [SubsonicArtwork]).
 abstract final class SubsonicTrackMapper {
   /// Prefix marking a [Track.uri] as a Subsonic item rather than a file path or
   /// a Jellyfin item.
@@ -32,6 +34,7 @@ abstract final class SubsonicTrackMapper {
       albumName: song.album,
       duration: _durationFromSeconds(song.durationSeconds),
       trackNumber: song.track,
+      artworkUri: _artworkReference(song.coverArt),
     );
   }
 
@@ -42,6 +45,7 @@ abstract final class SubsonicTrackMapper {
       artistName: album.artist,
       year: album.year,
       trackCount: album.songCount,
+      artworkUri: _artworkReference(album.coverArt),
     );
   }
 
@@ -50,7 +54,16 @@ abstract final class SubsonicTrackMapper {
       id: artist.id,
       name: artist.name,
       albumCount: artist.albumCount,
+      artworkUri: _artworkReference(artist.coverArt),
     );
+  }
+
+  /// A credential-free [SubsonicArtwork.reference] for a non-empty [coverArtId],
+  /// or `null` when the server reported none — so a track/album/artist without
+  /// cover art keeps a null `artworkUri` and the UI shows its placeholder.
+  static Uri? _artworkReference(String? coverArtId) {
+    if (coverArtId == null || coverArtId.isEmpty) return null;
+    return SubsonicArtwork.reference(coverArtId);
   }
 
   /// Subsonic reports a song's duration in whole seconds; absent or zero maps to

@@ -162,7 +162,11 @@ void main() {
               <String, dynamic>{
                 'name': 'K',
                 'artist': <Map<String, dynamic>>[
-                  <String, dynamic>{'id': 'ar-1', 'name': 'Kavinsky'},
+                  <String, dynamic>{
+                    'id': 'ar-1',
+                    'name': 'Kavinsky',
+                    'coverArt': 'ar-1',
+                  },
                 ],
               },
               <String, dynamic>{
@@ -184,6 +188,9 @@ void main() {
 
       expect(artists.map((a) => a.id), <String>['ar-1', 'ar-2']);
       expect(artists.last.albumCount, 5);
+      // The cover-art handle is parsed when present, absent otherwise.
+      expect(artists.first.coverArt, 'ar-1');
+      expect(artists.last.coverArt, isNull);
     });
 
     test('getAlbums parses albumList2 and requests the right type', () async {
@@ -199,6 +206,7 @@ void main() {
                 'artist': 'Kavinsky',
                 'songCount': 12,
                 'year': 2011,
+                'coverArt': 'al-1',
               },
             ],
           },
@@ -209,6 +217,7 @@ void main() {
 
       expect(albums.single.id, 'al-1');
       expect(albums.single.songCount, 12);
+      expect(albums.single.coverArt, 'al-1');
       expect(captured!.url.path, '/rest/getAlbumList2.view');
       expect(captured!.url.queryParameters['type'], 'alphabeticalByName');
     });
@@ -224,6 +233,7 @@ void main() {
                 'artist': 'Kavinsky',
                 'duration': 256,
                 'track': 1,
+                'coverArt': 'al-1',
               },
             ],
           },
@@ -234,6 +244,7 @@ void main() {
 
       expect(songs.single.id, 's1');
       expect(songs.single.durationSeconds, 256);
+      expect(songs.single.coverArt, 'al-1');
     });
   });
 
