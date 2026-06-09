@@ -304,7 +304,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
       title: node.title,
       playable: false,
       displaySubtitle: node.subtitle,
-      artUri: node.artworkUri,
+      artUri: _mediaArtUri(node.artworkUri),
     );
   }
 
@@ -322,8 +322,29 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
       artist: track.artistName,
       album: track.albumName,
       duration: duration > Duration.zero ? duration : null,
-      artUri: track.artworkUri,
+      artUri: _mediaArtUri(track.artworkUri),
     );
+  }
+
+  /// The artwork URI to hand the platform media session (notification, lock
+  /// screen, Android Auto), or null when there is none it can load directly.
+  ///
+  /// Unlike the in-app artwork seam ([artworkImageProvider]), `MediaItem.artUri`
+  /// is fetched by the OS/audio_service itself, so only a directly loadable,
+  /// credential-free URI belongs here: a token-free `http(s)` cover (Jellyfin)
+  /// or a local `file:` cover (a local file's embedded art). An opaque in-app
+  /// reference such as Subsonic's `subsonic-cover:<id>` — which only the widget
+  /// resolver can turn into a signed URL — is dropped to null, so the platform
+  /// is never handed a custom-scheme URI it can't fetch (which would fail/log
+  /// instead of cleanly showing no art). Caching a resolved Subsonic cover to a
+  /// `file:` for the lock screen is a separate follow-up; it must stay
+  /// token-free, since the credential must never reach the platform session.
+  static Uri? _mediaArtUri(Uri? uri) {
+    if (uri == null) return null;
+    if (uri.isScheme('http') || uri.isScheme('https') || uri.isScheme('file')) {
+      return uri;
+    }
+    return null;
   }
 
   audio.PlaybackState _playbackStateFor(PlaybackState state) {
