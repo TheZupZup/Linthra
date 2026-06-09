@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/dimens.dart';
 import '../../core/app_info.dart';
 import '../../shared/widgets/linthra_logo_mark.dart';
+import '../../shared/widgets/settings_section_header.dart';
 import 'bug_report/report_bug_settings_section.dart';
 import 'cache/cache_settings_section.dart';
 import 'diagnostics/diagnostics_settings_section.dart';
@@ -27,6 +28,11 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
         children: const [
+          // Music sources — where Linthra finds music to play. Local music is a
+          // source here, deliberately kept away from the Storage & offline
+          // group below so it is not confused with offline downloads.
+          SettingsSectionHeader('Music sources'),
+          SizedBox(height: AppSpacing.sm),
           JellyfinSettingsSection(),
           SizedBox(height: AppSpacing.md),
           SubsonicSettingsSection(),
@@ -36,15 +42,23 @@ class SettingsScreen extends StatelessWidget {
           DefaultProviderSettingsSection(),
           SizedBox(height: AppSpacing.md),
           PlaybackSourceStrategySettingsSection(),
-          SizedBox(height: AppSpacing.md),
+          SizedBox(height: AppSpacing.lg),
+          // Storage & offline — Linthra-managed on-device storage: songs you
+          // download for offline playback and the cache that speeds playback up.
+          SettingsSectionHeader('Storage & offline'),
+          SizedBox(height: AppSpacing.sm),
           CacheSettingsSection(),
-          SizedBox(height: AppSpacing.md),
-          PlaybackSettingsSection(),
           SizedBox(height: AppSpacing.md),
           NetworkSettingsSection(),
           SizedBox(height: AppSpacing.md),
           PrecacheSettingsSection(),
-          SizedBox(height: AppSpacing.md),
+          SizedBox(height: AppSpacing.lg),
+          SettingsSectionHeader('Playback'),
+          SizedBox(height: AppSpacing.sm),
+          PlaybackSettingsSection(),
+          SizedBox(height: AppSpacing.lg),
+          SettingsSectionHeader('Help & diagnostics'),
+          SizedBox(height: AppSpacing.sm),
           ReportBugSettingsSection(),
           SizedBox(height: AppSpacing.md),
           DiagnosticsSettingsSection(),

@@ -17,10 +17,11 @@ import 'local_music_controller.dart';
 /// in sync. Everything it shows is read reactively from the selected-folder and
 /// last-scan providers; the card itself holds no scanning logic.
 ///
-/// "Local music" is deliberately distinct from two neighbours users conflate:
+/// "Local music" is deliberately distinct from two neighbours users conflate,
+/// both of which live under Settings ▸ Storage & offline:
 ///  - Offline downloads — copies Linthra makes for offline playback of a server
-///    track (Settings ▸ Offline / the download action), and
-///  - Cache — Linthra-managed temporary storage (Settings ▸ Cache).
+///    track (the download action), and
+///  - Cache — Linthra-managed storage that speeds playback up.
 /// This card only points Linthra at music that already lives on the device.
 class LocalMusicSettingsSection extends ConsumerWidget {
   const LocalMusicSettingsSection({super.key});

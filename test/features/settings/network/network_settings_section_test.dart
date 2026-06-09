@@ -34,7 +34,7 @@ void main() {
         (tester) async {
       await pump(tester);
 
-      expect(find.text('Downloads & network'), findsOneWidget);
+      expect(find.text('Wi-Fi & mobile data'), findsOneWidget);
       expect(
         find.text('Allow mobile data for downloads'),
         findsOneWidget,
