@@ -10,9 +10,17 @@ import '../player/player_providers.dart';
 import 'playback_source_strategy_controller.dart';
 import 'unified_library_providers.dart';
 
-/// Maps each *displayed* (logical) track id to its ordered source candidates, so
-/// playback can fall back to another copy of the same song when the preferred one
-/// fails.
+/// Maps *every source copy's* track id to its song's ordered source candidates,
+/// so playback can fall back to another copy of the same song when the preferred
+/// one fails — no matter which copy was the one actually queued.
+///
+/// Keying by every copy's id (not just the displayed/primary one) is what keeps
+/// the queue honest when the user changes the default source: the displayed copy
+/// flips to the new provider, but a copy already sitting in the queue (or saved in
+/// a playlist) keeps its old id. Mapping that id to the *same* freshly-ordered
+/// candidate list means the next play of that queued copy uses the new preferred
+/// source — and still has its fallbacks — instead of being orphaned to the old
+/// source until the queue is rebuilt (an app restart).
 ///
 /// Only de-duplicated rows that actually span more than one provider are listed —
 /// a single-source song needs no fallback and is left out (the controller treats
@@ -41,7 +49,7 @@ final playbackCandidatesProvider = Provider<Map<String, List<Track>>>((ref) {
         cachedOffline: cachedIds.contains(track.id),
       );
 
-  final Map<String, List<Track>> byDisplayId = <String, List<Track>>{};
+  final Map<String, List<Track>> byTrackId = <String, List<Track>>{};
   for (final LogicalTrack logical in logicals) {
     if (!logical.hasMultipleSources) continue;
     final List<Track> candidates = <Track>[
@@ -50,10 +58,16 @@ final playbackCandidatesProvider = Provider<Map<String, List<Track>>>((ref) {
     ];
     // Reorder by the chosen strategy. preferDefault is the identity, so the
     // PR1/PR2 default-source order (and runtime fallback over it) is unchanged.
-    byDisplayId[logical.id] =
+    final List<Track> ordered =
         orderBySourceStrategy(candidates, strategy, profileOf);
+    // Index the same list under every copy's id, so whichever copy is queued
+    // resolves to it. Ids are unique to one logical song, so the keys never
+    // collide across rows.
+    for (final Track candidate in candidates) {
+      byTrackId[candidate.id] = ordered;
+    }
   }
-  return byDisplayId;
+  return byTrackId;
 });
 
 /// Wires the real, library-backed [PlaybackCandidateSource] into the playback
