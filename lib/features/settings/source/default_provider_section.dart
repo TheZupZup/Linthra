@@ -46,7 +46,7 @@ class DefaultProviderSettingsSection extends ConsumerWidget {
       ),
       (
         id: MusicProviders.local.sourceId,
-        title: 'Local files',
+        title: MusicProviders.local.displayName,
         subtitle: 'Prefer a copy on this device when one exists.',
       ),
     ];

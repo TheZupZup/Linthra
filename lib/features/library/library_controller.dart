@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/catalog/library_grouping.dart';
 import '../../core/sources/local/folder_location.dart';
 import '../../core/sources/local/folder_scan_exception.dart';
 import '../../core/sources/local/local_music_source.dart';
@@ -34,16 +35,19 @@ class LibraryController extends Notifier<LibraryState> {
         folderPath: folderPath,
         scanner: ref.read(audioFileScannerProvider),
         safDocumentLister: ref.read(safDocumentListerProvider),
+        metadataReader: ref.read(localMetadataReaderProvider),
       );
       final LocalScan scan = await source.scanTracks();
-      final albums = await source.fetchAlbums();
-      final artists = await source.fetchArtists();
       final repository = ref.read(musicLibraryRepositoryProvider);
+      // Derive the album/artist groupings from the just-scanned tracks rather
+      // than re-scanning the folder (which would re-read every file's tags); the
+      // unified library derives its own groupings from the stored tracks the same
+      // way, so this only feeds repositories that persist them.
       await repository.upsertCatalog(
         sourceId: source.id,
         tracks: scan.tracks,
-        albums: albums,
-        artists: artists,
+        albums: groupAlbums(scan.tracks),
+        artists: groupArtists(scan.tracks),
       );
       // Record the counts (visited / folders / audio / imported / skipped /
       // read failures) so a "no music found" report can show what the scan

@@ -67,7 +67,7 @@ class TrackMetadata extends StatelessWidget {
 }
 
 /// A small badge stating where the audio is *actually* coming from, e.g.
-/// "Playing from Navidrome", "Playing from Jellyfin", "Playing from Local files",
+/// "Playing from Navidrome", "Playing from Jellyfin", "Playing from Local music",
 /// or "Playing from Cache".
 ///
 /// Because a logical track can have several source candidates, the indicator

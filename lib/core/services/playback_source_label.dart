@@ -11,12 +11,12 @@ import '../sources/music_provider.dart';
 /// vs a live stream vs an on-device file).
 ///
 /// Security: only fixed, non-identifying display names are ever returned —
-/// "Navidrome", "Jellyfin", "Local files", "Cache", or "Unknown source". A
+/// "Navidrome", "Jellyfin", "Local music", "Cache", or "Unknown source". A
 /// server URL, IP, username, token, or file path is never exposed.
 abstract final class PlaybackSourceLabel {
   static const String navidrome = 'Navidrome';
   static const String jellyfin = 'Jellyfin';
-  static const String local = 'Local files';
+  static const String local = 'Local music';
   static const String cache = 'Cache';
   static const String unknown = 'Unknown source';
 
@@ -24,7 +24,7 @@ abstract final class PlaybackSourceLabel {
   ///
   /// A cached copy reads as "Cache" regardless of which server it came from
   /// (that is what the listener is hearing); an on-device file reads as "Local
-  /// files"; a live stream reads as the owning server's safe name.
+  /// music"; a live stream reads as the owning server's safe name.
   static String of(
       {required String? trackUri, required PlaybackSource? source}) {
     if (source == null) return unknown;

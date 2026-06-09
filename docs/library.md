@@ -91,11 +91,13 @@ only at play time.
 
 - **Metadata quality depends on the source.** Grouping is only as good as the
   album/artist tags the source provides.
-- **Local files may lack album/artist tags.** Linthra does not parse on-device
-  tag metadata yet, so local tracks usually have no album or artist and fold
-  into a single **Unknown Album** / **Unknown Artist**. Local files that *do*
-  arrive with album/artist set (e.g. via a future tag-parsing step) will group
-  normally.
+- **Local files group from their tags or folders.** Linthra reads on-device
+  audio tags (title/artist/album/track number/duration) during the scan and, when
+  a tag is missing, falls back to the file name and the `…/Artist/Album/Track`
+  folder layout — so a tagged or well-organized local library groups normally. A
+  file with neither tags nor folder context still folds into a single
+  **Unknown Album** / **Unknown Artist**. Embedded cover art for local files is a
+  separate follow-up (see [local-music.md](./local-music.md)).
 - **Artwork may be missing** for some tracks (notably local files); a calm
   placeholder is shown instead, and the layout never jumps.
 - **No stable source album/artist IDs yet.** Grouping uses folded names because

@@ -117,6 +117,114 @@ void main() {
 
       expect(result.documents.single.mimeType, isNull);
     });
+
+    test('attaches the native tags to the parsed document', () {
+      final result = MethodChannelSafDocumentLister.parseScanResult(
+        <Object?, Object?>{
+          'documents': <Object?>[
+            <Object?, Object?>{
+              'uri': 'content://doc/1',
+              'name': 'One.mp3',
+              'mime': 'audio/mpeg',
+              'title': 'Holocene',
+              'artist': 'Bon Iver',
+              'albumArtist': 'Bon Iver',
+              'album': 'Bon Iver',
+              'track': '3/10',
+              'durationMs': '337000',
+            },
+          ],
+        },
+      );
+
+      final metadata = result.documents.single.metadata!;
+      expect(metadata.title, 'Holocene');
+      expect(metadata.artist, 'Bon Iver');
+      expect(metadata.albumArtist, 'Bon Iver');
+      expect(metadata.album, 'Bon Iver');
+      expect(metadata.trackNumber, 3);
+      expect(metadata.duration, const Duration(milliseconds: 337000));
+    });
+
+    test('a document with no tag fields has null metadata', () {
+      final result = MethodChannelSafDocumentLister.parseScanResult(
+        <Object?, Object?>{
+          'documents': <Object?>[
+            <Object?, Object?>{'uri': 'content://doc/1', 'name': 'One.mp3'},
+          ],
+        },
+      );
+
+      expect(result.documents.single.metadata, isNull);
+    });
+  });
+
+  group('MethodChannelSafDocumentLister.parseMetadata', () {
+    test('null for an entry with no tag fields', () {
+      expect(
+        MethodChannelSafDocumentLister.parseMetadata(
+          <Object?, Object?>{'uri': 'content://doc/1', 'name': 'One.mp3'},
+        ),
+        isNull,
+      );
+    });
+
+    test('drops blank text fields to null', () {
+      final metadata = MethodChannelSafDocumentLister.parseMetadata(
+        <Object?, Object?>{'title': '  ', 'artist': '', 'album': 'Real'},
+      );
+      expect(metadata, isNotNull);
+      expect(metadata!.title, isNull);
+      expect(metadata.artist, isNull);
+      expect(metadata.album, 'Real');
+    });
+
+    test('parses a plain or "n/m" track number, ignoring non-positive', () {
+      expect(
+        MethodChannelSafDocumentLister.parseMetadata(
+          <Object?, Object?>{'track': '5'},
+        )!
+            .trackNumber,
+        5,
+      );
+      expect(
+        MethodChannelSafDocumentLister.parseMetadata(
+          <Object?, Object?>{'track': '3/12'},
+        )!
+            .trackNumber,
+        3,
+      );
+      expect(
+        MethodChannelSafDocumentLister.parseMetadata(
+          <Object?, Object?>{'track': '0'},
+        ),
+        isNull,
+      );
+    });
+
+    test('parses durationMs sent as an int or a numeric string', () {
+      expect(
+        MethodChannelSafDocumentLister.parseMetadata(
+          <Object?, Object?>{'durationMs': 200000},
+        )!
+            .duration,
+        const Duration(milliseconds: 200000),
+      );
+      expect(
+        MethodChannelSafDocumentLister.parseMetadata(
+          <Object?, Object?>{'durationMs': '200000'},
+        )!
+            .duration,
+        const Duration(milliseconds: 200000),
+      );
+      // Zero/garbage duration is unknown, not a real value.
+      expect(
+        MethodChannelSafDocumentLister.parseMetadata(
+          <Object?, Object?>{'durationMs': '0'},
+        ),
+        isNull,
+      );
+    });
   });
 
   group('MethodChannelSafDocumentLister.listAudioDocuments', () {

@@ -2,6 +2,7 @@ package io.github.thezupzup.linthra
 
 import android.content.Context
 import android.content.Intent
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
 import io.flutter.plugin.common.MethodChannel
@@ -117,11 +118,23 @@ class SafDocumentScanner(private val context: Context) {
                                     treeUri,
                                     docId,
                                 )
+                                // Read the file's audio tags so a local track
+                                // indexes with a real title/artist/album/duration
+                                // like a server track. Best-effort: a file whose
+                                // tags can't be read just omits them and the Dart
+                                // mapper falls back to the display name.
+                                val metadata = readMetadata(docUri)
                                 documents.add(
                                     mapOf(
                                         "uri" to docUri.toString(),
                                         "name" to name,
                                         "mime" to mime,
+                                        "title" to metadata["title"],
+                                        "artist" to metadata["artist"],
+                                        "albumArtist" to metadata["albumArtist"],
+                                        "album" to metadata["album"],
+                                        "track" to metadata["track"],
+                                        "durationMs" to metadata["durationMs"],
                                     ),
                                 )
                             }
@@ -156,6 +169,53 @@ class SafDocumentScanner(private val context: Context) {
         }
         val lower = name.lowercase()
         return AUDIO_EXTENSIONS.any { lower.endsWith(it) }
+    }
+
+    /**
+     * Reads the audio tags for one document through [MediaMetadataRetriever],
+     * which works on a content:// URI under the existing tree grant — no extra
+     * permission, no broad storage access. Returns the raw tag strings (title,
+     * artist, album artist, album, track, duration in ms); the Dart side parses
+     * the track ("3/12") and duration values.
+     *
+     * Deliberately total: any failure (a malformed file, an unreadable entry, a
+     * codec the device can't open) returns an empty map so the walk keeps going
+     * and the track still indexes from its display name. The retriever is always
+     * released, even on failure, so no native handle leaks across a large scan.
+     */
+    private fun readMetadata(uri: Uri): Map<String, String?> {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            mapOf(
+                "title" to retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_TITLE,
+                ),
+                "artist" to retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_ARTIST,
+                ),
+                "albumArtist" to retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST,
+                ),
+                "album" to retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_ALBUM,
+                ),
+                "track" to retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER,
+                ),
+                "durationMs" to retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_DURATION,
+                ),
+            )
+        } catch (e: Exception) {
+            emptyMap()
+        } finally {
+            try {
+                retriever.release()
+            } catch (e: Exception) {
+                // Releasing a retriever that never opened can throw; ignore.
+            }
+        }
     }
 
     companion object {

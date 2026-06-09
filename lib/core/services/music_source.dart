@@ -17,7 +17,7 @@ abstract interface class MusicSource {
   /// Stable identifier for this source, e.g. `'local'` or `'jellyfin:<id>'`.
   String get id;
 
-  /// Human-readable name for settings/UI, e.g. "On this device".
+  /// Human-readable name for settings/UI, e.g. "Local music".
   String get displayName;
 
   Future<List<Track>> fetchTracks();

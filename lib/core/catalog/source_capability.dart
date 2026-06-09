@@ -9,7 +9,7 @@ import 'track_identity.dart';
 enum SourceProviderType {
   jellyfin('Jellyfin'),
   subsonic('Navidrome / Subsonic'),
-  local('Local files'),
+  local('Local music'),
   unknown('Unknown source');
 
   const SourceProviderType(this.displayName);

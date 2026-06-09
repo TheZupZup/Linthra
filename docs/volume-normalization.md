@@ -58,7 +58,7 @@ Normalization applies to whatever loudness metadata a `Track` carries in its
 
 | Source                | ReplayGain populated? | Notes |
 | --------------------- | --------------------- | ----- |
-| On this device (local) | Not yet               | Local tag parsing (ID3 `TXXX:REPLAYGAIN_*`, Vorbis `REPLAYGAIN_*`/`R128_*`) has not landed yet (see `lib/core/sources/local/local_track_mapper.dart`). When it does, the gain/peak read from tags flows straight into `Track.replayGain`. |
+| Local music (local)   | Not yet               | Local tag reading now populates title/artist/album/duration/track number (see `lib/core/sources/local/local_track_mapper.dart`), but the ReplayGain-specific tags (ID3 `TXXX:REPLAYGAIN_*`, Vorbis `REPLAYGAIN_*`/`R128_*`) aren't extracted yet. When they are, the gain/peak read from tags flows straight into `Track.replayGain`. |
 | Jellyfin              | Not yet               | The current item DTO doesn't carry a normalization-gain field; reading one is a follow-up and is out of scope here ("no provider expansion"). |
 | Navidrome / Subsonic  | Not yet               | Same as above. |
 

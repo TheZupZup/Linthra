@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
+import 'package:linthra/core/sources/local/local_audio_metadata.dart';
+import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_music_source.dart';
 import 'package:linthra/core/sources/local/saf_document_lister.dart';
 
@@ -21,6 +23,20 @@ class _FakeScanner implements AudioFileScanner {
   Future<List<String>> listFiles(String folderPath) async {
     requestedFolder = folderPath;
     return _files;
+  }
+}
+
+/// Returns canned tags per path, standing in for a real filesystem tag reader.
+class _FakeMetadataReader implements LocalMetadataReader {
+  _FakeMetadataReader(this._byPath);
+
+  final Map<String, LocalAudioMetadata> _byPath;
+  final List<String> requestedPaths = <String>[];
+
+  @override
+  Future<LocalAudioMetadata?> readFromPath(String path) async {
+    requestedPaths.add(path);
+    return _byPath[path];
   }
 }
 
@@ -80,12 +96,67 @@ void main() {
       expect(tracks.single.title, 'song');
     });
 
-    test('exposes no albums or artists yet', () async {
-      final scanner = _FakeScanner(<String>['/music/song.mp3']);
+    test('groups scanned tracks into albums and artists by their folders',
+        () async {
+      final scanner = _FakeScanner(<String>[
+        '/music/Bon Iver/For Emma/01 - Flume.mp3',
+        '/music/Bon Iver/For Emma/02 - Lump Sum.flac',
+      ]);
       final source = LocalMusicSource(folderPath: '/music', scanner: scanner);
 
-      expect(await source.fetchAlbums(), isEmpty);
-      expect(await source.fetchArtists(), isEmpty);
+      final albums = await source.fetchAlbums();
+      final artists = await source.fetchArtists();
+
+      expect(albums.map((album) => album.title).toList(), <String>['For Emma']);
+      expect(albums.single.artistName, 'Bon Iver');
+      expect(albums.single.trackCount, 2);
+      expect(
+          artists.map((artist) => artist.name).toList(), <String>['Bon Iver']);
+    });
+
+    test('derives title, track number, album, and artist for a foldered file',
+        () async {
+      final scanner = _FakeScanner(<String>[
+        '/music/Bon Iver/For Emma/01 - Flume.mp3',
+      ]);
+      final source = LocalMusicSource(folderPath: '/music', scanner: scanner);
+
+      final track = (await source.fetchTracks()).single;
+
+      expect(track.title, 'Flume');
+      expect(track.trackNumber, 1);
+      expect(track.albumName, 'For Emma');
+      expect(track.artistName, 'Bon Iver');
+      // The path stays the stable id/uri, independent of the derived metadata.
+      expect(track.id, '/music/Bon Iver/For Emma/01 - Flume.mp3');
+    });
+
+    test('enriches a filesystem track with tags from the metadata reader',
+        () async {
+      final scanner = _FakeScanner(<String>['/music/01 - file.mp3']);
+      final reader = _FakeMetadataReader(<String, LocalAudioMetadata>{
+        '/music/01 - file.mp3': const LocalAudioMetadata(
+          title: 'Tagged Title',
+          artist: 'Tagged Artist',
+          album: 'Tagged Album',
+          duration: Duration(seconds: 123),
+        ),
+      });
+      final source = LocalMusicSource(
+        folderPath: '/music',
+        scanner: scanner,
+        metadataReader: reader,
+      );
+
+      final track = (await source.fetchTracks()).single;
+
+      expect(track.title, 'Tagged Title');
+      expect(track.artistName, 'Tagged Artist');
+      expect(track.albumName, 'Tagged Album');
+      expect(track.duration, const Duration(seconds: 123));
+      // No track number in the tags, so it falls back to the file name.
+      expect(track.trackNumber, 1);
+      expect(reader.requestedPaths, <String>['/music/01 - file.mp3']);
     });
 
     test('resolves a track to a file uri', () async {

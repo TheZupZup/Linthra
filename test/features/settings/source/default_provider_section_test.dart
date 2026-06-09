@@ -40,7 +40,7 @@ void main() {
       expect(find.text('Automatic'), findsOneWidget);
       expect(find.text('Jellyfin'), findsOneWidget);
       expect(find.text('Navidrome / Subsonic'), findsOneWidget);
-      expect(find.text('Local files'), findsOneWidget);
+      expect(find.text('Local music'), findsOneWidget);
     });
 
     testWidgets('defaults to Automatic', (tester) async {
