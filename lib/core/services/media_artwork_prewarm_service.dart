@@ -1,8 +1,14 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import '../models/playback_state.dart';
 import '../models/track.dart';
 import 'media_artwork_source.dart';
+
+/// Secret-free diagnostic tag for the media-session artwork warm path. View with
+/// `adb logcat | grep Linthra.MediaArtwork`. Logs only structural outcomes
+/// (a warm produced a local cover, or didn't) — never a URL, credential, or id.
+const String _logName = 'Linthra.MediaArtwork';
 
 /// Warms the now-playing track's and the next few up-next tracks' media-session
 /// cover art into the local cache, off the playback path, so each cover is
@@ -14,9 +20,9 @@ import 'media_artwork_source.dart';
 /// Subsonic's `subsonic-cover:<id>`) must be fetched to a local file first, which
 /// is too slow to do at the moment the track flips — so a cover fetched only
 /// then arrives after the snapshot and never shows. Warming the look-ahead means
-/// the handler can attach the already-cached `file:` synchronously when the track
-/// becomes current, beating the snapshot. Platform-loadable covers (Jellyfin
-/// http, a local `file:`) need no warming and are skipped.
+/// the handler can attach the already-cached `content://` cover synchronously
+/// when the track becomes current, beating the snapshot. Platform-loadable
+/// covers (Jellyfin http, a local `file:`) need no warming and are skipped.
 ///
 /// Best-effort by design, mirroring the stream preloader: warms run
 /// sequentially, one at a time, off the playback path; each reference is warmed
@@ -97,9 +103,15 @@ class MediaArtworkPrewarmService {
         // defensive — a warm must never surface as an uncaught async error or
         // break the drain (and so can never touch playback).
         try {
-          await _warm(reference);
+          final Uri? local = await _warm(reference);
+          // Secret-free trace: did this cover cache to a safe local URI? `ok`
+          // means a later now-playing item can carry it; `miss` means signed
+          // out / fetch failed. No URL, credential, or id is logged.
+          developer.log('warm: ${local == null ? 'miss' : 'ok'}',
+              name: _logName);
         } catch (_) {
           // Swallow: a failed/throwing warm just means no cover for that track.
+          developer.log('warm: error', name: _logName);
         }
       }
     } finally {

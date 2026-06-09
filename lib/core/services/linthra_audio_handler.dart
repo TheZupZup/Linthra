@@ -214,6 +214,12 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     if (!_seeded || !_sameItem(item, _lastItem)) {
       _lastItem = item;
       mediaItem.add(item);
+      // Secret-free artwork trace: the *scheme* of what reached MediaItem.artUri
+      // (never the URI). `content` = a safe FileProvider cover was attached;
+      // `none` = no cover (not warmed / failed); `http`/`file` = Jellyfin/local;
+      // `other` = a bug (an unresolved reference leaked). Lets a car test +
+      // `adb logcat | grep Linthra` show whether the cover is actually being set.
+      _log('now-playing: art=${_artScheme(item?.artUri)}');
     }
     // Publish the play queue so the car / head-unit "Up Next" list mirrors the
     // controller's queue and a tapped row (skipToQueueItem) lands on the right
@@ -236,18 +242,31 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 
   /// The media-session-safe artwork URI for [artworkUri].
   ///
-  /// A platform-loadable cover (a private `file:`, a token-free `http`/`https`
-  /// image such as Jellyfin's primary image, or an app-provided `content:` URI)
-  /// is handed to the session unchanged. A credential-free *reference* (e.g.
+  /// A platform-loadable cover (a token-free `http`/`https` image such as
+  /// Jellyfin's primary image, a local `file:`, or an app-provided `content:`
+  /// URI) is handed to the session unchanged. A credential-free *reference* (e.g.
   /// Subsonic's `subsonic-cover:<id>`) is replaced by its already-fetched, cached
-  /// private `file:` copy when one exists, or `null` otherwise — so an unloadable
-  /// reference, and crucially never a credentialed URL, reaches `MediaItem
-  /// .artUri`. Covers are fetched+cached ahead of time off the playback path by
+  /// `content://` copy (a FileProvider URI the session's process can read) when
+  /// one exists, or `null` otherwise — so an unloadable reference, and crucially
+  /// never a credentialed URL, reaches `MediaItem.artUri`. Covers are
+  /// fetched+cached ahead of time off the playback path by
   /// `MediaArtworkPrewarmService`; this read is purely synchronous.
   Uri? _sessionArtUri(Uri? artworkUri) {
     if (artworkUri == null) return null;
     if (isPlatformLoadableArtwork(artworkUri)) return artworkUri;
     return _artwork?.cached(artworkUri);
+  }
+
+  /// The non-secret *scheme* of an artwork [uri], for the diagnostic trace —
+  /// never the URI itself (a `content:`/`file:`/`http` URI is credential-free,
+  /// but logging only the scheme keeps the trace trivially safe). `none` for
+  /// null; `other` flags the bug where a reference leaked into `artUri`.
+  static String _artScheme(Uri? uri) {
+    if (uri == null) return 'none';
+    if (uri.isScheme('content')) return 'content';
+    if (uri.isScheme('http') || uri.isScheme('https')) return 'http';
+    if (uri.isScheme('file')) return 'file';
+    return 'other';
   }
 
   /// Whether two media items would show the same thing in the session, so a
