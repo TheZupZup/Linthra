@@ -247,4 +247,46 @@ void main() {
       expect(attempt, 2);
     });
   });
+
+  group('MediaArtworkCache.cached', () {
+    test('is null before a reference is resolved, then the cached file after',
+        () async {
+      final cache = MediaArtworkCache(
+        resolveUrl: (Uri reference) => _authUrl,
+        fetch: (Uri url) async => _imageBytes,
+        directory: directory,
+      );
+
+      // Synchronous, side-effect-free: nothing fetched yet.
+      expect(cache.cached(_reference), isNull);
+
+      final Uri? resolved = await cache.resolve(_reference);
+      // Now the warmed cover is available synchronously for the media handler.
+      expect(cache.cached(_reference), isNotNull);
+      expect(cache.cached(_reference), resolved);
+      expect(cache.cached(_reference)!.isScheme('file'), isTrue);
+    });
+
+    test('stays null for a reference whose fetch failed', () async {
+      final cache = MediaArtworkCache(
+        resolveUrl: (Uri reference) => _authUrl,
+        fetch: (Uri url) async => null, // failed download
+        directory: directory,
+      );
+
+      await cache.resolve(_reference);
+      expect(cache.cached(_reference), isNull);
+    });
+
+    test('is null for a different reference than the one resolved', () async {
+      final cache = MediaArtworkCache(
+        resolveUrl: (Uri reference) => _authUrl,
+        fetch: (Uri url) async => _imageBytes,
+        directory: directory,
+      );
+
+      await cache.resolve(_reference);
+      expect(cache.cached(Uri.parse('subsonic-cover:other')), isNull);
+    });
+  });
 }

@@ -10,6 +10,7 @@ import '../repositories/download_repository.dart';
 import '../repositories/favorites_repository.dart';
 import '../repositories/music_library_repository.dart';
 import '../repositories/playlist_repository.dart';
+import 'media_artwork_source.dart';
 import 'media_browser_tree.dart';
 import 'playback_controller.dart';
 
@@ -23,20 +24,6 @@ import 'playback_controller.dart';
 const String _logName = 'Linthra.AndroidAuto';
 
 void _log(String message) => developer.log(message, name: _logName);
-
-/// Resolves a credential-free artwork *reference* (e.g. Subsonic's
-/// `subsonic-cover:<id>`) into a safe, local media-session artwork URI (a
-/// private `file:` the session loads in-process), fetching and caching the image
-/// on demand. Returns `null` — never throws — when no safe artwork can be
-/// produced (signed out, a failed download), so the session simply shows none.
-///
-/// The platform media session loads `MediaItem.artUri` itself, somewhere Linthra
-/// can't add the Subsonic salt+token, so a credentialed `getCoverArt` URL must
-/// never be placed there. This seam lets the handler instead attach only a safe
-/// local file the session can read. Wired in `main` (backed by
-/// `MediaArtworkCache`); `null` in tests / on platforms without it, where
-/// Subsonic media-session art is simply absent (the prior behaviour, unchanged).
-typedef MediaArtworkResolver = Future<Uri?> Function(Uri reference);
 
 /// The non-secret category an [id] belongs to, for safe diagnostics. Returns a
 /// fixed label set — never the id itself — so a track id, playlist id, URI, or
@@ -82,8 +69,8 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   LinthraAudioHandler(
     this._controller,
     this._tree, {
-    MediaArtworkResolver? artwork,
-  }) : _resolveArtwork = artwork {
+    MediaArtworkSource? artwork,
+  }) : _artwork = artwork {
     _subscription = _controller.stateStream.listen(_broadcast);
     // Seed the session from the latest known state so a freshly attached
     // notification/Android Auto isn't blank before the first stream event.
@@ -94,21 +81,13 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   final MediaBrowserTree _tree;
   late final StreamSubscription<PlaybackState> _subscription;
 
-  /// Fetches a safe local `file:` for a credential-free artwork reference (e.g.
-  /// Subsonic), or `null` when none is wired (tests / unsupported platform), in
-  /// which case such references simply carry no media-session artwork.
-  final MediaArtworkResolver? _resolveArtwork;
-
-  /// Media-session artwork already fetched to a safe local `file:` URI, keyed by
-  /// the original credential-free reference. Lets [_sessionArtUri] attach it
-  /// synchronously while building a `MediaItem`, without a credentialed URL or an
-  /// unloadable reference ever reaching `artUri`.
-  final Map<Uri, Uri> _resolvedArt = <Uri, Uri>{};
-
-  /// References a fetch has already been started for, so a cover is fetched at
-  /// most once at a time; a failed fetch is dropped from the set so it can retry
-  /// on a later track change.
-  final Set<Uri> _artworkRequested = <Uri>{};
+  /// Synchronous lookup of an already-fetched, safe local `file:` cover for a
+  /// credential-free reference (e.g. Subsonic). `null` when none is wired (tests
+  /// / unsupported platform), in which case such references carry no
+  /// media-session artwork. Covers are warmed ahead of time, off the playback
+  /// path, by `MediaArtworkPrewarmService`, so this stays a pure synchronous read
+  /// — the handler never fetches or re-broadcasts on the playback path.
+  final MediaArtworkSource? _artwork;
 
   // The last media item / playback state actually pushed to the platform
   // session. Position ticks arrive several times a second; re-pushing identical
@@ -227,11 +206,6 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 
   void _broadcast(PlaybackState state) {
     final Track? track = state.currentTrack;
-    // Kick off media-session artwork resolution for the now-playing track when
-    // its cover is a credential-free reference (e.g. Subsonic) the platform
-    // can't load itself. Off the playback path: a fetch failure never blocks
-    // this broadcast, and the item is simply art-less until (if) it succeeds.
-    if (track != null) _ensureArtwork(track);
     final audio.MediaItem? item = track == null
         ? null
         : _trackMediaItem(track, id: track.id, live: state.duration);
@@ -260,73 +234,21 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     _seeded = true;
   }
 
-  /// Starts media-session artwork resolution for [track] when its cover is a
-  /// credential-free *reference* (e.g. Subsonic's `subsonic-cover:<id>`) the
-  /// platform can't load itself. A platform-loadable cover (Jellyfin http, a
-  /// local file) needs no fetch and is left untouched. On success the fetched
-  /// private `file:` is cached and the session re-broadcast so the now-playing
-  /// item picks it up; on failure the item stays art-less and playback is
-  /// unaffected. At most one fetch per reference is in flight.
-  void _ensureArtwork(Track track) {
-    final MediaArtworkResolver? resolve = _resolveArtwork;
-    final Uri? reference = track.artworkUri;
-    if (resolve == null || reference == null) return;
-    if (_isPlatformLoadable(reference)) return;
-    if (_resolvedArt.containsKey(reference)) return;
-    if (!_artworkRequested.add(reference)) return;
-    unawaited(_fetchArtwork(resolve, reference));
-  }
-
-  Future<void> _fetchArtwork(
-    MediaArtworkResolver resolve,
-    Uri reference,
-  ) async {
-    Uri? local;
-    try {
-      local = await resolve(reference);
-    } catch (_) {
-      // The resolver contract is "never throw"; guard anyway so a stray failure
-      // can't break the broadcast listener.
-      local = null;
-    }
-    if (local == null) {
-      // Unavailable (signed out / fetch failed): allow a retry on a later track
-      // change and leave the now-playing item art-less rather than unsafe.
-      _artworkRequested.remove(reference);
-      return;
-    }
-    _resolvedArt[reference] = local;
-    // Re-publish only if this cover still belongs to the current track, so a
-    // late fetch can't stamp art onto a track the user has already skipped past.
-    if (_controller.state.currentTrack?.artworkUri == reference) {
-      _broadcast(_controller.state);
-    }
-  }
-
   /// The media-session-safe artwork URI for [artworkUri].
   ///
   /// A platform-loadable cover (a private `file:`, a token-free `http`/`https`
   /// image such as Jellyfin's primary image, or an app-provided `content:` URI)
   /// is handed to the session unchanged. A credential-free *reference* (e.g.
-  /// Subsonic's `subsonic-cover:<id>`) is replaced by its already-fetched private
-  /// `file:` copy when one exists, or `null` while it's still being fetched (or
-  /// couldn't be) — so an unloadable reference, and crucially never a
-  /// credentialed URL, reaches `MediaItem.artUri`.
+  /// Subsonic's `subsonic-cover:<id>`) is replaced by its already-fetched, cached
+  /// private `file:` copy when one exists, or `null` otherwise — so an unloadable
+  /// reference, and crucially never a credentialed URL, reaches `MediaItem
+  /// .artUri`. Covers are fetched+cached ahead of time off the playback path by
+  /// `MediaArtworkPrewarmService`; this read is purely synchronous.
   Uri? _sessionArtUri(Uri? artworkUri) {
     if (artworkUri == null) return null;
-    if (_isPlatformLoadable(artworkUri)) return artworkUri;
-    return _resolvedArt[artworkUri];
+    if (isPlatformLoadableArtwork(artworkUri)) return artworkUri;
+    return _artwork?.cached(artworkUri);
   }
-
-  /// Whether [uri] is a scheme the platform media session can load on its own —
-  /// a private `file:`, a remote `http`/`https` image, or an app-provided
-  /// `content:` URI. Any other scheme is an app-internal artwork reference that
-  /// must first be resolved to a local file (see [_sessionArtUri]).
-  static bool _isPlatformLoadable(Uri uri) =>
-      uri.isScheme('file') ||
-      uri.isScheme('http') ||
-      uri.isScheme('https') ||
-      uri.isScheme('content');
 
   /// Whether two media items would show the same thing in the session, so a
   /// re-push can be skipped. Compares the fields the platform renders; all of
@@ -566,11 +488,12 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 /// answerable from the persisted catalog/playlists/favourites/downloads — it
 /// does not wait on the Flutter UI.
 ///
-/// When [artwork] is supplied it lets the now-playing media item show a
+/// When [artwork] is supplied the now-playing media item can show a
 /// credential-free source's cover (e.g. Subsonic) on the lock screen / Android
-/// Auto: the handler hands it the credential-free reference and gets back a safe
-/// local `file:` to use as `artUri`, never a credentialed URL. It is best-effort
-/// and entirely off the playback path.
+/// Auto: the handler reads an already-cached safe local `file:` for the cover's
+/// reference (warmed ahead of time, off the playback path, by
+/// `MediaArtworkPrewarmService`) and uses it as `artUri`, never a credentialed
+/// URL. The read is synchronous, so artwork never touches the playback path.
 ///
 /// Best-effort by design: returns `null` when `audio_service` can't initialise
 /// (a platform without the native setup, or a test environment). Playback still
@@ -584,7 +507,7 @@ Future<LinthraAudioHandler?> connectMediaSession(
   PlaylistRepository? playlists,
   FavoritesRepository? favorites,
   DownloadRepository? downloads,
-  MediaArtworkResolver? artwork,
+  MediaArtworkSource? artwork,
 }) async {
   try {
     final handler = await audio.AudioService.init(

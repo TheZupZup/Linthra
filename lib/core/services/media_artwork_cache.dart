@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'media_artwork_source.dart';
+
 /// Turns a credential-free artwork *reference* (e.g. Subsonic's
 /// `subsonic-cover:<id>`) into a **safe, local** media-session artwork URI: a
 /// `file:` in app-private storage the platform media session (lock screen /
@@ -29,7 +31,7 @@ import 'package:path_provider/path_provider.dart';
 /// - any failure (signed out, network error, a non-image body, a write error)
 ///   yields `null` so the caller falls back to *no* artwork — it never throws and
 ///   never blocks playback.
-class MediaArtworkCache {
+class MediaArtworkCache implements MediaArtworkSource {
   MediaArtworkCache({
     required Uri? Function(Uri reference) resolveUrl,
     Future<List<int>?> Function(Uri url)? fetch,
@@ -62,6 +64,13 @@ class MediaArtworkCache {
   final Map<String, Completer<Uri?>> _inFlight = <String, Completer<Uri?>>{};
 
   static const Duration _timeout = Duration(seconds: 20);
+
+  /// The safe local `file:` URI for [reference] if it has already been fetched
+  /// and cached this session, else `null`. Synchronous and side-effect-free, so
+  /// the media handler can attach it while building a `MediaItem` without
+  /// awaiting — covers are warmed ahead of time by `MediaArtworkPrewarmService`.
+  @override
+  Uri? cached(Uri reference) => _memo[_cacheKey(reference)];
 
   /// Resolves [reference] to a safe local `file:` artwork URI, fetching and
   /// caching the image on a miss. Returns `null` (never throws) when the artwork

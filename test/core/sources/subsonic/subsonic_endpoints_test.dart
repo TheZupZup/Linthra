@@ -106,6 +106,21 @@ void main() {
       expect(uri.path, isNot(contains(_creds.salt)));
     });
 
+    test('coverArt requests a server-scaled cover when size is given', () {
+      final Uri uri = SubsonicEndpoints.coverArt(
+        _base,
+        username: _user,
+        credentials: _creds,
+        coverArtId: 'al-123',
+        size: 512,
+      );
+      // The media session wants a small, fast-to-decode cover; the server scales
+      // it via getCoverArt's size parameter (the path stays credential-free).
+      expect(uri.queryParameters['id'], 'al-123');
+      expect(uri.queryParameters['size'], '512');
+      expect(uri.path, '/rest/getCoverArt.view');
+    });
+
     test('getLyricsBySongId targets its endpoint and carries the song id', () {
       final Uri uri = SubsonicEndpoints.getLyricsBySongId(
         _base,

@@ -378,14 +378,22 @@ mode → **Add unknown sources** enabled for a sideloaded build.
 - Lock-screen / now-playing artwork covers Jellyfin (its token-free image URL),
   local embedded covers (extracted during the scan into a private `file:`), and
   Subsonic/Navidrome. Subsonic's `getCoverArt` carries the salt+token, so it
-  can't be handed to the session as a URL; instead Linthra fetches the
-  now-playing cover itself and caches the bytes to a private `file:` (keyed by a
-  hash of the credential-free `subsonic-cover:` reference, never the URL), then
-  sets `MediaItem.artUri` to that local file — which `audio_service` loads
-  in-process for the media session. A failed/slow fetch just leaves the card
-  art-less and never blocks playback. The car **browse-tree** thumbnail for a
-  private-`file:` cover (a local embedded cover, or a Subsonic cover that hasn't
-  been fetched for the now-playing card) may not be readable by the car's own
-  process, so a Jellyfin server cover remains the most reliable browse
-  thumbnail; this is a known limitation, not a regression.
+  can't be handed to the session as a URL; instead Linthra fetches a
+  **server-downscaled** cover itself and caches the bytes to a private `file:`
+  (keyed by a hash of the credential-free `subsonic-cover:` reference, never the
+  URL), then sets `MediaItem.artUri` to that local file — which `audio_service`
+  loads in-process and embeds in the session metadata. To beat a head unit that
+  snapshots the now-playing art at the track change (a cover fetched only *at*
+  the change arrives too late), the now-playing + next few covers are
+  **pre-warmed** off the playback path, so the cached file is attached
+  synchronously when the track flips. Downscaling keeps the decode cheap (a
+  full-size cover could stutter or OOM). A failed/slow fetch just leaves the card
+  art-less and never blocks playback. **On-device status:** the in-app cover fix
+  ships; the Subsonic media-session cover is **pending verification on a real
+  head unit** before it's considered done (head units vary in whether they
+  refresh art mid-track). The car **browse-tree** thumbnail for a private-`file:`
+  cover (a local embedded cover, or a Subsonic cover not warmed for the
+  now-playing card) may not be readable by the car's own process, so a Jellyfin
+  server cover remains the most reliable browse thumbnail; this is a known
+  limitation, not a regression.
 - No MPRIS (Linux desktop media keys) yet.

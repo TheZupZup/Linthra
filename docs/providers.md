@@ -99,19 +99,23 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
 - **Offline cache**: a Subsonic track can be downloaded for offline use (the
   original file via `download.view`).
 - **Cast**: a Subsonic track casts to a Chromecast as a live stream.
-- **Cover art**: album/artist/track artwork shows across the app, and the
-  now-playing cover shows on the lock screen / Android Auto. The catalog stores
-  only a credential-free `subsonic-cover:<coverArtId>` reference; the
+- **Cover art**: album/artist/track artwork shows across the app. The catalog
+  stores only a credential-free `subsonic-cover:<coverArtId>` reference; the
   authenticated `getCoverArt` URL is resolved on demand at render time (the
   salt+token are woven in then, never persisted), exactly like stream URLs.
-  Because the platform media session loads `MediaItem.artUri` itself — somewhere
-  the render-time resolver can't reach, and where a credentialed URL must never
-  go — Linthra instead fetches the now-playing cover itself, caches the bytes to
-  a private `file:` keyed by a hash of the credential-free reference, and hands
-  the session only that local file. The credential is used once to fetch and
-  never stored, logged, or put in the cache filename; a failed fetch just leaves
-  the session art-less (playback is unaffected). Cast still omits Subsonic
-  artwork (a credentialed URL must not reach the receiver).
+  For the **media session** (lock screen / Android Auto now-playing card), which
+  loads `MediaItem.artUri` itself — somewhere the render-time resolver can't
+  reach, and where a credentialed URL must never go — Linthra instead fetches a
+  **server-downscaled** cover itself and caches the bytes to a private `file:`,
+  keyed by a hash of the credential-free reference, then hands the session only
+  that local file. To beat a head unit's metadata snapshot at the track change,
+  the now-playing + next few covers are **pre-warmed** off the playback path, so
+  the handler can attach the cached file synchronously. The credential is used
+  once to fetch and never stored, logged, or put in the cache filename; a failed
+  or slow fetch just leaves the session art-less (playback is unaffected). Cast
+  still omits Subsonic artwork (a credentialed URL must not reach the receiver).
+  Media-session artwork on a real head unit is **pending on-device verification**
+  (see `docs/android-auto.md`).
 - **Lyrics**: synced or plain lyrics are fetched on demand via the OpenSubsonic
   `getLyricsBySongId` extension (how Navidrome exposes embedded/sidecar lyrics),
   with a fallback to the legacy `getLyrics` (plain text, matched by artist +
