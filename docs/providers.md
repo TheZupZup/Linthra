@@ -162,10 +162,13 @@ actions stay hidden/disabled rather than failing:
 - **Cover art on the lock screen / Android Auto** — in-app artwork is resolved
   at render time (see the "Cover art" capability above), but the platform media
   session loads `MediaItem.artUri` itself and can't reach Linthra's resolver, so
-  it would need a credential-free image URL Subsonic doesn't offer. Caching the
-  resolved cover to a local `file:` the session can read is the follow-up; until
-  then the notification/lock screen/Android Auto show no Subsonic art (unchanged
-  from before).
+  it would need a credential-free image URL Subsonic doesn't offer. The opaque
+  `subsonic-cover:` reference is therefore deliberately kept out of
+  `MediaItem.artUri` (only `http(s)`/`file:` covers are handed to the session),
+  so the notification/lock screen/Android Auto show no Subsonic art rather than
+  a custom-scheme URI the platform can't fetch — unchanged from before. Caching
+  the resolved cover to a local `file:` the session can read (token-free) is the
+  follow-up.
 - **Per-track cast content type** — the cast receiver is sent a generic
   `audio/mpeg` hint; an exact per-track type / transcode profile is a follow-up.
 - **In-app browse/search by artist/album** — the synced catalog lists tracks;
