@@ -87,9 +87,9 @@ Future<void> main() async {
       // Persist on-device play history (counts + last-played) for the
       // "Recently played" / "Most played" / "Never played" smart mixes.
       sharedPreferencesPlayHistoryStoreOverride,
-      // Lyrics from whichever signed-in remote server owns the track (Jellyfin
-      // or Subsonic/Navidrome).
-      remoteLyricsServiceOverride,
+      // Lyrics from whichever source owns the track: a signed-in Jellyfin or
+      // Subsonic/Navidrome server, or a sidecar .lrc/.txt next to a local file.
+      lyricsServiceOverride,
       // Real Chromecast backend (Android/iOS only); see cast_providers.dart.
       chromecastCastServiceOverride,
     ],

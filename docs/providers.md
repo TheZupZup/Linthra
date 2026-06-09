@@ -31,7 +31,7 @@ persisted catalog.
 
 | Provider              | sourceId   | Stream | Cache | Favorites | Playlists | Lyrics | Cast |
 | --------------------- | ---------- | :----: | :---: | :-------: | :-------: | :----: | :--: |
-| Local music           | `local`    |   ✅   |  —    | ✅ local  | ✅ local  |   —    |  —   |
+| Local music           | `local`    |   ✅   |  —    | ✅ local  | ✅ local  |   ✅   |  —   |
 | Jellyfin              | `jellyfin` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
 | Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  ✅  |
 
@@ -60,6 +60,12 @@ like a server source, falling back cleanly to the file name and
 survive a restart. No broad storage permission is requested (tags are read
 through the same folder grant). A file's **embedded** cover art is read during
 the same scan and cached privately, so local tracks show their artwork too.
+A track's **lyrics** are read on demand from a sidecar file sitting next to the
+audio — `Song.lrc` (synced) or `Song.txt` (plain) beside `Song.mp3` — located
+through the same folder grant (never a raw `/storage/…` path); when present they
+appear in the normal Lyrics panel, synced highlighting included, and a track
+with none (or one that can't be read) keeps the calm "no lyrics" state. Reading
+**embedded** lyrics tags from the audio file is a planned follow-up.
 On-device files cannot be cast (a receiver can't reach a file on your phone).
 
 ## Jellyfin

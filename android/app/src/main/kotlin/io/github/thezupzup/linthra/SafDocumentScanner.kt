@@ -6,6 +6,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
 import java.util.ArrayDeque
@@ -50,6 +51,82 @@ class SafDocumentScanner(private val context: Context) {
         val target = Uri.parse(treeUri)
         return context.contentResolver.persistedUriPermissions.any {
             it.uri == target && it.isReadPermission
+        }
+    }
+
+    /**
+     * Reads the text of a sidecar lyrics file sitting next to the audio document
+     * at [audioUri] — `Song.lrc` / `Song.txt` beside `Song.mp3` — and returns
+     * it, or null when there's no such sibling or it can't be read.
+     *
+     * The audio URI is a tree-based document URI (built by the walk via
+     * buildDocumentUriUsingTree), so the sibling is reached under the *same*
+     * folder grant: swap the file's extension in the document id and rebuild the
+     * document URI within the tree. This needs no extra permission and never
+     * touches a raw /storage path. [extension] is the bare suffix ("lrc", "txt").
+     *
+     * Deliberately total: any failure (a non-tree URI, an opaque provider whose
+     * ids aren't path-like, a missing file, an oversized or unreadable stream)
+     * returns null so the Dart side falls back to "no lyrics" — never an error,
+     * and never a leaked file name or path.
+     */
+    fun readSidecarText(audioUri: String, extension: String): String? {
+        return try {
+            val uri = Uri.parse(audioUri)
+            val authority = uri.authority ?: return null
+            val documentId = DocumentsContract.getDocumentId(uri)
+            val siblingId = swapExtension(documentId, extension) ?: return null
+            val treeId = DocumentsContract.getTreeDocumentId(uri)
+            val treeUri = DocumentsContract.buildTreeDocumentUri(authority, treeId)
+            val siblingUri =
+                DocumentsContract.buildDocumentUriUsingTree(treeUri, siblingId)
+            readText(siblingUri)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Replaces the extension of the last path segment of a (path-like) document
+     * id with [extension], e.g. `primary:Music/Song.mp3` -> `primary:Music/Song.lrc`.
+     * A segment with no extension simply gains one. Returns null only for an
+     * empty id. Opaque ids (cloud providers) yield a sibling id that won't
+     * resolve, which surfaces as "no lyrics" — acceptable for non-local sources.
+     */
+    private fun swapExtension(documentId: String, extension: String): String? {
+        if (documentId.isEmpty()) return null
+        val slash = documentId.lastIndexOf('/')
+        val dot = documentId.lastIndexOf('.')
+        return if (dot > slash && dot > 0) {
+            documentId.substring(0, dot) + "." + extension
+        } else {
+            "$documentId.$extension"
+        }
+    }
+
+    /**
+     * Reads [uri]'s bytes as UTF-8 text under the existing tree grant, or null
+     * when it can't be opened (no such sibling) or exceeds [MAX_SIDECAR_BYTES]
+     * (a real lyrics file is tiny; an oversized one is more likely a mis-matched
+     * document than lyrics). The stream is always closed.
+     */
+    private fun readText(uri: Uri): String? {
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val buffer = ByteArrayOutputStream()
+                val chunk = ByteArray(8192)
+                var total = 0
+                while (true) {
+                    val read = stream.read(chunk)
+                    if (read < 0) break
+                    total += read
+                    if (total > MAX_SIDECAR_BYTES) return null
+                    buffer.write(chunk, 0, read)
+                }
+                String(buffer.toByteArray(), Charsets.UTF_8)
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -298,5 +375,10 @@ class SafDocumentScanner(private val context: Context) {
         // Subfolder of cacheDir holding extracted embedded cover art. App-private
         // and OS-reclaimable; never contains a user file name or path.
         private const val ARTWORK_CACHE_DIR = "linthra_local_artwork"
+
+        // Cap on a sidecar lyrics file we'll read into memory. Real .lrc/.txt
+        // lyrics are a few KB; a larger match is more likely a wrong document
+        // than lyrics, so it's ignored (-> "no lyrics") rather than loaded.
+        private const val MAX_SIDECAR_BYTES = 1 * 1024 * 1024
     }
 }

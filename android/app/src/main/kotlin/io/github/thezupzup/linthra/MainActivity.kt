@@ -57,6 +57,25 @@ class MainActivity : AudioServiceActivity() {
                             )
                         }
                     }
+                    // Read a track's sidecar lyrics file (Song.lrc / Song.txt
+                    // next to Song.mp3) from within the existing folder grant.
+                    // Returns the text, or null when there's no such sidecar.
+                    "readSidecarText" -> {
+                        val uri = call.argument<String>("uri")
+                        val extension = call.argument<String>("extension")
+                        if (uri == null || extension == null) {
+                            result.error(
+                                "bad_args",
+                                "uri and extension are required",
+                                null,
+                            )
+                        } else {
+                            result.success(
+                                SafDocumentScanner(applicationContext)
+                                    .readSidecarText(uri, extension),
+                            )
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
