@@ -25,7 +25,7 @@ troubleshoot.
 | Now-playing **queue / Up Next** on the head unit | ✅ (mirrors the app's queue) |
 | Tap a row in the car's Up Next list (skip-to-queue-item) | ✅ |
 | Shuffle / repeat from the car | ✅ |
-| Now-playing metadata (title / artist / album / artwork) | ✅ (artwork depends on `Track.artworkUri`) |
+| Now-playing metadata (title / artist / album / artwork) | ✅ (Jellyfin / local / Subsonic covers; the Subsonic cover is fetched + cached to a private file so no credential reaches `artUri`) |
 | Offline / downloaded section | ✅ (user downloads only — smart pre-cache is not listed) |
 | Cast-safe (no duplicate local playback while casting) | ✅ |
 | Search from Android Auto | ❌ (not implemented — [follow-up](#known-limitations)) |
@@ -174,15 +174,23 @@ Android Auto media items are deliberately **secret-free**:
   file/SAF path), not a stream URL. The **authenticated stream URL is minted
   lazily at play time** by the resolver inside the playback engine, and is never
   stored on a track or handed to the media browser.
-- `MediaItem.artUri` (cover art) is the **token-free** image endpoint for
-  Jellyfin, and `null` for Subsonic/local — so no credential rides along in
-  artwork either.
+- `MediaItem.artUri` (cover art) is only ever a **credential-free, platform-
+  loadable** URI: the **token-free** image endpoint for Jellyfin, a **private
+  `file:`** for a local embedded cover or a fetched-and-cached Subsonic cover,
+  or `null`. The authenticated Subsonic `getCoverArt` URL (which embeds the
+  salt+token) is **never** put in `artUri`: Linthra fetches that cover itself
+  and hands the session only the resulting private `file:` (see
+  [the now-playing artwork note](#known-limitations)), so no credential rides
+  along in artwork.
 - The diagnostic log (see below) prints only the **category** of a media id
   (e.g. `library`, `album`, `artist`, `playlist`, `favorite`, `offline`) and
   small counts — never a raw id, title, URI, or token.
-- Album/artist grouping ids and the cover-art URL never carry a token: art is
-  the **token-free** `Track.artworkUri` (the public image endpoint, or null),
-  the same source the now-playing card already uses.
+- Album/artist grouping ids and the cover-art URL never carry a token: browse
+  art is the **token-free** `Track.artworkUri` (a public image endpoint, a
+  private `file:`, or null). A credential-free reference (e.g. Subsonic's
+  `subsonic-cover:<id>`) that hasn't been fetched to a local file is **dropped to
+  null** for browse rows rather than handed over unloadable — only the
+  now-playing cover is fetched and cached locally.
 
 ## Diagnostics / logging
 
@@ -367,11 +375,17 @@ mode → **Add unknown sources** enabled for a sideloaded build.
   wraps).
 - The car experience is **basic browsing**, not a custom/polished car UI (no
   tabs, content-style hints, lyrics, or now-playing artwork tuning).
-- Lock-screen / now-playing artwork depends on `Track.artworkUri`, which now
-  includes a local file's embedded cover (extracted during the scan) as well as
-  server covers — `audio_service` loads it in-process for the media session. The
-  car **browse-tree** thumbnail for a local file is a private-cache `file://`
-  URI the car's own process may not be able to read, so a server cover remains
-  the most reliable browse thumbnail; this is a known limitation, not a
-  regression (local rows had no art before).
+- Lock-screen / now-playing artwork covers Jellyfin (its token-free image URL),
+  local embedded covers (extracted during the scan into a private `file:`), and
+  Subsonic/Navidrome. Subsonic's `getCoverArt` carries the salt+token, so it
+  can't be handed to the session as a URL; instead Linthra fetches the
+  now-playing cover itself and caches the bytes to a private `file:` (keyed by a
+  hash of the credential-free `subsonic-cover:` reference, never the URL), then
+  sets `MediaItem.artUri` to that local file — which `audio_service` loads
+  in-process for the media session. A failed/slow fetch just leaves the card
+  art-less and never blocks playback. The car **browse-tree** thumbnail for a
+  private-`file:` cover (a local embedded cover, or a Subsonic cover that hasn't
+  been fetched for the now-playing card) may not be readable by the car's own
+  process, so a Jellyfin server cover remains the most reliable browse
+  thumbnail; this is a known limitation, not a regression.
 - No MPRIS (Linux desktop media keys) yet.

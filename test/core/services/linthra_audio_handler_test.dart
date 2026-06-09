@@ -849,5 +849,215 @@ void main() {
         }
       });
     });
+
+    group('Subsonic media-session artwork (privacy-safe local cache)', () {
+      // A Subsonic track persists a *credential-free* reference in artworkUri
+      // (subsonic-cover:<id>). The platform media session loads artUri itself —
+      // somewhere Linthra can't add the salt+token — so the session must show a
+      // *local* cover (fetched and cached by Linthra), never the reference and
+      // never the authenticated getCoverArt URL.
+      final subsonic = Track(
+        id: 'sub-1',
+        title: 'Sub Song',
+        uri: 'subsonic:sub-1',
+        artistName: 'Sub Artist',
+        albumName: 'Sub Album',
+        artworkUri: Uri.parse('subsonic-cover:al-9'),
+      );
+      final localArt = Uri.parse('file:///cache/media_session_artwork/abc.img');
+
+      LinthraAudioHandler handlerWith(
+        FakePlaybackController c,
+        List<Track> tracks, {
+        MediaArtworkResolver? artwork,
+      }) {
+        final h = LinthraAudioHandler(
+          c,
+          MediaBrowserTree(FakeMusicLibraryRepository(tracks: tracks)),
+          artwork: artwork,
+        );
+        addTearDown(() async {
+          await h.dispose();
+          await c.dispose();
+        });
+        return h;
+      }
+
+      test('resolves a cover reference to a safe local file artUri', () async {
+        final c = FakePlaybackController();
+        final h = handlerWith(
+          c,
+          <Track>[subsonic],
+          artwork: (Uri ref) async =>
+              ref.isScheme('subsonic-cover') ? localArt : null,
+        );
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle(); // initial push: cover not fetched yet
+        await _settle(); // fetch settles, re-broadcast with the local art
+
+        // The now-playing item — what the lock screen / Android Auto card shows
+        // — carries the safe local cover, never the reference or a credential.
+        expect(h.mediaItem.value?.id, 'sub-1');
+        expect(h.mediaItem.value?.artUri, localArt);
+      });
+
+      test(
+          'the now-playing artUri is a safe file:, never the reference or a '
+          'credential', () async {
+        final c = FakePlaybackController();
+        final h = handlerWith(
+          c,
+          <Track>[subsonic],
+          artwork: (Uri ref) async => localArt,
+        );
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+        await _settle();
+
+        final String art = h.mediaItem.value?.artUri?.toString() ?? '';
+        expect(art, startsWith('file:'));
+        expect(art, isNot(contains('subsonic-cover')));
+        expect(art.toLowerCase(), isNot(contains('getcoverart')));
+        expect(art.toLowerCase(), isNot(contains('token')));
+        expect(art.toLowerCase(), isNot(contains('u=')));
+        expect(art.toLowerCase(), isNot(contains('t=')));
+        expect(art.toLowerCase(), isNot(contains('s=')));
+      });
+
+      test('a failed resolution leaves artUri null without affecting playback',
+          () async {
+        final c = FakePlaybackController();
+        final h = handlerWith(
+          c,
+          <Track>[subsonic],
+          artwork: (Uri ref) async => null, // signed out / download failed
+        );
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+        await _settle();
+
+        final item = h.mediaItem.value;
+        expect(item, isNotNull);
+        expect(item!.id, 'sub-1'); // metadata intact, playback unaffected
+        expect(item.title, 'Sub Song');
+        expect(item.artUri, isNull); // no artwork, and crucially no leak
+      });
+
+      test('without a resolver, a cover reference never leaks into artUri',
+          () async {
+        // The default (tests / a platform without the cache): the unloadable
+        // subsonic-cover: reference must be dropped, not handed to the session.
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic]);
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+
+        final item = h.mediaItem.value;
+        expect(item, isNotNull);
+        expect(item!.artUri, isNull);
+        expect(
+            item.artUri?.toString() ?? '', isNot(contains('subsonic-cover')));
+      });
+
+      test('browse-tree containers drop an unresolved cover reference',
+          () async {
+        // The car browse tree never fetches covers, so a Subsonic album/artist
+        // container's reference must be dropped (null), never leaked unloadable.
+        final c = FakePlaybackController();
+        final h = handlerWith(
+          c,
+          <Track>[subsonic],
+          artwork: (Uri ref) async => localArt, // must not be consulted here
+        );
+
+        final albums = await h.getChildren(MediaId.albums);
+        expect(albums, isNotEmpty);
+        for (final item in albums) {
+          expect(item.artUri, isNull);
+          expect(
+            item.artUri?.toString() ?? '',
+            isNot(contains('subsonic-cover')),
+          );
+        }
+      });
+
+      test('Jellyfin http art and local file art still pass through unchanged',
+          () async {
+        // Regression: wiring the reference resolver must not change how a
+        // platform-loadable cover (Jellyfin token-free http, a local file:) is
+        // forwarded — and the resolver must not even be consulted for them.
+        bool resolverCalled = false;
+        final jf = Track(
+          id: 'jf',
+          title: 'JF',
+          uri: 'jellyfin:jf',
+          artworkUri:
+              Uri.parse('https://music.example.com/Items/jf/Images/Primary'),
+        );
+        final loc = Track(
+          id: 'loc',
+          title: 'Loc',
+          uri: '/music/loc.mp3',
+          artworkUri: Uri.parse('file:///cache/linthra_local_artwork/loc.img'),
+        );
+        final c = FakePlaybackController();
+        final h = handlerWith(
+          c,
+          <Track>[jf, loc],
+          artwork: (Uri ref) async {
+            resolverCalled = true;
+            return Uri.parse('file:///should/not/be/used.img');
+          },
+        );
+
+        await c.playTracks(<Track>[jf, loc]);
+        await _settle();
+        await _settle();
+
+        // Jellyfin token-free http art is used as-is.
+        expect(
+          h.mediaItem.value?.artUri,
+          Uri.parse('https://music.example.com/Items/jf/Images/Primary'),
+        );
+        // The local file: art rides on its queue row unchanged.
+        final locRow = h.queue.value.firstWhere((i) => i.id == 'loc');
+        expect(
+          locRow.artUri,
+          Uri.parse('file:///cache/linthra_local_artwork/loc.img'),
+        );
+        // The reference resolver is never consulted for platform-loadable art.
+        expect(resolverCalled, isFalse);
+      });
+
+      test('fetches the cover at most once despite re-broadcasts', () async {
+        int calls = 0;
+        final c = FakePlaybackController();
+        final h = handlerWith(
+          c,
+          <Track>[subsonic],
+          artwork: (Uri ref) async {
+            calls++;
+            return localArt;
+          },
+        );
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+        await _settle();
+        // A seek (a large position jump) forces a playback re-push; a small tick
+        // does not. Neither must re-fetch the already-resolved cover.
+        c.emit(c.state.copyWith(position: const Duration(seconds: 30)));
+        await _settle();
+        c.emit(c.state.copyWith(position: const Duration(seconds: 31)));
+        await _settle();
+
+        expect(calls, 1);
+        expect(h.mediaItem.value?.artUri, localArt);
+      });
+    });
   });
 }

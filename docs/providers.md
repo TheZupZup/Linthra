@@ -99,10 +99,19 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
 - **Offline cache**: a Subsonic track can be downloaded for offline use (the
   original file via `download.view`).
 - **Cast**: a Subsonic track casts to a Chromecast as a live stream.
-- **Cover art**: album/artist/track artwork shows across the app. The catalog
-  stores only a credential-free `subsonic-cover:<coverArtId>` reference; the
+- **Cover art**: album/artist/track artwork shows across the app, and the
+  now-playing cover shows on the lock screen / Android Auto. The catalog stores
+  only a credential-free `subsonic-cover:<coverArtId>` reference; the
   authenticated `getCoverArt` URL is resolved on demand at render time (the
   salt+token are woven in then, never persisted), exactly like stream URLs.
+  Because the platform media session loads `MediaItem.artUri` itself — somewhere
+  the render-time resolver can't reach, and where a credentialed URL must never
+  go — Linthra instead fetches the now-playing cover itself, caches the bytes to
+  a private `file:` keyed by a hash of the credential-free reference, and hands
+  the session only that local file. The credential is used once to fetch and
+  never stored, logged, or put in the cache filename; a failed fetch just leaves
+  the session art-less (playback is unaffected). Cast still omits Subsonic
+  artwork (a credentialed URL must not reach the receiver).
 - **Lyrics**: synced or plain lyrics are fetched on demand via the OpenSubsonic
   `getLyricsBySongId` extension (how Navidrome exposes embedded/sidecar lyrics),
   with a fallback to the legacy `getLyrics` (plain text, matched by artist +
@@ -142,8 +151,10 @@ Concretely, Linthra:
 - never stores an authenticated cover-art URL in `Track.artworkUri` or the
   database (it stores the credential-free `subsonic-cover:<id>` reference, and
   weaves the salt+token in only when an image is actually rendered);
-- never puts a credential in a cache filename or cache metadata (the cache file
-  extension comes from the response content type, not the URL);
+- never puts a credential in a cache filename or cache metadata (the offline
+  audio cache file extension comes from the response content type, not the URL;
+  the media-session artwork cache filename is a hash of the credential-free
+  `subsonic-cover:` reference — never the server URL or auth query);
 - never surfaces a credential or credentialed URL in a UI error message;
 - resolves stream/download URLs **only at play/download time**, and cover-art
   URLs **only at render time**.
@@ -159,13 +170,6 @@ actions stay hidden/disabled rather than failing:
   `getLyricsBySongId` path returns synced lyrics today; the legacy `getLyrics`
   fallback is treated as plain text, so any LRC-style timestamps embedded in its
   value aren't time-synced yet. That refinement is a follow-up.
-- **Cover art on the lock screen / Android Auto** — in-app artwork is resolved
-  at render time (see the "Cover art" capability above), but the platform media
-  session loads `MediaItem.artUri` itself and can't reach Linthra's resolver, so
-  it would need a credential-free image URL Subsonic doesn't offer. Caching the
-  resolved cover to a local `file:` the session can read is the follow-up; until
-  then the notification/lock screen/Android Auto show no Subsonic art (unchanged
-  from before).
 - **Per-track cast content type** — the cast receiver is sent a generic
   `audio/mpeg` hint; an exact per-track type / transcode profile is a follow-up.
 - **In-app browse/search by artist/album** — the synced catalog lists tracks;

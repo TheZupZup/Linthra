@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/linthra_app.dart';
 import 'core/models/subsonic_session.dart';
 import 'core/services/linthra_audio_handler.dart';
+import 'core/services/media_artwork_cache.dart';
 import 'core/sources/subsonic/subsonic_artwork.dart';
 import 'data/repositories/default_provider_store_provider.dart';
 import 'data/repositories/download_repository_provider.dart';
@@ -98,6 +99,27 @@ Future<void> main() async {
     ],
   );
 
+  // A privacy-safe media-session artwork cache for Subsonic/Navidrome: the
+  // platform media session loads MediaItem.artUri itself, somewhere Linthra
+  // can't add the salt+token, so the credentialed getCoverArt URL must never go
+  // there. Instead the cache fetches the cover itself — weaving the live
+  // session's salt+token into the getCoverArt URL on demand, used once to fetch
+  // and never stored or logged — and writes the bytes to a private file, keyed
+  // by a hash of the credential-free `subsonic-cover:<id>` reference (no
+  // credential in the filename). The handler then sets artUri to only that local
+  // file:// URI. Reads the session live, so sign-in/out is picked up; returns
+  // null when signed out or on any fetch failure (the session then shows no art,
+  // and playback is unaffected). Jellyfin (token-free http) and local (file:)
+  // covers never reach this cache — they're already platform-loadable.
+  final mediaArtworkCache = MediaArtworkCache(
+    resolveUrl: (Uri reference) {
+      final SubsonicSession? session =
+          container.read(subsonicSettingsControllerProvider.notifier).session;
+      if (session == null) return null;
+      return SubsonicArtwork.resolve(reference, session);
+    },
+  );
+
   // Attaching the session is best-effort: on a platform without the native
   // audio_service setup it returns null and basic playback still works. The
   // handler mirrors the controller and outlives this scope with the container.
@@ -111,6 +133,7 @@ Future<void> main() async {
     playlists: container.read(playlistRepositoryProvider),
     favorites: container.read(favoritesRepositoryProvider),
     downloads: container.read(downloadRepositoryProvider),
+    artwork: mediaArtworkCache.resolve,
   );
 
   // Start smart pre-cache: as playback advances it warms the next queued tracks
