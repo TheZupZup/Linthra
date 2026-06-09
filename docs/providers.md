@@ -31,7 +31,7 @@ persisted catalog.
 
 | Provider              | sourceId   | Stream | Cache | Favorites | Playlists | Lyrics | Cast |
 | --------------------- | ---------- | :----: | :---: | :-------: | :-------: | :----: | :--: |
-| On this device        | `local`    |   ✅   |  —    | ✅ local  | ✅ local  |   —    |  —   |
+| Local music           | `local`    |   ✅   |  —    | ✅ local  | ✅ local  |   —    |  —   |
 | Jellyfin              | `jellyfin` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
 | Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  ✅  |
 
@@ -52,9 +52,14 @@ rules, and the "Playing from …" source indicator.
 ## Local files
 
 Pick a folder with the Android Storage Access Framework picker and scan it.
-Tracks play from their on-device path. The chosen folder and the scanned catalog
-survive a restart. No broad storage permission is requested. On-device files
-cannot be cast (a receiver can't reach a file on your phone).
+Tracks play from their on-device path. The scan **reads each file's audio tags**
+(title/artist/album/track number/duration) so a local library indexes and groups
+like a server source, falling back cleanly to the file name and
+`…/Artist/Album/Track` folders when a tag is missing — see
+[local-music.md](local-music.md). The chosen folder and the scanned catalog
+survive a restart. No broad storage permission is requested (tags are read
+through the same folder grant). Embedded cover art is a documented follow-up.
+On-device files cannot be cast (a receiver can't reach a file on your phone).
 
 ## Jellyfin
 

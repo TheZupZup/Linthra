@@ -54,7 +54,7 @@ class MiniPlayer extends ConsumerWidget {
       castStateProvider.select((s) => s.valueOrNull?.isConnected ?? false),
     );
     final subtitle = _subtitle(track);
-    // The copy actually playing (Navidrome / Jellyfin / Local files / Cache),
+    // The copy actually playing (Navidrome / Jellyfin / Local music / Cache),
     // shown as a faint tag beside the metadata. Hidden while casting, where the
     // cast indicator already says where the audio is going.
     final String? sourceName = (!isCasting && source != null)
@@ -137,7 +137,7 @@ class MiniPlayer extends ConsumerWidget {
 
 /// The mini-player's second line: the artist • album metadata and, when known, a
 /// faint trailing tag for the copy actually playing (Navidrome / Jellyfin /
-/// Local files / Cache). Both halves shrink and ellipsize so a long title or a
+/// Local music / Cache). Both halves shrink and ellipsize so a long title or a
 /// narrow screen never overflows the bar.
 class _MiniSubtitle extends StatelessWidget {
   const _MiniSubtitle({required this.subtitle, required this.sourceName});

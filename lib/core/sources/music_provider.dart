@@ -166,7 +166,7 @@ class MusicProvider {
 abstract final class MusicProviders {
   static const MusicProvider local = MusicProvider(
     sourceId: 'local',
-    displayName: 'On this device',
+    displayName: 'Local music',
     serverUrlLabel: null,
     capabilities: MusicProviderCapabilities(
       canStream: true,

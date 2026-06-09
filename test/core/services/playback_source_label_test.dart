@@ -4,13 +4,13 @@ import 'package:linthra/core/services/playback_source_label.dart';
 
 void main() {
   group('PlaybackSourceLabel.of — the copy actually playing', () {
-    test('an on-device file reads as Local files', () {
+    test('an on-device file reads as Local music', () {
       expect(
         PlaybackSourceLabel.of(
           trackUri: '/music/song.mp3',
           source: PlaybackSource.localFile,
         ),
-        'Local files',
+        'Local music',
       );
     });
 

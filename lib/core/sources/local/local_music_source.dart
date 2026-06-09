@@ -1,3 +1,4 @@
+import '../../catalog/library_grouping.dart';
 import '../../models/album.dart';
 import '../../models/artist.dart';
 import '../../models/track.dart';
@@ -6,6 +7,8 @@ import '../../services/music_source.dart';
 import 'audio_file_scanner.dart';
 import 'audio_file_types.dart';
 import 'folder_location.dart';
+import 'local_audio_metadata.dart';
+import 'local_metadata_reader.dart';
 import 'local_scan_report.dart';
 import 'local_track_mapper.dart';
 import 'saf_document_lister.dart';
@@ -24,28 +27,34 @@ class LocalScan {
 /// A [MusicSource] that scans audio files already present on the device.
 ///
 /// This is the first concrete source and the reference implementation of the
-/// contract. It does no tag parsing yet: a scan keeps only recognized audio
-/// files (see [AudioFileTypes]) and maps each one to a [Track] via
-/// [LocalTrackMapper]. Album/artist grouping is therefore empty until tag
-/// reading lands.
+/// contract. A scan keeps only recognized audio files (see [AudioFileTypes]) and
+/// maps each one to a [Track] via [LocalTrackMapper], which reads the file's
+/// audio tags (title/artist/album/duration/track number) when they are available
+/// and falls back to a clean filename/folder derivation otherwise — so a local
+/// library indexes and groups like a real source rather than a flat file list.
 ///
 /// Two storage strategies sit behind it, chosen by what the picker returned:
 ///  - a filesystem path (desktop/Linux, and any path Android hands back) is
-///    walked by an [AudioFileScanner];
+///    walked by an [AudioFileScanner]; per-file tags come from the injected
+///    [LocalMetadataReader] (none by default — see [UnsupportedLocalMetadataReader]
+///    — so filesystem scans currently rely on filename/folder metadata);
 ///  - an Android SAF `content://` tree URI is traversed through the content
-///    resolver by a [SafDocumentLister], the scoped-storage-friendly path. When
-///    that traversal isn't available on the build, it falls back to the
-///    filesystem scanner so behaviour never regresses.
+///    resolver by a [SafDocumentLister], the scoped-storage-friendly path, which
+///    also reads each document's tags natively. When that traversal isn't
+///    available on the build, it falls back to the filesystem scanner so
+///    behaviour never regresses.
 ///
-/// Both seams are injectable so scanning stays testable without a real disk,
-/// device, or platform channel.
+/// Every seam is injectable so scanning and tag reading stay testable without a
+/// real disk, device, or platform channel.
 class LocalMusicSource implements MusicSource {
   const LocalMusicSource({
     required this.folderPath,
     AudioFileScanner scanner = const IoAudioFileScanner(),
     SafDocumentLister safDocumentLister = const UnsupportedSafDocumentLister(),
+    LocalMetadataReader metadataReader = const UnsupportedLocalMetadataReader(),
   })  : _scanner = scanner,
-        _safDocumentLister = safDocumentLister;
+        _safDocumentLister = safDocumentLister,
+        _metadataReader = metadataReader;
 
   /// Absolute path or SAF tree URI of the folder to scan, or `null` when the
   /// user has not chosen one yet — in which case scans simply return nothing.
@@ -53,12 +62,13 @@ class LocalMusicSource implements MusicSource {
 
   final AudioFileScanner _scanner;
   final SafDocumentLister _safDocumentLister;
+  final LocalMetadataReader _metadataReader;
 
   @override
   String get id => 'local';
 
   @override
-  String get displayName => 'On this device';
+  String get displayName => 'Local music';
 
   @override
   Future<List<Track>> fetchTracks() async => (await scanTracks()).tracks;
@@ -149,7 +159,15 @@ class LocalMusicSource implements MusicSource {
     final List<Track> tracks = <Track>[];
     for (final String path in files) {
       if (AudioFileTypes.isSupported(path)) {
-        tracks.add(LocalTrackMapper.fromPath(path));
+        // A reader that can't read this file (or this build) returns null, so
+        // the mapper falls back to the filename/folder metadata.
+        final LocalAudioMetadata? metadata =
+            await _metadataReader.readFromPath(path);
+        tracks.add(LocalTrackMapper.fromPath(
+          path,
+          metadata: metadata,
+          scanRoot: folder,
+        ));
       }
     }
     final int visited = files.length;
@@ -170,14 +188,17 @@ class LocalMusicSource implements MusicSource {
     );
   }
 
-  /// Empty until tag parsing exists: albums can't be grouped from file paths
-  /// alone.
+  /// The albums present in the scanned folder, grouped from the tracks' tags the
+  /// same way the unified library groups every source. Empty when nothing was
+  /// scanned. (The library catalog derives its own groupings from the stored
+  /// tracks; this keeps the source contract honest for any direct consumer.)
   @override
-  Future<List<Album>> fetchAlbums() async => const <Album>[];
+  Future<List<Album>> fetchAlbums() async => groupAlbums(await fetchTracks());
 
-  /// Empty until tag parsing exists — see [fetchAlbums].
+  /// The artists present in the scanned folder — see [fetchAlbums].
   @override
-  Future<List<Artist>> fetchArtists() async => const <Artist>[];
+  Future<List<Artist>> fetchArtists() async =>
+      groupArtists(await fetchTracks());
 
   @override
   Future<Uri?> resolvePlayableUri(Track track) async =>

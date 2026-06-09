@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 import 'folder_scan_exception.dart';
+import 'local_audio_metadata.dart';
 import 'saf_document_lister.dart';
 
 /// A [SafDocumentLister] backed by a platform method channel into native
@@ -73,6 +74,7 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
               uri: uri,
               name: name,
               mimeType: mime is String ? mime : null,
+              metadata: parseMetadata(entry),
             ));
           }
         }
@@ -89,5 +91,73 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
       foldersVisited: foldersVisited is int ? foldersVisited : 0,
       readFailures: readFailures is int ? readFailures : 0,
     );
+  }
+
+  /// Builds the [LocalAudioMetadata] for one document [entry] from the optional
+  /// tag fields the native walk attached (`title`, `artist`, `albumArtist`,
+  /// `album`, `track`, `durationMs`), or null when none are present — an older
+  /// native build, or a file the platform could not read tags from.
+  ///
+  /// Pure and tolerant so it is unit-testable and never throws on a malformed or
+  /// partial reply: a non-string text field, a `track` like `"3/12"`, and a
+  /// `durationMs` sent as either an int or a numeric string are all handled, and
+  /// a blank or unparseable value simply drops to null (the mapper then falls
+  /// back to the file name).
+  static LocalAudioMetadata? parseMetadata(Map<Object?, Object?> entry) {
+    final String? title = _string(entry['title']);
+    final String? artist = _string(entry['artist']);
+    final String? albumArtist = _string(entry['albumArtist']);
+    final String? album = _string(entry['album']);
+    final int? trackNumber = _trackNumber(entry['track']);
+    final Duration? duration = _durationMs(entry['durationMs']);
+    if (title == null &&
+        artist == null &&
+        albumArtist == null &&
+        album == null &&
+        trackNumber == null &&
+        duration == null) {
+      return null;
+    }
+    return LocalAudioMetadata(
+      title: title,
+      artist: artist,
+      albumArtist: albumArtist,
+      album: album,
+      trackNumber: trackNumber,
+      duration: duration,
+    );
+  }
+
+  /// A non-blank trimmed string, or null for anything else (absent, non-string,
+  /// or blank).
+  static String? _string(Object? value) {
+    if (value is! String) return null;
+    final String trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  /// The leading integer of a track field, which a tagger may store as `"3"` or
+  /// `"3/12"` (track/total). Non-positive or unparseable values are null.
+  static int? _trackNumber(Object? value) {
+    if (value is int) return value > 0 ? value : null;
+    if (value is! String) return null;
+    final RegExpMatch? match = RegExp(r'\d+').firstMatch(value);
+    if (match == null) return null;
+    final int? parsed = int.tryParse(match.group(0)!);
+    return (parsed != null && parsed > 0) ? parsed : null;
+  }
+
+  /// A duration from a milliseconds value sent as an int or a numeric string.
+  /// Zero/negative/unparseable maps to null (unknown), so the mapper leaves the
+  /// duration at zero rather than inventing one.
+  static Duration? _durationMs(Object? value) {
+    int? ms;
+    if (value is int) {
+      ms = value;
+    } else if (value is String) {
+      ms = int.tryParse(value.trim());
+    }
+    if (ms == null || ms <= 0) return null;
+    return Duration(milliseconds: ms);
   }
 }

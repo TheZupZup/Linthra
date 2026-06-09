@@ -87,11 +87,11 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('shows the Local files source for an on-device track',
+    testWidgets('shows the Local music source for an on-device track',
         (tester) async {
       await _pumpScreen(tester, _playing(source: PlaybackSource.localFile));
 
-      expect(find.text('Playing from Local files'), findsOneWidget);
+      expect(find.text('Playing from Local music'), findsOneWidget);
     });
 
     testWidgets('names the owning server (Jellyfin) for a direct stream',

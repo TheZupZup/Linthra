@@ -1,3 +1,5 @@
+import 'local_audio_metadata.dart';
+
 /// One audio document discovered by walking an Android SAF tree.
 ///
 /// Carries the `content://` document [uri] the platform can open, the display
@@ -6,11 +8,18 @@
 /// or file type; the MIME type is kept so an audio file the platform recognises
 /// by content (e.g. `audio/mpeg`) is still treated as audio even when its name
 /// lacks a known extension — the catalog needs both signals to recognise audio.
+///
+/// [metadata] carries the audio tags the native walk extracted for this document
+/// (title/artist/album/duration/track number), or null when none were available
+/// — an older native build, an unreadable file, or a format with no tags. It is
+/// only a *hint*: [LocalTrackMapper] still falls back to the name when a field is
+/// missing, so a document without metadata indexes exactly as before.
 class SafAudioDocument {
   const SafAudioDocument({
     required this.uri,
     required this.name,
     this.mimeType,
+    this.metadata,
   });
 
   /// The `content://` document URI, openable by the platform and stable enough
@@ -23,6 +32,10 @@ class SafAudioDocument {
   /// The provider-reported MIME type (e.g. `audio/flac`), or null when the
   /// provider did not expose one.
   final String? mimeType;
+
+  /// The audio tags the native side read for this document, or null when none
+  /// were available. See the class doc — purely a hint over the name fallback.
+  final LocalAudioMetadata? metadata;
 }
 
 /// The result of walking an Android SAF tree: the audio documents found plus

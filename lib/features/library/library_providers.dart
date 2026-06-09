@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/folder_picker_service.dart';
 import '../../core/services/platform_folder_picker_service.dart';
 import '../../core/sources/local/audio_file_scanner.dart';
+import '../../core/sources/local/local_metadata_reader.dart';
 import '../../core/sources/local/method_channel_saf_document_lister.dart';
 import '../../core/sources/local/method_channel_saf_permission_probe.dart';
 import '../../core/sources/local/saf_document_lister.dart';
@@ -51,4 +52,14 @@ final safPermissionProbeProvider = Provider<SafPermissionProbe>((ref) {
   return Platform.isAndroid
       ? const MethodChannelSafPermissionProbe()
       : const UnsupportedSafPermissionProbe();
+});
+
+/// The tag-reading seam used to enrich *filesystem* (desktop/Linux and
+/// resolved-path) tracks with their audio metadata. Android SAF documents read
+/// their tags natively during the content-resolver walk, so this only covers the
+/// filesystem path; until a real pure-Dart reader lands it is the unsupported
+/// binding, which reads nothing and leaves the mapper on filename/folder
+/// fallback. Tests override it with a fake to drive the tag-merge path.
+final localMetadataReaderProvider = Provider<LocalMetadataReader>((ref) {
+  return const UnsupportedLocalMetadataReader();
 });

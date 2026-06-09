@@ -29,9 +29,26 @@ permission is requested.
   content type, so an oddly-named file the platform still recognises as audio is
   not dropped.
 
-Tag reading (album/artist/artwork/duration) for local files is a separate
-follow-up; until then local tracks group under **Unknown Album / Artist** (see
-[library.md](./library.md)).
+### Track metadata (tags)
+
+Local tracks index like a real source, not a flat file list:
+
+- **Audio tags are read** during the scan — title, artist, album, album artist,
+  track number, and duration — so a tagged file shows and groups exactly like a
+  Jellyfin / Navidrome track. On Android the picked folder is read through the
+  content resolver, and each file's tags are read there too (no extra
+  permission — the same folder grant covers it).
+- **Clean fallback when tags are missing.** A file with no (or partial) tags
+  never shows an ugly path: the title and any leading track number come from the
+  file name (`01 - Holocene.flac` → track 1, "Holocene"), and the artist/album
+  come from the conventional `…/Artist/Album/Track` folders. Each field falls
+  back on its own, so a half-tagged file still gets the best of both. A file with
+  nothing to go on still folds into **Unknown Album / Artist** (see
+  [library.md](./library.md)).
+- **Embedded cover art** for local files is a separate follow-up; until then a
+  local track with no `artworkUri` shows the calm placeholder. (A server copy's
+  cover is still used when the same song is also on a server — see
+  [unified-library.md](./unified-library.md).)
 
 ## How it works (and why it's reliable)
 

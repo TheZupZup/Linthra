@@ -199,7 +199,7 @@ class _LiveControls extends ConsumerWidget {
 
 /// Under the metadata: while casting, a clear `Casting to …` indicator;
 /// otherwise a friendly error message when playback failed, or the
-/// playback-source badge ("Playing from Navidrome / Jellyfin / Local files /
+/// playback-source badge ("Playing from Navidrome / Jellyfin / Local music /
 /// Cache") once a track has resolved — naming the copy actually playing, not the
 /// active/default provider. Shows nothing while a track is still loading locally.
 class _SourceOrError extends ConsumerWidget {
