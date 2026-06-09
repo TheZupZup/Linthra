@@ -41,15 +41,18 @@ class CacheSettingsSection extends ConsumerWidget {
                 Icon(Icons.sd_storage_outlined,
                     color: theme.colorScheme.primary),
                 const SizedBox(width: AppSpacing.sm),
-                Text('Offline cache', style: theme.textTheme.titleMedium),
+                Text('Offline downloads & cache',
+                    style: theme.textTheme.titleMedium),
               ],
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'Downloads and smart pre-cached upcoming tracks stay under your '
-              'limit. When it fills, pre-cached then least-recently-played '
-              'unpinned tracks are removed first — pinned tracks and the track '
-              'playing now are kept.',
+              'Offline downloads are songs you download to play offline. Cache '
+              'is storage Linthra manages automatically to make playback faster '
+              'and available offline. Both share this space and stay under your '
+              'limit; when it fills, cached then least-recently-played tracks go '
+              'first — your offline downloads and the track playing now are '
+              'kept. (Local music lives on the device and is not stored here.)',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
@@ -97,7 +100,7 @@ class CacheSettingsSection extends ConsumerWidget {
                         ? null
                         : () => _clearCache(context, ref),
                     icon: const Icon(Icons.delete_sweep_outlined),
-                    label: const Text('Clear cache'),
+                    label: const Text('Free up storage'),
                   ),
                 ),
               ],
@@ -250,22 +253,26 @@ class _ClearCacheDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Clear offline cache'),
+      title: const Text('Free up storage'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.cleaning_services_outlined),
-            title: const Text('Clear unpinned'),
-            subtitle: const Text('Keep tracks you marked "Keep offline"'),
+            title: const Text('Clear cache'),
+            subtitle: const Text(
+              'Free cached tracks. Keeps songs you downloaded for offline.',
+            ),
             onTap: () => Navigator.of(context).pop(_ClearChoice.unpinned),
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.delete_forever_outlined),
-            title: const Text('Clear all'),
-            subtitle: const Text('Remove every offline download'),
+            title: const Text('Clear offline downloads'),
+            subtitle: const Text(
+              'Remove every downloaded and cached track.',
+            ),
             onTap: () => Navigator.of(context).pop(_ClearChoice.all),
           ),
         ],

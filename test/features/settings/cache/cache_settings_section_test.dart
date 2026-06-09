@@ -34,7 +34,7 @@ void main() {
     testWidgets('shows usage against the default 4 GB limit', (tester) async {
       await pump(tester);
 
-      expect(find.text('Offline cache'), findsOneWidget);
+      expect(find.text('Offline downloads & cache'), findsOneWidget);
       expect(find.textContaining('of 4 GB used'), findsOneWidget);
       expect(find.textContaining('0 B of'), findsOneWidget);
     });
@@ -65,12 +65,42 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('4 B of'), findsOneWidget);
 
-      await tester.tap(find.text('Clear cache'));
+      await tester.tap(find.text('Free up storage'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Clear all'));
+
+      // The dialog separates clearing the cache from removing downloads.
+      expect(find.text('Clear cache'), findsOneWidget);
+      expect(find.text('Clear offline downloads'), findsOneWidget);
+
+      await tester.tap(find.text('Clear offline downloads'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('0 B of'), findsOneWidget);
+    });
+
+    testWidgets('clear cache keeps pinned offline downloads', (tester) async {
+      final container = await pump(tester);
+
+      // Two downloads: one pinned ("Keep offline"), one not. Clearing the
+      // cache should free the unpinned one but keep the pinned download.
+      final repo = container.read(downloadRepositoryProvider);
+      await repo.requestDownload(
+        const Track(id: 'j1', title: 'Kept', uri: 'jellyfin:j1'),
+      );
+      await repo.requestDownload(
+        const Track(id: 'j2', title: 'Cached', uri: 'jellyfin:j2'),
+      );
+      await container.read(offlineCacheManagerProvider).setPinned('j1', true);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('8 B of'), findsOneWidget);
+
+      await tester.tap(find.text('Free up storage'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Clear cache'));
+      await tester.pumpAndSettle();
+
+      // The pinned 4 B download survives; the unpinned one is gone.
+      expect(find.textContaining('4 B of'), findsOneWidget);
     });
   });
 }

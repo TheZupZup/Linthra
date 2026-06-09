@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/dimens.dart';
 import '../../downloads/download_providers.dart';
 
-/// The "Downloads & network" card on the Settings screen.
+/// The "Wi-Fi & mobile data" card on the Settings screen.
 ///
 /// Hosts the single mobile-data choice that the whole download/cache stack
 /// keys off: with it off (the safe default) downloads and smart pre-cache run
@@ -36,14 +36,14 @@ class NetworkSettingsSection extends StatelessWidget {
                 Icon(Icons.network_cell_outlined,
                     color: theme.colorScheme.primary),
                 const SizedBox(width: AppSpacing.sm),
-                Text('Downloads & network', style: theme.textTheme.titleMedium),
+                Text('Wi-Fi & mobile data', style: theme.textTheme.titleMedium),
               ],
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'By default Linthra downloads and pre-caches only on Wi-Fi. Allow '
-              'mobile data to let downloads and smart pre-cache run on mobile '
-              'data too. The cache size limit always applies.',
+              'By default Linthra downloads and caches only on Wi-Fi. Allow '
+              'mobile data to let offline downloads and cache run on mobile '
+              'data too. The storage limit always applies.',
               style: theme.textTheme.bodySmall?.copyWith(color: muted),
             ),
             const SizedBox(height: AppSpacing.xs),
