@@ -153,32 +153,136 @@ class _SelectedFolderView extends StatelessWidget {
           ),
         ],
         if (report != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          _ScanSummary(report: report!),
+        ],
+      ],
+    );
+  }
+}
+
+/// A clear, secret-free recap of the last local scan, shown under the selected
+/// folder: a status headline, the safe counts the scan produced, and — when the
+/// scan turned up nothing playable — a calm, non-blaming hint on what to try.
+///
+/// Everything here derives from [LocalScanReport], which by construction holds
+/// only booleans and counts (never a path, file name, or raw error), so nothing
+/// private about the user's library can reach the card.
+class _ScanSummary extends StatelessWidget {
+  const _ScanSummary({required this.report});
+
+  final LocalScanReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    // A scan that threw produced no trustworthy counts, so the breakdown is
+    // dropped and only the status + hint are shown.
+    final String? counts = report.hadError ? null : _counts(report);
+    final String? hint = _hint(report);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(_headline(report), style: theme.textTheme.bodyMedium),
+        if (counts != null) ...[
           const SizedBox(height: AppSpacing.xs),
           Text(
-            _scanSummary(report!),
+            counts,
             style: theme.textTheme.bodySmall?.copyWith(color: muted),
           ),
+        ],
+        if (hint != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          _ScanHintLine(message: hint),
         ],
       ],
     );
   }
 
-  /// A short, secret-free recap of the last scan — counts only.
-  static String _scanSummary(LocalScanReport report) {
+  /// The headline: what the scan did, in the user's terms. Imported-count first
+  /// (the thing they care about), then the "nothing found" and "couldn't finish"
+  /// cases — never a path or file name.
+  static String _headline(LocalScanReport report) {
     if (report.hadError) {
-      return 'Last scan: failed. Try selecting the folder again.';
+      return "Last scan couldn't finish";
     }
-    final StringBuffer summary = StringBuffer()
-      ..write('Last scan: ${report.importedTracks} ')
-      ..write(report.importedTracks == 1 ? 'track' : 'tracks')
-      ..write(' from ${report.filesVisited} ')
-      ..write(report.filesVisited == 1 ? 'file' : 'files')
-      ..write(' in ${report.foldersVisited} ')
-      ..write(report.foldersVisited == 1 ? 'folder' : 'folders');
+    if (report.importedTracks > 0) {
+      final String word = report.importedTracks == 1 ? 'track' : 'tracks';
+      return 'Last scan: ${report.importedTracks} $word added';
+    }
+    return 'Last scan: no tracks found';
+  }
+
+  /// The secret-free count breakdown — folders and files seen, how many looked
+  /// like audio, and how many were skipped or unreadable. Folders are omitted
+  /// when zero (a filesystem-path scan reports no folder count).
+  static String _counts(LocalScanReport report) {
+    final List<String> parts = <String>[
+      if (report.foldersVisited > 0)
+        '${report.foldersVisited} '
+            '${report.foldersVisited == 1 ? 'folder' : 'folders'}',
+      '${report.filesVisited} ${report.filesVisited == 1 ? 'file' : 'files'}',
+      '${report.audioCandidates} audio',
+    ];
+    if (report.skippedUnsupported > 0) {
+      parts.add('${report.skippedUnsupported} skipped');
+    }
     if (report.readFailures > 0) {
-      summary.write(' · ${report.readFailures} unreadable');
+      parts.add('${report.readFailures} unreadable');
     }
-    return summary.toString();
+    return parts.join(' · ');
+  }
+
+  /// A calm, non-blaming next step when the scan imported nothing. Two shapes: a
+  /// likely access problem (the SD-card / lost-grant case) versus a folder that
+  /// simply held no recognized audio. Both point at re-picking the folder with
+  /// the Android chooser; neither faults the user.
+  static String? _hint(LocalScanReport report) {
+    if (report.importedTracks > 0) {
+      return null;
+    }
+    final bool blocked = report.hadError ||
+        report.readFailures > 0 ||
+        (report.isContentUri && report.filesVisited == 0);
+    if (blocked) {
+      final String sdNote =
+          report.isContentUri ? ' — common with SD cards' : '';
+      return "Linthra couldn't read this folder$sdNote. Select it again with "
+          "Android's folder chooser to restore access.";
+    }
+    return "This folder doesn't seem to contain audio Linthra recognizes. Check "
+        'that it has supported audio files (like MP3, M4A, FLAC, or OGG), or '
+        "select the folder again with Android's folder chooser.";
+  }
+}
+
+/// One line of calm guidance (info icon + muted text) shown when a scan needs a
+/// follow-up action. Kept visually lighter than [_StatusLine] so a longer hint
+/// reads as help, not an alarm.
+class _ScanHintLine extends StatelessWidget {
+  const _ScanHintLine({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.info_outline, size: 18, color: theme.colorScheme.primary),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            message,
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
+        ),
+      ],
+    );
   }
 }
 
