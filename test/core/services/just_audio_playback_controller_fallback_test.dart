@@ -369,4 +369,105 @@ void main() {
           <String>['jellyfin:o']);
     });
   });
+
+  // Regression: when the user changes the default source mid-queue, the candidate
+  // source recomputes under the controller (it reads it lazily). End-of-track
+  // continuation must pick up the new order for the *next* queued copy — and must
+  // never get stuck on stale source state. The map is keyed by every copy's id,
+  // so a queued Jellyfin copy still resolves to its candidates after the switch.
+  group('end-of-track continuation after a source change', () {
+    final Track j1 = _track('j1', 'jellyfin:j1');
+    final Track s1 = _track('s1', 'subsonic:s1');
+    final Track j2 = _track('j2', 'jellyfin:j2');
+    final Track s2 = _track('s2', 'subsonic:s2');
+
+    // The live candidate map, keyed by every copy's id (what
+    // playbackCandidatesProvider produces). Mutated in place to model a switch.
+    Map<String, List<Track>> jellyfinFirst() => <String, List<Track>>{
+          'j1': <Track>[j1, s1],
+          's1': <Track>[j1, s1],
+          'j2': <Track>[j2, s2],
+          's2': <Track>[j2, s2],
+        };
+    Map<String, List<Track>> subsonicFirst() => <String, List<Track>>{
+          'j1': <Track>[s1, j1],
+          's1': <Track>[s1, j1],
+          'j2': <Track>[s2, j2],
+          's2': <Track>[s2, j2],
+        };
+
+    void completeCurrent(JustAudioPlaybackController controller) {
+      // Mirrors just_audio reporting the track reached its natural end.
+      controller
+          .handleEngineState(PlayerState(false, ProcessingState.completed));
+    }
+
+    test('the next queued copy uses the newly chosen source', () async {
+      final player = _FakePlayer();
+      final resolver = _FakeResolver(
+        resolved: <String, ResolvedPlayable>{
+          'jellyfin:j1': _stream('https://jelly/stream/j1'),
+          'jellyfin:j2': _stream('https://jelly/stream/j2'),
+          'subsonic:s1': _stream('https://sub/stream/s1'),
+          'subsonic:s2': _stream('https://sub/stream/s2'),
+        },
+      );
+      final Map<String, List<Track>> candidates = jellyfinFirst();
+      final controller = build(
+        player: player,
+        resolver: resolver,
+        candidates: candidates,
+      );
+
+      // Plays the queue under the default (Automatic) order: Jellyfin first.
+      await controller.playTracks(<Track>[j1, j2]);
+      expect(controller.state.currentTrack?.uri, 'jellyfin:j1');
+
+      // The user switches the default source to Navidrome/Subsonic. The live
+      // candidate map recomputes in place under the session-pinned controller.
+      candidates
+        ..clear()
+        ..addAll(subsonicFirst());
+
+      // The first track finishes and the queue advances.
+      completeCurrent(controller);
+      await Future<void>.delayed(Duration.zero);
+
+      // Continuation used the newly chosen source for the next track.
+      expect(controller.state.currentTrack?.uri, 'subsonic:s2');
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+    });
+
+    test('continuation still falls back when the new source fails', () async {
+      // After the switch Subsonic leads, but the Subsonic copy of song 2 is
+      // unreachable — continuation must fall back to Jellyfin rather than stall.
+      final player = _FakePlayer();
+      final resolver = _FakeResolver(
+        resolveFailures: <String>{'subsonic:s2'},
+        resolved: <String, ResolvedPlayable>{
+          'jellyfin:j1': _stream('https://jelly/stream/j1'),
+          'jellyfin:j2': _stream('https://jelly/stream/j2'),
+          'subsonic:s1': _stream('https://sub/stream/s1'),
+        },
+      );
+      final Map<String, List<Track>> candidates = jellyfinFirst();
+      final controller = build(
+        player: player,
+        resolver: resolver,
+        candidates: candidates,
+      );
+
+      await controller.playTracks(<Track>[j1, j2]);
+      candidates
+        ..clear()
+        ..addAll(subsonicFirst());
+
+      completeCurrent(controller);
+      await Future<void>.delayed(Duration.zero);
+
+      // It tried Subsonic first, then fell back to Jellyfin — playback continues.
+      expect(controller.state.currentTrack?.uri, 'jellyfin:j2');
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+    });
+  });
 }
