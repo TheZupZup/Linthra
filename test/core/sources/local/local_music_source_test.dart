@@ -203,6 +203,33 @@ void main() {
       expect(tracks.first.uri, 'content://doc/1');
     });
 
+    test('carries a document\'s embedded cover art onto the track', () async {
+      final Uri art = Uri.parse(
+        'file:///data/user/0/app/cache/linthra_local_artwork/abc.img',
+      );
+      final saf = FakeSafDocumentLister(
+        documents: <SafAudioDocument>[
+          SafAudioDocument(
+            uri: 'content://doc/1',
+            name: 'WithArt.mp3',
+            metadata: LocalAudioMetadata(title: 'With Art', artworkUri: art),
+          ),
+          const SafAudioDocument(uri: 'content://doc/2', name: 'NoArt.flac'),
+        ],
+      );
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(const <String>[]),
+        safDocumentLister: saf,
+      );
+
+      final tracks = await source.fetchTracks();
+
+      expect(tracks.firstWhere((t) => t.title == 'With Art').artworkUri, art);
+      // A document without embedded art keeps a null cover (the placeholder).
+      expect(tracks.firstWhere((t) => t.title == 'NoArt').artworkUri, isNull);
+    });
+
     test('falls back to the path scanner when SAF is unsupported', () async {
       final scanner = _FakeScanner(<String>['/storage/emulated/0/Music/A.mp3']);
       final source = LocalMusicSource(

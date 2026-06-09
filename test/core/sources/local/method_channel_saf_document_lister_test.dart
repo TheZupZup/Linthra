@@ -157,6 +157,25 @@ void main() {
 
       expect(result.documents.single.metadata, isNull);
     });
+
+    test('attaches the native cover-art URI to the parsed document', () {
+      final result = MethodChannelSafDocumentLister.parseScanResult(
+        <Object?, Object?>{
+          'documents': <Object?>[
+            <Object?, Object?>{
+              'uri': 'content://doc/1',
+              'name': 'One.mp3',
+              'artworkUri': 'file:///cache/linthra_local_artwork/abc.img',
+            },
+          ],
+        },
+      );
+
+      expect(
+        result.documents.single.metadata!.artworkUri,
+        Uri.parse('file:///cache/linthra_local_artwork/abc.img'),
+      );
+    });
   });
 
   group('MethodChannelSafDocumentLister.parseMetadata', () {
@@ -224,6 +243,47 @@ void main() {
         ),
         isNull,
       );
+    });
+
+    test('parses a file:// cover-art URI', () {
+      expect(
+        MethodChannelSafDocumentLister.parseMetadata(
+          <Object?, Object?>{'artworkUri': 'file:///cache/art/abc.img'},
+        )!
+            .artworkUri,
+        Uri.parse('file:///cache/art/abc.img'),
+      );
+    });
+
+    test('embedded art alone (no text tags) still yields metadata', () {
+      // An art-only file must not drop to null metadata, or the cover is lost.
+      final metadata = MethodChannelSafDocumentLister.parseMetadata(
+        <Object?, Object?>{'artworkUri': 'file:///cache/art/abc.img'},
+      );
+      expect(metadata, isNotNull);
+      expect(metadata!.title, isNull);
+      expect(metadata.artworkUri, Uri.parse('file:///cache/art/abc.img'));
+    });
+
+    test('drops a blank or non-string cover-art value to null', () {
+      expect(
+        MethodChannelSafDocumentLister.parseMetadata(
+          <Object?, Object?>{'artworkUri': '  '},
+        ),
+        isNull,
+      );
+      expect(
+        MethodChannelSafDocumentLister.parseMetadata(
+          <Object?, Object?>{'artworkUri': 42},
+        ),
+        isNull,
+      );
+      // A real tag alongside a blank artwork keeps the tag, drops the artwork.
+      final metadata = MethodChannelSafDocumentLister.parseMetadata(
+        <Object?, Object?>{'album': 'Real', 'artworkUri': ''},
+      );
+      expect(metadata!.album, 'Real');
+      expect(metadata.artworkUri, isNull);
     });
   });
 

@@ -15,6 +15,7 @@ class LocalAudioMetadata {
     this.album,
     this.trackNumber,
     this.duration,
+    this.artworkUri,
   });
 
   /// The track title (e.g. ID3 `TIT2`).
@@ -40,15 +41,25 @@ class LocalAudioMetadata {
   /// actual tag/stream metadata.
   final Duration? duration;
 
-  /// Whether every field is absent — i.e. the source carried no usable tag at
-  /// all, so the mapper relies entirely on filename/folder fallback.
+  /// A URI to the file's embedded cover art when one was extracted, or null when
+  /// the file carries none. Unlike the text fields this is not derived from the
+  /// file name — it can only come from real embedded artwork — so it is passed
+  /// straight through to [Track.artworkUri]. On Android the native SAF walk
+  /// caches the embedded picture into Linthra's private cache and reports a
+  /// `file://` URI to it (never a user file path).
+  final Uri? artworkUri;
+
+  /// Whether every field is absent — i.e. the source carried no usable tag (or
+  /// embedded art) at all, so the mapper relies entirely on filename/folder
+  /// fallback.
   bool get isEmpty =>
       title == null &&
       artist == null &&
       albumArtist == null &&
       album == null &&
       trackNumber == null &&
-      duration == null;
+      duration == null &&
+      artworkUri == null;
 
   /// A metadata holder with no fields set.
   static const LocalAudioMetadata empty = LocalAudioMetadata();

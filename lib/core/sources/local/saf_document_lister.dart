@@ -10,10 +10,12 @@ import 'local_audio_metadata.dart';
 /// lacks a known extension — the catalog needs both signals to recognise audio.
 ///
 /// [metadata] carries the audio tags the native walk extracted for this document
-/// (title/artist/album/duration/track number), or null when none were available
-/// — an older native build, an unreadable file, or a format with no tags. It is
-/// only a *hint*: [LocalTrackMapper] still falls back to the name when a field is
-/// missing, so a document without metadata indexes exactly as before.
+/// (title/artist/album/duration/track number) and a `file://` URI to its cached
+/// embedded cover art, or null when none were available — an older native build,
+/// an unreadable file, or a format with no tags. It is only a *hint*:
+/// [LocalTrackMapper] still falls back to the name when a field is missing, so a
+/// document without metadata indexes exactly as before (and shows the artwork
+/// placeholder).
 class SafAudioDocument {
   const SafAudioDocument({
     required this.uri,

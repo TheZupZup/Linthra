@@ -6,6 +6,8 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.security.MessageDigest
 import java.util.ArrayDeque
 
 /**
@@ -118,11 +120,14 @@ class SafDocumentScanner(private val context: Context) {
                                     treeUri,
                                     docId,
                                 )
-                                // Read the file's audio tags so a local track
-                                // indexes with a real title/artist/album/duration
-                                // like a server track. Best-effort: a file whose
-                                // tags can't be read just omits them and the Dart
-                                // mapper falls back to the display name.
+                                // Read the file's audio tags (and cache its
+                                // embedded cover art) so a local track indexes
+                                // with a real title/artist/album/duration and
+                                // shows its artwork like a server track. Best-
+                                // effort: a file whose tags can't be read just
+                                // omits them and the Dart mapper falls back to the
+                                // display name; a file with no embedded cover keeps
+                                // the calm placeholder.
                                 val metadata = readMetadata(docUri)
                                 documents.add(
                                     mapOf(
@@ -135,6 +140,7 @@ class SafDocumentScanner(private val context: Context) {
                                         "album" to metadata["album"],
                                         "track" to metadata["track"],
                                         "durationMs" to metadata["durationMs"],
+                                        "artworkUri" to metadata["artworkUri"],
                                     ),
                                 )
                             }
@@ -206,6 +212,10 @@ class SafDocumentScanner(private val context: Context) {
                 "durationMs" to retriever.extractMetadata(
                     MediaMetadataRetriever.METADATA_KEY_DURATION,
                 ),
+                // A file:// URI to the embedded cover art, cached once. Its own
+                // try/catch (inside cacheEmbeddedArtwork) means a missing or
+                // unwritable cover never costs the tags read above.
+                "artworkUri" to cacheEmbeddedArtwork(uri, retriever),
             )
         } catch (e: Exception) {
             emptyMap()
@@ -218,8 +228,75 @@ class SafDocumentScanner(private val context: Context) {
         }
     }
 
+    /**
+     * Extracts this document's embedded cover art (ID3 APIC, FLAC picture, MP4
+     * cover, …) once into Linthra's private cache and returns a file:// URI to
+     * it, or null when the file has no embedded art — or it can't be read or
+     * written. getEmbeddedPicture() reads through the same content-resolver data
+     * source the tags came from, under the folder's existing SAF grant, so it
+     * needs no extra permission and never touches a raw /storage path.
+     *
+     * Cheap and idempotent across re-scans: the cache file is named by a SHA-1 of
+     * the content URI — a stable key that leaks neither the file's name nor its
+     * on-disk path — so a cover already extracted on an earlier scan is reused
+     * *without* pulling the (potentially large) image bytes out of the retriever
+     * again, because the existence check runs before getEmbeddedPicture(). Bytes
+     * are written to a temp file and atomically renamed, so an interrupted scan
+     * can never leave a half-written cover that then fails to decode forever.
+     *
+     * Deliberately total: any failure returns null so the track simply keeps the
+     * calm placeholder, and — crucially — never disturbs the audio tags read
+     * alongside it. The cache lives under cacheDir, so the OS can reclaim it under
+     * storage pressure; the next folder rescan transparently re-extracts.
+     */
+    private fun cacheEmbeddedArtwork(
+        uri: Uri,
+        retriever: MediaMetadataRetriever,
+    ): String? {
+        return try {
+            val dir = File(context.cacheDir, ARTWORK_CACHE_DIR)
+            val cacheFile = File(dir, artworkCacheKey(uri) + ".img")
+            if (cacheFile.isFile && cacheFile.length() > 0L) {
+                return Uri.fromFile(cacheFile).toString()
+            }
+            val picture = retriever.embeddedPicture
+            if (picture == null || picture.isEmpty()) {
+                return null
+            }
+            if (!dir.isDirectory && !dir.mkdirs()) {
+                return null
+            }
+            val tmp = File.createTempFile("art", ".tmp", dir)
+            try {
+                tmp.writeBytes(picture)
+                if (tmp.renameTo(cacheFile)) {
+                    Uri.fromFile(cacheFile).toString()
+                } else {
+                    tmp.delete()
+                    null
+                }
+            } catch (e: Exception) {
+                tmp.delete()
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** A stable, path-free cache key for [uri]'s cover: a SHA-1 hex of the URI. */
+    private fun artworkCacheKey(uri: Uri): String {
+        val digest = MessageDigest.getInstance("SHA-1")
+        val bytes = digest.digest(uri.toString().toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    }
+
     companion object {
         private val AUDIO_EXTENSIONS =
             listOf(".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wav")
+
+        // Subfolder of cacheDir holding extracted embedded cover art. App-private
+        // and OS-reclaimable; never contains a user file name or path.
+        private const val ARTWORK_CACHE_DIR = "linthra_local_artwork"
     }
 }

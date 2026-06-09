@@ -64,6 +64,16 @@ void main() {
       ]);
       expect(row.displayArtworkUri, isNull);
     });
+
+    test('a local-only track surfaces its embedded (file://) cover', () {
+      // A device-only song with extracted embedded art shows that cover, so the
+      // local feature flows through the de-duplication display layer unchanged.
+      final LogicalTrack row = LogicalTrack.single(
+        _candidate('local', id: 'l', artwork: _localArt),
+      );
+      expect(row.displayArtworkUri, _localArt);
+      expect(row.displayTrack.artworkUri, _localArt);
+    });
   });
 
   group('LogicalTrack.displayTrack — primary identity, best cover', () {

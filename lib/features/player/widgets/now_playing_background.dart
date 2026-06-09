@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../../app/colors.dart';
+import '../../../shared/widgets/artwork_image.dart';
 
 /// The full-bleed backdrop behind the now-playing content.
 ///
@@ -29,7 +30,7 @@ class NowPlayingBackground extends StatelessWidget {
           ImageFiltered(
             imageFilter: ui.ImageFilter.blur(sigmaX: 40, sigmaY: 40),
             child: Image(
-              image: NetworkImage(uri.toString()),
+              image: artworkImageProvider(uri),
               fit: BoxFit.cover,
               gaplessPlayback: true,
               // A failed/decoding image leaves just the gradient showing.

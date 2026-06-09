@@ -45,8 +45,16 @@ Local tracks index like a real source, not a flat file list:
   back on its own, so a half-tagged file still gets the best of both. A file with
   nothing to go on still folds into **Unknown Album / Artist** (see
   [library.md](./library.md)).
-- **Embedded cover art** for local files is a separate follow-up; until then a
-  local track with no `artworkUri` shows the calm placeholder. (A server copy's
+- **Embedded cover art is shown.** During the scan, a file's embedded album art
+  (ID3 `APIC`, FLAC picture, MP4 cover, …) is read through the same content
+  resolver and the same SAF grant as the tags — no extra permission — and cached
+  once inside Linthra's own private storage. The track then carries a `file://`
+  `artworkUri` into that cache, so the cover appears in library rows, the
+  album/artist views, and the queue / now-playing / mini-player. A file with no
+  embedded art keeps the calm placeholder. The cache is keyed by a hash of the
+  file's content URI (never its name or path), so a cover is extracted **once**
+  and reused on later launches and re-scans rather than re-read every time; if
+  the OS reclaims the cache, the next rescan simply re-extracts. (A server copy's
   cover is still used when the same song is also on a server — see
   [unified-library.md](./unified-library.md).)
 

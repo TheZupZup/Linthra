@@ -8,6 +8,7 @@ import '../../core/catalog/library_grouping.dart';
 import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
+import '../../shared/widgets/artwork_image.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../player/player_providers.dart';
 import 'library_browse_providers.dart';
@@ -157,7 +158,7 @@ class _ArtistHeader extends StatelessWidget {
                 backgroundColor: theme.colorScheme.surfaceContainerHighest,
                 backgroundImage: artist.artworkUri == null
                     ? null
-                    : NetworkImage(artist.artworkUri!.toString()),
+                    : artworkImageProvider(artist.artworkUri!),
                 child: artist.artworkUri == null
                     ? Icon(
                         Icons.person,

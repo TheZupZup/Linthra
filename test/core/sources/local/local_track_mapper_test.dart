@@ -188,4 +188,60 @@ void main() {
       expect(track.trackNumber, 5);
     });
   });
+
+  group('LocalTrackMapper — embedded cover art', () {
+    final Uri art = Uri.parse(
+      'file:///data/user/0/app/cache/linthra_local_artwork/abc123.img',
+    );
+
+    test('a SAF document with embedded art maps to a usable artworkUri', () {
+      final doc = SafAudioDocument(
+        uri: 'content://x/1',
+        name: 'Song.flac',
+        metadata: LocalAudioMetadata(title: 'Song', artworkUri: art),
+      );
+      expect(LocalTrackMapper.fromSafDocument(doc).artworkUri, art);
+    });
+
+    test('a SAF document with no embedded art keeps a null artworkUri', () {
+      const doc = SafAudioDocument(
+        uri: 'content://x/1',
+        name: 'Song.flac',
+        metadata: LocalAudioMetadata(title: 'Song'),
+      );
+      expect(LocalTrackMapper.fromSafDocument(doc).artworkUri, isNull);
+    });
+
+    test('a SAF document with no metadata at all keeps a null artworkUri', () {
+      const doc = SafAudioDocument(uri: 'content://x/1', name: 'Song.flac');
+      expect(LocalTrackMapper.fromSafDocument(doc).artworkUri, isNull);
+    });
+
+    test('art rides through even when every text tag is absent', () {
+      // An art-only file (cover embedded, no readable tags) still shows its
+      // cover; the title falls back to the display name.
+      final doc = SafAudioDocument(
+        uri: 'content://x/1',
+        name: 'Holocene.mp3',
+        metadata: LocalAudioMetadata(artworkUri: art),
+      );
+      final track = LocalTrackMapper.fromSafDocument(doc);
+      expect(track.artworkUri, art);
+      expect(track.title, 'Holocene');
+    });
+
+    test('fromPath passes embedded art through, and null without it', () {
+      expect(
+        LocalTrackMapper.fromPath(
+          '/music/song.mp3',
+          metadata: LocalAudioMetadata(title: 'Song', artworkUri: art),
+        ).artworkUri,
+        art,
+      );
+      expect(
+        LocalTrackMapper.fromPath('/music/song.mp3').artworkUri,
+        isNull,
+      );
+    });
+  });
 }

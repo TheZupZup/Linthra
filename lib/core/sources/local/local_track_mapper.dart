@@ -17,7 +17,9 @@ import 'saf_document_lister.dart';
 /// future desktop reader did), its fields win — so a tagged file indexes with a
 /// proper title, artist, album, duration, and track number, exactly like a
 /// Jellyfin/Subsonic track. Each field falls back **independently** when its tag
-/// is missing or blank, so a half-tagged file still gets the best of both.
+/// is missing or blank, so a half-tagged file still gets the best of both. The
+/// file's embedded cover art, when the source extracted one, rides through as
+/// [Track.artworkUri]; a file with none keeps a null artwork (the placeholder).
 ///
 /// The fallback never shows an ugly path. From the file's own name it derives a
 /// leading track number and a clean title (`01 - Holocene` → #1, "Holocene");
@@ -89,6 +91,10 @@ abstract final class LocalTrackMapper {
       albumName: _firstNonBlank(<String?>[metadata?.album, folderAlbum]),
       trackNumber: metadata?.trackNumber ?? parts.trackNumber,
       duration: metadata?.duration ?? Duration.zero,
+      // Embedded cover art has no filename fallback — it is present only when the
+      // source actually extracted one — so it passes straight through, leaving
+      // [Track.artworkUri] null (the calm placeholder) when there is none.
+      artworkUri: metadata?.artworkUri,
     );
   }
 
