@@ -135,20 +135,32 @@ class _SyncedLyricsState extends ConsumerState<_SyncedLyrics> {
     super.dispose();
   }
 
-  /// The unified playback position, falling back to the controller's latest
-  /// state until the first stream event arrives. Reads only — never triggers
-  /// playback.
-  Duration _position() {
-    final Duration? streamed = ref.watch(
-      playbackStateProvider.select((s) => s.valueOrNull?.position),
+  /// The lyric line active at the current playback position.
+  ///
+  /// Battery: the active-line index is computed *inside* the provider
+  /// [select], so this widget rebuilds only when the highlighted line actually
+  /// changes (a handful of times per song) — not on every ~4 Hz position tick.
+  /// The whole synced list (with its per-line [AnimatedDefaultTextStyle]s) would
+  /// otherwise rebuild four times a second for the entire length of a track. The
+  /// per-tick cost is now just one cheap [Lyrics.activeLineIndex] scan with no
+  /// rebuild while the line is unchanged. Falls back to the controller's latest
+  /// position until the first stream event arrives, mirroring the rest of the
+  /// player UI. Reads only — never triggers playback.
+  int _activeLine() {
+    final Lyrics lyrics = widget.lyrics;
+    final Duration fallback =
+        ref.read(playbackControllerProvider).state.position;
+    return ref.watch(
+      playbackStateProvider.select(
+        (s) => lyrics.activeLineIndex(s.valueOrNull?.position ?? fallback),
+      ),
     );
-    return streamed ?? ref.read(playbackControllerProvider).state.position;
   }
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final int active = widget.lyrics.activeLineIndex(_position());
+    final int active = _activeLine();
 
     if (active != _activeIndex) {
       _activeIndex = active;
