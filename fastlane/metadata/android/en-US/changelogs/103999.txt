@@ -1,0 +1,25 @@
+Linthra 0.1.3 — Local music overhaul.
+
+Added:
+- Reliable local music access on Android, including SD cards and folders
+  picked through the system file chooser.
+- Local tracks indexed by title, artist, album, duration, and track number
+  for a tidy, correctly ordered library.
+- Embedded cover art for local tracks that carry it.
+- Synced lyrics for local tracks from a matching ".lrc" or ".txt" file kept
+  next to the song.
+
+Changed:
+- Clearer Local music settings, with music sources grouped together.
+- A clearer scan summary, with guidance when a folder has no playable music.
+- Lighter synced-lyrics highlighting and queue sheet, for better battery and
+  performance.
+
+Fixed:
+- Switching the default playback source no longer breaks fallback for
+  Navidrome/Subsonic tracks already in the queue.
+
+Maintenance:
+- Documentation updates.
+
+No ads, no tracking, no analytics, no telemetry.
