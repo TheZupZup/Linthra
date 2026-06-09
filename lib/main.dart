@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/linthra_app.dart';
+import 'core/models/subsonic_session.dart';
 import 'core/services/linthra_audio_handler.dart';
+import 'core/sources/subsonic/subsonic_artwork.dart';
 import 'data/repositories/default_provider_store_provider.dart';
 import 'data/repositories/download_repository_provider.dart';
 import 'data/repositories/favorites_repository_provider.dart';
@@ -28,6 +30,7 @@ import 'features/player/player_providers.dart';
 import 'features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'features/settings/playback/normalize_volume_controller.dart';
 import 'features/settings/subsonic/subsonic_settings_controller.dart';
+import 'shared/widgets/artwork_image.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -159,6 +162,22 @@ Future<void> main() async {
   } catch (_) {
     // Ignore: the user can still connect in Settings.
   }
+
+  // Teach the shared artwork seam how to turn a credential-free Subsonic cover
+  // reference (subsonic-cover:<id>, the only artwork the catalog persists) into
+  // an authenticated getCoverArt URL, weaving the live session's salt+token in
+  // at render time — exactly how stream URLs are minted on demand, so the
+  // credential never reaches the catalog. Reads the session live, so signing
+  // in/out is picked up without a rebuild; returns null when signed out (the
+  // row keeps its placeholder) and for any non-Subsonic reference (Jellyfin and
+  // local covers load directly). Secret-free: only the resolved NetworkImage URL
+  // is built, never logged.
+  installArtworkReferenceResolver((Uri reference) {
+    final SubsonicSession? session =
+        container.read(subsonicSettingsControllerProvider.notifier).session;
+    if (session == null) return null;
+    return SubsonicArtwork.resolve(reference, session);
+  });
 
   // With the session loaded, pull the user's Jellyfin favourites so the heart
   // reflects the server from the first frame. Best-effort and offline-tolerant:

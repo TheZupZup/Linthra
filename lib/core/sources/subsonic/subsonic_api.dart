@@ -149,11 +149,17 @@ class SubsonicArtistDto {
     required this.id,
     required this.name,
     this.albumCount = 0,
+    this.coverArt,
   });
 
   final String id;
   final String name;
   final int albumCount;
+
+  /// The server's cover-art id for this artist, when present. An opaque handle
+  /// (e.g. `ar-123`) the `getCoverArt` endpoint resolves to an image — not a
+  /// URL and not a credential. Maps to the artist's artwork.
+  final String? coverArt;
 
   static SubsonicArtistDto? fromJson(Map<String, dynamic> json) {
     final String? id = json['id'] as String?;
@@ -163,6 +169,7 @@ class SubsonicArtistDto {
       id: id,
       name: name,
       albumCount: (json['albumCount'] as num?)?.toInt() ?? 0,
+      coverArt: json['coverArt'] as String?,
     );
   }
 }
@@ -175,6 +182,7 @@ class SubsonicAlbumDto {
     this.artist,
     this.songCount = 0,
     this.year,
+    this.coverArt,
   });
 
   final String id;
@@ -182,6 +190,11 @@ class SubsonicAlbumDto {
   final String? artist;
   final int songCount;
   final int? year;
+
+  /// The server's cover-art id for this album, when present. An opaque handle
+  /// (e.g. `al-123`) the `getCoverArt` endpoint resolves to an image — not a
+  /// URL and not a credential. Maps to the album's artwork.
+  final String? coverArt;
 
   static SubsonicAlbumDto? fromJson(Map<String, dynamic> json) {
     final String? id = json['id'] as String?;
@@ -193,6 +206,7 @@ class SubsonicAlbumDto {
       artist: json['artist'] as String?,
       songCount: (json['songCount'] as num?)?.toInt() ?? 0,
       year: (json['year'] as num?)?.toInt(),
+      coverArt: json['coverArt'] as String?,
     );
   }
 }
@@ -206,6 +220,7 @@ class SubsonicSongDto {
     this.artist,
     this.track,
     this.durationSeconds,
+    this.coverArt,
   });
 
   final String id;
@@ -220,6 +235,12 @@ class SubsonicSongDto {
   /// seconds, unlike Jellyfin's 100-ns ticks).
   final int? durationSeconds;
 
+  /// The server's cover-art id for this song, when present. An opaque handle
+  /// (typically the album's, e.g. `al-123`, or the song's own `mf-123`) the
+  /// `getCoverArt` endpoint resolves to an image — not a URL and not a
+  /// credential. Maps to the track's artwork.
+  final String? coverArt;
+
   static SubsonicSongDto? fromJson(Map<String, dynamic> json) {
     final String? id = json['id'] as String?;
     final String? title = json['title'] as String?;
@@ -231,6 +252,7 @@ class SubsonicSongDto {
       artist: json['artist'] as String?,
       track: (json['track'] as num?)?.toInt(),
       durationSeconds: (json['duration'] as num?)?.toInt(),
+      coverArt: json['coverArt'] as String?,
     );
   }
 }

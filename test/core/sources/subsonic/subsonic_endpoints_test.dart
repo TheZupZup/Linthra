@@ -70,6 +70,40 @@ void main() {
       expect(download.queryParameters['id'], 's-7');
     });
 
+    test('coverArt targets /rest/getCoverArt.view and carries the cover id', () {
+      final Uri uri = SubsonicEndpoints.coverArt(
+        _base,
+        username: _user,
+        credentials: _creds,
+        coverArtId: 'al-123',
+      );
+      expect(uri.path, '/rest/getCoverArt.view');
+      expect(uri.queryParameters['id'], 'al-123');
+      // No size is requested, so the server serves the original art.
+      expect(uri.queryParameters.containsKey('size'), isFalse);
+    });
+
+    test('coverArt weaves the auth query and keeps the credential out of the '
+        'path', () {
+      final Uri uri = SubsonicEndpoints.coverArt(
+        _base,
+        username: _user,
+        credentials: _creds,
+        coverArtId: 'al-123',
+      );
+      // The image URL is fetched plainly (NetworkImage), so the salt+token must
+      // ride in the query exactly like stream/download — and never in the path.
+      final Map<String, String> q = uri.queryParameters;
+      expect(q['u'], _user);
+      expect(q['t'], _creds.token);
+      expect(q['s'], _creds.salt);
+      expect(q['v'], SubsonicEndpoints.apiVersion);
+      expect(q['c'], 'Linthra');
+      expect(q['f'], 'json');
+      expect(uri.path, isNot(contains(_creds.token)));
+      expect(uri.path, isNot(contains(_creds.salt)));
+    });
+
     test('getLyricsBySongId targets its endpoint and carries the song id', () {
       final Uri uri = SubsonicEndpoints.getLyricsBySongId(
         _base,
