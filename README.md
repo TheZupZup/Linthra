@@ -151,7 +151,7 @@ Sources sit behind one interface, so the app treats them uniformly:
 
 | Source | Status |
 | --- | --- |
-| **Local files** | ✅ Scan a folder, play directly (SAF, no broad permission) |
+| **Local files** | ✅ Scan a folder, play directly (SAF, no broad permission) — [docs](./docs/local-music.md) |
 | **Jellyfin** | ✅ Stream, cache, cast, playlists & favourites — [docs](./docs/jellyfin.md) |
 | **Navidrome / Subsonic** | ✅ Stream, cache, cast (favourites & lyrics are follow-ups) — [docs](./docs/providers.md) |
 | **WebDAV / NAS** | 🔜 Planned — same `MusicSource` seam |
@@ -194,6 +194,7 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 | Architecture & extension points | [docs/architecture.md](./docs/architecture.md) |
 | Development, build & CI | [docs/development.md](./docs/development.md) |
 | Library browsing & search | [docs/library.md](./docs/library.md) |
+| Local music (on-device folders) | [docs/local-music.md](./docs/local-music.md) |
 | Music providers (overview) | [docs/providers.md](./docs/providers.md) |
 | Jellyfin setup | [docs/jellyfin.md](./docs/jellyfin.md) · [compatibility](./docs/jellyfin-compatibility.md) · [sync](./docs/jellyfin-sync.md) |
 | Streaming, buffering & recovery | [docs/streaming.md](./docs/streaming.md) |

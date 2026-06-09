@@ -26,6 +26,9 @@ class LocalScanReport {
     required this.audioCandidates,
     required this.skippedUnsupported,
     required this.readFailures,
+    this.foldersVisited = 0,
+    this.importedTracks = 0,
+    this.recursive = true,
     this.error,
   });
 
@@ -36,9 +39,12 @@ class LocalScanReport {
     required this.isContentUri,
     required LocalScanError this.error,
   })  : filesVisited = 0,
+        foldersVisited = 0,
         audioCandidates = 0,
+        importedTracks = 0,
         skippedUnsupported = 0,
-        readFailures = 0;
+        readFailures = 0,
+        recursive = true;
 
   /// Whether a music folder was selected at all when the scan ran.
   final bool folderSelected;
@@ -50,8 +56,19 @@ class LocalScanReport {
   /// How many non-directory entries the scan walked (audio and non-audio).
   final int filesVisited;
 
-  /// How many of those entries were kept as playable audio candidates.
+  /// How many directories the scan successfully listed — the selected root plus
+  /// any readable subfolders. Surfaced on the SAF path (the Android case);
+  /// filesystem-path scans report 0 here.
+  final int foldersVisited;
+
+  /// How many of those entries looked like audio (a recognized extension or an
+  /// `audio/*` content type) — the candidates before the catalog's own filter.
   final int audioCandidates;
+
+  /// How many candidates actually became tracks in the catalog. Normally equal
+  /// to [audioCandidates] — the catalog's supported-types filter mirrors the
+  /// provider's — but kept distinct so a future divergence stays visible.
+  final int importedTracks;
 
   /// How many entries were skipped because they were not a recognized audio
   /// file (the usual `cover.jpg`/`notes.txt` case).
@@ -61,6 +78,10 @@ class LocalScanReport {
   /// scoped-storage / removable-SD-card signal. A non-zero value with zero
   /// candidates points at a permission problem rather than an empty folder.
   final int readFailures;
+
+  /// Whether the scan descended into subfolders (it always does; surfaced so a
+  /// report can confirm nested artist/album folders were searched).
+  final bool recursive;
 
   /// The failure kind when the scan threw, or null when it completed (even if it
   /// completed with zero candidates).

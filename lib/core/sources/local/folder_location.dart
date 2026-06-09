@@ -37,4 +37,27 @@ class FolderLocation {
 
   bool get isContentUri => kind == FolderLocationKind.contentUri;
   bool get isFilesystemPath => kind == FolderLocationKind.filesystemPath;
+
+  /// A human-readable label for showing the user *their own* chosen folder in
+  /// the app (never a public bug report). A SAF `content://` tree URI is reduced
+  /// to its document id — e.g. `content://…/tree/primary%3AMusic%2Fmusi5`
+  /// becomes `primary:Music/musi5` — so the user sees a recognizable folder
+  /// instead of an opaque URI. A filesystem path is returned unchanged.
+  String get displayLabel {
+    if (!isContentUri) {
+      return raw;
+    }
+    final Uri? uri = Uri.tryParse(raw);
+    if (uri == null) {
+      return raw;
+    }
+    final List<String> segments = uri.pathSegments;
+    final int treeIndex = segments.indexOf('tree');
+    if (treeIndex >= 0 && treeIndex + 1 < segments.length) {
+      // pathSegments are percent-decoded, so this is already e.g.
+      // `primary:Music/musi5` rather than `primary%3AMusic%2Fmusi5`.
+      return segments[treeIndex + 1];
+    }
+    return raw;
+  }
 }

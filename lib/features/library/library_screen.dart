@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +10,7 @@ import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
 import '../../core/services/bulk_track_actions.dart';
+import '../../core/sources/local/folder_location.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
 import '../settings/jellyfin/jellyfin_sync_controller.dart';
@@ -447,6 +450,12 @@ class _LibraryEmpty extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasFolder = selectedFolder != null;
+    // A folder selected as a plain filesystem path on Android is the legacy/
+    // broken case: scoped storage won't let Linthra read it, so it turns up
+    // empty. Nudge the user to pick it again, which now returns a SAF grant.
+    final bool needsRepick = hasFolder &&
+        Platform.isAndroid &&
+        !FolderLocation.parse(selectedFolder!).isContentUri;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.xl),
@@ -469,13 +478,24 @@ class _LibraryEmpty extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             Text(
               hasFolder
-                  ? 'Nothing playable turned up in:\n$selectedFolder'
+                  ? 'Nothing playable turned up in:\n'
+                      '${FolderLocation.parse(selectedFolder!).displayLabel}'
                   : 'Choose a folder on your device to scan for music.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
               textAlign: TextAlign.center,
             ),
+            if (needsRepick) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Choose the folder again so Linthra can read it.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
             const SizedBox(height: AppSpacing.md),
             if (hasFolder) ...[
               FilledButton.tonal(

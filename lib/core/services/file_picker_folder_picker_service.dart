@@ -2,12 +2,16 @@ import 'package:file_picker/file_picker.dart';
 
 import 'folder_picker_service.dart';
 
-/// A [FolderPickerService] backed by the `file_picker` plugin.
+/// A [FolderPickerService] backed by the `file_picker` plugin — the desktop
+/// (GTK/Win32) folder chooser.
 ///
-/// `getDirectoryPath` shows the OS folder chooser on Android (Storage Access
-/// Framework) and on desktop (GTK/Win32). On Android the returned value can be
-/// a `content://` tree URI rather than a filesystem path — see the README's
-/// "Android folder selection" notes for the implications for scanning.
+/// It is **not** used on Android: there, `getDirectoryPath` resolves the picked
+/// folder to a raw `/storage/...` filesystem path (via `getFullPathFromTreeUri`)
+/// and takes no persistable URI grant, so under scoped storage the scan can't
+/// read it — the cause of the "no music found" reports. `PlatformFolderPickerService`
+/// routes Android to the native SAF chooser (`MethodChannelSafFolderPicker`),
+/// which returns a `content://` tree URI with a persisted read grant, and uses
+/// this class only as the desktop fallback (where a filesystem path is correct).
 class FilePickerFolderPickerService implements FolderPickerService {
   const FilePickerFolderPickerService();
 

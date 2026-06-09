@@ -46,9 +46,12 @@ abstract final class LocalScanDiagnostics {
       'folder=${report.folderSelected ? 'selected' : 'none'}',
       if (report.folderSelected) 'kind=${report.isContentUri ? 'saf' : 'path'}',
       'visited=${report.filesVisited}',
+      'folders=${report.foldersVisited}',
       'audio=${report.audioCandidates}',
+      'imported=${report.importedTracks}',
       'skipped=${report.skippedUnsupported}',
       'readFailures=${report.readFailures}',
+      'recursive=${report.recursive ? 'yes' : 'no'}',
       if (report.error != null) 'error=${report.error!.name}',
     ].join(' ');
   }

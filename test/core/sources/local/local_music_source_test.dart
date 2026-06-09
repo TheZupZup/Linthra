@@ -309,5 +309,54 @@ void main() {
       expect(scan.report.audioCandidates, 1);
       expect(scan.report.hadError, isFalse);
     });
+
+    test('a SAF scan reports folders visited, imported, and recursive',
+        () async {
+      // Two audio files across three folders (root + two subfolders), with one
+      // non-audio file the provider still counted as visited.
+      final saf = FakeSafDocumentLister(
+        documents: const <SafAudioDocument>[
+          SafAudioDocument(uri: 'content://doc/1', name: 'A.mp3'),
+          SafAudioDocument(uri: 'content://doc/2', name: 'B.flac'),
+        ],
+        filesVisited: 3,
+        foldersVisited: 3,
+      );
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(const <String>[]),
+        safDocumentLister: saf,
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.tracks, hasLength(2));
+      expect(scan.report.filesVisited, 3);
+      expect(scan.report.foldersVisited, 3);
+      expect(scan.report.audioCandidates, 2);
+      expect(scan.report.importedTracks, 2);
+      // visited(3) - candidates(2) = 1 non-audio file skipped.
+      expect(scan.report.skippedUnsupported, 1);
+      expect(scan.report.recursive, isTrue);
+    });
+
+    test('a filesystem-path scan reports recursive with no folder count',
+        () async {
+      final source = LocalMusicSource(
+        folderPath: '/music',
+        scanner:
+            _FakeScanner(const <String>['/music/a.mp3', '/music/cover.jpg']),
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.report.isContentUri, isFalse);
+      expect(scan.report.importedTracks, 1);
+      expect(scan.report.audioCandidates, 1);
+      expect(scan.report.skippedUnsupported, 1);
+      expect(scan.report.recursive, isTrue);
+      // The filesystem walk reports files, not a directory count.
+      expect(scan.report.foldersVisited, 0);
+    });
   });
 }

@@ -39,14 +39,22 @@ class IoAudioFileScanner implements AudioFileScanner {
     }
 
     // Walk one directory at a time (rather than `list(recursive: true)`) so a
-    // single unreadable subfolder — common under scoped storage / on removable
+    // single unreadable *subfolder* — common under scoped storage / on removable
     // SD cards — is skipped instead of aborting the whole scan and zeroing out
     // the library. `followLinks: false` keeps symlinked directories from being
     // descended, avoiding cycles.
+    //
+    // The selected *root* is different: if it exists but cannot be listed
+    // (access revoked, the mount went away), surface that as a failure rather
+    // than returning an empty list — an empty result would be persisted as a
+    // successful "no music" scan and wipe the existing catalog.
     final List<String> paths = <String>[];
     final List<Directory> pending = <Directory>[root];
+    bool isRoot = true;
     while (pending.isNotEmpty) {
       final Directory directory = pending.removeLast();
+      final bool wasRoot = isRoot;
+      isRoot = false;
       try {
         await for (final FileSystemEntity entity in directory.list(
           followLinks: false,
@@ -58,6 +66,14 @@ class IoAudioFileScanner implements AudioFileScanner {
           }
         }
       } on FileSystemException {
+        if (wasRoot) {
+          throw FolderScanException(
+            "Linthra couldn't read the selected folder. Android may have "
+            'revoked access to it, or the storage was removed. Try selecting '
+            'the folder again.',
+            folder: folder,
+          );
+        }
         // Unreadable subtree: skip it and keep scanning the rest.
         continue;
       }

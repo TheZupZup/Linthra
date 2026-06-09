@@ -298,9 +298,13 @@ void main() {
           localFolderSelected: true,
           localPersistedPermission: true,
           localScanFilesVisited: 120,
+          localScanFoldersVisited: 7,
           localScanAudioCandidates: 98,
+          localScanImportedTracks: 97,
           localScanSkippedUnsupported: 22,
           localScanReadFailures: 0,
+          localScanRecursive: true,
+          localSupportedExtensions: <String>['flac', 'm4a', 'mp3'],
         ),
       );
 
@@ -308,9 +312,15 @@ void main() {
       expect(report, contains('Local folder access: persisted'));
       expect(
         report,
-        contains('Local scan: visited 120, audio 98, skipped 22, '
-            'read failures 0'),
+        contains('Local scan: visited 120 files, 7 folders, audio 98, '
+            'imported 97, skipped 22, read failures 0'),
       );
+      expect(report, contains('Local scan recursive: yes'));
+      expect(report, contains('Local supported types: flac, m4a, mp3'));
+      // A completed scan reports a positive status, not just the absence of an
+      // error line.
+      expect(report, contains('Local scan status: ok'));
+      expect(report, isNot(contains('Local scan error:')));
     });
 
     test('reports a missing folder and a lost grant plainly', () {
@@ -341,6 +351,23 @@ void main() {
 
       expect(report, contains('Local folder access: not persisted'));
       expect(report, contains('read failures 4'));
+    });
+
+    test('a completed scan with no error still reports a positive status', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          localFolderSelected: true,
+          localScanFilesVisited: 0,
+          localScanFoldersVisited: 1,
+          localScanAudioCandidates: 0,
+          localScanReadFailures: 0,
+        ),
+      );
+
+      // An empty folder completed cleanly: status ok, no error line.
+      expect(report, contains('Local scan status: ok'));
+      expect(report, isNot(contains('Local scan error:')));
     });
 
     test('reports the last scan error kind when present', () {

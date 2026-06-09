@@ -40,6 +40,33 @@ void main() {
       expect(result.readFailures, 1);
     });
 
+    test('parses the folders-visited count when reported', () {
+      final result = MethodChannelSafDocumentLister.parseScanResult(
+        <Object?, Object?>{
+          'documents': <Object?>[
+            <Object?, Object?>{'uri': 'content://doc/1', 'name': 'One.mp3'},
+          ],
+          'filesVisited': 1,
+          'foldersVisited': 3,
+          'readFailures': 0,
+        },
+      );
+
+      expect(result.foldersVisited, 3);
+    });
+
+    test('defaults folders-visited to 0 for an older native build', () {
+      final result = MethodChannelSafDocumentLister.parseScanResult(
+        <Object?, Object?>{
+          'documents': <Object?>[
+            <Object?, Object?>{'uri': 'content://doc/1', 'name': 'One.mp3'},
+          ],
+        },
+      );
+
+      expect(result.foldersVisited, 0);
+    });
+
     test('falls back to the document count when no visited total is reported',
         () {
       // An older native build that returned only documents must still scan.

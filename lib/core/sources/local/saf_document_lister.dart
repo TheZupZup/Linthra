@@ -29,18 +29,22 @@ class SafAudioDocument {
 /// secret-free counters the diagnostics layer surfaces.
 ///
 /// [filesVisited] counts every non-directory entry the walk saw (audio and
-/// non-audio); [documents] are the audio ones; [readFailures] counts subfolders
-/// whose listing failed and were skipped — the scoped-storage / removable-SD
-/// signal that tells an empty result apart from a permission problem.
+/// non-audio); [foldersVisited] counts the directories it successfully listed
+/// (the selected root plus any readable subfolders); [documents] are the audio
+/// ones; [readFailures] counts subfolders whose listing failed and were
+/// skipped — the scoped-storage / removable-SD signal that tells an empty
+/// result apart from a permission problem.
 class SafScanResult {
   const SafScanResult({
     this.documents = const <SafAudioDocument>[],
     this.filesVisited = 0,
+    this.foldersVisited = 0,
     this.readFailures = 0,
   });
 
   final List<SafAudioDocument> documents;
   final int filesVisited;
+  final int foldersVisited;
   final int readFailures;
 }
 

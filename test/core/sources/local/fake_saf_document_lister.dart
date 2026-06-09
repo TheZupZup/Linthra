@@ -11,6 +11,7 @@ class FakeSafDocumentLister implements SafDocumentLister {
   FakeSafDocumentLister({
     this.documents = const <SafAudioDocument>[],
     int? filesVisited,
+    this.foldersVisited = 0,
     this.readFailures = 0,
     this.unsupported = false,
     this.error,
@@ -18,6 +19,7 @@ class FakeSafDocumentLister implements SafDocumentLister {
 
   final List<SafAudioDocument> documents;
   final int filesVisited;
+  final int foldersVisited;
   final int readFailures;
   final bool unsupported;
   final Object? error;
@@ -36,6 +38,7 @@ class FakeSafDocumentLister implements SafDocumentLister {
     return SafScanResult(
       documents: documents,
       filesVisited: filesVisited,
+      foldersVisited: foldersVisited,
       readFailures: readFailures,
     );
   }

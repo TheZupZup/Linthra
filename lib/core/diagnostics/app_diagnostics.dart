@@ -25,9 +25,13 @@ class AppDiagnosticsData {
     this.localFolderSelected,
     this.localPersistedPermission,
     this.localScanFilesVisited,
+    this.localScanFoldersVisited,
     this.localScanAudioCandidates,
+    this.localScanImportedTracks,
     this.localScanSkippedUnsupported,
     this.localScanReadFailures,
+    this.localScanRecursive,
+    this.localSupportedExtensions,
     this.localScanError,
     this.cacheUsedBytes,
     this.cacheLimitBytes,
@@ -86,8 +90,15 @@ class AppDiagnosticsData {
   /// run. Counts only — never a path or file name.
   final int? localScanFilesVisited;
 
-  /// How many of those entries the last scan kept as playable audio.
+  /// How many directories the last scan successfully listed (root + readable
+  /// subfolders), when known. Confirms nested folders were searched.
+  final int? localScanFoldersVisited;
+
+  /// How many of those entries the last scan flagged as audio candidates.
   final int? localScanAudioCandidates;
+
+  /// How many candidates actually became catalog tracks, when known.
+  final int? localScanImportedTracks;
 
   /// How many entries the last scan skipped as unsupported (e.g. artwork/notes).
   final int? localScanSkippedUnsupported;
@@ -95,6 +106,15 @@ class AppDiagnosticsData {
   /// How many entries/subfolders the last scan could not read and skipped — the
   /// scoped-storage / removable-storage signal.
   final int? localScanReadFailures;
+
+  /// Whether the last scan descended into subfolders, when known. Always true in
+  /// practice; surfaced so a report can confirm the scan was recursive.
+  final bool? localScanRecursive;
+
+  /// The audio file extensions the scanner recognizes (e.g. `mp3`, `m4a`,
+  /// `flac`), when collected. Static capability, useful for a "my format isn't
+  /// picked up" report. Never a path or file name.
+  final List<String>? localSupportedExtensions;
 
   /// The last local-scan failure kind (a stable enum name like `safTraversal`),
   /// when the last scan threw. Null when it completed (even with zero audio).
@@ -196,7 +216,15 @@ abstract final class AppDiagnostics {
         'Local folder access: '
             '${data.localPersistedPermission! ? 'persisted' : 'not persisted'}',
       if (data.localScanFilesVisited != null) _localScanLine(data),
-      if (_has(data.localScanError)) 'Local scan error: ${data.localScanError}',
+      if (data.localScanRecursive != null)
+        'Local scan recursive: ${_yesNo(data.localScanRecursive!)}',
+      if (data.localSupportedExtensions != null &&
+          data.localSupportedExtensions!.isNotEmpty)
+        'Local supported types: ${data.localSupportedExtensions!.join(', ')}',
+      if (_has(data.localScanError))
+        'Local scan error: ${data.localScanError}'
+      else if (data.localScanFilesVisited != null)
+        'Local scan status: ok',
       if (cache != null) cache,
       if (includePlayback && data.playbackOutput != null)
         'Playback output: ${data.playbackOutput}',
@@ -223,12 +251,16 @@ abstract final class AppDiagnostics {
     return lines.join('\n');
   }
 
-  /// The single-line local-scan summary: how many entries the last scan walked,
-  /// how many were kept as audio, how many were skipped as unsupported, and how
-  /// many could not be read. Only counts — never a path or file name.
+  /// The single-line local-scan summary: how many files and folders the last
+  /// scan walked, how many looked like audio, how many were imported, how many
+  /// were skipped as unsupported, and how many could not be read. Only counts —
+  /// never a path or file name.
   static String _localScanLine(AppDiagnosticsData data) {
-    return 'Local scan: visited ${data.localScanFilesVisited ?? 0}, '
-        'audio ${data.localScanAudioCandidates ?? 0}, '
+    final int audio = data.localScanAudioCandidates ?? 0;
+    return 'Local scan: visited ${data.localScanFilesVisited ?? 0} files, '
+        '${data.localScanFoldersVisited ?? 0} folders, '
+        'audio $audio, '
+        'imported ${data.localScanImportedTracks ?? audio}, '
         'skipped ${data.localScanSkippedUnsupported ?? 0}, '
         'read failures ${data.localScanReadFailures ?? 0}';
   }
