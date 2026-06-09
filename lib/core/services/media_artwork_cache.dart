@@ -7,25 +7,30 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'media_artwork_content_uri.dart';
 import 'media_artwork_source.dart';
 
 /// Turns a credential-free artwork *reference* (e.g. Subsonic's
 /// `subsonic-cover:<id>`) into a **safe, local** media-session artwork URI: a
-/// `file:` in app-private storage the platform media session (lock screen /
-/// Android Auto now-playing card) can load in-process.
+/// `content://` URI (served by the app's FileProvider) over a private cached
+/// cover the platform media session (lock screen / Android Auto now-playing card)
+/// can read.
 ///
 /// Why a separate cache from the in-app render seam (`artworkImageProvider`):
 /// the in-app UI can hand Flutter a credential-bearing `getCoverArt`
 /// `NetworkImage` and load it itself, but the platform media session loads
 /// `MediaItem.artUri` in a place Linthra can't authenticate — so an authenticated
 /// URL must never be put there. Instead Linthra fetches the cover *itself* (with
-/// the live session's salt+token, used once and discarded) and writes the bytes
-/// to a private file, then hands the session only that `file:` URI.
+/// the live session's salt+token, used once and discarded), writes the bytes to a
+/// private file, and hands the session a `content://` URI for it (see
+/// [mediaArtworkContentUri]). `content://` rather than `file:` because the
+/// session loads the URI in its **own process** (e.g. Android Auto), which can't
+/// read an app-private `file:` path.
 ///
 /// Privacy / security invariants:
-/// - the cache *key* — and therefore the file name — is a hash of the
-///   credential-free reference, never the username, salt, token, server URL, or
-///   the authenticated `getCoverArt` URL;
+/// - the cache *key* — and therefore the file name and the `content://` path —
+///   is a hash of the credential-free reference, never the username, salt, token,
+///   server URL, or the authenticated `getCoverArt` URL;
 /// - the authenticated URL exists only as a local inside [resolve], is used once
 ///   to fetch, and is never returned, persisted, or logged;
 /// - any failure (signed out, network error, a non-image body, a write error)
@@ -65,14 +70,14 @@ class MediaArtworkCache implements MediaArtworkSource {
 
   static const Duration _timeout = Duration(seconds: 20);
 
-  /// The safe local `file:` URI for [reference] if it has already been fetched
+  /// The safe `content://` URI for [reference] if it has already been fetched
   /// and cached this session, else `null`. Synchronous and side-effect-free, so
   /// the media handler can attach it while building a `MediaItem` without
   /// awaiting — covers are warmed ahead of time by `MediaArtworkPrewarmService`.
   @override
   Uri? cached(Uri reference) => _memo[_cacheKey(reference)];
 
-  /// Resolves [reference] to a safe local `file:` artwork URI, fetching and
+  /// Resolves [reference] to a safe `content://` artwork URI, fetching and
   /// caching the image on a miss. Returns `null` (never throws) when the artwork
   /// can't be produced safely — the caller then shows no artwork.
   Future<Uri?> resolve(Uri reference) {
@@ -106,7 +111,7 @@ class MediaArtworkCache implements MediaArtworkSource {
     // Disk hit from an earlier run: reuse it without re-fetching (and without
     // ever touching the credential again).
     if (await file.exists() && await file.length() > 0) {
-      final Uri uri = file.uri;
+      final Uri uri = mediaArtworkContentUri(file);
       _memo[key] = uri;
       return uri;
     }
@@ -131,7 +136,7 @@ class MediaArtworkCache implements MediaArtworkSource {
       // A write failure must not leak or throw: fall back to no artwork.
       return null;
     }
-    final Uri uri = file.uri;
+    final Uri uri = mediaArtworkContentUri(file);
     _memo[key] = uri;
     return uri;
   }

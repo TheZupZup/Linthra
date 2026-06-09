@@ -921,7 +921,12 @@ void main() {
         artworkUri: Uri.parse('subsonic-cover:al-9'),
       );
       final reference = Uri.parse('subsonic-cover:al-9');
-      final localArt = Uri.parse('file:///cache/media_session_artwork/abc.img');
+      // What the cache hands back: a credential-free FileProvider content:// URI
+      // over the cached cover, which the platform session can read.
+      final localArt = Uri.parse(
+        'content://io.github.thezupzup.linthra.mediaartwork/media_artwork/'
+        'abc.img',
+      );
 
       LinthraAudioHandler handlerWith(
         FakePlaybackController c,
@@ -969,7 +974,7 @@ void main() {
         await _settle();
 
         final String art = h.mediaItem.value?.artUri?.toString() ?? '';
-        expect(art, startsWith('file:'));
+        expect(art, startsWith('content:'));
         expect(art, isNot(contains('subsonic-cover')));
         expect(art.toLowerCase(), isNot(contains('getcoverart')));
         expect(art.toLowerCase(), isNot(contains('token')));

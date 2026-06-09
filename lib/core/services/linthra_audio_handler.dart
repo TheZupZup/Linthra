@@ -533,6 +533,18 @@ Future<LinthraAudioHandler?> connectMediaSession(
         // a mid-stream re-buffer (see [_isSessionPlaying]).
         androidNotificationOngoing: true,
         androidStopForegroundOnPause: true,
+        // Downscale the album-art bitmap `audio_service` embeds in the session
+        // metadata. The metadata (with the bitmap) is delivered to the platform
+        // session and to Android Auto across a process boundary; a full-size
+        // cover can exceed the cross-process limit and be dropped — leaving
+        // Android Auto, which then can only fall back to the art URI it loads in
+        // its own process, with no art. A small bitmap crosses reliably, so the
+        // now-playing cover actually shows. This applies to all sources (it only
+        // changes the bitmap *size*, not whether art shows) and is the artwork
+        // change that — with the content:// cover URI — makes Subsonic covers
+        // appear on the car; it does not touch audio playback.
+        artDownscaleWidth: 256,
+        artDownscaleHeight: 256,
       ),
     );
     _log('media session attached (Android Auto browser ready)');

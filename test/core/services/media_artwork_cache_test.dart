@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/services/media_artwork_cache.dart';
+import 'package:linthra/core/services/media_artwork_content_uri.dart';
 import 'package:path/path.dart' as p;
 
 /// A credential-free Subsonic cover reference (what the catalog persists).
@@ -39,8 +40,13 @@ void main() {
     return cacheDir.listSync(recursive: true).whereType<File>().toList();
   }
 
+  /// The on-disk cache file a returned `content://` URI points at (its last path
+  /// segment is the hashed filename, written under [cacheDir]).
+  File fileFor(Uri contentUri) =>
+      File(p.join(cacheDir.path, contentUri.pathSegments.last));
+
   group('MediaArtworkCache.resolve', () {
-    test('fetches the cover and returns a local file: URI holding the bytes',
+    test('fetches the cover and returns a content:// URI over the cached bytes',
         () async {
       Uri? fetchedUrl;
       final cache = MediaArtworkCache(
@@ -56,15 +62,20 @@ void main() {
       final Uri? result = await cache.resolve(_reference);
 
       expect(result, isNotNull);
-      expect(result!.isScheme('file'), isTrue);
-      final File file = File(result.toFilePath());
+      // A FileProvider content:// URI the platform session can read — not a
+      // file: path (which Android Auto's process couldn't read).
+      expect(result!.isScheme('content'), isTrue);
+      expect(result.host, kMediaArtworkAuthority);
+      expect(result.pathSegments.first, kMediaArtworkPathName);
+      // The bytes are on disk under the private cache dir.
+      final File file = fileFor(result);
       expect(await file.exists(), isTrue);
       expect(await file.readAsBytes(), _imageBytes);
       // The authenticated URL was used once, only to fetch.
       expect(fetchedUrl, _authUrl);
     });
 
-    test('the cache filename carries no credential, server URL, or auth query',
+    test('the content URI carries no credential, server URL, or auth query',
         () async {
       final cache = MediaArtworkCache(
         resolveUrl: (Uri reference) => _authUrl,
@@ -73,7 +84,8 @@ void main() {
       );
 
       final Uri? result = await cache.resolve(_reference);
-      final String name = p.basename(result!.toFilePath()).toLowerCase();
+      final String uri = result!.toString().toLowerCase();
+      final String name = result.pathSegments.last;
 
       for (final String secret in <String>[
         'alice',
@@ -88,13 +100,13 @@ void main() {
         'http',
         'view',
       ]) {
-        expect(name, isNot(contains(secret.toLowerCase())),
-            reason: 'cache filename leaked "$secret"');
+        expect(uri, isNot(contains(secret.toLowerCase())),
+            reason: 'content URI leaked "$secret"');
       }
-      // It is exactly the SHA-256 of the *credential-free* reference + `.img`.
+      // The filename is exactly the SHA-256 of the *credential-free* reference.
       final String expected =
           '${sha256.convert(utf8.encode(_reference.toString()))}.img';
-      expect(p.basename(result.toFilePath()), expected);
+      expect(name, expected);
     });
 
     test('never persists the authenticated URL in the cached bytes or path',
@@ -107,8 +119,8 @@ void main() {
 
       final Uri? result = await cache.resolve(_reference);
 
-      // The returned URI and the file path are credential-free.
-      final String full = '${result!}\n${result.toFilePath()}'.toLowerCase();
+      // The returned content URI and the on-disk file path are credential-free.
+      final String full = '${result!}\n${fileFor(result).path}'.toLowerCase();
       expect(full, isNot(contains('the-secret-token')));
       expect(full, isNot(contains('the-salt')));
       expect(full, isNot(contains('getcoverart')));
@@ -225,8 +237,10 @@ void main() {
       );
 
       final Uri? result = await cache.resolve(_reference);
-      expect(result, seeded.uri);
-      // Served straight from disk: no fetch, and the credential was never read.
+      // Reused straight from disk as the content:// URI over the seeded file.
+      expect(result, mediaArtworkContentUri(seeded));
+      expect(result!.isScheme('content'), isTrue);
+      // No fetch, and the credential was never read.
       expect(fetchCalls, 0);
     });
 
@@ -264,7 +278,7 @@ void main() {
       // Now the warmed cover is available synchronously for the media handler.
       expect(cache.cached(_reference), isNotNull);
       expect(cache.cached(_reference), resolved);
-      expect(cache.cached(_reference)!.isScheme('file'), isTrue);
+      expect(cache.cached(_reference)!.isScheme('content'), isTrue);
     });
 
     test('stays null for a reference whose fetch failed', () async {
