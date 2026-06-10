@@ -29,8 +29,10 @@ import java.io.FileNotFoundException
  * artwork, which are not served here.
  */
 class MediaArtworkFileProvider : FileProvider() {
+    // FileProvider.openFile returns a nullable ParcelFileDescriptor?, so the
+    // override must match (Kotlin rejects narrowing it to non-null).
     @Throws(FileNotFoundException::class)
-    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
+    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
         grantReadToMediaConsumers(uri)
         return super.openFile(uri, mode)
     }
