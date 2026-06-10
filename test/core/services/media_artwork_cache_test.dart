@@ -3,9 +3,24 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:linthra/core/services/media_artwork_cache.dart';
 import 'package:linthra/core/services/media_artwork_content_uri.dart';
 import 'package:path/path.dart' as p;
+
+/// A stand-in HTTP client that records whether it was closed, so a test can
+/// prove the cache releases its shared client on dispose. `send` is never
+/// exercised here (the tests inject `fetch`).
+class _RecordingHttpClient extends http.BaseClient {
+  bool closed = false;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async =>
+      http.StreamedResponse(const Stream<List<int>>.empty(), 200);
+
+  @override
+  void close() => closed = true;
+}
 
 /// A credential-free Subsonic cover reference (what the catalog persists).
 final Uri _reference = Uri.parse('subsonic-cover:al-123');
@@ -366,6 +381,25 @@ void main() {
       // resolve still works (writes the file) and must not throw on the closed
       // ready controller.
       expect(await cache.resolve(_reference), isNotNull);
+    });
+  });
+
+  group('MediaArtworkCache shared HTTP client', () {
+    test('is reused across fetches and closed on dispose', () async {
+      // The shared client lets the sequential pre-warm reuse the connection
+      // (keep-alive) instead of a fresh TLS handshake per cover; dispose releases
+      // it so no connection is leaked.
+      final client = _RecordingHttpClient();
+      final cache = MediaArtworkCache(
+        resolveUrl: (Uri reference) => _authUrl,
+        fetch: (Uri url) async => _imageBytes,
+        directory: directory,
+        httpClient: client,
+      );
+
+      expect(client.closed, isFalse);
+      await cache.dispose();
+      expect(client.closed, isTrue);
     });
   });
 }

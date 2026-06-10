@@ -41,9 +41,14 @@ class MediaArtworkCache implements MediaArtworkSource {
     required Uri? Function(Uri reference) resolveUrl,
     Future<List<int>?> Function(Uri url)? fetch,
     Future<Directory> Function()? directory,
+    http.Client? httpClient,
   })  : _resolveUrl = resolveUrl,
-        _fetch = fetch ?? _httpFetch,
-        _directory = directory ?? _defaultDirectory;
+        _directory = directory ?? _defaultDirectory,
+        _httpClient = httpClient ?? http.Client() {
+    // Default to the shared-client fetcher (an instance method, so it can reuse
+    // [_httpClient]); tests inject their own [fetch].
+    _fetch = fetch ?? _defaultHttpFetch;
+  }
 
   /// Turns a credential-free [reference] into the authenticated fetch URL for the
   /// live session, or `null` when it isn't a reference this cache can resolve
@@ -51,9 +56,15 @@ class MediaArtworkCache implements MediaArtworkSource {
   /// credential and is used only inside [resolve].
   final Uri? Function(Uri reference) _resolveUrl;
 
+  /// The HTTP client used by the default fetcher. Reused across cover fetches so
+  /// the sequential pre-warm benefits from keep-alive (one TLS handshake per
+  /// idle period instead of one per cover), trimming the per-cover latency.
+  /// Closed in [dispose]. Unused when a custom [fetch] is injected (tests).
+  final http.Client _httpClient;
+
   /// Fetches the raw image bytes for an (authenticated) `url`, or `null` on any
   /// failure / a non-image response. Must never log the URL.
-  final Future<List<int>?> Function(Uri url) _fetch;
+  late final Future<List<int>?> Function(Uri url) _fetch;
 
   /// The private directory cached artwork files live in.
   final Future<Directory> Function() _directory;
@@ -158,10 +169,13 @@ class MediaArtworkCache implements MediaArtworkSource {
     if (!_coverReady.isClosed) _coverReady.add(reference);
   }
 
-  /// Releases the cover-ready stream. The in-memory memo and on-disk cache are
-  /// left intact (the cache is process-lived); call when the owning container is
-  /// torn down.
-  Future<void> dispose() => _coverReady.close();
+  /// Releases the cover-ready stream and the shared HTTP client. The in-memory
+  /// memo and on-disk cache are left intact (the cache is process-lived); call
+  /// when the owning container is torn down.
+  Future<void> dispose() async {
+    _httpClient.close();
+    await _coverReady.close();
+  }
 
   /// A credential-free, filename-safe cache key: the SHA-256 of the
   /// *credential-free* reference string (e.g. `subsonic-cover:al-123`). The
@@ -176,14 +190,14 @@ class MediaArtworkCache implements MediaArtworkSource {
     return Directory(p.join(base.path, 'media_session_artwork'));
   }
 
-  /// The default fetcher: a plain GET that returns the body bytes only for a 2xx
-  /// image response. Any transport error, non-2xx status, or non-image body
-  /// (e.g. a Subsonic error envelope) yields `null`. The URL — which carries the
-  /// credential — is never logged, even on error.
-  static Future<List<int>?> _httpFetch(Uri url) async {
-    final http.Client client = http.Client();
+  /// The default fetcher: a plain GET (over the reused [_httpClient]) that returns
+  /// the body bytes only for a 2xx image response. Any transport error, non-2xx
+  /// status, or non-image body (e.g. a Subsonic error envelope) yields `null`.
+  /// The URL — which carries the credential — is never logged, even on error.
+  Future<List<int>?> _defaultHttpFetch(Uri url) async {
     try {
-      final http.Response response = await client.get(url).timeout(_timeout);
+      final http.Response response =
+          await _httpClient.get(url).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) return null;
       final String contentType =
           (response.headers['content-type'] ?? '').toLowerCase();
@@ -193,8 +207,6 @@ class MediaArtworkCache implements MediaArtworkSource {
     } catch (_) {
       // Swallow every failure (and never log the credentialed URL).
       return null;
-    } finally {
-      client.close();
     }
   }
 }
