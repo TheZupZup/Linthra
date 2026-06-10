@@ -109,14 +109,17 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
     **server-downscaled** cover itself, caches it to a private file keyed by a
     hash of the credential-free reference, and pre-warms the now-playing + next
     covers off the playback path. The handler then hands the session a
-    credential-free **`content://` URI** (a `FileProvider`, authority
+    credential-free **`content://` URI** (`MediaArtworkFileProvider`, authority
     `…linthra.mediaartwork`, serving only that hashed-filename cover cache —
-    `res/xml/media_artwork_paths.xml`), which the session/Android Auto can read
-    and `audio_service` also decodes in-process; the embedded album-art bitmap is
-    downscaled (`artDownscale*`) so it survives delivery to the car. The
-    credential is used once and never stored, logged, exposed, or put in the URI
-    / filename. A failed/slow fetch leaves the card art-less and never blocks
-    playback. See `docs/android-auto.md`.
+    `res/xml/media_artwork_paths.xml`). The provider is `exported="false"` and
+    grants the media hosts (Android Auto / SystemUI / Bluetooth) **read-only**
+    access to each cover URI when Linthra opens it — so their own processes can
+    read it — and `audio_service` also decodes it in-process; the embedded
+    album-art bitmap is downscaled (`artDownscale*`) so it survives delivery to
+    the car. The credential is used once and never stored, logged, exposed, or
+    put in the URI / filename. A failed/slow fetch leaves the card art-less and
+    never blocks playback. Pending real-car confirmation; see
+    `docs/android-auto.md`.
   - Cast still omits Subsonic artwork (a credentialed URL must not reach the
     receiver).
 - **Lyrics**: synced or plain lyrics are fetched on demand via the OpenSubsonic

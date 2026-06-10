@@ -1087,8 +1087,9 @@ void main() {
         await _settle();
 
         // Jellyfin token-free http art is used as-is.
+        final nowPlayingArt = h.mediaItem.value?.artUri;
         expect(
-          h.mediaItem.value?.artUri,
+          nowPlayingArt,
           Uri.parse('https://music.example.com/Items/jf/Images/Primary'),
         );
         // The local file: art rides on its queue row unchanged.
@@ -1097,7 +1098,12 @@ void main() {
           locRow.artUri,
           Uri.parse('file:///cache/linthra_local_artwork/loc.img'),
         );
-        // The source is not consulted for platform-loadable covers.
+        // Neither becomes a content:// URI, so they are never served by the
+        // media-artwork FileProvider and its read-grant logic never runs for
+        // Jellyfin/local covers — only Subsonic references go through the cache.
+        expect(nowPlayingArt?.isScheme('content'), isFalse);
+        expect(locRow.artUri?.isScheme('content'), isFalse);
+        // The cover source is not consulted at all for platform-loadable covers.
         expect(source.queries, isEmpty);
       });
     });

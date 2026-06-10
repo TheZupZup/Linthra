@@ -57,4 +57,57 @@ void main() {
       expect(kMediaArtworkPathName, 'media_artwork');
     });
   });
+
+  // The Dart content:// URI is hand-built to match the native FileProvider, so
+  // the manifest provider + the granting subclass must stay in lockstep with the
+  // Dart constants. A drift would make audio_service / Android Auto unable to
+  // resolve or read the cover, silently breaking the feature — these guard it.
+  group('the native FileProvider + grant match the Dart side', () {
+    late String manifest;
+
+    setUpAll(() {
+      manifest =
+          File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    });
+
+    test('the manifest provider uses the matching authority', () {
+      expect(
+          manifest, contains('android:authorities="$kMediaArtworkAuthority"'));
+    });
+
+    test('the manifest binds the granting subclass, not the plain FileProvider',
+        () {
+      // The plain androidx FileProvider would leave the content:// URI unreadable
+      // from Android Auto's / SystemUI's process; the subclass grants them read
+      // access, which is the whole point.
+      expect(manifest, contains('android:name=".MediaArtworkFileProvider"'));
+      expect(
+        manifest,
+        isNot(contains('android:name="androidx.core.content.FileProvider"')),
+      );
+    });
+
+    test('the provider stays non-exported with uri-permission grants enabled',
+        () {
+      // exported="false" keeps it non-public; grantUriPermissions="true" is what
+      // lets the explicit per-URI read grants to the media hosts take effect.
+      expect(manifest, contains('android:exported="false"'));
+      expect(manifest, contains('android:grantUriPermissions="true"'));
+    });
+
+    test('the granting subclass grants READ-ONLY and never write', () {
+      final File provider = File(
+        'android/app/src/main/kotlin/io/github/thezupzup/linthra/'
+        'MediaArtworkFileProvider.kt',
+      );
+      expect(provider.existsSync(), isTrue,
+          reason: 'MediaArtworkFileProvider.kt must exist for the grant');
+      final String src = provider.readAsStringSync();
+      expect(src, contains('package io.github.thezupzup.linthra'));
+      expect(src, contains(': FileProvider()'));
+      // Read access only — never write — and only ever for these cover URIs.
+      expect(src, contains('FLAG_GRANT_READ_URI_PERMISSION'));
+      expect(src, isNot(contains('FLAG_GRANT_WRITE_URI_PERMISSION')));
+    });
+  });
 }

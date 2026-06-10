@@ -385,20 +385,30 @@ mode → **Add unknown sources** enabled for a sideloaded build.
   2. **pre-warms** the now-playing + next few covers off the playback path, so a
      cover is cached before its track reaches the now-playing card;
   3. hands the session a credential-free **`content://` URI** for the cover via a
-     `FileProvider` (`androidx.core.content.FileProvider`, authority
+     `FileProvider` (`MediaArtworkFileProvider`, authority
      `…linthra.mediaartwork`, serving only the hashed-filename cover cache —
-     `res/xml/media_artwork_paths.xml`). This is the key fix: the session loads
-     `MediaItem.artUri` in its **own process**, which can read a `content://` URI
-     (and `audio_service` also decodes it in-process) but **not** an app-private
-     `file:` path. The embedded album-art bitmap is also downscaled
-     (`artDownscaleWidth/Height`) so it survives delivery to the car.
-  - **Why this path:** an earlier attempt set `artUri` to a private `file:`. Two
-    real head-unit tests showed it fixed playback smoothness (downscale +
-    pre-warm + a synchronous handler) but the cover stayed blank, because Android
-    Auto loads the art URI in its own process and can't read an app-private
-    `file:` — Jellyfin's `http` cover works precisely because Android Auto can
-    fetch it. The `content://` FileProvider URI gives Android Auto a readable
-    cover without ever exposing a credential.
+     `res/xml/media_artwork_paths.xml`). The session loads `MediaItem.artUri` in
+     its **own process**, which can read a `content://` URI (and `audio_service`
+     also decodes it in-process) but **not** an app-private `file:` path. The
+     embedded album-art bitmap is also downscaled (`artDownscaleWidth/Height`) so
+     it survives delivery to the car.
+  4. **grants the media consumers read access** to each cover URI. The provider
+     is `exported="false"`, so Android Auto / SystemUI (lock screen) / Bluetooth
+     would otherwise get a permission denial reading the URI from their own
+     processes. `MediaArtworkFileProvider` overrides `openFile` to
+     `grantUriPermission(<consumer>, uri, FLAG_GRANT_READ_URI_PERMISSION)` for
+     those well-known media hosts whenever Linthra itself opens a cover — which
+     `audio_service` does at metadata-publish time, just before the same URI is
+     delivered to the consumers, so the **read** grant is already in place when
+     they read it. Read-only, per-URI, best-effort, and never write.
+  - **Why this path:** earlier attempts set `artUri` to a private `file:`, then a
+    `content://` with no grant. Real head-unit tests showed the `file:`/no-grant
+    paths fixed playback smoothness (downscale + pre-warm + a synchronous handler)
+    but the cover stayed blank, because Android Auto loads the art URI in its own
+    process and can't read an app-private `file:` (nor an *ungranted*
+    `content://`) — Jellyfin's `http` cover works precisely because Android Auto
+    can fetch it. The granted `content://` gives Android Auto a readable cover
+    without ever exposing a credential. **Still pending real-car confirmation.**
   - **Privacy:** the `content://` path is `…/media_artwork/<sha256>.img` — no
     username, password, token, salt, server URL, or auth query, anywhere in the
     URI, the filename, the metadata, logs, or the DB. A failed/slow fetch leaves
