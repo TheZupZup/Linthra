@@ -18,6 +18,18 @@ void main() {
         StabilityDiagnostics.describePlaybackError('sessionExpired'),
         'playback error: sessionExpired',
       );
+      expect(
+        StabilityDiagnostics.describeAudioFocus('regain:ignored'),
+        'audio focus: regain:ignored',
+      );
+      expect(
+        StabilityDiagnostics.describeMediaItemRebroadcast('artwork'),
+        'media item rebroadcast: artwork',
+      );
+      expect(
+        StabilityDiagnostics.describePlayCommand('media-session'),
+        'play command: media-session',
+      );
     });
 
     test('a breadcrumb carries only its label — no room to leak a secret', () {
@@ -105,6 +117,27 @@ void main() {
     test('playbackError retains the last interruption kind', () {
       StabilityDiagnostics.playbackError('connectionLost');
       expect(StabilityDiagnostics.lastInterruptionKind, 'connectionLost');
+    });
+
+    test('audioFocus retains and records the event', () {
+      // The key breadcrumb: a focus regain is recorded as ignored, never a play.
+      StabilityDiagnostics.audioFocus('loss:paused');
+      StabilityDiagnostics.audioFocus('regain:ignored');
+      expect(StabilityDiagnostics.lastAudioFocusEvent, 'regain:ignored');
+      expect(SafeEventLog.instance.lines, <String>[
+        'audio-focus: loss:paused',
+        'audio-focus: regain:ignored',
+      ]);
+    });
+
+    test('mediaItemRebroadcast and playCommand record off-playback breadcrumbs',
+        () {
+      StabilityDiagnostics.mediaItemRebroadcast('artwork');
+      StabilityDiagnostics.playCommand('media-session');
+      expect(SafeEventLog.instance.lines, <String>[
+        'rebroadcast: artwork',
+        'play: media-session',
+      ]);
     });
   });
 }

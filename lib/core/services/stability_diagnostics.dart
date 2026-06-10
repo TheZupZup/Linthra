@@ -44,6 +44,17 @@ abstract final class StabilityDiagnostics {
   /// one occurs. Never the raw error (which can carry a tokenized URL).
   static String? lastInterruptionKind;
 
+  /// The last audio-focus event seen for the on-device engine and how it was
+  /// handled (`loss:paused`, `regain:ignored`, `duck:ignored`, `noisy:paused`),
+  /// retained for diagnostics. Null until one occurs.
+  ///
+  /// This is the breadcrumb that proves playback is *not* auto-resumed when
+  /// audio focus comes back — the screen-wake / exit-Doze / exit-battery-saver /
+  /// return-from-another-app path that used to surprise-start music. A regain is
+  /// always recorded as `regain:ignored`, never a play. A fixed structural label
+  /// — never a track, URL, or token.
+  static String? lastAudioFocusEvent;
+
   /// An app lifecycle transition (`resumed`, `paused`, `inactive`, …) — the
   /// boundary most freezes/ANRs cluster around (background/foreground).
   static void lifecycle(String state) {
@@ -96,4 +107,45 @@ abstract final class StabilityDiagnostics {
   }
 
   static String describePlaybackError(String kind) => 'playback error: $kind';
+
+  /// An audio-focus event for the on-device engine and how it was handled.
+  /// [event] is a fixed structural label — `loss:paused` (a real focus loss, so
+  /// we paused), `regain:ignored` (focus came back; we did NOT resume),
+  /// `duck:ignored`, or `noisy:paused` (headphones unplugged). Retained in
+  /// [lastAudioFocusEvent] and recorded so a "music started by itself on screen
+  /// wake / when leaving battery saver" report shows the focus regain was
+  /// ignored rather than treated as a play. Never a track, URL, or token.
+  static void audioFocus(String event) {
+    lastAudioFocusEvent = event;
+    SafeEventLog.instance.record('audio-focus', event);
+    _log(describeAudioFocus(event));
+  }
+
+  static String describeAudioFocus(String event) => 'audio focus: $event';
+
+  /// A media-session now-playing item re-broadcast that did NOT originate from
+  /// playback — e.g. a cover finished warming so the card was refreshed to show
+  /// the art. Recorded so a "cover art / metadata refresh restarted my music"
+  /// report can show the rebroadcast happened off the playback path (it issues
+  /// no transport command). [cause] is a fixed label such as `artwork` — never a
+  /// URL, id, or title.
+  static void mediaItemRebroadcast(String cause) {
+    SafeEventLog.instance.record('rebroadcast', cause);
+    _log(describeMediaItemRebroadcast(cause));
+  }
+
+  static String describeMediaItemRebroadcast(String cause) =>
+      'media item rebroadcast: $cause';
+
+  /// A play command that arrived through the platform media session — a user
+  /// tapping the notification / lock-screen play, or Android Auto / Bluetooth /
+  /// a headset sending PLAY. Recorded so every legitimate resume is accounted
+  /// for and distinguishable from an unwanted self-resume (which no longer
+  /// happens). [source] is a fixed label such as `media-session`.
+  static void playCommand(String source) {
+    SafeEventLog.instance.record('play', source);
+    _log(describePlayCommand(source));
+  }
+
+  static String describePlayCommand(String source) => 'play command: $source';
 }

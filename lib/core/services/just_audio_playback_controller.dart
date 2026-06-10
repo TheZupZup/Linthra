@@ -230,10 +230,21 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   ///
   /// While suspended a cast receiver owns the audio and the engine is parked, so
   /// a local focus change is ignored. Otherwise a real focus loss pauses and a
-  /// focus *regain* does nothing — see [shouldPauseForInterruption].
+  /// focus *regain* does nothing — see [shouldPauseForInterruption]. Each
+  /// outcome leaves a secret-free breadcrumb so a "music started by itself on
+  /// screen wake / leaving battery saver" report shows the regain was ignored.
   void _onAudioInterruption(AudioInterruptionEvent event) {
     if (_suspended) return;
-    if (shouldPauseForInterruption(event)) unawaited(pause());
+    if (shouldPauseForInterruption(event)) {
+      StabilityDiagnostics.audioFocus('loss:paused');
+      unawaited(pause());
+    } else {
+      // A focus regain (interruption ended) or a transient duck: we never
+      // resume here. This is the exact point just_audio used to call play().
+      StabilityDiagnostics.audioFocus(
+        event.begin ? 'duck:ignored' : 'regain:ignored',
+      );
+    }
   }
 
   /// Whether an audio-focus [event] should pause the on-device engine.
@@ -264,6 +275,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// back in — consistent with the no-surprise-resume rule.
   void _onBecomingNoisy() {
     if (_suspended) return;
+    StabilityDiagnostics.audioFocus('noisy:paused');
     unawaited(pause());
   }
 
