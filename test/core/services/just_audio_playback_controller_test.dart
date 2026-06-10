@@ -1,3 +1,4 @@
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:linthra/core/models/playback_state.dart';
@@ -178,6 +179,42 @@ void main() {
       // like the transient reload idle).
       controller.handleEngineState(PlayerState(false, ProcessingState.ready));
       expect(controller.state.status, PlaybackStatus.paused);
+    });
+  });
+
+  group('audio focus never forces an unexpected resume', () {
+    // The "music starts/resumes by itself when the screen turns on, or when I
+    // switch apps" regression. just_audio's built-in interruption handler
+    // (handleInterruptions: true) pauses on a focus loss but then calls play()
+    // again on focus *regain* — so a transient interruption (a notification,
+    // another app briefly taking focus, the focus churn some OEMs emit on screen
+    // on/off and around battery-saver/Doze) resumes playback underneath the
+    // controller. The controller disables that handler and owns focus itself:
+    // it pauses on a real loss and NEVER auto-resumes. shouldPauseForInterruption
+    // is the pure decision behind that, exercised here without any platform.
+    bool shouldPause(bool begin, AudioInterruptionType type) =>
+        JustAudioPlaybackController.shouldPauseForInterruption(
+            AudioInterruptionEvent(begin, type));
+
+    test('a focus loss (interruption begins) pauses', () {
+      // Another app / a call grabbed focus: pause so we don't talk over it.
+      expect(shouldPause(true, AudioInterruptionType.pause), isTrue);
+      expect(shouldPause(true, AudioInterruptionType.unknown), isTrue);
+    });
+
+    test('a focus regain (interruption ends) never resumes', () {
+      // This is the exact point just_audio used to call play(). For every event
+      // type, returning to the foreground / regaining focus must NOT resume —
+      // only an explicit user / media-session play does.
+      expect(shouldPause(false, AudioInterruptionType.pause), isFalse);
+      expect(shouldPause(false, AudioInterruptionType.unknown), isFalse);
+      expect(shouldPause(false, AudioInterruptionType.duck), isFalse);
+    });
+
+    test('a transient duck does not pause (and so cannot trigger a resume)',
+        () {
+      // A brief duck is left to ride; we neither pause nor (therefore) resume.
+      expect(shouldPause(true, AudioInterruptionType.duck), isFalse);
     });
   });
 }

@@ -41,6 +41,14 @@ dependencies:
   # forwards session commands to PlaybackController and mirrors its state out.
   # The UI never depends on audio_service directly.
   audio_service: ^0.18.15
+  # Audio-focus / interruption handling for the on-device engine. just_audio's
+  # built-in handler auto-resumes playback on focus regain (the screen-wake /
+  # app-switch "music starts by itself" bug), so JustAudioPlaybackController
+  # disables it and owns focus deliberately through this seam: it pauses on a
+  # real focus loss and never auto-resumes. Already a transitive dependency of
+  # just_audio/audio_service; declared here because the services layer imports
+  # it directly. The UI never depends on audio_session.
+  audio_session: ^0.1.25
   # Native folder chooser for selecting a music folder to scan. Used only by
   # FilePickerFolderPickerService; the UI depends on the FolderPickerService
   # interface, never on file_picker directly.

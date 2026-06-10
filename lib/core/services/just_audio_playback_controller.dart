@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
@@ -47,14 +49,32 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _resolver = resolver,
         _candidates = candidates,
         _random = random ?? Random(),
-        _onTrackCompleted = onTrackCompleted {
+        _onTrackCompleted = onTrackCompleted,
+        // Own audio focus only for the engine we created. An injected player
+        // (tests, or a future custom engine) keeps whatever interruption
+        // handling its owner configured, so unit tests never touch the
+        // audio_session platform.
+        _manageAudioFocus = player == null {
     _wire();
   }
 
   /// The default engine, tuned for resilient remote streaming. An injected
   /// [player] (tests, or a future custom engine) bypasses this.
-  static AudioPlayer _defaultPlayer() =>
-      AudioPlayer(audioLoadConfiguration: _streamBuffering);
+  ///
+  /// `handleInterruptions: false` deliberately turns *off* just_audio's built-in
+  /// audio-focus handling. That handler pauses on a focus loss but then calls
+  /// `play()` again on focus *regain* — so after a transient interruption (a
+  /// notification, another app briefly taking focus, or the focus churn some
+  /// OEMs emit on screen on/off and around battery-saver/Doze) the engine
+  /// resumes on its own, underneath the controller and media session. That is
+  /// the "music starts/resumes by itself when the screen turns on / when I
+  /// switch apps" regression. [_wireAudioFocus] takes over: it pauses on a real
+  /// focus loss and *never* auto-resumes — only an explicit user / media-session
+  /// play resumes.
+  static AudioPlayer _defaultPlayer() => AudioPlayer(
+        audioLoadConfiguration: _streamBuffering,
+        handleInterruptions: false,
+      );
 
   /// Buffering tuned for remote streams so a brief network hiccup is absorbed
   /// instead of stalling playback: a generous look-ahead (up to ~2 minutes), a
@@ -99,6 +119,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       StreamController<PlaybackState>.broadcast();
   final List<StreamSubscription<void>> _subscriptions =
       <StreamSubscription<void>>[];
+
+  /// Whether this controller owns audio-focus handling for its engine (true only
+  /// for the default engine it created; an injected player is left to its owner).
+  final bool _manageAudioFocus;
+
+  /// The audio-session subscriptions, kept so [dispose] can cancel them. Null
+  /// until [_wireAudioFocus] attaches (real Android/iOS device only).
+  StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
+  StreamSubscription<void>? _becomingNoisySub;
 
   PlaybackState _state = PlaybackState.idle;
   PlaybackQueue _queue = PlaybackQueue.empty;
@@ -166,6 +195,76 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _subscriptions.add(
       _player.playbackEventStream.listen((_) {}, onError: _onEngineError),
     );
+    _wireAudioFocus();
+  }
+
+  /// Takes over audio-focus handling from just_audio (disabled via
+  /// `handleInterruptions: false`) so playback never auto-resumes itself.
+  ///
+  /// Best-effort and platform-gated: only the engine we created manages focus,
+  /// and only on a real Android/iOS device — a test host or desktop has no
+  /// audio_session platform, so it stays inert (and unit tests never touch the
+  /// platform channel). The pause-or-not decision is the pure
+  /// [shouldPauseForInterruption]; the loud-output guard is [_onBecomingNoisy].
+  void _wireAudioFocus() {
+    if (!_manageAudioFocus) return;
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    unawaited(_attachAudioSession());
+  }
+
+  Future<void> _attachAudioSession() async {
+    try {
+      final AudioSession session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+      _interruptionSub =
+          session.interruptionEventStream.listen(_onAudioInterruption);
+      _becomingNoisySub =
+          session.becomingNoisyEventStream.listen((_) => _onBecomingNoisy());
+    } catch (_) {
+      // No audio_session platform here: skip focus management entirely. Playback
+      // still works; we simply don't pause on a focus loss on this host.
+    }
+  }
+
+  /// Reacts to an audio-focus [event] for the on-device engine.
+  ///
+  /// While suspended a cast receiver owns the audio and the engine is parked, so
+  /// a local focus change is ignored. Otherwise a real focus loss pauses and a
+  /// focus *regain* does nothing — see [shouldPauseForInterruption].
+  void _onAudioInterruption(AudioInterruptionEvent event) {
+    if (_suspended) return;
+    if (shouldPauseForInterruption(event)) unawaited(pause());
+  }
+
+  /// Whether an audio-focus [event] should pause the on-device engine.
+  ///
+  /// The whole point of owning focus ourselves: playback must NEVER resume by
+  /// itself. So this pauses on a genuine focus *loss* (another app took focus, a
+  /// call, an alarm) and returns `false` for every focus *regain*
+  /// (`event.begin == false`) — only an explicit user / media-session play
+  /// resumes. A transient duck (a brief system sound) is left to ride at full
+  /// volume rather than pausing; just_audio is no longer adjusting it, and a
+  /// momentary overlap is preferable to a surprise pause/!resume.
+  @visibleForTesting
+  static bool shouldPauseForInterruption(AudioInterruptionEvent event) {
+    // Focus regained / interruption ended: do nothing. This is the exact point
+    // just_audio's built-in handler called play() — the auto-resume we remove.
+    if (!event.begin) return false;
+    switch (event.type) {
+      case AudioInterruptionType.duck:
+        return false;
+      case AudioInterruptionType.pause:
+      case AudioInterruptionType.unknown:
+        return true;
+    }
+  }
+
+  /// Headphones unplugged / the output became the phone speaker: pause so audio
+  /// doesn't suddenly blast out loud. Never auto-resumes when they're plugged
+  /// back in — consistent with the no-surprise-resume rule.
+  void _onBecomingNoisy() {
+    if (_suspended) return;
+    unawaited(pause());
   }
 
   /// Maps one raw engine [PlayerState] onto the unified [PlaybackState] and
@@ -732,6 +831,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   @override
   Future<void> dispose() async {
     _resetPositionFlush();
+    await _interruptionSub?.cancel();
+    await _becomingNoisySub?.cancel();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
