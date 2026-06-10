@@ -25,6 +25,24 @@ import 'stream_interruption.dart';
 /// or authenticated stream URL.
 typedef TrackCompletionCallback = void Function(Track track);
 
+/// What the on-device engine should do in response to an audio-focus change.
+/// The outcome of [JustAudioPlaybackController.audioFocusAction], kept separate
+/// so the standard-contract decision is pure and unit-testable.
+enum AudioFocusAction {
+  /// A transient loss (a call, a notification/lock sound): pause, and resume on
+  /// the matching regain if we were playing.
+  pauseTransient,
+
+  /// A permanent loss (another media app took focus): pause and stay paused.
+  pausePermanent,
+
+  /// Focus regained — resume only if a transient loss had armed it.
+  resume,
+
+  /// Nothing to do (a duckable transient we keep playing through, or its end).
+  ignore,
+}
+
 /// [PlaybackController] backed by `just_audio`.
 ///
 /// This is the only file in the app that knows `just_audio` exists. It adapts
@@ -129,6 +147,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
   StreamSubscription<void>? _becomingNoisySub;
 
+  /// Whether a focus *regain* should resume playback. Armed only when a
+  /// **transient** focus loss (a call, a notification/lock sound) paused us
+  /// while we were actively playing; cleared on a permanent loss, a
+  /// becoming-noisy pause, and once consumed. So another media app taking focus,
+  /// a plain screen-on, or a track the user had paused never auto-resumes, while
+  /// a brief transient interruption to background playback recovers.
+  bool _resumeAfterTransientLoss = false;
+
   PlaybackState _state = PlaybackState.idle;
   PlaybackQueue _queue = PlaybackQueue.empty;
 
@@ -199,13 +225,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   /// Takes over audio-focus handling from just_audio (disabled via
-  /// `handleInterruptions: false`) so playback never auto-resumes itself.
+  /// `handleInterruptions: false`) so playback follows the standard Android
+  /// audio-focus contract deliberately, rather than just_audio's
+  /// resume-after-any-loss behaviour.
   ///
   /// Best-effort and platform-gated: only the engine we created manages focus,
   /// and only on a real Android/iOS device — a test host or desktop has no
   /// audio_session platform, so it stays inert (and unit tests never touch the
-  /// platform channel). The pause-or-not decision is the pure
-  /// [shouldPauseForInterruption]; the loud-output guard is [_onBecomingNoisy].
+  /// platform channel). The classification is the pure [audioFocusAction]; the
+  /// loud-output guard is [_onBecomingNoisy].
   void _wireAudioFocus() {
     if (!_manageAudioFocus) return;
     if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
@@ -226,55 +254,93 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     }
   }
 
-  /// Reacts to an audio-focus [event] for the on-device engine.
+  /// Reacts to an audio-focus [event] for the on-device engine, following the
+  /// standard Android contract — *not* just_audio's resume-after-any-loss.
+  ///
+  /// The crucial distinction (encoded by audio_session in the event type):
+  ///  - a **transient** loss (a call, a notification or lock sound briefly
+  ///    grabbing focus) pauses and, when focus returns, *resumes* — but only if
+  ///    we were actually playing. A momentary screen-off interruption to
+  ///    background playback recovers instead of becoming a stuck pause.
+  ///  - a **permanent** loss (another media app took focus for good) pauses and
+  ///    **stays** paused; returning to Linthra must not auto-resume.
+  ///  - a plain screen-on / app-return / exit-Doze emits *no* focus loss at all
+  ///    (focus is independent of screen state), and a bare regain with nothing
+  ///    to resume is ignored — so the screen turning on never starts playback.
   ///
   /// While suspended a cast receiver owns the audio and the engine is parked, so
-  /// a local focus change is ignored. Otherwise a real focus loss pauses and a
-  /// focus *regain* does nothing — see [shouldPauseForInterruption]. Each
-  /// outcome leaves a secret-free breadcrumb so a "music started by itself on
-  /// screen wake / leaving battery saver" report shows the regain was ignored.
+  /// a local focus change is ignored. Each branch leaves a secret-free
+  /// breadcrumb so a field report can tell exactly which event paused/resumed.
   void _onAudioInterruption(AudioInterruptionEvent event) {
     if (_suspended) return;
-    if (shouldPauseForInterruption(event)) {
-      StabilityDiagnostics.audioFocus('loss:paused');
-      unawaited(pause());
-    } else {
-      // A focus regain (interruption ended) or a transient duck: we never
-      // resume here. This is the exact point just_audio used to call play().
-      StabilityDiagnostics.audioFocus(
-        event.begin ? 'duck:ignored' : 'regain:ignored',
-      );
+    switch (audioFocusAction(event)) {
+      case AudioFocusAction.pauseTransient:
+        // Resume afterwards only if this interrupted active playback; never
+        // arm a resume for something the user had already paused.
+        _resumeAfterTransientLoss = _state.isPlaying || _state.isBusy;
+        StabilityDiagnostics.audioFocus(_resumeAfterTransientLoss
+            ? 'loss-transient:paused'
+            : 'loss-transient:already-paused');
+        unawaited(pause());
+      case AudioFocusAction.pausePermanent:
+        _resumeAfterTransientLoss = false;
+        StabilityDiagnostics.audioFocus('loss-permanent:paused');
+        unawaited(pause());
+      case AudioFocusAction.resume:
+        if (_resumeAfterTransientLoss) {
+          _resumeAfterTransientLoss = false;
+          StabilityDiagnostics.audioFocus('regain:resumed');
+          unawaited(play());
+        } else {
+          // Focus came back but the loss was permanent (or we weren't playing):
+          // the screen-wake / app-return / exit-Doze case — never auto-resume.
+          StabilityDiagnostics.audioFocus('regain:ignored');
+        }
+      case AudioFocusAction.ignore:
+        // A duckable transient (we keep playing at full volume) or its unduck.
+        StabilityDiagnostics.audioFocus(
+            event.begin ? 'duck:ignored' : 'unduck:ignored');
     }
   }
 
-  /// Whether an audio-focus [event] should pause the on-device engine.
+  /// Classifies an audio-focus [event] into the action the engine should take,
+  /// per the standard Android contract. Pure and unit-tested, so the
+  /// "screen-on never resumes / a permanent loss stays paused / a transient loss
+  /// recovers" rules can be exercised without any platform.
   ///
-  /// The whole point of owning focus ourselves: playback must NEVER resume by
-  /// itself. So this pauses on a genuine focus *loss* (another app took focus, a
-  /// call, an alarm) and returns `false` for every focus *regain*
-  /// (`event.begin == false`) — only an explicit user / media-session play
-  /// resumes. A transient duck (a brief system sound) is left to ride at full
-  /// volume rather than pausing; just_audio is no longer adjusting it, and a
-  /// momentary overlap is preferable to a surprise pause/!resume.
+  /// audio_session maps Android's focus changes onto the event type:
+  ///  - begin + `pause`   ← `AUDIOFOCUS_LOSS_TRANSIENT` (a transient loss)
+  ///  - begin + `unknown` ← `AUDIOFOCUS_LOSS` (a permanent loss; focus abandoned)
+  ///  - begin + `duck`    ← `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK`
+  ///  - end   + any       ← `AUDIOFOCUS_GAIN` (focus regained)
   @visibleForTesting
-  static bool shouldPauseForInterruption(AudioInterruptionEvent event) {
-    // Focus regained / interruption ended: do nothing. This is the exact point
-    // just_audio's built-in handler called play() — the auto-resume we remove.
-    if (!event.begin) return false;
+  static AudioFocusAction audioFocusAction(AudioInterruptionEvent event) {
+    if (event.begin) {
+      switch (event.type) {
+        case AudioInterruptionType.pause:
+          return AudioFocusAction.pauseTransient;
+        case AudioInterruptionType.unknown:
+          return AudioFocusAction.pausePermanent;
+        case AudioInterruptionType.duck:
+          return AudioFocusAction.ignore;
+      }
+    }
+    // Interruption ended / focus regained.
     switch (event.type) {
-      case AudioInterruptionType.duck:
-        return false;
       case AudioInterruptionType.pause:
       case AudioInterruptionType.unknown:
-        return true;
+        return AudioFocusAction.resume;
+      case AudioInterruptionType.duck:
+        return AudioFocusAction.ignore;
     }
   }
 
   /// Headphones unplugged / the output became the phone speaker: pause so audio
-  /// doesn't suddenly blast out loud. Never auto-resumes when they're plugged
-  /// back in — consistent with the no-surprise-resume rule.
+  /// doesn't suddenly blast out loud, and clear any armed transient-resume so it
+  /// never auto-resumes when they're plugged back in.
   void _onBecomingNoisy() {
     if (_suspended) return;
+    _resumeAfterTransientLoss = false;
     StabilityDiagnostics.audioFocus('noisy:paused');
     unawaited(pause());
   }

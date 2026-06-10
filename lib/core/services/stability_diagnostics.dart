@@ -148,4 +148,20 @@ abstract final class StabilityDiagnostics {
   }
 
   static String describePlayCommand(String source) => 'play command: $source';
+
+  /// A pause command that arrived through the platform media session — a user
+  /// tapping the notification / lock-screen pause, or Android Auto / Bluetooth /
+  /// a headset sending PAUSE. (Android routes all of these through the one media
+  /// session, so the specific transport isn't distinguishable here; the label is
+  /// `media-session`.) Recorded so a screen-off "it paused by itself" report can
+  /// tell a real session PAUSE apart from an audio-focus-loss pause
+  /// (`audio focus: loss-*`), a becoming-noisy pause (`audio focus: noisy:*`), or
+  /// an in-app user pause (which goes through the controller, not the session, so
+  /// it carries no `pause command` breadcrumb).
+  static void pauseCommand(String source) {
+    SafeEventLog.instance.record('pause', source);
+    _log(describePauseCommand(source));
+  }
+
+  static String describePauseCommand(String source) => 'pause command: $source';
 }

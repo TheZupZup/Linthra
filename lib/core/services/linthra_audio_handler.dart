@@ -134,7 +134,15 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   }
 
   @override
-  Future<void> pause() => _controller.pause();
+  Future<void> pause() {
+    // A pause that arrived through the platform media session: the notification
+    // / lock-screen pause, or Android Auto / Bluetooth / a headset sending
+    // PAUSE. Breadcrumb it (secret-free) so a screen-off "it paused by itself"
+    // report can tell a real session PAUSE apart from an audio-focus-loss or
+    // becoming-noisy pause (both logged under `audio focus:` by the engine).
+    StabilityDiagnostics.pauseCommand('media-session');
+    return _controller.pause();
+  }
 
   @override
   Future<void> stop() async {

@@ -30,6 +30,10 @@ void main() {
         StabilityDiagnostics.describePlayCommand('media-session'),
         'play command: media-session',
       );
+      expect(
+        StabilityDiagnostics.describePauseCommand('media-session'),
+        'pause command: media-session',
+      );
     });
 
     test('a breadcrumb carries only its label — no room to leak a secret', () {
@@ -120,23 +124,25 @@ void main() {
     });
 
     test('audioFocus retains and records the event', () {
-      // The key breadcrumb: a focus regain is recorded as ignored, never a play.
-      StabilityDiagnostics.audioFocus('loss:paused');
+      // A permanent loss pauses; the following regain is recorded as ignored,
+      // never a play (the "screen-on / return from another app" case).
+      StabilityDiagnostics.audioFocus('loss-permanent:paused');
       StabilityDiagnostics.audioFocus('regain:ignored');
       expect(StabilityDiagnostics.lastAudioFocusEvent, 'regain:ignored');
       expect(SafeEventLog.instance.lines, <String>[
-        'audio-focus: loss:paused',
+        'audio-focus: loss-permanent:paused',
         'audio-focus: regain:ignored',
       ]);
     });
 
-    test('mediaItemRebroadcast and playCommand record off-playback breadcrumbs',
-        () {
+    test('rebroadcast, play and pause commands record source breadcrumbs', () {
       StabilityDiagnostics.mediaItemRebroadcast('artwork');
       StabilityDiagnostics.playCommand('media-session');
+      StabilityDiagnostics.pauseCommand('media-session');
       expect(SafeEventLog.instance.lines, <String>[
         'rebroadcast: artwork',
         'play: media-session',
+        'pause: media-session',
       ]);
     });
   });

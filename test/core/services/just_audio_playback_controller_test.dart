@@ -182,39 +182,53 @@ void main() {
     });
   });
 
-  group('audio focus never forces an unexpected resume', () {
-    // The "music starts/resumes by itself when the screen turns on, or when I
-    // switch apps" regression. just_audio's built-in interruption handler
-    // (handleInterruptions: true) pauses on a focus loss but then calls play()
-    // again on focus *regain* — so a transient interruption (a notification,
-    // another app briefly taking focus, the focus churn some OEMs emit on screen
-    // on/off and around battery-saver/Doze) resumes playback underneath the
-    // controller. The controller disables that handler and owns focus itself:
-    // it pauses on a real loss and NEVER auto-resumes. shouldPauseForInterruption
-    // is the pure decision behind that, exercised here without any platform.
-    bool shouldPause(bool begin, AudioInterruptionType type) =>
-        JustAudioPlaybackController.shouldPauseForInterruption(
+  group('audio focus follows the standard contract (no surprise pause/resume)',
+      () {
+    // Two field reports, one fix. just_audio's built-in handler
+    // (handleInterruptions: true) pauses on any focus loss and then resumes on
+    // any regain — so (a) returning from another media app surprise-resumed, and
+    // (b) a transient lock/notification sound that briefly took focus would, if
+    // we simply never resumed, leave background playback stuck paused. The
+    // controller disables that handler and classifies focus changes per the
+    // standard Android contract via the pure audioFocusAction, exercised here
+    // without any platform: a permanent loss stays paused, a transient loss
+    // recovers, and a bare regain (screen-on / app-return / exit-Doze) does
+    // nothing.
+    AudioFocusAction action(bool begin, AudioInterruptionType type) =>
+        JustAudioPlaybackController.audioFocusAction(
             AudioInterruptionEvent(begin, type));
 
-    test('a focus loss (interruption begins) pauses', () {
-      // Another app / a call grabbed focus: pause so we don't talk over it.
-      expect(shouldPause(true, AudioInterruptionType.pause), isTrue);
-      expect(shouldPause(true, AudioInterruptionType.unknown), isTrue);
+    test('a transient focus loss pauses (and can later resume)', () {
+      // AUDIOFOCUS_LOSS_TRANSIENT (a call, a notification/lock sound) maps to a
+      // begin + pause event.
+      expect(action(true, AudioInterruptionType.pause),
+          AudioFocusAction.pauseTransient);
     });
 
-    test('a focus regain (interruption ends) never resumes', () {
-      // This is the exact point just_audio used to call play(). For every event
-      // type, returning to the foreground / regaining focus must NOT resume —
-      // only an explicit user / media-session play does.
-      expect(shouldPause(false, AudioInterruptionType.pause), isFalse);
-      expect(shouldPause(false, AudioInterruptionType.unknown), isFalse);
-      expect(shouldPause(false, AudioInterruptionType.duck), isFalse);
+    test('a permanent focus loss pauses and stays paused', () {
+      // AUDIOFOCUS_LOSS (another media app took focus for good) maps to a
+      // begin + unknown event: pause and never resume on return.
+      expect(action(true, AudioInterruptionType.unknown),
+          AudioFocusAction.pausePermanent);
     });
 
-    test('a transient duck does not pause (and so cannot trigger a resume)',
+    test('a duckable transient is ignored (we keep playing, never pause)', () {
+      expect(action(true, AudioInterruptionType.duck), AudioFocusAction.ignore);
+    });
+
+    test('a focus regain only ever maps to resume (gated at the call site)',
         () {
-      // A brief duck is left to ride; we neither pause nor (therefore) resume.
-      expect(shouldPause(true, AudioInterruptionType.duck), isFalse);
+      // The regain itself classifies as resume, but the controller honours it
+      // only when a *transient* loss armed it. A regain after a permanent loss
+      // or with nothing playing is a no-op — the screen-on / app-return /
+      // exit-Doze case.
+      expect(
+          action(false, AudioInterruptionType.pause), AudioFocusAction.resume);
+      expect(action(false, AudioInterruptionType.unknown),
+          AudioFocusAction.resume);
+      // An unduck end is ignored.
+      expect(
+          action(false, AudioInterruptionType.duck), AudioFocusAction.ignore);
     });
   });
 }
