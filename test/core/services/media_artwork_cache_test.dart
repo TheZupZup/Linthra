@@ -303,4 +303,69 @@ void main() {
       expect(cache.cached(Uri.parse('subsonic-cover:other')), isNull);
     });
   });
+
+  group('MediaArtworkCache.coverReady', () {
+    test('emits the reference the moment a cover first caches', () async {
+      final cache = MediaArtworkCache(
+        resolveUrl: (Uri reference) => _authUrl,
+        fetch: (Uri url) async => _imageBytes,
+        directory: directory,
+      );
+      final List<Uri> ready = <Uri>[];
+      final sub = cache.coverReady.listen(ready.add);
+      addTearDown(sub.cancel);
+
+      await cache.resolve(_reference);
+      await pumpEventQueue();
+
+      // Lets a now-playing item refresh immediately instead of on the next tick.
+      expect(ready, <Uri>[_reference]);
+    });
+
+    test('does not emit when the fetch fails (no cover to show)', () async {
+      final cache = MediaArtworkCache(
+        resolveUrl: (Uri reference) => _authUrl,
+        fetch: (Uri url) async => null, // failed download
+        directory: directory,
+      );
+      final List<Uri> ready = <Uri>[];
+      final sub = cache.coverReady.listen(ready.add);
+      addTearDown(sub.cancel);
+
+      await cache.resolve(_reference);
+      await pumpEventQueue();
+
+      expect(ready, isEmpty);
+    });
+
+    test('emits once even across repeat resolves (a memo hit never re-emits)',
+        () async {
+      final cache = MediaArtworkCache(
+        resolveUrl: (Uri reference) => _authUrl,
+        fetch: (Uri url) async => _imageBytes,
+        directory: directory,
+      );
+      final List<Uri> ready = <Uri>[];
+      final sub = cache.coverReady.listen(ready.add);
+      addTearDown(sub.cancel);
+
+      await cache.resolve(_reference);
+      await cache.resolve(_reference); // served from the memo — no re-emit
+      await pumpEventQueue();
+
+      expect(ready, <Uri>[_reference]);
+    });
+
+    test('a late emit after dispose does not throw', () async {
+      final cache = MediaArtworkCache(
+        resolveUrl: (Uri reference) => _authUrl,
+        fetch: (Uri url) async => _imageBytes,
+        directory: directory,
+      );
+      await cache.dispose();
+      // resolve still works (writes the file) and must not throw on the closed
+      // ready controller.
+      expect(await cache.resolve(_reference), isNotNull);
+    });
+  });
 }

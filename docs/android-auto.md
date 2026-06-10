@@ -382,8 +382,12 @@ mode → **Add unknown sources** enabled for a sideloaded build.
   1. fetches a **server-downscaled** cover itself and caches the bytes to a
      private file, keyed by a hash of the credential-free `subsonic-cover:`
      reference (never the URL);
-  2. **pre-warms** the now-playing + next few covers off the playback path, so a
-     cover is cached before its track reaches the now-playing card;
+  2. **pre-warms** the now-playing + next few covers off the playback path
+     (now-playing first, retrying a transient miss on the next queue change), so a
+     cover is cached before its track reaches the now-playing card; if it lands
+     *after* the card was published art-less, a `coverReady` event re-publishes
+     the now-playing item at once (gated by the change check, so it never
+     double-pushes or loops) instead of waiting for the next playback tick;
   3. hands the session a credential-free **`content://` URI** for the cover via a
      `FileProvider` (`MediaArtworkFileProvider`, authority
      `…linthra.mediaartwork`, serving only the hashed-filename cover cache —

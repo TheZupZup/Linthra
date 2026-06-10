@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart' as audio;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_state.dart';
@@ -20,15 +22,25 @@ class _RecordingArtworkSource implements MediaArtworkSource {
 
   final Map<Uri, Uri> _cache;
   final List<Uri> queries = <Uri>[];
+  final StreamController<Uri> _coverReady = StreamController<Uri>.broadcast();
 
-  /// Simulates the prewarm service finishing a fetch for [reference].
-  void warm(Uri reference, Uri local) => _cache[reference] = local;
+  /// Simulates the prewarm service finishing a fetch for [reference]: the cover
+  /// becomes cached and the ready event fires (as the real cache does).
+  void warm(Uri reference, Uri local) {
+    _cache[reference] = local;
+    _coverReady.add(reference);
+  }
 
   @override
   Uri? cached(Uri reference) {
     queries.add(reference);
     return _cache[reference];
   }
+
+  @override
+  Stream<Uri> get coverReady => _coverReady.stream;
+
+  Future<void> close() => _coverReady.close();
 }
 
 Track _track(String id) {
@@ -941,6 +953,7 @@ void main() {
         addTearDown(() async {
           await h.dispose();
           await c.dispose();
+          if (artwork is _RecordingArtworkSource) await artwork.close();
         });
         return h;
       }
@@ -1002,11 +1015,11 @@ void main() {
       });
 
       test(
-          'a cover warmed mid-track appears on the next broadcast, no '
-          'handler re-broadcast', () async {
-        // The cold first-track case: the cover finishes warming after play
-        // starts, and the controller's next natural state tick carries it — the
-        // handler never re-broadcasts on the playback path itself.
+          'a cover warmed mid-track appears immediately via coverReady, no '
+          'position tick needed', () async {
+        // The cold first-track case: the cover finishes warming after the card
+        // is published art-less. The coverReady event re-publishes the item at
+        // once — no waiting for the next playback tick (the residual delay fix).
         final source = _RecordingArtworkSource(); // empty at first
         final c = FakePlaybackController();
         final h = handlerWith(c, <Track>[subsonic], artwork: source);
@@ -1015,14 +1028,63 @@ void main() {
         await _settle();
         expect(h.mediaItem.value?.artUri, isNull);
 
-        // The prewarm completes out of band: the cover is now cached.
+        // The prewarm completes out of band → cover cached + coverReady fires.
+        // No position tick is emitted; the cover must still appear.
         source.warm(reference, localArt);
-        // A position tick (the controller's natural update) rebuilds the item,
-        // which now picks up the cached cover.
-        c.emit(c.state.copyWith(position: const Duration(seconds: 5)));
         await _settle();
 
         expect(h.mediaItem.value?.artUri, localArt);
+      });
+
+      test('coverReady for the current track re-publishes only once (no loop)',
+          () async {
+        // The re-publish must be a single, gated push: one item with art, never
+        // a tight loop of re-broadcasts.
+        final source = _RecordingArtworkSource();
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic], artwork: source);
+
+        final List<audio.MediaItem?> pushes = <audio.MediaItem?>[];
+        final sub = h.mediaItem.listen(pushes.add);
+        addTearDown(sub.cancel);
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+        final int beforeWarm = pushes.length;
+
+        source.warm(reference, localArt); // cover cached + coverReady
+        await _settle();
+
+        // Exactly one extra push — the item that gained the art.
+        expect(pushes.length, beforeWarm + 1);
+        expect(pushes.last?.artUri, localArt);
+
+        // A duplicate coverReady for an already-shown cover is a no-op (the
+        // _sameItem guard), so no further push.
+        source.warm(reference, localArt);
+        await _settle();
+        expect(pushes.length, beforeWarm + 1);
+      });
+
+      test(
+          'coverReady for a non-current cover leaves the now-playing item alone',
+          () async {
+        // Warming an up-next cover must not disturb the current now-playing item.
+        final source = _RecordingArtworkSource();
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic], artwork: source);
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+
+        // A different reference (some up-next cover) becomes ready.
+        source.warm(Uri.parse('subsonic-cover:other'),
+            Uri.parse('content://x/media_artwork/other.img'));
+        await _settle();
+
+        // The now-playing item is unchanged (still art-less for sub-1).
+        expect(h.mediaItem.value?.id, 'sub-1');
+        expect(h.mediaItem.value?.artUri, isNull);
       });
 
       test('without an artwork source, a reference never leaks into artUri',

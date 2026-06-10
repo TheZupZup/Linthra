@@ -174,6 +174,71 @@ void main() {
     await _settle();
     expect(warmed, isEmpty);
   });
+
+  test('warms a newly now-playing cover ahead of an earlier look-ahead',
+      () async {
+    // Priority: when the track changes while a previous batch's look-ahead is
+    // still pending, the new now-playing cover jumps ahead of it.
+    final gate = Completer<void>();
+    final order = <String>[];
+    final service = MediaArtworkPrewarmService(
+      playbackStates: states.stream,
+      lookahead: 3,
+      warm: (Uri reference) async {
+        final String id = reference.pathSegments.first;
+        order.add(id);
+        if (id == 'al-a') await gate.future; // hold the first warm in-flight
+        return Uri.parse('content://x/$id.img');
+      },
+    );
+    addTearDown(service.dispose);
+
+    // Batch 1: a (now-playing) starts warming and blocks; b is queued behind it.
+    states.add(_playing(
+      current: _subsonic('a', 'al-a'),
+      upNext: <Track>[_subsonic('b', 'al-b')],
+    ));
+    await _settle();
+    // Batch 2: skip to x — its cover must jump ahead of the still-pending b.
+    states.add(_playing(current: _subsonic('x', 'al-x')));
+    await _settle();
+    gate.complete(); // let the held first warm finish; the drain proceeds
+    await _settle();
+    await _settle();
+
+    // a was already in-flight; x (the new now-playing) warmed before b.
+    expect(order, <String>['al-a', 'al-x', 'al-b']);
+  });
+
+  test('retries a failed warm on a later queue change', () async {
+    int attemptsForA = 0;
+    final service = MediaArtworkPrewarmService(
+      playbackStates: states.stream,
+      lookahead: 1,
+      warm: (Uri reference) async {
+        if (reference == Uri.parse('subsonic-cover:al-a')) {
+          attemptsForA++;
+          // First attempt fails (transient), later attempts succeed.
+          return attemptsForA == 1 ? null : Uri.parse('content://x/a.img');
+        }
+        return Uri.parse('content://x/${reference.pathSegments.first}.img');
+      },
+    );
+    addTearDown(service.dispose);
+
+    states.add(_playing(current: _subsonic('a', 'al-a')));
+    await _settle();
+    expect(attemptsForA, 1); // failed and was dropped from the warmed set
+
+    // A queue change re-evaluates; al-a (still now-playing) retries rather than
+    // staying coverless for the session.
+    states.add(_playing(
+      current: _subsonic('a', 'al-a'),
+      upNext: <Track>[_subsonic('b', 'al-b')],
+    ));
+    await _settle();
+    expect(attemptsForA, 2); // retried
+  });
 }
 
 /// A throwable stand-in so the failure test doesn't depend on dart:io.

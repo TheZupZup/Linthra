@@ -68,6 +68,14 @@ class MediaArtworkCache implements MediaArtworkSource {
   /// be retried on a later request.
   final Map<String, Completer<Uri?>> _inFlight = <String, Completer<Uri?>>{};
 
+  /// Broadcasts a reference the moment its cover first caches, so a now-playing
+  /// item published without art can be refreshed immediately (see the handler),
+  /// rather than waiting for the next playback tick.
+  final StreamController<Uri> _coverReady = StreamController<Uri>.broadcast();
+
+  @override
+  Stream<Uri> get coverReady => _coverReady.stream;
+
   static const Duration _timeout = Duration(seconds: 20);
 
   /// The safe `content://` URI for [reference] if it has already been fetched
@@ -113,6 +121,7 @@ class MediaArtworkCache implements MediaArtworkSource {
     if (await file.exists() && await file.length() > 0) {
       final Uri uri = mediaArtworkContentUri(file);
       _memo[key] = uri;
+      _announceReady(reference);
       return uri;
     }
 
@@ -138,8 +147,21 @@ class MediaArtworkCache implements MediaArtworkSource {
     }
     final Uri uri = mediaArtworkContentUri(file);
     _memo[key] = uri;
+    _announceReady(reference);
     return uri;
   }
+
+  /// Notifies listeners (the media handler) that [reference]'s cover just became
+  /// cached, so a now-playing item can pick it up immediately. Guards against a
+  /// closed controller (after [dispose]) so a late warm can't throw.
+  void _announceReady(Uri reference) {
+    if (!_coverReady.isClosed) _coverReady.add(reference);
+  }
+
+  /// Releases the cover-ready stream. The in-memory memo and on-disk cache are
+  /// left intact (the cache is process-lived); call when the owning container is
+  /// torn down.
+  Future<void> dispose() => _coverReady.close();
 
   /// A credential-free, filename-safe cache key: the SHA-256 of the
   /// *credential-free* reference string (e.g. `subsonic-cover:al-123`). The

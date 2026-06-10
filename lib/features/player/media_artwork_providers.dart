@@ -26,7 +26,7 @@ const int kMediaSessionArtworkSize = 512;
 /// sign-in/out is picked up; signed out, or on any fetch failure, it yields no
 /// artwork and playback is unaffected.
 final mediaArtworkCacheProvider = Provider<MediaArtworkCache>((ref) {
-  return MediaArtworkCache(
+  final cache = MediaArtworkCache(
     resolveUrl: (Uri reference) {
       final SubsonicSession? session =
           ref.read(subsonicSettingsControllerProvider.notifier).session;
@@ -38,6 +38,8 @@ final mediaArtworkCacheProvider = Provider<MediaArtworkCache>((ref) {
       );
     },
   );
+  ref.onDispose(cache.dispose);
+  return cache;
 });
 
 /// Warms the now-playing + look-ahead covers into [mediaArtworkCacheProvider]

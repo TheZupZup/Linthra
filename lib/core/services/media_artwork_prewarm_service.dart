@@ -25,9 +25,11 @@ const String _logName = 'Linthra.MediaArtwork';
 /// covers (Jellyfin http, a local `file:`) need no warming and are skipped.
 ///
 /// Best-effort by design, mirroring the stream preloader: warms run
-/// sequentially, one at a time, off the playback path; each reference is warmed
-/// at most once per session; and the cache swallows every failure (returning
-/// null), so a slow or failing fetch can never stall or restart playback.
+/// sequentially, one at a time, off the playback path; the now-playing cover is
+/// warmed first; a reference that succeeds is warmed once, while a transient
+/// failure is allowed to retry on a later queue change; and the cache swallows
+/// every failure (returning null), so a slow or failing fetch can never stall or
+/// restart playback.
 class MediaArtworkPrewarmService {
   MediaArtworkPrewarmService({
     required Stream<PlaybackState> playbackStates,
@@ -63,24 +65,28 @@ class MediaArtworkPrewarmService {
     // position tick (which re-emits the same key).
     if (key == _lastKey) return;
     _lastKey = key;
-    for (final Track track in _tracksToWarm(state)) {
-      final Uri? art = track.artworkUri;
-      if (art == null) continue;
-      // Jellyfin http / local file covers load directly: nothing to fetch.
-      if (isPlatformLoadableArtwork(art)) continue;
-      // Each reference is warmed at most once per session.
-      if (!_requested.add(art)) continue;
-      _queue.add(art);
+    // Prioritise the now-playing cover (front of the queue) so it warms before
+    // the look-ahead — its delay is the one visible on the now-playing card.
+    _enqueue(state.currentTrack?.artworkUri, front: true);
+    for (final Track track in state.upNext.take(_lookahead)) {
+      _enqueue(track.artworkUri, front: false);
     }
     unawaited(_drain());
   }
 
-  /// The now-playing track followed by the look-ahead of up-next tracks — the
-  /// covers worth having cached before they reach the now-playing card.
-  Iterable<Track> _tracksToWarm(PlaybackState state) sync* {
-    final Track? current = state.currentTrack;
-    if (current != null) yield current;
-    yield* state.upNext.take(_lookahead);
+  /// Queues [art] to be warmed if it's a fetchable reference not already
+  /// warmed/warming. The now-playing cover goes to the [front] so it fetches
+  /// ahead of the look-ahead covers; Jellyfin (`http`) / local (`file`) covers
+  /// load directly and are skipped.
+  void _enqueue(Uri? art, {required bool front}) {
+    if (art == null) return;
+    if (isPlatformLoadableArtwork(art)) return;
+    if (!_requested.add(art)) return;
+    if (front) {
+      _queue.insert(0, art);
+    } else {
+      _queue.add(art);
+    }
   }
 
   /// A fingerprint of the now-playing + look-ahead track ids, so warming reacts
@@ -104,13 +110,21 @@ class MediaArtworkPrewarmService {
         // break the drain (and so can never touch playback).
         try {
           final Uri? local = await _warm(reference);
+          if (local == null) {
+            // A transient miss (signed out / fetch failed): drop it from the
+            // warmed set so a later queue change can retry, rather than leaving
+            // that track coverless for the whole session.
+            _requested.remove(reference);
+          }
           // Secret-free trace: did this cover cache to a safe local URI? `ok`
           // means a later now-playing item can carry it; `miss` means signed
           // out / fetch failed. No URL, credential, or id is logged.
           developer.log('warm: ${local == null ? 'miss' : 'ok'}',
               name: _logName);
         } catch (_) {
-          // Swallow: a failed/throwing warm just means no cover for that track.
+          // Swallow + allow a later retry: a failed/throwing warm just means no
+          // cover for that track right now.
+          _requested.remove(reference);
           developer.log('warm: error', name: _logName);
         }
       }

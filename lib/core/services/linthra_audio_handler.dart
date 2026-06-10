@@ -72,6 +72,11 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     MediaArtworkSource? artwork,
   }) : _artwork = artwork {
     _subscription = _controller.stateStream.listen(_broadcast);
+    // Refresh the now-playing item the instant the current track's cover finishes
+    // warming, so a card published without art picks it up at once instead of
+    // waiting for the next playback tick. Off the playback path; [_onCoverReady]
+    // gates the actual push so it never double-pushes or loops.
+    _coverReadySub = artwork?.coverReady.listen(_onCoverReady);
     // Seed the session from the latest known state so a freshly attached
     // notification/Android Auto isn't blank before the first stream event.
     _broadcast(_controller.state);
@@ -80,13 +85,16 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   final PlaybackController _controller;
   final MediaBrowserTree _tree;
   late final StreamSubscription<PlaybackState> _subscription;
+  StreamSubscription<Uri>? _coverReadySub;
 
-  /// Synchronous lookup of an already-fetched, safe local `file:` cover for a
+  /// Synchronous lookup of an already-fetched, safe `content://` cover for a
   /// credential-free reference (e.g. Subsonic). `null` when none is wired (tests
   /// / unsupported platform), in which case such references carry no
   /// media-session artwork. Covers are warmed ahead of time, off the playback
-  /// path, by `MediaArtworkPrewarmService`, so this stays a pure synchronous read
-  /// — the handler never fetches or re-broadcasts on the playback path.
+  /// path, by `MediaArtworkPrewarmService`; the handler reads this synchronously
+  /// while building a `MediaItem` and never fetches. Its `coverReady` stream lets
+  /// the handler re-publish a now-art-less item once a cover lands (also off the
+  /// playback path).
   final MediaArtworkSource? _artwork;
 
   // The last media item / playback state actually pushed to the platform
@@ -255,6 +263,19 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     if (artworkUri == null) return null;
     if (isPlatformLoadableArtwork(artworkUri)) return artworkUri;
     return _artwork?.cached(artworkUri);
+  }
+
+  /// A cover ([reference]) just finished warming. If it belongs to the track
+  /// playing now, re-publish so its art appears immediately rather than at the
+  /// next playback tick. Off the playback path (driven by the cache, not the
+  /// engine), and safe: [_broadcast]'s [_sameItem] check pushes only when the
+  /// item actually changed, so an already-shown cover (or a cover for some other
+  /// track) is a no-op — no double-push, no loop (a re-broadcast never emits
+  /// `coverReady`).
+  void _onCoverReady(Uri reference) {
+    if (_controller.state.currentTrack?.artworkUri == reference) {
+      _broadcast(_controller.state);
+    }
   }
 
   /// The non-secret *scheme* of an artwork [uri], for the diagnostic trace —
@@ -494,7 +515,10 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   }
 
   /// Stops mirroring controller state. Call before disposing the controller.
-  Future<void> dispose() => _subscription.cancel();
+  Future<void> dispose() async {
+    await _coverReadySub?.cancel();
+    await _subscription.cancel();
+  }
 }
 
 /// Registers [controller] with the platform media session so playback appears
