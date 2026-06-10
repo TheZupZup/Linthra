@@ -1,0 +1,15 @@
+Linthra 0.1.5 — Playback stability hotfix.
+
+Fixed:
+- Fixed a playback stability issue where music could resume by itself
+  after screen wake, app switching, or audio-focus changes.
+- Fixed cases where playback could pause unexpectedly during transient
+  audio-focus changes.
+- Improved pause/play reliability across the app, lock screen, Android
+  Auto, Bluetooth, and background playback.
+
+Notes:
+- No new features in this release.
+- Navidrome/Subsonic cover art improvements from 0.1.4 remain included.
+
+No ads, no tracking, no analytics, no telemetry.
