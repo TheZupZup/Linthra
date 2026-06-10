@@ -1,3 +1,4 @@
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:linthra/core/models/playback_state.dart';
@@ -178,6 +179,56 @@ void main() {
       // like the transient reload idle).
       controller.handleEngineState(PlayerState(false, ProcessingState.ready));
       expect(controller.state.status, PlaybackStatus.paused);
+    });
+  });
+
+  group('audio focus follows the standard contract (no surprise pause/resume)',
+      () {
+    // Two field reports, one fix. just_audio's built-in handler
+    // (handleInterruptions: true) pauses on any focus loss and then resumes on
+    // any regain — so (a) returning from another media app surprise-resumed, and
+    // (b) a transient lock/notification sound that briefly took focus would, if
+    // we simply never resumed, leave background playback stuck paused. The
+    // controller disables that handler and classifies focus changes per the
+    // standard Android contract via the pure audioFocusAction, exercised here
+    // without any platform: a permanent loss stays paused, a transient loss
+    // recovers, and a bare regain (screen-on / app-return / exit-Doze) does
+    // nothing.
+    AudioFocusAction action(bool begin, AudioInterruptionType type) =>
+        JustAudioPlaybackController.audioFocusAction(
+            AudioInterruptionEvent(begin, type));
+
+    test('a transient focus loss pauses (and can later resume)', () {
+      // AUDIOFOCUS_LOSS_TRANSIENT (a call, a notification/lock sound) maps to a
+      // begin + pause event.
+      expect(action(true, AudioInterruptionType.pause),
+          AudioFocusAction.pauseTransient);
+    });
+
+    test('a permanent focus loss pauses and stays paused', () {
+      // AUDIOFOCUS_LOSS (another media app took focus for good) maps to a
+      // begin + unknown event: pause and never resume on return.
+      expect(action(true, AudioInterruptionType.unknown),
+          AudioFocusAction.pausePermanent);
+    });
+
+    test('a duckable transient is ignored (we keep playing, never pause)', () {
+      expect(action(true, AudioInterruptionType.duck), AudioFocusAction.ignore);
+    });
+
+    test('a focus regain only ever maps to resume (gated at the call site)',
+        () {
+      // The regain itself classifies as resume, but the controller honours it
+      // only when a *transient* loss armed it. A regain after a permanent loss
+      // or with nothing playing is a no-op — the screen-on / app-return /
+      // exit-Doze case.
+      expect(
+          action(false, AudioInterruptionType.pause), AudioFocusAction.resume);
+      expect(action(false, AudioInterruptionType.unknown),
+          AudioFocusAction.resume);
+      // An unduck end is ignored.
+      expect(
+          action(false, AudioInterruptionType.duck), AudioFocusAction.ignore);
     });
   });
 }

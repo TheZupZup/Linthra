@@ -18,6 +18,22 @@ void main() {
         StabilityDiagnostics.describePlaybackError('sessionExpired'),
         'playback error: sessionExpired',
       );
+      expect(
+        StabilityDiagnostics.describeAudioFocus('regain:ignored'),
+        'audio focus: regain:ignored',
+      );
+      expect(
+        StabilityDiagnostics.describeMediaItemRebroadcast('artwork'),
+        'media item rebroadcast: artwork',
+      );
+      expect(
+        StabilityDiagnostics.describePlayCommand('media-session'),
+        'play command: media-session',
+      );
+      expect(
+        StabilityDiagnostics.describePauseCommand('media-session'),
+        'pause command: media-session',
+      );
     });
 
     test('a breadcrumb carries only its label — no room to leak a secret', () {
@@ -105,6 +121,29 @@ void main() {
     test('playbackError retains the last interruption kind', () {
       StabilityDiagnostics.playbackError('connectionLost');
       expect(StabilityDiagnostics.lastInterruptionKind, 'connectionLost');
+    });
+
+    test('audioFocus retains and records the event', () {
+      // A permanent loss pauses; the following regain is recorded as ignored,
+      // never a play (the "screen-on / return from another app" case).
+      StabilityDiagnostics.audioFocus('loss-permanent:paused');
+      StabilityDiagnostics.audioFocus('regain:ignored');
+      expect(StabilityDiagnostics.lastAudioFocusEvent, 'regain:ignored');
+      expect(SafeEventLog.instance.lines, <String>[
+        'audio-focus: loss-permanent:paused',
+        'audio-focus: regain:ignored',
+      ]);
+    });
+
+    test('rebroadcast, play and pause commands record source breadcrumbs', () {
+      StabilityDiagnostics.mediaItemRebroadcast('artwork');
+      StabilityDiagnostics.playCommand('media-session');
+      StabilityDiagnostics.pauseCommand('media-session');
+      expect(SafeEventLog.instance.lines, <String>[
+        'rebroadcast: artwork',
+        'play: media-session',
+        'pause: media-session',
+      ]);
     });
   });
 }

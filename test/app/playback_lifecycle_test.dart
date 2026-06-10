@@ -57,13 +57,12 @@ Future<void> _foreground(WidgetTester tester) async {
 Future<FakePlaybackController> _pumpApp(
   WidgetTester tester, {
   NotificationPermission? permission,
+  PlaybackState initial = const PlaybackState(
+    status: PlaybackStatus.playing,
+    currentTrack: _playingTrack,
+  ),
 }) async {
-  final controller = FakePlaybackController(
-    initial: const PlaybackState(
-      status: PlaybackStatus.playing,
-      currentTrack: _playingTrack,
-    ),
-  );
+  final controller = FakePlaybackController(initial: initial);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -104,6 +103,72 @@ void main() {
     expect(controller.playCount, 0);
     expect(controller.pauseCount, 0);
     expect(controller.stopCount, 0);
+  });
+
+  testWidgets('screen wake / lifecycle resumed never auto-resumes playback',
+      (tester) async {
+    // The regression: turning the screen back on (a lifecycle resumed) must not
+    // start or resume playback by itself. Start from a paused state and drive a
+    // full lock → unlock cycle.
+    final controller = await _pumpApp(
+      tester,
+      initial: const PlaybackState(
+        status: PlaybackStatus.paused,
+        currentTrack: _playingTrack,
+      ),
+    );
+
+    await _background(tester);
+    await _foreground(tester);
+    // A bare resumed (screen on without a prior full background cycle) too.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    // Nothing started playing on resume; the paused state is untouched.
+    expect(controller.playCount, 0);
+    expect(controller.playedTracks, isEmpty);
+    expect(controller.state.status, PlaybackStatus.paused);
+  });
+
+  testWidgets(
+      'a paused track stays paused across a background/foreground cycle',
+      (tester) async {
+    final controller = await _pumpApp(
+      tester,
+      initial: const PlaybackState(
+        status: PlaybackStatus.paused,
+        currentTrack: _playingTrack,
+      ),
+    );
+
+    await _background(tester);
+    // Background playback continues only if it was already playing: here it was
+    // paused, so nothing resumes while backgrounded.
+    expect(controller.playCount, 0);
+
+    await _foreground(tester);
+
+    // Still paused, never auto-resumed, never re-loaded.
+    expect(controller.state.status, PlaybackStatus.paused);
+    expect(controller.playCount, 0);
+    expect(controller.playedTracks, isEmpty);
+    expect(controller.pauseCount, 0);
+    expect(controller.stopCount, 0);
+  });
+
+  testWidgets(
+      'backgrounding while playing leaves playback running (continues only if '
+      'already playing)', (tester) async {
+    final controller = await _pumpApp(tester); // playing by default
+
+    await _background(tester);
+
+    // Already playing: the foreground service keeps it alive — no pause/stop,
+    // and equally no spurious re-trigger of play().
+    expect(controller.state.status, PlaybackStatus.playing);
+    expect(controller.pauseCount, 0);
+    expect(controller.stopCount, 0);
+    expect(controller.playCount, 0);
   });
 
   testWidgets('a background transition records the playback state for reports',

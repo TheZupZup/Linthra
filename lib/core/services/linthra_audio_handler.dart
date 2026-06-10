@@ -13,6 +13,7 @@ import '../repositories/playlist_repository.dart';
 import 'media_artwork_source.dart';
 import 'media_browser_tree.dart';
 import 'playback_controller.dart';
+import 'stability_diagnostics.dart';
 
 /// Logger name for the Android Auto / media-browser path. Filter device logs
 /// with `adb logcat | grep $_logName` to see whether the session attached and
@@ -122,10 +123,26 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   static const Duration _positionResyncThreshold = Duration(seconds: 1);
 
   @override
-  Future<void> play() => _controller.play();
+  Future<void> play() {
+    // A play that arrived through the platform media session: the user tapped
+    // the notification / lock-screen play, or Android Auto / Bluetooth / a
+    // headset sent PLAY. Breadcrumb it (secret-free) so every legitimate resume
+    // is accounted for and distinguishable from an unwanted self-resume — which,
+    // with the engine's audio-focus auto-resume disabled, no longer happens.
+    StabilityDiagnostics.playCommand('media-session');
+    return _controller.play();
+  }
 
   @override
-  Future<void> pause() => _controller.pause();
+  Future<void> pause() {
+    // A pause that arrived through the platform media session: the notification
+    // / lock-screen pause, or Android Auto / Bluetooth / a headset sending
+    // PAUSE. Breadcrumb it (secret-free) so a screen-off "it paused by itself"
+    // report can tell a real session PAUSE apart from an audio-focus-loss or
+    // becoming-noisy pause (both logged under `audio focus:` by the engine).
+    StabilityDiagnostics.pauseCommand('media-session');
+    return _controller.pause();
+  }
 
   @override
   Future<void> stop() async {
@@ -274,6 +291,11 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   /// `coverReady`).
   void _onCoverReady(Uri reference) {
     if (_controller.state.currentTrack?.artworkUri == reference) {
+      // A cover finished warming: refresh the now-playing card so the art shows.
+      // Breadcrumb it (secret-free) so a "cover art refresh restarted my music"
+      // report shows the rebroadcast is off the playback path — [_broadcast]
+      // mirrors the controller's *current* state and issues no transport command.
+      StabilityDiagnostics.mediaItemRebroadcast('artwork');
       _broadcast(_controller.state);
     }
   }

@@ -1066,6 +1066,37 @@ void main() {
         expect(pushes.length, beforeWarm + 1);
       });
 
+      test('a cover warm / MediaItem rebroadcast never calls play', () async {
+        // #172 artwork must stay strictly off the playback path: when a cover
+        // finishes warming, the handler re-publishes the now-playing MediaItem
+        // so the art appears — but it must NOT touch transport. A rebroadcast
+        // that resumed/started playback would be the "cover art restarted my
+        // music" bug.
+        final source = _RecordingArtworkSource();
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic], artwork: source);
+
+        // The user paused; the now-playing item is published, art-less.
+        await c.playTracks(<Track>[subsonic]);
+        c.emit(c.state.copyWith(status: PlaybackStatus.paused));
+        await _settle();
+        final int playsBefore = c.playedTracks.length;
+        final int playCountBefore = c.playCount;
+
+        // The cover warms out of band → coverReady fires → the item is
+        // re-broadcast with its art. No transport command may result.
+        source.warm(reference, localArt);
+        await _settle();
+
+        // The art landed (the rebroadcast did its job) …
+        expect(h.mediaItem.value?.artUri, localArt);
+        // … but playback was never started/resumed by it, and stays paused.
+        expect(c.playCount, playCountBefore);
+        expect(c.playedTracks.length, playsBefore);
+        expect(c.pauseCount, 0);
+        expect(h.playbackState.value.playing, isFalse);
+      });
+
       test(
           'coverReady for a non-current cover leaves the now-playing item alone',
           () async {
