@@ -1,0 +1,15 @@
+Linthra 0.1.4 — Navidrome/Subsonic cover art hotfix.
+
+Fixed:
+- Navidrome/Subsonic cover art now displays across the app.
+- Navidrome/Subsonic cover art now displays in Android Auto / media
+  session, using a privacy-safe local artwork path.
+- Android Auto artwork is handled without exposing tokens, salts,
+  passwords, usernames, server URLs, or authenticated cover URLs.
+
+Notes:
+- Jellyfin artwork still works.
+- Local embedded artwork still works.
+- Cast behavior is unchanged.
+
+No ads, no tracking, no analytics, no telemetry.
