@@ -138,16 +138,23 @@ abstract final class SubsonicEndpoints {
   /// credential in its query — it is therefore woven in here, on demand at
   /// render time, and never persisted on a track or in the catalog (the catalog
   /// stores only a credential-free `subsonic-cover:` reference; see
-  /// `SubsonicArtwork`). No `size` is requested, so the server serves the
-  /// original art — matching how Jellyfin's primary image is loaded full-size.
+  /// `SubsonicArtwork`).
+  ///
+  /// [size] asks the server to scale the cover to that many pixels (Subsonic's
+  /// `getCoverArt` `size` parameter). It is omitted for the in-app full-size
+  /// render (matching how Jellyfin's primary image loads full-size), and set for
+  /// the platform media session, which wants a small, fast-to-decode cover.
   static Uri coverArt(
     String baseUrl, {
     required String username,
     required SubsonicCredentials credentials,
     required String coverArtId,
+    int? size,
   }) =>
-      _build(baseUrl, 'getCoverArt', username, credentials,
-          extra: {idParam: coverArtId});
+      _build(baseUrl, 'getCoverArt', username, credentials, extra: {
+        idParam: coverArtId,
+        if (size != null) 'size': '$size',
+      });
 
   /// Builds `/rest/<method>.view` with the standard auth + format query and any
   /// method-specific [extra] parameters. The single place the salt+token are

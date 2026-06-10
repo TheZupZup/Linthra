@@ -103,6 +103,25 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
   stores only a credential-free `subsonic-cover:<coverArtId>` reference; the
   authenticated `getCoverArt` URL is resolved on demand at render time (the
   salt+token are woven in then, never persisted), exactly like stream URLs.
+  - **Media session (lock screen / Android Auto).** The platform session loads
+    `MediaItem.artUri` in its **own process** — where the render-time resolver
+    can't reach and a credentialed URL must never go — so Linthra fetches a
+    **server-downscaled** cover itself, caches it to a private file keyed by a
+    hash of the credential-free reference, and pre-warms the now-playing + next
+    covers off the playback path. The handler then hands the session a
+    credential-free **`content://` URI** (`MediaArtworkFileProvider`, authority
+    `…linthra.mediaartwork`, serving only that hashed-filename cover cache —
+    `res/xml/media_artwork_paths.xml`). The provider is `exported="false"` and
+    grants the media hosts (Android Auto / SystemUI / Bluetooth) **read-only**
+    access to each cover URI when Linthra opens it — so their own processes can
+    read it — and `audio_service` also decodes it in-process; the embedded
+    album-art bitmap is downscaled (`artDownscale*`) so it survives delivery to
+    the car. The credential is used once and never stored, logged, exposed, or
+    put in the URI / filename. A failed/slow fetch leaves the card art-less and
+    never blocks playback. Pending real-car confirmation; see
+    `docs/android-auto.md`.
+  - Cast still omits Subsonic artwork (a credentialed URL must not reach the
+    receiver).
 - **Lyrics**: synced or plain lyrics are fetched on demand via the OpenSubsonic
   `getLyricsBySongId` extension (how Navidrome exposes embedded/sidecar lyrics),
   with a fallback to the legacy `getLyrics` (plain text, matched by artist +
@@ -142,8 +161,10 @@ Concretely, Linthra:
 - never stores an authenticated cover-art URL in `Track.artworkUri` or the
   database (it stores the credential-free `subsonic-cover:<id>` reference, and
   weaves the salt+token in only when an image is actually rendered);
-- never puts a credential in a cache filename or cache metadata (the cache file
-  extension comes from the response content type, not the URL);
+- never puts a credential in a cache filename or cache metadata (the offline
+  audio cache file extension comes from the response content type, not the URL;
+  the media-session artwork cache filename is a hash of the credential-free
+  `subsonic-cover:` reference — never the server URL or auth query);
 - never surfaces a credential or credentialed URL in a UI error message;
 - resolves stream/download URLs **only at play/download time**, and cover-art
   URLs **only at render time**.
@@ -159,16 +180,6 @@ actions stay hidden/disabled rather than failing:
   `getLyricsBySongId` path returns synced lyrics today; the legacy `getLyrics`
   fallback is treated as plain text, so any LRC-style timestamps embedded in its
   value aren't time-synced yet. That refinement is a follow-up.
-- **Cover art on the lock screen / Android Auto** — in-app artwork is resolved
-  at render time (see the "Cover art" capability above), but the platform media
-  session loads `MediaItem.artUri` itself and can't reach Linthra's resolver, so
-  it would need a credential-free image URL Subsonic doesn't offer. The opaque
-  `subsonic-cover:` reference is therefore deliberately kept out of
-  `MediaItem.artUri` (only `http(s)`/`file:` covers are handed to the session),
-  so the notification/lock screen/Android Auto show no Subsonic art rather than
-  a custom-scheme URI the platform can't fetch — unchanged from before. Caching
-  the resolved cover to a local `file:` the session can read (token-free) is the
-  follow-up.
 - **Per-track cast content type** — the cast receiver is sent a generic
   `audio/mpeg` hint; an exact per-track type / transcode profile is a follow-up.
 - **In-app browse/search by artist/album** — the synced catalog lists tracks;

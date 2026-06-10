@@ -94,6 +94,25 @@ void main() {
       expect(resolved.path, isNot(contains('the-salt')));
     });
 
+    test('forwards a size so the media session gets a server-scaled cover', () {
+      final Uri resolved = SubsonicArtwork.resolve(
+        SubsonicArtwork.reference('al-1'),
+        _session,
+        size: 512,
+      )!;
+      expect(resolved.queryParameters['id'], 'al-1');
+      expect(resolved.queryParameters['size'], '512');
+      // Still credential-free in the path, exactly like the full-size resolve.
+      expect(resolved.path, isNot(contains('the-secret-token')));
+      expect(resolved.path, isNot(contains('the-salt')));
+    });
+
+    test('omits size by default (the in-app render stays full-size)', () {
+      final Uri resolved =
+          SubsonicArtwork.resolve(SubsonicArtwork.reference('al-1'), _session)!;
+      expect(resolved.queryParameters.containsKey('size'), isFalse);
+    });
+
     test('returns null for a non-reference uri so other covers pass through',
         () {
       // Jellyfin's already-loadable http URL must not be rewritten.

@@ -1,14 +1,47 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart' as audio;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/linthra_audio_handler.dart';
+import 'package:linthra/core/services/media_artwork_source.dart';
 import 'package:linthra/core/services/media_browser_tree.dart';
 
 import '../../features/library/fake_music_library_repository.dart';
 import '../../features/player/fake_playback_controller.dart';
 import 'fake_browse_repositories.dart';
+
+/// A synchronous [MediaArtworkSource] that returns the covers it's been warmed
+/// with and records every lookup, so tests can prove the handler reads the cache
+/// by the credential-free reference (and not at all for platform-loadable art).
+class _RecordingArtworkSource implements MediaArtworkSource {
+  _RecordingArtworkSource([Map<Uri, Uri>? cache])
+      : _cache = cache ?? <Uri, Uri>{};
+
+  final Map<Uri, Uri> _cache;
+  final List<Uri> queries = <Uri>[];
+  final StreamController<Uri> _coverReady = StreamController<Uri>.broadcast();
+
+  /// Simulates the prewarm service finishing a fetch for [reference]: the cover
+  /// becomes cached and the ready event fires (as the real cache does).
+  void warm(Uri reference, Uri local) {
+    _cache[reference] = local;
+    _coverReady.add(reference);
+  }
+
+  @override
+  Uri? cached(Uri reference) {
+    queries.add(reference);
+    return _cache[reference];
+  }
+
+  @override
+  Stream<Uri> get coverReady => _coverReady.stream;
+
+  Future<void> close() => _coverReady.close();
+}
 
 Track _track(String id) {
   return Track(
@@ -879,6 +912,261 @@ void main() {
           expect(art, isNot(contains('api_key')));
           expect(art.toLowerCase(), isNot(contains('token')));
         }
+      });
+    });
+
+    group('Subsonic media-session artwork (privacy-safe local cache)', () {
+      // A Subsonic track persists a *credential-free* reference in artworkUri
+      // (subsonic-cover:<id>). The platform media session loads artUri itself —
+      // somewhere Linthra can't add the salt+token — so the handler attaches a
+      // *pre-warmed local* cover (a file: the MediaArtworkPrewarmService cached
+      // ahead of time), never the reference and never the getCoverArt URL. The
+      // read is synchronous, so a warmed cover is present on the very first push
+      // (beating a head unit's metadata snapshot) and nothing fetches on the
+      // playback path.
+      final subsonic = Track(
+        id: 'sub-1',
+        title: 'Sub Song',
+        uri: 'subsonic:sub-1',
+        artistName: 'Sub Artist',
+        albumName: 'Sub Album',
+        artworkUri: Uri.parse('subsonic-cover:al-9'),
+      );
+      final reference = Uri.parse('subsonic-cover:al-9');
+      // What the cache hands back: a credential-free FileProvider content:// URI
+      // over the cached cover, which the platform session can read.
+      final localArt = Uri.parse(
+        'content://io.github.thezupzup.linthra.mediaartwork/media_artwork/'
+        'abc.img',
+      );
+
+      LinthraAudioHandler handlerWith(
+        FakePlaybackController c,
+        List<Track> tracks, {
+        MediaArtworkSource? artwork,
+      }) {
+        final h = LinthraAudioHandler(
+          c,
+          MediaBrowserTree(FakeMusicLibraryRepository(tracks: tracks)),
+          artwork: artwork,
+        );
+        addTearDown(() async {
+          await h.dispose();
+          await c.dispose();
+          if (artwork is _RecordingArtworkSource) await artwork.close();
+        });
+        return h;
+      }
+
+      test(
+          'shows a pre-warmed cover as a safe local file artUri on the first '
+          'push', () async {
+        final source = _RecordingArtworkSource(<Uri, Uri>{reference: localArt});
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic], artwork: source);
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle(); // a single broadcast — the read is synchronous
+
+        // The now-playing item — what the lock screen / Android Auto card shows
+        // — carries the safe local cover, present immediately (snapshot-safe).
+        expect(h.mediaItem.value?.id, 'sub-1');
+        expect(h.mediaItem.value?.artUri, localArt);
+        // It was looked up by the credential-free reference, nothing else.
+        expect(source.queries, contains(reference));
+      });
+
+      test(
+          'the now-playing artUri is a safe file:, never the reference or a '
+          'credential', () async {
+        final source = _RecordingArtworkSource(<Uri, Uri>{reference: localArt});
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic], artwork: source);
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+
+        final String art = h.mediaItem.value?.artUri?.toString() ?? '';
+        expect(art, startsWith('content:'));
+        expect(art, isNot(contains('subsonic-cover')));
+        expect(art.toLowerCase(), isNot(contains('getcoverart')));
+        expect(art.toLowerCase(), isNot(contains('token')));
+        expect(art.toLowerCase(), isNot(contains('u=')));
+        expect(art.toLowerCase(), isNot(contains('t=')));
+        expect(art.toLowerCase(), isNot(contains('s=')));
+      });
+
+      test('an un-warmed cover leaves artUri null without affecting playback',
+          () async {
+        // The cover isn't cached yet (or couldn't be): artUri is null, never the
+        // reference, and the rest of the now-playing metadata is intact.
+        final source = _RecordingArtworkSource(); // empty cache
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic], artwork: source);
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+
+        final item = h.mediaItem.value;
+        expect(item, isNotNull);
+        expect(item!.id, 'sub-1'); // metadata intact, playback unaffected
+        expect(item.title, 'Sub Song');
+        expect(item.artUri, isNull); // no artwork, and crucially no leak
+      });
+
+      test(
+          'a cover warmed mid-track appears immediately via coverReady, no '
+          'position tick needed', () async {
+        // The cold first-track case: the cover finishes warming after the card
+        // is published art-less. The coverReady event re-publishes the item at
+        // once — no waiting for the next playback tick (the residual delay fix).
+        final source = _RecordingArtworkSource(); // empty at first
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic], artwork: source);
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+        expect(h.mediaItem.value?.artUri, isNull);
+
+        // The prewarm completes out of band → cover cached + coverReady fires.
+        // No position tick is emitted; the cover must still appear.
+        source.warm(reference, localArt);
+        await _settle();
+
+        expect(h.mediaItem.value?.artUri, localArt);
+      });
+
+      test('coverReady for the current track re-publishes only once (no loop)',
+          () async {
+        // The re-publish must be a single, gated push: one item with art, never
+        // a tight loop of re-broadcasts.
+        final source = _RecordingArtworkSource();
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic], artwork: source);
+
+        final List<audio.MediaItem?> pushes = <audio.MediaItem?>[];
+        final sub = h.mediaItem.listen(pushes.add);
+        addTearDown(sub.cancel);
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+        final int beforeWarm = pushes.length;
+
+        source.warm(reference, localArt); // cover cached + coverReady
+        await _settle();
+
+        // Exactly one extra push — the item that gained the art.
+        expect(pushes.length, beforeWarm + 1);
+        expect(pushes.last?.artUri, localArt);
+
+        // A duplicate coverReady for an already-shown cover is a no-op (the
+        // _sameItem guard), so no further push.
+        source.warm(reference, localArt);
+        await _settle();
+        expect(pushes.length, beforeWarm + 1);
+      });
+
+      test(
+          'coverReady for a non-current cover leaves the now-playing item alone',
+          () async {
+        // Warming an up-next cover must not disturb the current now-playing item.
+        final source = _RecordingArtworkSource();
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic], artwork: source);
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+
+        // A different reference (some up-next cover) becomes ready.
+        source.warm(Uri.parse('subsonic-cover:other'),
+            Uri.parse('content://x/media_artwork/other.img'));
+        await _settle();
+
+        // The now-playing item is unchanged (still art-less for sub-1).
+        expect(h.mediaItem.value?.id, 'sub-1');
+        expect(h.mediaItem.value?.artUri, isNull);
+      });
+
+      test('without an artwork source, a reference never leaks into artUri',
+          () async {
+        // The default (a platform without the cache): the unloadable
+        // subsonic-cover: reference must be dropped, not handed to the session.
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic]); // no artwork source
+
+        await c.playTracks(<Track>[subsonic]);
+        await _settle();
+
+        final item = h.mediaItem.value;
+        expect(item, isNotNull);
+        expect(item!.artUri, isNull);
+        expect(
+            item.artUri?.toString() ?? '', isNot(contains('subsonic-cover')));
+      });
+
+      test('browse-tree containers drop an un-warmed cover reference',
+          () async {
+        // Browse covers aren't pre-warmed, so a Subsonic album/artist
+        // container's reference is dropped (null), never leaked as an unloadable
+        // URI.
+        final source = _RecordingArtworkSource(); // nothing cached
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[subsonic], artwork: source);
+
+        final albums = await h.getChildren(MediaId.albums);
+        expect(albums, isNotEmpty);
+        for (final item in albums) {
+          expect(item.artUri, isNull);
+          expect(
+            item.artUri?.toString() ?? '',
+            isNot(contains('subsonic-cover')),
+          );
+        }
+      });
+
+      test('Jellyfin http art and local file art pass through unchanged',
+          () async {
+        // A platform-loadable cover (Jellyfin token-free http, a local file:) is
+        // forwarded unchanged, and the artwork source is never even consulted.
+        final jf = Track(
+          id: 'jf',
+          title: 'JF',
+          uri: 'jellyfin:jf',
+          artworkUri:
+              Uri.parse('https://music.example.com/Items/jf/Images/Primary'),
+        );
+        final loc = Track(
+          id: 'loc',
+          title: 'Loc',
+          uri: '/music/loc.mp3',
+          artworkUri: Uri.parse('file:///cache/linthra_local_artwork/loc.img'),
+        );
+        final source = _RecordingArtworkSource();
+        final c = FakePlaybackController();
+        final h = handlerWith(c, <Track>[jf, loc], artwork: source);
+
+        await c.playTracks(<Track>[jf, loc]);
+        await _settle();
+
+        // Jellyfin token-free http art is used as-is.
+        final nowPlayingArt = h.mediaItem.value?.artUri;
+        expect(
+          nowPlayingArt,
+          Uri.parse('https://music.example.com/Items/jf/Images/Primary'),
+        );
+        // The local file: art rides on its queue row unchanged.
+        final locRow = h.queue.value.firstWhere((i) => i.id == 'loc');
+        expect(
+          locRow.artUri,
+          Uri.parse('file:///cache/linthra_local_artwork/loc.img'),
+        );
+        // Neither becomes a content:// URI, so they are never served by the
+        // media-artwork FileProvider and its read-grant logic never runs for
+        // Jellyfin/local covers — only Subsonic references go through the cache.
+        expect(nowPlayingArt?.isScheme('content'), isFalse);
+        expect(locRow.artUri?.isScheme('content'), isFalse);
+        // The cover source is not consulted at all for platform-loadable covers.
+        expect(source.queries, isEmpty);
       });
     });
   });

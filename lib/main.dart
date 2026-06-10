@@ -26,6 +26,7 @@ import 'features/library/playback_candidates_provider.dart';
 import 'features/player/cast/cast_providers.dart';
 import 'features/player/favorites_providers.dart';
 import 'features/player/lyrics_providers.dart';
+import 'features/player/media_artwork_providers.dart';
 import 'features/player/player_providers.dart';
 import 'features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'features/settings/playback/normalize_volume_controller.dart';
@@ -105,13 +106,27 @@ Future<void> main() async {
   // browse Playlists/Favorites/Offline (when the user has any) alongside
   // Songs/Albums/Artists/Queue — all read straight from the persisted stores, so
   // the car tree is answerable even before any phone screen is opened.
+  //
+  // The media-session artwork cache lets the now-playing card show a
+  // credential-free source's cover (Subsonic) as a safe local file: — the
+  // handler reads it synchronously, never a credentialed getCoverArt URL. The
+  // covers are fetched (server-downscaled) and cached ahead of time, off the
+  // playback path, by the prewarm service started below.
   await connectMediaSession(
     container.read(playbackControllerProvider),
     container.read(musicLibraryRepositoryProvider),
     playlists: container.read(playlistRepositoryProvider),
     favorites: container.read(favoritesRepositoryProvider),
     downloads: container.read(downloadRepositoryProvider),
+    artwork: container.read(mediaArtworkCacheProvider),
   );
+
+  // Warm the now-playing + look-ahead Subsonic covers into the media-session
+  // artwork cache as playback advances, so each cover is cached before its track
+  // reaches the now-playing card (beating a head unit's metadata snapshot).
+  // Off the playback path and best-effort, like the stream preloader below;
+  // instantiating it wires the listener.
+  container.read(mediaArtworkPrewarmServiceProvider);
 
   // Start smart pre-cache: as playback advances it warms the next queued tracks
   // into the offline cache (under the same limit, honouring "Allow mobile data"

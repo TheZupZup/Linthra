@@ -116,6 +116,33 @@
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
 
+        <!-- FileProvider for Navidrome/Subsonic media-session cover art.
+
+             The platform media session (lock screen / Android Auto) loads
+             MediaItem.artUri in its OWN process, which can't read an app-private
+             file: path — so the cover Linthra fetched and cached is exposed to it
+             as a content:// URI served here instead. The MediaArtworkFileProvider
+             subclass grants the media consumers (Android Auto / SystemUI /
+             Bluetooth) read access to each cover URI when Linthra opens it, so
+             those processes can actually read it; exported="false" +
+             grantUriPermissions keeps nothing world-readable — only those
+             explicit per-URI read grants apply. It serves ONLY the private cover
+             cache (res/xml/media_artwork_paths.xml), whose filenames are SHA-256
+             hashes of a credential-free reference — never a username, token,
+             salt, server URL, or auth query. No storage permission is added. The
+             authority is fixed (matches kMediaArtworkAuthority in
+             lib/core/services/media_artwork_content_uri.dart) so it is identical
+             in debug and release. -->
+        <provider
+            android:name=".MediaArtworkFileProvider"
+            android:authorities="io.github.thezupzup.linthra.mediaartwork"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/media_artwork_paths" />
+        </provider>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

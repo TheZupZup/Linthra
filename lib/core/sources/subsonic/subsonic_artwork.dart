@@ -47,7 +47,11 @@ abstract final class SubsonicArtwork {
   /// `getCoverArt` URL for [session], or `null` when [reference] isn't a
   /// Subsonic cover reference. The salt+token are woven in here, on demand, and
   /// never persisted — the stored reference stays credential-free.
-  static Uri? resolve(Uri reference, SubsonicSession session) {
+  ///
+  /// [size] (px) is forwarded to `getCoverArt` to ask the server for a scaled
+  /// cover: it is left unset for the in-app full-size render, and set for the
+  /// platform media-session cache, which wants a small, fast-to-decode image.
+  static Uri? resolve(Uri reference, SubsonicSession session, {int? size}) {
     final String? id = coverArtId(reference);
     if (id == null) return null;
     return SubsonicEndpoints.coverArt(
@@ -56,6 +60,7 @@ abstract final class SubsonicArtwork {
       credentials:
           SubsonicCredentials(salt: session.salt, token: session.token),
       coverArtId: id,
+      size: size,
     );
   }
 }

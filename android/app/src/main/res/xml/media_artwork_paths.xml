@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paths the media-artwork FileProvider (see AndroidManifest.xml) may serve.
+
+     Exactly one entry, and only the private media-session cover cache:
+     `media_session_artwork/` under the app cache dir
+     (path_provider's getTemporaryDirectory() == Context.getCacheDir()), which
+     `MediaArtworkCache` writes to. The served content:// URIs are
+     `content://<authority>/media_artwork/<sha256>.img` — the filename is a hash
+     of a credential-free `subsonic-cover:` reference, never a credential, server
+     URL, or auth query. Nothing else (no documents, no other cache, no storage)
+     is exposed. -->
+<paths>
+    <cache-path
+        name="media_artwork"
+        path="media_session_artwork/" />
+</paths>
