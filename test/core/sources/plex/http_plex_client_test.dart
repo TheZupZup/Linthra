@@ -211,7 +211,10 @@ void main() {
       final HttpPlexClient client = _client(MockClient((http.Request r) async {
         captured = r;
         return _json(<String, dynamic>{
-          'MediaContainer': <String, dynamic>{'size': 0, 'Metadata': <dynamic>[]},
+          'MediaContainer': <String, dynamic>{
+            'size': 0,
+            'Metadata': <dynamic>[]
+          },
         });
       }));
 
@@ -230,7 +233,10 @@ void main() {
       final HttpPlexClient client = _client(MockClient((http.Request r) async {
         captured = r;
         return _json(<String, dynamic>{
-          'MediaContainer': <String, dynamic>{'size': 0, 'Metadata': <dynamic>[]},
+          'MediaContainer': <String, dynamic>{
+            'size': 0,
+            'Metadata': <dynamic>[]
+          },
         });
       }));
 
@@ -291,7 +297,8 @@ void main() {
         itemType: PlexMetadataType.track,
       );
 
-      expect(tracks.map((PlexMetadata t) => t.ratingKey), <String>['1', '2', '3']);
+      expect(
+          tracks.map((PlexMetadata t) => t.ratingKey), <String>['1', '2', '3']);
       // Two pages: started at 0 then 2, each asking for the page size.
       expect(requestedStarts, <String>['0', '2']);
       expect(requestedSizes, <String>['2', '2']);
@@ -330,7 +337,10 @@ void main() {
           _client(pageSize: 2, MockClient((http.Request r) async {
         calls++;
         return _json(<String, dynamic>{
-          'MediaContainer': <String, dynamic>{'size': 0, 'Metadata': <dynamic>[]},
+          'MediaContainer': <String, dynamic>{
+            'size': 0,
+            'Metadata': <dynamic>[]
+          },
         });
       }));
 
@@ -441,8 +451,8 @@ void main() {
       await expectLater(
         client.fetchSections(baseUrl: _base, token: _token),
         throwsA(isA<PlexException>()
-            .having((PlexException e) => e.kind, 'kind',
-                PlexErrorKind.serverError)
+            .having(
+                (PlexException e) => e.kind, 'kind', PlexErrorKind.serverError)
             .having((PlexException e) => e.statusCode, 'statusCode', 503)),
       );
     });
