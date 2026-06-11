@@ -83,7 +83,8 @@ void main() {
       expect(uri.queryParameters[PlexEndpoints.typeParam], '10');
     });
 
-    test('the named pagination keys are exactly the PMS header/query names', () {
+    test('the named pagination keys are exactly the PMS header/query names',
+        () {
       expect(PlexEndpoints.containerStartParam, 'X-Plex-Container-Start');
       expect(PlexEndpoints.containerSizeParam, 'X-Plex-Container-Size');
     });
@@ -104,8 +105,8 @@ void main() {
         PlexEndpoints.metadata(_base, ratingKey: '1234'),
       ];
       for (final Uri uri in apiUrls) {
-        expect(uri.queryParameters.containsKey(PlexEndpoints.tokenParam),
-            isFalse,
+        expect(
+            uri.queryParameters.containsKey(PlexEndpoints.tokenParam), isFalse,
             reason: '$uri must not carry the token in its query');
         expect(uri.toString().toLowerCase(), isNot(contains('x-plex-token')),
             reason: '$uri must be safe to log');
