@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// An authenticated Plex session: everything needed to make further authorized
 /// requests to one Plex Media Server, kept in one immutable value so it can be
 /// persisted as a unit and passed to the source.
@@ -21,7 +23,9 @@ class PlexSession {
     required this.baseUrl,
     required this.token,
     required this.machineIdentifier,
+    this.serverName,
     this.serverVersion,
+    this.selectedSectionKeys = const <String>[],
   });
 
   /// Clean base URL of the server (no trailing slash), e.g.
@@ -38,21 +42,36 @@ class PlexSession {
   /// recognise the same server again. Not a secret.
   final String machineIdentifier;
 
+  /// The server's friendly name, when known. `GET /identity` doesn't report
+  /// one, so the manual flow leaves this `null`; the plex.tv discovery flow (a
+  /// follow-up) provides it. Not secret, display only.
+  final String? serverName;
+
   /// The server's reported version (from `/identity`), when known. Carried so the
   /// diagnostics report can show it after a restart. Not secret, display only.
   final String? serverVersion;
+
+  /// `key`s of the music library sections the user chose to include. Starts
+  /// empty at sign-in — the library picker (a later PR) fills it — and scopes
+  /// the future artist/album/track fetches (see docs/plex.md → MusicSource
+  /// mapping). Section keys are not secret.
+  final List<String> selectedSectionKeys;
 
   PlexSession copyWith({
     String? baseUrl,
     String? token,
     String? machineIdentifier,
+    String? serverName,
     String? serverVersion,
+    List<String>? selectedSectionKeys,
   }) {
     return PlexSession(
       baseUrl: baseUrl ?? this.baseUrl,
       token: token ?? this.token,
       machineIdentifier: machineIdentifier ?? this.machineIdentifier,
+      serverName: serverName ?? this.serverName,
       serverVersion: serverVersion ?? this.serverVersion,
+      selectedSectionKeys: selectedSectionKeys ?? this.selectedSectionKeys,
     );
   }
 
@@ -63,7 +82,10 @@ class PlexSession {
         'baseUrl': baseUrl,
         'token': token,
         'machineIdentifier': machineIdentifier,
+        if (serverName != null) 'serverName': serverName,
         if (serverVersion != null) 'serverVersion': serverVersion,
+        if (selectedSectionKeys.isNotEmpty)
+          'selectedSectionKeys': selectedSectionKeys,
       };
 
   /// Rebuilds a session from [toJson] output, or returns `null` if any required
@@ -76,11 +98,19 @@ class PlexSession {
     if (baseUrl == null || baseUrl.isEmpty) return null;
     if (token == null || token.isEmpty) return null;
     if (machineIdentifier == null || machineIdentifier.isEmpty) return null;
+    // Records persisted before section selection existed simply lack the key;
+    // they load with an empty selection rather than failing.
+    final Object? rawKeys = json['selectedSectionKeys'];
+    final List<String> selectedSectionKeys = rawKeys is List
+        ? rawKeys.whereType<String>().toList(growable: false)
+        : const <String>[];
     return PlexSession(
       baseUrl: baseUrl,
       token: token,
       machineIdentifier: machineIdentifier,
+      serverName: json['serverName'] as String?,
       serverVersion: json['serverVersion'] as String?,
+      selectedSectionKeys: selectedSectionKeys,
     );
   }
 
@@ -91,14 +121,18 @@ class PlexSession {
           other.baseUrl == baseUrl &&
           other.token == token &&
           other.machineIdentifier == machineIdentifier &&
-          other.serverVersion == serverVersion);
+          other.serverName == serverName &&
+          other.serverVersion == serverVersion &&
+          listEquals(other.selectedSectionKeys, selectedSectionKeys));
 
   @override
   int get hashCode => Object.hash(
         baseUrl,
         token,
         machineIdentifier,
+        serverName,
         serverVersion,
+        Object.hashAll(selectedSectionKeys),
       );
 
   /// Redacts the token so the session can be safely interpolated into logs or
@@ -106,5 +140,7 @@ class PlexSession {
   @override
   String toString() => 'PlexSession(baseUrl: $baseUrl, '
       'machineIdentifier: $machineIdentifier, '
-      'serverVersion: $serverVersion, token: <redacted>)';
+      'serverName: $serverName, '
+      'serverVersion: $serverVersion, '
+      'selectedSectionKeys: $selectedSectionKeys, token: <redacted>)';
 }

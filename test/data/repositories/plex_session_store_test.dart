@@ -6,7 +6,9 @@ const _session = PlexSession(
   baseUrl: 'https://plex.example.com:32400',
   token: 'tok-123',
   machineIdentifier: 'machine-abc',
+  serverName: 'Living Room PMS',
   serverVersion: '1.40.1',
+  selectedSectionKeys: <String>['5', '12'],
 );
 
 void main() {
@@ -40,17 +42,37 @@ void main() {
       expect(restored, _session);
       // The encrypted store must be able to persist and restore the token.
       expect(restored!.token, 'tok-123');
+      expect(restored.serverName, 'Living Room PMS');
+      expect(restored.selectedSectionKeys, <String>['5', '12']);
     });
 
-    test('omits the optional serverVersion when null', () {
+    test('omits the optional fields when absent', () {
       const minimal = PlexSession(
         baseUrl: 'https://plex.example.com',
         token: 'tok',
         machineIdentifier: 'm',
       );
       final json = minimal.toJson();
+      expect(json.containsKey('serverName'), isFalse);
       expect(json.containsKey('serverVersion'), isFalse);
+      expect(json.containsKey('selectedSectionKeys'), isFalse);
       expect(PlexSession.fromJson(json), minimal);
+    });
+
+    test('loads a record persisted before section selection existed', () {
+      // The shape SecurePlexSessionStore wrote under plex_session_v1 before
+      // serverName/selectedSectionKeys were added.
+      const legacy = <String, dynamic>{
+        'baseUrl': 'https://plex.example.com:32400',
+        'token': 'tok-123',
+        'machineIdentifier': 'machine-abc',
+        'serverVersion': '1.40.1',
+      };
+      final restored = PlexSession.fromJson(legacy);
+      expect(restored, isNotNull);
+      expect(restored!.token, 'tok-123');
+      expect(restored.serverName, isNull);
+      expect(restored.selectedSectionKeys, isEmpty);
     });
 
     test('returns null when a required field is missing or blank', () {
@@ -75,6 +97,31 @@ void main() {
     });
   });
 
+  group('PlexSession value semantics', () {
+    test('equality covers the selected section keys', () {
+      expect(_session, _session.copyWith());
+      expect(
+        _session,
+        isNot(_session.copyWith(selectedSectionKeys: <String>['5'])),
+      );
+    });
+
+    test('copyWith replaces the selection (the library picker path)', () {
+      const fresh = PlexSession(
+        baseUrl: 'https://plex.example.com',
+        token: 'tok',
+        machineIdentifier: 'm',
+      );
+      expect(fresh.selectedSectionKeys, isEmpty);
+
+      final picked = fresh.copyWith(selectedSectionKeys: <String>['3']);
+      expect(picked.selectedSectionKeys, <String>['3']);
+      // The token and server identity ride along untouched.
+      expect(picked.token, 'tok');
+      expect(picked.machineIdentifier, 'm');
+    });
+  });
+
   group('token redaction', () {
     test('toString redacts the token, keeps metadata visible', () {
       final text = _session.toString();
@@ -83,6 +130,7 @@ void main() {
       // Server metadata stays visible for diagnostics.
       expect(text, contains('machine-abc'));
       expect(text, contains('plex.example.com'));
+      expect(text, contains('Living Room PMS'));
     });
 
     test('the token lives only in the persisted JSON, not in toString', () {
