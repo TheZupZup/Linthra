@@ -18,11 +18,6 @@ import io.flutter.plugin.common.MethodChannel
 // is mirrored by MethodChannelSafDocumentLister / MethodChannelSafFolderPicker
 // on the Dart side.
 class MainActivity : AudioServiceActivity() {
-    // The pending reply for an in-flight folder pick. A SAF chooser is a separate
-    // activity, so the answer arrives asynchronously in onActivityResult; we hold
-    // the channel reply until then. Only one pick can be in flight at a time.
-    private var pendingFolderPickResult: MethodChannel.Result? = null
-
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SAF_CHANNEL)
@@ -118,35 +113,56 @@ class MainActivity : AudioServiceActivity() {
             super.onActivityResult(requestCode, resultCode, data)
             return
         }
-        val result = pendingFolderPickResult
-        pendingFolderPickResult = null
-        if (result == null) {
-            // The activity was recreated mid-pick and the reply was lost; nothing
-            // to deliver. Don't crash.
-            return
-        }
+
         val treeUri: Uri? = if (resultCode == Activity.RESULT_OK) data?.data else null
-        if (treeUri == null) {
-            // User cancelled (or no URI came back). null == "no selection" on the
-            // Dart side, which the controller treats as a cancelled pick.
-            result.success(null)
-            return
-        }
-        // Persist the read grant so a later scan/rescan still has access.
+
+        // Take the persistable read grant first, before touching the reply. This
+        // happens whenever a folder came back, independently of whether the Dart
+        // reply still lives: if the host activity was recreated while the chooser
+        // was in front, the result is delivered to a *new* MainActivity instance,
+        // and persisting here means the grant is never lost even in that case.
         // Best-effort: if the grant isn't persistable the URI still works this
         // session, and diagnostics will report the lost grant later.
-        try {
-            contentResolver.takePersistableUriPermission(
-                treeUri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-        } catch (e: SecurityException) {
-            // Not persistable on this provider; the session grant still stands.
+        if (treeUri != null) {
+            try {
+                contentResolver.takePersistableUriPermission(
+                    treeUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (e: SecurityException) {
+                // Not persistable on this provider; the session grant still stands.
+            }
         }
-        result.success(treeUri.toString())
+
+        // Deliver the outcome to the waiting Dart future. Because the reply is held
+        // in a process-scoped holder (see the companion object), a MainActivity
+        // recreated mid-pick still finds and completes it here — so the picker
+        // always settles to a selection (the tree URI) or a cancel (null), and the
+        // Settings card never stays stuck loading. If the whole engine was torn
+        // down with the activity, the Dart isolate that awaited this reply is gone
+        // too: completing the (now-detached) reply is a harmless no-op, and the
+        // restarted UI starts from a clean, non-loading state.
+        val result = pendingFolderPickResult
+        pendingFolderPickResult = null
+        result?.success(treeUri?.toString())
     }
 
     companion object {
+        // The pending reply for an in-flight folder pick. A SAF chooser is a
+        // separate activity, so the answer arrives asynchronously in
+        // onActivityResult; we hold the channel reply until then.
+        //
+        // Process-scoped (not an activity field) on purpose: while the chooser is
+        // in front the host activity can be destroyed and recreated ("Don't keep
+        // activities", a low-memory reclaim, or a config change outside the
+        // manifest's configChanges list). onActivityResult is then dispatched to
+        // the new instance; an instance field would already be null there and the
+        // reply would be dropped, hanging the Dart future. Keeping it here lets the
+        // recreated activity complete the same reply. It is always cleared once a
+        // result arrives, and dies with the process, so it does not outlive the
+        // pick. Only one pick can be in flight at a time.
+        private var pendingFolderPickResult: MethodChannel.Result? = null
+
         private const val SAF_CHANNEL = "io.github.thezupzup.linthra/saf"
 
         // Arbitrary, app-local request code for the folder chooser. Kept within
