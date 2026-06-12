@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/linthra_app.dart';
+import 'core/models/plex_session.dart';
 import 'core/models/subsonic_session.dart';
 import 'core/services/linthra_audio_handler.dart';
+import 'core/sources/plex/plex_artwork.dart';
 import 'core/sources/subsonic/subsonic_artwork.dart';
 import 'data/repositories/default_provider_store_provider.dart';
 import 'data/repositories/download_repository_provider.dart';
@@ -30,6 +32,7 @@ import 'features/player/media_artwork_providers.dart';
 import 'features/player/player_providers.dart';
 import 'features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'features/settings/playback/normalize_volume_controller.dart';
+import 'features/settings/plex/plex_providers.dart';
 import 'features/settings/subsonic/subsonic_settings_controller.dart';
 import 'shared/widgets/artwork_image.dart';
 
@@ -178,20 +181,32 @@ Future<void> main() async {
     // Ignore: the user can still connect in Settings.
   }
 
-  // Teach the shared artwork seam how to turn a credential-free Subsonic cover
-  // reference (subsonic-cover:<id>, the only artwork the catalog persists) into
-  // an authenticated getCoverArt URL, weaving the live session's salt+token in
-  // at render time — exactly how stream URLs are minted on demand, so the
-  // credential never reaches the catalog. Reads the session live, so signing
-  // in/out is picked up without a rebuild; returns null when signed out (the
-  // row keeps its placeholder) and for any non-Subsonic reference (Jellyfin and
-  // local covers load directly). Secret-free: only the resolved NetworkImage URL
-  // is built, never logged.
+  // Teach the shared artwork seam how to turn a credential-free cover
+  // reference (subsonic-cover:<id> or plex-thumb:<path>, the only artwork the
+  // catalog persists for those providers) into an authenticated cover URL,
+  // weaving the live session's credential in at render time — exactly how
+  // stream URLs are minted on demand, so the credential never reaches the
+  // catalog. Each resolver owns one scheme and returns null for the rest, so
+  // they chain safely. Sessions are read live, so signing in/out is picked up
+  // without a rebuild; a signed-out provider's reference stays unresolved (the
+  // row keeps its placeholder) and anything else (Jellyfin and local covers)
+  // loads directly. Plex has no connection UI yet, so its session is always
+  // null today and plex-thumb: references simply keep their placeholder.
+  // Secret-free: only the resolved NetworkImage URL is built, never logged.
   installArtworkReferenceResolver((Uri reference) {
-    final SubsonicSession? session =
+    final SubsonicSession? subsonicSession =
         container.read(subsonicSettingsControllerProvider.notifier).session;
-    if (session == null) return null;
-    return SubsonicArtwork.resolve(reference, session);
+    if (subsonicSession != null) {
+      final Uri? resolved = SubsonicArtwork.resolve(reference, subsonicSession);
+      if (resolved != null) return resolved;
+    }
+    final PlexSession? plexSession =
+        container.read(plexMusicSourceProvider)?.session;
+    if (plexSession != null) {
+      final Uri? resolved = PlexArtwork.resolve(reference, plexSession);
+      if (resolved != null) return resolved;
+    }
+    return null;
   });
 
   // With the session loaded, pull the user's Jellyfin favourites so the heart

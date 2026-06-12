@@ -34,6 +34,18 @@ void main() {
       );
     });
 
+    test('a direct Plex stream names Plex — and only the fixed name', () {
+      // Like every label: a fixed, non-identifying string — never a server
+      // URL, host, or token.
+      expect(
+        PlaybackSourceLabel.of(
+          trackUri: 'plex:101',
+          source: PlaybackSource.streamingDirect,
+        ),
+        'Plex',
+      );
+    });
+
     test('a cached copy reads as Cache regardless of the owning server', () {
       expect(
         PlaybackSourceLabel.of(

@@ -37,8 +37,14 @@ class StreamPreloadingResolver implements PlayableUriResolver, StreamPreloader {
       <String, _PreloadedResolution>{};
 
   /// Remote stream schemes worth preloading; local files and `content://`
-  /// documents open instantly and need no warming.
-  static const Set<String> _remoteSchemes = <String>{'jellyfin', 'subsonic'};
+  /// documents open instantly and need no warming. Plex benefits the most: its
+  /// play resolution is two-step (a metadata lookup before the URL is minted),
+  /// so warming hides that extra round trip on a skip.
+  static const Set<String> _remoteSchemes = <String>{
+    'jellyfin',
+    'subsonic',
+    'plex',
+  };
 
   @override
   bool handles(Track track) => _inner.handles(track);

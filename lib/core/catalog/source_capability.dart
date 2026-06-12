@@ -9,6 +9,7 @@ import 'track_identity.dart';
 enum SourceProviderType {
   jellyfin('Jellyfin'),
   subsonic('Navidrome / Subsonic'),
+  plex('Plex'),
   local('Local music'),
   unknown('Unknown source');
 
@@ -55,9 +56,10 @@ enum SourceDelivery {
 ///
 /// ## Safety
 ///
-/// Only a non-identifying [sourceId] (`jellyfin` / `subsonic` / `local`) plus
-/// enums and plain numbers are stored. The track's URI, file path, server host,
-/// username, and tokens are **never** held or printed — [toString] is safe to log.
+/// Only a non-identifying [sourceId] (`jellyfin` / `subsonic` / `plex` /
+/// `local`) plus enums and plain numbers are stored. The track's URI, file
+/// path, server host, username, and tokens are **never** held or printed —
+/// [toString] is safe to log.
 class PlaybackSourceCapability {
   const PlaybackSourceCapability({
     required this.sourceId,
@@ -180,6 +182,9 @@ class PlaybackSourceCapability {
     if (sourceId == MusicProviders.subsonic.sourceId) {
       return SourceProviderType.subsonic;
     }
+    if (sourceId == MusicProviders.plex.sourceId) {
+      return SourceProviderType.plex;
+    }
     if (sourceId == MusicProviders.local.sourceId) {
       return SourceProviderType.local;
     }
@@ -192,6 +197,7 @@ class PlaybackSourceCapability {
         return SourceDelivery.localFile;
       case SourceProviderType.jellyfin:
       case SourceProviderType.subsonic:
+      case SourceProviderType.plex:
         return SourceDelivery.remoteStream;
       case SourceProviderType.unknown:
         return SourceDelivery.unknown;

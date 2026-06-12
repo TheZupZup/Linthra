@@ -22,10 +22,10 @@ source actually supports:
 | `canLyrics`            | Lyrics can be fetched for the source's tracks.                |
 | `canCast`              | A track's playback URL is network-reachable, so it can cast.  |
 
-A track carries an opaque `scheme:` URI (`subsonic:<id>`, `jellyfin:<id>`, or a
-file path) and **never** an authenticated URL — stream/download URLs are minted
-on demand at play/download time and discarded, so no secret reaches the
-persisted catalog.
+A track carries an opaque `scheme:` URI (`subsonic:<id>`, `jellyfin:<id>`,
+`plex:<ratingKey>`, or a file path) and **never** an authenticated URL —
+stream/download URLs are minted on demand at play/download time and discarded,
+so no secret reaches the persisted catalog.
 
 ## Provider matrix
 
@@ -34,10 +34,12 @@ persisted catalog.
 | Local music           | `local`    |   ✅   |  —    | ✅ local  | ✅ local  |   ✅   |  —   |
 | Jellyfin              | `jellyfin` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
 | Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  ✅  |
+| Plex                  | `plex`     |   🚧   |  🔜   |    🔜     |    🔜     |   🔜   |  🔜  |
 
-✅ implemented · 🔜 planned follow-up · — not applicable. "local" favourites/
-playlists stay on-device; "synced" ones mirror with the server (server is the
-source of truth on refresh).
+✅ implemented · 🚧 in development, not yet visible in Settings · 🔜 planned
+follow-up · — not applicable. "local" favourites/playlists stay on-device;
+"synced" ones mirror with the server (server is the source of truth on
+refresh).
 
 ## One library across providers
 
@@ -184,6 +186,22 @@ actions stay hidden/disabled rather than failing:
   `audio/mpeg` hint; an exact per-track type / transcode profile is a follow-up.
 - **In-app browse/search by artist/album** — the synced catalog lists tracks;
   richer browsing is shared work across all providers.
+
+## Plex (in development)
+
+A **read-only** [Plex Media Server](https://www.plex.tv/) provider is being
+built in small PRs behind the same `MusicSource` seam — see [plex.md](plex.md)
+for the full design and issue #178 for the plan. The internal plumbing exists
+(the stream-only capability set, recognition of `plex:<ratingKey>` track URIs
+in the playback router, and render-time resolution of credential-free
+`plex-thumb:` cover references), but **Plex is not yet visible in Settings**:
+the connection (server URL + token) and library-picker screens haven't
+shipped, so no Plex session can exist and nothing Plex-related appears in the
+app. Phase 1 will be stream-only (direct play); offline cache, favorites,
+playlists, lyrics, and cast are declared unsupported in the capability model
+until later — and Plex follows the same token-safety rules as every other
+provider (token encrypted at rest, never logged, never woven into a persisted
+URI or cache filename).
 
 ## Future provider possibilities
 
