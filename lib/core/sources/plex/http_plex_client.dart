@@ -123,6 +123,32 @@ class HttpPlexClient implements PlexClient {
     return container.metadata.first;
   }
 
+  @override
+  Future<void> reportTimeline({
+    required String baseUrl,
+    required String token,
+    required String ratingKey,
+    required PlexTimelineState state,
+    required Duration time,
+    Duration? duration,
+  }) async {
+    final Uri uri = PlexEndpoints.timeline(
+      baseUrl,
+      ratingKey: ratingKey,
+      state: state,
+      timeMs: time.inMilliseconds,
+      durationMs: duration?.inMilliseconds,
+    );
+    // Same transport + status mapping as every API call (token in the header,
+    // never the URL), but the body is deliberately not parsed: PMS answers a
+    // timeline report with a small (often empty, sometimes XML) body that
+    // carries nothing Linthra needs — a 2xx alone means the report landed.
+    final http.Response response = await _send(
+      () => _client.get(uri, headers: _headers(token)),
+    );
+    _checkStatus(response);
+  }
+
   /// GETs [uri] with the auth + identity headers, checks the status, and decodes
   /// a JSON `MediaContainer` envelope — throwing [PlexException.notPlex] when the
   /// body isn't a Plex `MediaContainer` (missing envelope, or non-JSON/XML).

@@ -74,6 +74,8 @@ void main() {
       expect(headers['x-plex-version'], '0.1.5');
       expect(headers['x-plex-platform'], 'Android');
       expect(headers['x-plex-device'], 'Pixel');
+      // The friendly player name a PMS dashboard displays for this client.
+      expect(headers['x-plex-device-name'], 'Pixel');
     });
 
     test('treats a body without machineIdentifier as "not a Plex server"',
@@ -425,6 +427,122 @@ void main() {
           PlexErrorKind.unsupportedResponse,
         )),
       );
+    });
+  });
+
+  group('reportTimeline', () {
+    Future<http.Request> report(
+      http.Response response, {
+      Duration? duration = const Duration(minutes: 3),
+    }) async {
+      http.Request? captured;
+      final HttpPlexClient client = _client(MockClient((http.Request r) async {
+        captured = r;
+        return response;
+      }));
+      await client.reportTimeline(
+        baseUrl: _base,
+        token: _token,
+        ratingKey: '4242',
+        state: PlexTimelineState.paused,
+        time: const Duration(seconds: 65),
+        duration: duration,
+      );
+      return captured!;
+    }
+
+    test('GETs /:/timeline with the report params, in milliseconds', () async {
+      final http.Request request = await report(http.Response('', 200));
+
+      expect(request.method, 'GET');
+      expect(request.url.path, '/:/timeline');
+      expect(request.url.queryParameters[PlexEndpoints.ratingKeyParam], '4242');
+      expect(request.url.queryParameters[PlexEndpoints.keyParam],
+          '/library/metadata/4242');
+      expect(request.url.queryParameters[PlexEndpoints.stateParam], 'paused');
+      expect(request.url.queryParameters[PlexEndpoints.timeParam], '65000');
+      expect(
+          request.url.queryParameters[PlexEndpoints.durationParam], '180000');
+    });
+
+    test('the token rides in the header; the timeline URL is token-free',
+        () async {
+      final http.Request request = await report(http.Response('', 200));
+
+      expect(request.headers['x-plex-token'], _token);
+      // The identity headers (incl. the device name PMS displays) come too.
+      expect(request.headers['x-plex-client-identifier'], 'install-uuid-1');
+      expect(request.headers['x-plex-device-name'], 'Pixel');
+      final String url = request.url.toString();
+      expect(url, isNot(contains(_token)));
+      expect(url.toLowerCase(), isNot(contains('x-plex-token')));
+    });
+
+    test('omits duration when unknown', () async {
+      final http.Request request =
+          await report(http.Response('', 200), duration: null);
+
+      expect(
+        request.url.queryParameters.containsKey(PlexEndpoints.durationParam),
+        isFalse,
+      );
+    });
+
+    test('tolerates any 2xx body — empty, XML, or JSON — without parsing',
+        () async {
+      for (final http.Response response in <http.Response>[
+        http.Response('', 200),
+        http.Response('<MediaContainer size="0"/>', 200),
+        _json(<String, dynamic>{'MediaContainer': <String, dynamic>{}}),
+      ]) {
+        await expectLater(report(response), completes);
+      }
+    });
+
+    test('maps failures to the usual token-free PlexException', () async {
+      final Map<int, PlexErrorKind> cases = <int, PlexErrorKind>{
+        401: PlexErrorKind.unauthorized,
+        404: PlexErrorKind.notFound,
+        500: PlexErrorKind.serverError,
+      };
+      for (final MapEntry<int, PlexErrorKind> entry in cases.entries) {
+        final HttpPlexClient client =
+            _client(MockClient((_) async => http.Response('no', entry.key)));
+        try {
+          await client.reportTimeline(
+            baseUrl: _base,
+            token: _token,
+            ratingKey: '1',
+            state: PlexTimelineState.playing,
+            time: Duration.zero,
+          );
+          fail('expected a PlexException for HTTP ${entry.key}');
+        } on PlexException catch (e) {
+          expect(e.kind, entry.value);
+          expect(e.message, isNot(contains(_token)));
+          expect(e.toString(), isNot(contains(_token)));
+        }
+      }
+    });
+
+    test('a transport failure becomes notReachable, token-free', () async {
+      final HttpPlexClient client = _client(
+          MockClient((_) async => throw http.ClientException('x $_token')));
+
+      try {
+        await client.reportTimeline(
+          baseUrl: _base,
+          token: _token,
+          ratingKey: '1',
+          state: PlexTimelineState.stopped,
+          time: Duration.zero,
+        );
+        fail('expected a PlexException');
+      } on PlexException catch (e) {
+        expect(e.kind, PlexErrorKind.notReachable);
+        expect(e.message, isNot(contains(_token)));
+        expect(e.toString(), isNot(contains(_token)));
+      }
     });
   });
 
