@@ -121,17 +121,46 @@ abstract final class PlexEndpoints {
   /// transcoder path (`/photo/:/transcode?url=…&width=…`), and replacing the
   /// whole query would silently strip those params and break the request.
   ///
-  /// Any param already *named* like the token (however cased) is dropped first:
-  /// the live session's token is the only credential allowed into a minted URL,
-  /// so a stored path can never smuggle one in (or pin a stale one) past the
-  /// "mint on demand, never persist" rule.
+  /// The existing pairs are spliced through **raw** (from `Uri.query`), never
+  /// decoded and re-encoded: a transcoder's `url=` value is itself
+  /// percent-encoded, and a decode/re-encode cycle would normalize its bytes
+  /// (e.g. `%20` ↔ `+`), handing the server a query it never wrote. Splitting
+  /// on `&` is sound on the raw form — an encoded value's own `&` is still
+  /// `%26` there.
+  ///
+  /// Any pair already *naming* the token (however cased or percent-encoded) is
+  /// dropped first: the live session's token is the only credential allowed
+  /// into a minted URL, so a stored path can never smuggle one in (or pin a
+  /// stale one) past the "mint on demand, never persist" rule.
   static Uri _withToken(Uri url, String token) {
-    final String tokenKey = tokenParam.toLowerCase();
-    return url.replace(queryParameters: <String, String>{
-      for (final MapEntry<String, String> param in url.queryParameters.entries)
-        if (param.key.toLowerCase() != tokenKey) param.key: param.value,
-      tokenParam: token,
-    });
+    final StringBuffer query = StringBuffer();
+    for (final String pair in url.query.split('&')) {
+      if (pair.isEmpty || _namesToken(pair)) continue;
+      if (query.isNotEmpty) query.write('&');
+      query.write(pair);
+    }
+    if (query.isNotEmpty) query.write('&');
+    query.write('$tokenParam=${Uri.encodeQueryComponent(token)}');
+    return url.replace(query: query.toString());
+  }
+
+  /// Whether a raw `key=value` query [pair] names the token parameter, however
+  /// the key is cased or percent-encoded — so a smuggled credential can't dodge
+  /// [_withToken]'s filter by encoding a letter of its name. A key that fails
+  /// to decode (not producible by a parsed [Uri], which normalizes invalid
+  /// escapes) is kept as an ordinary pair: it can't *be* the token name.
+  static bool _namesToken(String pair) {
+    final int equals = pair.indexOf('=');
+    final String rawKey = equals < 0 ? pair : pair.substring(0, equals);
+    try {
+      return Uri.decodeQueryComponent(rawKey).toLowerCase() ==
+          tokenParam.toLowerCase();
+    } on ArgumentError {
+      // decodeQueryComponent rejects an invalid escape with an ArgumentError.
+      return false;
+    } on FormatException {
+      return false;
+    }
   }
 
   /// Replaces every `X-Plex-Token=<value>` in [text] with

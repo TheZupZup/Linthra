@@ -212,6 +212,22 @@ void main() {
       expect(PlexTrackMapper.thumbPath(reparsed), transcodeThumb);
     });
 
+    test('round-trips a transcoder thumb whose url value PMS pre-encoded', () {
+      // The trap: the Uri constructor *preserves* valid escape triplets, so a
+      // thumb whose `url=` value is itself percent-encoded would store with
+      // the server's `%3A`/`%26` and the builder's `%3F` collapsed into one
+      // encoding level — and a single decode would strip the server's level
+      // too, promoting the inner `&b=2` to a top-level param. The builder
+      // pre-escapes `%` so the decode restores the exact reported bytes.
+      const String nestedThumb = '/photo/:/transcode'
+          '?url=http%3A%2F%2Fhost%2Fcover%3Fa%3D1%26b%3D2&width=200';
+      const item = PlexMetadata(ratingKey: '1', title: 't', thumb: nestedThumb);
+      final Uri reference = PlexTrackMapper.toTrack(item).artworkUri!;
+
+      final Uri reparsed = Uri.parse(reference.toString());
+      expect(PlexTrackMapper.thumbPath(reparsed), nestedThumb);
+    });
+
     test('thumbPath leaves other providers\' artwork untouched', () {
       expect(
         PlexTrackMapper.thumbPath(Uri.parse('https://x.example/cover.jpg')),
