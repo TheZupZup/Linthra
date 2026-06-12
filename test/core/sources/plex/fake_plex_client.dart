@@ -37,6 +37,12 @@ class FakePlexClient implements PlexClient {
   Map<String, PlexMetadata> metadataByRatingKey;
   PlexException? metadataError;
 
+  /// When set, every [reportTimeline] call throws it (after being recorded),
+  /// so reporters can prove failures are swallowed. Set [timelineError] for a
+  /// typed failure or [timelineUnexpectedError] for an untyped one.
+  PlexException? timelineError;
+  Object? timelineUnexpectedError;
+
   // Recorded inputs.
   String? lastBaseUrl;
   String? lastToken;
@@ -44,6 +50,21 @@ class FakePlexClient implements PlexClient {
       <({String sectionKey, PlexMetadataType itemType})>[];
   final List<String> requestedRatingKeys = <String>[];
   int identityCount = 0;
+
+  /// Every timeline report received, in order, so tests can assert the exact
+  /// state/position/duration sequence a playback scenario produced.
+  final List<
+      ({
+        String ratingKey,
+        PlexTimelineState state,
+        Duration time,
+        Duration? duration,
+      })> timelineReports = <({
+    String ratingKey,
+    PlexTimelineState state,
+    Duration time,
+    Duration? duration,
+  })>[];
 
   @override
   Future<PlexServerIdentity> fetchIdentity({
@@ -103,5 +124,28 @@ class FakePlexClient implements PlexClient {
     final PlexMetadata? item = metadataByRatingKey[ratingKey];
     if (item == null) throw PlexException.notFound();
     return item;
+  }
+
+  @override
+  Future<void> reportTimeline({
+    required String baseUrl,
+    required String token,
+    required String ratingKey,
+    required PlexTimelineState state,
+    required Duration time,
+    Duration? duration,
+  }) async {
+    lastBaseUrl = baseUrl;
+    lastToken = token;
+    timelineReports.add((
+      ratingKey: ratingKey,
+      state: state,
+      time: time,
+      duration: duration,
+    ));
+    final PlexException? error = timelineError;
+    if (error != null) throw error;
+    final Object? unexpected = timelineUnexpectedError;
+    if (unexpected != null) throw unexpected;
   }
 }

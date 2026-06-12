@@ -55,6 +55,27 @@ enum PlexMetadataType {
   }
 }
 
+/// The playback state a client reports to PMS on the `/:/timeline` endpoint.
+///
+/// Mirrors [PlexMetadataType]: a request-side wire value named once, so the
+/// endpoint builder, client, and reporter agree on the exact strings PMS
+/// expects. PMS keys its Now Playing sessions off these reports: `playing` /
+/// `paused` show (and update) the session, `stopped` clears it, and
+/// `buffering` is accepted for an engine stall. (PMS also accepts `error`,
+/// which Linthra deliberately never sends — a playback failure ends the
+/// session, so it reports `stopped`.)
+enum PlexTimelineState {
+  playing('playing'),
+  paused('paused'),
+  stopped('stopped'),
+  buffering('buffering');
+
+  const PlexTimelineState(this.value);
+
+  /// The literal `state` query value PMS expects.
+  final String value;
+}
+
 /// Server identity from `GET /identity` — enough to confirm the address is a
 /// Plex Media Server and to record its version for display and diagnostics.
 ///

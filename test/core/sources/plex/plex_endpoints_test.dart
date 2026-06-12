@@ -114,6 +114,74 @@ void main() {
     });
   });
 
+  group('PlexEndpoints.timeline (playback reporting)', () {
+    Uri timeline({String? base, PlexTimelineState? state, int? durationMs}) =>
+        PlexEndpoints.timeline(
+          base ?? _base,
+          ratingKey: '4242',
+          state: state ?? PlexTimelineState.playing,
+          timeMs: 65000,
+          durationMs: durationMs,
+        );
+
+    test('targets /:/timeline with the documented report params', () {
+      final Uri uri = timeline(durationMs: 180000);
+      expect(uri.path, '/:/timeline');
+      expect(uri.queryParameters[PlexEndpoints.ratingKeyParam], '4242');
+      expect(uri.queryParameters[PlexEndpoints.keyParam],
+          '/library/metadata/4242');
+      expect(uri.queryParameters[PlexEndpoints.identifierParam],
+          PlexEndpoints.libraryIdentifier);
+      expect(uri.queryParameters[PlexEndpoints.stateParam], 'playing');
+      // Position and duration ride in milliseconds — PMS's unit everywhere.
+      expect(uri.queryParameters[PlexEndpoints.timeParam], '65000');
+      expect(uri.queryParameters[PlexEndpoints.durationParam], '180000');
+    });
+
+    test('each timeline state maps to the literal PMS value', () {
+      expect(
+          timeline(state: PlexTimelineState.playing)
+              .queryParameters[PlexEndpoints.stateParam],
+          'playing');
+      expect(
+          timeline(state: PlexTimelineState.paused)
+              .queryParameters[PlexEndpoints.stateParam],
+          'paused');
+      expect(
+          timeline(state: PlexTimelineState.stopped)
+              .queryParameters[PlexEndpoints.stateParam],
+          'stopped');
+      expect(
+          timeline(state: PlexTimelineState.buffering)
+              .queryParameters[PlexEndpoints.stateParam],
+          'buffering');
+    });
+
+    test('omits duration when unknown rather than reporting a fake zero', () {
+      final Uri uri = timeline();
+      expect(uri.queryParameters.containsKey(PlexEndpoints.durationParam),
+          isFalse);
+    });
+
+    test('preserves a reverse-proxy subpath ahead of the timeline path', () {
+      final Uri uri = timeline(base: 'https://example.com/plex');
+      expect(uri.path, '/plex/:/timeline');
+    });
+
+    test(
+        'is token-free: the builder takes no token and the URL never carries '
+        'one (it rides in the request header)', () {
+      final Uri uri = timeline(durationMs: 180000);
+      expect(
+          uri.queryParameters.containsKey(PlexEndpoints.tokenParam), isFalse);
+      expect(uri.toString().toLowerCase(), isNot(contains('x-plex-token')));
+      expect(uri.toString(), isNot(contains(_token)));
+      // Belt and braces: even passed through the redactor it is unchanged,
+      // so a logged timeline URL can never need redaction.
+      expect(PlexEndpoints.redactToken(uri.toString()), uri.toString());
+    });
+  });
+
   group('PlexEndpoints.streamUrl (Part key + token in the query)', () {
     const String partKey = '/library/parts/12345/167/file.flac';
 

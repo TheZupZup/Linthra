@@ -146,6 +146,12 @@ Future<void> main() async {
   // pre-cache.
   container.read(remotePrebufferServiceProvider);
 
+  // Start playback reporting: mirrors live playback onto the server that owns
+  // the playing track (Plex today), so the user's own dashboard shows Linthra
+  // as an active player. Best-effort and off the playback path; non-Plex
+  // playback reports nothing. Side-effect-only, like the services above.
+  container.read(playbackReportingServiceProvider);
+
   // Mirror the user's "Normalize volume" choice onto the local audio engine,
   // seeding the persisted value now and pushing every later toggle. The engine
   // applies the clip-safe ReplayGain attenuation; with the choice off (the

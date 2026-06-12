@@ -29,6 +29,7 @@ abstract final class PlexEndpoints {
   static const String _identityPath = '/identity';
   static const String _sectionsPath = '/library/sections';
   static const String _metadataPath = '/library/metadata';
+  static const String _timelinePath = '/:/timeline';
 
   // --- Query-parameter keys, named once so a typo can't split a request. ---
 
@@ -45,6 +46,30 @@ abstract final class PlexEndpoints {
 
   /// Pagination: the maximum number of items to return in one page.
   static const String containerSizeParam = 'X-Plex-Container-Size';
+
+  // --- Timeline (playback reporting) query keys; see [timeline]. ---
+
+  /// The reported item's stable per-server id.
+  static const String ratingKeyParam = 'ratingKey';
+
+  /// The reported item's metadata path (`/library/metadata/{ratingKey}`).
+  static const String keyParam = 'key';
+
+  /// The playback state being reported (a [PlexTimelineState] value).
+  static const String stateParam = 'state';
+
+  /// The playback position, in **milliseconds**.
+  static const String timeParam = 'time';
+
+  /// The item duration, in **milliseconds**.
+  static const String durationParam = 'duration';
+
+  /// The metadata-provider identifier PMS expects on a timeline report. Every
+  /// library item PMS serves belongs to this built-in provider, so the value
+  /// is a fixed protocol constant (the same one the official clients and
+  /// python-plexapi send), not anything per-user or secret.
+  static const String identifierParam = 'identifier';
+  static const String libraryIdentifier = 'com.plexapp.plugins.library';
 
   /// `GET /identity` — server identity / reachability (`machineIdentifier`,
   /// version). Token-free path; the client adds the `X-Plex-Token` header.
@@ -85,6 +110,37 @@ abstract final class PlexEndpoints {
   /// Token-free path; the client adds the `X-Plex-Token` header.
   static Uri metadata(String baseUrl, {required String ratingKey}) =>
       _join(baseUrl, '$_metadataPath/$ratingKey');
+
+  /// `GET /:/timeline?ratingKey=…&key=…&state=…&time=…` — reports playback of
+  /// one item back to PMS, which is what makes the client appear in (and
+  /// update / leave) the server's Now Playing dashboard.
+  ///
+  /// [timeMs] is the playback position and [durationMs] the item length, both
+  /// in **milliseconds** (the unit PMS uses everywhere; omit [durationMs] when
+  /// unknown rather than reporting a fake zero). The `key` is derived from the
+  /// [ratingKey] (`/library/metadata/{ratingKey}`), and `identifier` is the
+  /// fixed library-provider constant — neither is a credential. Like every
+  /// API call (and unlike the stream/art URLs), the token is **not** woven in
+  /// here: it rides in the client's `X-Plex-Token` header, so a timeline URL
+  /// is token-free, safe to log, and never worth persisting.
+  static Uri timeline(
+    String baseUrl, {
+    required String ratingKey,
+    required PlexTimelineState state,
+    required int timeMs,
+    int? durationMs,
+  }) {
+    return _join(baseUrl, _timelinePath).replace(
+      queryParameters: <String, String>{
+        ratingKeyParam: ratingKey,
+        keyParam: '$_metadataPath/$ratingKey',
+        identifierParam: libraryIdentifier,
+        stateParam: state.value,
+        timeParam: '$timeMs',
+        if (durationMs != null) durationParam: '$durationMs',
+      },
+    );
+  }
 
   /// The direct-play stream URL for a track: `{baseUrl}{partKey}?X-Plex-Token=…`.
   ///

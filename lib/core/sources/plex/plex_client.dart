@@ -26,6 +26,13 @@ class PlexClientIdentity {
   static const String platformHeader = 'X-Plex-Platform';
   static const String deviceHeader = 'X-Plex-Device';
 
+  /// The friendly player name a PMS displays for this client — most visibly
+  /// as the player title in the Now Playing dashboard once Linthra reports a
+  /// playback timeline. Sent with the same value as [device] (Linthra has no
+  /// separate per-device nickname), so the dashboard names the player
+  /// "Linthra" instead of an unknown/blank device.
+  static const String deviceNameHeader = 'X-Plex-Device-Name';
+
   /// A stable per-install UUID identifying this client to the server. Not a
   /// secret; it never grants access on its own.
   final String clientIdentifier;
@@ -42,7 +49,7 @@ class PlexClientIdentity {
   /// A human-readable device name/model.
   final String device;
 
-  /// The five `X-Plex-*` identity headers as a map, ready to merge with the
+  /// The `X-Plex-*` identity headers as a map, ready to merge with the
   /// `Accept` and `X-Plex-Token` headers the client adds per request. Carries no
   /// token, so the result is safe to log.
   Map<String, String> toHeaders() => <String, String>{
@@ -51,6 +58,7 @@ class PlexClientIdentity {
         versionHeader: version,
         platformHeader: platform,
         deviceHeader: device,
+        deviceNameHeader: device,
       };
 }
 
@@ -116,5 +124,23 @@ abstract interface class PlexClient {
     required String baseUrl,
     required String token,
     required String ratingKey,
+  });
+
+  /// Reports playback of one item to `GET /:/timeline`, which is what makes
+  /// this client appear in — and update or leave — the server's Now Playing
+  /// dashboard. [time] is the playback position; [duration] the item length
+  /// (omitted when unknown); both are sent in milliseconds.
+  ///
+  /// The response body is ignored: a 2xx means the report landed. Failures
+  /// throw the usual token-free [PlexException]; the *caller* (the playback
+  /// reporter) treats every failure as best-effort and swallows it, so a
+  /// reporting hiccup can never disturb playback.
+  Future<void> reportTimeline({
+    required String baseUrl,
+    required String token,
+    required String ratingKey,
+    required PlexTimelineState state,
+    required Duration time,
+    Duration? duration,
   });
 }

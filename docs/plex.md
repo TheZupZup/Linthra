@@ -182,6 +182,71 @@ The `MusicSource` contract is small (`id`, `displayName`,
 Cast is a natural later add (the stream URL is network-reachable) but stays off
 in phase 1 to keep the credential-in-URL surface small.
 
+## Playback reporting / Now Playing (shipped after phase 1)
+
+Phase 1 above is read-only. The one deliberate exception added since:
+**timeline reporting**, so a Plex Media Server shows Linthra as an active
+player in its Now Playing dashboard while a `plex:` track plays. It is a
+benign, ephemeral write (PMS updates its session list; nothing in the library
+is modified) and is **best-effort by contract** — a failed report is silently
+dropped and can never stall, stop, or alter playback.
+
+### How Plex sees a player
+
+A client reports its playback to `GET /:/timeline` (verified against
+python-plexapi's `updateTimeline` and the community API docs):
+
+| Param | Value |
+| --- | --- |
+| `ratingKey` | the playing item's id (from the opaque `plex:<ratingKey>` uri) |
+| `key` | `/library/metadata/{ratingKey}` |
+| `identifier` | `com.plexapp.plugins.library` (fixed protocol constant) |
+| `state` | `playing` / `paused` / `stopped` (`buffering` exists; unused) |
+| `time` | playback position, **milliseconds** |
+| `duration` | item length, **milliseconds** — omitted when unknown |
+
+The token rides in the `X-Plex-Token` **header** (like every API call), so a
+timeline URL is token-free and safe to log. The `X-Plex-*` identity headers
+name the player: `X-Plex-Product` / `X-Plex-Device` / `X-Plex-Device-Name`
+are `Linthra`, and `X-Plex-Client-Identifier` is the stable per-install id
+persisted with the session — PMS keys the session on it, so pause/resume
+update one player entry instead of spawning new ones. `state=stopped` clears
+the entry.
+
+### Architecture (provider-neutral seam)
+
+- **`ServerPlaybackReporter`** (`core/services/server_playback_reporter.dart`)
+  — the neutral contract: `onPlaybackStarted/Progress/Paused/Resumed/Stopped`
+  + `onTrackChanged`, with a `NoOpServerPlaybackReporter` for providers
+  without reporting.
+- **`RoutingServerPlaybackReporter`** — selects the reporter whose `handles`
+  claims the track's uri; `plex:` routes to Plex, everything else reports
+  nowhere, so local/Jellyfin/Subsonic playback can never trigger a Plex call.
+  `onTrackChanged` is forwarded to the owners of *both* sides, so a Plex
+  session closes even when the next track belongs to another provider.
+- **`PlaybackReportingService`** (`core/services/playback_reporting_service.dart`)
+  — listens to the unified `PlaybackState` stream and derives the lifecycle:
+  first play → started, pause/resume → immediate, idle/completed/error →
+  stopped, queue move → track change. Progress is **throttled** (one report
+  per 10s of steady play) so position ticks never spam the server; reports
+  dispatch strictly in order, off the playback path, with every failure
+  swallowed. `loading`/`buffering` are not transitions (no pause/resume flap
+  on a re-buffer; a track that never starts is never reported).
+- **`PlexPlaybackReporter`** (`core/sources/plex/plex_playback_reporter.dart`)
+  — every Plex-specific detail (state mapping, ratingKey extraction, ms
+  units) stays here, behind the neutral interface. It reads the live session
+  and client lazily — signed out means silent no-op — exactly like the
+  playable-uri resolver.
+
+### Token safety (same non-negotiables)
+
+The timeline path adds **no** new token surface: the token goes only to the
+`PlexClient` (header), never into the URL, a log, an error, or diagnostics;
+the reporter never throws, so no failure can carry anything out; timeline
+URLs are minted per report and discarded — nothing about reporting is ever
+persisted. Tests prove the URL builder is token-free, the HTTP errors are
+token-free, and the reporter swallows every failure kind.
+
 ## Risks vs Jellyfin and Navidrome
 
 - **XML-first API.** PMS defaults to XML; we rely on `Accept: application/json`,
