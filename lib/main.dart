@@ -140,10 +140,11 @@ Future<void> main() async {
   // Instantiating it wires the listener; it has no value the UI reads.
   container.read(smartPrecacheServiceProvider);
 
-  // Start stream preload: as playback advances it warms the next remote track's
-  // stream URL in memory so a skip starts faster — without touching the offline
-  // cache or marking anything downloaded. Side-effect-only, like smart pre-cache.
-  container.read(streamPreloadServiceProvider);
+  // Start remote prebuffer: as playback advances it warms the current and next
+  // remote stream URLs in memory so a skip starts faster — without touching the
+  // offline cache or marking anything downloaded. Side-effect-only, like smart
+  // pre-cache.
+  container.read(remotePrebufferServiceProvider);
 
   // Mirror the user's "Normalize volume" choice onto the local audio engine,
   // seeding the persisted value now and pushing every later toggle. The engine

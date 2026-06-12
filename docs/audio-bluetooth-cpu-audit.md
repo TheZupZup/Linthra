@@ -209,9 +209,9 @@ that from turning into CPU churn:
    position is re-synced at most every 1 s (`_positionResyncThreshold`, `:101`),
    because `audio_service` interpolates the displayed position between pushes.
 3. **Ignored by the side-effect services.** `SmartPrecacheService` and
-   `StreamPreloadService` key off *what to cache* (track id + up-next + shuffle +
-   repeat) and **return early on a position-only tick** (`_keyFor` / `if (key ==
-   _lastKey) return;`). Cover-art fetches go through Flutter's `ImageCache` (and
+   `RemotePrebufferService` key off *what to cache/prepare* (track id + up-next +
+   shuffle + repeat) and **return early on a position-only tick** (`_keyFor` / `if
+   (key == _lastKey) return;`). Cover-art fetches go through Flutter's `ImageCache` (and
    `audio_service`'s notification artwork cache), so the same artwork URL is not
    re-fetched or re-decoded per track.
 

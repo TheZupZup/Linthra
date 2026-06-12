@@ -102,15 +102,17 @@ with `shuffled()`/`unshuffled()` transforms), and `RepeatMode`.
 
 1. `OfflineFirstPlayableUriResolver` — if a downloaded copy exists, play the
    local file and stop here.
-2. `StreamPreloadingResolver` — otherwise reuse a pre-warmed stream URL if one
-   is fresh.
+2. `RemoteCacheResolver` — otherwise reuse a pre-warmed (prebuffered) remote
+   stream URL if one is still fresh (`core/services/remote_cache/`).
 3. `RoutingPlayableUriResolver` — otherwise route to the per-source resolver
    (`jellyfin_playable_uri_resolver.dart`, `subsonic_playable_uri_resolver.dart`,
    or the local one), which mints the real URL.
 
 Remote URL minting — and the credentials woven into those URLs — lives *here*,
-never in the audio layer. The UI entry point that wires all of this is
-`lib/features/player/player_providers.dart`. Deeper dives:
+never in the audio layer. The remote prebuffer/cache foundation that warms those
+URLs ahead of a skip (credential-free keys, in-memory only) is described in
+[remote-playback-cache.md](remote-playback-cache.md). The UI entry point that
+wires all of this is `lib/features/player/player_providers.dart`. Deeper dives:
 [streaming.md](streaming.md), [background-playback.md](background-playback.md),
 [queue.md](queue.md).
 

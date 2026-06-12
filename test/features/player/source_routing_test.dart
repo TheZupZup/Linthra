@@ -45,8 +45,8 @@ const _safTrack = Track(
   uri: 'content://media/external/audio/media/42',
 );
 
-/// The exact source-router composition `streamPreloadingResolverProvider`
-/// builds: Jellyfin, Subsonic, Plex, then the on-device catch-all.
+/// The exact source-router composition `remoteSourceRouterProvider` builds:
+/// Jellyfin, Subsonic, Plex, then the on-device catch-all.
 RoutingPlayableUriResolver _router({
   PlexStreamSource? Function()? plex,
 }) {
@@ -139,7 +139,7 @@ void main() {
     });
   });
 
-  group('the real Riverpod wiring (streamPreloadingResolverProvider)', () {
+  group('the real Riverpod wiring (remoteCacheResolverProvider)', () {
     test('by default the Plex source is null, so a plex: track is gated',
         () async {
       // No overrides: exactly what a production install runs before anyone
@@ -147,7 +147,7 @@ void main() {
       // in-memory (empty), so plexMusicSourceProvider serves null.
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      final resolver = container.read(streamPreloadingResolverProvider);
+      final resolver = container.read(remoteCacheResolverProvider);
 
       await expectLater(
         resolver.resolve(_plexTrack),
@@ -188,7 +188,7 @@ void main() {
         ),
       ]);
       addTearDown(container.dispose);
-      final resolver = container.read(streamPreloadingResolverProvider);
+      final resolver = container.read(remoteCacheResolverProvider);
 
       final resolved = await resolver.resolve(_plexTrack);
 

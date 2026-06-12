@@ -238,6 +238,33 @@ Additional cast checks:
 - ☐ Respects the cache limit and the "Allow mobile data" setting.
 - ☐ Never blocks or stutters what's playing.
 
+## 7a. Remote prebuffer (in-memory stream-URL warming)
+
+The remote playback cache warms the current + next remote stream URL into memory
+so skips start faster (see [remote-playback-cache.md](remote-playback-cache.md)).
+It is **not** the offline cache — nothing is written to disk.
+
+- ☐ Play a **Jellyfin** track; let it settle, then skip to the next — the next
+  track starts quickly (no fresh buffering spinner before it begins).
+- ☐ **Skip Jellyfin tracks quickly** (several in a row) — no crash, no audible
+  stall on the track that finally lands, no doubled playback.
+- ☐ Play a **Plex** track, then skip — same fast start (Plex benefits most: its
+  resolution is a two-step metadata lookup).
+- ☐ **Skip Plex tracks quickly** — stable.
+- ☐ Play a **Subsonic/Navidrome** track, then skip — fast start.
+- ☐ **Skip Subsonic/Navidrome tracks quickly** — stable.
+- ☐ Play a **local file** and skip between local tracks — unaffected; local
+  playback never uses the remote cache.
+- ☐ Background / app-switch during remote playback, then return — playback
+  continues; the controller/engine were not recreated.
+- ☐ Lock-screen playback of a remote track behaves normally.
+- ☐ Let a track sit paused past the warm TTL (~2 min) then resume/skip — it
+  resolves a **fresh** URL (no failure from a stale/expired stream URL).
+- ☐ Pull the network briefly during a skip — the skip may buffer, but playback
+  never **fails because of** prebuffering, and recovers when the network returns.
+- ☐ `adb logcat` during all of the above shows **no token / api_key / stream URL**
+  from the prebuffer path (see §12).
+
 ## 8. Favorites
 
 - ☐ Favorite / unfavorite a local track (persists across restart).
