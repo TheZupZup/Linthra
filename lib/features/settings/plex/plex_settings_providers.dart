@@ -5,8 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/app_info.dart';
 import '../../../core/sources/plex/http_plex_client.dart';
+import '../../../core/sources/plex/http_plex_tv_client.dart';
 import '../../../core/sources/plex/plex_authenticator.dart';
 import '../../../core/sources/plex/plex_client.dart';
+import '../../../core/sources/plex/plex_pin_auth.dart';
+import '../../../core/sources/plex/plex_tv_client.dart';
 
 /// A fallback `X-Plex-Client-Identifier`, generated once per app launch.
 ///
@@ -100,7 +103,34 @@ final plexClientProvider = Provider<PlexClient>((ref) {
 ///
 /// The settings controller depends on this rather than on the client directly,
 /// keeping authentication (produce a session) separate from the controller's
-/// orchestration (when to test, connect, persist, clear).
+/// orchestration (when to test, connect, persist, clear). This is the
+/// **manual / advanced** path; the primary "Connect with Plex" flow lives
+/// behind [plexPinAuthProvider].
 final plexAuthenticatorProvider = Provider<PlexAuthenticator>((ref) {
   return PlexAuthenticator(ref.watch(plexClientProvider));
+});
+
+/// The HTTP seam for all **plex.tv** (account service) networking.
+///
+/// Defaults to the real [HttpPlexTvClient]; tests override it with a fake
+/// returning canned PIN/resource responses, so the whole "Connect with Plex"
+/// flow runs without plex.tv. Watches the same client identity as the PMS
+/// client: plex.tv binds a PIN to the `X-Plex-Client-Identifier` that minted
+/// it, so both hosts must see the same identity.
+final plexTvClientProvider = Provider<PlexTvClient>((ref) {
+  return HttpPlexTvClient(identity: ref.watch(plexClientIdentityProvider));
+});
+
+/// Coordinates the plex.tv PIN sign-in flow (mint PIN → browser → poll →
+/// servers → verified session) on top of [plexTvClientProvider] and
+/// [plexClientProvider].
+///
+/// Tests override this with a [PlexPinAuth] built on fakes and an instant
+/// `wait`, so the poll loop runs without real delays.
+final plexPinAuthProvider = Provider<PlexPinAuth>((ref) {
+  return PlexPinAuth(
+    tvClient: ref.watch(plexTvClientProvider),
+    serverClient: ref.watch(plexClientProvider),
+    identity: ref.watch(plexClientIdentityProvider),
+  );
 });
