@@ -26,13 +26,29 @@ abstract final class PlexArtwork {
   /// cover, or a `subsonic-cover:` reference passes straight through the
   /// resolver untouched). The token is woven in here, on demand, and never
   /// persisted — the stored reference stays credential-free.
+  ///
+  /// This never throws — it returns `null` for anything it can't mint a sound
+  /// URL from, so the caller's placeholder is the worst case. It runs
+  /// synchronously inside widget builds (the `artworkImageProvider` seam), so
+  /// a throw would take down the whole frame, not just one cover. Concretely:
+  /// a degenerate session (blank address or token) doesn't resolve — a
+  /// `plex-thumb:` reference resolves only against a *usable* session; a thumb
+  /// path that isn't server-absolute is refused rather than spliced into the
+  /// base URL's authority (it could silently point at the wrong host); and a
+  /// path the URL parser rejects degrades to the placeholder too.
   static Uri? resolve(Uri reference, PlexSession session) {
     final String? thumbPath = PlexTrackMapper.thumbPath(reference);
     if (thumbPath == null) return null;
-    return PlexEndpoints.coverArt(
-      session.baseUrl,
-      thumbPath: thumbPath,
-      token: session.token,
-    );
+    if (session.baseUrl.isEmpty || session.token.isEmpty) return null;
+    if (!thumbPath.startsWith('/')) return null;
+    try {
+      return PlexEndpoints.coverArt(
+        session.baseUrl,
+        thumbPath: thumbPath,
+        token: session.token,
+      );
+    } on FormatException {
+      return null;
+    }
   }
 }

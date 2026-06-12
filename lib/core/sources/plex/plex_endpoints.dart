@@ -99,9 +99,7 @@ abstract final class PlexEndpoints {
     required String partKey,
     required String token,
   }) =>
-      _join(baseUrl, partKey).replace(
-        queryParameters: <String, String>{tokenParam: token},
-      );
+      _withToken(_join(baseUrl, partKey), token);
 
   /// The cover-art URL for an item's `thumb` path:
   /// `{baseUrl}{thumbPath}?X-Plex-Token=…`.
@@ -110,15 +108,31 @@ abstract final class PlexEndpoints {
   /// `/library/metadata/123/thumb/167…`). Like [streamUrl], the image is fetched
   /// plainly (no headers), so the [token] rides in the query — woven in here, on
   /// demand at render time, and never persisted (the catalog stores only a
-  /// credential-free `plex-thumb:` reference, a later PR).
+  /// credential-free `plex-thumb:` reference).
   static Uri coverArt(
     String baseUrl, {
     required String thumbPath,
     required String token,
   }) =>
-      _join(baseUrl, thumbPath).replace(
-        queryParameters: <String, String>{tokenParam: token},
-      );
+      _withToken(_join(baseUrl, thumbPath), token);
+
+  /// [url] with the live session [token] woven into its query, **preserving**
+  /// any query the path already carried — a thumb can legitimately be a sizing
+  /// transcoder path (`/photo/:/transcode?url=…&width=…`), and replacing the
+  /// whole query would silently strip those params and break the request.
+  ///
+  /// Any param already *named* like the token (however cased) is dropped first:
+  /// the live session's token is the only credential allowed into a minted URL,
+  /// so a stored path can never smuggle one in (or pin a stale one) past the
+  /// "mint on demand, never persist" rule.
+  static Uri _withToken(Uri url, String token) {
+    final String tokenKey = tokenParam.toLowerCase();
+    return url.replace(queryParameters: <String, String>{
+      for (final MapEntry<String, String> param in url.queryParameters.entries)
+        if (param.key.toLowerCase() != tokenKey) param.key: param.value,
+      tokenParam: token,
+    });
+  }
 
   /// Replaces every `X-Plex-Token=<value>` in [text] with
   /// `X-Plex-Token=<redacted>`, so a stream/art URL (or any line carrying one)

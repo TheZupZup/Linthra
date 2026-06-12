@@ -7,6 +7,7 @@ import '../../services/playback_diagnostics.dart';
 import 'plex_api.dart';
 import 'plex_client.dart';
 import 'plex_endpoints.dart';
+import 'plex_exception.dart';
 import 'plex_stream_source.dart';
 import 'plex_track_mapper.dart';
 
@@ -121,10 +122,20 @@ class PlexMusicSource implements MusicSource, PlexStreamSource {
   /// persisted. Returns `null` when the item carries no playable part.
   ///
   /// Throws a token-free `PlexException` when the lookup fails (item gone,
-  /// token rejected, server unreachable).
+  /// token rejected, server unreachable) — and *only* `PlexException`: a track
+  /// whose uri carries no ratingKey at all (a corrupt catalog row) fails as
+  /// [PlexErrorKind.notFound] without issuing a junk request, and a Part key
+  /// the URL builder can't use fails as [PlexErrorKind.unsupportedResponse]
+  /// rather than escaping as an untyped [FormatException].
   @override
   Future<Uri?> resolvePlayableUri(Track track) async {
     final String ratingKey = _ratingKey(track);
+    if (ratingKey.trim().isEmpty) {
+      // No ratingKey can name no item; `GET /library/metadata/` (no id) is a
+      // junk request, so fail as the same typed "not available" a vanished
+      // item gets — friendly in the player, never a raw HTTP error.
+      throw PlexException.notFound();
+    }
     final PlexMetadata item = await _client.fetchMetadata(
       baseUrl: session.baseUrl,
       token: session.token,
@@ -139,11 +150,31 @@ class PlexMusicSource implements MusicSource, PlexStreamSource {
     );
     final String? partKey = item.firstPartKey;
     if (partKey == null) return null;
-    return PlexEndpoints.streamUrl(
-      session.baseUrl,
-      partKey: partKey,
-      token: session.token,
-    );
+    return _mintStreamUrl(partKey);
+  }
+
+  /// Mints the tokenized direct-play URL for [partKey] — the only call site of
+  /// [PlexEndpoints.streamUrl].
+  ///
+  /// A real Part key is always a server-absolute path (`/library/parts/…`); a
+  /// relative one would splice into the base URL's authority (corrupting the
+  /// port, or pointing at a different host), so it is refused — and a key the
+  /// URL parser rejects outright is refused the same way — as the typed
+  /// "response Linthra could not use", keeping the "only `PlexException`
+  /// escapes" contract instead of handing the player an untyped failure.
+  Uri _mintStreamUrl(String partKey) {
+    if (!partKey.startsWith('/')) {
+      throw PlexException.unsupportedResponse();
+    }
+    try {
+      return PlexEndpoints.streamUrl(
+        session.baseUrl,
+        partKey: partKey,
+        token: session.token,
+      );
+    } on FormatException {
+      throw PlexException.unsupportedResponse();
+    }
   }
 
   /// The Plex `ratingKey` behind [track]: the part after the `plex:` scheme,

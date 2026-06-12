@@ -88,10 +88,27 @@ abstract final class PlexTrackMapper {
   /// it isn't one — so other artwork (a Jellyfin http URL, a local `file:`
   /// cover, a `subsonic-cover:` reference) passes through the render-time
   /// resolver untouched.
+  ///
+  /// Decoded, because [_artworkReference] percent-encodes the server-reported
+  /// path to ride as a [Uri] path and the raw `Uri.path` getter hands that
+  /// encoding back. Returning it undecoded would corrupt any thumb with a
+  /// reserved character — most notably a sizing-transcoder thumb
+  /// (`/photo/:/transcode?url=…&width=…`), whose `?` would reach the server as
+  /// a literal `%3F` path character instead of starting its query. Decoding
+  /// restores exactly the string PMS reported, so the render-time resolver
+  /// rebuilds the URL the server actually serves. A reference whose path can't
+  /// be decoded (only constructible by hand — both the builder and `Uri.parse`
+  /// normalize escapes) is `null`, never a throw: artwork resolution runs
+  /// inside widget builds.
   static String? thumbPath(Uri reference) {
     if (!reference.isScheme(artworkScheme)) return null;
     final String path = reference.path;
-    return path.isEmpty ? null : path;
+    if (path.isEmpty) return null;
+    try {
+      return Uri.decodeComponent(path);
+    } on FormatException {
+      return null;
+    }
   }
 
   /// A persistable, credential-free `plex-thumb:` reference to an item's

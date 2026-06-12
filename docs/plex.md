@@ -283,6 +283,20 @@ Small, incremental, each independently reviewable:
    race guards and a friendly restore-failure message, and disconnect also
    removing the synced (now unplayable) Plex rows — with tests for each state
    and for token redaction on every new message path.
+9. **Playback & artwork final polish** (the last phase-1 PR before
+   real-device testing) — precise playback errors: a track whose metadata
+   resolves but carries **no playable Part** says so (instead of a generic
+   "couldn't stream"), a `plex:` uri with no ratingKey fails typed without a
+   junk request, and a malformed Part key fails typed instead of escaping as
+   an untyped error or splicing into the server URL. Artwork hardening:
+   `plex-thumb:` references round-trip query-carrying (sizing-transcoder)
+   thumb paths exactly, the minted stream/art URLs **merge** the token into an
+   existing query rather than replacing it (and drop any token-named param a
+   stored path might smuggle), and the render-time resolver never throws —
+   a degenerate session, a non-absolute thumb path, or an unparseable
+   reference all degrade to the row's placeholder. Tests sweep every failure
+   kind for token/URL-free messages and re-prove the Jellyfin/Subsonic/local
+   artwork chain is untouched.
 
 ## Notes
 

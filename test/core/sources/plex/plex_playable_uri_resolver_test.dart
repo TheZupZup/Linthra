@@ -59,15 +59,19 @@ void main() {
     expect(resolved.uri.path, '/library/parts/9/file.flac');
   });
 
-  test('reports a friendly "not signed in" when no source is connected',
+  test('reports a friendly "not connected" when no source is connected',
       () async {
-    // The only state reachable in production until the Plex connection UI
-    // ships: the scheme is recognized, but resolution is gated on a session.
+    // A plex: track never resolves to a stream URL without a connected
+    // source: the scheme is recognized, but resolution is gated on a session,
+    // and the gate steers to the Settings connect flow (Plex has no sign-in —
+    // a token is pasted there).
     final resolver = PlexPlayableUriResolver(() => null);
     await expectLater(
       resolver.resolve(_track),
-      throwsA(isA<PlaybackResolutionException>().having(
-          (e) => e.kind, 'kind', PlaybackResolutionErrorKind.notSignedIn)),
+      throwsA(isA<PlaybackResolutionException>()
+          .having(
+              (e) => e.kind, 'kind', PlaybackResolutionErrorKind.notSignedIn)
+          .having((e) => e.message, 'message', contains('Settings'))),
     );
   });
 
@@ -115,32 +119,80 @@ void main() {
     );
   });
 
-  test('a track with no playable part is streamUnavailable', () async {
-    // The source resolved the item, but it carried no Part to stream.
-    final resolver = PlexPlayableUriResolver(() => _FakeStreamSource());
+  test('maps a server-side error (5xx) to serverUnreachable', () async {
+    final resolver = PlexPlayableUriResolver(
+      () => _FakeStreamSource(resolveError: PlexException.serverError(503)),
+    );
     await expectLater(
       resolver.resolve(_track),
       throwsA(isA<PlaybackResolutionException>().having((e) => e.kind, 'kind',
-          PlaybackResolutionErrorKind.streamUnavailable)),
+          PlaybackResolutionErrorKind.serverUnreachable)),
     );
   });
 
-  test('no resolution error message leaks a token', () async {
-    // A Plex stream URL carries X-Plex-Token in its query, so the error path
-    // must never echo a URL or token fragment.
-    for (final source in <_FakeStreamSource>[
-      _FakeStreamSource(verifyError: PlexException.unauthorized()),
-      _FakeStreamSource(resolveError: PlexException.notFound()),
-      _FakeStreamSource(verifyError: PlexException.notReachable()),
-    ]) {
-      final resolver = PlexPlayableUriResolver(() => source);
+  test('maps an unusable metadata response to invalidStream', () async {
+    // The client reports a 2xx Plex envelope it couldn't use — e.g. a metadata
+    // lookup whose MediaContainer carried no item ("missing metadata").
+    final resolver = PlexPlayableUriResolver(
+      () =>
+          _FakeStreamSource(resolveError: PlexException.unsupportedResponse()),
+    );
+    await expectLater(
+      resolver.resolve(_track),
+      throwsA(isA<PlaybackResolutionException>().having(
+          (e) => e.kind, 'kind', PlaybackResolutionErrorKind.invalidStream)),
+    );
+  });
+
+  test('a track with no playable part says so precisely', () async {
+    // The source resolved the item, but it carried no Part to stream — a
+    // data condition on the server, not a connection failure, so the message
+    // must say that rather than a generic "couldn't stream".
+    final resolver = PlexPlayableUriResolver(() => _FakeStreamSource());
+    await expectLater(
+      resolver.resolve(_track),
+      throwsA(isA<PlaybackResolutionException>()
+          .having((e) => e.kind, 'kind',
+              PlaybackResolutionErrorKind.streamUnavailable)
+          .having((e) => e.message, 'message',
+              'This track has no playable file on your Plex server.')),
+    );
+  });
+
+  test('every failure kind resolves to a token-free, URL-free message',
+      () async {
+    // A Plex stream URL carries X-Plex-Token in its query, so no error path —
+    // whatever the failure kind — may echo a URL, a query fragment, or the
+    // token parameter. Sweep every typed kind the client can throw, on both
+    // the verify and the resolve step, plus the no-part and not-signed-in
+    // paths.
+    final List<PlexException> failures = <PlexException>[
+      PlexException.notReachable(),
+      PlexException.unauthorized(),
+      PlexException.notPlex(),
+      PlexException.serverError(503),
+      PlexException.notFound(),
+      PlexException.unsupportedResponse(),
+      PlexException.unexpected(418),
+      const PlexException.invalidUrl('bad address'),
+    ];
+    final List<PlexPlayableUriResolver> resolvers = <PlexPlayableUriResolver>[
+      for (final PlexException failure
+          in failures) ...<PlexPlayableUriResolver>[
+        PlexPlayableUriResolver(() => _FakeStreamSource(verifyError: failure)),
+        PlexPlayableUriResolver(() => _FakeStreamSource(resolveError: failure)),
+      ],
+      PlexPlayableUriResolver(() => _FakeStreamSource()), // no playable part
+      PlexPlayableUriResolver(() => null), // not signed in
+    ];
+    for (final PlexPlayableUriResolver resolver in resolvers) {
       try {
         await resolver.resolve(_track);
         fail('expected a PlaybackResolutionException');
       } on PlaybackResolutionException catch (e) {
-        expect(e.message, isNot(contains('tok')));
         expect(e.message, isNot(contains('X-Plex-Token')));
         expect(e.message, isNot(contains('=')));
+        expect(e.message, isNot(contains('://')));
       }
     }
   });

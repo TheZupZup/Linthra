@@ -35,7 +35,7 @@ class PlexPlayableUriResolver implements PlayableUriResolver {
     final PlexStreamSource? source = _source();
     if (source == null) {
       throw const PlaybackResolutionException(
-        'Sign in to your Plex server before streaming this track.',
+        'Connect to your Plex server in Settings before streaming this track.',
         kind: PlaybackResolutionErrorKind.notSignedIn,
       );
     }
@@ -52,8 +52,12 @@ class PlexPlayableUriResolver implements PlayableUriResolver {
     }
 
     if (uri == null) {
+      // A null is precise, not vague: the lookup *succeeded* but the item
+      // carries no Part — there is no file to direct-play (phase 1 has no
+      // transcode fallback) — so say that instead of a generic "couldn't
+      // stream" that reads like a network failure.
       throw const PlaybackResolutionException(
-        "Couldn't stream this track.",
+        'This track has no playable file on your Plex server.',
         kind: PlaybackResolutionErrorKind.streamUnavailable,
       );
     }
@@ -66,8 +70,11 @@ class PlexPlayableUriResolver implements PlayableUriResolver {
   PlaybackResolutionException _mapFailure(PlexException error) {
     switch (error.kind) {
       case PlexErrorKind.unauthorized:
+        // Plex has no sign-in here — the user pastes a token — so steer to the
+        // connect flow, matching the Settings/sync wording.
         return const PlaybackResolutionException(
-          'Your Plex session was rejected by the server. Sign in again.',
+          'Your Plex session was rejected by the server. Connect again in '
+          'Settings with a new token.',
           kind: PlaybackResolutionErrorKind.sessionExpired,
         );
       case PlexErrorKind.notPlex:

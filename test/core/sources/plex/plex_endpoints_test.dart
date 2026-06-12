@@ -131,6 +131,19 @@ void main() {
       expect(uri.queryParameters[PlexEndpoints.tokenParam], _token);
       expect(uri.path, isNot(contains(_token)));
     });
+
+    test('preserves a query the Part key already carried', () {
+      // A Part key is normally a plain path, but adding the token must merge
+      // into — not replace — any query, so an unusual key survives intact.
+      final Uri uri = PlexEndpoints.streamUrl(
+        _base,
+        partKey: '/library/parts/12345/167/file.flac?download=1',
+        token: _token,
+      );
+      expect(uri.path, '/library/parts/12345/167/file.flac');
+      expect(uri.queryParameters['download'], '1');
+      expect(uri.queryParameters[PlexEndpoints.tokenParam], _token);
+    });
   });
 
   group('PlexEndpoints.coverArt (thumb path + token in the query)', () {
@@ -144,6 +157,44 @@ void main() {
       // The image URL is fetched plainly, so the token must ride in the query
       // exactly like the stream URL — and never in the path.
       expect(uri.path, isNot(contains(_token)));
+    });
+
+    test('preserves the query of a sizing-transcoder thumb path', () {
+      // Some items report their art as a photo-transcoder path whose query
+      // *is* the request (`url`, `width`, …). Weaving the token in must keep
+      // those params — replacing the whole query would break the image.
+      final Uri uri = PlexEndpoints.coverArt(
+        _base,
+        thumbPath:
+            '/photo/:/transcode?url=/library/metadata/123/thumb/167&width=200',
+        token: _token,
+      );
+      expect(uri.path, '/photo/:/transcode');
+      expect(uri.queryParameters['url'], '/library/metadata/123/thumb/167');
+      expect(uri.queryParameters['width'], '200');
+      expect(uri.queryParameters[PlexEndpoints.tokenParam], _token);
+    });
+
+    test('a token-named param smuggled in the path is replaced, never kept',
+        () {
+      // The live session's token is the only credential allowed into a minted
+      // URL: a stored path carrying its own X-Plex-Token (however cased) must
+      // not survive — neither pinning a stale token nor doubling the param.
+      final Uri uri = PlexEndpoints.coverArt(
+        _base,
+        thumbPath: '/photo/:/transcode?x-plex-token=stale-leaked&width=200',
+        token: _token,
+      );
+      expect(uri.queryParameters[PlexEndpoints.tokenParam], _token);
+      expect(uri.toString(), isNot(contains('stale-leaked')));
+      expect(uri.queryParameters['width'], '200');
+      // Exactly one token param remains.
+      expect(
+        RegExp('x-plex-token', caseSensitive: false)
+            .allMatches(uri.toString())
+            .length,
+        1,
+      );
     });
   });
 
