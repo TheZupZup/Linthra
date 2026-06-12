@@ -5,6 +5,8 @@ import '../../../app/dimens.dart';
 import '../../../core/sources/music_provider.dart';
 import 'plex_settings_controller.dart';
 import 'plex_settings_state.dart';
+import 'plex_sync_controller.dart';
+import 'plex_sync_state.dart';
 
 /// The Plex connection card on the Settings screen (phase 1, experimental).
 ///
@@ -87,6 +89,10 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
     await ref.read(plexSettingsControllerProvider.notifier).refreshSections();
   }
 
+  Future<void> _sync() async {
+    await ref.read(plexSyncControllerProvider.notifier).sync();
+  }
+
   void _toggleSection(String key, bool included) {
     ref
         .read(plexSettingsControllerProvider.notifier)
@@ -96,6 +102,7 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
   @override
   Widget build(BuildContext context) {
     final PlexSettingsState state = ref.watch(plexSettingsControllerProvider);
+    final PlexSyncState syncState = ref.watch(plexSyncControllerProvider);
     final ThemeData theme = Theme.of(context);
 
     // After a restart restored the session, the picker still needs the
@@ -141,12 +148,19 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
             if (state.isConnected)
               _ConnectedView(
                 state: state,
+                syncState: syncState,
                 onRefreshSections: (state.isBusy || state.isLoadingSections)
                     ? null
                     : _refreshSections,
                 onToggleSection:
                     state.isLoadingSections ? null : _toggleSection,
-                onDisconnect: state.isBusy ? null : _disconnect,
+                onSync: (state.isBusy ||
+                        state.isLoadingSections ||
+                        syncState.isSyncing)
+                    ? null
+                    : _sync,
+                onDisconnect:
+                    (state.isBusy || syncState.isSyncing) ? null : _disconnect,
               )
             else
               _buildForm(state),
@@ -186,6 +200,9 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
           enabled: !busy,
           obscureText: _obscureToken,
           autocorrect: false,
+          // Keep the token out of the keyboard's suggestion/learning store
+          // even while it is momentarily revealed via the eye toggle.
+          enableSuggestions: false,
           textInputAction: TextInputAction.done,
           onSubmitted: (_canSubmit && !busy) ? (_) => _connect() : null,
           decoration: InputDecoration(
@@ -292,20 +309,25 @@ class _CapabilityChips extends StatelessWidget {
   }
 }
 
-/// The connected view: which server, the music-library picker, and disconnect.
+/// The connected view: which server, the music-library picker (with explicit
+/// loading / failed / empty states), the sync action, and disconnect.
 ///
 /// Shows only server metadata — never the token.
 class _ConnectedView extends StatelessWidget {
   const _ConnectedView({
     required this.state,
+    required this.syncState,
     required this.onRefreshSections,
     required this.onToggleSection,
+    required this.onSync,
     required this.onDisconnect,
   });
 
   final PlexSettingsState state;
+  final PlexSyncState syncState;
   final VoidCallback? onRefreshSections;
   final void Function(String key, bool included)? onToggleSection;
+  final VoidCallback? onSync;
   final VoidCallback? onDisconnect;
 
   @override
@@ -361,22 +383,38 @@ class _ConnectedView extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.xs),
         if (state.isLoadingSections)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-            child: Center(
-              child: SizedBox.square(
-                dimension: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  'Loading music libraries…',
+                  style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                ),
+              ],
             ),
           )
+        else if (!state.sectionsLoaded)
+          // The list was never fetched successfully for this connection (the
+          // specific reason, e.g. "couldn't reach", is in the error line
+          // below) — offer a retry instead of a misleading "no libraries".
+          _PickerNotice(
+            message: "Your music libraries haven't loaded yet.",
+            actionLabel: 'Try again',
+            onAction: onRefreshSections,
+          )
         else if (state.sections.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-            child: Text(
-              'No music libraries found on this server.',
-              style: theme.textTheme.bodySmall?.copyWith(color: muted),
-            ),
+          _PickerNotice(
+            message: 'No music libraries found on this server. Create a '
+                'music library in Plex, then refresh.',
+            actionLabel: 'Refresh',
+            onAction: onRefreshSections,
           )
         else ...[
           for (final PlexLibrarySection section in state.sections)
@@ -402,12 +440,69 @@ class _ConnectedView extends StatelessWidget {
             ),
         ],
         const SizedBox(height: AppSpacing.md),
+        FilledButton.tonalIcon(
+          onPressed: onSync,
+          icon: syncState.isSyncing
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.sync_outlined),
+          label: Text(syncState.isSyncing ? 'Syncing…' : 'Sync Plex library'),
+        ),
+        if (syncState.message != null && !syncState.isSyncing) ...[
+          const SizedBox(height: AppSpacing.sm),
+          _StatusLine(message: syncState.message!, isError: syncState.isError),
+        ],
+        const SizedBox(height: AppSpacing.sm),
         OutlinedButton.icon(
           onPressed: onDisconnect,
           icon: const Icon(Icons.logout_outlined),
           label: const Text('Disconnect Plex'),
         ),
       ],
+    );
+  }
+}
+
+/// A short notice inside the library-picker area with one inline action
+/// (retry a failed load, or refresh an empty list).
+class _PickerNotice extends StatelessWidget {
+  const _PickerNotice({
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final String message;
+  final String actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            message,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: onAction,
+              icon: const Icon(Icons.refresh_outlined, size: 18),
+              label: Text(actionLabel),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
