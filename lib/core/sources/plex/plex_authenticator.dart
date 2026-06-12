@@ -47,6 +47,9 @@ class PlexAuthenticator {
 
   /// Verifies the server and returns a session that stores **only** the token
   /// (prefer a server-scoped one) plus the server metadata needed to reach it.
+  /// The session starts with **no** selected library sections (the library
+  /// picker fills [PlexSession.selectedSectionKeys] later) and no server name
+  /// (`/identity` doesn't report one).
   ///
   /// Throws [PlexException] for a bad URL, a missing token, an unreachable/
   /// non-Plex server, or a rejected token.

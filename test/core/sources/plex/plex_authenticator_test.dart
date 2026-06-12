@@ -68,6 +68,10 @@ void main() {
       expect(session.machineIdentifier, 'machine-abc');
       expect(session.serverVersion, '1.40.1');
       expect(client.lastToken, 'tok-123');
+      // The manual flow has no friendly name (/identity doesn't report one)
+      // and no libraries picked yet — the picker PR fills the selection.
+      expect(session.serverName, isNull);
+      expect(session.selectedSectionKeys, isEmpty);
     });
 
     test('surfaces a rejected token as unauthorized (invalid token)', () async {
