@@ -257,11 +257,10 @@ abstract final class MusicProviders {
     ),
   );
 
-  /// Plex (phase 1, in development — see docs/plex.md and issue #178).
-  /// Registered so `plex:<ratingKey>` URIs are recognized internally, but
-  /// deliberately **not** surfaced anywhere in Settings/UI yet: the connection
-  /// and library-picker screens are later PRs, so no Plex session — and
-  /// therefore no `plex:` track — can exist in a normal install.
+  /// Plex (phase 1, experimental — see docs/plex.md and issue #178).
+  /// `plex:<ratingKey>` URIs are recognized end to end, and the Settings card
+  /// (badged Experimental) lets the user connect with a manual server URL +
+  /// token and pick which music libraries to include.
   ///
   /// Stream-only by design: caching, favorites, lyrics, playlists, and cast are
   /// declared unsupported so their actions stay hidden/disabled rather than

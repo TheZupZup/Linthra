@@ -20,6 +20,7 @@ import 'data/repositories/play_history_repository_provider.dart';
 import 'data/repositories/playback_preferences_provider.dart';
 import 'data/repositories/playback_source_strategy_store_provider.dart';
 import 'data/repositories/playlist_repository_provider.dart';
+import 'data/repositories/plex_session_store_provider.dart';
 import 'data/repositories/preferred_source_store_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
@@ -32,7 +33,7 @@ import 'features/player/media_artwork_providers.dart';
 import 'features/player/player_providers.dart';
 import 'features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'features/settings/playback/normalize_volume_controller.dart';
-import 'features/settings/plex/plex_providers.dart';
+import 'features/settings/plex/plex_settings_controller.dart';
 import 'features/settings/subsonic/subsonic_settings_controller.dart';
 import 'shared/widgets/artwork_image.dart';
 
@@ -46,10 +47,10 @@ Future<void> main() async {
   // persists its catalog to SQLite (Drift override) and its chosen folder,
   // offline-download set, and mobile-data preference via shared_preferences;
   // downloaded audio is written to an app-private directory on disk; and the
-  // Jellyfin and Subsonic/Navidrome session credentials are each persisted in
-  // encrypted on-device storage. The remote downloader override makes both
-  // Jellyfin and Subsonic tracks downloadable for offline use. Tests keep the
-  // in-memory defaults unless they opt into these bindings.
+  // Jellyfin, Subsonic/Navidrome, and Plex session credentials are each
+  // persisted in encrypted on-device storage. The remote downloader override
+  // makes both Jellyfin and Subsonic tracks downloadable for offline use.
+  // Tests keep the in-memory defaults unless they opt into these bindings.
   final container = ProviderContainer(
     overrides: [
       // The Drift catalog, wrapped so each scan/sync stamps newly-seen tracks
@@ -87,6 +88,7 @@ Future<void> main() async {
       // reconnect after a restart doesn't trigger an unsolicited full re-sync.
       sharedPreferencesJellyfinAutoSyncStoreOverride,
       secureSubsonicSessionStoreOverride,
+      securePlexSessionStoreOverride,
       sharedPreferencesFavoritesStoreOverride,
       jellyfinFavoritesOverride,
       sharedPreferencesPlaylistStoreOverride,
@@ -181,6 +183,18 @@ Future<void> main() async {
     // Ignore: the user can still connect in Settings.
   }
 
+  // Likewise warm any persisted Plex session so plex: tracks can resolve and
+  // plex-thumb: covers can render from the first frame. Best-effort and
+  // secret-free: a missing/corrupt record loads as "not connected" and never
+  // blocks launch.
+  try {
+    await container
+        .read(plexSettingsControllerProvider.notifier)
+        .ensureLoaded();
+  } catch (_) {
+    // Ignore: the user can still connect in Settings.
+  }
+
   // Teach the shared artwork seam how to turn a credential-free cover
   // reference (subsonic-cover:<id> or plex-thumb:<path>, the only artwork the
   // catalog persists for those providers) into an authenticated cover URL,
@@ -190,8 +204,7 @@ Future<void> main() async {
   // they chain safely. Sessions are read live, so signing in/out is picked up
   // without a rebuild; a signed-out provider's reference stays unresolved (the
   // row keeps its placeholder) and anything else (Jellyfin and local covers)
-  // loads directly. Plex has no connection UI yet, so its session is always
-  // null today and plex-thumb: references simply keep their placeholder.
+  // loads directly.
   // Secret-free: only the resolved NetworkImage URL is built, never logged.
   installArtworkReferenceResolver((Uri reference) {
     final SubsonicSession? subsonicSession =

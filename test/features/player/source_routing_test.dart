@@ -13,7 +13,7 @@ import 'package:linthra/core/sources/plex/plex_playable_uri_resolver.dart';
 import 'package:linthra/core/sources/plex/plex_stream_source.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import 'package:linthra/features/player/player_providers.dart';
-import 'package:linthra/features/settings/plex/plex_providers.dart';
+import 'package:linthra/features/settings/plex/plex_settings_controller.dart';
 
 import '../../core/sources/plex/fake_plex_client.dart';
 
@@ -142,9 +142,9 @@ void main() {
   group('the real Riverpod wiring (streamPreloadingResolverProvider)', () {
     test('by default the Plex source is null, so a plex: track is gated',
         () async {
-      // No overrides: exactly what a production install runs today. The
-      // jellyfin/subsonic session stores default to in-memory (empty), and
-      // plexMusicSourceProvider is null by construction.
+      // No overrides: exactly what a production install runs before anyone
+      // connects. The jellyfin/subsonic/plex session stores default to
+      // in-memory (empty), so plexMusicSourceProvider serves null.
       final container = ProviderContainer();
       addTearDown(container.dispose);
       final resolver = container.read(streamPreloadingResolverProvider);
@@ -159,7 +159,7 @@ void main() {
     });
 
     test(
-        'overriding plexMusicSourceProvider (as the future settings PR will) '
+        'overriding plexMusicSourceProvider (a connected install) '
         'streams a plex: track end to end, minting the tokenized URL on demand',
         () async {
       const session = PlexSession(

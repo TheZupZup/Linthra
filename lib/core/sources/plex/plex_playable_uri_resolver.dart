@@ -17,11 +17,10 @@ import 'plex_track_mapper.dart';
 /// handed to the engine — never logged, never placed in [Track].
 ///
 /// The current signed-in source is read through a getter so signing in or out
-/// is reflected without rebuilding the controller; with no Plex session (the
-/// only possible state until the connection UI ships) every `plex:` track
-/// resolves to a friendly "not signed in" — recognized, but unavailable. The
-/// resolver depends only on the narrow [PlexStreamSource], never on Riverpod
-/// or HTTP.
+/// is reflected without rebuilding the controller; with no Plex session every
+/// `plex:` track resolves to a friendly "not signed in" — recognized, but
+/// unavailable. The resolver depends only on the narrow [PlexStreamSource],
+/// never on Riverpod or HTTP.
 class PlexPlayableUriResolver implements PlayableUriResolver {
   const PlexPlayableUriResolver(this._source);
 
