@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/lyrics.dart';
 import 'package:linthra/core/models/track.dart';
-import 'package:linthra/core/services/jellyfin_lyrics_service.dart';
+import 'package:linthra/core/services/jellyfin_lyrics_provider.dart';
 
 import '../sources/jellyfin/fake_jellyfin_client.dart';
 
@@ -14,21 +14,25 @@ const _session = JellyfinSession(
 );
 
 void main() {
-  group('JellyfinLyricsService', () {
+  group('JellyfinLyricsProvider', () {
     late FakeJellyfinClient client;
 
     setUp(() => client = FakeJellyfinClient());
 
-    JellyfinLyricsService build({JellyfinSession? session}) =>
-        JellyfinLyricsService(client: client, session: () => session);
+    JellyfinLyricsProvider build({JellyfinSession? session}) =>
+        JellyfinLyricsProvider(client: client, session: () => session);
+
+    test('declares the jellyfin source id the resolver routes by', () {
+      expect(build(session: _session).sourceId, 'jellyfin');
+    });
 
     test('fetches lyrics for a Jellyfin track by its item id', () async {
       client.lyrics = const Lyrics(
         lines: <LyricLine>[LyricLine(text: 'la la')],
       );
-      final service = build(session: _session);
+      final provider = build(session: _session);
 
-      final lyrics = await service.lyricsFor(
+      final lyrics = await provider.lyricsFor(
         const Track(id: 'item-7', title: 'Song', uri: 'jellyfin:item-7'),
       );
 
@@ -37,9 +41,9 @@ void main() {
     });
 
     test('returns null for a local track without hitting the server', () async {
-      final service = build(session: _session);
+      final provider = build(session: _session);
 
-      final lyrics = await service.lyricsFor(
+      final lyrics = await provider.lyricsFor(
         const Track(id: '1', title: 'Local', uri: 'file:///1.mp3'),
       );
 
@@ -48,9 +52,9 @@ void main() {
     });
 
     test('returns null when signed out', () async {
-      final service = build(session: null);
+      final provider = build(session: null);
 
-      final lyrics = await service.lyricsFor(
+      final lyrics = await provider.lyricsFor(
         const Track(id: 'item-7', title: 'Song', uri: 'jellyfin:item-7'),
       );
 

@@ -177,7 +177,9 @@ abstract final class MusicProviders {
       canFavoriteTracks: true,
       canReadFavoriteState: true,
       canSyncFavorites: false,
-      canLyrics: false,
+      // Sidecar `.lrc`/`.txt` lyrics next to the audio file (see
+      // LocalLyricsProvider); this flag lagged behind when they shipped.
+      canLyrics: true,
       canCast: false,
       canRemoveFromLibrary: true,
       // On-device tracks are already local — there is no separate app-managed

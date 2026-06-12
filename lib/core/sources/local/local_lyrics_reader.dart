@@ -2,9 +2,9 @@
 /// `Song.lrc` (synced) or `Song.txt` (plain) beside `Song.mp3`.
 ///
 /// This is a seam, deliberately mirroring [LocalMetadataReader] and
-/// [SafDocumentLister]: [LocalLyricsService] depends on this interface, never on
-/// a concrete reader, so *how* a sidecar is located stays platform-specific and
-/// swappable — the Android binding finds the sibling SAF document through the
+/// [SafDocumentLister]: [LocalLyricsProvider] depends on this interface, never
+/// on a concrete reader, so *how* a sidecar is located stays platform-specific
+/// and swappable — the Android binding finds the sibling SAF document through the
 /// content resolver under the folder's existing grant (no broad storage
 /// permission, no raw `/storage/...` path), while the desktop binding reads the
 /// neighbouring file from the filesystem.

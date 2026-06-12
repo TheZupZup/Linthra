@@ -13,6 +13,9 @@ void main() {
       expect(caps.canListPlaylists, isFalse);
       expect(caps.canCast, isFalse);
       expect(caps.canCache, isFalse);
+      // Sidecar .lrc/.txt lyrics (LocalLyricsProvider) — the docs/providers.md
+      // matrix has said ✅ since they shipped.
+      expect(caps.canLyrics, isTrue);
     });
 
     test('jellyfin: full capabilities', () {
