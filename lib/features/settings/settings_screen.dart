@@ -10,6 +10,7 @@ import 'diagnostics/diagnostics_settings_section.dart';
 import 'jellyfin/jellyfin_settings_section.dart';
 import 'network/network_settings_section.dart';
 import 'playback/playback_settings_section.dart';
+import 'plex/plex_settings_section.dart';
 import 'precache/precache_settings_section.dart';
 import 'source/default_provider_section.dart';
 import 'source/local_music_settings_section.dart';
@@ -38,6 +39,10 @@ class SettingsScreen extends StatelessWidget {
           SubsonicSettingsSection(),
           SizedBox(height: AppSpacing.md),
           LocalMusicSettingsSection(),
+          SizedBox(height: AppSpacing.md),
+          // Plex is phase 1 (stream-only) and clearly badged Experimental
+          // inside the card until the remaining capabilities ship.
+          PlexSettingsSection(),
           SizedBox(height: AppSpacing.md),
           DefaultProviderSettingsSection(),
           SizedBox(height: AppSpacing.md),

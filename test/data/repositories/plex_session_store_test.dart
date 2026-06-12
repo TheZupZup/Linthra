@@ -8,6 +8,7 @@ const _session = PlexSession(
   machineIdentifier: 'machine-abc',
   serverName: 'Living Room PMS',
   serverVersion: '1.40.1',
+  clientIdentifier: 'install-uuid-1',
   selectedSectionKeys: <String>['5', '12'],
 );
 
@@ -43,6 +44,7 @@ void main() {
       // The encrypted store must be able to persist and restore the token.
       expect(restored!.token, 'tok-123');
       expect(restored.serverName, 'Living Room PMS');
+      expect(restored.clientIdentifier, 'install-uuid-1');
       expect(restored.selectedSectionKeys, <String>['5', '12']);
     });
 
@@ -55,13 +57,14 @@ void main() {
       final json = minimal.toJson();
       expect(json.containsKey('serverName'), isFalse);
       expect(json.containsKey('serverVersion'), isFalse);
+      expect(json.containsKey('clientIdentifier'), isFalse);
       expect(json.containsKey('selectedSectionKeys'), isFalse);
       expect(PlexSession.fromJson(json), minimal);
     });
 
     test('loads a record persisted before section selection existed', () {
       // The shape SecurePlexSessionStore wrote under plex_session_v1 before
-      // serverName/selectedSectionKeys were added.
+      // serverName/clientIdentifier/selectedSectionKeys were added.
       const legacy = <String, dynamic>{
         'baseUrl': 'https://plex.example.com:32400',
         'token': 'tok-123',
@@ -72,6 +75,7 @@ void main() {
       expect(restored, isNotNull);
       expect(restored!.token, 'tok-123');
       expect(restored.serverName, isNull);
+      expect(restored.clientIdentifier, isNull);
       expect(restored.selectedSectionKeys, isEmpty);
     });
 

@@ -21,7 +21,7 @@ import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
-import '../settings/plex/plex_providers.dart';
+import '../settings/plex/plex_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
 import 'cast/cast_providers.dart';
 import 'now_playing.dart';
@@ -41,9 +41,9 @@ final streamPreloadingResolverProvider =
     RoutingPlayableUriResolver(<PlayableUriResolver>[
       JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
       SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
-      // Plex is wired but has no connection UI yet: its source provider is
-      // always null in production, so a plex: track resolves to a friendly
-      // "not signed in" rather than falling through as unplayable.
+      // With no Plex session the source provider is null and a plex: track
+      // resolves to a friendly "not signed in" rather than falling through
+      // as unplayable.
       PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
       const LocalPlayableUriResolver(),
     ]),

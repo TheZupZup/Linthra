@@ -36,10 +36,10 @@ so no secret reaches the persisted catalog.
 | Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  ✅  |
 | Plex                  | `plex`     |   🚧   |  🔜   |    🔜     |    🔜     |   🔜   |  🔜  |
 
-✅ implemented · 🚧 in development, not yet visible in Settings · 🔜 planned
-follow-up · — not applicable. "local" favourites/playlists stay on-device;
-"synced" ones mirror with the server (server is the source of truth on
-refresh).
+✅ implemented · 🚧 in development (Plex is connectable in Settings, marked
+**Experimental**) · 🔜 planned follow-up · — not applicable. "local"
+favourites/playlists stay on-device; "synced" ones mirror with the server
+(server is the source of truth on refresh).
 
 ## One library across providers
 
@@ -187,21 +187,29 @@ actions stay hidden/disabled rather than failing:
 - **In-app browse/search by artist/album** — the synced catalog lists tracks;
   richer browsing is shared work across all providers.
 
-## Plex (in development)
+## Plex (in development, experimental)
 
 A **read-only** [Plex Media Server](https://www.plex.tv/) provider is being
 built in small PRs behind the same `MusicSource` seam — see [plex.md](plex.md)
-for the full design and issue #178 for the plan. The internal plumbing exists
-(the stream-only capability set, recognition of `plex:<ratingKey>` track URIs
-in the playback router, and render-time resolution of credential-free
-`plex-thumb:` cover references), but **Plex is not yet visible in Settings**:
-the connection (server URL + token) and library-picker screens haven't
-shipped, so no Plex session can exist and nothing Plex-related appears in the
-app. Phase 1 will be stream-only (direct play); offline cache, favorites,
-playlists, lyrics, and cast are declared unsupported in the capability model
-until later — and Plex follows the same token-safety rules as every other
-provider (token encrypted at rest, never logged, never woven into a persisted
-URI or cache filename).
+for the full design and issue #178 for the plan. **Connecting is now possible
+in Settings** (the card is clearly badged *Experimental*): the user pastes a
+server URL + Plex token, Linthra verifies them against `/identity`, persists
+the session encrypted at rest, and — unlike Jellyfin/Subsonic, which sync the
+whole server — asks the user to **pick which music libraries** to include
+(the selection is saved with the session and scopes every fetch; connected
+with nothing selected simply means an empty library). Disconnecting removes
+only the Plex session.
+
+Underneath, the full plumbing is wired: the stream-only capability set,
+recognition of `plex:<ratingKey>` track URIs in the playback router (two-step
+play resolution, minting the tokenized stream URL only at play time), and
+render-time resolution of credential-free `plex-thumb:` cover references. The
+remaining step is the catalog sync that lists Plex music in the Library.
+Phase 1 is stream-only (direct play); offline cache, favorites, playlists,
+lyrics, cast, and the plex.tv PIN sign-in are declared unsupported /
+follow-ups — and Plex follows the same token-safety rules as every other
+provider (token encrypted at rest, never logged, never shown again after
+saving, never woven into a persisted URI or cache filename).
 
 ## Future provider possibilities
 

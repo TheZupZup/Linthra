@@ -18,9 +18,7 @@ import 'plex_track_mapper.dart';
 /// The reference is provider-scoped, not server-scoped: there is a single
 /// signed-in Plex session at a time, so resolution reads whichever session is
 /// current. A reference left over after sign-out simply fails to resolve (the
-/// UI shows its placeholder) rather than loading a stale cover. Until the Plex
-/// connection UI ships, no session can exist, so every `plex-thumb:` reference
-/// stays unresolved and invisible.
+/// UI shows its placeholder) rather than loading a stale cover.
 abstract final class PlexArtwork {
   /// Resolves a credential-free cover [reference] into a loadable,
   /// authenticated cover-art URL for [session], or `null` when [reference]

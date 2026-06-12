@@ -25,7 +25,7 @@ import 'plex_track_mapper.dart';
 /// ([PlexSession.selectedSectionKeys]): each fetch lists one Plex metadata
 /// type (artist 8 / album 9 / track 10) per selected section and concatenates
 /// the results. No selection yet — the state every sign-in starts in until the
-/// library picker (a later PR) fills it — simply yields empty lists, never an
+/// library picker in Settings fills it — simply yields empty lists, never an
 /// error.
 ///
 /// Playback is two-step by design (see docs/plex.md → MusicSource mapping): a

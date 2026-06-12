@@ -25,6 +25,7 @@ class PlexSession {
     required this.machineIdentifier,
     this.serverName,
     this.serverVersion,
+    this.clientIdentifier,
     this.selectedSectionKeys = const <String>[],
   });
 
@@ -51,10 +52,18 @@ class PlexSession {
   /// diagnostics report can show it after a restart. Not secret, display only.
   final String? serverVersion;
 
+  /// The `X-Plex-Client-Identifier` this install announced when the session was
+  /// created, persisted so the same client identity is presented to the server
+  /// across restarts (a PMS lists devices by it) — mirroring how
+  /// `JellyfinSession` keeps its per-sign-in `deviceId`. `null` only for a
+  /// record persisted before this field existed; callers then fall back to a
+  /// fresh per-launch identifier. Not a secret: it never grants access.
+  final String? clientIdentifier;
+
   /// `key`s of the music library sections the user chose to include. Starts
-  /// empty at sign-in — the library picker (a later PR) fills it — and scopes
-  /// the future artist/album/track fetches (see docs/plex.md → MusicSource
-  /// mapping). Section keys are not secret.
+  /// empty at sign-in — the library picker in Settings fills it — and scopes
+  /// every artist/album/track fetch (see docs/plex.md → MusicSource mapping).
+  /// Section keys are not secret.
   final List<String> selectedSectionKeys;
 
   PlexSession copyWith({
@@ -63,6 +72,7 @@ class PlexSession {
     String? machineIdentifier,
     String? serverName,
     String? serverVersion,
+    String? clientIdentifier,
     List<String>? selectedSectionKeys,
   }) {
     return PlexSession(
@@ -71,6 +81,7 @@ class PlexSession {
       machineIdentifier: machineIdentifier ?? this.machineIdentifier,
       serverName: serverName ?? this.serverName,
       serverVersion: serverVersion ?? this.serverVersion,
+      clientIdentifier: clientIdentifier ?? this.clientIdentifier,
       selectedSectionKeys: selectedSectionKeys ?? this.selectedSectionKeys,
     );
   }
@@ -84,6 +95,7 @@ class PlexSession {
         'machineIdentifier': machineIdentifier,
         if (serverName != null) 'serverName': serverName,
         if (serverVersion != null) 'serverVersion': serverVersion,
+        if (clientIdentifier != null) 'clientIdentifier': clientIdentifier,
         if (selectedSectionKeys.isNotEmpty)
           'selectedSectionKeys': selectedSectionKeys,
       };
@@ -110,6 +122,7 @@ class PlexSession {
       machineIdentifier: machineIdentifier,
       serverName: json['serverName'] as String?,
       serverVersion: json['serverVersion'] as String?,
+      clientIdentifier: json['clientIdentifier'] as String?,
       selectedSectionKeys: selectedSectionKeys,
     );
   }
@@ -123,6 +136,7 @@ class PlexSession {
           other.machineIdentifier == machineIdentifier &&
           other.serverName == serverName &&
           other.serverVersion == serverVersion &&
+          other.clientIdentifier == clientIdentifier &&
           listEquals(other.selectedSectionKeys, selectedSectionKeys));
 
   @override
@@ -132,6 +146,7 @@ class PlexSession {
         machineIdentifier,
         serverName,
         serverVersion,
+        clientIdentifier,
         Object.hashAll(selectedSectionKeys),
       );
 
@@ -142,5 +157,6 @@ class PlexSession {
       'machineIdentifier: $machineIdentifier, '
       'serverName: $serverName, '
       'serverVersion: $serverVersion, '
+      'clientIdentifier: $clientIdentifier, '
       'selectedSectionKeys: $selectedSectionKeys, token: <redacted>)';
 }
