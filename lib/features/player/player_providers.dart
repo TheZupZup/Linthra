@@ -11,10 +11,12 @@ import '../../core/services/offline_first_playable_uri_resolver.dart';
 import '../../core/services/playable_uri_resolver.dart';
 import '../../core/services/playback_candidate_source.dart';
 import '../../core/services/playback_controller.dart';
+import '../../core/services/remote_cache/remote_cache_resolver.dart';
+import '../../core/services/remote_cache/remote_playback_cache.dart';
+import '../../core/services/remote_cache/remote_stream_prebufferer.dart';
+import '../../core/services/remote_prebuffer_service.dart';
 import '../../core/services/routing_playable_uri_resolver.dart';
 import '../../core/services/smart_precache_service.dart';
-import '../../core/services/stream_preload_service.dart';
-import '../../core/services/stream_preloading_resolver.dart';
 import '../../core/sources/jellyfin/jellyfin_playable_uri_resolver.dart';
 import '../../core/sources/plex/plex_playable_uri_resolver.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
@@ -26,43 +28,69 @@ import '../settings/subsonic/subsonic_settings_controller.dart';
 import 'cast/cast_providers.dart';
 import 'now_playing.dart';
 
-/// The source router wrapped in the stream-preloading decorator.
+/// The shared in-memory store of prebuffered remote stream URLs.
 ///
-/// Pinned as its own provider so the controller's resolver **and** the
-/// [streamPreloadServiceProvider] share the *same* in-memory preload cache: the
-/// service warms the next remote track's stream URL here, and the controller
-/// consumes it on the next play. It only ever holds short-lived remote URLs in
-/// memory — never the offline cache. Depends only on lazily-read source getters,
-/// so signing in/out is picked up without rebuilding (keeping the instance, and
-/// its cache, stable for the session).
-final streamPreloadingResolverProvider =
-    Provider<StreamPreloadingResolver>((ref) {
-  return StreamPreloadingResolver(
-    RoutingPlayableUriResolver(<PlayableUriResolver>[
-      JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
-      SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
-      // With no Plex session the source provider is null and a plex: track
-      // resolves to a friendly "not signed in" rather than falling through
-      // as unplayable.
-      PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
-      const LocalPlayableUriResolver(),
-    ]),
+/// Pinned for the session so the read side ([remoteCacheResolverProvider]) and
+/// the write side ([remoteStreamPrebuffererProvider]) share the *same* cache:
+/// the prebuffer service warms upcoming remote URLs here and the controller's
+/// resolver consumes them on the next play. It only ever holds short-lived
+/// remote URLs in memory — never the offline cache, and never persisted.
+final remotePlaybackCacheProvider = Provider<RemotePlaybackCache>((ref) {
+  return RemotePlaybackCache();
+});
+
+/// The source router: Jellyfin, Subsonic, Plex, then the on-device catch-all.
+///
+/// Depends only on lazily-read source getters, so signing in/out is picked up
+/// without rebuilding (keeping the instance stable for the session). Shared by
+/// the cache resolver (which reads through it on a miss) and the prebufferer
+/// (which warms through it), so both mint URLs exactly the same way.
+final remoteSourceRouterProvider =
+    Provider<RoutingPlayableUriResolver>((ref) {
+  return RoutingPlayableUriResolver(<PlayableUriResolver>[
+    JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
+    SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
+    // With no Plex session the source provider is null and a plex: track
+    // resolves to a friendly "not signed in" rather than falling through
+    // as unplayable.
+    PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
+    const LocalPlayableUriResolver(),
+  ]);
+});
+
+/// The read side of the remote playback cache: serves a prebuffered stream URL
+/// when one is fresh (consume-on-read) and otherwise mints a fresh one through
+/// the source router. Shares the session cache with the prebufferer.
+final remoteCacheResolverProvider = Provider<RemoteCacheResolver>((ref) {
+  return RemoteCacheResolver(
+    inner: ref.watch(remoteSourceRouterProvider),
+    cache: ref.watch(remotePlaybackCacheProvider),
+  );
+});
+
+/// The write side: aggressively warms the current and next remote stream URLs
+/// into the shared cache. Driven by [remotePrebufferServiceProvider].
+final remoteStreamPrebuffererProvider =
+    Provider<RemoteStreamPrebufferer>((ref) {
+  return RemoteStreamPrebufferer(
+    resolver: ref.watch(remoteSourceRouterProvider),
+    cache: ref.watch(remotePlaybackCacheProvider),
   );
 });
 
 /// Composes the [PlayableUriResolver] the controller resolves tracks through.
 ///
 /// Offline first: a downloaded track resolves to its cached `file://` copy
-/// before anything else. On a cache miss it falls through to the
-/// stream-preloading source router, which serves a pre-warmed URL when one is
-/// ready or mints a fresh authenticated stream URL at play time (reading the
-/// live signed-in source, so sign-in/out is picked up without a rebuild). The UI
-/// and controller depend only on the [PlayableUriResolver] interface, never on
-/// Jellyfin, the cache, or HTTP.
+/// before anything else. On a cache miss it falls through to the remote cache
+/// resolver, which serves a pre-warmed URL when one is ready or mints a fresh
+/// authenticated stream URL at play time (reading the live signed-in source, so
+/// sign-in/out is picked up without a rebuild). The UI and controller depend
+/// only on the [PlayableUriResolver] interface, never on Jellyfin, the cache, or
+/// HTTP.
 final playableUriResolverProvider = Provider<PlayableUriResolver>((ref) {
   return OfflineFirstPlayableUriResolver(
     locator: ref.watch(cachedTrackLocatorProvider),
-    fallback: ref.watch(streamPreloadingResolverProvider),
+    fallback: ref.watch(remoteCacheResolverProvider),
     // On a cache hit, refresh the track's least-recently-used position so
     // eviction keeps what's actually listened to. Read lazily (no build-time
     // dependency on the cache manager) and never awaited — a metadata write
@@ -159,20 +187,22 @@ final smartPrecacheServiceProvider = Provider<SmartPrecacheService>((ref) {
   return service;
 });
 
-/// Stream preload: as playback advances, warms the **immediate next** remote
-/// track's stream URL into the shared in-memory cache so a skip starts faster.
+/// Remote prebuffer: as playback advances, warms the **current** remote track
+/// and the **next** queue item's stream URL into the shared in-memory cache so a
+/// skip — or the natural roll into the next track — starts faster.
 ///
 /// This is **not** the offline cache — it never writes bytes to disk, never
 /// marks a track as downloaded, and never blocks the current track (best-effort,
-/// one warm at a time, calm under repeat-one). It complements smart pre-cache
+/// one pass at a time, calm under repeat-one). It complements smart pre-cache
 /// (which warms upcoming tracks to *disk*). Pinned for the session like the
 /// controller; reads its seams once with [Ref.read]. It does its work as a side
 /// effect of listening, so `main` instantiates it once after startup; nothing in
 /// the UI reads its value.
-final streamPreloadServiceProvider = Provider<StreamPreloadService>((ref) {
-  final service = StreamPreloadService(
+final remotePrebufferServiceProvider =
+    Provider<RemotePrebufferService>((ref) {
+  final service = RemotePrebufferService(
     playbackStates: ref.read(playbackControllerProvider).stateStream,
-    preloader: ref.read(streamPreloadingResolverProvider),
+    prebufferer: ref.read(remoteStreamPrebuffererProvider),
   );
   ref.onDispose(service.dispose);
   return service;
