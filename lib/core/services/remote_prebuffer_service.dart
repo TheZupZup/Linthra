@@ -86,9 +86,8 @@ class RemotePrebufferService {
         // Repeat-one replays the current track, so the up-next won't play soon:
         // prepare only the current track (a cheap no-op once it is warm) and
         // skip warming unrelated up-next entries.
-        final List<Track> upNext = state.repeatMode == RepeatMode.one
-            ? const <Track>[]
-            : state.upNext;
+        final List<Track> upNext =
+            state.repeatMode == RepeatMode.one ? const <Track>[] : state.upNext;
         await _prebufferer.prepare(
           current: state.currentTrack,
           upNext: upNext,

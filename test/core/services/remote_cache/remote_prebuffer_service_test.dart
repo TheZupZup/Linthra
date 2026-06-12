@@ -66,8 +66,7 @@ void main() {
 
     RemotePrebufferService build({int ahead = 1}) => RemotePrebufferService(
           playbackStates: states.stream,
-          prebufferer:
-              RemoteStreamPrebufferer(resolver: inner, cache: cache),
+          prebufferer: RemoteStreamPrebufferer(resolver: inner, cache: cache),
           ahead: ahead,
         );
 

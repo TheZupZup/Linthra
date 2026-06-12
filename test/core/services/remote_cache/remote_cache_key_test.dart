@@ -96,7 +96,8 @@ void main() {
       expect(key.fileSafeName, isNot(contains('/')));
       expect(key.fileSafeName, isNot(contains(' ')));
       expect(key.fileSafeName, isNot(contains(':')));
-      expect(key.fileSafeName, RemoteCacheKey.forUri('jellyfin:a/b c:d')!.fileSafeName);
+      expect(key.fileSafeName,
+          RemoteCacheKey.forUri('jellyfin:a/b c:d')!.fileSafeName);
       expect(key.fileSafeName, startsWith('jellyfin_'));
     });
   });
@@ -105,8 +106,10 @@ void main() {
     test('keys are equal iff their credential-free value matches', () {
       // Identity is the uri, not the catalog id — two Track objects for the same
       // remote item map to one cache slot.
-      final RemoteCacheKey a = RemoteCacheKey.forTrack(_track('plex:101', id: 'x'))!;
-      final RemoteCacheKey b = RemoteCacheKey.forTrack(_track('plex:101', id: 'y'))!;
+      final RemoteCacheKey a =
+          RemoteCacheKey.forTrack(_track('plex:101', id: 'x'))!;
+      final RemoteCacheKey b =
+          RemoteCacheKey.forTrack(_track('plex:101', id: 'y'))!;
       final RemoteCacheKey c = RemoteCacheKey.forTrack(_track('plex:202'))!;
 
       expect(a, b);

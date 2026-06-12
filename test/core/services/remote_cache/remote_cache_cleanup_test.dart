@@ -31,7 +31,8 @@ void main() {
 
       // The fresh one survives; the stale one and the one expiring exactly now
       // are dropped.
-      expect(expired, containsAll(<String>['plex:stale', 'subsonic:expiring-now']));
+      expect(expired,
+          containsAll(<String>['plex:stale', 'subsonic:expiring-now']));
       expect(expired, isNot(contains('jellyfin:fresh')));
     });
 

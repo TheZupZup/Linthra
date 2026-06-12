@@ -45,8 +45,7 @@ final remotePlaybackCacheProvider = Provider<RemotePlaybackCache>((ref) {
 /// without rebuilding (keeping the instance stable for the session). Shared by
 /// the cache resolver (which reads through it on a miss) and the prebufferer
 /// (which warms through it), so both mint URLs exactly the same way.
-final remoteSourceRouterProvider =
-    Provider<RoutingPlayableUriResolver>((ref) {
+final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
   return RoutingPlayableUriResolver(<PlayableUriResolver>[
     JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
     SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
@@ -198,8 +197,7 @@ final smartPrecacheServiceProvider = Provider<SmartPrecacheService>((ref) {
 /// controller; reads its seams once with [Ref.read]. It does its work as a side
 /// effect of listening, so `main` instantiates it once after startup; nothing in
 /// the UI reads its value.
-final remotePrebufferServiceProvider =
-    Provider<RemotePrebufferService>((ref) {
+final remotePrebufferServiceProvider = Provider<RemotePrebufferService>((ref) {
   final service = RemotePrebufferService(
     playbackStates: ref.read(playbackControllerProvider).stateStream,
     prebufferer: ref.read(remoteStreamPrebuffererProvider),

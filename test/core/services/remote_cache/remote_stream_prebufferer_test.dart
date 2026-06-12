@@ -142,7 +142,8 @@ void main() {
 
       // Current + exactly one ahead (not the whole queue).
       expect(inner.resolved, <String>['cur', 'next']);
-      expect(cache.contains(RemoteCacheKey.forUri('jellyfin:cur')!, now), isTrue);
+      expect(
+          cache.contains(RemoteCacheKey.forUri('jellyfin:cur')!, now), isTrue);
       expect(
         cache.contains(RemoteCacheKey.forUri('jellyfin:next')!, now),
         isTrue,
@@ -205,7 +206,8 @@ void main() {
   group('credential safety', () {
     test('a warmed entry never persists a token in its key or metadata',
         () async {
-      final FakeStreamResolver inner = FakeStreamResolver(token: 'SUPER-SECRET');
+      final FakeStreamResolver inner =
+          FakeStreamResolver(token: 'SUPER-SECRET');
       final RemotePlaybackCache cache = RemotePlaybackCache();
       final RemoteStreamPrebufferer prebufferer = RemoteStreamPrebufferer(
         resolver: inner,
