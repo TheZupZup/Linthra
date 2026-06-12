@@ -220,8 +220,9 @@ the entry.
   + `onTrackChanged`, with a `NoOpServerPlaybackReporter` for providers
   without reporting.
 - **`RoutingServerPlaybackReporter`** — selects the reporter whose `handles`
-  claims the track's uri; `plex:` routes to Plex, everything else reports
-  nowhere, so local/Jellyfin/Subsonic playback can never trigger a Plex call.
+  claims the track's uri; `plex:` routes to Plex, `jellyfin:` to the Jellyfin
+  reporter, `subsonic:` to the Subsonic one, and local files report nowhere,
+  so one provider's playback can never trigger another provider's call.
   `onTrackChanged` is forwarded to the owners of *both* sides, so a Plex
   session closes even when the next track belongs to another provider.
 - **`PlaybackReportingService`** (`core/services/playback_reporting_service.dart`)

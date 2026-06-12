@@ -5,9 +5,9 @@ import 'server_playback_reporter.dart';
 /// track's uri — the reporting counterpart of `RoutingPlayableUriResolver`.
 ///
 /// A track no reporter handles is silently dropped: not reporting *is* the
-/// correct behaviour for providers without reporting support (local files,
-/// Jellyfin, Subsonic today), so non-Plex playback can never trigger a Plex
-/// report — the only reporter that sees a track is the one that claimed it.
+/// correct behaviour for providers without reporting support (local files
+/// today), and the only reporter that sees a track is the one that claimed it
+/// — so one provider's playback can never trigger another provider's report.
 ///
 /// [onTrackChanged] is the one event that can span two providers (a Plex track
 /// followed by a Jellyfin one): it is forwarded to the reporter owning each

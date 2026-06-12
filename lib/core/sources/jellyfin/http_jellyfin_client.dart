@@ -171,6 +171,51 @@ class HttpJellyfinClient implements JellyfinClient {
   }
 
   @override
+  Future<void> reportPlayback(
+    JellyfinSession session, {
+    required String itemId,
+    required JellyfinPlaybackEvent event,
+    required Duration position,
+  }) async {
+    final Uri uri = switch (event) {
+      JellyfinPlaybackEvent.started =>
+        JellyfinEndpoints.playbackStarted(session.baseUrl),
+      JellyfinPlaybackEvent.progress ||
+      JellyfinPlaybackEvent.paused ||
+      JellyfinPlaybackEvent.resumed =>
+        JellyfinEndpoints.playbackProgress(session.baseUrl),
+      JellyfinPlaybackEvent.stopped =>
+        JellyfinEndpoints.playbackStopped(session.baseUrl),
+    };
+    // PositionTicks is Jellyfin's 100-nanosecond unit (10 ticks per
+    // microsecond) — the same unit the item listings report RunTimeTicks in.
+    final Map<String, Object> body = <String, Object>{
+      'ItemId': itemId,
+      'PositionTicks': position.inMicroseconds * 10,
+    };
+    if (event != JellyfinPlaybackEvent.stopped) {
+      // `static=true` streams (and offline copies) play the original file
+      // bytes, so DirectPlay is the honest label for the dashboard.
+      body['CanSeek'] = true;
+      body['IsPaused'] = event == JellyfinPlaybackEvent.paused;
+      body['PlayMethod'] = 'DirectPlay';
+    }
+    final http.Response response = await _send(
+      () => _client.post(
+        uri,
+        headers: <String, String>{
+          ..._authHeaders(session),
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      ),
+    );
+    // The body is deliberately not parsed: Jellyfin answers these with
+    // `204 No Content` — a 2xx alone means the report landed.
+    _checkStatus(response);
+  }
+
+  @override
   Future<Set<String>> fetchFavoriteIds(JellyfinSession session) async {
     final Uri uri = JellyfinEndpoints.favoriteAudioItems(
       session.baseUrl,

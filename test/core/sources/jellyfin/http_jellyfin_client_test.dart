@@ -451,4 +451,163 @@ void main() {
       expect(requests[1].url.path, '/Users/user-1/FavoriteItems/item-7');
     });
   });
+
+  group('reportPlayback', () {
+    test('started POSTs the start body to /Sessions/Playing', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return http.Response('', 204);
+      }));
+
+      await client.reportPlayback(
+        _session,
+        itemId: 'item-7',
+        event: JellyfinPlaybackEvent.started,
+        position: const Duration(seconds: 1),
+      );
+
+      expect(captured!.method, 'POST');
+      expect(captured!.url.path, '/Sessions/Playing');
+      expect(captured!.headers['Content-Type'], startsWith('application/json'));
+      final Map<String, dynamic> body =
+          jsonDecode(captured!.body) as Map<String, dynamic>;
+      expect(body['ItemId'], 'item-7');
+      // 10,000,000 ticks (100-ns units) is exactly one second.
+      expect(body['PositionTicks'], 10000000);
+      expect(body['IsPaused'], isFalse);
+      expect(body['CanSeek'], isTrue);
+      expect(body['PlayMethod'], 'DirectPlay');
+    });
+
+    test('progress and resume report the Progress endpoint, not paused',
+        () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        return http.Response('', 204);
+      }));
+
+      for (final JellyfinPlaybackEvent event in <JellyfinPlaybackEvent>[
+        JellyfinPlaybackEvent.progress,
+        JellyfinPlaybackEvent.resumed,
+      ]) {
+        await client.reportPlayback(
+          _session,
+          itemId: 'item-7',
+          event: event,
+          position: const Duration(seconds: 30),
+        );
+      }
+
+      for (final http.Request request in requests) {
+        expect(request.url.path, '/Sessions/Playing/Progress');
+        final Map<String, dynamic> body =
+            jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['IsPaused'], isFalse);
+      }
+    });
+
+    test('paused reports the Progress endpoint with IsPaused', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return http.Response('', 204);
+      }));
+
+      await client.reportPlayback(
+        _session,
+        itemId: 'item-7',
+        event: JellyfinPlaybackEvent.paused,
+        position: const Duration(seconds: 30),
+      );
+
+      expect(captured!.url.path, '/Sessions/Playing/Progress');
+      final Map<String, dynamic> body =
+          jsonDecode(captured!.body) as Map<String, dynamic>;
+      expect(body['IsPaused'], isTrue);
+    });
+
+    test(
+        'stopped POSTs only the item and position to '
+        '/Sessions/Playing/Stopped', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return http.Response('', 204);
+      }));
+
+      await client.reportPlayback(
+        _session,
+        itemId: 'item-7',
+        event: JellyfinPlaybackEvent.stopped,
+        position: const Duration(minutes: 3),
+      );
+
+      expect(captured!.url.path, '/Sessions/Playing/Stopped');
+      final Map<String, dynamic> body =
+          jsonDecode(captured!.body) as Map<String, dynamic>;
+      expect(body['ItemId'], 'item-7');
+      expect(
+        body['PositionTicks'],
+        const Duration(minutes: 3).inMicroseconds * 10,
+      );
+      expect(body.containsKey('IsPaused'), isFalse);
+      expect(body.containsKey('PlayMethod'), isFalse);
+    });
+
+    test('the token rides in the Authorization header, never the URL',
+        () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return http.Response('', 204);
+      }));
+
+      await client.reportPlayback(
+        _session,
+        itemId: 'item-7',
+        event: JellyfinPlaybackEvent.started,
+        position: Duration.zero,
+      );
+
+      expect(captured!.headers['Authorization'], contains('Token="tok-abc"'));
+      expect(captured!.url.toString(), isNot(contains('tok-abc')));
+      expect(captured!.url.hasQuery, isFalse);
+    });
+
+    test('maps a 401 to unauthorized (token-free)', () async {
+      final client =
+          _client(MockClient((_) async => http.Response('denied', 401)));
+
+      await expectLater(
+        client.reportPlayback(
+          _session,
+          itemId: 'item-7',
+          event: JellyfinPlaybackEvent.started,
+          position: Duration.zero,
+        ),
+        throwsA(isA<JellyfinException>()
+            .having((e) => e.kind, 'kind', JellyfinErrorKind.unauthorized)
+            .having((e) => e.message, 'message', isNot(contains('tok-abc')))),
+      );
+    });
+
+    test('maps a transport failure to notReachable', () async {
+      final client = _client(
+        MockClient((_) async => throw http.ClientException('refused')),
+      );
+
+      await expectLater(
+        client.reportPlayback(
+          _session,
+          itemId: 'item-7',
+          event: JellyfinPlaybackEvent.progress,
+          position: Duration.zero,
+        ),
+        throwsA(isA<JellyfinException>()
+            .having((e) => e.kind, 'kind', JellyfinErrorKind.notReachable)),
+      );
+    });
+  });
 }

@@ -62,6 +62,23 @@ abstract interface class JellyfinClient {
   /// for transport or auth failures.
   Future<Lyrics?> fetchLyrics(JellyfinSession session, String itemId);
 
+  /// Reports a playback lifecycle [event] for the audio item [itemId] at
+  /// [position] to the server's play-session endpoints, so Jellyfin's
+  /// dashboard shows this client as an active player and the item's play
+  /// state stays in sync.
+  ///
+  /// The server keys the session on the client/device identity in the
+  /// `Authorization` header — the same one used at sign-in — so a
+  /// pause/resume updates one player entry instead of spawning new ones.
+  /// Throws a [JellyfinException] on failure; the *caller* (the playback
+  /// reporter) treats every failure as best-effort and swallows it.
+  Future<void> reportPlayback(
+    JellyfinSession session, {
+    required String itemId,
+    required JellyfinPlaybackEvent event,
+    required Duration position,
+  });
+
   /// The audio item ids the signed-in user has marked as favourites.
   Future<Set<String>> fetchFavoriteIds(JellyfinSession session);
 

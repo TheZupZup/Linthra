@@ -37,6 +37,21 @@ class FakeSubsonicClient implements SubsonicClient {
   Lyrics? lyrics;
   SubsonicException? lyricsError;
 
+  /// When set, every [scrobble] call throws it (after being recorded), so
+  /// reporters can prove failures are swallowed. Set [scrobbleError] for a
+  /// typed failure or [scrobbleUnexpectedError] for an untyped one.
+  SubsonicException? scrobbleError;
+  Object? scrobbleUnexpectedError;
+
+  /// Every scrobble call received, in order, so tests can assert the exact
+  /// now-playing/submission sequence a playback scenario produced.
+  final List<({String songId, bool submission})> scrobbles =
+      <({String songId, bool submission})>[];
+
+  /// The session the last [scrobble] call carried, so a test can prove the
+  /// live (current) session was used.
+  SubsonicSession? lastScrobbleSession;
+
   // Recorded inputs.
   String? lastBaseUrl;
   String? lastUsername;
@@ -121,5 +136,19 @@ class FakeSubsonicClient implements SubsonicClient {
     if (error != null) throw error;
     return streamProbe ??
         const SubsonicStreamProbe(statusCode: 200, contentType: 'audio/mpeg');
+  }
+
+  @override
+  Future<void> scrobble(
+    SubsonicSession session,
+    String songId, {
+    required bool submission,
+  }) async {
+    lastScrobbleSession = session;
+    scrobbles.add((songId: songId, submission: submission));
+    final SubsonicException? error = scrobbleError;
+    if (error != null) throw error;
+    final Object? unexpected = scrobbleUnexpectedError;
+    if (unexpected != null) throw unexpected;
   }
 }

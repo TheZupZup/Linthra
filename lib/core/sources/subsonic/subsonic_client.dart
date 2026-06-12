@@ -67,4 +67,20 @@ abstract interface class SubsonicClient {
   /// only a transport failure throws (a non-2xx status is returned for the
   /// caller to classify).
   Future<SubsonicStreamProbe> probeStream(Uri url);
+
+  /// Registers playback of the song [songId] with the server's `scrobble`
+  /// endpoint: `submission: false` marks it as "now playing" (so Navidrome's
+  /// activity panel shows this client), `submission: true` records a completed
+  /// play (play count / last played / configured scrobble forwarding).
+  ///
+  /// Throws a [SubsonicException] on failure — including a server that
+  /// doesn't support scrobbling, which answers with a Subsonic error
+  /// envelope; the *caller* (the playback reporter) treats every failure as
+  /// best-effort and swallows it. The credential is woven into the request
+  /// URL on demand and never logged or placed in a thrown error.
+  Future<void> scrobble(
+    SubsonicSession session,
+    String songId, {
+    required bool submission,
+  });
 }

@@ -497,4 +497,67 @@ void main() {
       );
     });
   });
+
+  group('scrobble', () {
+    test('targets /rest/scrobble.view with the id, flag, and auth query',
+        () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return _ok(const <String, dynamic>{});
+      }));
+
+      await client.scrobble(_session, 's-7', submission: false);
+
+      expect(captured!.url.path, '/rest/scrobble.view');
+      final q = captured!.url.queryParameters;
+      expect(q['id'], 's-7');
+      expect(q['submission'], 'false');
+      expect(q['u'], 'alice');
+      expect(q['t'], 'tok1');
+      expect(q['s'], 'salt1');
+    });
+
+    test('a submission sends submission=true', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return _ok(const <String, dynamic>{});
+      }));
+
+      await client.scrobble(_session, 's-7', submission: true);
+
+      expect(captured!.url.queryParameters['submission'], 'true');
+    });
+
+    test('an error envelope throws the typed kind (e.g. an old server)',
+        () async {
+      // A server that rejects/doesn't support scrobbling answers inside a 200;
+      // the typed exception is what the playback reporter swallows.
+      final client = _client(
+        MockClient((_) async => _failed(30, 'Incompatible version')),
+      );
+
+      await expectLater(
+        () => client.scrobble(_session, 's-7', submission: true),
+        throwsA(isA<SubsonicException>().having(
+            (e) => e.kind, 'kind', SubsonicErrorKind.unsupportedResponse)),
+      );
+    });
+
+    test('a transport failure throws notReachable, never the URL credential',
+        () async {
+      final client = _client(MockClient((_) async => throw http.ClientException(
+            'Connection failed: $_base/rest/scrobble.view?t=tok1&s=salt1',
+          )));
+
+      await expectLater(
+        () => client.scrobble(_session, 's-7', submission: false),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.kind, 'kind', SubsonicErrorKind.notReachable)
+            .having((e) => e.message, 'message', isNot(contains('tok1')))
+            .having((e) => e.message, 'message', isNot(contains('salt1')))),
+      );
+    });
+  });
 }
