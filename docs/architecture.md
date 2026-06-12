@@ -135,8 +135,15 @@ the widgets hold no playback logic of their own.
   the current track without re-resolving its URL.
 - **Favorite** toggles through a `FavoritesRepository` (synced to Jellyfin for
   remote tracks, on-device for local ones), optimistically and token-free.
-- **Lyrics** are fetched behind a `LyricsService` seam (Jellyfin today; a local
-  `.lrc`/tag reader can slot in later).
+- **Lyrics** are fetched behind a `LyricsService` seam. The shipped
+  implementation is a `LyricsResolver` that routes each track, by the source
+  that owns its URI (`MusicProviders.forTrackUri` — the same registry playback
+  and capabilities key off), to that source's registered `LyricsProvider`:
+  Jellyfin, Subsonic/Navidrome, the local sidecar `.lrc`/`.txt` reader, and an
+  explicit `NoLyricsProvider` placeholder for Plex until its lyrics path lands.
+  Missing lyrics are `null` (the calm "no lyrics" state), never an error;
+  lookups run on demand off the playback path; failures are logged by type
+  only through the secret-free `LyricsDiagnostics`.
 - **Cast** drives real Chromecast through `CastService`; see [cast.md](cast.md).
 
 ## Android folder selection (SAF)

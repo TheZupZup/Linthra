@@ -3,16 +3,20 @@ import '../models/lyrics.dart';
 import '../models/track.dart';
 import '../sources/jellyfin/jellyfin_client.dart';
 import '../sources/jellyfin/jellyfin_track_mapper.dart';
-import 'lyrics_service.dart';
+import '../sources/music_provider.dart';
+import 'lyrics_provider.dart';
 
-/// A [LyricsService] backed by a signed-in Jellyfin server.
+/// The [LyricsProvider] backed by a signed-in Jellyfin server.
 ///
-/// Only Jellyfin tracks (the `jellyfin:<id>` scheme) are looked up; a local
-/// track or being signed out returns `null` so the UI shows "no lyrics". The
-/// session (with its token) is read lazily through [_session] so signing in/out
-/// is picked up without a rebuild, mirroring the streaming/download path.
-class JellyfinLyricsService implements LyricsService {
-  JellyfinLyricsService({
+/// The [LyricsResolver] only routes Jellyfin-owned tracks here; the scheme
+/// check below is the parse guard for extracting the item id from a
+/// `jellyfin:<id>` URI, and doubles as a safety net if the class is ever used
+/// outside the resolver. A non-Jellyfin track, or being signed out, returns
+/// `null` so the UI shows "no lyrics". The session (with its token) is read
+/// lazily through [_session] so signing in/out is picked up without a rebuild,
+/// mirroring the streaming/download path.
+class JellyfinLyricsProvider implements LyricsProvider {
+  JellyfinLyricsProvider({
     required JellyfinClient client,
     required JellyfinSession? Function() session,
   })  : _client = client,
@@ -20,6 +24,9 @@ class JellyfinLyricsService implements LyricsService {
 
   final JellyfinClient _client;
   final JellyfinSession? Function() _session;
+
+  @override
+  String get sourceId => MusicProviders.jellyfin.sourceId;
 
   @override
   Future<Lyrics?> lyricsFor(Track track) async {
