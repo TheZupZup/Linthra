@@ -58,7 +58,8 @@ void main() {
       expect(LyricsDiagnostics.found(false), 'plain');
     });
 
-    test('a failure is recorded by type only — never its message, which can '
+    test(
+        'a failure is recorded by type only — never its message, which can '
         'carry a URL with credentials', () {
       final outcome = LyricsDiagnostics.failed(_LeakyError());
 

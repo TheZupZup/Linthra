@@ -95,7 +95,8 @@ void main() {
       expect(jellyfin.called, isFalse);
     });
 
-    test('missing lyrics are not an error: a source with no registered '
+    test(
+        'missing lyrics are not an error: a source with no registered '
         'provider resolves to null', () async {
       final resolver = LyricsResolver(<LyricsProvider>[
         _StubLyricsProvider('jellyfin', lyrics: _plain),
@@ -104,7 +105,8 @@ void main() {
       expect(await resolver.lyricsFor(_subsonicTrack), isNull);
     });
 
-    test('the empty resolver (the default binding) resolves every track to '
+    test(
+        'the empty resolver (the default binding) resolves every track to '
         'null', () async {
       expect(await LyricsResolver.none.lyricsFor(_jellyfinTrack), isNull);
       expect(await LyricsResolver.none.lyricsFor(_localTrack), isNull);
@@ -134,7 +136,8 @@ void main() {
       expect(synced!.isSynced, isTrue);
     });
 
-    test('propagates a provider failure so the UI can tell "couldn\'t load" '
+    test(
+        'propagates a provider failure so the UI can tell "couldn\'t load" '
         'apart from "no lyrics"', () async {
       final resolver = LyricsResolver(<LyricsProvider>[
         _StubLyricsProvider('jellyfin', error: StateError('offline')),
@@ -148,7 +151,8 @@ void main() {
   });
 
   group('LyricsResolver same-source fallback', () {
-    test('asks providers for the owning source in registration order and the '
+    test(
+        'asks providers for the owning source in registration order and the '
         'first with lyrics wins', () async {
       // Two providers for the same source — e.g. a sidecar reader ahead of a
       // future embedded-tag reader.
@@ -183,7 +187,8 @@ void main() {
   });
 
   group('LyricsResolver and the Plex placeholder', () {
-    test('a plex: track resolves to "no lyrics" via NoLyricsProvider without '
+    test(
+        'a plex: track resolves to "no lyrics" via NoLyricsProvider without '
         'consulting any other source\'s provider', () async {
       // Regression guard for the drift this resolver exists to prevent: the
       // old per-backend scheme blacklists predated `plex:`, so a Plex track
