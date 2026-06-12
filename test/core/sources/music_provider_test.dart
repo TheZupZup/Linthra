@@ -43,11 +43,35 @@ void main() {
       expect(caps.canListPlaylists, isFalse);
     });
 
+    test('plex: stream-only in phase 1 (docs/plex.md capability matrix)', () {
+      final caps = MusicProviders.plex.capabilities;
+      expect(caps.canStream, isTrue);
+      // Everything else is declared unsupported so its actions stay hidden/
+      // disabled rather than failing — exactly how Subsonic deferred features.
+      expect(caps.canCache, isFalse);
+      expect(caps.canFavoriteTracks, isFalse);
+      expect(caps.canReadFavoriteState, isFalse);
+      expect(caps.canSyncFavorites, isFalse);
+      expect(caps.canLyrics, isFalse);
+      // Cast stays off in phase 1 to keep the credential-in-URL surface small.
+      expect(caps.canCast, isFalse);
+      expect(caps.canListPlaylists, isFalse);
+      expect(caps.canCreatePlaylist, isFalse);
+      expect(caps.canEditPlaylist, isFalse);
+      expect(caps.canDeletePlaylist, isFalse);
+      expect(caps.canSyncPlaylists, isFalse);
+      // No cache means no app-managed offline copy to remove.
+      expect(caps.canRemoveOfflineCopy, isFalse);
+    });
+
     test('identity fields', () {
       expect(MusicProviders.subsonic.sourceId, 'subsonic');
       expect(MusicProviders.subsonic.displayName, 'Navidrome / Subsonic');
       expect(MusicProviders.subsonic.serverUrlLabel, 'Server URL');
       expect(MusicProviders.local.serverUrlLabel, isNull);
+      expect(MusicProviders.plex.sourceId, 'plex');
+      expect(MusicProviders.plex.displayName, 'Plex');
+      expect(MusicProviders.plex.serverUrlLabel, 'Server URL');
     });
 
     test('remove/delete capabilities are safe by default', () {
@@ -55,6 +79,7 @@ void main() {
       expect(MusicProviders.local.capabilities.canRemoveFromLibrary, isTrue);
       expect(MusicProviders.jellyfin.capabilities.canRemoveFromLibrary, isTrue);
       expect(MusicProviders.subsonic.capabilities.canRemoveFromLibrary, isTrue);
+      expect(MusicProviders.plex.capabilities.canRemoveFromLibrary, isTrue);
 
       // On-device tracks have no app-managed offline copy to remove; remote
       // providers do.
@@ -62,11 +87,13 @@ void main() {
       expect(MusicProviders.jellyfin.capabilities.canRemoveOfflineCopy, isTrue);
 
       // Destructive file/server deletes are not enabled in this release for any
-      // provider, so those actions stay hidden everywhere.
+      // provider, so those actions stay hidden everywhere. Plex is additionally
+      // read-only by design (phase 1 never writes to the server).
       for (final caps in <MusicProviderCapabilities>[
         MusicProviders.local.capabilities,
         MusicProviders.jellyfin.capabilities,
         MusicProviders.subsonic.capabilities,
+        MusicProviders.plex.capabilities,
       ]) {
         expect(caps.canDeleteLocalFile, isFalse);
         expect(caps.canDeleteRemoteItem, isFalse);
@@ -162,9 +189,32 @@ void main() {
           same(MusicProviders.subsonic));
       expect(MusicProviders.forTrackUri('jellyfin:abc'),
           same(MusicProviders.jellyfin));
+      expect(MusicProviders.forTrackUri('plex:101'), same(MusicProviders.plex));
       expect(MusicProviders.forTrackUri('/music/song.mp3'),
           same(MusicProviders.local));
       expect(MusicProviders.forTrackUri('content://media/x'),
+          same(MusicProviders.local));
+    });
+
+    test('registering plex did not change how existing URIs route', () {
+      // The no-regression guard docs/plex.md calls for: the only shared-code
+      // edit Plex makes is its own forTrackUri branch, so every URI shape the
+      // existing providers produce must keep resolving exactly as before.
+      expect(MusicProviders.forTrackUri('jellyfin:item-42'),
+          same(MusicProviders.jellyfin));
+      expect(MusicProviders.forTrackUri('subsonic:mf-7'),
+          same(MusicProviders.subsonic));
+      expect(MusicProviders.forTrackUri('/storage/emulated/0/Music/a.flac'),
+          same(MusicProviders.local));
+      expect(MusicProviders.forTrackUri('content://com.android.docs/tree/x'),
+          same(MusicProviders.local));
+      expect(MusicProviders.forTrackUri('file:///music/song.ogg'),
+          same(MusicProviders.local));
+      // Near-misses of the plex: scheme stay on-device rather than routing to
+      // Plex; the artwork scheme is not a track scheme.
+      expect(
+          MusicProviders.forTrackUri('plexamp:1'), same(MusicProviders.local));
+      expect(MusicProviders.forTrackUri('plex-thumb:/library/x'),
           same(MusicProviders.local));
     });
 
@@ -172,6 +222,10 @@ void main() {
       expect(
         MusicProviders.capabilitiesForTrackUri('subsonic:1'),
         MusicProviders.subsonic.capabilities,
+      );
+      expect(
+        MusicProviders.capabilitiesForTrackUri('plex:1'),
+        MusicProviders.plex.capabilities,
       );
     });
   });

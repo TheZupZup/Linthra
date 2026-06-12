@@ -27,6 +27,15 @@ void main() {
       expect(cap.isRemoteStream, isTrue);
     });
 
+    test('a Plex candidate gets provider type plex and streams remotely', () {
+      final cap = PlaybackSourceCapability.fromTrack(_track('p', 'plex:101'));
+      expect(cap.providerType, SourceProviderType.plex);
+      expect(cap.providerType.displayName, 'Plex');
+      expect(cap.sourceId, 'plex');
+      expect(cap.isRemoteStream, isTrue);
+      expect(cap.isLocalFile, isFalse);
+    });
+
     test('a local-file candidate is marked local', () {
       final cap =
           PlaybackSourceCapability.fromTrack(_track('l', '/music/one.mp3'));

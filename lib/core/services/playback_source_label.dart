@@ -11,11 +11,12 @@ import '../sources/music_provider.dart';
 /// vs a live stream vs an on-device file).
 ///
 /// Security: only fixed, non-identifying display names are ever returned —
-/// "Navidrome", "Jellyfin", "Local music", "Cache", or "Unknown source". A
-/// server URL, IP, username, token, or file path is never exposed.
+/// "Navidrome", "Jellyfin", "Plex", "Local music", "Cache", or "Unknown
+/// source". A server URL, IP, username, token, or file path is never exposed.
 abstract final class PlaybackSourceLabel {
   static const String navidrome = 'Navidrome';
   static const String jellyfin = 'Jellyfin';
+  static const String plex = 'Plex';
   static const String local = 'Local music';
   static const String cache = 'Cache';
   static const String unknown = 'Unknown source';
@@ -46,6 +47,8 @@ abstract final class PlaybackSourceLabel {
         return jellyfin;
       case 'subsonic':
         return navidrome;
+      case 'plex':
+        return plex;
       case 'local':
         // An on-device file should resolve as localFile, not streamingDirect;
         // reaching here means an unexpected pairing, so stay vague but safe.

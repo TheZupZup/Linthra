@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'jellyfin/jellyfin_track_mapper.dart';
+import 'plex/plex_track_mapper.dart';
 import 'subsonic/subsonic_track_mapper.dart';
 
 /// What a music provider can do, so the UI can show only the actions a given
@@ -142,9 +143,9 @@ class MusicProviderCapabilities {
 }
 
 /// The identity + capabilities of one music provider (local files, Jellyfin,
-/// Subsonic/Navidrome). The [serverUrlLabel] is the field label a settings
-/// section shows for the server address, or null for the on-device source which
-/// has no server.
+/// Subsonic/Navidrome, Plex). The [serverUrlLabel] is the field label a
+/// settings section shows for the server address, or null for the on-device
+/// source which has no server.
 @immutable
 class MusicProvider {
   const MusicProvider({
@@ -256,11 +257,50 @@ abstract final class MusicProviders {
     ),
   );
 
+  /// Plex (phase 1, in development — see docs/plex.md and issue #178).
+  /// Registered so `plex:<ratingKey>` URIs are recognized internally, but
+  /// deliberately **not** surfaced anywhere in Settings/UI yet: the connection
+  /// and library-picker screens are later PRs, so no Plex session — and
+  /// therefore no `plex:` track — can exist in a normal install.
+  ///
+  /// Stream-only by design: caching, favorites, lyrics, playlists, and cast are
+  /// declared unsupported so their actions stay hidden/disabled rather than
+  /// failing — exactly how Subsonic shipped streaming first. Cast stays off in
+  /// phase 1 to keep the credential-in-URL surface small (a Plex stream URL
+  /// carries the token as a query param).
+  static const MusicProvider plex = MusicProvider(
+    sourceId: 'plex',
+    displayName: 'Plex',
+    serverUrlLabel: 'Server URL',
+    capabilities: MusicProviderCapabilities(
+      canStream: true,
+      // Offline caching is a documented follow-up (docs/plex.md → Out of
+      // scope), so there is no app-managed copy to remove either.
+      canCache: false,
+      canFavoriteTracks: false,
+      canReadFavoriteState: false,
+      canSyncFavorites: false,
+      canLyrics: false,
+      canCast: false,
+      canRemoveFromLibrary: true,
+      canRemoveOfflineCopy: false,
+      canDeleteLocalFile: false,
+      // Phase 1 is read-only: Linthra never writes to a Plex server.
+      canDeleteRemoteItem: false,
+      canListPlaylists: false,
+      canCreatePlaylist: false,
+      canEditPlaylist: false,
+      canDeletePlaylist: false,
+      canSyncPlaylists: false,
+    ),
+  );
+
   /// The provider that owns [trackUri], by its `scheme:` prefix. Anything not a
   /// known remote scheme is an on-device ([local]) track.
   static MusicProvider forTrackUri(String trackUri) {
     if (trackUri.startsWith(JellyfinTrackMapper.uriScheme)) return jellyfin;
     if (trackUri.startsWith(SubsonicTrackMapper.uriScheme)) return subsonic;
+    if (trackUri.startsWith(PlexTrackMapper.uriScheme)) return plex;
     return local;
   }
 
