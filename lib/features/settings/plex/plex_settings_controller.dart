@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/plex_session.dart';
@@ -7,10 +9,13 @@ import '../../../core/sources/plex/plex_music_source.dart';
 import '../../../data/repositories/plex_session_store_provider.dart';
 import 'plex_settings_providers.dart';
 import 'plex_settings_state.dart';
+import 'plex_sync_controller.dart';
 
 /// Drives the Plex settings card: loads any saved session, tests a connection,
 /// connects (verify + persist), discovers the server's music libraries, saves
-/// the user's library selection, and disconnects.
+/// the user's library selection (kicking a background catalog sync so the
+/// Library screen follows it), and disconnects (also dropping the synced
+/// Plex rows, which are unplayable without a session).
 ///
 /// The single coordinator between the separated concerns — the authenticator
 /// (verify a URL + token against `/identity`), the session store (encrypted
@@ -32,6 +37,13 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// connection, so [loadSectionsIfNeeded] stays a no-op on rebuilds (and a
   /// server with zero music libraries isn't re-polled on every Settings open).
   bool _sectionsLoadAttempted = false;
+
+  /// Set once a user action (connect/disconnect) has taken ownership of the
+  /// session while the startup restore was still reading storage. The restore
+  /// then discards its stale result instead of overwriting a fresh connect or
+  /// resurrecting a just-cleared session — secure-storage reads can be slow on
+  /// real devices, so this race is reachable.
+  bool _restoreSuperseded = false;
 
   /// The live signed-in session, or `null` when not connected. Used to build a
   /// [PlexMusicSource]; callers must not log it ([PlexSession.toString]
@@ -55,8 +67,21 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     try {
       saved = await ref.read(plexSessionStoreProvider).read();
     } catch (_) {
-      // A storage hiccup must not break startup; stay disconnected. (A
-      // missing/corrupt record already reads back as null inside the store.)
+      // A storage hiccup must not break startup; stay disconnected but say
+      // so (statically, token-free), so a user who *was* connected isn't left
+      // wondering where their server went. (A missing/corrupt record already
+      // reads back as null inside the store and stays silent.)
+      if (!_restoreSuperseded && _session == null) {
+        state = const PlexSettingsState(
+          errorMessage: "Couldn't restore your saved Plex connection from "
+              'this device. If you use Plex, connect again below.',
+        );
+      }
+      return;
+    }
+    // A connect/disconnect that landed while this read was in flight owns the
+    // session now; applying the stale result would overwrite it.
+    if (_restoreSuperseded || _session != null) {
       return;
     }
     if (saved == null) {
@@ -115,10 +140,19 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// connected, and fetches the server's music libraries for the picker.
   /// Returns whether the connection succeeded (a failure to *list libraries*
   /// afterwards does not fail the connect — it surfaces as a retryable error).
+  ///
+  /// Reconnecting to the **same** server (recognised by its
+  /// `machineIdentifier`, e.g. after rotating the token) keeps the existing
+  /// library selection and refreshes the synced catalog against it — wiping
+  /// the selection would silently empty the user's Plex library on the next
+  /// sync. A different server starts with a clean (empty) selection, and any
+  /// rows the previous server synced are dropped quietly: their ratingKeys
+  /// belong to another machine and could never play.
   Future<bool> connect({
     required String url,
     required String token,
   }) async {
+    final PlexSession? previous = _session;
     state = PlexSettingsState(
       phase: PlexConnectionPhase.connecting,
       baseUrl: url,
@@ -134,10 +168,16 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       return false;
     }
 
+    final bool sameServer = previous != null &&
+        previous.machineIdentifier == newSession.machineIdentifier;
     // Persist the client identifier the verify above announced, so every
-    // later launch presents the same install to the server.
+    // later launch presents the same install to the server — and carry the
+    // library selection (and known server name) over a same-server reconnect.
     final PlexSession stamped = newSession.copyWith(
       clientIdentifier: ref.read(plexClientIdentityProvider).clientIdentifier,
+      serverName: sameServer ? previous.serverName : null,
+      selectedSectionKeys:
+          sameServer ? previous.selectedSectionKeys : const <String>[],
     );
     try {
       await ref.read(plexSessionStoreProvider).write(stamped);
@@ -153,19 +193,33 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
 
     _session = stamped;
     _sectionsLoadAttempted = false;
+    _restoreSuperseded = true;
     ref
         .read(plexPersistedClientIdentifierProvider.notifier)
         .publish(stamped.clientIdentifier);
+    // A fresh connection gets a fresh sync status — the old "Synced N tracks"
+    // line described the previous session.
+    ref.invalidate(plexSyncControllerProvider);
     state = PlexSettingsState(
       phase: PlexConnectionPhase.connected,
       baseUrl: stamped.baseUrl,
       serverName: stamped.serverName,
       serverVersion: stamped.serverVersion,
+      selectedSectionKeys: stamped.selectedSectionKeys,
       statusMessage: _connectedMessage(stamped),
     );
     // Fetch the music libraries for the picker right away. Best-effort: a
     // listing failure keeps the connection and surfaces a retryable error.
     await refreshSections();
+    if (stamped.selectedSectionKeys.isNotEmpty) {
+      // Same-server reconnect with a kept selection: bring the catalog back
+      // in step without blocking the connect.
+      unawaited(_syncInBackground());
+    } else {
+      // First connect or a different server: drop any rows a previous server
+      // synced. The catalog refills once the user selects libraries.
+      unawaited(_clearCatalogQuietly());
+    }
     return true;
   }
 
@@ -204,7 +258,12 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
           if (directory.isMusic)
             PlexLibrarySection(key: directory.key, title: directory.title),
       ];
-      state = state.copyWith(sections: music, isLoadingSections: false);
+      state = state.copyWith(
+        sections: music,
+        isLoadingSections: false,
+        sectionsLoaded: true,
+      );
+      await _pruneVanishedSelection(music);
     } on PlexException catch (error) {
       state = state.copyWith(
         isLoadingSections: false,
@@ -212,6 +271,42 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
         errorKind: error.kind,
       );
     }
+  }
+
+  /// Drops selected section keys that no longer exist on the server (the
+  /// music library was deleted or re-created server-side), so the selection
+  /// can't hold an invisible entry the picker shows no checkbox for — one
+  /// that would 404 every sync with no way to deselect it.
+  ///
+  /// Only runs against a **successful** sections fetch: a transient listing
+  /// failure must never shrink the selection. Quiet best-effort: if the
+  /// pruned selection can't be persisted the stale keys simply remain until
+  /// the next refresh, and no sync is kicked here — the next sync (manual or
+  /// selection-driven) drops the vanished section's tracks.
+  Future<void> _pruneVanishedSelection(List<PlexLibrarySection> music) async {
+    final PlexSession? current = _session;
+    if (current == null || current.selectedSectionKeys.isEmpty) {
+      return;
+    }
+    final Set<String> available = <String>{
+      for (final PlexLibrarySection section in music) section.key,
+    };
+    final List<String> kept = <String>[
+      for (final String key in current.selectedSectionKeys)
+        if (available.contains(key)) key,
+    ];
+    if (kept.length == current.selectedSectionKeys.length) {
+      return;
+    }
+    final PlexSession updated =
+        current.copyWith(selectedSectionKeys: List<String>.unmodifiable(kept));
+    try {
+      await ref.read(plexSessionStoreProvider).write(updated);
+    } catch (_) {
+      return;
+    }
+    _session = updated;
+    state = state.copyWith(selectedSectionKeys: updated.selectedSectionKeys);
   }
 
   /// Includes or excludes one music library [sectionKey] and persists the
@@ -254,11 +349,17 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       errorMessage: null,
       errorKind: null,
     );
+    // Keep the catalog in step with the new selection without blocking the
+    // checkbox tap; the sync controller coalesces rapid toggles into one
+    // re-run and reports progress through its own state.
+    unawaited(_syncInBackground());
   }
 
-  /// Disconnects Plex: removes the saved session (the only thing Plex
-  /// persists) and resets to the signed-out state. Other providers' data is
-  /// untouched — this clears the Plex store and nothing else.
+  /// Disconnects Plex: removes the saved session, resets to the signed-out
+  /// state, resets the sync status, and removes the synced Plex tracks from
+  /// the local catalog — without a session (and with no offline cache in
+  /// phase 1) they are permanently unplayable rows. Other providers' data is
+  /// untouched: only the Plex store and the catalog's `plex` slice change.
   Future<void> disconnect() async {
     try {
       await ref.read(plexSessionStoreProvider).clear();
@@ -273,11 +374,48 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     }
     _session = null;
     _sectionsLoadAttempted = false;
+    _restoreSuperseded = true;
     ref.read(plexPersistedClientIdentifierProvider.notifier).publish(null);
-    state = const PlexSettingsState(
-      statusMessage: 'Disconnected. Your Plex session was removed from this '
-          'device.',
+    // The old "Synced N tracks" status described the session that just ended.
+    ref.invalidate(plexSyncControllerProvider);
+    bool catalogCleared = true;
+    try {
+      await ref.read(plexSyncControllerProvider.notifier).removeSyncedCatalog();
+    } catch (_) {
+      // Best-effort: the session is already gone (the part that matters for
+      // the token); stale rows are replaced by the next successful sync.
+      catalogCleared = false;
+    }
+    state = PlexSettingsState(
+      statusMessage: catalogCleared
+          ? 'Disconnected. Your Plex session and synced Plex tracks were '
+              'removed from this device.'
+          : 'Disconnected. Your Plex session was removed from this device.',
     );
+  }
+
+  /// Runs the catalog sync for the current selection without blocking the
+  /// caller. Failures are swallowed here on purpose: the sync controller
+  /// reports its own progress and errors through `PlexSyncState`, and a
+  /// backgrounded kick must never surface a raw error past this seam.
+  Future<void> _syncInBackground() async {
+    try {
+      await ref
+          .read(plexSyncControllerProvider.notifier)
+          .syncAfterSelectionChange();
+    } catch (_) {
+      // Reported through PlexSyncState; nothing to add here.
+    }
+  }
+
+  /// Removes the synced Plex rows from the catalog without reporting through
+  /// any state — used when a connect made them stale (different server).
+  Future<void> _clearCatalogQuietly() async {
+    try {
+      await ref.read(plexSyncControllerProvider.notifier).removeSyncedCatalog();
+    } catch (_) {
+      // Best-effort: stale rows are replaced by the next successful sync.
+    }
   }
 
   /// Reports a failure without dropping an existing connection: a failed test
@@ -293,6 +431,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
         serverName: current.serverName,
         serverVersion: current.serverVersion,
         sections: state.sections,
+        sectionsLoaded: state.sectionsLoaded,
         selectedSectionKeys: current.selectedSectionKeys,
         statusMessage: _connectedMessage(current),
         errorMessage: error.message,

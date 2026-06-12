@@ -1,15 +1,25 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/album.dart';
+import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/plex_session.dart';
+import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/repositories/plex_session_store.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_exception.dart';
 import 'package:linthra/core/sources/plex/plex_music_source.dart';
+import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_plex_session_store.dart';
+import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/plex_session_store_provider.dart';
 import 'package:linthra/features/settings/plex/plex_settings_controller.dart';
 import 'package:linthra/features/settings/plex/plex_settings_providers.dart';
 import 'package:linthra/features/settings/plex/plex_settings_state.dart';
+import 'package:linthra/features/settings/plex/plex_sync_controller.dart';
+import 'package:linthra/features/settings/plex/plex_sync_state.dart';
 
 import '../../../core/sources/plex/fake_plex_client.dart';
 
@@ -68,11 +78,80 @@ class _FlakyPlexSessionStore implements PlexSessionStore {
   }
 }
 
+/// A [PlexSessionStore] whose read blocks until released, simulating a slow
+/// secure-storage read on a real device so user actions can race the startup
+/// restore. The read returns what was persisted when it *started* (a stale
+/// snapshot), exactly like a disk read would.
+class _GatedReadStore implements PlexSessionStore {
+  _GatedReadStore(this._session);
+
+  PlexSession? _session;
+  final Completer<void> readGate = Completer<void>();
+
+  @override
+  Future<PlexSession?> read() async {
+    final PlexSession? snapshot = _session;
+    await readGate.future;
+    return snapshot;
+  }
+
+  @override
+  Future<void> write(PlexSession session) async {
+    _session = session;
+  }
+
+  @override
+  Future<void> clear() async {
+    _session = null;
+  }
+}
+
+/// Records catalog upserts so the disconnect/connect cleanup paths can be
+/// asserted (and made to fail).
+class _RecordingRepository implements MusicLibraryRepository {
+  _RecordingRepository({this.upsertError});
+
+  final Object? upsertError;
+
+  String? upsertedSourceId;
+  List<Track> upsertedTracks = const <Track>[];
+  int upsertCount = 0;
+
+  @override
+  Future<void> upsertCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+    required List<Album> albums,
+    required List<Artist> artists,
+  }) async {
+    upsertCount++;
+    if (upsertError != null) throw upsertError!;
+    upsertedSourceId = sourceId;
+    upsertedTracks = tracks;
+  }
+
+  @override
+  Future<List<Track>> getAllTracks() async => upsertedTracks;
+
+  @override
+  Future<List<Album>> getAllAlbums() async => const <Album>[];
+
+  @override
+  Future<List<Artist>> getAllArtists() async => const <Artist>[];
+
+  @override
+  Future<Track?> getTrackById(String id) async => null;
+
+  @override
+  Future<void> removeTracks(List<String> trackIds) async {}
+}
+
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
 ProviderContainer _container({
   FakePlexClient? client,
   PlexSessionStore? store,
+  MusicLibraryRepository? repository,
 }) {
   final container = ProviderContainer(
     overrides: <Override>[
@@ -81,6 +160,8 @@ ProviderContainer _container({
       ),
       plexSessionStoreProvider
           .overrideWithValue(store ?? InMemoryPlexSessionStore()),
+      if (repository != null)
+        musicLibraryRepositoryProvider.overrideWithValue(repository),
     ],
   );
   addTearDown(container.dispose);
@@ -132,10 +213,12 @@ void main() {
           .read(plexSettingsControllerProvider.notifier)
           .ensureLoaded();
 
-      expect(
-        container.read(plexSettingsControllerProvider).phase,
-        PlexConnectionPhase.disconnected,
-      );
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.disconnected);
+      // A user who *was* connected shouldn't wonder where the server went:
+      // the failure to even read the saved session is said out loud
+      // (statically — no token, no raw storage error).
+      expect(state.errorMessage, contains("Couldn't restore"));
       expect(container.read(plexMusicSourceProvider), isNull);
     });
 
@@ -152,6 +235,55 @@ void main() {
         container.read(plexClientIdentityProvider).clientIdentifier,
         'install-1',
       );
+    });
+
+    test('a connect that wins the slow-startup-restore race is kept', () async {
+      // Secure-storage reads can be slow on real devices: the user connects
+      // to a NEW server while the old session is still being read.
+      final store = _GatedReadStore(_session);
+      final container = _container(
+        client: FakePlexClient(
+          identity:
+              const PlexServerIdentity(machineIdentifier: 'other-machine'),
+          sections: const [_musicSection],
+        ),
+        store: store,
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      final ok = await notifier.connect(
+        url: 'https://new.example.com',
+        token: 'new-token',
+      );
+      expect(ok, isTrue);
+
+      // The stale read lands afterwards — and is discarded.
+      store.readGate.complete();
+      await _settle();
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.baseUrl, 'https://new.example.com');
+      expect(notifier.session!.machineIdentifier, 'other-machine');
+      expect(notifier.session!.token, 'new-token');
+    });
+
+    test('a disconnect during the startup restore is not resurrected',
+        () async {
+      final store = _GatedReadStore(_session);
+      final container = _container(store: store);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      await notifier.disconnect();
+
+      // The pre-disconnect snapshot lands afterwards — and is discarded:
+      // signing out must stay signed out.
+      store.readGate.complete();
+      await _settle();
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.disconnected);
+      expect(notifier.session, isNull);
+      expect(container.read(plexMusicSourceProvider), isNull);
     });
   });
 
@@ -333,6 +465,94 @@ void main() {
       expect(state.errorMessage, isNull);
       expect(state.sections, hasLength(1));
     });
+
+    test(
+        'reconnecting to the same server keeps the library selection and '
+        'refreshes the catalog against it', () async {
+      final store = InMemoryPlexSessionStore(
+        // machineIdentifier matches the fake's default identity → same server.
+        initialSession: _session.copyWith(
+          machineIdentifier: 'fake-machine-id',
+          selectedSectionKeys: const <String>['5'],
+        ),
+      );
+      final repo = _RecordingRepository();
+      final container = _container(
+        client: FakePlexClient(
+          sections: const [_musicSection],
+          itemsByType: const <PlexMetadataType, List<PlexMetadata>>{
+            PlexMetadataType.track: <PlexMetadata>[
+              PlexMetadata(ratingKey: '101', type: 'track', title: 'Aurora'),
+            ],
+          },
+        ),
+        store: store,
+        repository: repo,
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      // The user re-pastes a rotated token for the same server.
+      final ok = await notifier.connect(
+        url: 'https://plex.example.com:32400',
+        token: 'rotated-token',
+      );
+      await _settle();
+
+      expect(ok, isTrue);
+      // The selection survived the reconnect — in state and at rest…
+      expect(
+        container.read(plexSettingsControllerProvider).selectedSectionKeys,
+        <String>['5'],
+      );
+      final saved = await store.read();
+      expect(saved!.selectedSectionKeys, <String>['5']);
+      expect(saved.token, 'rotated-token');
+      // …and the kept selection was re-synced in the background.
+      expect(repo.upsertedSourceId, 'plex');
+      expect(repo.upsertedTracks.map((Track t) => t.uri), ['plex:101']);
+    });
+
+    test(
+        'connecting to a different server starts with a clean selection and '
+        'drops the old server\'s rows', () async {
+      final store = InMemoryPlexSessionStore(
+        // A previous session for another machine, with a selection.
+        initialSession: _session, // machineIdentifier: machine-abc
+      );
+      final repo = _RecordingRepository();
+      final container = _container(
+        client: FakePlexClient(
+          // The new server identifies as a different machine.
+          identity: const PlexServerIdentity(
+            machineIdentifier: 'other-machine',
+          ),
+          sections: const [_musicSection],
+        ),
+        store: store,
+        repository: repo,
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      final ok = await notifier.connect(
+        url: 'https://new.example.com:32400',
+        token: 'other-token',
+      );
+      await _settle();
+
+      expect(ok, isTrue);
+      // The old server's selection doesn't leak onto the new one…
+      expect(
+        container.read(plexSettingsControllerProvider).selectedSectionKeys,
+        isEmpty,
+      );
+      expect((await store.read())!.selectedSectionKeys, isEmpty);
+      // …and the old server's synced rows (unplayable ratingKeys from another
+      // machine) were cleared quietly.
+      expect(repo.upsertedSourceId, 'plex');
+      expect(repo.upsertedTracks, isEmpty);
+    });
   });
 
   group('sections', () {
@@ -392,6 +612,103 @@ void main() {
       await notifier.refreshSections();
 
       expect(container.read(plexSettingsControllerProvider).sections, isEmpty);
+    });
+
+    test(
+        'sectionsLoaded distinguishes a failed listing from a server with '
+        'no music libraries', () async {
+      final client = FakePlexClient(
+        sectionsError: PlexException.serverError(503),
+      );
+      final container = _container(
+        client: client,
+        store: InMemoryPlexSessionStore(initialSession: _session),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.refreshSections();
+      var state = container.read(plexSettingsControllerProvider);
+      expect(state.sectionsLoaded, isFalse);
+      expect(state.errorMessage, isNotNull);
+
+      // Once a listing succeeds — even an empty one — the state says
+      // "loaded", so the UI can show "no music libraries" honestly.
+      client.sectionsError = null;
+      client.sections = const <PlexDirectory>[_movieSection];
+      await notifier.refreshSections();
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.sectionsLoaded, isTrue);
+      expect(state.sections, isEmpty);
+      expect(state.errorMessage, isNull);
+    });
+
+    test('prunes selected libraries the server no longer has', () async {
+      final store = InMemoryPlexSessionStore(
+        initialSession:
+            _session.copyWith(selectedSectionKeys: const <String>['5', '9']),
+      );
+      // Section 9 was deleted server-side; only 5 remains.
+      final container = _container(
+        client: FakePlexClient(sections: const [_musicSection]),
+        store: store,
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.refreshSections();
+
+      // The vanished key is dropped from the state, the live session, and
+      // the persisted record — it had no checkbox left to deselect it with.
+      expect(
+        container.read(plexSettingsControllerProvider).selectedSectionKeys,
+        <String>['5'],
+      );
+      expect(notifier.session!.selectedSectionKeys, <String>['5']);
+      expect((await store.read())!.selectedSectionKeys, <String>['5']);
+    });
+
+    test('a failed listing never shrinks the selection', () async {
+      final container = _container(
+        client: FakePlexClient(sectionsError: PlexException.notReachable()),
+        store: InMemoryPlexSessionStore(
+          initialSession:
+              _session.copyWith(selectedSectionKeys: const <String>['5', '9']),
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.refreshSections();
+
+      expect(
+        container.read(plexSettingsControllerProvider).selectedSectionKeys,
+        <String>['5', '9'],
+      );
+      expect(notifier.session!.selectedSectionKeys, <String>['5', '9']);
+    });
+
+    test('a failed prune persist quietly keeps the old selection', () async {
+      final store = _FlakyPlexSessionStore(
+        initialSession:
+            _session.copyWith(selectedSectionKeys: const <String>['5', '9']),
+      );
+      final container = _container(
+        client: FakePlexClient(sections: const [_musicSection]),
+        store: store,
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      store.writeError = StateError('keystore busy');
+      await notifier.refreshSections();
+
+      // Not persistable → not applied (state and store stay consistent); the
+      // stale key remains until a later refresh can prune it, and no error is
+      // raised for this background cleanup.
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.selectedSectionKeys, <String>['5', '9']);
+      expect(state.errorMessage, isNull);
     });
   });
 
@@ -485,6 +802,81 @@ void main() {
       expect(state.statusMessage, contains('Disconnected'));
       expect(notifier.session, isNull);
       expect(container.read(plexMusicSourceProvider), isNull);
+    });
+
+    test(
+        'drops the synced Plex rows but leaves other sources untouched, and '
+        'resets the sync status', () async {
+      final repository = InMemoryMusicLibraryRepository();
+      // The catalog holds rows from several sources, as on a real device.
+      await repository.upsertCatalog(
+        sourceId: 'jellyfin',
+        tracks: const <Track>[
+          Track(id: 'j1', title: 'Jelly song', uri: 'jellyfin:j1'),
+        ],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+      final container = _container(
+        client: FakePlexClient(
+          sections: const [_musicSection],
+          itemsByType: const <PlexMetadataType, List<PlexMetadata>>{
+            PlexMetadataType.track: <PlexMetadata>[
+              PlexMetadata(ratingKey: '101', type: 'track', title: 'Aurora'),
+            ],
+          },
+        ),
+        store: InMemoryPlexSessionStore(initialSession: _session),
+        repository: repository,
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+      await container.read(plexSyncControllerProvider.notifier).sync();
+      expect((await repository.getAllTracks()), hasLength(2));
+      expect(
+        container.read(plexSyncControllerProvider).status,
+        PlexSyncStatus.success,
+      );
+
+      await notifier.disconnect();
+
+      // Without a session (and with no offline cache in phase 1) the Plex
+      // rows are permanently unplayable — they're removed; Jellyfin stays.
+      final tracks = await repository.getAllTracks();
+      expect(tracks.map((Track t) => t.uri), <String>['jellyfin:j1']);
+      expect(
+        container.read(plexSettingsControllerProvider).statusMessage,
+        contains('synced Plex tracks were removed'),
+      );
+      // The old "Synced N tracks" status described the ended session.
+      expect(
+        container.read(plexSyncControllerProvider).status,
+        PlexSyncStatus.idle,
+      );
+    });
+
+    test('a failed catalog cleanup still disconnects, with an honest message',
+        () async {
+      final container = _container(
+        store: InMemoryPlexSessionStore(initialSession: _session),
+        repository: _RecordingRepository(upsertError: StateError('db locked')),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.disconnect();
+
+      final state = container.read(plexSettingsControllerProvider);
+      // The part that matters for the token — the session — is gone…
+      expect(state.phase, PlexConnectionPhase.disconnected);
+      expect(notifier.session, isNull);
+      // …and the message doesn't claim the rows were removed when they
+      // weren't.
+      expect(state.statusMessage, contains('Disconnected'));
+      expect(
+        state.statusMessage,
+        isNot(contains('synced Plex tracks were removed')),
+      );
     });
 
     test('a failed clear stays connected and reports it', () async {

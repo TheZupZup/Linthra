@@ -273,6 +273,16 @@ Small, incremental, each independently reviewable:
    `plex_settings_section/controller/state`, Riverpod providers + tests.
 7. **Cover art** — `plex-thumb:` reference resolver at render time; update the
    [providers.md](providers.md) provider matrix to add the Plex row.
+8. **Real-device hardening & phase-1 polish** — the catalog sync
+   (`plex_sync_controller`: a *Sync Plex library* action plus an automatic,
+   coalesced sync after every committed library-selection change; the sync
+   **replaces** the catalog's Plex slice even when empty, so the catalog
+   always mirrors the selection), explicit loading/empty/error + retry states
+   in the library picker, selection pruning when a section vanishes
+   server-side, same-server reconnects keeping the selection, startup-restore
+   race guards and a friendly restore-failure message, and disconnect also
+   removing the synced (now unplayable) Plex rows — with tests for each state
+   and for token redaction on every new message path.
 
 ## Notes
 

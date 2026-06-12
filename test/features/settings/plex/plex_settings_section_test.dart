@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,6 +28,23 @@ const PlexSession _restoredSession = PlexSession(
   clientIdentifier: 'install-1',
   selectedSectionKeys: <String>['5'],
 );
+
+/// A [FakePlexClient] whose sections listing blocks until [gate] completes,
+/// so the picker's loading state can be observed deterministically.
+class _GatedSectionsClient extends FakePlexClient {
+  _GatedSectionsClient({super.sections});
+
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<List<PlexDirectory>> fetchSections({
+    required String baseUrl,
+    required String token,
+  }) async {
+    await gate.future;
+    return super.fetchSections(baseUrl: baseUrl, token: token);
+  }
+}
 
 Future<void> _pump(
   WidgetTester tester, {
@@ -184,6 +203,101 @@ void main() {
         in tester.widgetList<TextField>(find.byType(TextField))) {
       expect(field.controller!.text, isEmpty);
     }
+  });
+
+  testWidgets('shows a labelled loading state while libraries are fetched',
+      (tester) async {
+    final client =
+        _GatedSectionsClient(sections: const [_movieSection, _musicSection]);
+    await _pump(
+      tester,
+      client: client,
+      store: InMemoryPlexSessionStore(initialSession: _restoredSession),
+    );
+    // Let the restore land and the post-frame section load start (held at
+    // the gate) — explicit pumps, since the spinner animates forever.
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Loading music libraries…'), findsOneWidget);
+    expect(find.textContaining('No music libraries found'), findsNothing);
+
+    client.gate.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Loading music libraries…'), findsNothing);
+    expect(find.byType(CheckboxListTile), findsOneWidget);
+  });
+
+  testWidgets('a failed library listing offers Try again and recovers',
+      (tester) async {
+    final client = FakePlexClient(
+      sectionsError: PlexException.serverError(503),
+      sections: const [_movieSection, _musicSection],
+    );
+    await _pump(
+      tester,
+      client: client,
+      store: InMemoryPlexSessionStore(initialSession: _restoredSession),
+    );
+    await tester.pumpAndSettle();
+
+    // A failed load must NOT claim the server has no music libraries; it
+    // offers a retry, with the specific reason in the error line below.
+    expect(
+        find.text("Your music libraries haven't loaded yet."), findsOneWidget);
+    expect(find.text('Try again'), findsOneWidget);
+    expect(find.textContaining('No music libraries found'), findsNothing);
+    expect(find.textContaining('HTTP 503'), findsOneWidget);
+
+    client.sectionsError = null;
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CheckboxListTile), findsOneWidget);
+    expect(find.textContaining('HTTP 503'), findsNothing);
+  });
+
+  testWidgets('a server without music libraries says so, with a refresh',
+      (tester) async {
+    await _pump(
+      tester,
+      client: FakePlexClient(sections: const [_movieSection]),
+      store: InMemoryPlexSessionStore(initialSession: _restoredSession),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('No music libraries found on this server'),
+        findsOneWidget);
+    expect(find.text('Refresh'), findsOneWidget);
+    expect(find.byType(CheckboxListTile), findsNothing);
+  });
+
+  testWidgets(
+      'selecting a library syncs it automatically and the manual sync '
+      'button stays available', (tester) async {
+    final client = FakePlexClient(
+      sections: const [_movieSection, _musicSection],
+      itemsByType: const <PlexMetadataType, List<PlexMetadata>>{
+        PlexMetadataType.track: <PlexMetadata>[
+          PlexMetadata(ratingKey: '101', type: 'track', title: 'Aurora'),
+        ],
+      },
+    );
+    await _pump(tester, client: client);
+    await _connect(tester);
+
+    expect(find.text('Sync Plex library'), findsOneWidget);
+
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pumpAndSettle();
+
+    // The background sync kicked by the selection landed and reported.
+    expect(find.textContaining('Synced 1 track'), findsOneWidget);
+
+    // The manual action reruns it on demand.
+    await tester.tap(find.text('Sync Plex library'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Synced 1 track'), findsOneWidget);
   });
 
   testWidgets('a rejected token shows a friendly, token-free error',

@@ -64,6 +64,7 @@ class PlexSettingsState {
     this.serverVersion,
     this.sections = const <PlexLibrarySection>[],
     this.isLoadingSections = false,
+    this.sectionsLoaded = false,
     this.selectedSectionKeys = const <String>[],
     this.statusMessage,
     this.errorMessage,
@@ -91,6 +92,13 @@ class PlexSettingsState {
 
   /// True while the library sections are being (re)fetched.
   final bool isLoadingSections;
+
+  /// True once the music libraries have been fetched successfully at least
+  /// once for the current connection. Lets the UI tell "this server has no
+  /// music libraries" (loaded, [sections] empty) apart from "they couldn't be
+  /// loaded yet" (not loaded — offer a retry instead of a misleading empty
+  /// message). Reset on connect/restore/disconnect.
+  final bool sectionsLoaded;
 
   /// `key`s of the music libraries the user selected. Empty means connected
   /// but nothing chosen yet — the source then serves an empty library, never
@@ -136,6 +144,7 @@ class PlexSettingsState {
     String? serverVersion,
     List<PlexLibrarySection>? sections,
     bool? isLoadingSections,
+    bool? sectionsLoaded,
     List<String>? selectedSectionKeys,
     Object? statusMessage = _unset,
     Object? errorMessage = _unset,
@@ -148,6 +157,7 @@ class PlexSettingsState {
       serverVersion: serverVersion ?? this.serverVersion,
       sections: sections ?? this.sections,
       isLoadingSections: isLoadingSections ?? this.isLoadingSections,
+      sectionsLoaded: sectionsLoaded ?? this.sectionsLoaded,
       selectedSectionKeys: selectedSectionKeys ?? this.selectedSectionKeys,
       statusMessage: identical(statusMessage, _unset)
           ? this.statusMessage

@@ -197,14 +197,24 @@ server URL + Plex token, Linthra verifies them against `/identity`, persists
 the session encrypted at rest, and — unlike Jellyfin/Subsonic, which sync the
 whole server — asks the user to **pick which music libraries** to include
 (the selection is saved with the session and scopes every fetch; connected
-with nothing selected simply means an empty library). Disconnecting removes
-only the Plex session.
+with nothing selected simply means an empty library).
+
+**Syncing follows the selection.** Choosing a library kicks a background
+catalog sync automatically (rapid checkbox changes coalesce into one re-run),
+and a *Sync Plex library* button reruns it on demand; the synced tracks then
+appear in the Library like any other source's. Because the selection scopes
+the Plex library, a sync **replaces** the catalog's Plex slice even when the
+result is empty — deselecting a library really removes its tracks. A library
+deleted on the server is pruned from the selection on the next refresh.
+**Disconnecting** removes the Plex session *and* the synced Plex rows (without
+a session — and with no offline cache in phase 1 — they could never play
+again); reconnecting to the **same** server keeps the library selection, while
+a different server starts clean.
 
 Underneath, the full plumbing is wired: the stream-only capability set,
 recognition of `plex:<ratingKey>` track URIs in the playback router (two-step
 play resolution, minting the tokenized stream URL only at play time), and
-render-time resolution of credential-free `plex-thumb:` cover references. The
-remaining step is the catalog sync that lists Plex music in the Library.
+render-time resolution of credential-free `plex-thumb:` cover references.
 Phase 1 is stream-only (direct play); offline cache, favorites, playlists,
 lyrics, cast, and the plex.tv PIN sign-in are declared unsupported /
 follow-ups — and Plex follows the same token-safety rules as every other
