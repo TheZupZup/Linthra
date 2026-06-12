@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/plex_session.dart';
+import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_artwork.dart';
 import 'package:linthra/core/sources/plex/plex_track_mapper.dart';
 
@@ -10,9 +11,12 @@ const _session = PlexSession(
 );
 
 /// The credential-free reference the mapper persists for a thumb path, built
-/// the same way `PlexTrackMapper` builds `Track.artworkUri`.
-Uri _reference(String thumbPath) =>
-    Uri(scheme: PlexTrackMapper.artworkScheme, path: thumbPath);
+/// the same way `PlexTrackMapper` builds `Track.artworkUri` (literal `%`
+/// pre-escaped so the stored form carries exactly one encoding level).
+Uri _reference(String thumbPath) => Uri(
+      scheme: PlexTrackMapper.artworkScheme,
+      path: thumbPath.replaceAll('%', '%25'),
+    );
 
 void main() {
   group('PlexArtwork.resolve', () {
@@ -73,10 +77,8 @@ void main() {
       // The reference a mapper built for a query-carrying thumb: the encoded
       // `?` must come back out as a real query — with the token merged in,
       // not replacing the transcoder's own params.
-      final Uri reference = Uri(
-        scheme: PlexTrackMapper.artworkScheme,
-        path:
-            '/photo/:/transcode?url=/library/metadata/123/thumb/167&width=200',
+      final Uri reference = _reference(
+        '/photo/:/transcode?url=/library/metadata/123/thumb/167&width=200',
       );
 
       final Uri? resolved = PlexArtwork.resolve(reference, _session);
@@ -85,6 +87,32 @@ void main() {
       expect(resolved!.path, '/photo/:/transcode');
       expect(
           resolved.queryParameters['url'], '/library/metadata/123/thumb/167');
+      expect(resolved.queryParameters['width'], '200');
+      expect(resolved.queryParameters['X-Plex-Token'], _session.token);
+    });
+
+    test(
+        'resolves a transcoder reference whose url value PMS pre-encoded, '
+        'end to end', () {
+      // Built by the real mapper from the wire thumb, persisted, re-parsed,
+      // and resolved — the inner encoding must reach the final URL untouched:
+      // no decode/re-encode may promote the url value's `&b=2` to a top-level
+      // param or truncate the inner URL the transcoder fetches.
+      const String nestedThumb = '/photo/:/transcode'
+          '?url=http%3A%2F%2Fhost%2Fcover%3Fa%3D1%26b%3D2&width=200';
+      const PlexMetadata item =
+          PlexMetadata(ratingKey: '7', title: 't', thumb: nestedThumb);
+      final Uri persisted =
+          Uri.parse(PlexTrackMapper.toTrack(item).artworkUri!.toString());
+
+      final Uri? resolved = PlexArtwork.resolve(persisted, _session);
+
+      expect(resolved, isNotNull);
+      expect(resolved!.path, '/photo/:/transcode');
+      expect(resolved.query,
+          contains('url=http%3A%2F%2Fhost%2Fcover%3Fa%3D1%26b%3D2'));
+      expect(resolved.queryParameters.containsKey('b'), isFalse);
+      expect(resolved.queryParameters['url'], 'http://host/cover?a=1&b=2');
       expect(resolved.queryParameters['width'], '200');
       expect(resolved.queryParameters['X-Plex-Token'], _session.token);
     });

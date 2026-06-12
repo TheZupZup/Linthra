@@ -175,26 +175,68 @@ void main() {
       expect(uri.queryParameters[PlexEndpoints.tokenParam], _token);
     });
 
+    test('splices an encoded transcoder url value through byte-for-byte', () {
+      // A transcoder's `url=` value is itself percent-encoded; weaving the
+      // token in must not decode and re-encode it (the inner `%26` would
+      // become a real `&`, promoting `b=2` to a top-level param and handing
+      // the transcoder a truncated url).
+      final Uri uri = PlexEndpoints.coverArt(
+        _base,
+        thumbPath: '/photo/:/transcode'
+            '?url=http%3A%2F%2Fhost%2Fcover%3Fa%3D1%26b%3D2&width=200',
+        token: _token,
+      );
+      // The raw query still carries the value exactly as the server wrote it.
+      expect(
+          uri.query, contains('url=http%3A%2F%2Fhost%2Fcover%3Fa%3D1%26b%3D2'));
+      expect(uri.queryParameters.containsKey('b'), isFalse);
+      // The server decodes the full inner URL back out, query intact.
+      expect(uri.queryParameters['url'], 'http://host/cover?a=1&b=2');
+      expect(uri.queryParameters['width'], '200');
+      expect(uri.queryParameters[PlexEndpoints.tokenParam], _token);
+    });
+
+    test('never rewrites the encoding of untouched query pairs', () {
+      // `%20` and `+` both read as a space, but they are different bytes; the
+      // weave must pass pairs through raw, not normalize one to the other.
+      final Uri uri = PlexEndpoints.coverArt(
+        _base,
+        thumbPath: '/photo/:/transcode?url=a%20b&width=200',
+        token: _token,
+      );
+      expect(uri.query, contains('url=a%20b'));
+      expect(uri.query, isNot(contains('url=a+b')));
+    });
+
     test('a token-named param smuggled in the path is replaced, never kept',
         () {
       // The live session's token is the only credential allowed into a minted
-      // URL: a stored path carrying its own X-Plex-Token (however cased) must
-      // not survive — neither pinning a stale token nor doubling the param.
-      final Uri uri = PlexEndpoints.coverArt(
-        _base,
-        thumbPath: '/photo/:/transcode?x-plex-token=stale-leaked&width=200',
-        token: _token,
-      );
-      expect(uri.queryParameters[PlexEndpoints.tokenParam], _token);
-      expect(uri.toString(), isNot(contains('stale-leaked')));
-      expect(uri.queryParameters['width'], '200');
-      // Exactly one token param remains.
-      expect(
-        RegExp('x-plex-token', caseSensitive: false)
-            .allMatches(uri.toString())
-            .length,
-        1,
-      );
+      // URL: a stored path carrying its own X-Plex-Token (however cased or
+      // with its name percent-encoded) must not survive — neither pinning a
+      // stale token nor doubling the param.
+      for (final String smuggled in <String>[
+        '/photo/:/transcode?x-plex-token=stale-leaked&width=200',
+        '/photo/:/transcode?X%2DPlex%2DToken=stale-leaked&width=200',
+      ]) {
+        final Uri uri = PlexEndpoints.coverArt(
+          _base,
+          thumbPath: smuggled,
+          token: _token,
+        );
+        expect(uri.queryParameters[PlexEndpoints.tokenParam], _token,
+            reason: '$smuggled must carry the live token');
+        expect(uri.toString(), isNot(contains('stale-leaked')),
+            reason: '$smuggled must not keep the smuggled value');
+        expect(uri.queryParameters['width'], '200');
+        // Exactly one token param remains.
+        expect(
+          RegExp('x-plex-token', caseSensitive: false)
+              .allMatches(Uri.decodeFull(uri.toString()))
+              .length,
+          1,
+          reason: '$smuggled must yield exactly one token param',
+        );
+      }
     });
   });
 

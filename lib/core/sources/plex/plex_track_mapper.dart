@@ -117,10 +117,21 @@ abstract final class PlexTrackMapper {
   /// round-trips exactly through the catalog's `Uri.toString()` / `Uri.parse`
   /// and back out via [thumbPath]. No token, no server address: both are woven
   /// in only at render time, never persisted.
+  ///
+  /// Literal `%` is escaped *before* the [Uri] constructor encodes the rest,
+  /// because the constructor preserves any valid pre-existing escape triplet:
+  /// fed a transcoder thumb whose `url=` value PMS already percent-encoded
+  /// (`…?url=http%3A%2F%2F…%26b%3D2&width=…`), it would keep the server's
+  /// `%3A`/`%26` as-is while adding its own `%3F` for the `?` — two encoding
+  /// levels collapsed into one, which [thumbPath]'s single decode could not
+  /// tell apart (it would strip the server's level too, promoting the inner
+  /// `&b=2` to a top-level param and corrupting the cover request). With `%`
+  /// pre-escaped, exactly one encoding level ever exists, so the single
+  /// decode restores the reported string byte-for-byte for every input.
   static Uri? _artworkReference(String? thumb) {
     final String? path = _nonBlank(thumb);
     if (path == null) return null;
-    return Uri(scheme: artworkScheme, path: path);
+    return Uri(scheme: artworkScheme, path: path.replaceAll('%', '%25'));
   }
 
   /// Plex reports durations in whole **milliseconds** (unlike Subsonic's

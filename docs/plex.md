@@ -290,9 +290,11 @@ Small, incremental, each independently reviewable:
    junk request, and a malformed Part key fails typed instead of escaping as
    an untyped error or splicing into the server URL. Artwork hardening:
    `plex-thumb:` references round-trip query-carrying (sizing-transcoder)
-   thumb paths exactly, the minted stream/art URLs **merge** the token into an
-   existing query rather than replacing it (and drop any token-named param a
-   stored path might smuggle), and the render-time resolver never throws —
+   thumb paths byte-for-byte — including a `url=` value PMS itself
+   percent-encoded — the minted stream/art URLs **merge** the token into an
+   existing query rather than replacing it, splicing the existing pairs
+   through raw (and dropping any token-named param a stored path might
+   smuggle, however encoded), and the render-time resolver never throws —
    a degenerate session, a non-absolute thumb path, or an unparseable
    reference all degrade to the row's placeholder. Tests sweep every failure
    kind for token/URL-free messages and re-prove the Jellyfin/Subsonic/local
