@@ -23,7 +23,8 @@ enum _ReportedPhase {
 
 /// Watches live playback and reports its lifecycle to the
 /// [ServerPlaybackReporter] — the bridge that makes the user's own media
-/// server (Plex today) show Linthra as an active player.
+/// server (Plex, Jellyfin, Subsonic/Navidrome) show Linthra as an active
+/// player.
 ///
 /// It listens to the unified [PlaybackState] stream and derives the few events
 /// a server can use from the raw emissions:

@@ -52,6 +52,29 @@ class FakeJellyfinClient implements JellyfinClient {
   JellyfinException? lyricsError;
   String? lastLyricsItemId;
 
+  /// When set, every [reportPlayback] call throws it (after being recorded),
+  /// so reporters can prove failures are swallowed. Set [playbackReportError]
+  /// for a typed failure or [playbackReportUnexpectedError] for an untyped one.
+  JellyfinException? playbackReportError;
+  Object? playbackReportUnexpectedError;
+
+  /// Every playback report received, in order, so tests can assert the exact
+  /// event/position sequence a playback scenario produced.
+  final List<
+      ({
+        String itemId,
+        JellyfinPlaybackEvent event,
+        Duration position,
+      })> playbackReports = <({
+    String itemId,
+    JellyfinPlaybackEvent event,
+    Duration position,
+  })>[];
+
+  /// The session the last [reportPlayback] call carried, so a test can prove
+  /// the live (current) session was used.
+  JellyfinSession? lastReportSession;
+
   /// Canned favourite ids for [fetchFavoriteIds] (also updated by [setFavorite]
   /// so a round-trip reads back consistently).
   Set<String> favoriteIds = <String>{};
@@ -253,6 +276,21 @@ class FakeJellyfinClient implements JellyfinClient {
       throw error;
     }
     return lyrics;
+  }
+
+  @override
+  Future<void> reportPlayback(
+    JellyfinSession session, {
+    required String itemId,
+    required JellyfinPlaybackEvent event,
+    required Duration position,
+  }) async {
+    lastReportSession = session;
+    playbackReports.add((itemId: itemId, event: event, position: position));
+    final JellyfinException? error = playbackReportError;
+    if (error != null) throw error;
+    final Object? unexpected = playbackReportUnexpectedError;
+    if (unexpected != null) throw unexpected;
   }
 
   @override

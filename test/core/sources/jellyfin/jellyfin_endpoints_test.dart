@@ -96,6 +96,30 @@ void main() {
     });
   });
 
+  group('JellyfinEndpoints playback reporting', () {
+    test('start/progress/stop target the play-session endpoints', () {
+      expect(
+          JellyfinEndpoints.playbackStarted(_base).path, '/Sessions/Playing');
+      expect(JellyfinEndpoints.playbackProgress(_base).path,
+          '/Sessions/Playing/Progress');
+      expect(JellyfinEndpoints.playbackStopped(_base).path,
+          '/Sessions/Playing/Stopped');
+    });
+
+    test('the reporting URLs are token-free (item and auth ride elsewhere)',
+        () {
+      // The item/position go in the JSON body and the token in the
+      // Authorization header, so these URLs carry nothing at all.
+      for (final Uri uri in <Uri>[
+        JellyfinEndpoints.playbackStarted(_base),
+        JellyfinEndpoints.playbackProgress(_base),
+        JellyfinEndpoints.playbackStopped(_base),
+      ]) {
+        expect(uri.hasQuery, isFalse);
+      }
+    });
+  });
+
   group('JellyfinEndpoints.audioStream', () {
     final Uri uri = JellyfinEndpoints.audioStream(
       _base,

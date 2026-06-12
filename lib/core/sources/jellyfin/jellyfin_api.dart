@@ -14,6 +14,15 @@ import 'jellyfin_server_capabilities.dart';
 /// query string.
 enum JellyfinItemKind { audio, album, artist }
 
+/// A playback lifecycle event reported to Jellyfin's play-session endpoints.
+///
+/// The client maps each value to the right endpoint and body: [started] posts
+/// to `/Sessions/Playing`, [stopped] to `/Sessions/Playing/Stopped`, and the
+/// middle three to `/Sessions/Playing/Progress` (with `IsPaused` telling the
+/// server whether the player is paused). The reporter only ever picks an
+/// event; how Jellyfin spells it on the wire stays inside the client.
+enum JellyfinPlaybackEvent { started, progress, paused, resumed, stopped }
+
 /// What a tiny pre-flight request to a minted stream URL observed.
 ///
 /// The playback source probes the stream URL before handing it to the audio

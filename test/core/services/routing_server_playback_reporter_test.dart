@@ -52,6 +52,7 @@ class _SchemeReporter implements ServerPlaybackReporter {
 
 Track _plex(String id) => Track(id: id, title: id, uri: 'plex:$id');
 Track _jellyfin(String id) => Track(id: id, title: id, uri: 'jellyfin:$id');
+Track _subsonic(String id) => Track(id: id, title: id, uri: 'subsonic:$id');
 Track _local(String id) =>
     Track(id: id, title: id, uri: 'file:///music/$id.flac');
 
@@ -104,6 +105,61 @@ void main() {
         router.onPlaybackStarted(_local('l'), Duration.zero, Duration.zero),
         completes,
       );
+    });
+
+    group('with the production line-up (Plex, Jellyfin, Subsonic)', () {
+      late _SchemeReporter jellyfin;
+      late _SchemeReporter subsonic;
+      late RoutingServerPlaybackReporter producers;
+
+      setUp(() {
+        jellyfin = _SchemeReporter('jellyfin:');
+        subsonic = _SchemeReporter('subsonic:');
+        producers = RoutingServerPlaybackReporter(
+            <ServerPlaybackReporter>[plex, jellyfin, subsonic]);
+      });
+
+      Future<void> playThrough(Track track) async {
+        const Duration p = Duration(seconds: 30);
+        const Duration d = Duration(minutes: 3);
+        await producers.onPlaybackStarted(track, p, d);
+        await producers.onPlaybackProgress(track, p, d);
+        await producers.onPlaybackPaused(track, p, d);
+        await producers.onPlaybackResumed(track, p, d);
+        await producers.onPlaybackStopped(track, p, d);
+      }
+
+      test('each provider reporter sees only its own tracks', () async {
+        await playThrough(_plex('p'));
+        await playThrough(_jellyfin('j'));
+        await playThrough(_subsonic('s'));
+
+        expect(plex.events.every((e) => e.endsWith(':p')), isTrue);
+        expect(plex.events, hasLength(5));
+        expect(jellyfin.events.every((e) => e.endsWith(':j')), isTrue);
+        expect(jellyfin.events, hasLength(5));
+        expect(subsonic.events.every((e) => e.endsWith(':s')), isTrue);
+        expect(subsonic.events, hasLength(5));
+      });
+
+      test('local playback never triggers any server reporter', () async {
+        await playThrough(_local('l'));
+        await producers.onTrackChanged(_local('l'), _local('m'));
+
+        expect(plex.events, isEmpty);
+        expect(jellyfin.events, isEmpty);
+        expect(subsonic.events, isEmpty);
+      });
+
+      test(
+          'a cross-provider queue move reaches exactly the two owners '
+          '(Jellyfin closes, Subsonic told; Plex never hears of it)', () async {
+        await producers.onTrackChanged(_jellyfin('j'), _subsonic('s'));
+
+        expect(jellyfin.events, <String>['changed:j->s']);
+        expect(subsonic.events, <String>['changed:j->s']);
+        expect(plex.events, isEmpty);
+      });
     });
 
     test('the first reporter claiming a track wins', () async {

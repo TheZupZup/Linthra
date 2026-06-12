@@ -94,6 +94,9 @@ between call sites and the full surface is auditable here.
 | Cover art | `GET /Items/{itemId}/Images/Primary` | **Token-free**; safe to cache/persist. |
 | Direct stream | `GET /Audio/{itemId}/stream?static=true&api_key=…&UserId=…&DeviceId=…` | `static=true` serves the original file (no transcode). Token in query. |
 | Download | `GET /Items/{itemId}/Download?api_key=…` | Original file for the offline cache. Token in query. |
+| Report playback start | `POST /Sessions/Playing` | Body `{ItemId, PositionTicks, …}`; shows Linthra on the dashboard. Best-effort. |
+| Report playback progress | `POST /Sessions/Playing/Progress` | Throttled heartbeat; `IsPaused` carries pause/resume. Best-effort. |
+| Report playback stop | `POST /Sessions/Playing/Stopped` | Settles the server's session/play state. Best-effort. |
 
 **Authentication header.** Authenticated JSON calls send the standard Jellyfin
 `Authorization: MediaBrowser Client="Linthra", Device="Linthra", DeviceId="…",

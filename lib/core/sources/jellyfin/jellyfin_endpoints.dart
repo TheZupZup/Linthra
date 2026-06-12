@@ -26,6 +26,9 @@ abstract final class JellyfinEndpoints {
   static const String _itemsPath = '/Items';
   static const String _artistsPath = '/Artists';
   static const String _playlistsPath = '/Playlists';
+  static const String _playingPath = '/Sessions/Playing';
+  static const String _playingProgressPath = '/Sessions/Playing/Progress';
+  static const String _playingStoppedPath = '/Sessions/Playing/Stopped';
 
   // --- Query-parameter keys, named once so a typo can't split a request. ---
 
@@ -198,6 +201,22 @@ abstract final class JellyfinEndpoints {
   /// 401/403 is mapped to a friendly "couldn't delete" rather than retried.
   static Uri deleteItem(String baseUrl, {required String itemId}) =>
       _join(baseUrl, '$_itemsPath/$itemId');
+
+  /// `POST /Sessions/Playing` — report that playback of an item started. The
+  /// item and position ride in the JSON body; the session this player shows up
+  /// as on the server's dashboard is keyed off the `Authorization` header's
+  /// client/device identity, so the URL itself carries nothing.
+  static Uri playbackStarted(String baseUrl) => _join(baseUrl, _playingPath);
+
+  /// `POST /Sessions/Playing/Progress` — report position (and the
+  /// paused/playing flag) for the item already reported via [playbackStarted].
+  static Uri playbackProgress(String baseUrl) =>
+      _join(baseUrl, _playingProgressPath);
+
+  /// `POST /Sessions/Playing/Stopped` — report that playback of an item ended,
+  /// settling the server's session and play state for it.
+  static Uri playbackStopped(String baseUrl) =>
+      _join(baseUrl, _playingStoppedPath);
 
   /// `GET /Audio/<itemId>/Lyrics` — time-synced or plain lyrics (a 404 just
   /// means the server has none).

@@ -137,6 +137,32 @@ check in §4 #14b):
   is **negligible** — confirming the position flush stopped on pause and nothing
   polls while idle. This is the key "no unnecessary polling/wake-ups" check.
 
+## 3b. Server playback reporting (Now Playing on your server)
+
+While a remote track plays, Linthra reports its playback to the server that
+owns it — Plex timelines, Jellyfin play sessions, Subsonic/Navidrome
+now-playing + scrobble. Reporting is best-effort: it must never affect
+playback.
+
+- ☐ Play a **Plex** track: the PMS dashboard shows Linthra under Now Playing;
+  pause/resume update the entry; stop/skip clears it (unchanged from before).
+- ☐ Play a **Jellyfin** track: the server dashboard shows Linthra as an active
+  session with the playing item; pause shows paused; position advances on the
+  ~10 s heartbeat; stop/skip clears the session.
+- ☐ Play a **Navidrome (or other Subsonic)** track: the server's activity /
+  `getNowPlaying` shows Linthra as the client; letting the track run past
+  half (or 4 minutes) bumps its play count when it ends; skipping early does
+  **not** count a play.
+- ☐ Play a **local** track: no server traffic, nothing appears on any
+  dashboard.
+- ☐ Pause / resume / skip / stop across providers (including a queue mixing
+  providers): each server only ever shows its own track, and the outgoing
+  track's session closes on a cross-provider skip.
+- ☐ Reporting failure is invisible: play a remote track, then cut the server
+  off (stop the server or drop the tunnel) — playback of the already-started
+  stream continues, pause/skip/stop still work, and no error surfaces. No log
+  line contains a token (`adb logcat | grep -i linthra` spot-check).
+
 ## 4. Cast / Chromecast
 
 Run the end-to-end pass in this order (a streamed track is required — local

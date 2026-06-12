@@ -21,15 +21,19 @@ import '../../core/services/routing_server_playback_reporter.dart';
 import '../../core/services/server_playback_reporter.dart';
 import '../../core/services/smart_precache_service.dart';
 import '../../core/sources/jellyfin/jellyfin_playable_uri_resolver.dart';
+import '../../core/sources/jellyfin/jellyfin_playback_reporter.dart';
 import '../../core/sources/plex/plex_playable_uri_resolver.dart';
 import '../../core/sources/plex/plex_playback_reporter.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
+import '../../core/sources/subsonic/subsonic_playback_reporter.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
+import '../settings/jellyfin/jellyfin_settings_providers.dart';
 import '../settings/plex/plex_settings_controller.dart';
 import '../settings/plex/plex_settings_providers.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
+import '../settings/subsonic/subsonic_settings_providers.dart';
 import 'cast/cast_providers.dart';
 import 'now_playing.dart';
 
@@ -212,27 +216,39 @@ final remotePrebufferServiceProvider = Provider<RemotePrebufferService>((ref) {
 });
 
 /// The reporter playback lifecycle events route through: Plex for
-/// `plex:<ratingKey>` tracks, nothing for everyone else (local / Jellyfin /
-/// Subsonic playback is reported to no server, exactly as before).
+/// `plex:<ratingKey>` tracks (PMS timelines), Jellyfin for `jellyfin:<itemId>`
+/// tracks (play-session reports), Subsonic for `subsonic:<id>` tracks
+/// (now-playing + scrobble), and nothing for local files — a track only ever
+/// reaches the reporter that claims its uri, so one provider's playback can
+/// never trigger another provider's call.
 ///
-/// The Plex reporter reads its session and client through lazy getters — the
+/// Each reporter reads its session and client through lazy getters — the
 /// same shape the source router above uses — so signing in/out, and the
-/// client identity persisted at sign-in (which PMS keys the player session
-/// on), are picked up live without rebuilding the reporter or the
-/// session-pinned reporting service that holds it.
+/// client/device identity persisted at sign-in (which the server keys the
+/// player session on), are picked up live without rebuilding the reporter or
+/// the session-pinned reporting service that holds it.
 final serverPlaybackReporterProvider = Provider<ServerPlaybackReporter>((ref) {
   return RoutingServerPlaybackReporter(<ServerPlaybackReporter>[
     PlexPlaybackReporter(
       session: () => ref.read(plexMusicSourceProvider)?.session,
       client: () => ref.read(plexClientProvider),
     ),
+    JellyfinPlaybackReporter(
+      session: () => ref.read(jellyfinMusicSourceProvider)?.session,
+      client: () => ref.read(jellyfinClientProvider),
+    ),
+    SubsonicPlaybackReporter(
+      session: () => ref.read(subsonicMusicSourceProvider)?.session,
+      client: () => ref.read(subsonicClientProvider),
+    ),
   ]);
 });
 
 /// Playback reporting: mirrors live playback onto the server that owns the
-/// playing track (Plex today), so the user's own dashboard shows Linthra as an
-/// active player — started/paused/resumed/stopped immediately, progress on a
-/// throttled heartbeat.
+/// playing track (Plex, Jellyfin, or Subsonic/Navidrome), so the user's own
+/// dashboard shows Linthra as an active player — started/paused/resumed/
+/// stopped immediately, progress on a throttled heartbeat (each provider
+/// reporter maps those onto what its protocol supports).
 ///
 /// Pinned for the session like smart pre-cache and remote prebuffer: it reads
 /// the controller's state stream and the reporter once with [Ref.read], does

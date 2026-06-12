@@ -205,6 +205,24 @@ class HttpSubsonicClient implements SubsonicClient {
     );
   }
 
+  @override
+  Future<void> scrobble(
+    SubsonicSession session,
+    String songId, {
+    required bool submission,
+  }) async {
+    final Uri uri = SubsonicEndpoints.scrobble(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+      songId: songId,
+      submission: submission,
+    );
+    // Only the envelope's ok/failed status matters; a server that rejects or
+    // doesn't support scrobbling throws the usual typed, secret-free error.
+    await _get(uri);
+  }
+
   SubsonicCredentials _credentials(SubsonicSession session) =>
       SubsonicCredentials(salt: session.salt, token: session.token);
 

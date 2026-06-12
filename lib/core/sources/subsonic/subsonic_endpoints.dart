@@ -103,6 +103,26 @@ abstract final class SubsonicEndpoints {
       _build(baseUrl, 'getLyrics', username, credentials,
           extra: <String, String>{'artist': artist, 'title': title});
 
+  /// `GET /rest/scrobble.view?id=…&submission=…` — registers playback of a
+  /// song. With `submission=false` the server marks it as "now playing"
+  /// (Navidrome's activity panel and `getNowPlaying`); with `submission=true`
+  /// it records a completed play (play count, last played, and any scrobble
+  /// forwarding the server is configured for). In the Subsonic API since
+  /// 1.5.0, so Navidrome and generic servers alike answer it; one that
+  /// doesn't returns a Subsonic error envelope the client maps to a typed
+  /// exception (which the playback reporter swallows).
+  static Uri scrobble(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+    required String songId,
+    required bool submission,
+  }) =>
+      _build(baseUrl, 'scrobble', username, credentials, extra: {
+        idParam: songId,
+        'submission': '$submission',
+      });
+
   /// The audio stream URL for a song: `/rest/stream.view?id=…` plus auth.
   ///
   /// The server serves a playable stream (transcoding to a broadly compatible

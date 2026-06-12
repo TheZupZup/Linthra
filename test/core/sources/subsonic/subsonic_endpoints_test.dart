@@ -70,6 +70,31 @@ void main() {
       expect(download.queryParameters['id'], 's-7');
     });
 
+    test('scrobble carries the song id and the submission flag', () {
+      final Uri nowPlaying = SubsonicEndpoints.scrobble(
+        _base,
+        username: _user,
+        credentials: _creds,
+        songId: 's-7',
+        submission: false,
+      );
+      final Uri submission = SubsonicEndpoints.scrobble(
+        _base,
+        username: _user,
+        credentials: _creds,
+        songId: 's-7',
+        submission: true,
+      );
+      expect(nowPlaying.path, '/rest/scrobble.view');
+      expect(nowPlaying.queryParameters['id'], 's-7');
+      expect(nowPlaying.queryParameters['submission'], 'false');
+      expect(submission.queryParameters['submission'], 'true');
+      // The standard auth query rides along like on every endpoint.
+      expect(nowPlaying.queryParameters['u'], _user);
+      expect(nowPlaying.queryParameters['t'], _creds.token);
+      expect(nowPlaying.queryParameters['s'], _creds.salt);
+    });
+
     test('coverArt targets /rest/getCoverArt.view and carries the cover id',
         () {
       final Uri uri = SubsonicEndpoints.coverArt(
