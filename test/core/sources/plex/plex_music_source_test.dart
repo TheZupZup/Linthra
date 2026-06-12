@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/plex_session.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/playback_diagnostics.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_exception.dart';
 import 'package:linthra/core/sources/plex/plex_music_source.dart';
@@ -138,6 +139,9 @@ void main() {
 
       expect(tracks, isNotEmpty);
       for (final Track t in tracks) {
+        // The id is the bare ratingKey — no token, no server address.
+        expect(t.id, '301');
+        expect(t.id, isNot(contains(_token)));
         // The opaque plex: uri carries no token, no query, no server address.
         expect(t.uri, startsWith('plex:'));
         expect(t.uri, isNot(contains(_token)));
@@ -238,6 +242,65 @@ void main() {
             .having((e) => e.message, 'message', isNot(contains(_token)))
             .having((e) => e.toString(), 'toString', isNot(contains(_token)))),
       );
+    });
+
+    test('a uri with no ratingKey fails typed without issuing a junk request',
+        () async {
+      // A corrupt catalog row could carry a bare `plex:`; that names no item,
+      // so it must fail as the same typed "not available" a vanished item
+      // gets — and never reach the server as a malformed /library/metadata/
+      // request.
+      const Track malformed = Track(id: '', title: 'x', uri: 'plex:');
+      await expectLater(
+        source().resolvePlayableUri(malformed),
+        throwsA(isA<PlexException>()
+            .having((e) => e.kind, 'kind', PlexErrorKind.notFound)
+            .having((e) => e.message, 'message', isNot(contains(_token)))),
+      );
+      expect(client.requestedRatingKeys, isEmpty);
+    });
+
+    test('a Part key that is not server-absolute fails typed, never corrupt',
+        () async {
+      // Joined as-is, `file.flac` would splice into the base URL's authority
+      // (`…:32400file.flac` — an invalid port, or worse a different host).
+      // The source must refuse it as the typed "response Linthra could not
+      // use" instead of minting a corrupt URL or escaping as an untyped
+      // FormatException the player can't word.
+      client.metadataByRatingKey = const <String, PlexMetadata>{
+        '301': PlexMetadata(
+          ratingKey: '301',
+          type: 'track',
+          title: 'x',
+          media: <PlexMedia>[
+            PlexMedia(parts: <PlexPart>[PlexPart(key: 'file.flac')]),
+          ],
+        ),
+      };
+      await expectLater(
+        source().resolvePlayableUri(track),
+        throwsA(isA<PlexException>()
+            .having((e) => e.kind, 'kind', PlexErrorKind.unsupportedResponse)
+            .having((e) => e.message, 'message', isNot(contains(_token)))),
+      );
+    });
+
+    test('the resolution diagnostic line redacts the id and holds no token',
+        () async {
+      // resolvePlayableUri logs exactly this line; the diagnostics API has no
+      // parameter a token could even ride in, and the ratingKey is hashed —
+      // a 9-digit key cannot survive into the ≤8-hex-char redacted tag.
+      const String ratingKey = '987654321';
+      final String line = PlaybackDiagnostics.describe(
+        source: PlexMusicSource.sourceId,
+        resolver: 'PlexMusicSource',
+        itemId: ratingKey,
+      );
+      expect(line, contains('source=plex'));
+      expect(line, contains('item=id#'));
+      expect(line, isNot(contains(ratingKey)));
+      expect(line, isNot(contains(_token)));
+      expect(line.toLowerCase(), isNot(contains('x-plex-token')));
     });
   });
 

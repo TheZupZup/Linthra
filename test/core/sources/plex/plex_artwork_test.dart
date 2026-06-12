@@ -69,6 +69,85 @@ void main() {
       );
     });
 
+    test('resolves a sizing-transcoder reference with its query intact', () {
+      // The reference a mapper built for a query-carrying thumb: the encoded
+      // `?` must come back out as a real query — with the token merged in,
+      // not replacing the transcoder's own params.
+      final Uri reference = Uri(
+        scheme: PlexTrackMapper.artworkScheme,
+        path:
+            '/photo/:/transcode?url=/library/metadata/123/thumb/167&width=200',
+      );
+
+      final Uri? resolved = PlexArtwork.resolve(reference, _session);
+
+      expect(resolved, isNotNull);
+      expect(resolved!.path, '/photo/:/transcode');
+      expect(
+          resolved.queryParameters['url'], '/library/metadata/123/thumb/167');
+      expect(resolved.queryParameters['width'], '200');
+      expect(resolved.queryParameters['X-Plex-Token'], _session.token);
+    });
+
+    test('a degenerate session (blank address or token) never resolves', () {
+      // "Resolves only with a valid session": a session missing either half
+      // can't mint a sound URL, so the reference keeps its placeholder.
+      final Uri reference = _reference('/library/metadata/123/thumb/1');
+      const PlexSession noToken = PlexSession(
+        baseUrl: 'https://plex.example.com:32400',
+        token: '',
+        machineIdentifier: 'machine-1',
+      );
+      const PlexSession noServer = PlexSession(
+        baseUrl: '',
+        token: 'the-secret-token',
+        machineIdentifier: 'machine-1',
+      );
+      expect(PlexArtwork.resolve(reference, noToken), isNull);
+      expect(PlexArtwork.resolve(reference, noServer), isNull);
+    });
+
+    test('a thumb path that is not server-absolute never resolves', () {
+      // Joined as-is it would splice into the base URL's authority and point
+      // somewhere else entirely; fall back to the placeholder instead.
+      expect(
+        PlexArtwork.resolve(Uri.parse('plex-thumb:thumb.jpg'), _session),
+        isNull,
+      );
+    });
+
+    test('a reference smuggling a token-named param cannot keep it', () {
+      // Defense in depth: a stored reference is credential-free by
+      // construction, but even a hand-crafted one carrying its own
+      // X-Plex-Token must come out with the live session's token only.
+      final Uri reference = Uri(
+        scheme: PlexTrackMapper.artworkScheme,
+        path: '/photo/:/transcode?X-Plex-Token=stale-leaked&width=200',
+      );
+
+      final Uri? resolved = PlexArtwork.resolve(reference, _session);
+
+      expect(resolved, isNotNull);
+      expect(resolved.toString(), isNot(contains('stale-leaked')));
+      expect(resolved!.queryParameters['X-Plex-Token'], _session.token);
+    });
+
+    test('never throws, whatever the reference carries', () {
+      // The resolver runs synchronously inside widget builds; any failure
+      // must degrade to the placeholder, never take down the frame.
+      final List<Uri> hostile = <Uri>[
+        Uri.parse('plex-thumb:'),
+        Uri.parse('plex-thumb:no-leading-slash'),
+        Uri.parse('plex-thumb:/thumb/100%zz'), // malformed escape, normalized
+        Uri.parse('plex-thumb://host-looking/path'),
+        Uri(scheme: 'plex-thumb', path: r'/a b/¿?#[]@!$&()*+,;=%.jpg'),
+      ];
+      for (final Uri reference in hostile) {
+        expect(() => PlexArtwork.resolve(reference, _session), returnsNormally,
+            reason: '$reference must not throw');
+      }
+    });
+
     test('the persisted reference itself stays credential-free', () {
       // The reference is what the catalog stores; the token and server address
       // are woven in only by resolve(), never persisted.

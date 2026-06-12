@@ -194,6 +194,24 @@ void main() {
       );
     });
 
+    test('round-trips a sizing-transcoder thumb, query and all', () {
+      // Some items report art as a photo-transcoder path whose query *is* the
+      // request. Riding as a Uri path encodes the `?`; thumbPath must hand
+      // back exactly the string PMS reported, or the render-time URL would
+      // carry a literal `%3F` path and the server would 404 the cover.
+      const String transcodeThumb =
+          '/photo/:/transcode?url=/library/metadata/201/thumb/167&width=200';
+      const item =
+          PlexMetadata(ratingKey: '1', title: 't', thumb: transcodeThumb);
+      final Uri reference = PlexTrackMapper.toTrack(item).artworkUri!;
+
+      // Still a credential-free plex-thumb reference…
+      expect(reference.scheme, PlexTrackMapper.artworkScheme);
+      // …whose persisted string round-trips to the exact reported path.
+      final Uri reparsed = Uri.parse(reference.toString());
+      expect(PlexTrackMapper.thumbPath(reparsed), transcodeThumb);
+    });
+
     test('thumbPath leaves other providers\' artwork untouched', () {
       expect(
         PlexTrackMapper.thumbPath(Uri.parse('https://x.example/cover.jpg')),
