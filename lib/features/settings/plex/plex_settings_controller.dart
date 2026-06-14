@@ -406,14 +406,18 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     try {
       await ref.read(plexSessionStoreProvider).write(stamped);
     } catch (_) {
-      // Without persistence the connection would silently vanish on restart;
-      // fail honestly instead. Nothing sensitive is kept in memory either —
-      // including the sign-in flow's tokens.
+      // The new connection couldn't be persisted; without that it would
+      // silently vanish on restart, so don't adopt it. The sign-in flow's
+      // in-memory tokens are released here. A previous session, if any, is
+      // untouched — the failed write didn't replace it at rest, and [_session]
+      // still holds it — so restore its connected view with the error rather
+      // than dropping to a disconnected card while [plexMusicSourceProvider]
+      // keeps serving it ([_setFailure] rebuilds from the live [_session], or
+      // shows a plain signed-out error when there is none).
       _resetLinkFlow();
-      state = const PlexSettingsState(
-        errorMessage: "Couldn't save your Plex session on this device. "
-            'Try again.',
-      );
+      _setFailure(const PlexException(
+        "Couldn't save your Plex session on this device. Try again.",
+      ));
       return false;
     }
 

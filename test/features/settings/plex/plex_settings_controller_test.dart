@@ -1142,6 +1142,9 @@ void main() {
 
     test('a failed server connect returns to the picker, retryable', () async {
       final client = FakePlexClient(
+        // Once reachable, the probe answers as the picked Attic server so the
+        // identity guard accepts it.
+        identity: const PlexServerIdentity(machineIdentifier: 'machine-attic'),
         identityError: PlexException.notReachable(),
         sections: const [_musicSection],
       );
@@ -1379,6 +1382,48 @@ void main() {
       expect(saved!.selectedSectionKeys, <String>['5']);
       // The token was rotated to the freshly granted server-scoped one.
       expect(saved.token, _serverScopedToken);
+    });
+
+    test(
+        'a save failure during a PIN reconnect keeps the existing connection '
+        'live instead of showing a disconnected card', () async {
+      // A live session exists; the user reconnects through the PIN flow but
+      // the store write fails.
+      final store = _FlakyPlexSessionStore(
+        initialSession: _session.copyWith(
+          machineIdentifier: 'fake-machine-id',
+          selectedSectionKeys: const <String>['5'],
+        ),
+      );
+      final container = _container(
+        store: store,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resources: const <PlexResource>[_officeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+      expect(container.read(plexMusicSourceProvider), isNotNull);
+
+      store.writeError = StateError('keystore busy');
+      await notifier.connectWithPlex();
+
+      final state = container.read(plexSettingsControllerProvider);
+      // Still shown as connected to the existing server, with the save error…
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.errorMessage, contains("Couldn't save your Plex session"));
+      expect(state.baseUrl, _session.baseUrl);
+      expect(state.selectedSectionKeys, <String>['5']);
+      // …and the old session is still live and consistent with the UI — the
+      // music source keeps serving it rather than vanishing under a
+      // "disconnected" card.
+      expect(notifier.session, isNotNull);
+      final source = container.read(plexMusicSourceProvider);
+      expect(source, isNotNull);
+      expect(source!.session.baseUrl, _session.baseUrl);
+      // The in-memory flow tokens were still released.
+      expect(await notifier.selectServer('fake-machine-id'), isFalse);
     });
 
     test('a second connectWithPlex while one is waiting is ignored', () async {

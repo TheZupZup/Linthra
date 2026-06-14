@@ -167,8 +167,13 @@ class PlexPinAuth {
   /// bandwidth-capped — only worth it when nothing direct answers). A
   /// rejected token ([PlexErrorKind.unauthorized]) aborts immediately — the
   /// same token would be rejected on every address — while unreachable or
-  /// non-Plex answers just move on to the next address. When nothing answers,
-  /// throws [PlexException.serverUnreachable].
+  /// non-Plex answers just move on to the next address. An address that
+  /// answers as a **different** server (its `machineIdentifier` doesn't match
+  /// the picked [server]'s `clientIdentifier`) is skipped too: a stale or
+  /// reused advertised address can reach another Plex server that — under the
+  /// account-token fallback — accepts the same account-wide token, and
+  /// persisting it would silently bind the user to the wrong server. When
+  /// nothing matching answers, throws [PlexException.serverUnreachable].
   Future<PlexSession> connectToServer({
     required PlexResource server,
     required String accountToken,
@@ -201,6 +206,15 @@ class PlexPinAuth {
         );
       } on PlexException catch (error) {
         if (error.kind == PlexErrorKind.unauthorized) rethrow;
+        continue;
+      }
+      // Confirm this address actually reached the server the user picked. A
+      // PMS reports its `machineIdentifier` as the resource's
+      // `clientIdentifier`, so a mismatch means a stale/reused address landed
+      // on some other server (reachable here only because the account-token
+      // fallback is accepted account-wide) — skip it rather than persist the
+      // wrong server under the picked one's name.
+      if (identity.machineIdentifier != server.clientIdentifier) {
         continue;
       }
       return PlexSession(

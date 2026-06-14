@@ -48,7 +48,12 @@ PlexPinAuth _auth({
 }) {
   return PlexPinAuth(
     tvClient: tvClient ?? FakePlexTvClient(),
-    serverClient: serverClient ?? FakePlexClient(),
+    // The default server answers as `_server`'s machine, so a probe matches
+    // the picked resource's clientIdentifier (the identity guard).
+    serverClient: serverClient ??
+        FakePlexClient(
+          identity: const PlexServerIdentity(machineIdentifier: 'machine-abc'),
+        ),
     identity: _identity,
     wait: (Duration duration) async => waits?.add(duration),
   );
@@ -252,7 +257,9 @@ void main() {
         provides: 'server',
         connections: <PlexResourceConnection>[_directConnection],
       );
-      final serverClient = FakePlexClient();
+      final serverClient = FakePlexClient(
+        identity: const PlexServerIdentity(machineIdentifier: 'machine-abc'),
+      );
       final PlexPinAuth auth = _auth(serverClient: serverClient);
 
       final PlexSession session = await auth.connectToServer(
@@ -261,6 +268,53 @@ void main() {
       );
 
       expect(session.token, _accountToken);
+    });
+
+    test('skips an address that answers as a different server', () async {
+      // The first advertised address is stale and now reaches a DIFFERENT
+      // server that still accepts the account-wide token; the second reaches
+      // the real one. Only the server the user picked is persisted.
+      final probed = <String>[];
+      final serverClient = _IdentityByUrlClient(
+        probed,
+        identityFor: const <String, PlexServerIdentity>{
+          'https://10-0-0-5.abc.plex.direct:32400':
+              PlexServerIdentity(machineIdentifier: 'someone-elses-server'),
+          'https://93-184-216-34.abc.plex.direct:32400':
+              PlexServerIdentity(machineIdentifier: 'machine-abc'),
+        },
+      );
+      final PlexPinAuth auth = _auth(serverClient: serverClient);
+
+      final PlexSession session = await auth.connectToServer(
+        server: _server,
+        accountToken: _accountToken,
+      );
+
+      // Both addresses were probed; the matching one won.
+      expect(probed, <String>[
+        'https://10-0-0-5.abc.plex.direct:32400',
+        'https://93-184-216-34.abc.plex.direct:32400',
+      ]);
+      expect(session.machineIdentifier, 'machine-abc');
+      expect(session.baseUrl, 'https://93-184-216-34.abc.plex.direct:32400');
+    });
+
+    test('reports unreachable when no address reaches the picked server',
+        () async {
+      // Every advertised address answers as a different server — none is the
+      // one the user picked, so nothing is persisted.
+      final serverClient = FakePlexClient(
+        identity:
+            const PlexServerIdentity(machineIdentifier: 'not-the-picked-one'),
+      );
+      final PlexPinAuth auth = _auth(serverClient: serverClient);
+
+      await expectLater(
+        auth.connectToServer(server: _server, accountToken: _accountToken),
+        throwsA(isA<PlexException>()
+            .having((e) => e.kind, 'kind', PlexErrorKind.notReachable)),
+      );
     });
 
     test('keeps the relay as the last resort', () async {
@@ -407,5 +461,26 @@ class _ProbeRecordingClient extends FakePlexClient {
     if (specific != null) throw specific;
     if (failFor.contains(baseUrl)) throw PlexException.notReachable();
     return const PlexServerIdentity(machineIdentifier: 'machine-abc');
+  }
+}
+
+/// A [FakePlexClient] that records probed base URLs and returns a per-URL
+/// identity, so the "address answers as a different server" guard can be
+/// exercised. An unmapped URL is treated as unreachable.
+class _IdentityByUrlClient extends FakePlexClient {
+  _IdentityByUrlClient(this.probed, {required this.identityFor});
+
+  final List<String> probed;
+  final Map<String, PlexServerIdentity> identityFor;
+
+  @override
+  Future<PlexServerIdentity> fetchIdentity({
+    required String baseUrl,
+    required String token,
+  }) async {
+    probed.add(baseUrl);
+    final PlexServerIdentity? id = identityFor[baseUrl];
+    if (id == null) throw PlexException.notReachable();
+    return id;
   }
 }
