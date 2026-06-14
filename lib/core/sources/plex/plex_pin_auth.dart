@@ -164,16 +164,22 @@ class PlexPinAuth {
   ///
   /// Connections are probed one at a time in plex.tv's order, except that
   /// relay addresses go last (they work from anywhere but are
-  /// bandwidth-capped — only worth it when nothing direct answers). A
-  /// rejected token ([PlexErrorKind.unauthorized]) aborts immediately — the
-  /// same token would be rejected on every address — while unreachable or
-  /// non-Plex answers just move on to the next address. An address that
-  /// answers as a **different** server (its `machineIdentifier` doesn't match
-  /// the picked [server]'s `clientIdentifier`) is skipped too: a stale or
-  /// reused advertised address can reach another Plex server that — under the
-  /// account-token fallback — accepts the same account-wide token, and
-  /// persisting it would silently bind the user to the wrong server. When
-  /// nothing matching answers, throws [PlexException.serverUnreachable].
+  /// bandwidth-capped — only worth it when nothing direct answers).
+  /// Unreachable or non-Plex answers move on to the next address. An address
+  /// that answers as a **different** server (its `machineIdentifier` doesn't
+  /// match the picked [server]'s `clientIdentifier`) is skipped too: a stale
+  /// or reused advertised address can reach another Plex server that — under
+  /// the account-token fallback — accepts the same account-wide token, and
+  /// persisting it would silently bind the user to the wrong server.
+  ///
+  /// A rejected token (HTTP 401/403) on a single address does **not** abort
+  /// the probe either: that same stale/reused address can land on a different
+  /// server that rejects this server-scoped token, while a later advertised
+  /// address still reaches the picked one. Every address is tried; if none
+  /// matches, a token rejection seen on any of them is reported in preference
+  /// to a generic unreachable error (it's the more actionable failure —
+  /// reconnect to re-grant the token), otherwise
+  /// [PlexException.serverUnreachable].
   Future<PlexSession> connectToServer({
     required PlexResource server,
     required String accountToken,
@@ -190,6 +196,11 @@ class PlexPinAuth {
         if (c.relay) c,
     ];
 
+    // Remembered across the whole probe: a 401/403 from any single address is
+    // not fatal on its own (it may come from a stale address on a different
+    // server), but if nothing matches it's the failure worth surfacing.
+    PlexException? rejected;
+
     for (final PlexResourceConnection connection in ordered) {
       final String baseUrl;
       try {
@@ -205,7 +216,13 @@ class PlexPinAuth {
           token: token,
         );
       } on PlexException catch (error) {
-        if (error.kind == PlexErrorKind.unauthorized) rethrow;
+        // Don't let one address's rejection abort the rest: a stale/reused
+        // address can reach a *different* server that rejects this
+        // server-scoped token, while a later address still reaches the picked
+        // one. Remember it and keep probing.
+        if (error.kind == PlexErrorKind.unauthorized) {
+          rejected = error;
+        }
         continue;
       }
       // Confirm this address actually reached the server the user picked. A
@@ -224,6 +241,11 @@ class PlexPinAuth {
         serverName: server.name.isNotEmpty ? server.name : null,
         serverVersion: identity.version ?? server.productVersion,
       );
+    }
+    // Nothing reached the picked server. A token rejection on any address is
+    // the more actionable outcome (reconnect/re-grant) than "unreachable".
+    if (rejected != null) {
+      throw rejected;
     }
     throw PlexException.serverUnreachable();
   }

@@ -354,7 +354,12 @@ void main() {
       expect(session.baseUrl, 'https://relay.plex.direct:8443');
     });
 
-    test('a rejected token aborts immediately instead of probing on', () async {
+    test(
+        'an auth failure on one address does not abort: a later address still '
+        'reaches the picked server', () async {
+      // The first advertised address is stale and lands on a different server
+      // that rejects this server-scoped token (401); the second reaches the
+      // picked server. The probe must not give up on the first rejection.
       final probed = <String>[];
       final serverClient = _ProbeRecordingClient(
         probed,
@@ -365,13 +370,42 @@ void main() {
       );
       final PlexPinAuth auth = _auth(serverClient: serverClient);
 
+      final PlexSession session = await auth.connectToServer(
+        server: _server,
+        accountToken: _accountToken,
+      );
+
+      expect(probed, <String>[
+        'https://10-0-0-5.abc.plex.direct:32400',
+        'https://93-184-216-34.abc.plex.direct:32400',
+      ]);
+      expect(session.baseUrl, 'https://93-184-216-34.abc.plex.direct:32400');
+      expect(session.machineIdentifier, 'machine-abc');
+    });
+
+    test('reports the token rejection only after every address is exhausted',
+        () async {
+      // Every advertised address rejects the token; only then is it surfaced
+      // (as the more actionable failure than a generic "unreachable").
+      final probed = <String>[];
+      final serverClient = _ProbeRecordingClient(
+        probed,
+        errorFor: <String, PlexException>{
+          'https://10-0-0-5.abc.plex.direct:32400':
+              PlexException.unauthorized(),
+          'https://93-184-216-34.abc.plex.direct:32400':
+              PlexException.unauthorized(),
+        },
+      );
+      final PlexPinAuth auth = _auth(serverClient: serverClient);
+
       await expectLater(
         auth.connectToServer(server: _server, accountToken: _accountToken),
         throwsA(isA<PlexException>()
             .having((e) => e.kind, 'kind', PlexErrorKind.unauthorized)),
       );
-      // The same token would be rejected on every address — one probe only.
-      expect(probed, hasLength(1));
+      // Both addresses were tried before reporting the rejection.
+      expect(probed, hasLength(2));
     });
 
     test('reports unreachable when no address answers', () async {
