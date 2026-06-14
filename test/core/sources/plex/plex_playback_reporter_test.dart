@@ -25,6 +25,15 @@ Track _plexTrack(String ratingKey) => Track(
 const Track _jellyfinTrack =
     Track(id: 'jf-1', title: 'Elsewhere', uri: 'jellyfin:item-1');
 
+/// An Android SAF-picked local document: its uri is the raw content:// path
+/// (not this provider's), so a private on-device file is never reported to
+/// Plex on any event.
+const Track _localDocumentTrack = Track(
+  id: 'doc-1',
+  title: 'Home Recording',
+  uri: 'content://com.android.externalstorage.documents/document/home',
+);
+
 const Duration _position = Duration(seconds: 42);
 const Duration _duration = Duration(minutes: 3);
 
@@ -134,6 +143,25 @@ void main() {
         await reporter.onPlaybackPaused(_jellyfinTrack, _position, _duration);
         await reporter.onPlaybackResumed(_jellyfinTrack, _position, _duration);
         await reporter.onPlaybackStopped(_jellyfinTrack, _position, _duration);
+
+        expect(client.timelineReports, isEmpty);
+      });
+
+      test('a content:// local document is a silent no-op on every event',
+          () async {
+        final reporter = build();
+
+        await reporter.onPlaybackStarted(
+            _localDocumentTrack, _position, _duration);
+        await reporter.onPlaybackProgress(
+            _localDocumentTrack, _position, _duration);
+        await reporter.onPlaybackPaused(
+            _localDocumentTrack, _position, _duration);
+        await reporter.onPlaybackResumed(
+            _localDocumentTrack, _position, _duration);
+        await reporter.onPlaybackStopped(
+            _localDocumentTrack, _position, _duration);
+        await reporter.onTrackChanged(_localDocumentTrack, null);
 
         expect(client.timelineReports, isEmpty);
       });

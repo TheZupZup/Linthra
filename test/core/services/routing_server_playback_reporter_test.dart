@@ -56,6 +56,16 @@ Track _subsonic(String id) => Track(id: id, title: id, uri: 'subsonic:$id');
 Track _local(String id) =>
     Track(id: id, title: id, uri: 'file:///music/$id.flac');
 
+/// An Android SAF-picked local document: its [Track.uri] is the raw
+/// `content://` document URI (LocalTrackMapper.fromSafDocument), which names no
+/// provider scheme — so, like a `file://` local track, it must reach no server
+/// reporter (a private on-device file is never announced to any server).
+Track _localDocument(String id) => Track(
+      id: id,
+      title: id,
+      uri: 'content://com.android.externalstorage.documents/document/$id',
+    );
+
 void main() {
   group('RoutingServerPlaybackReporter', () {
     late _SchemeReporter plex;
@@ -87,7 +97,11 @@ void main() {
     });
 
     test('non-Plex tracks never reach the Plex reporter', () async {
-      for (final Track track in <Track>[_jellyfin('j'), _local('l')]) {
+      for (final Track track in <Track>[
+        _jellyfin('j'),
+        _local('l'),
+        _localDocument('d'),
+      ]) {
         await router.onPlaybackStarted(track, Duration.zero, Duration.zero);
         await router.onPlaybackProgress(track, Duration.zero, Duration.zero);
         await router.onPlaybackPaused(track, Duration.zero, Duration.zero);
@@ -145,6 +159,20 @@ void main() {
       test('local playback never triggers any server reporter', () async {
         await playThrough(_local('l'));
         await producers.onTrackChanged(_local('l'), _local('m'));
+
+        expect(plex.events, isEmpty);
+        expect(jellyfin.events, isEmpty);
+        expect(subsonic.events, isEmpty);
+      });
+
+      test('a content:// local document never triggers any server reporter',
+          () async {
+        // SAF documents are private on-device files whose uri is a raw
+        // content:// path naming no provider; playing one (and moving off it)
+        // must announce nothing to Plex, Jellyfin, or Subsonic.
+        await playThrough(_localDocument('d'));
+        await producers.onTrackChanged(
+            _localDocument('d'), _localDocument('e'));
 
         expect(plex.events, isEmpty);
         expect(jellyfin.events, isEmpty);
