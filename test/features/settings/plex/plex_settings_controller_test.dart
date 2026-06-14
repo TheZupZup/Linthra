@@ -1722,6 +1722,57 @@ void main() {
     });
 
     test(
+        'a flow failure after a deferred-publish restore announces the '
+        'restored session identity', () async {
+      // The slow restore brings back a session whose client id was deferred
+      // (the flow owned the card); the flow then FAILS and falls back to that
+      // session — its persisted client id must be announced, not left on the
+      // temporary launch/PIN id.
+      final store = _GatedReadStore(
+        _session.copyWith(clientIdentifier: 'restored-install-id'),
+      );
+      // The PIN expires on the first poll, so the flow fails via _setFailure.
+      final tvClient = _GatedPinTvClient(
+        checkPinScript: <Object?>[PlexException.signInExpired()],
+      );
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      final launchId =
+          container.read(plexClientIdentityProvider).clientIdentifier;
+      expect(launchId, isNot('restored-install-id'));
+
+      final Future<void> flow = notifier.connectWithPlex();
+      await _settle();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.linking,
+      );
+
+      // The restore lands mid-flow: identity stays on the launch id (deferred).
+      store.readGate.complete();
+      await _settle();
+      expect(
+        container.read(plexClientIdentityProvider).clientIdentifier,
+        launchId,
+      );
+
+      // The PIN expires → the flow fails and falls back to the restored
+      // session as connected. That fallback must publish the restored id.
+      tvClient.gate.complete();
+      await flow;
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.errorMessage, contains('expired'));
+      expect(state.baseUrl, _session.baseUrl);
+      expect(
+        container.read(plexClientIdentityProvider).clientIdentifier,
+        'restored-install-id',
+      );
+      expect(notifier.session!.clientIdentifier, 'restored-install-id');
+    });
+
+    test(
         'no token — account, server-scoped, or shared — ever reaches the '
         'state through the whole flow', () async {
       final container = _container(

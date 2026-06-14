@@ -738,6 +738,16 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   void _setFailure(PlexException error, {String? url}) {
     final PlexSession? current = _session;
     if (current != null) {
+      // Announce the session's client identifier before showing it as the
+      // active connection. A mid-flow restore deferred publishing it (a
+      // publish would have swapped the in-flight PIN's identity); if that
+      // flow now fails back to this session, this is where it's restored —
+      // otherwise later Plex requests would run under the temporary PIN/launch
+      // id instead of the session's persisted one. Idempotent (a no-op when
+      // the id was already published at startup or connect).
+      ref
+          .read(plexPersistedClientIdentifierProvider.notifier)
+          .publish(current.clientIdentifier);
       state = PlexSettingsState(
         phase: PlexConnectionPhase.connected,
         baseUrl: current.baseUrl,
