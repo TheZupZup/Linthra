@@ -3,21 +3,29 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
 import '../../../core/sources/music_provider.dart';
+import '../../../core/sources/plex/plex_exception.dart';
 import 'plex_settings_controller.dart';
 import 'plex_settings_state.dart';
 import 'plex_sync_controller.dart';
 import 'plex_sync_state.dart';
 
-/// The Plex connection card on the Settings screen (phase 1, experimental).
+/// The Plex connection card on the Settings screen (experimental).
 ///
-/// Owns the text fields (server URL / token) but nothing else: every action is
-/// forwarded to [PlexSettingsController], and everything rendered comes from
-/// [PlexSettingsState]. The widget never touches HTTP or storage directly.
+/// The primary path is **Connect with Plex**: a plex.tv sign-in in the
+/// browser, a server picker when the account has several servers, then the
+/// music-library picker — no token hunting. Manually pasting a server URL +
+/// `X-Plex-Token` remains available under "Manual setup (advanced)".
 ///
-/// Token safety: the pasted token is obscured while typed, forwarded once to
-/// the controller, and cleared from the field the moment the connection is
-/// saved — after that it is never shown again anywhere (the connected view
-/// renders only server metadata, and the state holds no token).
+/// The widget owns only its text fields and the advanced-section toggle:
+/// every action is forwarded to [PlexSettingsController], and everything
+/// rendered comes from [PlexSettingsState]. It never touches HTTP or storage.
+///
+/// Token safety: nothing token-shaped is ever rendered. The sign-in flow's
+/// tokens never reach this widget (the state exposes display-safe
+/// [PlexServerChoice]s only), and a manually pasted token is obscured while
+/// typed, forwarded once to the controller, and cleared from the field the
+/// moment the connection is saved — after that it is never shown again
+/// anywhere (the connected view renders only server metadata).
 ///
 /// Unlike Jellyfin/Subsonic (which sync the whole server), the connected view
 /// hosts the **library picker**: Plex asks the user to choose which music
@@ -34,6 +42,7 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
   final TextEditingController _urlController = TextEditingController();
   final TextEditingController _tokenController = TextEditingController();
   bool _obscureToken = true;
+  bool _showManualSetup = false;
 
   @override
   void initState() {
@@ -51,11 +60,29 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
     super.dispose();
   }
 
-  /// Both fields are required: Plex verifies `/identity` with the token, so a
-  /// successful test confirms connecting will work.
+  /// Both manual fields are required: Plex verifies `/identity` with the
+  /// token, so a successful test confirms connecting will work.
   bool get _canSubmit =>
       _urlController.text.trim().isNotEmpty &&
       _tokenController.text.trim().isNotEmpty;
+
+  Future<void> _connectWithPlex() async {
+    await ref.read(plexSettingsControllerProvider.notifier).connectWithPlex();
+  }
+
+  Future<void> _reopenSignIn() async {
+    await ref.read(plexSettingsControllerProvider.notifier).reopenPlexSignIn();
+  }
+
+  void _cancelLink() {
+    ref.read(plexSettingsControllerProvider.notifier).cancelPlexLink();
+  }
+
+  Future<void> _selectServer(String clientIdentifier) async {
+    await ref
+        .read(plexSettingsControllerProvider.notifier)
+        .selectServer(clientIdentifier);
+  }
 
   Future<void> _test() async {
     FocusScope.of(context).unfocus();
@@ -83,6 +110,9 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
     await ref.read(plexSettingsControllerProvider.notifier).disconnect();
     _urlController.clear();
     _tokenController.clear();
+    if (mounted) {
+      setState(() => _showManualSetup = false);
+    }
   }
 
   Future<void> _refreshSections() async {
@@ -117,6 +147,12 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
       });
     }
 
+    // The sign-in-flow views present the status line themselves (next to
+    // their spinner), so the shared line at the card foot would duplicate it.
+    final bool statusShownByFlowView = state.isLinkFlowActive ||
+        (state.phase == PlexConnectionPhase.connecting &&
+            state.servers.isNotEmpty);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.md),
@@ -135,9 +171,9 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'Stream from your own Plex Media Server. Paste the server '
-              'address and a Plex token — the token is stored encrypted on '
-              'this device and never shown again.',
+              'Stream from your own Plex Media Server. Connect with your '
+              'Plex account, pick your server, and choose which music '
+              'libraries to play.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
@@ -145,29 +181,23 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
             const SizedBox(height: AppSpacing.sm),
             const _CapabilityChips(),
             const SizedBox(height: AppSpacing.md),
-            if (state.isConnected)
-              _ConnectedView(
-                state: state,
-                syncState: syncState,
-                onRefreshSections: (state.isBusy || state.isLoadingSections)
-                    ? null
-                    : _refreshSections,
-                onToggleSection:
-                    state.isLoadingSections ? null : _toggleSection,
-                onSync: (state.isBusy ||
-                        state.isLoadingSections ||
-                        syncState.isSyncing)
-                    ? null
-                    : _sync,
-                onDisconnect:
-                    (state.isBusy || syncState.isSyncing) ? null : _disconnect,
-              )
-            else
-              _buildForm(state),
+            ..._buildBody(state, syncState),
             if (state.errorMessage != null) ...[
               const SizedBox(height: AppSpacing.md),
               _StatusLine(message: state.errorMessage!, isError: true),
-            ] else if (state.statusMessage != null) ...[
+              // A rejected/expired session is fixed by signing in again, not
+              // by hunting for a new token — offer that right at the error.
+              if (state.isConnected &&
+                  state.errorKind == PlexErrorKind.unauthorized) ...[
+                const SizedBox(height: AppSpacing.sm),
+                FilledButton.icon(
+                  onPressed: state.isBusy ? null : _connectWithPlex,
+                  icon: const Icon(Icons.link_outlined),
+                  label: const Text('Reconnect with Plex'),
+                ),
+              ],
+            ] else if (state.statusMessage != null &&
+                !statusShownByFlowView) ...[
               const SizedBox(height: AppSpacing.md),
               _StatusLine(message: state.statusMessage!, isError: false),
             ],
@@ -177,7 +207,117 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
     );
   }
 
-  Widget _buildForm(PlexSettingsState state) {
+  /// The phase-dependent middle of the card.
+  List<Widget> _buildBody(PlexSettingsState state, PlexSyncState syncState) {
+    switch (state.phase) {
+      case PlexConnectionPhase.connected:
+        return [
+          _ConnectedView(
+            state: state,
+            syncState: syncState,
+            onRefreshSections: (state.isBusy || state.isLoadingSections)
+                ? null
+                : _refreshSections,
+            onToggleSection: state.isLoadingSections ? null : _toggleSection,
+            onSync:
+                (state.isBusy || state.isLoadingSections || syncState.isSyncing)
+                    ? null
+                    : _sync,
+            onDisconnect:
+                (state.isBusy || syncState.isSyncing) ? null : _disconnect,
+          ),
+        ];
+      case PlexConnectionPhase.linking:
+        return [
+          _LinkingView(
+            statusMessage: state.statusMessage,
+            onReopen: _reopenSignIn,
+            onCancel: _cancelLink,
+          ),
+        ];
+      case PlexConnectionPhase.loadingServers:
+        return [
+          _FlowBusyView(
+            message: state.statusMessage ?? 'Finding your Plex Media Servers…',
+            onCancel: _cancelLink,
+          ),
+        ];
+      case PlexConnectionPhase.pickingServer:
+        return [
+          _ServerPickerView(
+            servers: state.servers,
+            onSelect: _selectServer,
+            onCancel: _cancelLink,
+          ),
+        ];
+      case PlexConnectionPhase.connecting when state.servers.isNotEmpty:
+        // Connecting to a picked server (the manual form shows its own
+        // in-button spinner for a form connect instead).
+        return [
+          _FlowBusyView(
+            message: state.statusMessage ?? 'Connecting to your Plex server…',
+            onCancel: null,
+          ),
+        ];
+      case PlexConnectionPhase.disconnected:
+      case PlexConnectionPhase.testing:
+      case PlexConnectionPhase.tested:
+      case PlexConnectionPhase.connecting:
+        return _buildDisconnected(state);
+    }
+  }
+
+  /// The signed-out view: the primary "Connect with Plex" action, with the
+  /// manual URL + token form tucked behind an Advanced toggle.
+  List<Widget> _buildDisconnected(PlexSettingsState state) {
+    final ThemeData theme = Theme.of(context);
+    final bool busy = state.isBusy;
+    return [
+      FilledButton.icon(
+        onPressed: busy ? null : _connectWithPlex,
+        icon: const Icon(Icons.link_outlined),
+        label: const Text('Connect with Plex'),
+      ),
+      const SizedBox(height: AppSpacing.xs),
+      Text(
+        'Sign in with your Plex account in the browser — no token needed. '
+        'Linthra never sees your password and stores only the access '
+        'token Plex grants, encrypted on this device.',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        ),
+      ),
+      const SizedBox(height: AppSpacing.sm),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: () => setState(() => _showManualSetup = !_showManualSetup),
+          icon: Icon(
+            _showManualSetup
+                ? Icons.expand_less_outlined
+                : Icons.expand_more_outlined,
+            size: 18,
+          ),
+          label: const Text('Manual setup (advanced)'),
+        ),
+      ),
+      if (_showManualSetup) ...[
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Already have an X-Plex-Token? Paste the server address and the '
+          'token — it is stored encrypted on this device and never shown '
+          'again.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _buildManualForm(state),
+      ],
+    ];
+  }
+
+  Widget _buildManualForm(PlexSettingsState state) {
     final bool busy = state.isBusy;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -248,9 +388,9 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
   }
 }
 
-/// Marks the whole card as a phase-1 work-in-progress, so nobody mistakes
-/// Plex for a finished provider while caching/favorites/lyrics/cast are still
-/// follow-ups (docs/plex.md → Out of scope).
+/// Marks the whole card as a work-in-progress, so nobody mistakes Plex for a
+/// finished provider while caching/favorites/lyrics/cast are still follow-ups
+/// (docs/plex.md → Out of scope).
 class _ExperimentalBadge extends StatelessWidget {
   const _ExperimentalBadge();
 
@@ -276,8 +416,7 @@ class _ExperimentalBadge extends StatelessWidget {
 
 /// Capability-based action chips: one per ability the Plex provider actually
 /// supports, so unimplemented actions (offline, favorites, lyrics, cast)
-/// simply don't appear rather than being offered and failing. Phase 1 shows
-/// only Streaming.
+/// simply don't appear rather than being offered and failing.
 class _CapabilityChips extends StatelessWidget {
   const _CapabilityChips();
 
@@ -306,6 +445,186 @@ class _CapabilityChips extends StatelessWidget {
           ),
       ],
     );
+  }
+}
+
+/// The "waiting for the browser sign-in" view: the poll runs while the user
+/// approves Linthra on plex.tv; they can re-open the page or cancel — the
+/// flow never traps them.
+class _LinkingView extends StatelessWidget {
+  const _LinkingView({
+    required this.statusMessage,
+    required this.onReopen,
+    required this.onCancel,
+  });
+
+  final String? statusMessage;
+  final VoidCallback? onReopen;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text('Waiting for your Plex sign-in…',
+                  style: theme.textTheme.titleSmall),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          statusMessage ??
+              'Approve Linthra on the Plex sign-in page in your browser, '
+                  'then come back here.',
+          style: theme.textTheme.bodySmall?.copyWith(color: muted),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: onReopen,
+            icon: const Icon(Icons.open_in_new_outlined, size: 18),
+            label: const Text('Open the sign-in page again'),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        OutlinedButton(
+          onPressed: onCancel,
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+}
+
+/// A short busy step of the sign-in flow (finding servers / connecting to
+/// the picked one), optionally cancellable.
+class _FlowBusyView extends StatelessWidget {
+  const _FlowBusyView({required this.message, required this.onCancel});
+
+  final String message;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(message, style: theme.textTheme.bodySmall),
+            ),
+          ],
+        ),
+        if (onCancel != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          OutlinedButton(
+            onPressed: onCancel,
+            child: const Text('Cancel'),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// The server picker: one entry per Plex Media Server on the signed-in
+/// account (owned ones first), with a clean empty state when the account has
+/// none. Shows names and versions only — never tokens.
+class _ServerPickerView extends StatelessWidget {
+  const _ServerPickerView({
+    required this.servers,
+    required this.onSelect,
+    required this.onCancel,
+  });
+
+  final List<PlexServerChoice> servers;
+  final void Function(String clientIdentifier)? onSelect;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    if (servers.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('No Plex Media Server found', style: theme.textTheme.titleSmall),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            "You're signed in, but this Plex account has no Plex Media "
+            'Server linked to it yet. Set up your server (or ask its owner '
+            'to share it with you), then connect again.',
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          OutlinedButton(
+            onPressed: onCancel,
+            child: const Text('Back'),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Choose your Plex server', style: theme.textTheme.titleSmall),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Your account can reach more than one server — pick the one with '
+          'your music.',
+          style: theme.textTheme.bodySmall?.copyWith(color: muted),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        for (final PlexServerChoice server in servers)
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.dns_outlined),
+            title: Text(server.name),
+            subtitle: Text(_subtitleFor(server)),
+            trailing: const Icon(Icons.chevron_right_outlined),
+            onTap: onSelect == null
+                ? null
+                : () => onSelect!(server.clientIdentifier),
+          ),
+        const SizedBox(height: AppSpacing.sm),
+        OutlinedButton(
+          onPressed: onCancel,
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+
+  String _subtitleFor(PlexServerChoice server) {
+    final List<String> parts = <String>[
+      if (server.productVersion != null && server.productVersion!.isNotEmpty)
+        'Plex Media Server ${server.productVersion}'
+      else
+        'Plex Media Server',
+      if (!server.owned) 'Shared with you',
+    ];
+    return parts.join(' · ');
   }
 }
 

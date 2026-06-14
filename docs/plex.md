@@ -27,8 +27,10 @@ Phase 1 is a **read-only** Plex provider, mirroring how Subsonic shipped
 streaming first and deferred the rest:
 
 - Connect to a Plex Media Server.
-- **Token-based authentication**, starting with a **manual server URL + manual
-  token** (the plex.tv PIN/OAuth flow is a documented follow-up).
+- **Token-based authentication** — the plex.tv **PIN sign-in** ("Connect with
+  Plex", shipped after the phase-1 polish) as the primary flow, with the
+  original **manual server URL + manual token** kept as the advanced
+  fallback.
 - Discover and let the user **select** which music libraries (sections) to use.
 - List artists, albums, and tracks.
 - **Stream** tracks — **direct play only** (no server-side transcoding).
@@ -93,24 +95,40 @@ Jellyfin's device id + `Authorization` client header.
 
 ### Two ways to obtain a token
 
-- **Manual token + server URL — phase 1 first cut (recommended).** The user
-  pastes their `X-Plex-Token` and server URL; Linthra verifies it against
-  `/identity`. Closest to the existing Jellyfin/Subsonic "URL + credential,
-  verify against the server" flow, with no browser handoff.
-- **PIN / OAuth via plex.tv — later (nicer UX, more moving parts).**
-  `POST https://plex.tv/api/v2/pins?strong=true` → `{id, code}`; the user opens
-  `https://app.plex.tv/auth#?clientID=…&code=…`; Linthra polls
-  `GET https://plex.tv/api/v2/pins/{id}` until `authToken` is populated.
-  Optionally `GET https://plex.tv/api/v2/resources?includeHttps=1` then returns
-  the user's servers, **each with its own per-server `accessToken`** and
-  connection URIs.
+- **PIN sign-in via plex.tv — the primary flow (shipped).** "Connect with
+  Plex" in Settings: `POST https://plex.tv/api/v2/pins?strong=true` →
+  `{id, code}`; the browser opens
+  `https://app.plex.tv/auth#?clientID=…&code=…&context[device][product]=…`
+  (parameters in the **fragment**, bound to the same
+  `X-Plex-Client-Identifier` that minted the PIN); Linthra polls
+  `GET https://plex.tv/api/v2/pins/{id}` every 2s until `authToken` is
+  populated (tolerating transient failures while the user is away in the
+  browser; a 404 means the PIN lapsed). With the account token,
+  `GET https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1`
+  returns the user's servers, **each with its own per-server `accessToken`**
+  and connection URIs. One server connects directly; several show a picker
+  (owned servers first); none shows a clean empty state. The picked server's
+  connections are probed in order (relay last) against `GET /identity`, and
+  only then is a session persisted. The account token lives **only in
+  memory** for the duration of the flow and is released the moment the flow
+  ends — connected, cancelled, or failed.
+  Implementation: `plex_tv_endpoints.dart` / `plex_tv_api.dart` /
+  `plex_tv_client.dart` / `http_plex_tv_client.dart` / `plex_pin_auth.dart`.
+- **Manual token + server URL — the advanced fallback (kept).** The user
+  pastes their `X-Plex-Token` and server URL under "Manual setup (advanced)";
+  Linthra verifies it against `/identity`. Closest to the existing
+  Jellyfin/Subsonic "URL + credential, verify against the server" flow, with
+  no browser handoff — useful for dev setups and tokens scoped by hand.
 
 ### Token scope (key safety decision)
 
 Prefer the **per-server `accessToken`** from the resources endpoint over the
 **account token**: the account token grants access to the whole Plex account,
 not just one server — a far bigger blast radius if it ever leaks. The design
-defaults to the **narrowest token that works**.
+defaults to the **narrowest token that works**. The shipped PIN flow follows
+this: `PlexPinAuth.connectToServer` persists the picked server's
+`accessToken` and falls back to the account token only when plex.tv didn't
+provide one; the account token itself is never persisted anywhere.
 
 ## Token safety rules
 
@@ -122,8 +140,14 @@ extra concern (the token rides in **query params** for stream/art URLs).
   via `flutter_secure_storage`, in a `secure_plex_session_store.dart` under a
   single versioned key (e.g. `plex_session_v1`), with an
   `InMemoryPlexSessionStore` for tests.
-- **Never persist a password.** If the PIN flow is used later, only the
-  resulting token is kept.
+- **Never persist a password.** The PIN flow never sees one (the user signs
+  in to plex.tv in their own browser); only the resulting token is kept. The
+  **account** token granted by the PIN exists only in controller memory while
+  the flow runs (poll → server pick) and is released when the flow ends.
+- **plex.tv calls keep the token in the header.** The pins/resources URLs are
+  token-free; the only token-bearing wire DTO (`PlexResource.accessToken`)
+  redacts it in `toString`, and the settings state exposes display-safe
+  `PlexServerChoice`s instead of resources.
 - **No token in `Track.uri` or `Track.artworkUri`** (or the DB). Keep the
   opaque, credential-free `plex:<ratingKey>` and `plex-thumb:<…>` references;
   mint credentialed URLs **only** at play/render time and discard them.
@@ -261,15 +285,17 @@ token-free, and the reporter swallows every failure kind.
   than Jellyfin's `api_key` param or Subsonic's salt+token. → Centralize URL
   redaction.
 - **Auth-flow complexity.** Plex's modern path is a plex.tv PIN/browser handoff,
-  unlike a single username/password POST. → Phase 1 starts with manual token
-  paste.
+  unlike a single username/password POST. → Phase 1 started with manual token
+  paste; the PIN flow has since shipped on top of it (manual stays as the
+  advanced fallback).
 - **Two-step play resolution.** `ratingKey` ≠ Part `key`, so playback needs an
   extra metadata round trip. Jellyfin/Subsonic build the stream URL straight
   from the id.
 - **Connectivity / `.plex.direct` TLS & relay.** Plex servers are often reached
   via plex.tv-discovered connections (relay, `*.plex.direct` certs) rather than
-  a plain typed URL. → Phase 1: typed URL + token; document relay/discovery as a
-  follow-up.
+  a plain typed URL. → The PIN flow now probes the plex.tv-advertised
+  connections in order (relay kept as the last resort, since it is
+  bandwidth-capped); the manual flow still takes a typed URL.
 - **Direct-play codec fit.** Without the transcoder, a Part may be a codec the
   device can't decode. → Phase 1 is direct-play only; transcoding is a later
   capability.
@@ -280,11 +306,16 @@ token-free, and the reporter swallows every failure kind.
 
 ```
 lib/core/sources/plex/
-  plex_api.dart            # DTOs (MediaContainer / Metadata / Part)
-  plex_endpoints.dart      # pure URL builders
-  plex_client.dart         # interface (HTTP behind this seam)
+  plex_api.dart            # PMS DTOs (MediaContainer / Metadata / Part)
+  plex_endpoints.dart      # pure PMS URL builders
+  plex_client.dart         # PMS interface (HTTP behind this seam)
   http_plex_client.dart    # package:http impl, JSON via Accept header
-  plex_authenticator.dart  # token verify (+ optional PIN flow)
+  plex_authenticator.dart  # manual token verify (advanced fallback)
+  plex_tv_api.dart         # plex.tv DTOs (PlexPin / PlexResource)
+  plex_tv_endpoints.dart   # pure plex.tv URL builders (pins/resources/auth)
+  plex_tv_client.dart      # plex.tv interface
+  http_plex_tv_client.dart # package:http impl for plex.tv
+  plex_pin_auth.dart       # the PIN sign-in flow (begin/poll/servers/connect)
   plex_track_mapper.dart   # type 8/9/10 -> Artist/Album/Track, plex: scheme
   plex_music_source.dart   # implements MusicSource (+ PlexStreamSource)
   plex_stream_source.dart  # narrow stream seam
@@ -308,13 +339,24 @@ overrides.
   missing-field fallbacks.
 - `http_plex_client_test.dart` — JSON parsing via `Accept: application/json`,
   error → `PlexException` mapping, **token never in exception/log**, paging.
-- `plex_authenticator_test.dart` — token-paste verify against `/identity`;
-  (if PIN flow) pin create/poll; per-server vs account token selection.
-- `fake_plex_client.dart` — reusable canned-response/error fake.
+- `plex_authenticator_test.dart` — token-paste verify against `/identity`.
+- `plex_tv_endpoints_test.dart` — pins/resources/auth-app builders (fragment
+  shape, encoding, token-free URLs).
+- `plex_tv_api_test.dart` — PIN/resource parsing, `providesServer`,
+  **`PlexResource.toString` redacts the accessToken**.
+- `http_plex_tv_client_test.dart` — pin create/poll/expiry, resources array,
+  token in header only, every failure token-free.
+- `plex_pin_auth_test.dart` — poll pacing/cancel/expiry/transient tolerance,
+  server filtering (owned first), per-server vs account token selection,
+  connection probe order (relay last; unauthorized aborts), session building.
+- `fake_plex_client.dart` / `fake_plex_tv_client.dart` — reusable
+  canned-response/error fakes.
 - `plex_music_source_test.dart` — fetch + `resolvePlayableUri` (part-key
   lookup), library-selection scoping.
 - `plex_settings_controller_test.dart` — connect/select-libraries/sign-out,
-  state holds **no** token, password/token cleared after use.
+  state holds **no** token, password/token cleared after use; the sign-in
+  flow's linking/picker/cancel/error states, server selection, and a
+  full-flow token sweep over every state field.
 - Capability-matrix test — Plex declares stream-only in phase 1.
 - A guard test that `MusicProviders.forTrackUri` still routes existing
   `jellyfin:` / `subsonic:` / local URIs unchanged (no regression).
@@ -365,6 +407,16 @@ Small, incremental, each independently reviewable:
    reference all degrade to the row's placeholder. Tests sweep every failure
    kind for token/URL-free messages and re-prove the Jellyfin/Subsonic/local
    artwork chain is untouched.
+10. **plex.tv PIN sign-in ("Connect with Plex")** — the browser/PIN flow as
+    the primary connection path (this section's [Authentication](#authentication)
+    describes it): mint a strong PIN, open `app.plex.tv/auth` in the browser,
+    poll for approval (cancellable, transient-failure tolerant), list the
+    account's servers with per-server tokens, pick one (auto when there is
+    exactly one; clean empty state when there are none), probe its
+    plex.tv-advertised connections (relay last), and persist the
+    server-scoped session. Manual URL + token stays available under
+    "Manual setup (advanced)", and a rejected/expired session offers
+    "Reconnect with Plex" right at the error.
 
 ## Notes
 

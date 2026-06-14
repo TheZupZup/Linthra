@@ -2,36 +2,79 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../app/external_link_launcher_provider.dart';
 import '../../../core/models/plex_session.dart';
 import '../../../core/sources/plex/plex_api.dart';
 import '../../../core/sources/plex/plex_exception.dart';
 import '../../../core/sources/plex/plex_music_source.dart';
+import '../../../core/sources/plex/plex_pin_auth.dart';
+import '../../../core/sources/plex/plex_tv_api.dart';
 import '../../../data/repositories/plex_session_store_provider.dart';
 import 'plex_settings_providers.dart';
 import 'plex_settings_state.dart';
 import 'plex_sync_controller.dart';
 
-/// Drives the Plex settings card: loads any saved session, tests a connection,
-/// connects (verify + persist), discovers the server's music libraries, saves
-/// the user's library selection (kicking a background catalog sync so the
-/// Library screen follows it), and disconnects (also dropping the synced
-/// Plex rows, which are unplayable without a session).
+/// Drives the Plex settings card: loads any saved session, runs the
+/// "Connect with Plex" browser sign-in (PIN → server picker → session), tests
+/// or connects a manually typed URL + token (the advanced fallback),
+/// discovers the server's music libraries, saves the user's library selection
+/// (kicking a background catalog sync so the Library screen follows it), and
+/// disconnects (also dropping the synced Plex rows, which are unplayable
+/// without a session).
 ///
-/// The single coordinator between the separated concerns — the authenticator
-/// (verify a URL + token against `/identity`), the session store (encrypted
-/// persistence), the client (library-section discovery), and the source
-/// (library access) — so the UI only ever talks to this controller and its
-/// [PlexSettingsState], never to HTTP or storage.
+/// The single coordinator between the separated concerns — the PIN auth flow
+/// ([PlexPinAuth]), the manual authenticator (verify a URL + token against
+/// `/identity`), the session store (encrypted persistence), the client
+/// (library-section discovery), and the source (library access) — so the UI
+/// only ever talks to this controller and its [PlexSettingsState], never to
+/// HTTP or storage.
 ///
 /// Token safety: the live [session] (with its token) is kept privately for
 /// building the source; it is never exposed through the public [state], never
 /// logged, and the token handed to [connect]/[testConnection] is forwarded
-/// once to the authenticator and never retained here. Every error message
-/// surfaced through the state comes from a static, token-free [PlexException]
-/// factory. See docs/plex.md → Token safety rules.
+/// once to the authenticator and never retained here. The sign-in flow's
+/// account token and token-bearing server resources live only in private
+/// fields for the duration of the flow ([state] gets display-safe
+/// [PlexServerChoice]s instead) and are released the moment the flow ends —
+/// connected, cancelled, or failed. Every error message surfaced through the
+/// state comes from a static, token-free [PlexException] factory. See
+/// docs/plex.md → Token safety rules.
 class PlexSettingsController extends Notifier<PlexSettingsState> {
   PlexSession? _session;
   late final Future<void> _initialLoad;
+
+  /// Monotonic id of the current "Connect with Plex" attempt. Every await in
+  /// the flow re-checks it afterwards, so a cancel / disconnect / newer
+  /// attempt makes the superseded continuation drop its result instead of
+  /// clobbering fresh state — the polling loop can outlive several user
+  /// actions while the user is away in the browser.
+  int _linkAttempt = 0;
+
+  /// The account token granted by the sign-in, held **only** between the PIN
+  /// approval and the server pick (it's what authorizes the resources call
+  /// and the fallback when a server has no scoped token). Never exposed
+  /// through [state], never logged, nulled by [_resetLinkFlow].
+  String? _accountToken;
+
+  /// The token-bearing server resources behind the display-safe
+  /// [PlexSettingsState.servers] choices. Private for the same reason as
+  /// [_accountToken]; cleared with it.
+  List<PlexResource> _flowServers = const <PlexResource>[];
+
+  /// The active sign-in link, kept so "Open the sign-in page again" can
+  /// re-launch the same PIN's page after the user closed the browser tab.
+  PlexPinLink? _activeLink;
+
+  /// True from the moment a "Connect with Plex" flow starts until it connects,
+  /// is cancelled, or is superseded — i.e. while the flow owns the card.
+  ///
+  /// Broader than the phase-based [PlexSettingsState.isLinkFlowActive]: it
+  /// stays true through the flow's `connecting` **probe** too, which shares
+  /// the `connecting` phase with the manual form and so can't be told apart by
+  /// phase alone. The startup restore consults this (not the phase) so a slow
+  /// secure-storage read landing mid-flow — on success **or** failure — can't
+  /// clobber the visible sign-in with a restored session or a restore error.
+  bool _linkFlowOwnsCard = false;
 
   /// Whether the music libraries were already fetched once for the current
   /// connection, so [loadSectionsIfNeeded] stays a no-op on rebuilds (and a
@@ -70,8 +113,11 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       // A storage hiccup must not break startup; stay disconnected but say
       // so (statically, token-free), so a user who *was* connected isn't left
       // wondering where their server went. (A missing/corrupt record already
-      // reads back as null inside the store and stays silent.)
-      if (!_restoreSuperseded && _session == null) {
+      // reads back as null inside the store and stays silent.) But if a
+      // "Connect with Plex" flow has since taken over the card, leave it
+      // alone — replacing it with a disconnected restore error would strip
+      // the user's Cancel/reopen controls while the poll keeps running.
+      if (!_restoreSuperseded && _session == null && !_linkFlowOwnsCard) {
         state = const PlexSettingsState(
           errorMessage: "Couldn't restore your saved Plex connection from "
               'this device. If you use Plex, connect again below.',
@@ -88,6 +134,21 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       return;
     }
     _session = saved;
+    if (_linkFlowOwnsCard) {
+      // A "Connect with Plex" flow started while this slow read was still in
+      // flight and owns the card now — including its `connecting` probe, which
+      // [PlexSettingsState.isLinkFlowActive] wouldn't catch. The restored
+      // session stays live behind it (a cancel rebuilds the connected view
+      // from it), but two things must NOT happen now: the visible state must
+      // not be clobbered, and — critically — the restored client identifier
+      // must NOT be published. Publishing it would swap the
+      // `X-Plex-Client-Identifier` mid-flow (the running PIN is bound to the
+      // id `begin()` minted with), so the browser approval could be rejected
+      // or expire. The flow publishes the right id when it connects
+      // ([_completeConnect]); a cancel publishes the restored one
+      // ([_restoreIdleState]).
+      return;
+    }
     // Re-announce the identifier this install presented when it connected, so
     // the server keeps seeing the same client across restarts.
     ref
@@ -135,24 +196,17 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     }
   }
 
-  /// Connects with [url] + [token]: verifies them against `/identity`,
-  /// persists the resulting session (token encrypted at rest), flips to
-  /// connected, and fetches the server's music libraries for the picker.
-  /// Returns whether the connection succeeded (a failure to *list libraries*
-  /// afterwards does not fail the connect — it surfaces as a retryable error).
-  ///
-  /// Reconnecting to the **same** server (recognised by its
-  /// `machineIdentifier`, e.g. after rotating the token) keeps the existing
-  /// library selection and refreshes the synced catalog against it — wiping
-  /// the selection would silently empty the user's Plex library on the next
-  /// sync. A different server starts with a clean (empty) selection, and any
-  /// rows the previous server synced are dropped quietly: their ratingKeys
-  /// belong to another machine and could never play.
+  /// Connects with a manually typed [url] + [token] (the advanced fallback
+  /// flow): verifies them against `/identity`, then persists and finishes
+  /// like every connect ([_completeConnect]). Returns whether the connection
+  /// succeeded (a failure to *list libraries* afterwards does not fail the
+  /// connect — it surfaces as a retryable error).
   Future<bool> connect({
     required String url,
     required String token,
   }) async {
-    final PlexSession? previous = _session;
+    // A manual connect supersedes any sign-in flow still polling.
+    _resetLinkFlow();
     state = PlexSettingsState(
       phase: PlexConnectionPhase.connecting,
       baseUrl: url,
@@ -167,33 +221,237 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       _setFailure(error, url: url);
       return false;
     }
+    return _completeConnect(newSession);
+  }
 
+  /// Starts the "Connect with Plex" browser sign-in: mints a plex.tv PIN,
+  /// opens the hosted approval page in the browser, polls until the user
+  /// approves it, then fetches the account's Plex Media Servers — connecting
+  /// straight away when there is exactly one, otherwise showing the server
+  /// picker ([selectServer] finishes it). Safe to call while connected: the
+  /// existing session stays live (and is restored on cancel/failure) until a
+  /// new one actually lands, which is what makes this the "reconnect" action
+  /// for an expired token too.
+  Future<void> connectWithPlex() async {
+    if (state.isBusy || state.isLinkFlowActive) return;
+    final int attempt = ++_linkAttempt;
+    // The flow now owns the card; the startup restore must not clobber it
+    // (on success or failure) until it connects, cancels, or is superseded.
+    _linkFlowOwnsCard = true;
+
+    // Immediate feedback while the PIN is minted; keep the current card
+    // context (server fields, sections, selection) so a cancel or failure
+    // can restore the connected view exactly as it was.
+    state = state.copyWith(
+      phase: PlexConnectionPhase.linking,
+      servers: const <PlexServerChoice>[],
+      statusMessage: 'Contacting plex.tv…',
+      errorMessage: null,
+      errorKind: null,
+    );
+
+    final PlexPinLink link;
+    try {
+      link = await ref.read(plexPinAuthProvider).begin();
+    } on PlexException catch (error) {
+      if (_linkAttempt != attempt) return;
+      _resetLinkFlow();
+      _setFailure(error);
+      return;
+    }
+    if (_linkAttempt != attempt) return;
+    _activeLink = link;
+
+    final bool opened =
+        await ref.read(externalLinkLauncherProvider).open(link.authUrl);
+    if (_linkAttempt != attempt) return;
+    if (!opened) {
+      _resetLinkFlow();
+      _setFailure(PlexException.browserUnavailable());
+      return;
+    }
+    state = state.copyWith(
+      statusMessage: 'Approve Linthra on the Plex sign-in page that just '
+          'opened, then come back here.',
+    );
+
+    final String? accountToken;
+    try {
+      accountToken = await ref.read(plexPinAuthProvider).waitForAuthToken(
+            link.pinId,
+            isCancelled: () => _linkAttempt != attempt,
+          );
+    } on PlexException catch (error) {
+      if (_linkAttempt != attempt) return;
+      _resetLinkFlow();
+      _setFailure(error);
+      return;
+    }
+    // Cancelled (null) or superseded: someone else owns the card now.
+    if (_linkAttempt != attempt || accountToken == null) return;
+
+    state = state.copyWith(
+      phase: PlexConnectionPhase.loadingServers,
+      statusMessage: 'Signed in. Finding your Plex Media Servers…',
+    );
+
+    final List<PlexResource> servers;
+    try {
+      servers = await ref
+          .read(plexPinAuthProvider)
+          .fetchServers(accountToken: accountToken);
+    } on PlexException catch (error) {
+      if (_linkAttempt != attempt) return;
+      _resetLinkFlow();
+      _setFailure(error);
+      return;
+    }
+    if (_linkAttempt != attempt) return;
+
+    // The flow now holds secrets (account token, per-server tokens) — only
+    // until a server is connected, the flow is cancelled, or it fails.
+    _accountToken = accountToken;
+    _flowServers = servers;
+
+    if (servers.length == 1) {
+      // One server: nothing to choose, connect to it directly.
+      await _connectToFlowServer(servers.single, attempt);
+      return;
+    }
+    // Several servers (the user picks) — or none (the picker's empty state).
+    state = state.copyWith(
+      phase: PlexConnectionPhase.pickingServer,
+      servers: _choicesFor(servers),
+      statusMessage: null,
+    );
+  }
+
+  /// Connects to the picked server from the server picker. Returns whether
+  /// the connection succeeded; a failure returns to the picker with a
+  /// friendly error so another server (or the same one) can be tried.
+  Future<bool> selectServer(String clientIdentifier) async {
+    if (state.phase != PlexConnectionPhase.pickingServer) return false;
+    for (final PlexResource server in _flowServers) {
+      if (server.clientIdentifier == clientIdentifier) {
+        return _connectToFlowServer(server, _linkAttempt);
+      }
+    }
+    return false;
+  }
+
+  /// Abandons the "Connect with Plex" flow at any of its stages, releasing
+  /// the in-memory account token and restoring the card to where it was
+  /// (the still-live connected session, or the signed-out form).
+  void cancelPlexLink() {
+    if (!state.isLinkFlowActive) return;
+    _resetLinkFlow();
+    _restoreIdleState();
+  }
+
+  /// Re-opens the sign-in page for the active link — for when the user
+  /// closed the browser tab before approving. The PIN (and its poll) keep
+  /// running; this only re-hands the same page to the browser.
+  Future<void> reopenPlexSignIn() async {
+    final PlexPinLink? link = _activeLink;
+    if (link == null || state.phase != PlexConnectionPhase.linking) return;
+    final bool opened =
+        await ref.read(externalLinkLauncherProvider).open(link.authUrl);
+    if (!opened && state.phase == PlexConnectionPhase.linking) {
+      final PlexException error = PlexException.browserUnavailable();
+      state = state.copyWith(
+        errorMessage: error.message,
+        errorKind: error.kind,
+      );
+    }
+  }
+
+  /// Probes and persists one of the sign-in flow's servers, preferring its
+  /// server-scoped token (see [PlexPinAuth.connectToServer]).
+  Future<bool> _connectToFlowServer(PlexResource server, int attempt) async {
+    final String? accountToken = _accountToken;
+    if (accountToken == null) return false;
+    state = state.copyWith(
+      phase: PlexConnectionPhase.connecting,
+      servers: _choicesFor(_flowServers),
+      statusMessage: 'Connecting to '
+          '${server.name.isNotEmpty ? server.name : 'your Plex server'}…',
+      errorMessage: null,
+      errorKind: null,
+    );
+    final PlexSession newSession;
+    try {
+      newSession = await ref.read(plexPinAuthProvider).connectToServer(
+            server: server,
+            accountToken: accountToken,
+          );
+    } on PlexException catch (error) {
+      if (_linkAttempt != attempt) return false;
+      // Back to the picker: with several servers another can be tried, and
+      // with one the retry (tap it again) or Cancel is right there.
+      state = state.copyWith(
+        phase: PlexConnectionPhase.pickingServer,
+        statusMessage: null,
+        errorMessage: error.message,
+        errorKind: error.kind,
+      );
+      return false;
+    }
+    if (_linkAttempt != attempt) return false;
+    return _completeConnect(newSession);
+  }
+
+  /// The shared tail of every successful verify — manual form and sign-in
+  /// flow alike: stamps the announced client identifier, persists the session
+  /// (token encrypted at rest), flips to connected, fetches the music
+  /// libraries for the picker, and brings the synced catalog in step.
+  ///
+  /// Reconnecting to the **same** server (recognised by its
+  /// `machineIdentifier`, e.g. after rotating or re-granting the token) keeps
+  /// the existing library selection and refreshes the synced catalog against
+  /// it — wiping the selection would silently empty the user's Plex library
+  /// on the next sync. A different server starts with a clean (empty)
+  /// selection, and any rows the previous server synced are dropped quietly:
+  /// their ratingKeys belong to another machine and could never play.
+  Future<bool> _completeConnect(PlexSession newSession) async {
+    final PlexSession? previous = _session;
     final bool sameServer = previous != null &&
         previous.machineIdentifier == newSession.machineIdentifier;
     // Persist the client identifier the verify above announced, so every
     // later launch presents the same install to the server — and carry the
-    // library selection (and known server name) over a same-server reconnect.
+    // library selection (and any already-known server name) over a
+    // same-server reconnect. A fresh name from the sign-in flow wins over a
+    // remembered one (the server may have been renamed).
     final PlexSession stamped = newSession.copyWith(
       clientIdentifier: ref.read(plexClientIdentityProvider).clientIdentifier,
-      serverName: sameServer ? previous.serverName : null,
+      serverName:
+          newSession.serverName ?? (sameServer ? previous.serverName : null),
       selectedSectionKeys:
           sameServer ? previous.selectedSectionKeys : const <String>[],
     );
     try {
       await ref.read(plexSessionStoreProvider).write(stamped);
     } catch (_) {
-      // Without persistence the connection would silently vanish on restart;
-      // fail honestly instead. Nothing sensitive is kept in memory either.
-      state = const PlexSettingsState(
-        errorMessage: "Couldn't save your Plex session on this device. "
-            'Try again.',
-      );
+      // The new connection couldn't be persisted; without that it would
+      // silently vanish on restart, so don't adopt it. The sign-in flow's
+      // in-memory tokens are released here. A previous session, if any, is
+      // untouched — the failed write didn't replace it at rest, and [_session]
+      // still holds it — so restore its connected view with the error rather
+      // than dropping to a disconnected card while [plexMusicSourceProvider]
+      // keeps serving it ([_setFailure] rebuilds from the live [_session], or
+      // shows a plain signed-out error when there is none).
+      _resetLinkFlow();
+      _setFailure(const PlexException(
+        "Couldn't save your Plex session on this device. Try again.",
+      ));
       return false;
     }
 
     _session = stamped;
     _sectionsLoadAttempted = false;
     _restoreSuperseded = true;
+    // The flow is complete: release the account token and the token-bearing
+    // resources. Only the (encrypted) session keeps a credential now.
+    _resetLinkFlow();
     ref
         .read(plexPersistedClientIdentifierProvider.notifier)
         .publish(stamped.clientIdentifier);
@@ -221,6 +479,58 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       unawaited(_clearCatalogQuietly());
     }
     return true;
+  }
+
+  /// Invalidates any in-flight sign-in attempt (its continuations see a newer
+  /// [_linkAttempt] and drop their results) and releases the flow's
+  /// in-memory secrets.
+  void _resetLinkFlow() {
+    _linkAttempt++;
+    _accountToken = null;
+    _flowServers = const <PlexResource>[];
+    _activeLink = null;
+    _linkFlowOwnsCard = false;
+  }
+
+  /// Restores the card to its resting state: the connected view rebuilt from
+  /// the still-live session, or the pristine signed-out state.
+  void _restoreIdleState() {
+    final PlexSession? current = _session;
+    if (current != null) {
+      // Now that the flow has yielded the card, announce the session's client
+      // identifier. A mid-flow restore deliberately deferred this (publishing
+      // it would have swapped the in-flight PIN's identity); it's a harmless
+      // no-op for a session whose id was already published at startup.
+      ref
+          .read(plexPersistedClientIdentifierProvider.notifier)
+          .publish(current.clientIdentifier);
+      state = PlexSettingsState(
+        phase: PlexConnectionPhase.connected,
+        baseUrl: current.baseUrl,
+        serverName: current.serverName,
+        serverVersion: current.serverVersion,
+        sections: state.sections,
+        sectionsLoaded: state.sectionsLoaded,
+        selectedSectionKeys: current.selectedSectionKeys,
+        statusMessage: _connectedMessage(current),
+      );
+      return;
+    }
+    state = const PlexSettingsState();
+  }
+
+  /// The display-safe picker projections of the flow's server resources —
+  /// the only shape of them that may reach [state].
+  List<PlexServerChoice> _choicesFor(List<PlexResource> servers) {
+    return List<PlexServerChoice>.unmodifiable(<PlexServerChoice>[
+      for (final PlexResource server in servers)
+        PlexServerChoice(
+          clientIdentifier: server.clientIdentifier,
+          name: server.name.isNotEmpty ? server.name : 'Plex Media Server',
+          productVersion: server.productVersion,
+          owned: server.owned,
+        ),
+    ]);
   }
 
   /// Fetches the music libraries once for the current connection if they
@@ -360,7 +670,10 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// the local catalog — without a session (and with no offline cache in
   /// phase 1) they are permanently unplayable rows. Other providers' data is
   /// untouched: only the Plex store and the catalog's `plex` slice change.
+  /// Any sign-in flow still in flight is abandoned (and its in-memory tokens
+  /// released) along the way.
   Future<void> disconnect() async {
+    _resetLinkFlow();
     try {
       await ref.read(plexSessionStoreProvider).clear();
     } catch (_) {
@@ -425,6 +738,16 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   void _setFailure(PlexException error, {String? url}) {
     final PlexSession? current = _session;
     if (current != null) {
+      // Announce the session's client identifier before showing it as the
+      // active connection. A mid-flow restore deferred publishing it (a
+      // publish would have swapped the in-flight PIN's identity); if that
+      // flow now fails back to this session, this is where it's restored —
+      // otherwise later Plex requests would run under the temporary PIN/launch
+      // id instead of the session's persisted one. Idempotent (a no-op when
+      // the id was already published at startup or connect).
+      ref
+          .read(plexPersistedClientIdentifierProvider.notifier)
+          .publish(current.clientIdentifier);
       state = PlexSettingsState(
         phase: PlexConnectionPhase.connected,
         baseUrl: current.baseUrl,

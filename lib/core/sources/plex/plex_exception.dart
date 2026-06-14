@@ -114,6 +114,63 @@ class PlexException implements Exception {
         statusCode: statusCode,
       );
 
+  // --- plex.tv (account sign-in) failures. Same rules as above: static,
+  // token-free messages only — but worded for plex.tv, not the user's own
+  // server, so a sign-in hiccup doesn't tell them to go check a server
+  // address that was never involved.
+
+  factory PlexException.plexTvUnreachable() => const PlexException(
+        "Couldn't reach plex.tv to sign you in. Check that you're online, "
+        'then try again.',
+        kind: PlexErrorKind.notReachable,
+      );
+
+  factory PlexException.plexTvError(int statusCode) => PlexException(
+        'plex.tv reported an error (HTTP $statusCode). Try again in a moment.',
+        kind: PlexErrorKind.serverError,
+        statusCode: statusCode,
+      );
+
+  factory PlexException.plexTvUnexpected([int? statusCode]) => PlexException(
+        'plex.tv returned a response Linthra could not use'
+        '${statusCode != null ? ' (HTTP $statusCode)' : ''}. '
+        'Try again in a moment.',
+        kind: PlexErrorKind.unexpected,
+        statusCode: statusCode,
+      );
+
+  /// The browser sign-in wasn't approved in time (the plex.tv PIN lapsed or
+  /// was discarded server-side). Definitive — polling the same PIN again can
+  /// never succeed — so the flow restarts from "Connect with Plex".
+  factory PlexException.signInExpired() => const PlexException(
+        'Your Plex sign-in expired before it finished. '
+        'Tap "Connect with Plex" to try again.',
+        kind: PlexErrorKind.unauthorized,
+      );
+
+  factory PlexException.signInRejected() => const PlexException(
+        "plex.tv didn't accept the sign-in request. Try connecting again.",
+        kind: PlexErrorKind.unauthorized,
+        statusCode: 401,
+      );
+
+  /// No advertised connection address of the chosen server answered. Worded
+  /// for the picker flow ("its addresses" come from plex.tv, the user never
+  /// typed one).
+  factory PlexException.serverUnreachable() => const PlexException(
+        "Couldn't reach your Plex server at any of its addresses. Make sure "
+        "it's online and reachable from this device, then try again.",
+        kind: PlexErrorKind.notReachable,
+      );
+
+  /// The device has no browser to hand the plex.tv sign-in page to (or it
+  /// refused the launch). Thrown by the settings flow, not the HTTP layer.
+  factory PlexException.browserUnavailable() => const PlexException(
+        "Couldn't open the Plex sign-in page in a browser on this device. "
+        'Try again, or use manual setup below.',
+        kind: PlexErrorKind.unexpected,
+      );
+
   /// A user-facing explanation safe to show in the UI — never carries the token.
   final String message;
 

@@ -2,8 +2,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/diagnostics/app_diagnostics.dart';
 import '../../../core/diagnostics/safe_event_log.dart';
-import '../../../core/services/external_link_launcher.dart';
 import '../diagnostics/diagnostics_collector.dart';
+
+// The browser seam used to live here; it moved to the app level once Plex's
+// "Connect with Plex" flow needed the same launcher. Re-exported so existing
+// imports (and test overrides) keep working unchanged.
+export '../../../app/external_link_launcher_provider.dart'
+    show externalLinkLauncherProvider;
 
 /// The secret-free inputs the bug-report screen renders from: the diagnostics
 /// snapshot and the recent safe app events.
@@ -38,10 +43,3 @@ final bugReportDiagnosticsProvider =
     recentEventLines: SafeEventLog.instance.lines,
   );
 });
-
-/// The browser seam the "Open GitHub issue" action launches through. Production
-/// wires the `url_launcher`-backed launcher; tests override it with a fake so
-/// no real browser is opened.
-final externalLinkLauncherProvider = Provider<ExternalLinkLauncher>(
-  (ref) => const UrlLauncherExternalLinkLauncher(),
-);

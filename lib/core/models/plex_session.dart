@@ -44,8 +44,8 @@ class PlexSession {
   final String machineIdentifier;
 
   /// The server's friendly name, when known. `GET /identity` doesn't report
-  /// one, so the manual flow leaves this `null`; the plex.tv discovery flow (a
-  /// follow-up) provides it. Not secret, display only.
+  /// one, so the manual flow leaves this `null`; the plex.tv sign-in flow
+  /// fills it from the picked server resource. Not secret, display only.
   final String? serverName;
 
   /// The server's reported version (from `/identity`), when known. Carried so the

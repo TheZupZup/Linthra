@@ -6,13 +6,13 @@ import 'plex_server_url.dart';
 
 /// Turns a manually typed server URL + token into a usable [PlexSession].
 ///
-/// The "authentication" concern for phase 1's manual flow, kept separate from
-/// session storage (the `PlexSessionStore`) and from library fetching (the
-/// future `PlexMusicSource`): it normalizes the URL and asks the [PlexClient] to
-/// confirm the address is a reachable Plex Media Server that accepts the token,
-/// via `GET /identity`. It does not persist anything — the controller decides
-/// whether/where to store the session — so this stays a pure coordinator that's
-/// trivial to test with a fake client.
+/// The "authentication" concern for the **manual / advanced** flow, kept
+/// separate from session storage (the `PlexSessionStore`) and from library
+/// fetching (the `PlexMusicSource`): it normalizes the URL and asks the
+/// [PlexClient] to confirm the address is a reachable Plex Media Server that
+/// accepts the token, via `GET /identity`. It does not persist anything — the
+/// controller decides whether/where to store the session — so this stays a
+/// pure coordinator that's trivial to test with a fake client.
 ///
 /// Token safety: the token is only trimmed, handed to the client (which sends it
 /// as the `X-Plex-Token` **header** — never a logged URL), and copied into the
@@ -22,8 +22,9 @@ import 'plex_server_url.dart';
 /// server-scoped one) plus the server metadata; it never holds a stream/art URL.
 /// See docs/plex.md → Authentication / Token safety rules.
 ///
-/// The plex.tv PIN/OAuth flow is a documented follow-up; phase 1 is manual token
-/// paste only.
+/// The primary "Connect with Plex" path is the plex.tv PIN sign-in
+/// (`PlexPinAuth`); this manual flow stays as the advanced fallback for users
+/// who already have a token (and for dev setups).
 class PlexAuthenticator {
   PlexAuthenticator(this._client);
 

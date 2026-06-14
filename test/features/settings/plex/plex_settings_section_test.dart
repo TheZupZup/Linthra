@@ -3,17 +3,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/core/models/plex_session.dart';
+import 'package:linthra/core/services/external_link_launcher.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_exception.dart';
+import 'package:linthra/core/sources/plex/plex_pin_auth.dart';
+import 'package:linthra/core/sources/plex/plex_tv_api.dart';
 import 'package:linthra/data/repositories/in_memory_plex_session_store.dart';
 import 'package:linthra/data/repositories/plex_session_store_provider.dart';
 import 'package:linthra/features/settings/plex/plex_settings_providers.dart';
 import 'package:linthra/features/settings/plex/plex_settings_section.dart';
 
 import '../../../core/sources/plex/fake_plex_client.dart';
+import '../../../core/sources/plex/fake_plex_tv_client.dart';
 
 const String _token = 'super-secret-plex-token';
+const String _accountToken = 'super-secret-account-token';
 
 const PlexDirectory _musicSection =
     PlexDirectory(key: '5', title: 'Music', type: 'artist');
@@ -27,6 +33,28 @@ const PlexSession _restoredSession = PlexSession(
   serverVersion: '1.40.1',
   clientIdentifier: 'install-1',
   selectedSectionKeys: <String>['5'],
+);
+
+const PlexResource _officeResource = PlexResource(
+  name: 'Office Server',
+  clientIdentifier: 'fake-machine-id',
+  provides: 'server',
+  accessToken: 'super-secret-server-scoped-token',
+  productVersion: '1.41.0',
+  connections: <PlexResourceConnection>[
+    PlexResourceConnection(uri: 'https://office.abc.plex.direct:32400'),
+  ],
+);
+
+const PlexResource _atticResource = PlexResource(
+  name: 'Attic NAS',
+  clientIdentifier: 'machine-attic',
+  provides: 'server',
+  accessToken: 'super-secret-attic-token',
+  owned: false,
+  connections: <PlexResourceConnection>[
+    PlexResourceConnection(uri: 'https://attic.abc.plex.direct:32400'),
+  ],
 );
 
 /// A [FakePlexClient] whose sections listing blocks until [gate] completes,
@@ -46,20 +74,57 @@ class _GatedSectionsClient extends FakePlexClient {
   }
 }
 
+/// A [FakePlexTvClient] whose PIN polls block until [gate] completes, so the
+/// "waiting for the browser" view can be observed deterministically.
+class _GatedPinTvClient extends FakePlexTvClient {
+  _GatedPinTvClient();
+
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<String?> checkPin(int pinId) async {
+    await gate.future;
+    return super.checkPin(pinId);
+  }
+}
+
+/// An [ExternalLinkLauncher] that records launches instead of opening a
+/// real browser.
+class _RecordingLauncher implements ExternalLinkLauncher {
+  final List<Uri> opened = <Uri>[];
+
+  @override
+  Future<bool> open(Uri url) async {
+    opened.add(url);
+    return true;
+  }
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   FakePlexClient? client,
   InMemoryPlexSessionStore? store,
+  FakePlexTvClient? tvClient,
+  ExternalLinkLauncher? launcher,
 }) async {
+  final FakePlexClient plexClient =
+      client ?? FakePlexClient(sections: const [_movieSection, _musicSection]);
   await tester.pumpWidget(
     ProviderScope(
       overrides: <Override>[
-        plexClientProvider.overrideWithValue(
-          client ??
-              FakePlexClient(sections: const [_movieSection, _musicSection]),
-        ),
+        plexClientProvider.overrideWithValue(plexClient),
         plexSessionStoreProvider
             .overrideWithValue(store ?? InMemoryPlexSessionStore()),
+        plexPinAuthProvider.overrideWith(
+          (ref) => PlexPinAuth(
+            tvClient: tvClient ?? FakePlexTvClient(),
+            serverClient: plexClient,
+            identity: ref.watch(plexClientIdentityProvider),
+            wait: (_) async {},
+          ),
+        ),
+        externalLinkLauncherProvider
+            .overrideWithValue(launcher ?? _RecordingLauncher()),
       ],
       child: const MaterialApp(
         home: Scaffold(
@@ -71,7 +136,15 @@ Future<void> _pump(
   await tester.pump();
 }
 
+/// Opens the advanced manual form (hidden by default behind the primary
+/// "Connect with Plex" action).
+Future<void> _openManualSetup(WidgetTester tester) async {
+  await tester.tap(find.text('Manual setup (advanced)'));
+  await tester.pump();
+}
+
 Future<void> _connect(WidgetTester tester) async {
+  await _openManualSetup(tester);
   await tester.enterText(
       find.byType(TextField).at(0), 'https://plex.example.com:32400');
   await tester.enterText(find.byType(TextField).at(1), _token);
@@ -81,16 +154,30 @@ Future<void> _connect(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('renders the connection form marked Experimental',
-      (tester) async {
+  testWidgets(
+      'leads with Connect with Plex and keeps the manual form behind '
+      'Advanced', (tester) async {
     await _pump(tester);
 
     expect(find.text('Plex'), findsOneWidget);
     expect(find.text('Experimental'), findsOneWidget);
+    expect(find.text('Connect with Plex'), findsOneWidget);
+    expect(find.text('Manual setup (advanced)'), findsOneWidget);
+    // No token hunting up front: the manual fields are hidden by default.
+    expect(find.text('Server URL'), findsNothing);
+    expect(find.text('Plex token'), findsNothing);
+
+    await _openManualSetup(tester);
+
     expect(find.text('Server URL'), findsOneWidget);
     expect(find.text('Plex token'), findsOneWidget);
     expect(find.text('Test connection'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
+
+    // The toggle collapses it again.
+    await tester.tap(find.text('Manual setup (advanced)'));
+    await tester.pump();
+    expect(find.text('Server URL'), findsNothing);
   });
 
   testWidgets('shows capability chips only for implemented features',
@@ -105,9 +192,10 @@ void main() {
     expect(find.text('Lyrics'), findsNothing);
   });
 
-  testWidgets('Connect is disabled until both fields are filled',
+  testWidgets('Connect is disabled until both manual fields are filled',
       (tester) async {
     await _pump(tester);
+    await _openManualSetup(tester);
 
     FilledButton connect() => tester.widget<FilledButton>(
           find.widgetWithText(FilledButton, 'Connect'),
@@ -187,7 +275,7 @@ void main() {
     expect(find.text(_token), findsNothing);
   });
 
-  testWidgets('disconnect returns to an empty form', (tester) async {
+  testWidgets('disconnect returns to the signed-out card', (tester) async {
     final store = InMemoryPlexSessionStore(initialSession: _restoredSession);
     await _pump(tester, store: store);
     await tester.pumpAndSettle();
@@ -196,9 +284,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await store.read(), isNull);
-    expect(find.text('Plex token'), findsOneWidget);
+    expect(find.text('Connect with Plex'), findsOneWidget);
     expect(find.textContaining('Disconnected'), findsOneWidget);
-    // Both fields come back empty — nothing of the old session lingers.
+    // The manual form folds back behind Advanced…
+    expect(find.text('Plex token'), findsNothing);
+
+    // …and comes back empty — nothing of the old session lingers.
+    await _openManualSetup(tester);
     for (final TextField field
         in tester.widgetList<TextField>(find.byType(TextField))) {
       expect(field.controller!.text, isEmpty);
@@ -308,6 +400,7 @@ void main() {
         identityError: PlexException.unauthorized(),
       ),
     );
+    await _openManualSetup(tester);
 
     await tester.enterText(find.byType(TextField).at(0), 'plex.example.com');
     await tester.enterText(find.byType(TextField).at(1), 'wrong-token');
@@ -324,5 +417,157 @@ void main() {
     }
     // Still on the form, ready to retry.
     expect(find.text('Connect'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Connect with Plex opens the browser and shows the waiting view, '
+      'and Cancel backs out of it', (tester) async {
+    final launcher = _RecordingLauncher();
+    final tvClient = _GatedPinTvClient();
+    await _pump(tester, tvClient: tvClient, launcher: launcher);
+
+    await tester.tap(find.text('Connect with Plex'));
+    // Explicit pumps — the waiting spinner animates forever.
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Waiting for your Plex sign-in…'), findsOneWidget);
+    expect(find.text('Open the sign-in page again'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    // The browser was handed the hosted plex.tv page.
+    expect(launcher.opened.single.host, 'app.plex.tv');
+    expect(launcher.opened.single.fragment, contains('code=fake-pin-code'));
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pump();
+
+    expect(find.text('Connect with Plex'), findsOneWidget);
+    expect(find.text('Waiting for your Plex sign-in…'), findsNothing);
+
+    // Release the gated poll so the abandoned flow finishes quietly.
+    tvClient.gate.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Connect with Plex'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a single-server account connects straight through to the library '
+      'picker, never showing a token', (tester) async {
+    final store = InMemoryPlexSessionStore();
+    await _pump(
+      tester,
+      store: store,
+      tvClient: FakePlexTvClient(
+        checkPinScript: <Object?>[null, _accountToken],
+        resources: const <PlexResource>[_officeResource],
+      ),
+    );
+
+    await tester.tap(find.text('Connect with Plex'));
+    await tester.pumpAndSettle();
+
+    // Connected, named after the picked server (card header + connected
+    // view), with the library picker up.
+    expect(find.text('Plex · Office Server'), findsNWidgets(2));
+    expect(find.text('Music libraries'), findsOneWidget);
+    expect(find.text('Music'), findsOneWidget);
+    expect(find.text('Disconnect Plex'), findsOneWidget);
+
+    // The server-scoped token was persisted (encrypted in production)…
+    expect((await store.read())!.token, 'super-secret-server-scoped-token');
+    // …and no token of any kind was ever rendered.
+    for (final Text text in tester.widgetList<Text>(find.byType(Text))) {
+      expect(text.data ?? '', isNot(contains('super-secret')));
+      expect(text.data ?? '', isNot(contains(_accountToken)));
+    }
+  });
+
+  testWidgets('a multi-server account picks from the server list',
+      (tester) async {
+    final store = InMemoryPlexSessionStore();
+    await _pump(
+      tester,
+      client: FakePlexClient(
+        identity: const PlexServerIdentity(machineIdentifier: 'machine-attic'),
+        sections: const [_musicSection],
+      ),
+      store: store,
+      tvClient: FakePlexTvClient(
+        checkPinScript: <Object?>[_accountToken],
+        resources: const <PlexResource>[_officeResource, _atticResource],
+      ),
+    );
+
+    await tester.tap(find.text('Connect with Plex'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Choose your Plex server'), findsOneWidget);
+    expect(find.text('Office Server'), findsOneWidget);
+    expect(find.text('Attic NAS'), findsOneWidget);
+    // The shared server says so; versions show when known.
+    expect(find.textContaining('Shared with you'), findsOneWidget);
+    expect(find.textContaining('1.41.0'), findsOneWidget);
+
+    await tester.tap(find.text('Attic NAS'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Plex · Attic NAS'), findsNWidgets(2));
+    expect((await store.read())!.token, 'super-secret-attic-token');
+  });
+
+  testWidgets('an account with no servers shows a clean empty state',
+      (tester) async {
+    await _pump(
+      tester,
+      tvClient: FakePlexTvClient(
+        checkPinScript: <Object?>[_accountToken],
+        resources: const <PlexResource>[],
+      ),
+    );
+
+    await tester.tap(find.text('Connect with Plex'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No Plex Media Server found'), findsOneWidget);
+    expect(find.textContaining('no Plex Media Server linked'), findsOneWidget);
+
+    await tester.tap(find.text('Back'));
+    await tester.pump();
+    expect(find.text('Connect with Plex'), findsOneWidget);
+  });
+
+  testWidgets('an expired sign-in shows a friendly error on the card',
+      (tester) async {
+    await _pump(
+      tester,
+      tvClient: FakePlexTvClient(
+        checkPinScript: <Object?>[PlexException.signInExpired()],
+      ),
+    );
+
+    await tester.tap(find.text('Connect with Plex'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('sign-in expired'), findsOneWidget);
+    // Back on the signed-out card, ready to retry.
+    expect(find.text('Connect with Plex'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a rejected session offers Reconnect with Plex on the connected card',
+      (tester) async {
+    // The saved token stopped working: the server rejects the library
+    // listing with a 401.
+    await _pump(
+      tester,
+      client: FakePlexClient(sectionsError: PlexException.unauthorized()),
+      store: InMemoryPlexSessionStore(initialSession: _restoredSession),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('was not accepted'), findsOneWidget);
+    expect(find.text('Reconnect with Plex'), findsOneWidget);
+    // Still connected behind the error — disconnecting stays possible too.
+    expect(find.text('Disconnect Plex'), findsOneWidget);
   });
 }

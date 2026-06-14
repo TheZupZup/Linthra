@@ -2,15 +2,19 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/plex_session.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/repositories/plex_session_store.dart';
+import 'package:linthra/core/services/external_link_launcher.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_exception.dart';
 import 'package:linthra/core/sources/plex/plex_music_source.dart';
+import 'package:linthra/core/sources/plex/plex_pin_auth.dart';
+import 'package:linthra/core/sources/plex/plex_tv_api.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_plex_session_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
@@ -22,8 +26,11 @@ import 'package:linthra/features/settings/plex/plex_sync_controller.dart';
 import 'package:linthra/features/settings/plex/plex_sync_state.dart';
 
 import '../../../core/sources/plex/fake_plex_client.dart';
+import '../../../core/sources/plex/fake_plex_tv_client.dart';
 
 const String _token = 'super-secret-plex-token';
+const String _accountToken = 'super-secret-account-token';
+const String _serverScopedToken = 'super-secret-server-scoped-token';
 
 const PlexSession _session = PlexSession(
   baseUrl: 'https://plex.example.com:32400',
@@ -40,6 +47,58 @@ const PlexDirectory _secondMusicSection =
     PlexDirectory(key: '9', title: 'Vinyl rips', type: 'artist');
 const PlexDirectory _movieSection =
     PlexDirectory(key: '1', title: 'Movies', type: 'movie');
+
+const PlexResource _officeResource = PlexResource(
+  name: 'Office Server',
+  clientIdentifier: 'fake-machine-id',
+  provides: 'server',
+  accessToken: _serverScopedToken,
+  productVersion: '1.41.0',
+  connections: <PlexResourceConnection>[
+    PlexResourceConnection(uri: 'https://office.abc.plex.direct:32400'),
+  ],
+);
+
+const PlexResource _atticResource = PlexResource(
+  name: 'Attic NAS',
+  clientIdentifier: 'machine-attic',
+  provides: 'server',
+  accessToken: 'super-secret-attic-token',
+  owned: false,
+  connections: <PlexResourceConnection>[
+    PlexResourceConnection(uri: 'https://attic.abc.plex.direct:32400'),
+  ],
+);
+
+/// An [ExternalLinkLauncher] that records what it was asked to open and
+/// never touches a real browser.
+class _RecordingLauncher implements ExternalLinkLauncher {
+  _RecordingLauncher({this.result = true});
+
+  bool result;
+  final List<Uri> opened = <Uri>[];
+
+  @override
+  Future<bool> open(Uri url) async {
+    opened.add(url);
+    return result;
+  }
+}
+
+/// A [FakePlexTvClient] whose PIN polls block until [gate] completes, so a
+/// test can hold the controller in the `linking` phase and exercise
+/// cancellation deterministically.
+class _GatedPinTvClient extends FakePlexTvClient {
+  _GatedPinTvClient({super.checkPinScript});
+
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<String?> checkPin(int pinId) async {
+    await gate.future;
+    return super.checkPin(pinId);
+  }
+}
 
 /// A [PlexSessionStore] whose operations can be made to throw, to prove a
 /// storage failure never crashes or wedges the controller.
@@ -81,17 +140,20 @@ class _FlakyPlexSessionStore implements PlexSessionStore {
 /// A [PlexSessionStore] whose read blocks until released, simulating a slow
 /// secure-storage read on a real device so user actions can race the startup
 /// restore. The read returns what was persisted when it *started* (a stale
-/// snapshot), exactly like a disk read would.
+/// snapshot), exactly like a disk read would — or throws [readErrorAfterGate]
+/// when set, to simulate a read that fails only after the race window opened.
 class _GatedReadStore implements PlexSessionStore {
-  _GatedReadStore(this._session);
+  _GatedReadStore(this._session, {this.readErrorAfterGate});
 
   PlexSession? _session;
+  final Object? readErrorAfterGate;
   final Completer<void> readGate = Completer<void>();
 
   @override
   Future<PlexSession?> read() async {
     final PlexSession? snapshot = _session;
     await readGate.future;
+    if (readErrorAfterGate != null) throw readErrorAfterGate!;
     return snapshot;
   }
 
@@ -103,6 +165,28 @@ class _GatedReadStore implements PlexSessionStore {
   @override
   Future<void> clear() async {
     _session = null;
+  }
+}
+
+/// A [FakePlexClient] whose `fetchIdentity` blocks until [identityGate]
+/// completes, so a test can hold the PIN flow in its `connecting` server-probe
+/// while another event (a slow startup restore) lands.
+class _GatedIdentityClient extends FakePlexClient {
+  _GatedIdentityClient({
+    required this.identityGate,
+    super.identity,
+    super.sections,
+  });
+
+  final Completer<void> identityGate;
+
+  @override
+  Future<PlexServerIdentity> fetchIdentity({
+    required String baseUrl,
+    required String token,
+  }) async {
+    await identityGate.future;
+    return super.fetchIdentity(baseUrl: baseUrl, token: token);
   }
 }
 
@@ -152,16 +236,30 @@ ProviderContainer _container({
   FakePlexClient? client,
   PlexSessionStore? store,
   MusicLibraryRepository? repository,
+  FakePlexTvClient? tvClient,
+  ExternalLinkLauncher? launcher,
 }) {
+  final FakePlexClient plexClient =
+      client ?? FakePlexClient(sections: const [_musicSection]);
   final container = ProviderContainer(
     overrides: <Override>[
-      plexClientProvider.overrideWithValue(
-        client ?? FakePlexClient(sections: const [_musicSection]),
-      ),
+      plexClientProvider.overrideWithValue(plexClient),
       plexSessionStoreProvider
           .overrideWithValue(store ?? InMemoryPlexSessionStore()),
       if (repository != null)
         musicLibraryRepositoryProvider.overrideWithValue(repository),
+      // The PIN flow on fakes, with an instant wait so the poll loop runs
+      // without real delays.
+      plexPinAuthProvider.overrideWith(
+        (ref) => PlexPinAuth(
+          tvClient: tvClient ?? FakePlexTvClient(),
+          serverClient: plexClient,
+          identity: ref.watch(plexClientIdentityProvider),
+          wait: (_) async {},
+        ),
+      ),
+      externalLinkLauncherProvider
+          .overrideWithValue(launcher ?? _RecordingLauncher()),
     ],
   );
   addTearDown(container.dispose);
@@ -952,6 +1050,774 @@ void main() {
 
       final String text = notifier.session.toString();
       expect(text, isNot(contains(_token)));
+      expect(text, contains('<redacted>'));
+    });
+  });
+
+  group('connect with Plex (sign-in flow)', () {
+    test(
+        'a single-server account connects end to end: pin → browser → poll → '
+        'server-scoped session', () async {
+      final store = InMemoryPlexSessionStore();
+      final launcher = _RecordingLauncher();
+      final tvClient = FakePlexTvClient(
+        pin: const PlexPin(id: 7, code: 'pin-code'),
+        checkPinScript: <Object?>[null, _accountToken],
+        resources: const <PlexResource>[_officeResource],
+      );
+      final container = _container(
+        client: FakePlexClient(sections: const [_movieSection, _musicSection]),
+        store: store,
+        tvClient: tvClient,
+        launcher: launcher,
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.connectWithPlex();
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      // The plex.tv flow knows the server's name — unlike the manual flow.
+      expect(state.serverName, 'Office Server');
+      expect(state.displayName, 'Plex · Office Server');
+      expect(state.baseUrl, 'https://office.abc.plex.direct:32400');
+      // The music libraries were fetched for the picker right away.
+      expect(state.sections, const <PlexLibrarySection>[
+        PlexLibrarySection(key: '5', title: 'Music'),
+      ]);
+
+      // The browser was handed the hosted sign-in page for this pin.
+      final Uri opened = launcher.opened.single;
+      expect(opened.host, 'app.plex.tv');
+      expect(opened.fragment, contains('code=pin-code'));
+      expect(tvClient.lastCheckedPinId, 7);
+      // The account token authorized the resources lookup once…
+      expect(tvClient.lastResourcesToken, _accountToken);
+
+      // …but what's persisted is the narrower server-scoped token.
+      final saved = await store.read();
+      expect(saved!.token, _serverScopedToken);
+      expect(saved.serverName, 'Office Server');
+      expect(saved.selectedSectionKeys, isEmpty);
+      expect(container.read(plexMusicSourceProvider), isNotNull);
+    });
+
+    test('a multi-server account gets the picker, owned servers first',
+        () async {
+      final container = _container(
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          // plex.tv reports the shared server first; the picker leads with
+          // the owned one anyway.
+          resources: const <PlexResource>[_atticResource, _officeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.connectWithPlex();
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.pickingServer);
+      expect(state.servers, const <PlexServerChoice>[
+        PlexServerChoice(
+          clientIdentifier: 'fake-machine-id',
+          name: 'Office Server',
+          productVersion: '1.41.0',
+        ),
+        PlexServerChoice(
+          clientIdentifier: 'machine-attic',
+          name: 'Attic NAS',
+          owned: false,
+        ),
+      ]);
+      // Nothing connected or persisted until a server is picked.
+      expect(notifier.session, isNull);
+    });
+
+    test('picking a server connects to it with its own scoped token', () async {
+      final store = InMemoryPlexSessionStore();
+      final client = FakePlexClient(
+        identity: const PlexServerIdentity(machineIdentifier: 'machine-attic'),
+        sections: const [_musicSection],
+      );
+      final container = _container(
+        client: client,
+        store: store,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resources: const <PlexResource>[_officeResource, _atticResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+      await notifier.connectWithPlex();
+
+      final bool ok = await notifier.selectServer('machine-attic');
+
+      expect(ok, isTrue);
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.serverName, 'Attic NAS');
+      expect((await store.read())!.token, 'super-secret-attic-token');
+      // The picked server was probed on its own advertised address.
+      expect(client.lastBaseUrl, 'https://attic.abc.plex.direct:32400');
+    });
+
+    test('a failed server connect returns to the picker, retryable', () async {
+      final client = FakePlexClient(
+        // Once reachable, the probe answers as the picked Attic server so the
+        // identity guard accepts it.
+        identity: const PlexServerIdentity(machineIdentifier: 'machine-attic'),
+        identityError: PlexException.notReachable(),
+        sections: const [_musicSection],
+      );
+      final container = _container(
+        client: client,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resources: const <PlexResource>[_officeResource, _atticResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+      await notifier.connectWithPlex();
+
+      final bool failed = await notifier.selectServer('machine-attic');
+
+      expect(failed, isFalse);
+      var state = container.read(plexSettingsControllerProvider);
+      // Back on the picker with both servers still offered and a friendly,
+      // token-free reason.
+      expect(state.phase, PlexConnectionPhase.pickingServer);
+      expect(state.servers, hasLength(2));
+      expect(state.errorMessage, contains('addresses'));
+      expect(state.errorKind, PlexErrorKind.notReachable);
+
+      // The server comes back online; the retry succeeds.
+      client.identityError = null;
+      final bool ok = await notifier.selectServer('machine-attic');
+      expect(ok, isTrue);
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.errorMessage, isNull);
+    });
+
+    test('selecting an unknown server id is a no-op', () async {
+      final container = _container(
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resources: const <PlexResource>[_officeResource, _atticResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+      await notifier.connectWithPlex();
+
+      expect(await notifier.selectServer('machine-unknown'), isFalse);
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.pickingServer,
+      );
+    });
+
+    test(
+        'cancelling while waiting for the browser restores the signed-out '
+        'state and discards the poll', () async {
+      final store = InMemoryPlexSessionStore();
+      final tvClient = _GatedPinTvClient(
+        checkPinScript: <Object?>[_accountToken],
+      );
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      final Future<void> flow = notifier.connectWithPlex();
+      await _settle();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.linking,
+      );
+
+      notifier.cancelPlexLink();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.disconnected,
+      );
+      // No stale error or status from the abandoned attempt.
+      expect(
+        container.read(plexSettingsControllerProvider).errorMessage,
+        isNull,
+      );
+
+      // The poll answers afterwards — and its granted token is discarded.
+      tvClient.gate.complete();
+      await flow;
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.disconnected,
+      );
+      expect(await store.read(), isNull);
+      expect(notifier.session, isNull);
+      // The abandoned flow released its resources: nothing left to select.
+      expect(await notifier.selectServer('fake-machine-id'), isFalse);
+    });
+
+    test('cancelling a reconnect restores the existing connection untouched',
+        () async {
+      final store = InMemoryPlexSessionStore(initialSession: _session);
+      final tvClient = _GatedPinTvClient();
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      final Future<void> flow = notifier.connectWithPlex();
+      await _settle();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.linking,
+      );
+      // The live session stays usable behind the flow.
+      expect(notifier.session, isNotNull);
+      expect(container.read(plexMusicSourceProvider), isNotNull);
+
+      notifier.cancelPlexLink();
+      tvClient.gate.complete();
+      await flow;
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.baseUrl, _session.baseUrl);
+      expect(state.selectedSectionKeys, _session.selectedSectionKeys);
+      expect((await store.read()), _session);
+    });
+
+    test('an expired pin surfaces a friendly error and persists nothing',
+        () async {
+      final store = InMemoryPlexSessionStore();
+      final container = _container(
+        store: store,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[null, PlexException.signInExpired()],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.connectWithPlex();
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.disconnected);
+      expect(state.errorMessage, contains('expired'));
+      expect(state.errorKind, PlexErrorKind.unauthorized);
+      expect(await store.read(), isNull);
+    });
+
+    test('an unopenable browser aborts the flow before any polling', () async {
+      final tvClient = FakePlexTvClient(
+        checkPinScript: <Object?>[_accountToken],
+      );
+      final container = _container(
+        tvClient: tvClient,
+        launcher: _RecordingLauncher(result: false),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.connectWithPlex();
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.disconnected);
+      expect(state.errorMessage, contains("Couldn't open"));
+      expect(tvClient.checkPinCount, 0);
+    });
+
+    test('a failed servers lookup surfaces a friendly plex.tv error', () async {
+      final container = _container(
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resourcesError: PlexException.plexTvError(503),
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.connectWithPlex();
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.disconnected);
+      expect(state.errorMessage, contains('plex.tv'));
+      expect(state.errorKind, PlexErrorKind.serverError);
+    });
+
+    test('an account with no servers gets the picker\'s clean empty state',
+        () async {
+      final container = _container(
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resources: const <PlexResource>[],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.connectWithPlex();
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.pickingServer);
+      expect(state.servers, isEmpty);
+      expect(state.errorMessage, isNull);
+
+      // Backing out lands on the pristine signed-out card.
+      notifier.cancelPlexLink();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.disconnected,
+      );
+    });
+
+    test(
+        'reconnecting through the flow to the same server keeps the '
+        'library selection', () async {
+      // The saved session points at the same machine the flow's server
+      // resource identifies as (the fake client reports fake-machine-id).
+      final store = InMemoryPlexSessionStore(
+        initialSession: _session.copyWith(
+          machineIdentifier: 'fake-machine-id',
+          selectedSectionKeys: const <String>['5'],
+        ),
+      );
+      final container = _container(
+        store: store,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resources: const <PlexResource>[_officeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.connectWithPlex();
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.selectedSectionKeys, <String>['5']);
+      final saved = await store.read();
+      expect(saved!.selectedSectionKeys, <String>['5']);
+      // The token was rotated to the freshly granted server-scoped one.
+      expect(saved.token, _serverScopedToken);
+    });
+
+    test(
+        'a save failure during a PIN reconnect keeps the existing connection '
+        'live instead of showing a disconnected card', () async {
+      // A live session exists; the user reconnects through the PIN flow but
+      // the store write fails.
+      final store = _FlakyPlexSessionStore(
+        initialSession: _session.copyWith(
+          machineIdentifier: 'fake-machine-id',
+          selectedSectionKeys: const <String>['5'],
+        ),
+      );
+      final container = _container(
+        store: store,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resources: const <PlexResource>[_officeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+      expect(container.read(plexMusicSourceProvider), isNotNull);
+
+      store.writeError = StateError('keystore busy');
+      await notifier.connectWithPlex();
+
+      final state = container.read(plexSettingsControllerProvider);
+      // Still shown as connected to the existing server, with the save error…
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.errorMessage, contains("Couldn't save your Plex session"));
+      expect(state.baseUrl, _session.baseUrl);
+      expect(state.selectedSectionKeys, <String>['5']);
+      // …and the old session is still live and consistent with the UI — the
+      // music source keeps serving it rather than vanishing under a
+      // "disconnected" card.
+      expect(notifier.session, isNotNull);
+      final source = container.read(plexMusicSourceProvider);
+      expect(source, isNotNull);
+      expect(source!.session.baseUrl, _session.baseUrl);
+      // The in-memory flow tokens were still released.
+      expect(await notifier.selectServer('fake-machine-id'), isFalse);
+    });
+
+    test('a second connectWithPlex while one is waiting is ignored', () async {
+      final tvClient = _GatedPinTvClient();
+      final container = _container(tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      final Future<void> first = notifier.connectWithPlex();
+      await _settle();
+      await notifier.connectWithPlex();
+
+      expect(tvClient.createPinCount, 1);
+
+      notifier.cancelPlexLink();
+      tvClient.gate.complete();
+      await first;
+    });
+
+    test('reopenPlexSignIn re-launches the same sign-in page', () async {
+      final launcher = _RecordingLauncher();
+      final tvClient = _GatedPinTvClient();
+      final container = _container(tvClient: tvClient, launcher: launcher);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      final Future<void> flow = notifier.connectWithPlex();
+      await _settle();
+      await notifier.reopenPlexSignIn();
+
+      expect(launcher.opened, hasLength(2));
+      expect(launcher.opened[0], launcher.opened[1]);
+
+      notifier.cancelPlexLink();
+      tvClient.gate.complete();
+      await flow;
+    });
+
+    test(
+        'a slow startup restore landing mid-flow keeps the flow on screen '
+        'and the session live behind it', () async {
+      final store = _GatedReadStore(_session);
+      final tvClient = _GatedPinTvClient();
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      final Future<void> flow = notifier.connectWithPlex();
+      await _settle();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.linking,
+      );
+
+      // The restore lands while the user is away in the browser: the card
+      // must not flip out from under the flow…
+      store.readGate.complete();
+      await _settle();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.linking,
+      );
+
+      // …but the restored session is live, so cancelling shows it connected.
+      notifier.cancelPlexLink();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.connected,
+      );
+      expect(notifier.session, isNotNull);
+
+      tvClient.gate.complete();
+      await flow;
+    });
+
+    test(
+        'a restore read failure landing mid-flow does not clobber the sign-in '
+        'with a disconnected error', () async {
+      // The slow startup read ultimately FAILS, while the user has already
+      // started "Connect with Plex".
+      final store = _GatedReadStore(null,
+          readErrorAfterGate: StateError('keystore gone'));
+      final tvClient = _GatedPinTvClient();
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      final Future<void> flow = notifier.connectWithPlex();
+      await _settle();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.linking,
+      );
+
+      // The failed restore must not replace the linking card with a
+      // disconnected restore error (which would strip Cancel/reopen).
+      store.readGate.complete();
+      await _settle();
+      final mid = container.read(plexSettingsControllerProvider);
+      expect(mid.phase, PlexConnectionPhase.linking);
+      expect(mid.errorMessage, isNull);
+
+      // The flow's controls still work.
+      notifier.cancelPlexLink();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.disconnected,
+      );
+
+      tvClient.gate.complete();
+      await flow;
+    });
+
+    test(
+        'a slow restore completing while the picked server is probed does not '
+        'clobber the sign-in', () async {
+      final identityGate = Completer<void>();
+      final client = _GatedIdentityClient(
+        identityGate: identityGate,
+        identity:
+            const PlexServerIdentity(machineIdentifier: 'fake-machine-id'),
+        sections: const [_musicSection],
+      );
+      // The restore would bring back an OLD, different session.
+      final store = _GatedReadStore(
+        _session.copyWith(machineIdentifier: 'old-machine'),
+      );
+      final container = _container(
+        client: client,
+        store: store,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resources: const <PlexResource>[_officeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      final Future<void> flow = notifier.connectWithPlex();
+      // Advance to the connecting probe (single server auto-connects), held at
+      // the gated fetchIdentity.
+      await _settle();
+      await _settle();
+      var state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connecting);
+      // A PIN-flow connecting (servers known) — not the manual form, which
+      // `isLinkFlowActive` alone couldn't tell apart.
+      expect(state.servers, isNotEmpty);
+
+      // The slow restore completes mid-probe — it must not clobber the
+      // in-progress sign-in with the old restored session.
+      store.readGate.complete();
+      await _settle();
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connecting);
+      expect(state.baseUrl, isNull); // not the restored old base URL
+
+      // Releasing the probe completes the flow against the picked server.
+      identityGate.complete();
+      await flow;
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.serverName, 'Office Server');
+      expect(notifier.session!.machineIdentifier, 'fake-machine-id');
+    });
+
+    test(
+        'a slow restore completing while a server PICKED from the multi-server '
+        'list is being probed does not clobber the sign-in', () async {
+      // The reviewer's exact scenario: a multi-server account, the user picks
+      // a server from the list, and the slow startup restore finishes while
+      // that picked server is being probed/connected.
+      final identityGate = Completer<void>();
+      final client = _GatedIdentityClient(
+        identityGate: identityGate,
+        identity: const PlexServerIdentity(machineIdentifier: 'machine-attic'),
+        sections: const [_musicSection],
+      );
+      // The restore would bring back an OLD, different session.
+      final store = _GatedReadStore(
+        _session.copyWith(machineIdentifier: 'old-machine'),
+      );
+      final container = _container(
+        client: client,
+        store: store,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          // Two servers → the picker, no auto-connect.
+          resources: const <PlexResource>[_officeResource, _atticResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      // The whole sign-in runs to the picker (fetchIdentity isn't called until
+      // a server is picked), so connectWithPlex can be awaited fully.
+      await notifier.connectWithPlex();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.pickingServer,
+      );
+
+      // The user picks Attic; its probe is held at the gated fetchIdentity.
+      final Future<bool> picked = notifier.selectServer('machine-attic');
+      await _settle();
+      var state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connecting);
+      expect(state.servers, isNotEmpty);
+
+      // The slow startup restore finishes mid-probe — it must not overwrite
+      // the visible connecting state with the old restored session.
+      store.readGate.complete();
+      await _settle();
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connecting);
+      expect(state.baseUrl, isNull); // not the restored old base URL
+
+      // Releasing the probe completes the connection to the picked server.
+      identityGate.complete();
+      expect(await picked, isTrue);
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.serverName, 'Attic NAS');
+      expect(notifier.session!.machineIdentifier, 'machine-attic');
+    });
+
+    test(
+        'a slow restore landing mid-flow does not swap the in-flight PIN '
+        'client identity', () async {
+      // The restore would bring back a session whose clientIdentifier differs
+      // from the launch id the PIN flow minted its PIN with.
+      final store = _GatedReadStore(
+        _session.copyWith(
+          machineIdentifier: 'old-machine',
+          clientIdentifier: 'restored-install-id',
+        ),
+      );
+      final tvClient =
+          _GatedPinTvClient(checkPinScript: <Object?>[_accountToken])
+            ..resources = const <PlexResource>[_officeResource];
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      final launchId =
+          container.read(plexClientIdentityProvider).clientIdentifier;
+      expect(launchId, isNot('restored-install-id'));
+
+      final Future<void> flow = notifier.connectWithPlex();
+      await _settle();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.linking,
+      );
+
+      // The slow restore completes mid-flow. It must NOT publish the restored
+      // client id — the in-flight PIN is bound to the launch id, so swapping
+      // the X-Plex-Client-Identifier would break the approval.
+      store.readGate.complete();
+      await _settle();
+      expect(
+        container.read(plexClientIdentityProvider).clientIdentifier,
+        launchId,
+      );
+
+      // The flow proceeds and connects under the identity it began with.
+      tvClient.gate.complete();
+      await flow;
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(notifier.session!.clientIdentifier, launchId);
+      expect(
+        container.read(plexClientIdentityProvider).clientIdentifier,
+        launchId,
+      );
+    });
+
+    test(
+        'a flow failure after a deferred-publish restore announces the '
+        'restored session identity', () async {
+      // The slow restore brings back a session whose client id was deferred
+      // (the flow owned the card); the flow then FAILS and falls back to that
+      // session — its persisted client id must be announced, not left on the
+      // temporary launch/PIN id.
+      final store = _GatedReadStore(
+        _session.copyWith(clientIdentifier: 'restored-install-id'),
+      );
+      // The PIN expires on the first poll, so the flow fails via _setFailure.
+      final tvClient = _GatedPinTvClient(
+        checkPinScript: <Object?>[PlexException.signInExpired()],
+      );
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      final launchId =
+          container.read(plexClientIdentityProvider).clientIdentifier;
+      expect(launchId, isNot('restored-install-id'));
+
+      final Future<void> flow = notifier.connectWithPlex();
+      await _settle();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.linking,
+      );
+
+      // The restore lands mid-flow: identity stays on the launch id (deferred).
+      store.readGate.complete();
+      await _settle();
+      expect(
+        container.read(plexClientIdentityProvider).clientIdentifier,
+        launchId,
+      );
+
+      // The PIN expires → the flow fails and falls back to the restored
+      // session as connected. That fallback must publish the restored id.
+      tvClient.gate.complete();
+      await flow;
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.errorMessage, contains('expired'));
+      expect(state.baseUrl, _session.baseUrl);
+      expect(
+        container.read(plexClientIdentityProvider).clientIdentifier,
+        'restored-install-id',
+      );
+      expect(notifier.session!.clientIdentifier, 'restored-install-id');
+    });
+
+    test(
+        'no token — account, server-scoped, or shared — ever reaches the '
+        'state through the whole flow', () async {
+      final container = _container(
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[null, _accountToken],
+          resources: const <PlexResource>[_officeResource, _atticResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      const List<String> secrets = <String>[
+        _accountToken,
+        _serverScopedToken,
+        'super-secret-attic-token',
+      ];
+      void expectStateTokenFree() {
+        final state = container.read(plexSettingsControllerProvider);
+        final List<String> texts = <String>[
+          state.baseUrl ?? '',
+          state.serverName ?? '',
+          state.serverVersion ?? '',
+          state.statusMessage ?? '',
+          state.errorMessage ?? '',
+          for (final PlexServerChoice server in state.servers)
+            server.toString(),
+        ];
+        for (final String text in texts) {
+          for (final String secret in secrets) {
+            expect(text, isNot(contains(secret)));
+          }
+        }
+      }
+
+      await notifier.connectWithPlex();
+      expectStateTokenFree();
+
+      await notifier.selectServer('fake-machine-id');
+      expectStateTokenFree();
+
+      // And the live session still redacts its token when printed.
+      final String text = notifier.session.toString();
+      for (final String secret in secrets) {
+        expect(text, isNot(contains(secret)));
+      }
       expect(text, contains('<redacted>'));
     });
   });
