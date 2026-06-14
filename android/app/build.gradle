@@ -11,9 +11,10 @@ plugins {
 //     LINTHRA_KEYSTORE_BASE64 secret and sets LINTHRA_KEYSTORE_PATH, or
 //   * a git-ignored android/key.properties file — for local release builds.
 // Environment variables take precedence over key.properties. If no complete
-// signing config is found, release builds fall back to the debug key so that
-// `flutter run --release` keeps working. Debug-signed artifacts are NOT real
-// releases and must not be distributed as such. See docs/release-signing.md.
+// signing config is found, the release build is left UNSIGNED — F-Droid
+// expects an unsigned release APK so it can sign the artifact with its own
+// key. A build that is not release-signed must not be distributed as a real
+// release. See docs/release-signing.md.
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
@@ -40,7 +41,7 @@ def hasReleaseSigning = releaseStoreFilePath != null && !releaseStoreFilePath.is
 if (hasReleaseSigning) {
     logger.lifecycle("Linthra: release build will be signed with the configured release keystore.")
 } else {
-    logger.lifecycle("Linthra: no release signing config found; release build falls back to the DEBUG key (not a real release).")
+    logger.lifecycle("Linthra: no release signing config found; release build will be UNSIGNED (e.g. for F-Droid, which signs it itself).")
 }
 
 android {
@@ -100,10 +101,13 @@ android {
     buildTypes {
         release {
             // Use the real release signing config when complete signing material
-            // is available (env vars or key.properties); otherwise fall back to
-            // the debug key so `flutter run --release` still works. Debug-signed
-            // release builds are clearly labeled by CI and must not be shipped.
-            signingConfig = hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
+            // is available (env vars or key.properties). Otherwise leave the
+            // release build UNSIGNED: F-Droid expects an unsigned release APK so
+            // it can sign the artifact with its own key. (A build that is not
+            // release-signed must never be distributed as a real release.)
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.release
+            }
         }
     }
 }
