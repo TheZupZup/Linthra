@@ -1613,6 +1613,56 @@ void main() {
     });
 
     test(
+        'a slow restore landing mid-flow does not swap the in-flight PIN '
+        'client identity', () async {
+      // The restore would bring back a session whose clientIdentifier differs
+      // from the launch id the PIN flow minted its PIN with.
+      final store = _GatedReadStore(
+        _session.copyWith(
+          machineIdentifier: 'old-machine',
+          clientIdentifier: 'restored-install-id',
+        ),
+      );
+      final tvClient =
+          _GatedPinTvClient(checkPinScript: <Object?>[_accountToken])
+            ..resources = const <PlexResource>[_officeResource];
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      final launchId =
+          container.read(plexClientIdentityProvider).clientIdentifier;
+      expect(launchId, isNot('restored-install-id'));
+
+      final Future<void> flow = notifier.connectWithPlex();
+      await _settle();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.linking,
+      );
+
+      // The slow restore completes mid-flow. It must NOT publish the restored
+      // client id — the in-flight PIN is bound to the launch id, so swapping
+      // the X-Plex-Client-Identifier would break the approval.
+      store.readGate.complete();
+      await _settle();
+      expect(
+        container.read(plexClientIdentityProvider).clientIdentifier,
+        launchId,
+      );
+
+      // The flow proceeds and connects under the identity it began with.
+      tvClient.gate.complete();
+      await flow;
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(notifier.session!.clientIdentifier, launchId);
+      expect(
+        container.read(plexClientIdentityProvider).clientIdentifier,
+        launchId,
+      );
+    });
+
+    test(
         'no token — account, server-scoped, or shared — ever reaches the '
         'state through the whole flow', () async {
       final container = _container(

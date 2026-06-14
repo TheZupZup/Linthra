@@ -134,19 +134,26 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       return;
     }
     _session = saved;
-    // Re-announce the identifier this install presented when it connected, so
-    // the server keeps seeing the same client across restarts.
-    ref
-        .read(plexPersistedClientIdentifierProvider.notifier)
-        .publish(saved.clientIdentifier);
     if (_linkFlowOwnsCard) {
       // A "Connect with Plex" flow started while this slow read was still in
       // flight and owns the card now — including its `connecting` probe, which
       // [PlexSettingsState.isLinkFlowActive] wouldn't catch. The restored
       // session stays live behind it (a cancel rebuilds the connected view
-      // from it); only the visible state must not be clobbered.
+      // from it), but two things must NOT happen now: the visible state must
+      // not be clobbered, and — critically — the restored client identifier
+      // must NOT be published. Publishing it would swap the
+      // `X-Plex-Client-Identifier` mid-flow (the running PIN is bound to the
+      // id `begin()` minted with), so the browser approval could be rejected
+      // or expire. The flow publishes the right id when it connects
+      // ([_completeConnect]); a cancel publishes the restored one
+      // ([_restoreIdleState]).
       return;
     }
+    // Re-announce the identifier this install presented when it connected, so
+    // the server keeps seeing the same client across restarts.
+    ref
+        .read(plexPersistedClientIdentifierProvider.notifier)
+        .publish(saved.clientIdentifier);
     state = PlexSettingsState(
       phase: PlexConnectionPhase.connected,
       baseUrl: saved.baseUrl,
@@ -490,6 +497,13 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   void _restoreIdleState() {
     final PlexSession? current = _session;
     if (current != null) {
+      // Now that the flow has yielded the card, announce the session's client
+      // identifier. A mid-flow restore deliberately deferred this (publishing
+      // it would have swapped the in-flight PIN's identity); it's a harmless
+      // no-op for a session whose id was already published at startup.
+      ref
+          .read(plexPersistedClientIdentifierProvider.notifier)
+          .publish(current.clientIdentifier);
       state = PlexSettingsState(
         phase: PlexConnectionPhase.connected,
         baseUrl: current.baseUrl,
