@@ -65,6 +65,17 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// re-launch the same PIN's page after the user closed the browser tab.
   PlexPinLink? _activeLink;
 
+  /// True from the moment a "Connect with Plex" flow starts until it connects,
+  /// is cancelled, or is superseded — i.e. while the flow owns the card.
+  ///
+  /// Broader than the phase-based [PlexSettingsState.isLinkFlowActive]: it
+  /// stays true through the flow's `connecting` **probe** too, which shares
+  /// the `connecting` phase with the manual form and so can't be told apart by
+  /// phase alone. The startup restore consults this (not the phase) so a slow
+  /// secure-storage read landing mid-flow — on success **or** failure — can't
+  /// clobber the visible sign-in with a restored session or a restore error.
+  bool _linkFlowOwnsCard = false;
+
   /// Whether the music libraries were already fetched once for the current
   /// connection, so [loadSectionsIfNeeded] stays a no-op on rebuilds (and a
   /// server with zero music libraries isn't re-polled on every Settings open).
@@ -102,8 +113,11 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       // A storage hiccup must not break startup; stay disconnected but say
       // so (statically, token-free), so a user who *was* connected isn't left
       // wondering where their server went. (A missing/corrupt record already
-      // reads back as null inside the store and stays silent.)
-      if (!_restoreSuperseded && _session == null) {
+      // reads back as null inside the store and stays silent.) But if a
+      // "Connect with Plex" flow has since taken over the card, leave it
+      // alone — replacing it with a disconnected restore error would strip
+      // the user's Cancel/reopen controls while the poll keeps running.
+      if (!_restoreSuperseded && _session == null && !_linkFlowOwnsCard) {
         state = const PlexSettingsState(
           errorMessage: "Couldn't restore your saved Plex connection from "
               'this device. If you use Plex, connect again below.',
@@ -125,11 +139,12 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     ref
         .read(plexPersistedClientIdentifierProvider.notifier)
         .publish(saved.clientIdentifier);
-    if (state.isLinkFlowActive) {
+    if (_linkFlowOwnsCard) {
       // A "Connect with Plex" flow started while this slow read was still in
-      // flight and owns the card now. The restored session stays live behind
-      // it (a cancel rebuilds the connected view from it); only the visible
-      // state must not be clobbered.
+      // flight and owns the card now — including its `connecting` probe, which
+      // [PlexSettingsState.isLinkFlowActive] wouldn't catch. The restored
+      // session stays live behind it (a cancel rebuilds the connected view
+      // from it); only the visible state must not be clobbered.
       return;
     }
     state = PlexSettingsState(
@@ -213,6 +228,9 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   Future<void> connectWithPlex() async {
     if (state.isBusy || state.isLinkFlowActive) return;
     final int attempt = ++_linkAttempt;
+    // The flow now owns the card; the startup restore must not clobber it
+    // (on success or failure) until it connects, cancels, or is superseded.
+    _linkFlowOwnsCard = true;
 
     // Immediate feedback while the PIN is minted; keep the current card
     // context (server fields, sections, selection) so a cancel or failure
@@ -464,6 +482,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     _accountToken = null;
     _flowServers = const <PlexResource>[];
     _activeLink = null;
+    _linkFlowOwnsCard = false;
   }
 
   /// Restores the card to its resting state: the connected view rebuilt from

@@ -140,17 +140,20 @@ class _FlakyPlexSessionStore implements PlexSessionStore {
 /// A [PlexSessionStore] whose read blocks until released, simulating a slow
 /// secure-storage read on a real device so user actions can race the startup
 /// restore. The read returns what was persisted when it *started* (a stale
-/// snapshot), exactly like a disk read would.
+/// snapshot), exactly like a disk read would — or throws [readErrorAfterGate]
+/// when set, to simulate a read that fails only after the race window opened.
 class _GatedReadStore implements PlexSessionStore {
-  _GatedReadStore(this._session);
+  _GatedReadStore(this._session, {this.readErrorAfterGate});
 
   PlexSession? _session;
+  final Object? readErrorAfterGate;
   final Completer<void> readGate = Completer<void>();
 
   @override
   Future<PlexSession?> read() async {
     final PlexSession? snapshot = _session;
     await readGate.future;
+    if (readErrorAfterGate != null) throw readErrorAfterGate!;
     return snapshot;
   }
 
@@ -162,6 +165,28 @@ class _GatedReadStore implements PlexSessionStore {
   @override
   Future<void> clear() async {
     _session = null;
+  }
+}
+
+/// A [FakePlexClient] whose `fetchIdentity` blocks until [identityGate]
+/// completes, so a test can hold the PIN flow in its `connecting` server-probe
+/// while another event (a slow startup restore) lands.
+class _GatedIdentityClient extends FakePlexClient {
+  _GatedIdentityClient({
+    required this.identityGate,
+    super.identity,
+    super.sections,
+  });
+
+  final Completer<void> identityGate;
+
+  @override
+  Future<PlexServerIdentity> fetchIdentity({
+    required String baseUrl,
+    required String token,
+  }) async {
+    await identityGate.future;
+    return super.fetchIdentity(baseUrl: baseUrl, token: token);
   }
 }
 
@@ -1496,6 +1521,95 @@ void main() {
 
       tvClient.gate.complete();
       await flow;
+    });
+
+    test(
+        'a restore read failure landing mid-flow does not clobber the sign-in '
+        'with a disconnected error', () async {
+      // The slow startup read ultimately FAILS, while the user has already
+      // started "Connect with Plex".
+      final store = _GatedReadStore(null,
+          readErrorAfterGate: StateError('keystore gone'));
+      final tvClient = _GatedPinTvClient();
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      final Future<void> flow = notifier.connectWithPlex();
+      await _settle();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.linking,
+      );
+
+      // The failed restore must not replace the linking card with a
+      // disconnected restore error (which would strip Cancel/reopen).
+      store.readGate.complete();
+      await _settle();
+      final mid = container.read(plexSettingsControllerProvider);
+      expect(mid.phase, PlexConnectionPhase.linking);
+      expect(mid.errorMessage, isNull);
+
+      // The flow's controls still work.
+      notifier.cancelPlexLink();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.disconnected,
+      );
+
+      tvClient.gate.complete();
+      await flow;
+    });
+
+    test(
+        'a slow restore completing while the picked server is probed does not '
+        'clobber the sign-in', () async {
+      final identityGate = Completer<void>();
+      final client = _GatedIdentityClient(
+        identityGate: identityGate,
+        identity:
+            const PlexServerIdentity(machineIdentifier: 'fake-machine-id'),
+        sections: const [_musicSection],
+      );
+      // The restore would bring back an OLD, different session.
+      final store = _GatedReadStore(
+        _session.copyWith(machineIdentifier: 'old-machine'),
+      );
+      final container = _container(
+        client: client,
+        store: store,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resources: const <PlexResource>[_officeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      final Future<void> flow = notifier.connectWithPlex();
+      // Advance to the connecting probe (single server auto-connects), held at
+      // the gated fetchIdentity.
+      await _settle();
+      await _settle();
+      var state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connecting);
+      // A PIN-flow connecting (servers known) — not the manual form, which
+      // `isLinkFlowActive` alone couldn't tell apart.
+      expect(state.servers, isNotEmpty);
+
+      // The slow restore completes mid-probe — it must not clobber the
+      // in-progress sign-in with the old restored session.
+      store.readGate.complete();
+      await _settle();
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connecting);
+      expect(state.baseUrl, isNull); // not the restored old base URL
+
+      // Releasing the probe completes the flow against the picked server.
+      identityGate.complete();
+      await flow;
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.serverName, 'Office Server');
+      expect(notifier.session!.machineIdentifier, 'fake-machine-id');
     });
 
     test(
