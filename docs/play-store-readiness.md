@@ -26,9 +26,12 @@ identity, version source, and assets but differ on signing and submission.
   automatically.
 - **Groundwork in place:**
   - Stable application ID `io.github.thezupzup.linthra` and MPL-2.0 license.
-  - A real Linthra app/launcher icon (adaptive + legacy) plus a 512×512 store
-    icon and a 1024×500 feature graphic under
-    `fastlane/metadata/android/en-US/images/`.
+  - A real Linthra app/launcher icon (adaptive + legacy), a 512×512 listing
+    icon, and a 1024×500 feature graphic under
+    `fastlane/metadata/android/en-US/images/`, plus a dedicated **full-bleed**
+    512×512 Google Play app icon at
+    `assets/brand/linthra-play-store-icon-512.png` (Play masks its own corners,
+    so the Play icon is full-bleed, not the F-Droid squircle).
   - A release workflow that already builds an **AAB** (`flutter build appbundle
     --release`) as well as an APK — see
     [docs/release-process.md](./release-process.md) and
@@ -136,7 +139,7 @@ reusable copies under `fastlane/metadata/android/en-US/images/`):
 
 | Asset                 | Play requirement                                   | Status  |
 | --------------------- | -------------------------------------------------- | ------- |
-| **App icon**          | 512×512 PNG, 32-bit with alpha.                    | Present (`images/icon.png`). |
+| **App icon**          | 512×512 PNG, 32-bit with alpha, **full-bleed square** (Play applies its own corner mask + shadow — do not pre-round). | Present (`assets/brand/linthra-play-store-icon-512.png`). |
 | **Feature graphic**   | 1024×500 PNG/JPG. Required to publish on any track.| Present (`images/featureGraphic.png`). |
 | **Phone screenshots** | 2–8, each side 320–3840 px, long side ≤ 2× short.  | Real captures exist for F-Droid (`images/phoneScreenshots/`), but at 1008×2244 (≈9:20) they exceed Play's 2:1 limit — **crop before using on Play**. |
 | **7-inch tablet**     | Optional.                                          | Missing (optional). |
@@ -148,8 +151,12 @@ reusable copies under `fastlane/metadata/android/en-US/images/`):
   before reuse on a Play listing (still the main image to-do for Play). Always
   from a **real** running build, never mockups or upscaled placeholders. Sizes
   and `adb` capture steps are in [docs/listing-assets.md](./listing-assets.md).
-- The icon and feature graphic are generated deterministically from one source
-  design (`tool/branding/`), so the Play and F-Droid copies never drift.
+- The icons and feature graphic are generated deterministically from one source
+  design (`tool/branding/`), so the Play and F-Droid copies never drift. The
+  **Play app icon is full-bleed** (`assets/brand/linthra-play-store-icon-512.png`)
+  because Play rounds the corners itself; the F-Droid `images/icon.png` carries
+  its own squircle. Both share the same mark and palette, so upload the
+  full-bleed file as the Play **App icon**.
 
 ## 7. Data Safety checklist
 
@@ -396,6 +403,7 @@ maintainer.**
 - [ ] **App category** — *Music & Audio* (§13).
 - [ ] **Screenshots** — 2–8 phone shots, cropped to Play's ≤ 2:1 ratio
       ([play-store-listing.md §7](./play-store-listing.md#7-screenshots--recommended-play-order)).
+- [ ] **App icon** (512×512 full-bleed, `assets/brand/linthra-play-store-icon-512.png`).
 - [ ] **Feature graphic** (1024×500, `images/featureGraphic.png`).
 - [ ] **Privacy policy URL** — publish [privacy-policy.md](./privacy-policy.md)
       at a stable public URL and paste it (§8).
