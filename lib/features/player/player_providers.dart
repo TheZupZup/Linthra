@@ -28,6 +28,7 @@ import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import '../../core/sources/subsonic/subsonic_playback_reporter.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
+import '../../data/repositories/remote_cache_index_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/jellyfin/jellyfin_settings_providers.dart';
 import '../settings/plex/plex_settings_controller.dart';
@@ -83,6 +84,10 @@ final remoteStreamPrebuffererProvider =
   return RemoteStreamPrebufferer(
     resolver: ref.watch(remoteSourceRouterProvider),
     cache: ref.watch(remotePlaybackCacheProvider),
+    // Persist each warm's credential-free key into the durable index so the
+    // cache's knowledge survives a restart. Best-effort and never on the
+    // playback path; only the opaque key is stored, never the stream URL.
+    index: ref.watch(remoteCacheIndexProvider),
   );
 });
 

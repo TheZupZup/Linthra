@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/subsonic_session.dart';
+import '../../../core/services/remote_cache/remote_cache_key.dart';
 import '../../../core/sources/music_provider.dart';
 import '../../../core/sources/subsonic/subsonic_api.dart';
 import '../../../core/sources/subsonic/subsonic_exception.dart';
 import '../../../core/sources/subsonic/subsonic_music_source.dart';
+import '../../../data/repositories/remote_cache_index_provider.dart';
 import '../../../data/repositories/subsonic_session_store_provider.dart';
 import '../../library/source_preference_controller.dart';
 import 'subsonic_settings_providers.dart';
@@ -164,6 +166,13 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
     state = const SubsonicSettingsState(
       statusMessage: 'Signed out. Your Subsonic settings were cleared.',
     );
+    // Drop this account's prepared-track records from the durable remote cache
+    // index so a signed-out library leaves no footprint. Done after the visible
+    // state has already returned to the signed-out form so this best-effort,
+    // credential-free cleanup (removeSource never throws) can't delay sign-out.
+    await ref
+        .read(remoteCacheIndexProvider)
+        .removeSource(RemoteCacheKey.sourceIdSubsonic);
   }
 
   /// Reports an error without dropping an existing connection: a failed test or

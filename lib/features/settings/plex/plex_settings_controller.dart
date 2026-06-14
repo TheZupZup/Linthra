@@ -4,12 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/external_link_launcher_provider.dart';
 import '../../../core/models/plex_session.dart';
+import '../../../core/services/remote_cache/remote_cache_key.dart';
 import '../../../core/sources/plex/plex_api.dart';
 import '../../../core/sources/plex/plex_exception.dart';
 import '../../../core/sources/plex/plex_music_source.dart';
 import '../../../core/sources/plex/plex_pin_auth.dart';
 import '../../../core/sources/plex/plex_tv_api.dart';
 import '../../../data/repositories/plex_session_store_provider.dart';
+import '../../../data/repositories/remote_cache_index_provider.dart';
 import 'plex_settings_providers.dart';
 import 'plex_settings_state.dart';
 import 'plex_sync_controller.dart';
@@ -705,6 +707,14 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
               'removed from this device.'
           : 'Disconnected. Your Plex session was removed from this device.',
     );
+    // Drop this server's prepared-track records from the durable remote cache
+    // index so a disconnected library leaves no footprint. Done after the
+    // visible state has already returned to the disconnected card so this
+    // best-effort, credential-free cleanup (removeSource never throws) can't
+    // delay disconnect.
+    await ref
+        .read(remoteCacheIndexProvider)
+        .removeSource(RemoteCacheKey.sourceIdPlex);
   }
 
   /// Runs the catalog sync for the current selection without blocking the

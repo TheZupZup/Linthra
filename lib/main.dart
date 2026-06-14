@@ -22,6 +22,7 @@ import 'data/repositories/playback_source_strategy_store_provider.dart';
 import 'data/repositories/playlist_repository_provider.dart';
 import 'data/repositories/plex_session_store_provider.dart';
 import 'data/repositories/preferred_source_store_provider.dart';
+import 'data/repositories/remote_cache_index_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
 import 'features/downloads/download_providers.dart';
@@ -145,6 +146,13 @@ Future<void> main() async {
   // offline cache or marking anything downloaded. Side-effect-only, like smart
   // pre-cache.
   container.read(remotePrebufferServiceProvider);
+
+  // Load the durable, credential-free remote-cache index and prune any stale
+  // records, off the first-frame path. Best-effort: the manifest holds only
+  // opaque track keys + timestamps (never a URL or token), so this can never
+  // block startup or leak a secret — and because no stream URL is persisted, a
+  // fresh one is always re-resolved after a restart rather than replayed stale.
+  unawaited(container.read(remoteCacheIndexProvider).load());
 
   // Start playback reporting: mirrors live playback onto the server that owns
   // the playing track (Plex today), so the user's own dashboard shows Linthra

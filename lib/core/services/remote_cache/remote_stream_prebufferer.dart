@@ -1,6 +1,8 @@
 import '../../models/track.dart';
 import '../playable_uri_resolver.dart';
 import '../stream_preloader.dart';
+import 'remote_cache_entry.dart';
+import 'remote_cache_index.dart';
 import 'remote_cache_key.dart';
 import 'remote_cache_policy.dart';
 import 'remote_playback_cache.dart';
@@ -21,10 +23,12 @@ import 'remote_playback_cache.dart';
 ///  - **Best-effort, never fatal.** Every warm is wrapped; a failure is
 ///    swallowed and never rethrown, so prebuffering can never fail or stall the
 ///    current track.
-///  - **No disk, no secrets in the open.** It only ever holds a short-lived
-///    remote URL *in memory* via the cache; it never writes the offline cache,
-///    never marks a track downloaded, and never logs the resolved URL (so a
-///    token can't leak through this path).
+///  - **No secrets on disk.** It only ever holds a short-lived remote URL *in
+///    memory* via the cache; it never writes the offline cache, never marks a
+///    track downloaded, and never logs the resolved URL (so a token can't leak
+///    through this path). When an optional [RemoteCacheIndex] is wired it
+///    persists only the warmed track's *credential-free* key (never the URL),
+///    so the durable manifest cannot carry a secret either.
 ///  - **Remote-only.** Local files and `content://` documents have no cache key
 ///    (see [RemoteCacheKey]) and are skipped outright.
 ///  - **Freshness-aware & idempotent.** It sweeps stale entries and skips a
@@ -34,15 +38,23 @@ class RemoteStreamPrebufferer implements StreamPreloader {
     required PlayableUriResolver resolver,
     required RemotePlaybackCache cache,
     RemoteCachePolicy policy = const RemoteCachePolicy(),
+    RemoteCacheIndex? index,
     DateTime Function()? clock,
   })  : _resolver = resolver,
         _cache = cache,
         _policy = policy,
+        _index = index,
         _now = clock ?? DateTime.now;
 
   final PlayableUriResolver _resolver;
   final RemotePlaybackCache _cache;
   final RemoteCachePolicy _policy;
+
+  /// The optional durable, credential-free index. When wired, a successful warm
+  /// records the track's key (never its URL) so the cache's knowledge survives a
+  /// restart. Best-effort: [RemoteCacheIndex.record] never throws.
+  final RemoteCacheIndex? _index;
+
   final DateTime Function() _now;
 
   @override
@@ -77,9 +89,13 @@ class RemoteStreamPrebufferer implements StreamPreloader {
       // Only retain a fresh direct-stream URL; a local path or offline-cache hit
       // carries no benefit and must not be held here.
       if (_policy.isStorable(resolved.source)) {
-        _cache.store(
-          _policy.buildEntry(key: key, resolved: resolved, now: _now()),
-        );
+        final RemoteCacheEntry entry =
+            _policy.buildEntry(key: key, resolved: resolved, now: _now());
+        _cache.store(entry);
+        // Remember the warm in the durable, credential-free index so the cache's
+        // knowledge survives a restart. Best-effort and never throws; only the
+        // opaque key is persisted, never the token-bearing stream URL.
+        await _index?.record(entry);
       }
     } catch (_) {
       // Best-effort: a failed warm just means the track resolves normally when

@@ -8,9 +8,11 @@ foundation Linthra uses to prepare remote playback **earlier and more
 aggressively** — without persisting secrets and without changing how local music
 or any existing provider behaves.
 
-It is the seam the future on-disk offline/cache system will hang off; this phase
-ships the in-memory prebuffer and the credential-free key/metadata model, not a
-user-facing cache UI or downloads.
+It is the seam the future on-disk offline/cache system hangs off. This phase
+ships the in-memory prebuffer, the credential-free key/metadata model, and a
+durable, credential-free **on-disk index** of what has been prepared (so the
+cache's knowledge survives a restart) — but still no user-facing cache UI and no
+downloads: the audio *bytes* remain the offline download cache's job.
 
 ## What it does
 
@@ -37,9 +39,12 @@ know nothing about Jellyfin, Plex, or Subsonic beyond a track's URI scheme.
 | `RemoteCachePolicy` | The pure rules — what may be prebuffered, what may be stored (only a direct stream), the TTL, and whether an entry may be reused. |
 | `RemotePlaybackCache` | The in-memory store. `store` / `peek` / `consume` (consume-on-read) / `sweep` / `clear`. Persists nothing. |
 | `RemoteCacheCleanup` | The pure cleanup rule: which entries are expired and should be dropped. |
-| `RemoteStreamPrebufferer` | The **write side**: pre-resolves the current + next remote URLs through the source router and stores them. Best-effort; never throws. |
+| `RemoteStreamPrebufferer` | The **write side**: pre-resolves the current + next remote URLs through the source router, stores them, and (optionally) records each warm's credential-free key in the durable index. Best-effort; never throws. |
 | `RemoteCacheResolver` | The **read side**: a `PlayableUriResolver` that serves a fresh warmed URL once, else delegates to the router. |
 | `RemotePrebufferService` | Drives the prebufferer from the live `PlaybackState` (current + next, calm under repeat-one, off the playback path). |
+| `RemoteCacheRecord` | The **persistable, credential-free projection** of an entry: its key + timestamps, with the token-bearing stream URL cut away. There is no field that could hold a URL or token. |
+| `RemoteCacheStore` | The persistence seam — `load` / `save` a list of records. The app impl is `FileRemoteCacheStore` (a JSON manifest under `remote_cache/`); tests use an in-memory fake. |
+| `RemoteCacheIndex` | The durable index orchestrator: loads once, records each warm's credential-free key, sweeps expired records, and clears — every step best-effort and off the playback path. |
 
 ### Wiring
 
@@ -49,7 +54,54 @@ In `lib/features/player/player_providers.dart` the read side
 `remotePlaybackCacheProvider` and one `remoteSourceRouterProvider` (Jellyfin →
 Subsonic → Plex → on-device catch-all). The controller resolves through the
 offline-first resolver, which falls through to the remote cache resolver on a
-download miss. `RemotePrebufferService` is started once from `main`.
+download miss. `RemotePrebufferService` is started once from `main`, which also
+kicks a best-effort `remoteCacheIndexProvider.load()` to warm and prune the
+durable index off the first-frame path.
+
+## On-disk index (durable, credential-free)
+
+The in-memory cache forgets everything when the process ends — and holds the
+token-bearing URL only for its short TTL. The on-disk **index** is its durable
+complement: as the prebufferer warms a remote track it records that track's
+*credential-free* identity through a `RemoteCacheStore`, so the cache's
+*knowledge* survives a restart even though the (expiring, tokenized) URL
+deliberately does not.
+
+What is persisted is only a `RemoteCacheRecord` — the opaque key
+(`jellyfin:<id>` / `subsonic:<id>` / `plex:<ratingKey>`) plus two timestamps. The
+type has **no field** for a stream URL, an artwork URL, or a token, so the JSON
+manifest (`<app-support>/remote_cache/index.json`) physically cannot carry one.
+On the way back in, `RemoteCacheRecord.fromJson` re-validates every key through
+`RemoteCacheKey.forUri` and drops anything local, `content://`, or even
+*looks* tokenized — so a corrupt or hand-edited manifest can't reintroduce a
+secret either.
+
+Because no URL is stored, a restart can never replay a stale stream: the index
+remembers *that* a track was prepared (and the credential-free name its future
+on-disk bytes will use), and the resolver still mints a **fresh** URL on the next
+play. The index is the seam the future on-disk byte cache and its eviction sweep
+hang off — `RemoteCacheIndex.sweep` already drops records past a generous
+retention window, and `clear` empties both the index and the manifest.
+
+Everything here is **best-effort and non-fatal**, exactly like the prebufferer it
+rides behind: the load runs once and lazily, every store call is wrapped, and a
+slow or failing disk degrades to a cold index rather than throwing into the
+playback path. `RemoteStreamPrebufferer` takes the index as an *optional*
+collaborator, so the write side is byte-for-byte unchanged when none is wired.
+
+### Disconnect / sign-out cleanup
+
+When a user disconnects a provider, its prepared-track records should not linger.
+Each provider's disconnect/sign-out flow (`PlexSettingsController.disconnect`,
+`JellyfinSettingsController.clear`, `SubsonicSettingsController.clear`) calls
+`RemoteCacheIndex.removeSource(sourceId)`, which drops only that provider's
+records — `jellyfin` / `subsonic` / `plex`, keyed off `RemoteCacheKey.sourceId` —
+and persists the rest, so signing out of one server never discards another's
+records. The call is **best-effort** and runs *after* the settings UI has already
+returned to its signed-out state, so this credential-free cleanup can never throw
+into, or delay, the disconnect (the whole-index `clear` remains for a future
+"forget everything"). Records are credential-free either way, so this is privacy
+hygiene — no token is ever at stake.
 
 ## Security rules (non-negotiable)
 
@@ -57,9 +109,11 @@ A remote stream URL carries its credential in the URL itself (Jellyfin/Subsonic
 in the query, Plex's `X-Plex-Token`). The whole foundation is built so that
 credential **never** lands anywhere durable:
 
-- **Never persist a tokenized stream or artwork URL.** The cache is in-memory
-  only and serializes nothing. The token-bearing URL lives solely inside a
-  `RemoteCacheEntry.streamUri` for the life of the process.
+- **Never persist a tokenized stream or artwork URL.** The token-bearing URL
+  lives solely inside a `RemoteCacheEntry.streamUri` for the life of the process;
+  the in-memory cache serializes nothing, and the durable on-disk index persists
+  only a `RemoteCacheRecord` (the opaque key + timestamps), which has no field a
+  URL or token could ever occupy.
 - **Cache keys, filenames, and metadata are credential-free.** `RemoteCacheKey`
   is built only from the track's opaque `uri` (`jellyfin:<id>`, `subsonic:<id>`,
   `plex:<ratingKey>`). `fileSafeName` (for the future on-disk cache) sanitizes
@@ -73,9 +127,11 @@ credential **never** lands anywhere durable:
   and `artworkUri` remains `plex-thumb:<path>`; the token is woven into the
   stream URL on demand, never onto the track or into the cache key.
 
-These are enforced by tests in `test/core/services/remote_cache/` (see the
-"credential safety" groups, the tokenized-URL-refusal cases, and the
-local/`content://`-are-never-cached cases).
+These are enforced by tests in `test/core/services/remote_cache/` and
+`test/data/repositories/file_remote_cache_store_test.dart` (see the "credential
+safety" groups, the tokenized-URL-refusal cases, the local/`content://`-are-
+never-cached cases, and the assertion that the written manifest file itself
+carries no token, URL, or `api_key`).
 
 ## Failure behaviour
 

@@ -268,7 +268,10 @@ Additional cast checks:
 
 The remote playback cache warms the current + next remote stream URL into memory
 so skips start faster (see [remote-playback-cache.md](remote-playback-cache.md)).
-It is **not** the offline cache — nothing is written to disk.
+It is **not** the offline cache — no audio bytes and no stream URLs are written
+to disk. A durable, credential-free **index** (`remote_cache/index.json`) does
+persist *which* tracks were prepared (opaque key + timestamps only), so the
+cache's knowledge survives a restart; it never holds a URL or token.
 
 - ☐ Play a **Jellyfin** track; let it settle, then skip to the next — the next
   track starts quickly (no fresh buffering spinner before it begins).
@@ -290,6 +293,22 @@ It is **not** the offline cache — nothing is written to disk.
   never **fails because of** prebuffering, and recovers when the network returns.
 - ☐ `adb logcat` during all of the above shows **no token / api_key / stream URL**
   from the prebuffer path (see §12).
+- ☐ Play a remote track, then fully **kill and relaunch** the app — playback
+  still works and the first remote play resolves a **fresh** URL (the index never
+  replays a stored one, because it stores none).
+- ☐ Pull the on-device manifest and confirm it is credential-free:
+  `adb exec-out run-as io.github.thezupzup.linthra cat files/remote_cache/index.json`
+  — it lists only opaque keys (`jellyfin:…` / `subsonic:…` / `plex:…`) and
+  timestamps; **no token, api_key, stream URL, or artwork URL**.
+- ☐ Play only **local** files across a restart — no `remote_cache/index.json` is
+  created for them (local/`content://` tracks never touch the remote cache).
+- ☐ With two remote providers connected (e.g. Jellyfin + Plex), play a few
+  tracks from each, then **disconnect one** (Settings → that provider →
+  disconnect / sign out). The manifest keeps the *other* provider's keys and
+  drops the disconnected one's — `cat files/remote_cache/index.json` shows no
+  `jellyfin:`/`subsonic:`/`plex:` keys for the provider you just disconnected.
+- ☐ Disconnecting returns to the signed-out card immediately (the index cleanup
+  never blocks or breaks sign-out).
 
 ## 8. Favorites
 

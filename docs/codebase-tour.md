@@ -110,7 +110,8 @@ with `shuffled()`/`unshuffled()` transforms), and `RepeatMode`.
 
 Remote URL minting — and the credentials woven into those URLs — lives *here*,
 never in the audio layer. The remote prebuffer/cache foundation that warms those
-URLs ahead of a skip (credential-free keys, in-memory only) is described in
+URLs ahead of a skip (credential-free keys in memory, plus a durable
+credential-free on-disk index that never stores the URL) is described in
 [remote-playback-cache.md](remote-playback-cache.md). The UI entry point that
 wires all of this is `lib/features/player/player_providers.dart`. Deeper dives:
 [streaming.md](streaming.md), [background-playback.md](background-playback.md),
