@@ -1613,6 +1613,65 @@ void main() {
     });
 
     test(
+        'a slow restore completing while a server PICKED from the multi-server '
+        'list is being probed does not clobber the sign-in', () async {
+      // The reviewer's exact scenario: a multi-server account, the user picks
+      // a server from the list, and the slow startup restore finishes while
+      // that picked server is being probed/connected.
+      final identityGate = Completer<void>();
+      final client = _GatedIdentityClient(
+        identityGate: identityGate,
+        identity: const PlexServerIdentity(machineIdentifier: 'machine-attic'),
+        sections: const [_musicSection],
+      );
+      // The restore would bring back an OLD, different session.
+      final store = _GatedReadStore(
+        _session.copyWith(machineIdentifier: 'old-machine'),
+      );
+      final container = _container(
+        client: client,
+        store: store,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          // Two servers → the picker, no auto-connect.
+          resources: const <PlexResource>[_officeResource, _atticResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+
+      // The whole sign-in runs to the picker (fetchIdentity isn't called until
+      // a server is picked), so connectWithPlex can be awaited fully.
+      await notifier.connectWithPlex();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.pickingServer,
+      );
+
+      // The user picks Attic; its probe is held at the gated fetchIdentity.
+      final Future<bool> picked = notifier.selectServer('machine-attic');
+      await _settle();
+      var state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connecting);
+      expect(state.servers, isNotEmpty);
+
+      // The slow startup restore finishes mid-probe — it must not overwrite
+      // the visible connecting state with the old restored session.
+      store.readGate.complete();
+      await _settle();
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connecting);
+      expect(state.baseUrl, isNull); // not the restored old base URL
+
+      // Releasing the probe completes the connection to the picked server.
+      identityGate.complete();
+      expect(await picked, isTrue);
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.serverName, 'Attic NAS');
+      expect(notifier.session!.machineIdentifier, 'machine-attic');
+    });
+
+    test(
         'a slow restore landing mid-flow does not swap the in-flight PIN '
         'client identity', () async {
       // The restore would bring back a session whose clientIdentifier differs
