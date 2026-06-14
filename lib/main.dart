@@ -22,6 +22,7 @@ import 'data/repositories/playback_source_strategy_store_provider.dart';
 import 'data/repositories/playlist_repository_provider.dart';
 import 'data/repositories/plex_session_store_provider.dart';
 import 'data/repositories/preferred_source_store_provider.dart';
+import 'data/repositories/remote_cache_index_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
 import 'features/downloads/download_providers.dart';

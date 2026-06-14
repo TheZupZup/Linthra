@@ -10,6 +10,8 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/repositories/plex_session_store.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_index.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_record.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_exception.dart';
 import 'package:linthra/core/sources/plex/plex_music_source.dart';
@@ -19,12 +21,14 @@ import 'package:linthra/data/repositories/in_memory_music_library_repository.dar
 import 'package:linthra/data/repositories/in_memory_plex_session_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/plex_session_store_provider.dart';
+import 'package:linthra/data/repositories/remote_cache_index_provider.dart';
 import 'package:linthra/features/settings/plex/plex_settings_controller.dart';
 import 'package:linthra/features/settings/plex/plex_settings_providers.dart';
 import 'package:linthra/features/settings/plex/plex_settings_state.dart';
 import 'package:linthra/features/settings/plex/plex_sync_controller.dart';
 import 'package:linthra/features/settings/plex/plex_sync_state.dart';
 
+import '../../../core/services/remote_cache/fake_remote_cache_store.dart';
 import '../../../core/sources/plex/fake_plex_client.dart';
 import '../../../core/sources/plex/fake_plex_tv_client.dart';
 
@@ -238,6 +242,7 @@ ProviderContainer _container({
   MusicLibraryRepository? repository,
   FakePlexTvClient? tvClient,
   ExternalLinkLauncher? launcher,
+  RemoteCacheIndex? cacheIndex,
 }) {
   final FakePlexClient plexClient =
       client ?? FakePlexClient(sections: const [_musicSection]);
@@ -248,6 +253,8 @@ ProviderContainer _container({
           .overrideWithValue(store ?? InMemoryPlexSessionStore()),
       if (repository != null)
         musicLibraryRepositoryProvider.overrideWithValue(repository),
+      if (cacheIndex != null)
+        remoteCacheIndexProvider.overrideWithValue(cacheIndex),
       // The PIN flow on fakes, with an instant wait so the poll loop runs
       // without real delays.
       plexPinAuthProvider.overrideWith(
@@ -900,6 +907,33 @@ void main() {
       expect(state.statusMessage, contains('Disconnected'));
       expect(notifier.session, isNull);
       expect(container.read(plexMusicSourceProvider), isNull);
+    });
+
+    test("drops this server's prepared remote-cache records on disconnect",
+        () async {
+      final cacheStore = FakeRemoteCacheStore(seed: <RemoteCacheRecord>[
+        fakeRemoteCacheRecord('plex:1'),
+        fakeRemoteCacheRecord('plex:2'),
+        fakeRemoteCacheRecord('jellyfin:a'),
+      ]);
+      final index = RemoteCacheIndex(store: cacheStore);
+      final container = _container(
+        store: InMemoryPlexSessionStore(initialSession: _session),
+        cacheIndex: index,
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.disconnect();
+
+      // Only Plex's prepared-track records are removed (memory + disk); another
+      // provider's records are left untouched.
+      expect(index.records.map((RemoteCacheRecord r) => r.value), <String>[
+        'jellyfin:a',
+      ]);
+      expect(cacheStore.saved.map((RemoteCacheRecord r) => r.value), <String>[
+        'jellyfin:a',
+      ]);
     });
 
     test(

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/app_info.dart';
 import '../../../core/models/jellyfin_session.dart';
+import '../../../core/services/remote_cache/remote_cache_key.dart';
 import '../../../core/sources/jellyfin/jellyfin_api.dart';
 import '../../../core/sources/jellyfin/jellyfin_diagnostics.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
@@ -13,6 +14,7 @@ import '../../../core/sources/music_provider.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/jellyfin_session_store_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
+import '../../../data/repositories/remote_cache_index_provider.dart';
 import '../../library/source_preference_controller.dart';
 import 'jellyfin_settings_providers.dart';
 import 'jellyfin_settings_state.dart';
@@ -196,6 +198,13 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
     state = const JellyfinSettingsState(
       statusMessage: 'Signed out. Your Jellyfin settings were cleared.',
     );
+    // Drop this account's prepared-track records from the durable remote cache
+    // index so a signed-out library leaves no footprint. Done after the visible
+    // state has already returned to the signed-out form so this best-effort,
+    // credential-free cleanup (removeSource never throws) can't delay sign-out.
+    await ref
+        .read(remoteCacheIndexProvider)
+        .removeSource(RemoteCacheKey.sourceIdJellyfin);
   }
 
   /// Reports an error without dropping an existing connection: a failed test or

@@ -1,5 +1,32 @@
+import 'package:linthra/core/models/playback_source.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_entry.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_key.dart';
 import 'package:linthra/core/services/remote_cache/remote_cache_record.dart';
 import 'package:linthra/core/services/remote_cache/remote_cache_store.dart';
+
+/// A credential-free record for [uri] (`jellyfin:` / `subsonic:` / `plex:`), for
+/// seeding the fake store in disconnect/sign-out tests. It is built from an entry
+/// whose stream URL carries a token — exactly the thing that must not survive
+/// into the persisted record.
+///
+/// Defaults [recordedAt] to `DateTime.now()` (not a fixed date) so the 30-day
+/// retention leaves the record *fresh* against a real-clock index — otherwise a
+/// controller test's index would prune the seed as stale before the disconnect
+/// even runs.
+RemoteCacheRecord fakeRemoteCacheRecord(String uri, {DateTime? recordedAt}) {
+  final DateTime now = recordedAt ?? DateTime.now();
+  return RemoteCacheRecord.fromEntry(
+    RemoteCacheEntry(
+      key: RemoteCacheKey.forUri(uri)!,
+      streamUri: Uri.parse('https://server.example/stream?api_key=SECRET'),
+      source: PlaybackSource.streamingDirect,
+      resolvedAt: now,
+      expiresAt: now.add(const Duration(minutes: 2)),
+    ),
+    recordedAt: now,
+    expiresAt: now.add(const Duration(days: 30)),
+  );
+}
 
 /// An in-memory [RemoteCacheStore] for the durable-index tests.
 ///

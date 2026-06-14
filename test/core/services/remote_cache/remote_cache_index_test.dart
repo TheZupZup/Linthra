@@ -249,6 +249,101 @@ void main() {
     });
   });
 
+  group('RemoteCacheIndex.removeSource (provider disconnect)', () {
+    test('drops only the given provider, keeping the others', () async {
+      final FakeRemoteCacheStore store = FakeRemoteCacheStore();
+      final RemoteCacheIndex index =
+          RemoteCacheIndex(store: store, clock: () => now);
+      await index.record(_entry('jellyfin:a', now: now));
+      await index.record(_entry('jellyfin:b', now: now));
+      await index.record(_entry('subsonic:s', now: now));
+      await index.record(_entry('plex:1', now: now));
+
+      await index.removeSource('jellyfin');
+
+      expect(index.records.map((RemoteCacheRecord r) => r.value).toSet(),
+          <String>{'subsonic:s', 'plex:1'});
+      // The removal is persisted, not just dropped from memory.
+      expect(store.saved.map((RemoteCacheRecord r) => r.value).toSet(),
+          <String>{'subsonic:s', 'plex:1'});
+    });
+
+    test('removes each provider in isolation', () async {
+      for (final MapEntry<String, Set<String>> expected
+          in <String, Set<String>>{
+        'jellyfin': <String>{'subsonic:s', 'plex:1'},
+        'subsonic': <String>{'jellyfin:a', 'plex:1'},
+        'plex': <String>{'jellyfin:a', 'subsonic:s'},
+      }.entries) {
+        final FakeRemoteCacheStore store = FakeRemoteCacheStore();
+        final RemoteCacheIndex index =
+            RemoteCacheIndex(store: store, clock: () => now);
+        await index.record(_entry('jellyfin:a', now: now));
+        await index.record(_entry('subsonic:s', now: now));
+        await index.record(_entry('plex:1', now: now));
+
+        await index.removeSource(expected.key);
+
+        expect(index.records.map((RemoteCacheRecord r) => r.value).toSet(),
+            expected.value);
+      }
+    });
+
+    test('loads first, so a cold index still drops persisted records',
+        () async {
+      // A fresh index (just after launch) still removes the right provider's
+      // *persisted* records when a disconnect calls removeSource.
+      final FakeRemoteCacheStore store = FakeRemoteCacheStore(
+        seed: <RemoteCacheRecord>[
+          _record('jellyfin:a',
+              recordedAt: now, expiresAt: now.add(const Duration(days: 30))),
+          _record('plex:1',
+              recordedAt: now, expiresAt: now.add(const Duration(days: 30))),
+        ],
+      );
+      final RemoteCacheIndex index =
+          RemoteCacheIndex(store: store, clock: () => now);
+
+      await index.removeSource('plex');
+
+      expect(index.records.map((RemoteCacheRecord r) => r.value),
+          <String>['jellyfin:a']);
+      expect(store.saved.map((RemoteCacheRecord r) => r.value),
+          <String>['jellyfin:a']);
+    });
+
+    test('removing a provider with no records writes nothing', () async {
+      final FakeRemoteCacheStore store = FakeRemoteCacheStore();
+      final RemoteCacheIndex index =
+          RemoteCacheIndex(store: store, clock: () => now);
+      await index.record(_entry('jellyfin:a', now: now));
+      final int before = store.saveCount;
+
+      await index.removeSource('plex'); // nothing of this source to remove
+
+      expect(index.length, 1);
+      expect(store.saveCount, before);
+    });
+
+    test('a failing store never throws (non-fatal)', () async {
+      final FakeRemoteCacheStore store = FakeRemoteCacheStore(
+        seed: <RemoteCacheRecord>[
+          _record('jellyfin:a',
+              recordedAt: now, expiresAt: now.add(const Duration(days: 30))),
+        ],
+        failOnSave: true,
+      );
+      final RemoteCacheIndex index =
+          RemoteCacheIndex(store: store, clock: () => now);
+
+      // Must not throw even though persisting the removal fails.
+      await index.removeSource('jellyfin');
+
+      // Removed from the in-memory view regardless.
+      expect(index.length, 0);
+    });
+  });
+
   group('RemoteCacheIndex is best-effort (never fatal)', () {
     test('a failing save never throws and keeps the in-memory record',
         () async {

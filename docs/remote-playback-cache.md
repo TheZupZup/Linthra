@@ -89,6 +89,20 @@ slow or failing disk degrades to a cold index rather than throwing into the
 playback path. `RemoteStreamPrebufferer` takes the index as an *optional*
 collaborator, so the write side is byte-for-byte unchanged when none is wired.
 
+### Disconnect / sign-out cleanup
+
+When a user disconnects a provider, its prepared-track records should not linger.
+Each provider's disconnect/sign-out flow (`PlexSettingsController.disconnect`,
+`JellyfinSettingsController.clear`, `SubsonicSettingsController.clear`) calls
+`RemoteCacheIndex.removeSource(sourceId)`, which drops only that provider's
+records — `jellyfin` / `subsonic` / `plex`, keyed off `RemoteCacheKey.sourceId` —
+and persists the rest, so signing out of one server never discards another's
+records. The call is **best-effort** and runs *after* the settings UI has already
+returned to its signed-out state, so this credential-free cleanup can never throw
+into, or delay, the disconnect (the whole-index `clear` remains for a future
+"forget everything"). Records are credential-free either way, so this is privacy
+hygiene — no token is ever at stake.
+
 ## Security rules (non-negotiable)
 
 A remote stream URL carries its credential in the URL itself (Jellyfin/Subsonic

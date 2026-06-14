@@ -35,10 +35,14 @@ class RemoteCacheKey {
   /// excluded by omission. Kept here (rather than imported from the source
   /// layer) so this services-layer seam stays free of a dependency on the
   /// provider implementations, mirroring `StreamPreloadingResolver`.
+  static const String sourceIdJellyfin = 'jellyfin';
+  static const String sourceIdSubsonic = 'subsonic';
+  static const String sourceIdPlex = 'plex';
+
   static const Set<String> remoteSchemes = <String>{
-    'jellyfin',
-    'subsonic',
-    'plex',
+    sourceIdJellyfin,
+    sourceIdSubsonic,
+    sourceIdPlex,
   };
 
   /// Substrings that must never appear in a key. A credential-free remote id is

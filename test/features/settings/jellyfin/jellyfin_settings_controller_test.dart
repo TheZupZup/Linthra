@@ -6,17 +6,22 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/favorites_repository.dart';
 import 'package:linthra/core/repositories/playlist_repository.dart';
 import 'package:linthra/core/repositories/remote_sync_result.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_index.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_record.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_jellyfin_session_store.dart';
 import 'package:linthra/data/repositories/jellyfin_session_store_provider.dart';
 import 'package:linthra/data/repositories/playlist_repository_provider.dart';
+import 'package:linthra/data/repositories/remote_cache_index_provider.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_providers.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_state.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_sync_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_sync_state.dart';
+
+import '../../../core/services/remote_cache/fake_remote_cache_store.dart';
 
 import '../../../core/sources/jellyfin/fake_jellyfin_client.dart';
 import 'fake_jellyfin_authenticator.dart';
@@ -350,6 +355,39 @@ void main() {
       // The account's imported Jellyfin playlists are dropped so they can't
       // linger after signing out; local-only playlists are kept (repository).
       expect(playlists.clearRemoteCalls, 1);
+    });
+
+    test("sign-out drops this account's prepared remote-cache records",
+        () async {
+      final store = FakeRemoteCacheStore(seed: <RemoteCacheRecord>[
+        fakeRemoteCacheRecord('jellyfin:a'),
+        fakeRemoteCacheRecord('jellyfin:b'),
+        fakeRemoteCacheRecord('plex:1'),
+      ]);
+      final index = RemoteCacheIndex(store: store);
+      final container = ProviderContainer(overrides: <Override>[
+        jellyfinAuthenticatorProvider
+            .overrideWithValue(FakeJellyfinAuthenticator()),
+        jellyfinSessionStoreProvider.overrideWithValue(
+          InMemoryJellyfinSessionStore(initialSession: _session),
+        ),
+        jellyfinClientProvider.overrideWithValue(FakeJellyfinClient()),
+        remoteCacheIndexProvider.overrideWithValue(index),
+      ]);
+      addTearDown(container.dispose);
+      container.read(jellyfinSettingsControllerProvider);
+      await _settle();
+
+      await container.read(jellyfinSettingsControllerProvider.notifier).clear();
+
+      // Only this provider's prepared-track records are removed (memory + disk);
+      // another provider's records are left untouched.
+      expect(index.records.map((RemoteCacheRecord r) => r.value), <String>[
+        'plex:1',
+      ]);
+      expect(store.saved.map((RemoteCacheRecord r) => r.value), <String>[
+        'plex:1',
+      ]);
     });
 
     test('sign-out resets the (now stale) sync status', () async {

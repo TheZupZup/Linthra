@@ -89,17 +89,38 @@ class RemoteCacheIndex {
     }
   }
 
-  /// Empties the index and the persisted store. The reset hook a sign-out flow
-  /// should call so a previous account's prepared-track list is not retained —
-  /// provided as a lifecycle method like the in-memory `RemotePlaybackCache.clear`
-  /// (which the sign-out flows likewise own). The records are credential-free, so
-  /// this is hygiene rather than a secret-safety requirement.
+  /// Empties the index and the persisted store — the whole-index reset. Each
+  /// provider's disconnect/sign-out instead calls the provider-scoped
+  /// [removeSource] (so one account signing out doesn't drop another provider's
+  /// records); [clear] is the full-wipe lifecycle hook (a future "forget
+  /// everything", or tests). The records are credential-free, so this is hygiene
+  /// rather than a secret-safety requirement.
   Future<void> clear() async {
     _records.clear();
     try {
       await _store.save(const <RemoteCacheRecord>[]);
     } catch (_) {
       // Non-fatal.
+    }
+  }
+
+  /// Drops every record for [sourceId] (`jellyfin` / `subsonic` / `plex`) and
+  /// persists the result. The provider-scoped half of [clear]: when a user
+  /// disconnects one provider, its prepared-track records are removed while the
+  /// other providers' records stay — so a sign-out leaves no footprint of that
+  /// account's library without discarding the whole index. Best-effort and
+  /// non-fatal, like every path here; a sweep that removes nothing writes
+  /// nothing.
+  Future<void> removeSource(String sourceId) async {
+    try {
+      await _ensureLoaded();
+      final int before = _records.length;
+      _records.removeWhere(
+        (_, RemoteCacheRecord record) => record.sourceId == sourceId,
+      );
+      if (_records.length != before) await _persist();
+    } catch (_) {
+      // Non-fatal: a failed cleanup must never block sign-out or playback.
     }
   }
 

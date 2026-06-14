@@ -1,13 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_index.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_record.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_exception.dart';
 import 'package:linthra/data/repositories/in_memory_subsonic_session_store.dart';
+import 'package:linthra/data/repositories/remote_cache_index_provider.dart';
 import 'package:linthra/data/repositories/subsonic_session_store_provider.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_controller.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_providers.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_state.dart';
 
+import '../../../core/services/remote_cache/fake_remote_cache_store.dart';
 import '../../../core/sources/subsonic/fake_subsonic_client.dart';
 
 const _session = SubsonicSession(
@@ -177,6 +181,38 @@ void main() {
         SubsonicConnectionPhase.disconnected,
       );
       expect(notifier.session, isNull);
+    });
+
+    test("sign-out drops this account's prepared remote-cache records",
+        () async {
+      final cacheStore = FakeRemoteCacheStore(seed: <RemoteCacheRecord>[
+        fakeRemoteCacheRecord('subsonic:a'),
+        fakeRemoteCacheRecord('subsonic:b'),
+        fakeRemoteCacheRecord('jellyfin:1'),
+      ]);
+      final index = RemoteCacheIndex(store: cacheStore);
+      final container = ProviderContainer(overrides: <Override>[
+        subsonicClientProvider.overrideWithValue(FakeSubsonicClient()),
+        subsonicSessionStoreProvider.overrideWithValue(
+          InMemorySubsonicSessionStore(initialSession: _session),
+        ),
+        remoteCacheIndexProvider.overrideWithValue(index),
+      ]);
+      addTearDown(container.dispose);
+      final notifier =
+          container.read(subsonicSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.clear();
+
+      // Only Subsonic's prepared-track records are removed (memory + disk);
+      // another provider's records are left untouched.
+      expect(index.records.map((RemoteCacheRecord r) => r.value), <String>[
+        'jellyfin:1',
+      ]);
+      expect(cacheStore.saved.map((RemoteCacheRecord r) => r.value), <String>[
+        'jellyfin:1',
+      ]);
     });
   });
 

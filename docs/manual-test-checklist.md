@@ -302,6 +302,13 @@ cache's knowledge survives a restart; it never holds a URL or token.
   timestamps; **no token, api_key, stream URL, or artwork URL**.
 - ☐ Play only **local** files across a restart — no `remote_cache/index.json` is
   created for them (local/`content://` tracks never touch the remote cache).
+- ☐ With two remote providers connected (e.g. Jellyfin + Plex), play a few
+  tracks from each, then **disconnect one** (Settings → that provider →
+  disconnect / sign out). The manifest keeps the *other* provider's keys and
+  drops the disconnected one's — `cat files/remote_cache/index.json` shows no
+  `jellyfin:`/`subsonic:`/`plex:` keys for the provider you just disconnected.
+- ☐ Disconnecting returns to the signed-out card immediately (the index cleanup
+  never blocks or breaks sign-out).
 
 ## 8. Favorites
 
