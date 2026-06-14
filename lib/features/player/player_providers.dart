@@ -12,7 +12,9 @@ import '../../core/services/playable_uri_resolver.dart';
 import '../../core/services/playback_candidate_source.dart';
 import '../../core/services/playback_controller.dart';
 import '../../core/services/playback_reporting_service.dart';
+import '../../core/services/remote_cache/remote_cache_index.dart';
 import '../../core/services/remote_cache/remote_cache_resolver.dart';
+import '../../core/services/remote_cache/remote_cache_store.dart';
 import '../../core/services/remote_cache/remote_playback_cache.dart';
 import '../../core/services/remote_cache/remote_stream_prebufferer.dart';
 import '../../core/services/remote_prebuffer_service.dart';
@@ -27,6 +29,7 @@ import '../../core/sources/plex/plex_playback_reporter.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import '../../core/sources/subsonic/subsonic_playback_reporter.dart';
 import '../../data/repositories/download_repository_provider.dart';
+import '../../data/repositories/file_remote_cache_store.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/jellyfin/jellyfin_settings_providers.dart';
@@ -46,6 +49,25 @@ import 'now_playing.dart';
 /// remote URLs in memory — never the offline cache, and never persisted.
 final remotePlaybackCacheProvider = Provider<RemotePlaybackCache>((ref) {
   return RemotePlaybackCache();
+});
+
+/// The durable, credential-free remote-cache index's on-disk store: a JSON
+/// manifest under the app-support `remote_cache/` directory. It only ever holds
+/// each warmed track's opaque key + timestamps — never a stream URL or token.
+final remoteCacheStoreProvider = Provider<RemoteCacheStore>((ref) {
+  return FileRemoteCacheStore();
+});
+
+/// The durable index that remembers (credential-free) which remote tracks the
+/// prebufferer has warmed, so the cache's knowledge survives a restart. Pinned
+/// for the session and shared by the write side ([remoteStreamPrebuffererProvider],
+/// which records into it) and `main` (which loads it at startup, pruning any
+/// stale records as it loads). Best-effort throughout: it never persists a URL
+/// and never throws into playback. It deliberately stores no stream URL, so a
+/// provider URL is always re-resolved fresh after a restart rather than replayed
+/// stale.
+final remoteCacheIndexProvider = Provider<RemoteCacheIndex>((ref) {
+  return RemoteCacheIndex(store: ref.watch(remoteCacheStoreProvider));
 });
 
 /// The source router: Jellyfin, Subsonic, Plex, then the on-device catch-all.
@@ -83,6 +105,10 @@ final remoteStreamPrebuffererProvider =
   return RemoteStreamPrebufferer(
     resolver: ref.watch(remoteSourceRouterProvider),
     cache: ref.watch(remotePlaybackCacheProvider),
+    // Persist each warm's credential-free key into the durable index so the
+    // cache's knowledge survives a restart. Best-effort and never on the
+    // playback path; only the opaque key is stored, never the stream URL.
+    index: ref.watch(remoteCacheIndexProvider),
   );
 });
 

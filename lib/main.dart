@@ -146,6 +146,13 @@ Future<void> main() async {
   // pre-cache.
   container.read(remotePrebufferServiceProvider);
 
+  // Load the durable, credential-free remote-cache index and prune any stale
+  // records, off the first-frame path. Best-effort: the manifest holds only
+  // opaque track keys + timestamps (never a URL or token), so this can never
+  // block startup or leak a secret — and because no stream URL is persisted, a
+  // fresh one is always re-resolved after a restart rather than replayed stale.
+  unawaited(container.read(remoteCacheIndexProvider).load());
+
   // Start playback reporting: mirrors live playback onto the server that owns
   // the playing track (Plex today), so the user's own dashboard shows Linthra
   // as an active player. Best-effort and off the playback path; non-Plex
