@@ -18,6 +18,12 @@ Outputs (paths relative to the repo root):
   - android/app/src/main/res/mipmap-*/ic_launcher_foreground.png (adaptive fg)
   - fastlane/metadata/android/en-US/images/icon.png          (512x512)
   - fastlane/metadata/android/en-US/images/featureGraphic.png (1024x500)
+  - assets/brand/linthra-play-store-icon-512.png             (512x512)
+
+The Play Store icon is a full-bleed 512x512 square (no transparent corners):
+Google Play applies its own corner mask and shadow at display time, so its
+high-res icon must be a perfect square with the artwork filling the frame —
+unlike the F-Droid icon.png above, which carries its own squircle.
 
 The adaptive background is a vector gradient drawable (ic_launcher_background.xml)
 and is not generated here. Run from the repo root:
@@ -51,6 +57,9 @@ RES_DIR = REPO_ROOT / "android/app/src/main/res"
 FASTLANE_IMAGES = (
     REPO_ROOT / "fastlane/metadata/android/en-US/images"
 )
+# Brand assets that aren't part of any store-listing folder (e.g. the Google
+# Play high-res icon, which is uploaded by hand in Play Console).
+BRAND_DIR = REPO_ROOT / "assets/brand"
 
 # Legacy square launcher icon, per density (dp size 48 * density).
 LEGACY_SIZES = {
@@ -149,7 +158,9 @@ def _render(width: int, height: int, ss: int, *, mode: str) -> bytearray:
       - "foreground": transparent background, bars only in the safe zone (the
                       adaptive icon foreground, masked by the launcher);
       - "banner":     full-bleed dark background with centred bars (the feature
-                      graphic).
+                      graphic);
+      - "store":      full-bleed dark square with the tile's equalizer (the
+                      Google Play high-res icon, which Play masks itself).
     """
     sw, sh = width * ss, height * ss
     region = min(sw, sh)
@@ -163,6 +174,11 @@ def _render(width: int, height: int, ss: int, *, mode: str) -> bytearray:
         tile_bottom = (sh + region) / 2 - margin
         corner = (tile_right - tile_left) * 0.225
         bars = _bars(tile_left, tile_top, tile_right - tile_left)
+    elif mode == "store":
+        # Same equalizer placement as the tile, but full-bleed: the dark
+        # gradient fills the whole square and Google Play rounds the corners.
+        margin = region * 0.06
+        bars = _bars(margin, (sh - region) / 2 + margin, region - 2 * margin)
     elif mode == "foreground":
         safe = region * 0.62
         bars = _bars((sw - safe) / 2, (sh - safe) / 2, safe)
@@ -184,7 +200,7 @@ def _render(width: int, height: int, ss: int, *, mode: str) -> bytearray:
         row = sy * sw * 4
         for sx in range(sw):
             r = g = b = a = 0
-            if mode == "banner":
+            if mode in ("banner", "store"):
                 r, g, b, a = bg[0], bg[1], bg[2], 255
             elif mode == "tile" and _in_rounded_rect(
                 sx, sy, tile_left, tile_top, tile_right, tile_bottom, corner
@@ -272,6 +288,11 @@ def main() -> None:
 
     feature = _render(1024, 500, ss=2, mode="banner")
     _write_png(FASTLANE_IMAGES / "featureGraphic.png", 1024, 500, feature)
+
+    # Google Play high-res icon: full-bleed square, uploaded by hand in Play
+    # Console (Play applies its own corner mask, so no squircle here).
+    store = _render(512, 512, ss=3, mode="store")
+    _write_png(BRAND_DIR / "linthra-play-store-icon-512.png", 512, 512, store)
 
 
 if __name__ == "__main__":
