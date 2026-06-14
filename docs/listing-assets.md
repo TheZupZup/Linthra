@@ -156,7 +156,11 @@ Both are generated from one source design, so they never drift:
   rasterises it (standard library only, no Pillow) into:
   - the legacy launcher icons (`mipmap-*/ic_launcher.png`) and the adaptive
     foreground (`mipmap-*/ic_launcher_foreground.png`);
-  - `images/icon.png` (512×512) and `images/featureGraphic.png` (1024×500).
+  - `images/icon.png` (512×512) and `images/featureGraphic.png` (1024×500);
+  - the full-bleed Google Play app icon
+    `assets/brand/linthra-play-store-icon-512.png` (512×512) — Play masks its
+    own corners, so this one drops the squircle; see
+    [docs/play-store-readiness.md §6](./play-store-readiness.md#6-required-assets).
   The adaptive background is the vector gradient
   `android/app/src/main/res/drawable/ic_launcher_background.xml`.
 - **Regenerate** after editing the design: `python3 tool/branding/generate_icons.py`
