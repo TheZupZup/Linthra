@@ -206,6 +206,44 @@ The `MusicSource` contract is small (`id`, `displayName`,
 Cast is a natural later add (the stream URL is network-reachable) but stays off
 in phase 1 to keep the credential-in-URL surface small.
 
+## Local cache & re-sync
+
+Like every source, Plex **syncs into the local SQLite catalog** the UI reads
+from (`MusicLibraryRepository`); the browse screens never hit the server, so the
+library is instant and survives restarts without re-fetching. A sync writes
+**tracks** only — albums and artists are derived from them at display time
+(`core/catalog/library_grouping.dart`), so they're cached implicitly with no
+extra library walks.
+
+Re-syncing an **unchanged** library is cheap, even across launches. After each
+successful sync the controller stores a credential-free **content signature** —
+the selected sections plus a one-way hash of every track's identity/display
+fields — through `PlexSyncCacheStore` (plain `shared_preferences`, scoped by the
+server's `machineIdentifier`). On the next sync — a manual *Sync* tap, a
+same-server reconnect, or the auto-sync after a selection change — a scan that
+produces the same signature **skips the catalog rebuild and the Library
+refresh** instead of rewriting rows that didn't change. Previously that
+signature lived only in memory, so the first sync after a restart always rebuilt.
+
+**Invalidation is conservative on purpose.** The signature is computed *after*
+the scan, so a sync still lists the library every time and can never miss a real
+change — the fast path only avoids redundant *writes*, never the fetch. Any
+change to the selection, or to a track's id / title / artist / album / duration /
+track number / artwork, changes the signature and forces a rebuild. Disconnecting
+or connecting to a *different* server clears the stored signature (and the
+`machineIdentifier` scope means another server's fingerprint never matches), so a
+freshly-emptied catalog is never mistaken for "already in sync".
+
+**Artwork.** Covers stay credential-free `plex-thumb:` references in the catalog
+(see *Artwork references* above), resolved to a tokened URL only at render time.
+The platform media session (lock screen / Android Auto) additionally caches the
+fetched cover bytes on disk through `MediaArtworkCache`, keyed by the reference
+hash, so a cover fetched once is reused across launches without re-downloading.
+
+> **Security.** Nothing cached here carries a credential: the catalog stores
+> opaque `plex:` / `plex-thumb:` references, and the durable signature is a
+> one-way hash plus the non-secret server id — never a token, URL, or title.
+
 ## Playback reporting / Now Playing (shipped after phase 1)
 
 Phase 1 above is read-only. The one deliberate exception added since:

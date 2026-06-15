@@ -8,11 +8,14 @@ import 'package:linthra/core/models/plex_session.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/incremental_catalog_writer.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
+import 'package:linthra/core/repositories/plex_sync_cache_store.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_exception.dart';
 import 'package:linthra/data/repositories/in_memory_plex_session_store.dart';
+import 'package:linthra/data/repositories/in_memory_plex_sync_cache_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/plex_session_store_provider.dart';
+import 'package:linthra/data/repositories/plex_sync_cache_store_provider.dart';
 import 'package:linthra/features/settings/plex/plex_settings_controller.dart';
 import 'package:linthra/features/settings/plex/plex_settings_providers.dart';
 import 'package:linthra/features/settings/plex/plex_sync_controller.dart';
@@ -197,6 +200,7 @@ ProviderContainer _container({
   FakePlexClient? client,
   PlexSession? session,
   MusicLibraryRepository? repository,
+  PlexSyncCacheStore? cacheStore,
 }) {
   final container = ProviderContainer(
     overrides: <Override>[
@@ -212,6 +216,10 @@ ProviderContainer _container({
       ),
       musicLibraryRepositoryProvider
           .overrideWithValue(repository ?? _RecordingRepository()),
+      // A caller passes a shared cache store to model the durable signature
+      // surviving a "restart" (a fresh container built over the same store).
+      plexSyncCacheStoreProvider
+          .overrideWithValue(cacheStore ?? InMemoryPlexSyncCacheStore()),
     ],
   );
   addTearDown(container.dispose);
@@ -473,6 +481,143 @@ void main() {
       final state = container.read(plexSyncControllerProvider);
       expect(state.isDone, isTrue);
       expect(state.message, contains('Synced 3 tracks'));
+    });
+  });
+
+  group('durable signature (across restarts)', () {
+    test(
+        'a persisted signature skips the rebuild on the first sync after a '
+        'restart', () async {
+      final repo = _RecordingRepository();
+      final cache = InMemoryPlexSyncCacheStore();
+
+      // First launch: a sync fills the catalog and persists the signature.
+      final first =
+          _container(session: _session, repository: repo, cacheStore: cache);
+      await first.read(plexSettingsControllerProvider.notifier).ensureLoaded();
+      await first.read(plexSyncControllerProvider.notifier).sync();
+      expect(repo.beginCount, 1);
+      expect(repo.stored, hasLength(2));
+
+      // Second launch: fresh controllers, but the SAME durable cache and the
+      // SAME (SQLite-like) catalog, and the server is unchanged.
+      final second =
+          _container(session: _session, repository: repo, cacheStore: cache);
+      await second.read(plexSettingsControllerProvider.notifier).ensureLoaded();
+      await second.read(plexSyncControllerProvider.notifier).sync();
+
+      // The catalog was not rebuilt again — the persisted signature recognised
+      // the unchanged library across the "restart", which the old in-memory-only
+      // signature could not.
+      expect(repo.beginCount, 1);
+      expect(repo.appendCount, 0);
+      final state = second.read(plexSyncControllerProvider);
+      expect(state.isDone, isTrue);
+      expect(state.message, contains('already up to date'));
+    });
+
+    test('a library changed while the app was closed still rebuilds', () async {
+      final client = FakePlexClient(
+        sections: const [_musicSection],
+        itemsByType: <PlexMetadataType, List<PlexMetadata>>{
+          PlexMetadataType.track: const <PlexMetadata>[
+            _trackItem,
+            _secondTrackItem,
+          ],
+        },
+      );
+      final repo = _RecordingRepository();
+      final cache = InMemoryPlexSyncCacheStore();
+
+      final first = _container(
+          client: client,
+          session: _session,
+          repository: repo,
+          cacheStore: cache);
+      await first.read(plexSettingsControllerProvider.notifier).ensureLoaded();
+      await first.read(plexSyncControllerProvider.notifier).sync();
+      expect(repo.beginCount, 1);
+
+      // The server gains a track between launches.
+      client.itemsByType = <PlexMetadataType, List<PlexMetadata>>{
+        PlexMetadataType.track: const <PlexMetadata>[
+          _trackItem,
+          _secondTrackItem,
+          PlexMetadata(ratingKey: '103', type: 'track', title: 'Twilight'),
+        ],
+      };
+
+      final second = _container(
+          client: client,
+          session: _session,
+          repository: repo,
+          cacheStore: cache);
+      await second.read(plexSettingsControllerProvider.notifier).ensureLoaded();
+      await second.read(plexSyncControllerProvider.notifier).sync();
+
+      expect(repo.beginCount, 2);
+      expect(repo.stored, hasLength(3));
+      expect(
+        second.read(plexSyncControllerProvider).message,
+        contains('Synced 3 tracks'),
+      );
+    });
+
+    test('a signature stored for a different server is ignored', () async {
+      final repo = _RecordingRepository();
+      // The cache holds a fingerprint for some OTHER Plex server.
+      final cache = InMemoryPlexSyncCacheStore(
+        machineIdentifier: 'a-different-machine-id',
+        signature: 'stale-signature',
+      );
+
+      final container =
+          _container(session: _session, repository: repo, cacheStore: cache);
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+      await container.read(plexSyncControllerProvider.notifier).sync();
+
+      // The stale fingerprint never matched this server, so the catalog rebuilt
+      // rather than skipping into another server's items.
+      expect(repo.beginCount, 1);
+      expect(repo.stored, hasLength(2));
+      expect(
+        container.read(plexSyncControllerProvider).message,
+        contains('Synced 2 tracks'),
+      );
+    });
+
+    test(
+        'removeSyncedCatalog clears the durable signature so a later sync '
+        'rebuilds rather than skipping into an empty catalog', () async {
+      final repo = _RecordingRepository();
+      final cache = InMemoryPlexSyncCacheStore();
+
+      final first =
+          _container(session: _session, repository: repo, cacheStore: cache);
+      await first.read(plexSettingsControllerProvider.notifier).ensureLoaded();
+      final firstSync = first.read(plexSyncControllerProvider.notifier);
+      await firstSync.sync();
+      expect(repo.stored, hasLength(2));
+
+      // Disconnect-style cleanup empties the catalog; it must also forget the
+      // fingerprint, or a reconnect would skip against it and stay empty.
+      await firstSync.removeSyncedCatalog();
+      expect(await cache.readSignature(_session.machineIdentifier), isNull);
+      expect(repo.stored, isEmpty);
+
+      // Next launch re-syncs the same (unchanged) server: with no durable
+      // signature it rebuilds, repopulating the catalog instead of skipping.
+      final second =
+          _container(session: _session, repository: repo, cacheStore: cache);
+      await second.read(plexSettingsControllerProvider.notifier).ensureLoaded();
+      await second.read(plexSyncControllerProvider.notifier).sync();
+      expect(repo.stored, hasLength(2));
+      expect(
+        second.read(plexSyncControllerProvider).message,
+        contains('Synced 2 tracks'),
+      );
     });
   });
 

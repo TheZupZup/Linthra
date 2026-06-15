@@ -21,6 +21,7 @@ import 'data/repositories/playback_preferences_provider.dart';
 import 'data/repositories/playback_source_strategy_store_provider.dart';
 import 'data/repositories/playlist_repository_provider.dart';
 import 'data/repositories/plex_session_store_provider.dart';
+import 'data/repositories/plex_sync_cache_store_provider.dart';
 import 'data/repositories/preferred_source_store_provider.dart';
 import 'data/repositories/remote_cache_index_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
@@ -90,6 +91,11 @@ Future<void> main() async {
       sharedPreferencesJellyfinAutoSyncStoreOverride,
       secureSubsonicSessionStoreOverride,
       securePlexSessionStoreOverride,
+      // Persist the content signature of the last Plex sync, so a re-sync of an
+      // unchanged library after a restart skips rebuilding the catalog and
+      // reloading the Library screen (the catalog itself already lives in
+      // SQLite). Non-secret (a one-way hash, scoped by server id).
+      sharedPreferencesPlexSyncCacheStoreOverride,
       sharedPreferencesFavoritesStoreOverride,
       jellyfinFavoritesOverride,
       sharedPreferencesPlaylistStoreOverride,
