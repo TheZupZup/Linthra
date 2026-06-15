@@ -24,8 +24,10 @@ class TrackMetadata extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.72);
-    final fainter = theme.colorScheme.onSurface.withValues(alpha: 0.55);
+    // A deliberate three-step hierarchy: the title carries full weight, the
+    // artist is a clear secondary line, and the album recedes to a quiet tag.
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.75);
+    final fainter = theme.colorScheme.onSurface.withValues(alpha: 0.5);
     final hasArtist = artistName != null && artistName!.isNotEmpty;
     final hasAlbum = albumName != null && albumName!.isNotEmpty;
 
@@ -36,6 +38,8 @@ class TrackMetadata extends StatelessWidget {
           title,
           style: theme.textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.w700,
+            letterSpacing: -0.2,
+            height: 1.15,
           ),
           textAlign: TextAlign.center,
           maxLines: 2,
@@ -45,7 +49,10 @@ class TrackMetadata extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           Text(
             artistName!,
-            style: theme.textTheme.titleMedium?.copyWith(color: muted),
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: muted,
+              fontWeight: FontWeight.w500,
+            ),
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -55,7 +62,10 @@ class TrackMetadata extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           Text(
             albumName!,
-            style: theme.textTheme.bodyMedium?.copyWith(color: fainter),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: fainter,
+              letterSpacing: 0.1,
+            ),
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -66,9 +76,13 @@ class TrackMetadata extends StatelessWidget {
   }
 }
 
-/// A small badge stating where the audio is *actually* coming from, e.g.
+/// A quiet inline label stating where the audio is *actually* coming from, e.g.
 /// "Playing from Navidrome", "Playing from Jellyfin", "Playing from Local music",
 /// or "Playing from Cache".
+///
+/// Rendered as a calm icon-and-caption pair (no boxed chip) so it reads as a
+/// whisper under the metadata rather than a competing badge, matching the
+/// buffering/casting indicators on the same line.
 ///
 /// Because a logical track can have several source candidates, the indicator
 /// reflects the resolved copy — the owning provider derived from [trackUri] plus
@@ -91,36 +105,26 @@ class PlaybackSourceChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.xs + 2,
-      ),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-        border: Border.all(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.12),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            _iconFor(source),
-            size: 14,
-            color: theme.colorScheme.primary,
-          ),
-          const SizedBox(width: AppSpacing.xs + 2),
-          Text(
+    final color = theme.colorScheme.onSurfaceVariant;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(_iconFor(source), size: 15, color: color),
+        const SizedBox(width: AppSpacing.xs + 2),
+        Flexible(
+          child: Text(
             PlaybackSourceLabel.phrase(trackUri: trackUri, source: source),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.labelMedium?.copyWith(
               fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+              letterSpacing: 0.2,
+              color: color,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
