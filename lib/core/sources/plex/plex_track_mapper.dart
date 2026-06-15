@@ -48,10 +48,12 @@ abstract final class PlexTrackMapper {
   /// Display fallback for the rare track whose Plex `title` is missing/blank.
   static const String _untitledTrack = 'Untitled';
 
-  /// Maps a **track** (Plex type 10) listing/metadata item.
-  ///
-  /// `PlexMetadata` doesn't parse a track index yet, so [Track.trackNumber]
-  /// stays `null` (a follow-up, like year/track-count on albums).
+  /// Maps a **track** (Plex type 10) listing/metadata item, carrying its
+  /// **track number** ([Track.trackNumber]) from PMS's `index` so albums play
+  /// and display in order — mirroring Jellyfin's `indexNumber` and Subsonic's
+  /// `track`. Plex's separate **disc** number (`parentIndex`) is intentionally
+  /// not mapped: the shared [Track] model has no disc field (see
+  /// [PlexMetadata.index]).
   static Track toTrack(PlexMetadata item) {
     return Track(
       id: item.ratingKey,
@@ -60,17 +62,22 @@ abstract final class PlexTrackMapper {
       artistName: _nonBlank(item.grandparentTitle),
       albumName: _nonBlank(item.parentTitle),
       duration: _durationFromMillis(item.duration),
+      trackNumber: _positiveOrNull(item.index),
       artworkUri: _artworkReference(item.thumb),
     );
   }
 
-  /// Maps an **album** (Plex type 9) listing item. Year and track count aren't
-  /// parsed from Plex yet, so they keep their defaults.
+  /// Maps an **album** (Plex type 9) listing item, including its release
+  /// [Album.year] (PMS `year`) and [Album.trackCount] (PMS `leafCount`) when
+  /// reported — mirroring Jellyfin (`productionYear` / `childCount`) and
+  /// Subsonic (`year` / `songCount`).
   static Album toAlbum(PlexMetadata item) {
     return Album(
       id: item.ratingKey,
       title: _nonBlank(item.title) ?? kUnknownAlbum,
       artistName: _nonBlank(item.parentTitle),
+      year: _positiveOrNull(item.year),
+      trackCount: item.leafCount ?? 0,
       artworkUri: _artworkReference(item.thumb),
     );
   }
@@ -139,6 +146,16 @@ abstract final class PlexTrackMapper {
   static Duration _durationFromMillis(int? millis) {
     if (millis == null || millis <= 0) return Duration.zero;
     return Duration(milliseconds: millis);
+  }
+
+  /// A positive [value], or `null` when it is absent or non-positive. PMS omits
+  /// a track index / album year it doesn't know, but a stray `0` (or negative)
+  /// is meaningless as a track number or a year, so it folds to `null` the same
+  /// way a missing field does — just as [_durationFromMillis] folds a
+  /// non-positive duration to zero.
+  static int? _positiveOrNull(int? value) {
+    if (value == null || value <= 0) return null;
+    return value;
   }
 
   /// Trims [text] and treats blank as absent, so a whitespace-only Plex field

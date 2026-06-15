@@ -125,18 +125,23 @@ void main() {
       expect(artist.grandparentRatingKey, isNull);
     });
 
-    test('parses an album (type 9) with its parent artist link', () {
+    test('parses an album (type 9) with its parent link, year, and track count',
+        () {
       final PlexMetadata album = _single(<String, dynamic>{
         'ratingKey': '100',
         'type': 'album',
         'title': 'Music Has the Right to Children',
         'parentRatingKey': '50',
         'parentTitle': 'Boards of Canada',
+        'year': 1998,
+        'leafCount': 12,
       });
       expect(album.metadataType, PlexMetadataType.album);
       expect(album.parentRatingKey, '50');
       expect(album.parentTitle, 'Boards of Canada');
       expect(album.grandparentRatingKey, isNull);
+      expect(album.year, 1998);
+      expect(album.leafCount, 12);
     });
 
     test('parses a track (type 10) with parent + grandparent links and Part',
@@ -151,6 +156,7 @@ void main() {
         'grandparentTitle': 'Boards of Canada',
         'thumb': '/library/metadata/123/thumb/9',
         'duration': 215000,
+        'index': 4,
         'Media': <dynamic>[
           <String, dynamic>{
             'container': 'flac',
@@ -171,6 +177,8 @@ void main() {
       expect(track.parentTitle, 'Music Has the Right to Children');
       expect(track.grandparentTitle, 'Boards of Canada');
       expect(track.duration, 215000);
+      // The track number (PMS `index`) is parsed for in-order album playback.
+      expect(track.index, 4);
 
       expect(track.media, hasLength(1));
       expect(track.media.single.container, 'flac');
@@ -193,6 +201,17 @@ void main() {
       expect(track.duration, isNull);
       expect(track.media, isEmpty);
       expect(track.firstPartKey, isNull);
+    });
+
+    test('leaves index / year / leafCount null when PMS omits them', () {
+      final PlexMetadata item = _single(<String, dynamic>{
+        'ratingKey': '125',
+        'type': 'track',
+        'title': 'Unnumbered',
+      });
+      expect(item.index, isNull);
+      expect(item.year, isNull);
+      expect(item.leafCount, isNull);
     });
 
     test('skips an item missing its ratingKey, keeps the valid ones', () {

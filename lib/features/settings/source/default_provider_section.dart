@@ -45,6 +45,11 @@ class DefaultProviderSettingsSection extends ConsumerWidget {
         subtitle: null,
       ),
       (
+        id: MusicProviders.plex.sourceId,
+        title: MusicProviders.plex.displayName,
+        subtitle: null,
+      ),
+      (
         id: MusicProviders.local.sourceId,
         title: MusicProviders.local.displayName,
         subtitle: 'Prefer a copy on this device when one exists.',

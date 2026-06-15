@@ -17,11 +17,16 @@ import 'package:linthra/core/sources/plex/plex_exception.dart';
 import 'package:linthra/core/sources/plex/plex_music_source.dart';
 import 'package:linthra/core/sources/plex/plex_pin_auth.dart';
 import 'package:linthra/core/sources/plex/plex_tv_api.dart';
+import 'package:linthra/data/repositories/default_provider_store_provider.dart';
+import 'package:linthra/data/repositories/in_memory_default_provider_store.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_plex_session_store.dart';
+import 'package:linthra/data/repositories/in_memory_preferred_source_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/plex_session_store_provider.dart';
+import 'package:linthra/data/repositories/preferred_source_store_provider.dart';
 import 'package:linthra/data/repositories/remote_cache_index_provider.dart';
+import 'package:linthra/features/library/source_preference_controller.dart';
 import 'package:linthra/features/settings/plex/plex_settings_controller.dart';
 import 'package:linthra/features/settings/plex/plex_settings_providers.dart';
 import 'package:linthra/features/settings/plex/plex_settings_state.dart';
@@ -267,6 +272,13 @@ ProviderContainer _container({
       ),
       externalLinkLauncherProvider
           .overrideWithValue(launcher ?? _RecordingLauncher()),
+      // Keep the source-priority graph fully in-memory so a connect's
+      // best-effort markPreferred(plex) is deterministic and never reaches real
+      // device storage.
+      preferredSourceStoreProvider
+          .overrideWithValue(InMemoryPreferredSourceStore()),
+      defaultProviderStoreProvider
+          .overrideWithValue(InMemoryDefaultProviderStore()),
     ],
   );
   addTearDown(container.dispose);
@@ -507,6 +519,28 @@ void main() {
       final PlexMusicSource? source = container.read(plexMusicSourceProvider);
       expect(source, isNotNull);
       expect(source!.session, saved);
+    });
+
+    test('promotes Plex as the active source for duplicate resolution',
+        () async {
+      final container = _container();
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      final ok = await notifier.connect(
+        url: 'https://plex.example.com:32400',
+        token: _token,
+      );
+      await _settle();
+
+      expect(ok, isTrue);
+      // The just-connected server is promoted to the front of the automatic
+      // source preference, so a song that also lives on another server now
+      // prefers this Plex copy — mirroring Jellyfin/Subsonic sign-in.
+      expect(
+        container.read(librarySourcePriorityProvider).preferredOrder.first,
+        'plex',
+      );
     });
 
     test('does not persist anything on a rejected token', () async {

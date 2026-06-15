@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/external_link_launcher_provider.dart';
 import '../../../core/models/plex_session.dart';
 import '../../../core/services/remote_cache/remote_cache_key.dart';
+import '../../../core/sources/music_provider.dart';
 import '../../../core/sources/plex/plex_api.dart';
 import '../../../core/sources/plex/plex_exception.dart';
 import '../../../core/sources/plex/plex_music_source.dart';
@@ -12,6 +13,7 @@ import '../../../core/sources/plex/plex_pin_auth.dart';
 import '../../../core/sources/plex/plex_tv_api.dart';
 import '../../../data/repositories/plex_session_store_provider.dart';
 import '../../../data/repositories/remote_cache_index_provider.dart';
+import '../../library/source_preference_controller.dart';
 import 'plex_settings_providers.dart';
 import 'plex_settings_state.dart';
 import 'plex_sync_controller.dart';
@@ -449,6 +451,16 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     }
 
     _session = stamped;
+    // The just-connected server becomes the active/default provider for picking
+    // among duplicate sources, so a song that also lives on another server now
+    // prefers Plex. Persisted and best-effort — mirrors Jellyfin/Subsonic
+    // sign-in (an explicit "Default source" choice still wins, see
+    // SourcePreferenceController).
+    unawaited(
+      ref
+          .read(librarySourcePriorityProvider.notifier)
+          .markPreferred(MusicProviders.plex.sourceId),
+    );
     _sectionsLoadAttempted = false;
     _restoreSuperseded = true;
     // The flow is complete: release the account token and the token-bearing
