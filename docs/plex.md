@@ -417,6 +417,29 @@ Small, incremental, each independently reviewable:
     server-scoped session. Manual URL + token stays available under
     "Manual setup (advanced)", and a rejected/expired session offers
     "Reconnect with Plex" right at the error.
+11. **Scan performance & reliability** — make a large-library sync (≈1000+
+    tracks) non-blocking and incremental, fixing the UI freeze / "app not
+    responding" reports. Four changes, all Plex-scoped:
+    - **Off-isolate decode.** A library page's `jsonDecode` + `MediaContainer`
+      parse — the heaviest synchronous step — runs on a background isolate
+      (`HttpPlexClient` decodes bodies over a size threshold via `compute`);
+      small replies stay inline.
+    - **Tracks only.** The sync reads just tracks; albums/artists are derived
+      from tracks by the library screen (`library_browse_providers.dart`) and
+      were never persisted, so listing them was two extra full library walks of
+      wasted work.
+    - **Batched, progressive writes.** Results are written in chunks via a new
+      optional `IncrementalCatalogWriter` capability (implemented by the
+      Drift/in-memory/recording repositories), refreshing after the first chunk
+      so the library fills as it goes instead of after one monolithic write.
+    - **Skip unchanged.** A credential-free content signature of the last
+      successful sync lets a re-sync that finds the same library skip the
+      database rebuild entirely (the durable catalog already lives in SQLite, so
+      launch never re-scans — this only avoids redundant re-syncs).
+
+    Playback is untouched — a `plex:` track resolves its stream URL lazily at
+    play time, so music keeps playing during a scan — and the sync status gains
+    explicit `scanning` / `syncing` (writing) / `done` phases.
 
 ## Notes
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'plex_api.dart';
@@ -18,6 +19,14 @@ import 'plex_exception.dart';
 /// keep the token in a header, so the URLs they build are token-free and safe to
 /// log.
 ///
+/// Large `MediaContainer` listings are decoded **off the UI isolate**: a library
+/// scan's `jsonDecode` + envelope parse of a big page is the heaviest
+/// synchronous step in the whole flow, and running it inline froze the UI (and
+/// triggered "app not responding") on 1000+-track libraries. Bodies at or above
+/// [_backgroundParseThreshold] are parsed via `compute` on a background isolate;
+/// small bodies (identity, a single item, a short page) stay inline to avoid the
+/// isolate-spawn overhead.
+///
 /// Every failure becomes a [PlexException]; the token is never written into an
 /// exception, a log, or any other output, so a leaked error string can't expose
 /// it. Transport errors are classified from the low-level failure but only the
@@ -27,9 +36,16 @@ class HttpPlexClient implements PlexClient {
     required PlexClientIdentity identity,
     http.Client? httpClient,
     int pageSize = _defaultPageSize,
+    int backgroundParseThreshold = _defaultBackgroundParseThreshold,
+    @visibleForTesting
+    Future<PlexMediaContainer?> Function(Uint8List bytes)? backgroundParser,
   })  : assert(pageSize > 0, 'pageSize must be positive'),
+        assert(backgroundParseThreshold >= 0,
+            'backgroundParseThreshold must not be negative'),
         _identity = identity,
         _pageSize = pageSize,
+        _backgroundParseThreshold = backgroundParseThreshold,
+        _backgroundParser = backgroundParser ?? _computeParseContainer,
         _client = httpClient ?? http.Client();
 
   final PlexClientIdentity _identity;
@@ -42,6 +58,19 @@ class HttpPlexClient implements PlexClient {
   /// walk without 200-item fixtures).
   static const int _defaultPageSize = 200;
   final int _pageSize;
+
+  /// A `MediaContainer` body at least this many bytes is decoded on a background
+  /// isolate; smaller ones are decoded inline. 64 KiB comfortably clears tiny
+  /// replies (identity, a single item) while catching full library pages, whose
+  /// synchronous decode is what stalled the UI. Overridable for tests.
+  static const int _defaultBackgroundParseThreshold = 64 * 1024;
+  final int _backgroundParseThreshold;
+
+  /// Decodes a large `MediaContainer` body into a [PlexMediaContainer]
+  /// (`null` on a non-Plex/non-JSON body). Defaults to a `compute` call so the
+  /// heavy parse runs off the UI isolate; injectable so a test can prove the
+  /// large-body path is taken without spawning a real isolate.
+  final Future<PlexMediaContainer?> Function(Uint8List bytes) _backgroundParser;
 
   /// A generous page-count cap stops a runaway loop if a server ever ignores the
   /// `X-Plex-Container-Start` offset.
@@ -152,14 +181,52 @@ class HttpPlexClient implements PlexClient {
   /// GETs [uri] with the auth + identity headers, checks the status, and decodes
   /// a JSON `MediaContainer` envelope — throwing [PlexException.notPlex] when the
   /// body isn't a Plex `MediaContainer` (missing envelope, or non-JSON/XML).
+  ///
+  /// The decode + envelope parse runs on a background isolate for bodies at or
+  /// above [_backgroundParseThreshold] (a full library page) and inline for
+  /// small ones, so a big scan never blocks the UI on `jsonDecode`. The status
+  /// is checked here (a cheap int compare) so error handling never depends on —
+  /// or ships off-isolate — the response body.
   Future<PlexMediaContainer> _getContainer(Uri uri, String token) async {
-    final PlexMediaContainer? container =
-        PlexMediaContainer.fromJson(await _getJson(uri, token));
+    final http.Response response = await _send(
+      () => _client.get(uri, headers: _headers(token)),
+    );
+    _checkStatus(response);
+    final Uint8List bytes = response.bodyBytes;
+    final PlexMediaContainer? container = bytes.length >= _backgroundParseThreshold
+        ? await _backgroundParser(bytes)
+        : _parseContainerBytes(bytes);
     if (container == null) {
       throw PlexException.notPlex();
     }
     return container;
   }
+
+  /// Decodes a `MediaContainer` JSON body into a [PlexMediaContainer], or
+  /// returns `null` when the body isn't JSON or isn't a Plex `MediaContainer`
+  /// envelope (Plex's default XML, an HTML proxy error page, a JSON array, …) —
+  /// the caller turns `null` into [PlexException.notPlex], matching the inline
+  /// path's old behavior exactly.
+  ///
+  /// Static and `this`-free so it can run on a background isolate via `compute`.
+  /// Decodes the raw bytes as UTF-8 (not `response.body`, which falls back to
+  /// latin1 without a charset and would mangle non-ASCII titles/artist names).
+  static PlexMediaContainer? _parseContainerBytes(Uint8List bytes) {
+    Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(bytes, allowMalformed: true));
+    } on FormatException {
+      // Not JSON at all — e.g. Plex's default XML, or an HTML proxy error page.
+      return null;
+    }
+    if (decoded is! Map<String, dynamic>) return null;
+    return PlexMediaContainer.fromJson(decoded);
+  }
+
+  /// The default [_backgroundParser]: runs [_parseContainerBytes] on a one-shot
+  /// background isolate. A top-level/static tear-off, as `compute` requires.
+  static Future<PlexMediaContainer?> _computeParseContainer(Uint8List bytes) =>
+      compute(_parseContainerBytes, bytes);
 
   /// GETs [uri] with the standard headers, maps the status to a [PlexException],
   /// and decodes a JSON object body.
