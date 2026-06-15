@@ -388,9 +388,10 @@ void main() {
           .ensureLoaded();
 
       bool finished = false;
-      final Future<void> running =
-          container.read(plexSyncControllerProvider.notifier).sync()
-            ..then((_) => finished = true).ignore();
+      final Future<void> running = container
+          .read(plexSyncControllerProvider.notifier)
+          .sync()
+        ..then((_) => finished = true).ignore();
 
       // Advance until the sync is parked on the gated second batch.
       for (int i = 0; i < 50 && repo.appendCount == 0; i++) {

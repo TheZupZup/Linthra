@@ -709,7 +709,8 @@ void main() {
       expect(parserCalls, 1, reason: 'a large page is parsed off the seam');
     });
 
-    test('small bodies stay inline (the background seam is not used)', () async {
+    test('small bodies stay inline (the background seam is not used)',
+        () async {
       int parserCalls = 0;
       final HttpPlexClient client = HttpPlexClient(
         identity: _identity,

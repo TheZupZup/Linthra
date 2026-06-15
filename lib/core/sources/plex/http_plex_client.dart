@@ -193,9 +193,10 @@ class HttpPlexClient implements PlexClient {
     );
     _checkStatus(response);
     final Uint8List bytes = response.bodyBytes;
-    final PlexMediaContainer? container = bytes.length >= _backgroundParseThreshold
-        ? await _backgroundParser(bytes)
-        : _parseContainerBytes(bytes);
+    final PlexMediaContainer? container =
+        bytes.length >= _backgroundParseThreshold
+            ? await _backgroundParser(bytes)
+            : _parseContainerBytes(bytes);
     if (container == null) {
       throw PlexException.notPlex();
     }
