@@ -78,6 +78,29 @@ tick:
 - **Queue sheet** selects only the queue identity (current + up-next + history),
   so the open sheet doesn't rebuild on position ticks while you browse it. See
   `lib/features/player/widgets/queue_sheet.dart`.
+- **The Now Playing backdrop is rasterized once per cover.** The full-screen
+  blurred artwork sits on its own `RepaintBoundary`, so the live progress bar and
+  the equalizer indicator painting above it never re-rasterize that expensive
+  blur. See `lib/features/player/widgets/now_playing_background.dart`.
+
+### Display refresh rate follows the panel — and yields under battery saver
+
+Linthra opts its window into the display's *native* refresh rate (90 / 120 /
+144 Hz where the panel supports it) so scrolling and the Now Playing animations
+are smooth on high-refresh phones, instead of the 60 Hz many OEMs hand an app by
+default. This is the one place the app touches refresh rate, and it is
+deliberately conservative about power:
+
+- **It never hard-codes a rate.** It picks the highest refresh mode that keeps
+  the *current resolution* — a seamless switch — and leaves a 60 Hz panel
+  untouched. It never lowers resolution to chase a higher rate.
+- **Battery saver is the system's call, not the app's.** When the OS is in
+  power-save mode the refresh-rate preference is *released* so Android is free to
+  drop the rate to save power; Linthra re-evaluates the moment battery saver
+  toggles. It never forces a high rate over the system's power management.
+
+See `DisplayRefreshRate` (`android/app/src/main/kotlin/.../DisplayRefreshRate.kt`),
+driven from `MainActivity`'s resume/pause.
 
 ### Network: event-driven, never polled
 
