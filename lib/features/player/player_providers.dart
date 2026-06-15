@@ -15,6 +15,9 @@ import '../../core/services/playback_reporting_service.dart';
 import '../../core/services/remote_cache/remote_cache_resolver.dart';
 import '../../core/services/remote_cache/remote_playback_cache.dart';
 import '../../core/services/remote_cache/remote_stream_prebufferer.dart';
+import '../../core/services/remote_control_activator.dart';
+import '../../core/services/remote_control_receiver.dart';
+import '../../core/services/remote_control_service.dart';
 import '../../core/services/remote_prebuffer_service.dart';
 import '../../core/services/routing_playable_uri_resolver.dart';
 import '../../core/services/routing_server_playback_reporter.dart';
@@ -22,6 +25,8 @@ import '../../core/services/server_playback_reporter.dart';
 import '../../core/services/smart_precache_service.dart';
 import '../../core/sources/jellyfin/jellyfin_playable_uri_resolver.dart';
 import '../../core/sources/jellyfin/jellyfin_playback_reporter.dart';
+import '../../core/sources/jellyfin/jellyfin_remote_control_receiver.dart';
+import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../core/sources/plex/plex_playable_uri_resolver.dart';
 import '../../core/sources/plex/plex_playback_reporter.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
@@ -268,6 +273,61 @@ final playbackReportingServiceProvider =
   );
   ref.onDispose(service.dispose);
   return service;
+});
+
+/// The remote-control receiver — the inverse of the playback reporter. A
+/// Jellyfin control-socket receiver today; reads the live Jellyfin
+/// session/client lazily, so sign-in/out is picked up without rebuilding.
+/// Pinned for the session: its transport is opened/closed by
+/// [remoteControlActivatorProvider] in step with playback, and finally disposed
+/// with the scope.
+final remoteControlReceiverProvider = Provider<RemoteControlReceiver>((ref) {
+  final receiver = JellyfinRemoteControlReceiver(
+    session: () => ref.read(jellyfinMusicSourceProvider)?.session,
+    client: () => ref.read(jellyfinClientProvider),
+  );
+  ref.onDispose(receiver.dispose);
+  return receiver;
+});
+
+/// Applies remote commands to the active [PlaybackController], so a Jellyfin
+/// remote's play/pause/skip/seek drives playback exactly like an on-screen tap
+/// — flowing through cast routing, the media session, and reporting alike.
+/// Side-effect-only; `main` instantiates it once after startup.
+final remoteControlServiceProvider = Provider<RemoteControlService>((ref) {
+  final service = RemoteControlService(
+    receiver: ref.read(remoteControlReceiverProvider),
+    controller: ref.read(playbackControllerProvider),
+  );
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+/// Whether [state] is a Jellyfin track actively playing or paused — the window
+/// in which Linthra connects the control socket to accept remote commands.
+/// Keeping the socket to exactly this window (rather than the whole signed-in
+/// session) is what keeps remote control off the "no background keep-alives"
+/// budget.
+bool _isJellyfinControllable(PlaybackState state) {
+  final track = state.currentTrack;
+  if (track == null) return false;
+  if (!track.uri.startsWith(JellyfinTrackMapper.uriScheme)) return false;
+  final status = state.status;
+  return status == PlaybackStatus.playing || status == PlaybackStatus.paused;
+}
+
+/// Connects the remote-control transport only while a controllable Jellyfin
+/// track is the active playback session, so there is no persistent background
+/// socket (keeping Linthra's "event-driven, never polled" stance). Reads the
+/// controller's state stream once; side-effect-only, instantiated by `main`.
+final remoteControlActivatorProvider = Provider<RemoteControlActivator>((ref) {
+  final activator = RemoteControlActivator(
+    receiver: ref.read(remoteControlReceiverProvider),
+    playbackStates: ref.read(playbackControllerProvider).stateStream,
+    isControllable: _isJellyfinControllable,
+  );
+  ref.onDispose(activator.dispose);
+  return activator;
 });
 
 /// Production binding: lets the cache eviction policy see the currently playing

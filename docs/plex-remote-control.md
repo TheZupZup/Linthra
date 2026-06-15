@@ -1,15 +1,23 @@
 # Plex remote control (Companion) — design
 
-> **Status: design only.** This page captures the investigation and the agreed
-> design for **receiving Plex remote-playback commands** (play / pause / skip
-> next / skip previous / stop) so it can be built in small, reviewable PRs.
-> **No remote-control code ships with this document.** It does **not** register a
-> companion server, open a socket, advertise the player, or change playback; it
-> does **not** touch Jellyfin, Navidrome/Subsonic, or Local music, and it keeps
-> Plex **read-only from the library's perspective** (no playlist or favorites
-> editing). It is the design counterpart to
+> **Status: design only (Plex half).** This page captures the investigation and
+> the agreed design for **receiving Plex remote-playback commands** (play /
+> pause / skip next / skip previous / stop) so it can be built in small,
+> reviewable PRs. **No Plex remote-control code ships with this document.** It
+> does **not** register a companion server, open a socket, advertise the player,
+> or change playback, and it keeps Plex **read-only from the library's
+> perspective** (no playlist or favorites editing). It is the design counterpart
+> to
 > [docs/plex.md → Playback reporting / Now Playing](plex.md#playback-reporting--now-playing-shipped-after-phase-1),
 > which shipped one-way timeline reporting; this is its symmetric follow-up.
+>
+> **Update:** the provider-neutral remote-control seam this design proposes has
+> since shipped, and **Jellyfin** remote control is implemented on it (Jellyfin
+> uses an outbound control WebSocket, a different and more NAT-friendly protocol
+> than Plex's inbound Companion server). See
+> [docs/remote-control.md](remote-control.md) for the cross-provider overview
+> and status. This page remains the design for the **Plex Companion** half,
+> which is not yet built.
 
 ## The symptom
 
