@@ -216,6 +216,34 @@ class HttpJellyfinClient implements JellyfinClient {
   }
 
   @override
+  Future<void> registerRemoteControlCapabilities(
+    JellyfinSession session,
+  ) async {
+    final Uri uri = JellyfinEndpoints.capabilitiesFull(session.baseUrl);
+    final http.Response response = await _send(
+      () => _client.post(
+        uri,
+        headers: <String, String>{
+          ..._authHeaders(session),
+          'Content-Type': 'application/json',
+        },
+        // Declare audio playback + media control so the server lists this
+        // session as controllable and pushes Playstate commands to it. No
+        // GeneralCommands are claimed (Linthra has no volume transport), and
+        // no persistent identifier is offered.
+        body: jsonEncode(<String, Object>{
+          'PlayableMediaTypes': <String>['Audio'],
+          'SupportedCommands': <String>[],
+          'SupportsMediaControl': true,
+          'SupportsPersistentIdentifier': false,
+        }),
+      ),
+    );
+    // Jellyfin answers `204 No Content`; a 2xx alone means it landed.
+    _checkStatus(response);
+  }
+
+  @override
   Future<Set<String>> fetchFavoriteIds(JellyfinSession session) async {
     final Uri uri = JellyfinEndpoints.favoriteAudioItems(
       session.baseUrl,

@@ -19,6 +19,12 @@ class _StreamReceiver implements RemoteControlReceiver {
   Stream<RemoteCommand> get commands => _commands.stream;
 
   @override
+  Future<void> start() async {}
+
+  @override
+  Future<void> stop() async {}
+
+  @override
   Future<void> dispose() async {}
 }
 

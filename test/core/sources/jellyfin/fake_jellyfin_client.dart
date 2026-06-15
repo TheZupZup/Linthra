@@ -293,6 +293,25 @@ class FakeJellyfinClient implements JellyfinClient {
     if (unexpected != null) throw unexpected;
   }
 
+  /// How many times [registerRemoteControlCapabilities] was called, and the
+  /// last session it carried, so the receiver wiring can prove it registered.
+  int capabilitiesRegistered = 0;
+  JellyfinSession? lastCapabilitiesSession;
+
+  /// When set, [registerRemoteControlCapabilities] throws it (after recording),
+  /// so the receiver can prove registration failures are swallowed.
+  JellyfinException? capabilitiesError;
+
+  @override
+  Future<void> registerRemoteControlCapabilities(
+    JellyfinSession session,
+  ) async {
+    capabilitiesRegistered++;
+    lastCapabilitiesSession = session;
+    final JellyfinException? error = capabilitiesError;
+    if (error != null) throw error;
+  }
+
   @override
   Future<Set<String>> fetchFavoriteIds(JellyfinSession session) async {
     final JellyfinException? error = favoritesError;
