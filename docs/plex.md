@@ -215,6 +215,13 @@ benign, ephemeral write (PMS updates its session list; nothing in the library
 is modified) and is **best-effort by contract** — a failed report is silently
 dropped and can never stall, stop, or alter playback.
 
+> **Note — this is reporting only, not remote control.** Timeline reporting is
+> a one-way *push*; it lists the session but does not open the channel a Plex
+> controller uses to drive it, so Linthra appears in the dashboard but does not
+> yet react to remote play/pause/skip commands. Receiving those commands is the
+> separate **Plex Companion** protocol, designed in
+> [docs/plex-remote-control.md](plex-remote-control.md).
+
 ### How Plex sees a player
 
 A client reports its playback to `GET /:/timeline` (verified against

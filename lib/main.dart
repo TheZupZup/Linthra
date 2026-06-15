@@ -160,6 +160,16 @@ Future<void> main() async {
   // playback reports nothing. Side-effect-only, like the services above.
   container.read(playbackReportingServiceProvider);
 
+  // Start remote control: while a controllable (Jellyfin) track plays, accept
+  // the play/pause/skip/seek commands the server pushes over its control socket
+  // and apply them to the active player — so other Jellyfin apps and speaker
+  // remotes can drive Linthra. The activator opens the socket only during such
+  // playback (no persistent background socket); the service applies the
+  // commands through the same PlaybackController an on-screen tap uses.
+  // Side-effect-only, like the services above.
+  container.read(remoteControlServiceProvider);
+  container.read(remoteControlActivatorProvider);
+
   // Mirror the user's "Normalize volume" choice onto the local audio engine,
   // seeding the persisted value now and pushing every later toggle. The engine
   // applies the clip-safe ReplayGain attenuation; with the choice off (the
