@@ -32,7 +32,8 @@ void main() {
     // media session (lock screen / Android Auto). Before the fix the resolver
     // only knew Subsonic, so a Plex reference resolved to null, was never
     // fetched/cached, and the now-playing card showed no art.
-    test('resolves a Plex plex-thumb: reference with the live Plex session', () {
+    test('resolves a Plex plex-thumb: reference with the live Plex session',
+        () {
       final Uri? resolved = resolveMediaSessionArtworkUrl(
         _plexThumb('/library/metadata/123/thumb/1670000000'),
         plex: _plex,
@@ -47,7 +48,8 @@ void main() {
       expect(resolved.queryParameters['X-Plex-Token'], 'plex-secret-token');
     });
 
-    test('a Plex reference resolves even when a Subsonic session is also present',
+    test(
+        'a Plex reference resolves even when a Subsonic session is also present',
         () {
       // Proves the providers chain: Subsonic returns null for a plex-thumb:
       // reference (it isn't a subsonic-cover:), so resolution falls through to
@@ -126,7 +128,8 @@ void main() {
 
     test('no signed-in providers means no media-session artwork', () {
       expect(
-        resolveMediaSessionArtworkUrl(_plexThumb('/library/metadata/1/thumb/1')),
+        resolveMediaSessionArtworkUrl(
+            _plexThumb('/library/metadata/1/thumb/1')),
         isNull,
       );
       expect(
