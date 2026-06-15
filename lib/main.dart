@@ -120,10 +120,10 @@ Future<void> main() async {
   // the car tree is answerable even before any phone screen is opened.
   //
   // The media-session artwork cache lets the now-playing card show a
-  // credential-free source's cover (Subsonic) as a safe local file: — the
-  // handler reads it synchronously, never a credentialed getCoverArt URL. The
-  // covers are fetched (server-downscaled) and cached ahead of time, off the
-  // playback path, by the prewarm service started below.
+  // credential-free source's cover (Subsonic or Plex) as a safe local
+  // content:// — the handler reads it synchronously, never a credentialed
+  // getCoverArt / X-Plex-Token cover URL. The covers are fetched and cached
+  // ahead of time, off the playback path, by the prewarm service started below.
   await connectMediaSession(
     container.read(playbackControllerProvider),
     container.read(musicLibraryRepositoryProvider),
@@ -133,11 +133,11 @@ Future<void> main() async {
     artwork: container.read(mediaArtworkCacheProvider),
   );
 
-  // Warm the now-playing + look-ahead Subsonic covers into the media-session
-  // artwork cache as playback advances, so each cover is cached before its track
-  // reaches the now-playing card (beating a head unit's metadata snapshot).
-  // Off the playback path and best-effort, like the stream preloader below;
-  // instantiating it wires the listener.
+  // Warm the now-playing + look-ahead Subsonic/Plex covers into the media-
+  // session artwork cache as playback advances, so each cover is cached before
+  // its track reaches the now-playing card (beating a head unit's metadata
+  // snapshot). Off the playback path and best-effort, like the stream preloader
+  // below; instantiating it wires the listener.
   container.read(mediaArtworkPrewarmServiceProvider);
 
   // Start smart pre-cache: as playback advances it warms the next queued tracks

@@ -25,7 +25,7 @@ troubleshoot.
 | Now-playing **queue / Up Next** on the head unit | ✅ (mirrors the app's queue) |
 | Tap a row in the car's Up Next list (skip-to-queue-item) | ✅ |
 | Shuffle / repeat from the car | ✅ |
-| Now-playing metadata (title / artist / album / artwork) | ✅ (Jellyfin / local / Subsonic covers; the Subsonic cover is fetched + cached to a private file so no credential reaches `artUri`) |
+| Now-playing metadata (title / artist / album / artwork) | ✅ (Jellyfin / local / Subsonic / Plex covers; the Subsonic & Plex covers are fetched + cached to a private file so no credential reaches `artUri`) |
 | Offline / downloaded section | ✅ (user downloads only — smart pre-cache is not listed) |
 | Cast-safe (no duplicate local playback while casting) | ✅ |
 | Search from Android Auto | ❌ (not implemented — [follow-up](#known-limitations)) |
@@ -176,10 +176,11 @@ Android Auto media items are deliberately **secret-free**:
   stored on a track or handed to the media browser.
 - `MediaItem.artUri` (cover art) is only ever a **credential-free, platform-
   loadable** URI: the **token-free** image endpoint for Jellyfin, a **private
-  `file:`** for a local embedded cover or a fetched-and-cached Subsonic cover,
-  or `null`. The authenticated Subsonic `getCoverArt` URL (which embeds the
-  salt+token) is **never** put in `artUri`: Linthra fetches that cover itself
-  and hands the session only the resulting private `file:` (see
+  `content://`** for a local embedded cover or a fetched-and-cached
+  Subsonic/Plex cover, or `null`. An authenticated cover URL that embeds a
+  credential (Subsonic's salt+token `getCoverArt`, or Plex's `X-Plex-Token`
+  cover-art URL) is **never** put in `artUri`: Linthra fetches that cover itself
+  and hands the session only the resulting private `content://` (see
   [the now-playing artwork note](#known-limitations)), so no credential rides
   along in artwork.
 - The diagnostic log (see below) prints only the **category** of a media id
@@ -376,12 +377,14 @@ mode → **Add unknown sources** enabled for a sideloaded build.
 - The car experience is **basic browsing**, not a custom/polished car UI (no
   tabs, content-style hints, lyrics, or now-playing artwork tuning).
 - Lock-screen / now-playing artwork covers Jellyfin (its token-free image URL),
-  local embedded covers (extracted during the scan into a private `file:`), and
-  Subsonic/Navidrome. `getCoverArt` carries the salt+token, so it can't be handed
-  to the session as a URL; Linthra instead:
-  1. fetches a **server-downscaled** cover itself and caches the bytes to a
-     private file, keyed by a hash of the credential-free `subsonic-cover:`
-     reference (never the URL);
+  local embedded covers (extracted during the scan into a private `file:`),
+  Subsonic/Navidrome, and Plex. A credentialed cover URL (Subsonic's salt+token
+  `getCoverArt`, or Plex's `X-Plex-Token` cover-art URL) can't be handed to the
+  session as a URL; Linthra instead:
+  1. fetches the cover itself (Subsonic **server-downscaled** via its `size`
+     param; Plex as the stored thumb) and caches the bytes to a private file,
+     keyed by a hash of the credential-free reference (`subsonic-cover:` /
+     `plex-thumb:`) — never the URL;
   2. **pre-warms** the now-playing + next few covers off the playback path
      (now-playing first, retrying a transient miss on the next queue change), so a
      cover is cached before its track reaches the now-playing card; if it lands
