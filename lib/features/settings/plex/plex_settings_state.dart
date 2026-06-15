@@ -26,6 +26,16 @@ enum PlexConnectionPhase {
   /// user is away in the browser); cancellable.
   linking,
 
+  /// The sign-in was approved; the account's Plex Home users (profiles) are
+  /// being fetched from plex.tv, before the server step.
+  loadingUsers,
+
+  /// The Home users are known and the user is choosing which profile to use
+  /// ([PlexSettingsState.users] holds the choices). Only reached when the
+  /// account has more than one profile; a single-user account skips straight
+  /// to the server step.
+  pickingUser,
+
   /// The sign-in was approved; the account's Plex Media Servers are being
   /// fetched from plex.tv.
   loadingServers,
@@ -105,6 +115,55 @@ class PlexServerChoice {
       'name: $name, productVersion: $productVersion, owned: $owned)';
 }
 
+/// One Plex Home user (profile) the user can pick after signing in — the
+/// display-safe projection of a `PlexHomeUser`, so the user picker UI (and this
+/// state) never touches the wire DTO. **No field is a secret**: the listing has
+/// no per-user token, and the one minted by switching into the profile stays in
+/// the controller's private flow state and the (encrypted) session.
+@immutable
+class PlexUserChoice {
+  const PlexUserChoice({
+    required this.uuid,
+    required this.title,
+    this.admin = false,
+    this.restricted = false,
+    this.protected = false,
+  });
+
+  /// The profile's stable UUID, used to tell the controller which profile was
+  /// picked. Not a credential.
+  final String uuid;
+
+  /// The profile's display name.
+  final String title;
+
+  /// Whether this profile is the account owner/admin.
+  final bool admin;
+
+  /// Whether this is a restricted (managed) profile.
+  final bool restricted;
+
+  /// Whether switching into this profile requires its PIN.
+  final bool protected;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlexUserChoice &&
+          other.uuid == uuid &&
+          other.title == title &&
+          other.admin == admin &&
+          other.restricted == restricted &&
+          other.protected == protected);
+
+  @override
+  int get hashCode => Object.hash(uuid, title, admin, restricted, protected);
+
+  @override
+  String toString() => 'PlexUserChoice(uuid: $uuid, title: $title, '
+      'admin: $admin, restricted: $restricted, protected: $protected)';
+}
+
 /// Immutable snapshot the Plex settings UI renders from.
 ///
 /// The screen reads this and never reaches into HTTP, the authenticator, or the
@@ -126,6 +185,7 @@ class PlexSettingsState {
     this.sectionsLoaded = false,
     this.selectedSectionKeys = const <String>[],
     this.servers = const <PlexServerChoice>[],
+    this.users = const <PlexUserChoice>[],
     this.statusMessage,
     this.errorMessage,
     this.errorKind,
@@ -171,6 +231,12 @@ class PlexSettingsState {
   /// projections only; the token-bearing resources stay in the controller.
   final List<PlexServerChoice> servers;
 
+  /// The account's Plex Home users (profiles), for the user picker
+  /// ([PlexConnectionPhase.pickingUser]). Display-safe projections only; the
+  /// per-profile token minted by switching stays in the controller. Empty
+  /// outside the picker.
+  final List<PlexUserChoice> users;
+
   /// A friendly, non-error status line (e.g. "Connected to Plex…").
   final String? statusMessage;
 
@@ -190,13 +256,16 @@ class PlexSettingsState {
   bool get isBusy =>
       phase == PlexConnectionPhase.testing ||
       phase == PlexConnectionPhase.connecting ||
+      phase == PlexConnectionPhase.loadingUsers ||
       phase == PlexConnectionPhase.loadingServers;
 
   /// True while the "Connect with Plex" sign-in flow owns the card (waiting
-  /// on the browser, loading servers, or picking one) — the phases a Cancel
-  /// returns from.
+  /// on the browser, loading users/servers, or picking one) — the phases a
+  /// Cancel returns from.
   bool get isLinkFlowActive =>
       phase == PlexConnectionPhase.linking ||
+      phase == PlexConnectionPhase.loadingUsers ||
+      phase == PlexConnectionPhase.pickingUser ||
       phase == PlexConnectionPhase.loadingServers ||
       phase == PlexConnectionPhase.pickingServer;
 
@@ -224,6 +293,7 @@ class PlexSettingsState {
     bool? sectionsLoaded,
     List<String>? selectedSectionKeys,
     List<PlexServerChoice>? servers,
+    List<PlexUserChoice>? users,
     Object? statusMessage = _unset,
     Object? errorMessage = _unset,
     Object? errorKind = _unset,
@@ -238,6 +308,7 @@ class PlexSettingsState {
       sectionsLoaded: sectionsLoaded ?? this.sectionsLoaded,
       selectedSectionKeys: selectedSectionKeys ?? this.selectedSectionKeys,
       servers: servers ?? this.servers,
+      users: users ?? this.users,
       statusMessage: identical(statusMessage, _unset)
           ? this.statusMessage
           : statusMessage as String?,

@@ -173,4 +173,75 @@ void main() {
       expect(resource.toString(), contains('accessToken: null'));
     });
   });
+
+  group('PlexHomeUser', () {
+    test('parses the owner and a managed profile', () {
+      final PlexHomeUser? owner = PlexHomeUser.fromJson(const <String, dynamic>{
+        'id': 12345,
+        'uuid': 'uuid-owner',
+        'title': 'Dad',
+        'admin': true,
+        'restricted': false,
+        'protected': true,
+      });
+      expect(owner, isNotNull);
+      expect(owner!.uuid, 'uuid-owner');
+      expect(owner.id, 12345);
+      expect(owner.title, 'Dad');
+      expect(owner.admin, isTrue);
+      expect(owner.restricted, isFalse);
+      expect(owner.protected, isTrue);
+
+      final PlexHomeUser? kid = PlexHomeUser.fromJson(const <String, dynamic>{
+        'uuid': 'uuid-kid',
+        'title': 'Kids',
+        'admin': false,
+        'restricted': true,
+        'protected': false,
+      });
+      expect(kid!.admin, isFalse);
+      expect(kid.restricted, isTrue);
+      expect(kid.protected, isFalse);
+    });
+
+    test('falls back to username, then empty, for a missing title', () {
+      expect(
+        PlexHomeUser.fromJson(const <String, dynamic>{
+          'uuid': 'u',
+          'username': 'guest42',
+        })!
+            .title,
+        'guest42',
+      );
+      expect(
+        PlexHomeUser.fromJson(const <String, dynamic>{'uuid': 'u'})!.title,
+        '',
+      );
+    });
+
+    test('tolerates 0/1 and string booleans from older envelopes', () {
+      final PlexHomeUser? user = PlexHomeUser.fromJson(const <String, dynamic>{
+        'uuid': 'u',
+        'id': '99',
+        'admin': '1',
+        'restricted': 0,
+        'protected': 'true',
+      });
+      expect(user!.id, 99);
+      expect(user.admin, isTrue);
+      expect(user.restricted, isFalse);
+      expect(user.protected, isTrue);
+    });
+
+    test('returns null without a uuid (nothing to switch into)', () {
+      expect(
+        PlexHomeUser.fromJson(const <String, dynamic>{'title': 'No uuid'}),
+        isNull,
+      );
+      expect(
+        PlexHomeUser.fromJson(const <String, dynamic>{'uuid': ''}),
+        isNull,
+      );
+    });
+  });
 }

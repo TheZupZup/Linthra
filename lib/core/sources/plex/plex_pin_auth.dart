@@ -154,6 +154,37 @@ class PlexPinAuth {
     ];
   }
 
+  /// Lists the account's Plex Home users (profiles) so the caller can offer a
+  /// "whose library?" picker before any sync runs. A thin pass-through to the
+  /// tv client — the account [accountToken] rides in the header; the listing
+  /// carries no per-user token. An account without Plex Home simply reports one
+  /// user (the owner), which the caller treats as "nothing to pick".
+  Future<List<PlexHomeUser>> fetchHomeUsers({
+    required String accountToken,
+  }) {
+    return _tvClient.fetchHomeUsers(token: accountToken);
+  }
+
+  /// Switches into the Plex Home user [uuid], returning that profile's own
+  /// account token — the credential the rest of the flow then uses, so the
+  /// fetched servers and the persisted session are scoped to what the profile
+  /// may see. [pin] is required for a protected profile.
+  ///
+  /// The owner/admin already holds [accountToken], so the caller skips this for
+  /// them. Token safety mirrors [waitForAuthToken]: the returned token is the
+  /// only secret that leaves here, never logged and never put in an exception.
+  Future<String> switchToUser({
+    required String uuid,
+    required String accountToken,
+    String? pin,
+  }) {
+    return _tvClient.switchHomeUser(
+      uuid: uuid,
+      token: accountToken,
+      pin: pin,
+    );
+  }
+
   /// Verifies the picked [server] is reachable and returns a session for it.
   ///
   /// Token choice: the server's own **server-scoped** `accessToken` when

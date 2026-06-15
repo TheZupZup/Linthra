@@ -84,6 +84,12 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
         .selectServer(clientIdentifier);
   }
 
+  Future<void> _selectUser(String uuid, {String? pin}) async {
+    await ref
+        .read(plexSettingsControllerProvider.notifier)
+        .selectUser(uuid, pin: pin);
+  }
+
   Future<void> _test() async {
     FocusScope.of(context).unfocus();
     await ref.read(plexSettingsControllerProvider.notifier).testConnection(
@@ -232,6 +238,21 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
           _LinkingView(
             statusMessage: state.statusMessage,
             onReopen: _reopenSignIn,
+            onCancel: _cancelLink,
+          ),
+        ];
+      case PlexConnectionPhase.loadingUsers:
+        return [
+          _FlowBusyView(
+            message: state.statusMessage ?? 'Finding your Plex users…',
+            onCancel: _cancelLink,
+          ),
+        ];
+      case PlexConnectionPhase.pickingUser:
+        return [
+          _UserPickerView(
+            users: state.users,
+            onSelect: _selectUser,
             onCancel: _cancelLink,
           ),
         ];
@@ -541,6 +562,185 @@ class _FlowBusyView extends StatelessWidget {
             child: const Text('Cancel'),
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// The user picker: one entry per Plex Home user (profile) on the signed-in
+/// account, so the person chooses whose library to use before any sync — the
+/// step that keeps onboarding fast. A protected profile reveals an inline PIN
+/// entry on tap; an unprotected one is picked straight away. Shows display
+/// names only — never tokens (the listing has none anyway).
+class _UserPickerView extends StatefulWidget {
+  const _UserPickerView({
+    required this.users,
+    required this.onSelect,
+    required this.onCancel,
+  });
+
+  final List<PlexUserChoice> users;
+  final void Function(String uuid, {String? pin})? onSelect;
+  final VoidCallback? onCancel;
+
+  @override
+  State<_UserPickerView> createState() => _UserPickerViewState();
+}
+
+class _UserPickerViewState extends State<_UserPickerView> {
+  final TextEditingController _pinController = TextEditingController();
+
+  /// The uuid of the protected profile currently being asked for its PIN, or
+  /// `null` while the plain profile list is shown.
+  String? _pinForUuid;
+
+  @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  void _tap(PlexUserChoice user) {
+    if (user.protected) {
+      _pinController.clear();
+      setState(() => _pinForUuid = user.uuid);
+    } else {
+      widget.onSelect?.call(user.uuid);
+    }
+  }
+
+  void _submitPin(String uuid) {
+    final String pin = _pinController.text.trim();
+    widget.onSelect?.call(uuid, pin: pin.isEmpty ? null : pin);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+
+    final String? pinUuid = _pinForUuid;
+    if (pinUuid != null) {
+      final PlexUserChoice user = widget.users.firstWhere(
+        (PlexUserChoice u) => u.uuid == pinUuid,
+        orElse: () => PlexUserChoice(uuid: pinUuid, title: 'Plex user'),
+      );
+      return _PinEntry(
+        title: user.title,
+        controller: _pinController,
+        onSubmit: widget.onSelect == null ? null : () => _submitPin(pinUuid),
+        onBack: () => setState(() => _pinForUuid = null),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Choose your Plex user', style: theme.textTheme.titleSmall),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Pick the profile to use on this device — only its library is '
+          'synced, so onboarding stays fast.',
+          style: theme.textTheme.bodySmall?.copyWith(color: muted),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        for (final PlexUserChoice user in widget.users)
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              user.admin ? Icons.person_outline : Icons.people_outline,
+            ),
+            title: Text(user.title),
+            subtitle: Text(_subtitleFor(user)),
+            trailing: Icon(
+              user.protected
+                  ? Icons.lock_outline
+                  : Icons.chevron_right_outlined,
+            ),
+            onTap: widget.onSelect == null ? null : () => _tap(user),
+          ),
+        const SizedBox(height: AppSpacing.sm),
+        OutlinedButton(
+          onPressed: widget.onCancel,
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+
+  String _subtitleFor(PlexUserChoice user) {
+    final List<String> parts = <String>[
+      if (user.admin) 'Account owner' else 'Managed profile',
+      if (user.protected) 'PIN protected',
+    ];
+    return parts.join(' · ');
+  }
+}
+
+/// The inline PIN entry shown when a protected Plex Home profile is picked —
+/// part of the same card, never a dialog, matching the rest of the flow.
+class _PinEntry extends StatelessWidget {
+  const _PinEntry({
+    required this.title,
+    required this.controller,
+    required this.onSubmit,
+    required this.onBack,
+  });
+
+  final String title;
+  final TextEditingController controller;
+  final VoidCallback? onSubmit;
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Enter the PIN for $title', style: theme.textTheme.titleSmall),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'This Plex profile is protected — enter its PIN to switch into it.',
+          style: theme.textTheme.bodySmall?.copyWith(color: muted),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        TextField(
+          controller: controller,
+          autofocus: true,
+          obscureText: true,
+          keyboardType: TextInputType.number,
+          autocorrect: false,
+          // A profile PIN is not the account token, but keep it out of the
+          // keyboard's learning store anyway.
+          enableSuggestions: false,
+          textInputAction: TextInputAction.done,
+          onSubmitted: onSubmit == null ? null : (_) => onSubmit!(),
+          decoration: const InputDecoration(
+            labelText: 'Profile PIN',
+            prefixIcon: Icon(Icons.lock_outline),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: onBack,
+                child: const Text('Back'),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: FilledButton(
+                onPressed: onSubmit,
+                child: const Text('Continue'),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }

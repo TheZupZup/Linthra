@@ -221,6 +221,78 @@ void main() {
     });
   });
 
+  group('fetchHomeUsers', () {
+    test('lists the account profiles with the account token', () async {
+      const PlexHomeUser owner = PlexHomeUser(
+        uuid: 'uuid-owner',
+        title: 'Dad',
+        admin: true,
+      );
+      const PlexHomeUser kid = PlexHomeUser(
+        uuid: 'uuid-kid',
+        title: 'Kids',
+        restricted: true,
+      );
+      final tvClient = FakePlexTvClient(
+        homeUsers: const <PlexHomeUser>[owner, kid],
+      );
+      final PlexPinAuth auth = _auth(tvClient: tvClient);
+
+      final List<PlexHomeUser> users =
+          await auth.fetchHomeUsers(accountToken: _accountToken);
+
+      expect(users.map((u) => u.uuid), <String>['uuid-owner', 'uuid-kid']);
+      expect(tvClient.lastHomeUsersToken, _accountToken);
+    });
+
+    test('propagates a plex.tv failure for the caller to handle', () async {
+      final tvClient = FakePlexTvClient(
+        homeUsersError: PlexException.plexTvError(503),
+      );
+      final PlexPinAuth auth = _auth(tvClient: tvClient);
+
+      await expectLater(
+        auth.fetchHomeUsers(accountToken: _accountToken),
+        throwsA(isA<PlexException>()
+            .having((e) => e.kind, 'kind', PlexErrorKind.serverError)),
+      );
+    });
+  });
+
+  group('switchToUser', () {
+    test('switches into a profile, forwarding the pin and account token',
+        () async {
+      final tvClient = FakePlexTvClient(
+        switchTokens: <String, String>{'uuid-kid': 'kid-scoped-token'},
+      );
+      final PlexPinAuth auth = _auth(tvClient: tvClient);
+
+      final String token = await auth.switchToUser(
+        uuid: 'uuid-kid',
+        accountToken: _accountToken,
+        pin: '4242',
+      );
+
+      expect(token, 'kid-scoped-token');
+      expect(tvClient.lastSwitchedUuid, 'uuid-kid');
+      expect(tvClient.lastSwitchToken, _accountToken);
+      expect(tvClient.lastSwitchPin, '4242');
+    });
+
+    test('propagates a rejected switch (wrong pin)', () async {
+      final tvClient = FakePlexTvClient(
+        switchError: PlexException.signInRejected(),
+      );
+      final PlexPinAuth auth = _auth(tvClient: tvClient);
+
+      await expectLater(
+        auth.switchToUser(uuid: 'uuid-kid', accountToken: _accountToken),
+        throwsA(isA<PlexException>()
+            .having((e) => e.kind, 'kind', PlexErrorKind.unauthorized)),
+      );
+    });
+  });
+
   group('connectToServer', () {
     test('prefers the server-scoped token and probes the first connection',
         () async {

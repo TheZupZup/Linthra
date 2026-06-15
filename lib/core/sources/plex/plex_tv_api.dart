@@ -190,6 +190,70 @@ class PlexResourceConnection {
       'relay: $relay, protocol: $protocol)';
 }
 
+/// One Plex Home user (profile) on the signed-in account, from
+/// `GET https://plex.tv/api/v2/home/users`.
+///
+/// Plex Home lets several people share one account — the owner plus managed
+/// profiles (a partner, a kids profile). Linthra lists them right after sign-in
+/// so the person can pick **whose** library to use on this device before any
+/// sync runs; the picked profile's own token (minted by the separate switch
+/// call) then scopes every later fetch, so a restricted profile only ever syncs
+/// the libraries it is allowed to see.
+///
+/// Carries **no** secret: the listing has no per-user token (that is granted by
+/// the switch call), only the display fields and the [uuid] the switch
+/// addresses. [protected] means switching into the profile needs its PIN.
+class PlexHomeUser {
+  const PlexHomeUser({
+    required this.uuid,
+    this.id,
+    this.title = '',
+    this.admin = false,
+    this.restricted = false,
+    this.protected = false,
+  });
+
+  /// The profile's stable UUID — what the switch endpoint addresses. Not a
+  /// credential.
+  final String uuid;
+
+  /// The profile's numeric id, when reported. Not a credential.
+  final int? id;
+
+  /// The profile's display name (e.g. "Dad", "Kids"). Not a credential.
+  final String title;
+
+  /// Whether this profile is the account owner/admin. They already hold the
+  /// account token, so switching into them needs no extra call.
+  final bool admin;
+
+  /// Whether this is a restricted (managed) profile — its token sees only the
+  /// libraries the owner shared with it.
+  final bool restricted;
+
+  /// Whether switching into this profile requires its PIN.
+  final bool protected;
+
+  /// Parses one user, or returns `null` when it lacks the [uuid] the switch
+  /// call needs, so a single malformed entry can't break the whole listing.
+  static PlexHomeUser? fromJson(Map<String, dynamic> json) {
+    final String? uuid = _asString(json['uuid']);
+    if (uuid == null || uuid.isEmpty) return null;
+    return PlexHomeUser(
+      uuid: uuid,
+      id: _asInt(json['id']),
+      title: _asString(json['title']) ?? _asString(json['username']) ?? '',
+      admin: _asBool(json['admin']),
+      restricted: _asBool(json['restricted']),
+      protected: _asBool(json['protected']),
+    );
+  }
+
+  @override
+  String toString() => 'PlexHomeUser(uuid: $uuid, id: $id, title: $title, '
+      'admin: $admin, restricted: $restricted, protected: $protected)';
+}
+
 /// Reads a field that plex.tv may report as either a JSON string or a number,
 /// returning a `String?` either way (mirrors `plex_api.dart`).
 String? _asString(Object? value) {
