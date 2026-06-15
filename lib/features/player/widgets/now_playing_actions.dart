@@ -6,16 +6,20 @@ import '../../../core/models/track.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../favorites_providers.dart';
+import '../sleep_timer_controller.dart';
 import 'lyrics_view.dart';
 import 'queue_sheet.dart';
+import 'sleep_timer_sheet.dart';
 
-/// Bottom action row on the now-playing screen: favorite · queue · lyrics.
+/// Bottom action row on the now-playing screen: favorite · playlist · queue ·
+/// lyrics · sleep timer.
 ///
-/// All three are live: favorite toggles a heart synced through the
+/// They're live: favorite toggles a heart synced through the
 /// [FavoritesRepository] (to Jellyfin for remote tracks, on-device for local
-/// ones), queue opens the up-next list, and lyrics fetches the track's lyrics
-/// from the source — falling back to an honest "no lyrics" state when there are
-/// none (or for a local track / when signed out).
+/// ones), queue opens the up-next list, lyrics fetches the track's lyrics from
+/// the source — falling back to an honest "no lyrics" state when there are none
+/// (or for a local track / when signed out) — and the sleep timer (a moon that
+/// lights up while a countdown is running) opens the delay picker.
 class NowPlayingActions extends ConsumerWidget {
   const NowPlayingActions({super.key, required this.track});
 
@@ -25,8 +29,12 @@ class NowPlayingActions extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
     final bool isFavorite = ref.watch(isFavoriteProvider(track.id));
+    final bool sleepTimerActive = ref.watch(
+      sleepTimerControllerProvider.select((s) => s.isActive),
+    );
     // A calm, uniform tint keeps this row reading as tertiary beneath the
-    // transport controls; favorite still lights up when active.
+    // transport controls; favorite and the sleep timer still light up when
+    // active.
     final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.7);
 
     return Row(
@@ -62,6 +70,16 @@ class NowPlayingActions extends ConsumerWidget {
           icon: const Icon(Icons.lyrics_outlined),
           color: muted,
           tooltip: 'Lyrics',
+        ),
+        IconButton(
+          iconSize: 22,
+          onPressed: () => showSleepTimerSheet(context),
+          icon: Icon(
+            sleepTimerActive ? Icons.bedtime : Icons.bedtime_outlined,
+          ),
+          color: sleepTimerActive ? theme.colorScheme.primary : muted,
+          isSelected: sleepTimerActive,
+          tooltip: sleepTimerActive ? 'Sleep timer (on)' : 'Sleep timer',
         ),
       ],
     );
