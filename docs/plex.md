@@ -119,6 +119,43 @@ Jellyfin's device id + `Authorization` client header.
   Jellyfin/Subsonic "URL + credential, verify against the server" flow, with
   no browser handoff — useful for dev setups and tokens scoped by hand.
 
+### Plex Home user selection (whose library to sync)
+
+A Plex account can host a **Plex Home** — several profiles (the owner plus
+managed users like a partner or a kids profile) sharing one account. After the
+PIN grants the account token, Linthra lists the Home users
+(`GET https://plex.tv/api/v2/home/users`) and, when there is more than one,
+shows a **user picker** *before* the server step and any sync. Picking a profile
+is what keeps onboarding fast and scoped — only that profile's library is
+synced:
+
+- **Owner/admin** — already who the account token belongs to, so no switch is
+  made; the flow continues with the account token.
+- **A managed profile** — Linthra switches into it
+  (`POST https://plex.tv/api/v2/home/users/{uuid}/switch`, plus the profile's
+  PIN when it is protected) to mint that profile's **own** token, then lists
+  servers and builds the session with it. A restricted profile's token only
+  sees the libraries the owner shared, so the synced catalog mirrors exactly
+  what that person may play.
+
+The picker is an **enhancement, never a gate**: an account without Plex Home
+(one user), or a plex.tv hiccup while listing profiles, simply skips it and
+connects as the owner — identical to the pre-picker behaviour. As before,
+nothing syncs automatically on connect (a fresh sign-in starts with an empty
+selection and clears the Plex catalog slice rather than kicking a full library
+walk); the existing library picker + *Sync* path is unchanged.
+
+Implementation: the listing/switch live in `plex_tv_endpoints.dart` /
+`plex_tv_api.dart` (`PlexHomeUser`) / `plex_tv_client.dart` /
+`http_plex_tv_client.dart`; the flow seam (`fetchHomeUsers` / `switchToUser`)
+in `plex_pin_auth.dart`; and the new UI states (`loadingUsers` / `pickingUser`,
+`PlexUserChoice`) in the settings controller/section. Token safety is the same
+as the rest of the flow: the per-profile token is minted by the switch, lives
+only in the controller's in-memory flow state until the session is persisted
+(encrypted), and never reaches `state`, a log, or an exception. The switch URL
+carries the **profile PIN** (a short, low-entropy local PIN — *not* the
+`X-Plex-Token`) as a query param; the account token always rides in the header.
+
 ### Token scope (key safety decision)
 
 Prefer the **per-server `accessToken`** from the resources endpoint over the

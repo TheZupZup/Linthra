@@ -21,6 +21,7 @@ abstract final class PlexTvEndpoints {
 
   static const String _pinsPath = '/api/v2/pins';
   static const String _resourcesPath = '/api/v2/resources';
+  static const String _homeUsersPath = '/api/v2/home/users';
 
   /// `POST https://plex.tv/api/v2/pins?strong=true` — mints a new sign-in PIN.
   ///
@@ -41,6 +42,25 @@ abstract final class PlexTvEndpoints {
   /// `includeRelay` includes the plex.tv relay as a last-resort path.
   static Uri resources() =>
       Uri.parse('$plexTvBaseUrl$_resourcesPath?includeHttps=1&includeRelay=1');
+
+  /// `GET https://plex.tv/api/v2/home/users` — lists the account's Plex Home
+  /// users (profiles). The account token rides in the `X-Plex-Token`
+  /// **header**, so this URL stays token-free and loggable.
+  static Uri homeUsers() => Uri.parse('$plexTvBaseUrl$_homeUsersPath');
+
+  /// `POST https://plex.tv/api/v2/home/users/{uuid}/switch` — switches into a
+  /// Plex Home user, returning that profile's own auth token.
+  ///
+  /// A protected profile needs its [pin] (a short, low-entropy profile PIN —
+  /// **not** the account `X-Plex-Token`); it rides as a query param because
+  /// that is the shape the endpoint expects. The account token still rides in
+  /// the `X-Plex-Token` header, so the URL never carries it.
+  static Uri switchHomeUser({required String uuid, String? pin}) {
+    final String base =
+        '$plexTvBaseUrl$_homeUsersPath/${Uri.encodeComponent(uuid)}/switch';
+    if (pin == null || pin.isEmpty) return Uri.parse(base);
+    return Uri.parse('$base?pin=${Uri.encodeComponent(pin)}');
+  }
 
   /// The `https://app.plex.tv/auth#?…` page the browser opens so the user can
   /// approve the sign-in with their own Plex account.

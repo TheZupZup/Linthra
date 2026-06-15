@@ -89,6 +89,51 @@ class HttpPlexTvClient implements PlexTvClient {
     ];
   }
 
+  @override
+  Future<List<PlexHomeUser>> fetchHomeUsers({required String token}) async {
+    final http.Response response = await _send(
+      () => _client.get(
+        PlexTvEndpoints.homeUsers(),
+        headers: _headers(token: token),
+      ),
+    );
+    _checkStatus(response);
+    final Object? decoded = _decode(response);
+    // api/v2 answers an object with a `users` array; tolerate a bare array too
+    // so an older/alternate envelope still parses.
+    final Object? rawUsers =
+        decoded is Map<String, dynamic> ? decoded['users'] : decoded;
+    if (rawUsers is! List) {
+      throw PlexException.plexTvUnexpected();
+    }
+    return <PlexHomeUser>[
+      for (final Object? entry in rawUsers)
+        if (entry is Map<String, dynamic>)
+          if (PlexHomeUser.fromJson(entry) case final PlexHomeUser user) user,
+    ];
+  }
+
+  @override
+  Future<String> switchHomeUser({
+    required String uuid,
+    required String token,
+    String? pin,
+  }) async {
+    final http.Response response = await _send(
+      () => _client.post(
+        PlexTvEndpoints.switchHomeUser(uuid: uuid, pin: pin),
+        headers: _headers(token: token),
+      ),
+    );
+    _checkStatus(response);
+    final Object? authToken = _decodeObject(response)['authToken'];
+    if (authToken is String && authToken.isNotEmpty) {
+      return authToken;
+    }
+    // A 2xx switch with no token is unusable — there's nothing to connect with.
+    throw PlexException.plexTvUnexpected();
+  }
+
   /// The headers every plex.tv call sends: `Accept: application/json`, the
   /// stable client-identity headers, and — only when a call needs one — the
   /// account [token] as the `X-Plex-Token` **header** (never a query param,
