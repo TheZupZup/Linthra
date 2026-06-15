@@ -386,10 +386,12 @@ void main() {
     // The background sync kicked by the selection landed and reported.
     expect(find.textContaining('Synced 1 track'), findsOneWidget);
 
-    // The manual action reruns it on demand.
+    // The manual action reruns it on demand; with nothing changed since the
+    // selection-driven sync, it reports the library is already current rather
+    // than rebuilding it.
     await tester.tap(find.text('Sync Plex library'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Synced 1 track'), findsOneWidget);
+    expect(find.textContaining('already up to date'), findsOneWidget);
   });
 
   testWidgets('a rejected token shows a friendly, token-free error',

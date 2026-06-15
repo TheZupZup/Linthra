@@ -767,7 +767,13 @@ class _ConnectedView extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.sync_outlined),
-          label: Text(syncState.isSyncing ? 'Syncing…' : 'Sync Plex library'),
+          label: Text(
+            syncState.isScanning
+                ? 'Scanning…'
+                : syncState.isWriting
+                    ? 'Saving…'
+                    : 'Sync Plex library',
+          ),
         ),
         if (syncState.message != null && !syncState.isSyncing) ...[
           const SizedBox(height: AppSpacing.sm),

@@ -1001,7 +1001,7 @@ void main() {
       expect((await repository.getAllTracks()), hasLength(2));
       expect(
         container.read(plexSyncControllerProvider).status,
-        PlexSyncStatus.success,
+        PlexSyncStatus.done,
       );
 
       await notifier.disconnect();

@@ -1,6 +1,7 @@
 import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/music_library_repository.dart';
 
 /// An in-memory [MusicLibraryRepository] for development and tests.
@@ -14,7 +15,8 @@ import '../../core/repositories/music_library_repository.dart';
 /// the catalog for that one source, leaving every other source untouched.
 /// The `getAll*` methods flatten across sources, preserving the order that
 /// sources were first seen and the item order within each source.
-class InMemoryMusicLibraryRepository implements MusicLibraryRepository {
+class InMemoryMusicLibraryRepository
+    implements MusicLibraryRepository, IncrementalCatalogWriter {
   // Per-source catalogs. Keyed by sourceId so a re-scan of one source can
   // replace just its slice without disturbing the others. `upsertCatalog` is
   // the only writer, which keeps the three maps in sync.
@@ -73,6 +75,28 @@ class InMemoryMusicLibraryRepository implements MusicLibraryRepository {
     _tracksBySource[sourceId] = List<Track>.of(tracks);
     _albumsBySource[sourceId] = List<Album>.of(albums);
     _artistsBySource[sourceId] = List<Artist>.of(artists);
+  }
+
+  @override
+  Future<void> beginCatalogReplacement({
+    required String sourceId,
+    required List<Track> tracks,
+  }) async {
+    // Mirror upsertCatalog's "replace this source" semantics, but only for the
+    // tracks an incremental sync streams; the album/artist slices are derived
+    // from tracks by readers, so they're dropped to stay consistent.
+    _tracksBySource[sourceId] = List<Track>.of(tracks);
+    _albumsBySource.remove(sourceId);
+    _artistsBySource.remove(sourceId);
+  }
+
+  @override
+  Future<void> appendToCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+  }) async {
+    if (tracks.isEmpty) return;
+    (_tracksBySource[sourceId] ??= <Track>[]).addAll(tracks);
   }
 
   @override

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -669,6 +670,135 @@ void main() {
           expect(e.toString(), isNot(contains(_token)));
         }
       }
+    });
+  });
+
+  group('off-isolate parsing of large library pages', () {
+    PlexMediaContainer? decodeInline(Uint8List bytes) =>
+        PlexMediaContainer.fromJson(
+            jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>);
+
+    test('routes a large page through the background parser seam', () async {
+      int parserCalls = 0;
+      final HttpPlexClient client = HttpPlexClient(
+        identity: _identity,
+        // Force the background path for any non-empty body.
+        backgroundParseThreshold: 0,
+        backgroundParser: (Uint8List bytes) async {
+          parserCalls++;
+          return decodeInline(bytes);
+        },
+        httpClient: MockClient((_) async => _json(<String, dynamic>{
+              'MediaContainer': <String, dynamic>{
+                'size': 1,
+                'Metadata': <dynamic>[
+                  <String, dynamic>{'ratingKey': '1', 'type': 'track'},
+                ],
+              },
+            })),
+      );
+
+      final List<PlexMetadata> tracks = await client.fetchSectionItems(
+        baseUrl: _base,
+        token: _token,
+        sectionKey: '3',
+        itemType: PlexMetadataType.track,
+      );
+
+      expect(tracks.map((PlexMetadata t) => t.ratingKey), <String>['1']);
+      expect(parserCalls, 1, reason: 'a large page is parsed off the seam');
+    });
+
+    test('small bodies stay inline (the background seam is not used)',
+        () async {
+      int parserCalls = 0;
+      final HttpPlexClient client = HttpPlexClient(
+        identity: _identity,
+        // Default 64 KiB threshold — a tiny reply stays inline.
+        backgroundParser: (Uint8List bytes) async {
+          parserCalls++;
+          return decodeInline(bytes);
+        },
+        httpClient: MockClient((_) async => _json(<String, dynamic>{
+              'MediaContainer': <String, dynamic>{
+                'size': 1,
+                'Metadata': <dynamic>[
+                  <String, dynamic>{'ratingKey': '1', 'type': 'track'},
+                ],
+              },
+            })),
+      );
+
+      final List<PlexMetadata> tracks = await client.fetchSectionItems(
+        baseUrl: _base,
+        token: _token,
+        sectionKey: '3',
+        itemType: PlexMetadataType.track,
+      );
+
+      expect(tracks.map((PlexMetadata t) => t.ratingKey), <String>['1']);
+      expect(parserCalls, 0, reason: 'small bodies are decoded inline');
+    });
+
+    test('decodes a large page correctly via the real compute isolate',
+        () async {
+      // No injected parser: exercises the production `compute` seam end to end.
+      final HttpPlexClient client = HttpPlexClient(
+        identity: _identity,
+        backgroundParseThreshold: 0,
+        httpClient: MockClient((_) async => _json(<String, dynamic>{
+              'MediaContainer': <String, dynamic>{
+                'size': 2,
+                'totalSize': 2,
+                'Metadata': <dynamic>[
+                  <String, dynamic>{
+                    'ratingKey': '1',
+                    'type': 'track',
+                    'title': 'Aurøra', // non-ASCII survives the UTF-8 decode
+                  },
+                  <String, dynamic>{'ratingKey': '2', 'type': 'track'},
+                ],
+              },
+            })),
+      );
+
+      final List<PlexMetadata> tracks = await client.fetchSectionItems(
+        baseUrl: _base,
+        token: _token,
+        sectionKey: '3',
+        itemType: PlexMetadataType.track,
+      );
+
+      expect(tracks.map((PlexMetadata t) => t.ratingKey), <String>['1', '2']);
+      expect(tracks.first.title, 'Aurøra');
+    });
+
+    test('a large non-JSON body still maps to notPlex off-isolate', () async {
+      final HttpPlexClient client = HttpPlexClient(
+        identity: _identity,
+        backgroundParseThreshold: 0,
+        httpClient: MockClient(
+          (_) async => http.Response(
+            '<MediaContainer machineIdentifier="abc"/>',
+            200,
+            headers: const <String, String>{'content-type': 'application/xml'},
+          ),
+        ),
+      );
+
+      await expectLater(
+        client.fetchSectionItems(
+          baseUrl: _base,
+          token: _token,
+          sectionKey: '3',
+          itemType: PlexMetadataType.track,
+        ),
+        throwsA(isA<PlexException>().having(
+          (PlexException e) => e.kind,
+          'kind',
+          PlexErrorKind.notPlex,
+        )),
+      );
     });
   });
 }

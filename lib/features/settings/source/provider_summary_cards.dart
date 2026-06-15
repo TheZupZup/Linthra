@@ -503,8 +503,10 @@ class PlexProviderCard extends ConsumerWidget {
     } else if (state.errorMessage != null) {
       detail = state.errorMessage;
       detailIsError = true;
-    } else if (sync.isSyncing) {
-      detail = 'Syncing your libraries…';
+    } else if (sync.isScanning) {
+      detail = 'Scanning your libraries…';
+    } else if (sync.isWriting) {
+      detail = 'Saving your libraries…';
     } else if (sync.isError) {
       detail = sync.message;
       detailIsError = true;

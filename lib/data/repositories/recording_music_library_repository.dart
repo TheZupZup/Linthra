@@ -1,6 +1,7 @@
 import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/library_added_store.dart';
 import '../../core/repositories/music_library_repository.dart';
 
@@ -18,7 +19,14 @@ import '../../core/repositories/music_library_repository.dart';
 ///
 /// Reads (`getAllTracks`, etc.) pass straight through. The stored map holds only
 /// non-secret track ids and timestamps; it never carries a uri or token.
-class RecordingMusicLibraryRepository implements MusicLibraryRepository {
+///
+/// Incremental writes ([beginCatalogReplacement] / [appendToCatalog]) stamp each
+/// streamed batch the same way [upsertCatalog] does, so a progressively-synced
+/// library still feeds "Recently added" correctly; they delegate to the wrapped
+/// repository's [IncrementalCatalogWriter] when it has one (the production Drift
+/// repository does) and otherwise fall back to a whole-slice write.
+class RecordingMusicLibraryRepository
+    implements MusicLibraryRepository, IncrementalCatalogWriter {
   RecordingMusicLibraryRepository({
     required MusicLibraryRepository delegate,
     required LibraryAddedStore addedStore,
@@ -56,6 +64,47 @@ class RecordingMusicLibraryRepository implements MusicLibraryRepository {
       albums: albums,
       artists: artists,
     );
+    await _stampFirstSeen(tracks);
+  }
+
+  @override
+  Future<void> beginCatalogReplacement({
+    required String sourceId,
+    required List<Track> tracks,
+  }) async {
+    final MusicLibraryRepository delegate = _delegate;
+    if (delegate is IncrementalCatalogWriter) {
+      await (delegate as IncrementalCatalogWriter)
+          .beginCatalogReplacement(sourceId: sourceId, tracks: tracks);
+    } else {
+      await delegate.upsertCatalog(
+        sourceId: sourceId,
+        tracks: tracks,
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+    }
+    await _stampFirstSeen(tracks);
+  }
+
+  @override
+  Future<void> appendToCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+  }) async {
+    final MusicLibraryRepository delegate = _delegate;
+    if (delegate is IncrementalCatalogWriter) {
+      await (delegate as IncrementalCatalogWriter)
+          .appendToCatalog(sourceId: sourceId, tracks: tracks);
+    }
+    await _stampFirstSeen(tracks);
+  }
+
+  /// Records `now` as the first-seen time for any track id not seen before,
+  /// preserving earlier timestamps so a routine re-sync never resets "recently
+  /// added". Shared by the whole-catalog and incremental write paths.
+  Future<void> _stampFirstSeen(List<Track> tracks) async {
+    if (tracks.isEmpty) return;
     final Map<String, DateTime> addedAt = await _addedStore.load();
     final DateTime now = _now();
     bool changed = false;

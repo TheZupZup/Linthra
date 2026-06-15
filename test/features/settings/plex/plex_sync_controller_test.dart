@@ -6,6 +6,7 @@ import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/plex_session.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/incremental_catalog_writer.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_exception.dart';
@@ -45,6 +46,10 @@ const PlexMetadata _trackItem = PlexMetadata(
 );
 const PlexMetadata _secondTrackItem =
     PlexMetadata(ratingKey: '102', type: 'track', title: 'Dusk');
+
+// Albums/artists are intentionally still present in the fixture but never
+// requested: the sync reads tracks only (the library derives groupings from
+// tracks), so listing albums/artists would be wasted library walks.
 const PlexMetadata _albumItem = PlexMetadata(
   ratingKey: '201',
   type: 'album',
@@ -61,18 +66,68 @@ const Map<PlexMetadataType, List<PlexMetadata>> _libraryItems =
   PlexMetadataType.artist: <PlexMetadata>[_artistItem],
 };
 
-/// Records every upsert so tests can assert exactly what reached the catalog
-/// (and can be made to throw, proving storage failures surface friendly).
-class _RecordingRepository implements MusicLibraryRepository {
-  _RecordingRepository({this.upsertError});
+/// `count` track items, for exercising the batched (chunked) write path.
+List<PlexMetadata> _trackItems(int count) => <PlexMetadata>[
+      for (int i = 0; i < count; i++)
+        PlexMetadata(ratingKey: 'r$i', type: 'track', title: 'Track $i'),
+    ];
 
-  final Object? upsertError;
+/// Records every catalog write so tests can assert exactly what reached the
+/// catalog and in how many batches. Implements the incremental capability so
+/// the controller exercises its progressive path (a whole-slice `upsertCatalog`
+/// is kept only for interface completeness and is not used by the controller).
+class _RecordingRepository
+    implements MusicLibraryRepository, IncrementalCatalogWriter {
+  _RecordingRepository({this.beginError, this.appendGate});
 
-  String? upsertedSourceId;
-  List<Track> upsertedTracks = const <Track>[];
-  List<Album> upsertedAlbums = const <Album>[];
-  List<Artist> upsertedArtists = const <Artist>[];
+  /// When set, the first (begin) write throws it, so a storage failure can be
+  /// proven to surface friendly and never half-write.
+  final Object? beginError;
+
+  /// When set, [appendToCatalog] awaits it before applying its batch, so a test
+  /// can hold a sync mid-write and observe the already-stored batches.
+  final Future<void>? appendGate;
+
+  String? lastSourceId;
+
+  /// The catalog accumulated across the current begin/append run.
+  final List<Track> stored = <Track>[];
+
+  /// Each batch handed to begin/append, in order.
+  final List<List<Track>> batches = <List<Track>>[];
+
+  int beginCount = 0;
+  int appendCount = 0;
   int upsertCount = 0;
+
+  int get writeCount => beginCount + appendCount + upsertCount;
+
+  @override
+  Future<void> beginCatalogReplacement({
+    required String sourceId,
+    required List<Track> tracks,
+  }) async {
+    beginCount++;
+    if (beginError != null) throw beginError!;
+    lastSourceId = sourceId;
+    stored
+      ..clear()
+      ..addAll(tracks);
+    batches.add(List<Track>.of(tracks));
+  }
+
+  @override
+  Future<void> appendToCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+  }) async {
+    appendCount++;
+    final Future<void>? gate = appendGate;
+    if (gate != null) await gate;
+    lastSourceId = sourceId;
+    stored.addAll(tracks);
+    batches.add(List<Track>.of(tracks));
+  }
 
   @override
   Future<void> upsertCatalog({
@@ -82,21 +137,22 @@ class _RecordingRepository implements MusicLibraryRepository {
     required List<Artist> artists,
   }) async {
     upsertCount++;
-    if (upsertError != null) throw upsertError!;
-    upsertedSourceId = sourceId;
-    upsertedTracks = tracks;
-    upsertedAlbums = albums;
-    upsertedArtists = artists;
+    if (beginError != null) throw beginError!;
+    lastSourceId = sourceId;
+    stored
+      ..clear()
+      ..addAll(tracks);
+    batches.add(List<Track>.of(tracks));
   }
 
   @override
-  Future<List<Track>> getAllTracks() async => upsertedTracks;
+  Future<List<Track>> getAllTracks() async => List<Track>.of(stored);
 
   @override
-  Future<List<Album>> getAllAlbums() async => upsertedAlbums;
+  Future<List<Album>> getAllAlbums() async => const <Album>[];
 
   @override
-  Future<List<Artist>> getAllArtists() async => upsertedArtists;
+  Future<List<Artist>> getAllArtists() async => const <Artist>[];
 
   @override
   Future<Track?> getTrackById(String id) async => null;
@@ -106,9 +162,15 @@ class _RecordingRepository implements MusicLibraryRepository {
 }
 
 /// A [FakePlexClient] whose item listings block until [gate] completes, so a
-/// test can hold a sync mid-flight and race it against selection changes.
+/// test can hold a sync mid-scan and race it against selection changes (and
+/// prove playback still resolves while a scan is in flight — `fetchMetadata`,
+/// the play-time lookup, is deliberately *not* gated).
 class _GatedPlexClient extends FakePlexClient {
-  _GatedPlexClient({super.sections, super.itemsByType});
+  _GatedPlexClient({
+    super.sections,
+    super.itemsByType,
+    super.metadataByRatingKey,
+  });
 
   Completer<void> gate = Completer<void>();
 
@@ -171,11 +233,12 @@ void main() {
       final state = container.read(plexSyncControllerProvider);
       expect(state.isError, isTrue);
       expect(state.message, contains('Connect to your Plex server'));
-      expect(repo.upsertCount, 0);
+      expect(repo.writeCount, 0);
     });
 
-    test('pulls the selected libraries into the catalog under the plex id',
-        () async {
+    test(
+        'pulls the selected libraries (tracks only) into the catalog under the '
+        'plex id', () async {
       final client = FakePlexClient(
         sections: const [_musicSection],
         itemsByType: _libraryItems,
@@ -189,14 +252,14 @@ void main() {
 
       await container.read(plexSyncControllerProvider.notifier).sync();
 
-      expect(repo.upsertedSourceId, 'plex');
+      expect(repo.lastSourceId, 'plex');
       expect(
-        repo.upsertedTracks.map((Track t) => t.uri),
+        repo.stored.map((Track t) => t.uri),
         <String>['plex:101', 'plex:102'],
       );
       // What reaches the (persisted) catalog stays credential-free: opaque
       // plex: URIs and plex-thumb: references — never a tokenized URL.
-      for (final Track track in repo.upsertedTracks) {
+      for (final Track track in repo.stored) {
         expect(track.uri, isNot(contains(_token)));
         expect(track.uri, isNot(contains('X-Plex-Token')));
         final Uri? artwork = track.artworkUri;
@@ -205,17 +268,20 @@ void main() {
           expect(artwork.toString(), isNot(contains(_token)));
         }
       }
-      expect(repo.upsertedAlbums, hasLength(1));
-      expect(repo.upsertedArtists, hasLength(1));
-      // Each kind was listed once, scoped to the selected section.
+      // Only the track kind is listed (no album/artist walks), scoped to the
+      // selected section.
+      expect(
+        client.itemRequests.map((r) => r.itemType).toSet(),
+        <PlexMetadataType>{PlexMetadataType.track},
+      );
       expect(
         client.itemRequests.map((r) => r.sectionKey).toSet(),
         <String>{'5'},
       );
-      expect(client.itemRequests, hasLength(3));
+      expect(client.itemRequests, hasLength(1));
 
       final state = container.read(plexSyncControllerProvider);
-      expect(state.status, PlexSyncStatus.success);
+      expect(state.status, PlexSyncStatus.done);
       expect(state.trackCount, 2);
       expect(state.message, contains('Synced 2 tracks'));
     });
@@ -235,12 +301,12 @@ void main() {
 
       await container.read(plexSyncControllerProvider.notifier).sync();
 
-      // The empty result is written (a previously wider selection's rows
-      // must not linger), and the message says what happened.
-      expect(repo.upsertCount, 1);
-      expect(repo.upsertedTracks, isEmpty);
+      // The empty result is written (a previously wider selection's rows must
+      // not linger), and the message says what happened.
+      expect(repo.beginCount, 1);
+      expect(repo.stored, isEmpty);
       final state = container.read(plexSyncControllerProvider);
-      expect(state.status, PlexSyncStatus.success);
+      expect(state.status, PlexSyncStatus.done);
       expect(state.trackCount, 0);
       expect(state.message, contains('no tracks yet'));
     });
@@ -257,12 +323,208 @@ void main() {
 
       await container.read(plexSyncControllerProvider.notifier).sync();
 
-      expect(repo.upsertCount, 1);
-      expect(repo.upsertedSourceId, 'plex');
-      expect(repo.upsertedTracks, isEmpty);
+      expect(repo.beginCount, 1);
+      expect(repo.lastSourceId, 'plex');
+      expect(repo.stored, isEmpty);
+      // An empty selection needs no server walk.
+      final client = container.read(plexClientProvider) as FakePlexClient;
+      expect(client.itemRequests, isEmpty);
       final state = container.read(plexSyncControllerProvider);
-      expect(state.status, PlexSyncStatus.success);
+      expect(state.status, PlexSyncStatus.done);
       expect(state.message, contains('No music libraries are selected'));
+    });
+  });
+
+  group('incremental writes', () {
+    test('a large library is written progressively in capped batches',
+        () async {
+      final repo = _RecordingRepository();
+      final container = _container(
+        client: FakePlexClient(
+          sections: const [_musicSection],
+          itemsByType: <PlexMetadataType, List<PlexMetadata>>{
+            PlexMetadataType.track: _trackItems(250),
+          },
+        ),
+        session: _session,
+        repository: repo,
+      );
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      await container.read(plexSyncControllerProvider.notifier).sync();
+
+      // 250 tracks → one begin (100) + two appends (100, 50).
+      expect(repo.beginCount, 1);
+      expect(repo.appendCount, 2);
+      expect(repo.batches.map((b) => b.length), <int>[100, 100, 50]);
+      // No batch exceeds the chunk size, and the whole library landed in order.
+      expect(repo.batches.every((b) => b.length <= 100), isTrue);
+      expect(repo.stored, hasLength(250));
+      expect(
+        repo.stored.map((Track t) => t.id),
+        _trackItems(250).map((PlexMetadata m) => m.ratingKey),
+      );
+      expect(container.read(plexSyncControllerProvider).trackCount, 250);
+    });
+
+    test('the first batch is in the catalog before the sync finishes',
+        () async {
+      final gate = Completer<void>();
+      final repo = _RecordingRepository(appendGate: gate.future);
+      final container = _container(
+        client: FakePlexClient(
+          sections: const [_musicSection],
+          itemsByType: <PlexMetadataType, List<PlexMetadata>>{
+            PlexMetadataType.track: _trackItems(150),
+          },
+        ),
+        session: _session,
+        repository: repo,
+      );
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      bool finished = false;
+      final Future<void> running = container
+          .read(plexSyncControllerProvider.notifier)
+          .sync()
+        ..then((_) => finished = true).ignore();
+
+      // Advance until the sync is parked on the gated second batch.
+      for (int i = 0; i < 50 && repo.appendCount == 0; i++) {
+        await _settle();
+      }
+
+      // The first 100 tracks are already stored (the library could show them)
+      // while the sync is still writing the rest.
+      expect(repo.appendCount, 1);
+      expect(repo.stored, hasLength(100));
+      expect(finished, isFalse);
+      expect(container.read(plexSyncControllerProvider).isWriting, isTrue);
+
+      gate.complete();
+      await running;
+
+      expect(repo.stored, hasLength(150));
+      expect(container.read(plexSyncControllerProvider).isDone, isTrue);
+    });
+
+    test('an unchanged library skips the rebuild on a re-sync', () async {
+      final repo = _RecordingRepository();
+      final container = _container(session: _session, repository: repo);
+      final sync = container.read(plexSyncControllerProvider.notifier);
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      await sync.sync();
+      expect(repo.beginCount, 1);
+      expect(repo.stored, hasLength(2));
+
+      await sync.sync();
+
+      // Nothing changed, so the database was not rebuilt a second time.
+      expect(repo.beginCount, 1);
+      expect(repo.appendCount, 0);
+      final state = container.read(plexSyncControllerProvider);
+      expect(state.isDone, isTrue);
+      expect(state.trackCount, 2);
+      expect(state.message, contains('already up to date'));
+    });
+
+    test('a changed library is rebuilt rather than skipped', () async {
+      final client = FakePlexClient(
+        sections: const [_musicSection],
+        itemsByType: <PlexMetadataType, List<PlexMetadata>>{
+          PlexMetadataType.track: const <PlexMetadata>[
+            _trackItem,
+            _secondTrackItem,
+          ],
+        },
+      );
+      final repo = _RecordingRepository();
+      final container =
+          _container(client: client, session: _session, repository: repo);
+      final sync = container.read(plexSyncControllerProvider.notifier);
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      await sync.sync();
+      expect(repo.beginCount, 1);
+      expect(repo.stored, hasLength(2));
+
+      // The server gains a track between syncs.
+      client.itemsByType = <PlexMetadataType, List<PlexMetadata>>{
+        PlexMetadataType.track: const <PlexMetadata>[
+          _trackItem,
+          _secondTrackItem,
+          PlexMetadata(ratingKey: '103', type: 'track', title: 'Twilight'),
+        ],
+      };
+
+      await sync.sync();
+
+      expect(repo.beginCount, 2);
+      expect(repo.stored, hasLength(3));
+      final state = container.read(plexSyncControllerProvider);
+      expect(state.isDone, isTrue);
+      expect(state.message, contains('Synced 3 tracks'));
+    });
+  });
+
+  group('playback during a scan', () {
+    test('a track still resolves to a stream URL while a scan is in flight',
+        () async {
+      final client = _GatedPlexClient(
+        sections: const [_musicSection],
+        itemsByType: _libraryItems,
+        metadataByRatingKey: const <String, PlexMetadata>{
+          '500': PlexMetadata(
+            ratingKey: '500',
+            type: 'track',
+            title: 'Now Playing',
+            media: <PlexMedia>[
+              PlexMedia(
+                parts: <PlexPart>[PlexPart(key: '/library/parts/1/file.flac')],
+              ),
+            ],
+          ),
+        },
+      );
+      final container =
+          _container(client: client, session: _session, repository: null);
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      // Start a sync; it parks at the gated section walk (scanning).
+      final Future<void> scanning =
+          container.read(plexSyncControllerProvider.notifier).sync();
+      for (int i = 0;
+          i < 50 && !container.read(plexSyncControllerProvider).isScanning;
+          i++) {
+        await _settle();
+      }
+      expect(container.read(plexSyncControllerProvider).isScanning, isTrue);
+
+      // Playback resolution (the play-time metadata lookup) is not blocked by
+      // the in-flight scan and returns a playable URL.
+      final source = container.read(plexMusicSourceProvider)!;
+      final Uri? uri = await source.resolvePlayableUri(
+        const Track(id: '500', title: 'Now Playing', uri: 'plex:500'),
+      );
+      expect(uri, isNotNull);
+      expect(uri.toString(), contains('/library/parts/1/file.flac'));
+      // The scan is still running — playback didn't have to wait for it.
+      expect(container.read(plexSyncControllerProvider).isScanning, isTrue);
+
+      client.gate.complete();
+      await scanning;
+      expect(container.read(plexSyncControllerProvider).isDone, isTrue);
     });
   });
 
@@ -295,15 +557,15 @@ void main() {
             reason: '${entry.key.kind}');
         expect(state.message, isNot(contains(_token)),
             reason: '${entry.key.kind}');
-        // A failed listing never half-writes the catalog.
-        expect(repo.upsertCount, 0, reason: '${entry.key.kind}');
+        // A failed scan never half-writes the catalog.
+        expect(repo.writeCount, 0, reason: '${entry.key.kind}');
       }
     });
 
     test('a storage failure surfaces a friendly message', () async {
       final container = _container(
         session: _session,
-        repository: _RecordingRepository(upsertError: StateError('disk full')),
+        repository: _RecordingRepository(beginError: StateError('disk full')),
       );
       await container
           .read(plexSettingsControllerProvider.notifier)
@@ -340,9 +602,9 @@ void main() {
       await _settle();
       expect(container.read(plexSyncControllerProvider).isSyncing, isTrue);
 
-      // While the walk is held at the gate, the user widens the selection
-      // (the settings controller kicks syncAfterSelectionChange itself) and
-      // also mashes the sync button — neither may stack extra walks.
+      // While the walk is held at the gate, the user widens the selection (the
+      // settings controller kicks syncAfterSelectionChange itself) and also
+      // mashes the sync button — neither may stack extra walks.
       await settings.setSelectedSections(const <String>['5', '9']);
       await sync.sync();
 
@@ -350,17 +612,21 @@ void main() {
       await first;
       await _settle();
 
-      // Exactly two passes: the original walk plus one coalesced re-run.
-      expect(repo.upsertCount, 2);
-      // The re-run walked the NEW selection (both sections, three kinds).
-      expect(client.itemRequests, hasLength(3 + 6));
+      // Exactly two write passes: the original plus one coalesced re-run.
+      expect(repo.beginCount, 2);
+      // Track-only walks: 1 section first, then both sections on the re-run.
+      expect(client.itemRequests, hasLength(1 + 2));
       expect(
-        client.itemRequests.skip(3).map((r) => r.sectionKey).toSet(),
+        client.itemRequests.skip(1).map((r) => r.sectionKey).toSet(),
         <String>{'5', '9'},
       );
       expect(
+        client.itemRequests.map((r) => r.itemType).toSet(),
+        <PlexMetadataType>{PlexMetadataType.track},
+      );
+      expect(
         container.read(plexSyncControllerProvider).status,
-        PlexSyncStatus.success,
+        PlexSyncStatus.done,
       );
     });
   });
@@ -378,13 +644,13 @@ void main() {
       await settings.toggleSection('5', included: true);
       await _settle();
 
-      expect(repo.upsertedSourceId, 'plex');
+      expect(repo.lastSourceId, 'plex');
       expect(
-        repo.upsertedTracks.map((Track t) => t.uri),
+        repo.stored.map((Track t) => t.uri),
         <String>['plex:101', 'plex:102'],
       );
       final state = container.read(plexSyncControllerProvider);
-      expect(state.status, PlexSyncStatus.success);
+      expect(state.status, PlexSyncStatus.done);
       expect(state.trackCount, 2);
     });
 
@@ -395,12 +661,12 @@ void main() {
       final settings = container.read(plexSettingsControllerProvider.notifier);
       await settings.ensureLoaded();
       await container.read(plexSyncControllerProvider.notifier).sync();
-      expect(repo.upsertedTracks, isNotEmpty);
+      expect(repo.stored, isNotEmpty);
 
       await settings.toggleSection('5', included: false);
       await _settle();
 
-      expect(repo.upsertedTracks, isEmpty);
+      expect(repo.stored, isEmpty);
       expect(
         container.read(plexSyncControllerProvider).message,
         contains('No music libraries are selected'),

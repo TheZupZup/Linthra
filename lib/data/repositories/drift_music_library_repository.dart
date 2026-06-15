@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/music_library_repository.dart';
 import '../database/linthra_database.dart';
 import '../mappers/track_mapper.dart';
@@ -13,7 +14,11 @@ import '../mappers/track_mapper.dart';
 ///
 /// Albums and artists are not persisted yet — [getAllAlbums] and
 /// [getAllArtists] return empty lists. Only tracks are stored at v1.
-class DriftMusicLibraryRepository implements MusicLibraryRepository {
+///
+/// Also implements [IncrementalCatalogWriter] so a large remote sync (Plex) can
+/// fill a source's slice batch by batch instead of one monolithic write.
+class DriftMusicLibraryRepository
+    implements MusicLibraryRepository, IncrementalCatalogWriter {
   DriftMusicLibraryRepository(this._db);
 
   final LinthraDatabase _db;
@@ -50,14 +55,45 @@ class DriftMusicLibraryRepository implements MusicLibraryRepository {
     required List<Artist> artists,
   }) async {
     await _db.transaction(() async {
-      await (_db.delete(_db.tracks)..where((t) => t.sourceId.equals(sourceId)))
-          .go();
-      await _db.batch((Batch batch) {
-        batch.insertAll(
-          _db.tracks,
-          tracks.map((Track t) => trackToCompanion(t, sourceId)).toList(),
-        );
-      });
+      await _deleteSource(sourceId);
+      await _insertTracks(sourceId, tracks);
+    });
+  }
+
+  /// Starts an incremental replacement: clears [sourceId]'s slice and writes the
+  /// first batch in one transaction, so a reader never sees the old rows gone
+  /// with no new ones in their place.
+  @override
+  Future<void> beginCatalogReplacement({
+    required String sourceId,
+    required List<Track> tracks,
+  }) async {
+    await _db.transaction(() async {
+      await _deleteSource(sourceId);
+      await _insertTracks(sourceId, tracks);
+    });
+  }
+
+  /// Appends one more batch to a slice already begun by
+  /// [beginCatalogReplacement]. An empty batch is a no-op.
+  @override
+  Future<void> appendToCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+  }) async {
+    await _insertTracks(sourceId, tracks);
+  }
+
+  Future<void> _deleteSource(String sourceId) =>
+      (_db.delete(_db.tracks)..where((t) => t.sourceId.equals(sourceId))).go();
+
+  Future<void> _insertTracks(String sourceId, List<Track> tracks) async {
+    if (tracks.isEmpty) return;
+    await _db.batch((Batch batch) {
+      batch.insertAll(
+        _db.tracks,
+        tracks.map((Track t) => trackToCompanion(t, sourceId)).toList(),
+      );
     });
   }
 
