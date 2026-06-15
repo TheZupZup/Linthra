@@ -25,32 +25,42 @@ class NowPlayingActions extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
     final bool isFavorite = ref.watch(isFavoriteProvider(track.id));
+    // A calm, uniform tint keeps this row reading as tertiary beneath the
+    // transport controls; favorite still lights up when active.
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.7);
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         IconButton(
+          iconSize: 22,
           onPressed: () => ref
               .read(favoritesRepositoryProvider)
               .setFavorite(track, !isFavorite),
           icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
-          color: isFavorite ? theme.colorScheme.primary : null,
+          color: isFavorite ? theme.colorScheme.primary : muted,
           isSelected: isFavorite,
           tooltip: isFavorite ? 'Remove from favorites' : 'Favorite',
         ),
         IconButton(
+          iconSize: 22,
           onPressed: () => showAddToPlaylistSheet(context, <Track>[track]),
           icon: const Icon(Icons.playlist_add),
+          color: muted,
           tooltip: 'Add to playlist',
         ),
         IconButton(
+          iconSize: 22,
           onPressed: () => _openQueue(context),
           icon: const Icon(Icons.queue_music_outlined),
+          color: muted,
           tooltip: 'Queue',
         ),
         IconButton(
+          iconSize: 22,
           onPressed: () => _openLyrics(context),
           icon: const Icon(Icons.lyrics_outlined),
+          color: muted,
           tooltip: 'Lyrics',
         ),
       ],

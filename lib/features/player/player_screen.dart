@@ -69,7 +69,10 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: AppSpacing.xs,
+      ),
       child: Row(
         children: [
           IconButton(
@@ -78,12 +81,15 @@ class _Header extends StatelessWidget {
             tooltip: 'Close',
           ),
           Expanded(
+            // A calm, tracked eyebrow rather than a heavy title, so the artwork
+            // below is unmistakably the hero of the screen.
             child: Text(
               'Now Playing',
               textAlign: TextAlign.center,
-              style: theme.textTheme.titleSmall?.copyWith(
+              style: theme.textTheme.labelLarge?.copyWith(
                 fontWeight: FontWeight.w600,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+                letterSpacing: 1.0,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
               ),
             ),
           ),
@@ -116,51 +122,59 @@ class _NowPlaying extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A tighter side margin lets the artwork breathe wider and gives the
+    // transport controls more room to spread, while the generous gaps below
+    // group the screen into three calm bands: artwork · metadata · controls.
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        AppSpacing.sm,
-        AppSpacing.lg,
         AppSpacing.md,
+        AppSpacing.sm,
+        AppSpacing.md,
+        AppSpacing.lg,
       ),
       child: Column(
         children: [
           Expanded(
             child: Center(
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(AppRadii.lg),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.45),
-                        blurRadius: 32,
-                        spreadRadius: -8,
-                        offset: const Offset(0, 16),
-                      ),
-                    ],
-                  ),
-                  child: AlbumArtwork(
-                    artworkUri: track.artworkUri,
-                    borderRadius: BorderRadius.circular(AppRadii.lg),
+              child: ConstrainedBox(
+                // Cap the hero on tablets/foldables so it stays a square cover,
+                // not an oversized panel; phones use the full width.
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppRadii.lg),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.4),
+                          blurRadius: 40,
+                          spreadRadius: -12,
+                          offset: const Offset(0, 20),
+                        ),
+                      ],
+                    ),
+                    child: AlbumArtwork(
+                      artworkUri: track.artworkUri,
+                      borderRadius: BorderRadius.circular(AppRadii.lg),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.xl),
           TrackMetadata(
             title: track.title,
             artistName: track.artistName,
             albumName: track.albumName,
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.lg),
           // The only part of the screen that follows the live, high-frequency
           // playback state — kept separate so the artwork, metadata, and the
           // blurred background above never rebuild on a position tick.
           const _LiveControls(),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.md),
           NowPlayingActions(track: track),
         ],
       ),
@@ -183,14 +197,14 @@ class _LiveControls extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         _SourceOrError(state: state),
-        const SizedBox(height: AppSpacing.sm),
+        const SizedBox(height: AppSpacing.md),
         PlaybackProgressBar(
           position: state.position,
           duration: state.duration,
           onSeek: (position) =>
               ref.read(playbackControllerProvider).seek(position),
         ),
-        const SizedBox(height: AppSpacing.xs),
+        const SizedBox(height: AppSpacing.sm),
         PlaybackControls(state: state),
       ],
     );
@@ -238,7 +252,9 @@ class _SourceOrError extends ConsumerWidget {
     }
     final source = state.source;
     if (source == null) {
-      return const SizedBox(height: 28);
+      // Reserve the inline chip's height so the column doesn't shift when the
+      // source resolves a beat after the track loads.
+      return const SizedBox(height: 22);
     }
     return PlaybackSourceChip(
       source: source,

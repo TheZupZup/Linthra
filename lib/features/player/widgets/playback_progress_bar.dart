@@ -52,17 +52,22 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
     final double sliderValue = _dragMs ?? posMs.toDouble();
     final double elapsedMs = _dragMs ?? posMs.toDouble();
 
-    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final labelStyle = theme.textTheme.labelSmall?.copyWith(
+      color: muted,
+      letterSpacing: 0.4,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
 
     return Column(
       children: [
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
-            trackHeight: 3,
-            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+            trackHeight: 4,
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
             inactiveTrackColor:
-                theme.colorScheme.onSurface.withValues(alpha: 0.18),
+                theme.colorScheme.onSurface.withValues(alpha: 0.15),
           ),
           child: Slider(
             value: sliderValue,
@@ -71,18 +76,20 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
             onChangeEnd: canSeek ? _onChangeEnd : null,
           ),
         ),
+        // Snug under the track and aligned to its ends, so the times read as a
+        // caption for the bar rather than a separate, floating row.
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          padding: const EdgeInsets.only(top: AppSpacing.xs),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 _format(Duration(milliseconds: elapsedMs.round())),
-                style: theme.textTheme.labelMedium?.copyWith(color: muted),
+                style: labelStyle,
               ),
               Text(
                 hasDuration ? _format(widget.duration) : '--:--',
-                style: theme.textTheme.labelMedium?.copyWith(color: muted),
+                style: labelStyle,
               ),
             ],
           ),

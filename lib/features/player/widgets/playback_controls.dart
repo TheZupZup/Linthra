@@ -29,14 +29,14 @@ class PlaybackControls extends ConsumerWidget {
       children: [
         _ShuffleButton(state: state, controller: controller),
         IconButton(
-          iconSize: 36,
+          iconSize: 38,
           onPressed: state.hasPrevious ? controller.skipToPrevious : null,
           icon: const Icon(Icons.skip_previous),
           tooltip: 'Previous',
         ),
         _PlayPauseButton(state: state, controller: controller),
         IconButton(
-          iconSize: 36,
+          iconSize: 38,
           onPressed: state.hasNext ? controller.skipToNext : null,
           icon: const Icon(Icons.skip_next),
           tooltip: 'Next',
@@ -60,10 +60,15 @@ class _ShuffleButton extends StatelessWidget {
     final theme = Theme.of(context);
     final enabled = state.shuffleEnabled;
     return IconButton(
+      iconSize: 24,
       onPressed: () => controller.setShuffleEnabled(!enabled),
       icon: const Icon(Icons.shuffle),
       isSelected: enabled,
-      color: enabled ? theme.colorScheme.secondary : null,
+      // Recede when off so the transport's centre of gravity stays on the
+      // play button; warm accent when on, matching the rest of the app.
+      color: enabled
+          ? theme.colorScheme.secondary
+          : theme.colorScheme.onSurface.withValues(alpha: 0.65),
       tooltip: enabled ? 'Shuffle on' : 'Shuffle',
     );
   }
@@ -83,12 +88,15 @@ class _RepeatButton extends StatelessWidget {
     final mode = state.repeatMode;
     final active = mode != RepeatMode.off;
     return IconButton(
+      iconSize: 24,
       onPressed: () => controller.setRepeatMode(mode.next),
       icon: Icon(
         mode == RepeatMode.one ? Icons.repeat_one : Icons.repeat,
       ),
       isSelected: active,
-      color: active ? theme.colorScheme.secondary : null,
+      color: active
+          ? theme.colorScheme.secondary
+          : theme.colorScheme.onSurface.withValues(alpha: 0.65),
       tooltip: _tooltipFor(mode),
     );
   }
