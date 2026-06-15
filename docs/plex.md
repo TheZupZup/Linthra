@@ -45,7 +45,6 @@ favorites/etc:
 
 - Offline downloads / caching.
 - Cache management.
-- Lyrics.
 - Playlist sync.
 - Favorites sync.
 - Android Auto-specific artwork changes.
@@ -192,7 +191,7 @@ The `MusicSource` contract is small (`id`, `displayName`,
 
 ### Capabilities (phase 1)
 
-`MusicProviderCapabilities` for Plex declares **stream-only**:
+`MusicProviderCapabilities` for Plex declares **stream + lyrics**:
 
 | Capability | Phase 1 |
 | --- | :---: |
@@ -200,11 +199,35 @@ The `MusicSource` contract is small (`id`, `displayName`,
 | `canCache` | ❌ |
 | `canFavoriteTracks` / `canReadFavoriteState` / `canSyncFavorites` | ❌ |
 | `canListPlaylists` / `canSyncPlaylists` (and create/edit/delete) | ❌ |
-| `canLyrics` | ❌ |
+| `canLyrics` | ✅ |
 | `canCast` | ❌ |
 
 Cast is a natural later add (the stream URL is network-reachable) but stays off
 in phase 1 to keep the credential-in-URL surface small.
+
+### Lyrics
+
+Lyrics are fetched **on demand, off the playback path** by
+`PlexLyricsProvider` (registered for `plex:` tracks in the shared
+`LyricsResolver`, exactly like the Jellyfin/Subsonic/Local providers — no
+provider-architecture change). `PlexClient.fetchLyrics` does the two-step
+lookup:
+
+1. `GET /library/metadata/{ratingKey}` — the track's full metadata carries its
+   `Media → Part → Stream` list; a **lyric stream is Plex's `streamType=4`**,
+   whose `key` (e.g. `/library/streams/12345`) and `format` (`lrc`/`txt`) name
+   the content.
+2. `GET {key}` — the stream body, parsed into the shared `Lyrics` model. Plex
+   serves either its **structured JSON** (`MediaContainer.Lyrics[].Line[].Span[]`
+   with millisecond `startOffset`s, for agent / LyricFind lyrics) or the **raw
+   `.lrc`/`.txt` bytes** of a local sidecar — both handled, with `.lrc`-style
+   timed content rendering synced and plain content static, via the same
+   `LyricsTextParser` the local reader uses.
+
+A track with no lyric stream (or missing content) resolves to `null` → the
+calm "No lyrics available" state; a transport/auth failure throws a token-free
+`PlexException` → "couldn't load". Like every API call the token rides in the
+`X-Plex-Token` **header**, so both lyric URLs are token-free and safe to log.
 
 ## Local cache & re-sync
 

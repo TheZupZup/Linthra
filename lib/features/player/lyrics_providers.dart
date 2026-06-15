@@ -9,14 +9,15 @@ import '../../core/services/local_lyrics_provider.dart';
 import '../../core/services/lyrics_provider.dart';
 import '../../core/services/lyrics_resolver.dart';
 import '../../core/services/lyrics_service.dart';
-import '../../core/services/no_lyrics_provider.dart';
+import '../../core/services/plex_lyrics_provider.dart';
 import '../../core/services/subsonic_lyrics_provider.dart';
 import '../../core/sources/local/io_local_lyrics_reader.dart';
 import '../../core/sources/local/local_lyrics_reader.dart';
 import '../../core/sources/local/method_channel_saf_lyrics_reader.dart';
-import '../../core/sources/music_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/jellyfin/jellyfin_settings_providers.dart';
+import '../settings/plex/plex_settings_controller.dart';
+import '../settings/plex/plex_settings_providers.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_providers.dart';
 import 'player_providers.dart';
@@ -79,12 +80,11 @@ final localLyricsReaderProvider = Provider<LocalLyricsReader>((ref) {
 
 /// Production binding: a [LyricsResolver] that routes each track, by the
 /// source that owns its URI, to that source's [LyricsProvider] — a signed-in
-/// Jellyfin or Subsonic/Navidrome server, the sidecar file next to a local
-/// track, or the explicit "no lyrics yet" placeholder for Plex (kept on the
-/// calm empty state until a real Plex lyrics path lands). The live clients +
-/// sessions are read lazily so signing in/out is picked up without a rebuild;
-/// the local reader is platform-bound via [localLyricsReaderProvider]. Applied
-/// in `main`; tests keep the empty-resolver default.
+/// Jellyfin, Subsonic/Navidrome, or Plex server, or the sidecar file next to a
+/// local track. The live clients + sessions are read lazily so signing in/out
+/// (connecting/disconnecting) is picked up without a rebuild; the local reader
+/// is platform-bound via [localLyricsReaderProvider]. Applied in `main`; tests
+/// keep the empty-resolver default.
 final lyricsServiceOverride = lyricsServiceProvider.overrideWith((ref) {
   return LyricsResolver(<LyricsProvider>[
     JellyfinLyricsProvider(
@@ -97,7 +97,10 @@ final lyricsServiceOverride = lyricsServiceProvider.overrideWith((ref) {
       session: () =>
           ref.read(subsonicSettingsControllerProvider.notifier).session,
     ),
+    PlexLyricsProvider(
+      client: ref.read(plexClientProvider),
+      session: () => ref.read(plexSettingsControllerProvider.notifier).session,
+    ),
     LocalLyricsProvider(ref.read(localLyricsReaderProvider)),
-    NoLyricsProvider(MusicProviders.plex.sourceId),
   ]);
 });

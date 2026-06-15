@@ -34,7 +34,7 @@ so no secret reaches the persisted catalog.
 | Local music           | `local`    |   ✅   |  —    | ✅ local  | ✅ local  |   ✅   |  —   |
 | Jellyfin              | `jellyfin` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
 | Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  ✅  |
-| Plex                  | `plex`     |   🚧   |  🔜   |    🔜     |    🔜     |   🔜   |  🔜  |
+| Plex                  | `plex`     |   🚧   |  🔜   |    🔜     |    🔜     |   ✅   |  🔜  |
 
 ✅ implemented · 🚧 in development (Plex is connectable in Settings, marked
 **Experimental**) · 🔜 planned follow-up · — not applicable. "local"

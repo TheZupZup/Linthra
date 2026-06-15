@@ -1,3 +1,4 @@
+import '../../models/lyrics.dart';
 import 'plex_api.dart';
 import 'plex_exception.dart';
 
@@ -121,6 +122,25 @@ abstract interface class PlexClient {
   /// Throws [PlexException] ([PlexErrorKind.notFound] when the `ratingKey` no
   /// longer exists).
   Future<PlexMetadata> fetchMetadata({
+    required String baseUrl,
+    required String token,
+    required String ratingKey,
+  });
+
+  /// Fetches the lyrics for the track identified by [ratingKey], or `null` when
+  /// the server has none — a normal outcome, never an error.
+  ///
+  /// Two steps, on demand and off the playback path: a
+  /// `GET /library/metadata/{ratingKey}` lookup locates the track's lyric
+  /// `Stream` (Plex's `streamType=4`) and its `key`, then that key is fetched
+  /// and parsed into the shared [Lyrics] model — timed `.lrc`-style content
+  /// renders synced, plain content static. A track with no lyric stream (or one
+  /// whose content has gone missing) resolves to `null`.
+  ///
+  /// Throws a token-free [PlexException] for a transport/auth failure (offline
+  /// server, rejected token) so the lyrics panel can tell "couldn't load" apart
+  /// from "no lyrics"; the token never appears in the thrown message.
+  Future<Lyrics?> fetchLyrics({
     required String baseUrl,
     required String token,
     required String ratingKey,

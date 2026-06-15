@@ -264,11 +264,12 @@ abstract final class MusicProviders {
   /// (badged Experimental) lets the user connect with a manual server URL +
   /// token and pick which music libraries to include.
   ///
-  /// Stream-only by design: caching, favorites, lyrics, playlists, and cast are
-  /// declared unsupported so their actions stay hidden/disabled rather than
-  /// failing — exactly how Subsonic shipped streaming first. Cast stays off in
-  /// phase 1 to keep the credential-in-URL surface small (a Plex stream URL
-  /// carries the token as a query param).
+  /// Stream + lyrics: caching, favorites, playlists, and cast stay declared
+  /// unsupported so their actions stay hidden/disabled rather than failing —
+  /// exactly how Subsonic shipped streaming first. Lyrics are fetched on demand
+  /// from the track's Plex lyric stream (synced `.lrc` or plain), the one read
+  /// beyond streaming. Cast stays off in phase 1 to keep the credential-in-URL
+  /// surface small (a Plex stream URL carries the token as a query param).
   static const MusicProvider plex = MusicProvider(
     sourceId: 'plex',
     displayName: 'Plex',
@@ -281,7 +282,9 @@ abstract final class MusicProviders {
       canFavoriteTracks: false,
       canReadFavoriteState: false,
       canSyncFavorites: false,
-      canLyrics: false,
+      // Lyrics are fetched on demand from the track's Plex lyric stream (synced
+      // `.lrc` or plain text), parsed into the shared Lyrics model.
+      canLyrics: true,
       canCast: false,
       canRemoveFromLibrary: true,
       canRemoveOfflineCopy: false,
