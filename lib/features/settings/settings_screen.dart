@@ -7,15 +7,12 @@ import '../../shared/widgets/settings_section_header.dart';
 import 'bug_report/report_bug_settings_section.dart';
 import 'cache/cache_settings_section.dart';
 import 'diagnostics/diagnostics_settings_section.dart';
-import 'jellyfin/jellyfin_settings_section.dart';
 import 'network/network_settings_section.dart';
 import 'playback/playback_settings_section.dart';
-import 'plex/plex_settings_section.dart';
 import 'precache/precache_settings_section.dart';
 import 'source/default_provider_section.dart';
-import 'source/local_music_settings_section.dart';
 import 'source/playback_source_strategy_section.dart';
-import 'subsonic/subsonic_settings_section.dart';
+import 'source/provider_summary_cards.dart';
 
 /// Settings. Hosts the connection/source and offline-storage options, plus a
 /// quiet brand/about footer. Theme and other options will join them here.
@@ -29,20 +26,22 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
         children: const [
-          // Music sources — where Linthra finds music to play. Local music is a
-          // source here, deliberately kept away from the Storage & offline
-          // group below so it is not confused with offline downloads.
+          // Music sources — where Linthra finds music to play. Each source is a
+          // compact card: status at a glance, with the full connection settings
+          // a tap away behind "Manage". Local music is a source here,
+          // deliberately kept away from the Storage & offline group below so it
+          // is not confused with offline downloads.
           SettingsSectionHeader('Music sources'),
           SizedBox(height: AppSpacing.sm),
-          JellyfinSettingsSection(),
+          JellyfinProviderCard(),
           SizedBox(height: AppSpacing.md),
-          SubsonicSettingsSection(),
+          SubsonicProviderCard(),
           SizedBox(height: AppSpacing.md),
-          LocalMusicSettingsSection(),
+          LocalMusicProviderCard(),
           SizedBox(height: AppSpacing.md),
           // Plex is phase 1 (stream-only) and clearly badged Experimental
-          // inside the card until the remaining capabilities ship.
-          PlexSettingsSection(),
+          // until the remaining capabilities ship.
+          PlexProviderCard(),
           SizedBox(height: AppSpacing.md),
           DefaultProviderSettingsSection(),
           SizedBox(height: AppSpacing.md),
