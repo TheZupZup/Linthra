@@ -10,6 +10,7 @@ import '../../../core/repositories/music_library_repository.dart';
 import '../../../core/sources/plex/plex_exception.dart';
 import '../../../core/sources/plex/plex_music_source.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
+import '../../../data/repositories/plex_sync_cache_store_provider.dart';
 import '../../library/library_controller.dart';
 import 'plex_settings_controller.dart';
 import 'plex_sync_state.dart';
@@ -29,12 +30,15 @@ import 'plex_sync_state.dart';
 ///    catalog the Library screen reads — but in chunks of [_writeBatchSize] via
 ///    [IncrementalCatalogWriter] when available, refreshing after the first
 ///    chunk so the library fills progressively instead of after one big write.
-///  - **Unchanged libraries are skipped.** A content signature of the last
-///    successful sync is kept; a re-sync (a re-tapped *Sync* button, or a
-///    selection toggle that settles back to an already-synced set) that finds
-///    the same content skips the whole database rebuild + refresh. The durable
-///    catalog itself already lives in SQLite, so the app never re-scans Plex on
-///    launch just to show the library; this only avoids redundant *re*-syncs.
+///  - **Unchanged libraries are skipped — across restarts.** A content
+///    signature of the last successful sync is kept, and persisted (see
+///    [PlexSyncCacheStore]); a re-sync (a re-tapped *Sync* button, a same-server
+///    reconnect, or a selection toggle that settles back to an already-synced
+///    set) that finds the same content skips the whole database rebuild +
+///    refresh — even on the first sync after a restart, which the old in-memory
+///    signature could not. The durable catalog itself already lives in SQLite,
+///    so the app never re-scans Plex on launch just to show the library; this
+///    avoids redundant *re*-syncs rebuilding it.
 ///
 /// Playback is untouched: a scan only writes the catalog, never the player. A
 /// `plex:` track resolves its stream URL lazily at play time, so music keeps
@@ -54,9 +58,10 @@ import 'plex_sync_state.dart';
 ///
 /// Security: the source mints any authenticated stream URL lazily at play time,
 /// so nothing persisted here carries a credential, and the content signature is
-/// built from credential-free catalog fields only. This controller never logs
-/// the session, and surfaces only friendly, secret-free messages through
-/// [PlexSyncState].
+/// built from credential-free catalog fields only — so the durable
+/// [PlexSyncCacheStore] record (a one-way content hash plus the non-secret
+/// server id) holds no secret either. This controller never logs the session,
+/// and surfaces only friendly, secret-free messages through [PlexSyncState].
 class PlexSyncController extends Notifier<PlexSyncState> {
   /// Guards against overlapping syncs (an auto-sync racing a manual tap). Set
   /// synchronously before any await so a second concurrent call simply bails,
@@ -71,9 +76,18 @@ class PlexSyncController extends Notifier<PlexSyncState> {
   /// Content signature of the last successful sync (selection + the scanned
   /// tracks). When a fresh scan produces the same signature, the database
   /// rebuild and the library refresh are skipped — the expensive part of a
-  /// re-sync of an unchanged library. Session-scoped: the durable copy of the
-  /// library is the SQLite catalog, which already survives restarts.
+  /// re-sync of an unchanged library. Seeded once per controller from the
+  /// durable [PlexSyncCacheStore] (see [_signatureLoaded]) and persisted back
+  /// after each successful rebuild, so the "nothing changed" fast path survives
+  /// a restart — not just the SQLite catalog it guards, which already did.
   String? _lastSyncedSignature;
+
+  /// Whether [_lastSyncedSignature] has been seeded from the durable
+  /// [PlexSyncCacheStore] yet. The first sync of a fresh controller (e.g. just
+  /// after a restart restored the session) loads the persisted signature once,
+  /// so an unchanged library is recognised across launches; later syncs reuse
+  /// the in-memory value the previous write left behind.
+  bool _signatureLoaded = false;
 
   /// How many tracks are written per batch. 100 keeps each main-isolate
   /// serialization step small while bounding the number of progress refreshes.
@@ -105,12 +119,19 @@ class PlexSyncController extends Notifier<PlexSyncState> {
   ///
   /// Quiet by design: it reports nothing through [state] — the caller owns the
   /// user-facing message — but throws on a storage failure so the caller can
-  /// phrase that message honestly. Resets the content signature so the next
-  /// sync rebuilds rather than mistaking the freshly-emptied slice for "already
-  /// in sync" with a future server's identical content.
+  /// phrase that message honestly. Resets the content signature — the in-memory
+  /// value and the durable [PlexSyncCacheStore] record — so the next sync
+  /// rebuilds rather than mistaking the freshly-emptied slice for "already in
+  /// sync" with a future server's identical content.
   Future<void> removeSyncedCatalog() async {
     await _writeCatalogInBatches(const <Track>[]);
     _lastSyncedSignature = _signatureFor(const <String>[], const <Track>[]);
+    // The durable signature described the rows just cleared; forget it (and
+    // mark it loaded) so the next sync rebuilds rather than skipping against a
+    // stale fingerprint. Best-effort and last, so a write failure above still
+    // propagates to the caller unchanged.
+    _signatureLoaded = true;
+    await _clearPersistedSignature();
   }
 
   Future<void> _runSync() async {
@@ -137,6 +158,11 @@ class PlexSyncController extends Notifier<PlexSyncState> {
 
     final List<String> sectionKeys = source.session.selectedSectionKeys;
     try {
+      // 0. Seed the "nothing changed" signature from the durable cache once, so
+      //    an unchanged library is recognised even on the first sync after a
+      //    restart restored the session (not just within a single run).
+      await _ensureSignatureLoaded(source.session.machineIdentifier);
+
       // 1. Read the library from the server. An empty selection is an empty
       //    library by definition, so it touches no network — and still flows
       //    through the same write path so a previously wider selection's rows
@@ -164,6 +190,10 @@ class PlexSyncController extends Notifier<PlexSyncState> {
       state = PlexSyncState.syncing(trackCount: tracks.length);
       await _writeCatalogInBatches(tracks);
       _lastSyncedSignature = signature;
+      // Remember this outcome so a re-sync of an unchanged library on the next
+      // launch can skip the rebuild above. Best-effort: a cache write failure
+      // only costs one redundant rebuild, never the sync itself.
+      await _persistSignature(source.session.machineIdentifier, signature);
 
       state = PlexSyncState.done(
         trackCount: tracks.length,
@@ -173,6 +203,52 @@ class PlexSyncController extends Notifier<PlexSyncState> {
       state = PlexSyncState.error(_friendlyMessage(error));
     } catch (_) {
       state = const PlexSyncState.error(_savingFailedMessage);
+    }
+  }
+
+  /// Seeds [_lastSyncedSignature] from the durable [PlexSyncCacheStore] the
+  /// first time this controller syncs, scoped to the current server's
+  /// [machineIdentifier]. Idempotent (runs once per controller) and best-effort:
+  /// a missing record — or a read hiccup — leaves the signature null, so the
+  /// sync simply rebuilds, the safe default. Only seeds when nothing is set yet,
+  /// so an in-session value from an earlier write always wins over the durable
+  /// one.
+  Future<void> _ensureSignatureLoaded(String machineIdentifier) async {
+    if (_signatureLoaded) return;
+    _signatureLoaded = true;
+    if (_lastSyncedSignature != null) return;
+    try {
+      _lastSyncedSignature = await ref
+          .read(plexSyncCacheStoreProvider)
+          .readSignature(machineIdentifier);
+    } catch (_) {
+      // A cache read hiccup just means the next sync rebuilds; never fatal.
+    }
+  }
+
+  /// Persists [signature] as the last successful sync for [machineIdentifier].
+  /// Best-effort: a write failure must not fail a sync whose catalog write has
+  /// already succeeded — it only costs a redundant rebuild on the next launch.
+  Future<void> _persistSignature(
+    String machineIdentifier,
+    String signature,
+  ) async {
+    try {
+      await ref
+          .read(plexSyncCacheStoreProvider)
+          .writeSignature(machineIdentifier, signature);
+    } catch (_) {
+      // Best-effort: swallow so the sync still reports success.
+    }
+  }
+
+  /// Forgets the durable signature. Best-effort: a failure only costs a
+  /// redundant rebuild on the next sync.
+  Future<void> _clearPersistedSignature() async {
+    try {
+      await ref.read(plexSyncCacheStoreProvider).clear();
+    } catch (_) {
+      // Best-effort: swallow (see [_persistSignature]).
     }
   }
 
