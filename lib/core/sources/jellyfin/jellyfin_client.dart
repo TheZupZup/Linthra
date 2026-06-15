@@ -79,6 +79,16 @@ abstract interface class JellyfinClient {
     required Duration position,
   });
 
+  /// Registers this client's session capabilities via
+  /// `POST /Sessions/Capabilities/Full`, declaring audio playback and media
+  /// control so other Jellyfin apps list it as a controllable player and the
+  /// server delivers transport (Playstate) commands over the control socket.
+  ///
+  /// Throws a [JellyfinException] on failure; the caller (the remote-control
+  /// receiver) treats it as best-effort, so a registration hiccup never stops
+  /// it from listening for commands.
+  Future<void> registerRemoteControlCapabilities(JellyfinSession session);
+
   /// The audio item ids the signed-in user has marked as favourites.
   Future<Set<String>> fetchFavoriteIds(JellyfinSession session);
 

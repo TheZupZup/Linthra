@@ -29,6 +29,8 @@ abstract final class JellyfinEndpoints {
   static const String _playingPath = '/Sessions/Playing';
   static const String _playingProgressPath = '/Sessions/Playing/Progress';
   static const String _playingStoppedPath = '/Sessions/Playing/Stopped';
+  static const String _capabilitiesFullPath = '/Sessions/Capabilities/Full';
+  static const String _socketPath = '/socket';
 
   // --- Query-parameter keys, named once so a typo can't split a request. ---
 
@@ -217,6 +219,37 @@ abstract final class JellyfinEndpoints {
   /// settling the server's session and play state for it.
   static Uri playbackStopped(String baseUrl) =>
       _join(baseUrl, _playingStoppedPath);
+
+  /// `POST /Sessions/Capabilities/Full` — declares this client's session
+  /// capabilities, so other Jellyfin apps list it as a controllable player.
+  /// Linthra posts `SupportsMediaControl: true` here to receive the transport
+  /// (Playstate) commands over the control socket; the token rides in the
+  /// `Authorization` header, so this URL is token-free.
+  static Uri capabilitiesFull(String baseUrl) =>
+      _join(baseUrl, _capabilitiesFullPath);
+
+  /// The session control WebSocket: `{ws|wss}://<host>/socket?api_key=…&deviceId=…`.
+  ///
+  /// Built from [baseUrl] by switching the scheme to `ws`/`wss`. The server
+  /// pushes remote-control (Playstate/GeneralCommand) messages down this socket
+  /// once the session is registered. Auth rides in the [accessToken] `api_key`
+  /// query — exactly like the audio stream URL ([audioStream]) — so the receiver
+  /// must treat this Uri as a secret and never log it.
+  static Uri controlSocket(
+    String baseUrl, {
+    required String accessToken,
+    required String deviceId,
+  }) {
+    final Uri http = Uri.parse('$baseUrl$_socketPath');
+    final String wsScheme = http.scheme == 'https' ? 'wss' : 'ws';
+    return http.replace(
+      scheme: wsScheme,
+      queryParameters: <String, String>{
+        apiKeyParam: accessToken,
+        'deviceId': deviceId,
+      },
+    );
+  }
 
   /// `GET /Audio/<itemId>/Lyrics` — time-synced or plain lyrics (a 404 just
   /// means the server has none).

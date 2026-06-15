@@ -202,6 +202,7 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 | Offline cache & downloads | [docs/offline-cache.md](./docs/offline-cache.md) |
 | Battery usage | [docs/battery.md](./docs/battery.md) |
 | Cast / Chromecast | [docs/cast.md](./docs/cast.md) |
+| Remote control (drive Linthra from another app) | [docs/remote-control.md](./docs/remote-control.md) |
 | Android Auto | [docs/android-auto.md](./docs/android-auto.md) |
 | Reporting a bug | [docs/reporting-bugs.md](./docs/reporting-bugs.md) |
 | Playlists & safe removal | [docs/playlists-and-delete.md](./docs/playlists-and-delete.md) |
