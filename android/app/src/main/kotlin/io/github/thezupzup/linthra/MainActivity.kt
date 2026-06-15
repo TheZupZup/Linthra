@@ -18,6 +18,21 @@ import io.flutter.plugin.common.MethodChannel
 // is mirrored by MethodChannelSafDocumentLister / MethodChannelSafFolderPicker
 // on the Dart side.
 class MainActivity : AudioServiceActivity() {
+    // Opts the window into the panel's native refresh rate (90/120/144 Hz where
+    // available) while foregrounded, and hands the rate back to the system under
+    // battery saver. Lazy so it binds to this activity once, on first resume.
+    private val displayRefreshRate by lazy { DisplayRefreshRate(this) }
+
+    override fun onResume() {
+        super.onResume()
+        displayRefreshRate.onResume()
+    }
+
+    override fun onPause() {
+        displayRefreshRate.onPause()
+        super.onPause()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SAF_CHANNEL)

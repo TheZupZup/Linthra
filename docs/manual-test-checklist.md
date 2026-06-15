@@ -383,6 +383,19 @@ cache's knowledge survives a restart; it never holds a URL or token.
 - ☐ Loading / error / empty states are friendly everywhere.
 - ☐ Destructive actions (delete playlist, clear cache) confirm first.
 
+### High refresh rate & scroll smoothness
+
+- ☐ On a 90/120/144 Hz phone, fling the Songs list in a large library (1000+
+  tracks) — scrolling is smooth and tracks the panel's refresh rate (not capped
+  at 60 fps). Albums and the Queue sheet scroll just as smoothly.
+- ☐ During playback, the Now Playing progress bar and the equalizer indicator
+  update with no stutter in the artwork/background around them.
+- ☐ Enable battery saver: the system is free to drop the refresh rate (Linthra
+  doesn't fight it); the app stays responsive and playback is unaffected.
+  Disable battery saver — high refresh resumes.
+- ☐ (Optional) Confirm via *Developer options ▸ Show refresh rate* that the rate
+  rises to the panel's max with Linthra in the foreground.
+
 ---
 
 ## Reporting a bug (for testers and users)
