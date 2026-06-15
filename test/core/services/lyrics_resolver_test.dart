@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/lyrics.dart';
+import 'package:linthra/core/models/plex_session.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/jellyfin_lyrics_provider.dart';
@@ -8,11 +9,13 @@ import 'package:linthra/core/services/local_lyrics_provider.dart';
 import 'package:linthra/core/services/lyrics_provider.dart';
 import 'package:linthra/core/services/lyrics_resolver.dart';
 import 'package:linthra/core/services/no_lyrics_provider.dart';
+import 'package:linthra/core/services/plex_lyrics_provider.dart';
 import 'package:linthra/core/services/subsonic_lyrics_provider.dart';
 import 'package:linthra/core/sources/local/local_lyrics_reader.dart';
 import 'package:linthra/core/sources/music_provider.dart';
 
 import '../sources/jellyfin/fake_jellyfin_client.dart';
+import '../sources/plex/fake_plex_client.dart';
 import '../sources/subsonic/fake_subsonic_client.dart';
 
 /// A [LyricsProvider] that returns canned lyrics (or throws), and records
@@ -236,15 +239,22 @@ void main() {
       salt: 'salt1',
       token: 'tok1',
     );
+    const plexSession = PlexSession(
+      baseUrl: 'https://plex.example.com:32400',
+      token: 'plex-tok',
+      machineIdentifier: 'm-1',
+    );
 
     late FakeJellyfinClient jellyfin;
     late FakeSubsonicClient subsonic;
+    late FakePlexClient plex;
     late _FakeLocalLyricsReader reader;
     late LyricsResolver resolver;
 
     setUp(() {
       jellyfin = FakeJellyfinClient();
       subsonic = FakeSubsonicClient();
+      plex = FakePlexClient();
       reader = _FakeLocalLyricsReader(lrc: '[00:01.00]local line\n');
       resolver = LyricsResolver(<LyricsProvider>[
         JellyfinLyricsProvider(
@@ -255,8 +265,11 @@ void main() {
           client: subsonic,
           session: () => subsonicSession,
         ),
+        PlexLyricsProvider(
+          client: plex,
+          session: () => plexSession,
+        ),
         LocalLyricsProvider(reader),
-        NoLyricsProvider(MusicProviders.plex.sourceId),
       ]);
     });
 
@@ -297,14 +310,17 @@ void main() {
       expect(subsonic.lastLyricsSongId, isNull);
     });
 
-    test('a Plex track stays on "no lyrics" without touching any backend',
-        () async {
+    test('a Plex track resolves via Plex, untouched by local', () async {
+      plex.lyrics = const Lyrics(lines: <LyricLine>[LyricLine(text: 'plx')]);
+
       final Lyrics? lyrics = await resolver.lyricsFor(_plexTrack);
 
-      expect(lyrics, isNull);
+      expect(lyrics?.lines.single.text, 'plx');
+      expect(plex.requestedLyricsRatingKeys, <String>['101']);
+      // The local reader and the other servers were never consulted.
+      expect(reader.requestedExtensions, isEmpty);
       expect(jellyfin.lastLyricsItemId, isNull);
       expect(subsonic.lastLyricsSongId, isNull);
-      expect(reader.requestedExtensions, isEmpty);
     });
   });
 }

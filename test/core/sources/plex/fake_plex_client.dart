@@ -1,3 +1,4 @@
+import 'package:linthra/core/models/lyrics.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_client.dart';
 import 'package:linthra/core/sources/plex/plex_exception.dart';
@@ -37,6 +38,11 @@ class FakePlexClient implements PlexClient {
   Map<String, PlexMetadata> metadataByRatingKey;
   PlexException? metadataError;
 
+  /// Canned lyrics for [fetchLyrics]; `null` (the default) means "no lyrics".
+  /// Set [lyricsError] to make the call throw instead (a transport/auth fault).
+  Lyrics? lyrics;
+  PlexException? lyricsError;
+
   /// When set, every [reportTimeline] call throws it (after being recorded),
   /// so reporters can prove failures are swallowed. Set [timelineError] for a
   /// typed failure or [timelineUnexpectedError] for an untyped one.
@@ -49,6 +55,7 @@ class FakePlexClient implements PlexClient {
   final List<({String sectionKey, PlexMetadataType itemType})> itemRequests =
       <({String sectionKey, PlexMetadataType itemType})>[];
   final List<String> requestedRatingKeys = <String>[];
+  final List<String> requestedLyricsRatingKeys = <String>[];
   int identityCount = 0;
 
   /// Every timeline report received, in order, so tests can assert the exact
@@ -124,6 +131,20 @@ class FakePlexClient implements PlexClient {
     final PlexMetadata? item = metadataByRatingKey[ratingKey];
     if (item == null) throw PlexException.notFound();
     return item;
+  }
+
+  @override
+  Future<Lyrics?> fetchLyrics({
+    required String baseUrl,
+    required String token,
+    required String ratingKey,
+  }) async {
+    lastBaseUrl = baseUrl;
+    lastToken = token;
+    requestedLyricsRatingKeys.add(ratingKey);
+    final PlexException? error = lyricsError;
+    if (error != null) throw error;
+    return lyrics;
   }
 
   @override

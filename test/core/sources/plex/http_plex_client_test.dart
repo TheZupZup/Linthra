@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:linthra/core/models/lyrics.dart';
 import 'package:linthra/core/sources/plex/http_plex_client.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_client.dart';
@@ -428,6 +429,221 @@ void main() {
           PlexErrorKind.unsupportedResponse,
         )),
       );
+    });
+  });
+
+  group('fetchLyrics', () {
+    // A 200 text/plain response — Plex serves a local `.lrc`/`.txt` sidecar's
+    // bytes raw (no JSON envelope).
+    http.Response text(String body) => http.Response(
+          body,
+          200,
+          headers: const <String, String>{'content-type': 'text/plain'},
+        );
+
+    // Track metadata whose single Part carries the given Stream list.
+    Map<String, dynamic> metadataWith(List<Map<String, dynamic>> streams) =>
+        <String, dynamic>{
+          'MediaContainer': <String, dynamic>{
+            'Metadata': <dynamic>[
+              <String, dynamic>{
+                'ratingKey': '123',
+                'type': 'track',
+                'Media': <dynamic>[
+                  <String, dynamic>{
+                    'Part': <dynamic>[
+                      <String, dynamic>{
+                        'key': '/library/parts/1/file.flac',
+                        'Stream': streams,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        };
+
+    const Map<String, dynamic> lyricStream = <String, dynamic>{
+      'streamType': 4,
+      'key': '/library/streams/99',
+      'format': 'lrc',
+    };
+
+    // A client serving [metadata] for the metadata path and [stream] for the
+    // /library/streams/ path, recording every request it receives.
+    ({HttpPlexClient client, List<http.Request> requests}) routed({
+      required Map<String, dynamic> metadata,
+      http.Response Function()? stream,
+    }) {
+      final List<http.Request> requests = <http.Request>[];
+      final HttpPlexClient client = _client(MockClient((http.Request r) async {
+        requests.add(r);
+        if (r.url.path.startsWith('/library/streams/')) {
+          return (stream ?? () => text('')).call();
+        }
+        return _json(metadata);
+      }));
+      return (client: client, requests: requests);
+    }
+
+    test('synced .lrc: locates the streamType=4 stream and parses timed lines',
+        () async {
+      final routed_ = routed(
+        metadata: metadataWith(<Map<String, dynamic>>[
+          // An audio stream (streamType 2) is skipped; the lyric one is found.
+          <String, dynamic>{'streamType': 2, 'key': '/library/streams/1'},
+          lyricStream,
+        ]),
+        stream: () => text('[00:01.00]hello\n[00:02.00]world\n'),
+      );
+
+      final Lyrics? lyrics = await routed_.client.fetchLyrics(
+        baseUrl: _base,
+        token: _token,
+        ratingKey: '123',
+      );
+
+      expect(lyrics, isNotNull);
+      expect(lyrics!.isSynced, isTrue);
+      expect(
+        lyrics.lines.map((LyricLine l) => l.text),
+        <String>['hello', 'world'],
+      );
+      expect(lyrics.lines.first.start, const Duration(seconds: 1));
+      // Two requests: the metadata lookup then the lyric stream key.
+      expect(routed_.requests.map((http.Request r) => r.url.path), <String>[
+        '/library/metadata/123',
+        '/library/streams/99',
+      ]);
+    });
+
+    test('structured JSON: parses Line/Span startOffset (ms) into timed lines',
+        () async {
+      final routed_ = routed(
+        metadata: metadataWith(<Map<String, dynamic>>[lyricStream]),
+        stream: () => _json(<String, dynamic>{
+          'MediaContainer': <String, dynamic>{
+            'Lyrics': <dynamic>[
+              <String, dynamic>{
+                'format': 'lrc',
+                'Line': <dynamic>[
+                  <String, dynamic>{
+                    'Span': <dynamic>[
+                      <String, dynamic>{'text': 'first', 'startOffset': 1000},
+                    ],
+                  },
+                  <String, dynamic>{
+                    'startOffset': 2500,
+                    'Span': <dynamic>[
+                      <String, dynamic>{'text': 'sec'},
+                      <String, dynamic>{'text': 'ond'},
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+
+      final Lyrics? lyrics = await routed_.client.fetchLyrics(
+        baseUrl: _base,
+        token: _token,
+        ratingKey: '123',
+      );
+
+      expect(lyrics, isNotNull);
+      expect(lyrics!.isSynced, isTrue);
+      // A line's text is its spans joined; its time the line- or first-span
+      // startOffset.
+      expect(
+        lyrics.lines.map((LyricLine l) => l.text),
+        <String>['first', 'second'],
+      );
+      expect(lyrics.lines[0].start, const Duration(milliseconds: 1000));
+      expect(lyrics.lines[1].start, const Duration(milliseconds: 2500));
+    });
+
+    test('plain .txt lyrics render static (untimed)', () async {
+      final routed_ = routed(
+        metadata: metadataWith(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'streamType': 4,
+            'key': '/library/streams/99',
+            'format': 'txt',
+          },
+        ]),
+        stream: () => text('line a\nline b\n'),
+      );
+
+      final Lyrics? lyrics = await routed_.client.fetchLyrics(
+        baseUrl: _base,
+        token: _token,
+        ratingKey: '123',
+      );
+
+      expect(lyrics, isNotNull);
+      expect(lyrics!.isSynced, isFalse);
+      expect(
+        lyrics.lines.map((LyricLine l) => l.text),
+        <String>['line a', 'line b'],
+      );
+    });
+
+    test('a track with no lyric stream resolves to null, no second request',
+        () async {
+      final routed_ = routed(
+        metadata: metadataWith(<Map<String, dynamic>>[
+          <String, dynamic>{'streamType': 2, 'key': '/library/streams/1'},
+        ]),
+      );
+
+      final Lyrics? lyrics = await routed_.client.fetchLyrics(
+        baseUrl: _base,
+        token: _token,
+        ratingKey: '123',
+      );
+
+      expect(lyrics, isNull);
+      expect(routed_.requests, hasLength(1)); // metadata only
+      expect(routed_.requests.single.url.path, '/library/metadata/123');
+    });
+
+    test('a 404 on the lyric content is "no lyrics", not a failure', () async {
+      final routed_ = routed(
+        metadata: metadataWith(<Map<String, dynamic>>[lyricStream]),
+        stream: () => http.Response('', 404),
+      );
+
+      final Lyrics? lyrics = await routed_.client.fetchLyrics(
+        baseUrl: _base,
+        token: _token,
+        ratingKey: '123',
+      );
+
+      expect(lyrics, isNull);
+    });
+
+    test('the token rides in the header on both requests, never the URL',
+        () async {
+      final routed_ = routed(
+        metadata: metadataWith(<Map<String, dynamic>>[lyricStream]),
+        stream: () => text('[00:01.00]hi\n'),
+      );
+
+      await routed_.client.fetchLyrics(
+        baseUrl: _base,
+        token: _token,
+        ratingKey: '123',
+      );
+
+      expect(routed_.requests, hasLength(2));
+      for (final http.Request r in routed_.requests) {
+        expect(r.headers['x-plex-token'], _token);
+        // No token (indeed nothing) smuggled into the query string.
+        expect(r.url.query, isEmpty);
+      }
     });
   });
 

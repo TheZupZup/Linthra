@@ -111,6 +111,16 @@ abstract final class PlexEndpoints {
   static Uri metadata(String baseUrl, {required String ratingKey}) =>
       _join(baseUrl, '$_metadataPath/$ratingKey');
 
+  /// `GET {streamKey}` — fetches a track's lyric-stream content, where
+  /// [streamKey] is the server-absolute `key` of a `streamType=4` (lyric)
+  /// `Stream` read from a `GET /library/metadata/{ratingKey}` lookup (e.g.
+  /// `/library/streams/12345`). The path is already server-absolute, so it is
+  /// appended to [baseUrl] as-is. Like every API call (and unlike the stream/art
+  /// URLs), the token is **not** woven in here — it rides in the client's
+  /// `X-Plex-Token` header — so a lyric-stream URL is token-free and safe to log.
+  static Uri lyricStream(String baseUrl, {required String streamKey}) =>
+      _join(baseUrl, streamKey);
+
   /// `GET /:/timeline?ratingKey=…&key=…&state=…&time=…` — reports playback of
   /// one item back to PMS, which is what makes the client appear in (and
   /// update / leave) the server's Now Playing dashboard.

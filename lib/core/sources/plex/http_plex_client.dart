@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../../models/lyrics.dart';
+import '../../services/lyrics_text_parser.dart';
 import 'plex_api.dart';
 import 'plex_client.dart';
 import 'plex_endpoints.dart';
@@ -75,6 +77,10 @@ class HttpPlexClient implements PlexClient {
   /// A generous page-count cap stops a runaway loop if a server ever ignores the
   /// `X-Plex-Container-Start` offset.
   static const int _maxPages = 1000;
+
+  /// Plex's numeric `streamType` for a lyric `Stream` (2 = audio, 3 = subtitle,
+  /// 4 = lyrics). The one stream kind [fetchLyrics] looks for on a track's Part.
+  static const int _lyricStreamType = 4;
 
   @override
   Future<PlexServerIdentity> fetchIdentity({
@@ -150,6 +156,33 @@ class HttpPlexClient implements PlexClient {
       throw PlexException.unsupportedResponse();
     }
     return container.metadata.first;
+  }
+
+  @override
+  Future<Lyrics?> fetchLyrics({
+    required String baseUrl,
+    required String token,
+    required String ratingKey,
+  }) async {
+    // Step 1: the track's full single-item metadata carries its
+    // Media → Part → Stream list (streams ride in this response by default);
+    // a lyric stream is Plex's streamType=4, whose `key` points at the content.
+    final Map<String, dynamic> metadata = await _getJson(
+      PlexEndpoints.metadata(baseUrl, ratingKey: ratingKey),
+      token,
+    );
+    final ({String key, String? format})? stream = _findLyricStream(metadata);
+    // No lyric stream on the track → no lyrics (a normal outcome, not an error).
+    if (stream == null) return null;
+
+    // Step 2: fetch the stream's content and parse it. A 404 means the content
+    // has gone missing — treated as "no lyrics" too, never a hard failure.
+    final String? body = await _getLyricBody(
+      PlexEndpoints.lyricStream(baseUrl, streamKey: stream.key),
+      token,
+    );
+    if (body == null) return null;
+    return _parseLyricBody(body, stream.format);
   }
 
   @override
@@ -241,6 +274,169 @@ class HttpPlexClient implements PlexClient {
     );
     _checkStatus(response);
     return _decodeObject(response);
+  }
+
+  /// GETs a lyric stream's content, returning its body text — or `null` on a 404
+  /// (the content is gone: "no lyrics", not a failure). Other non-2xx statuses
+  /// throw the usual [PlexException]. Bytes are decoded as UTF-8 so non-ASCII
+  /// lyrics aren't mangled.
+  Future<String?> _getLyricBody(Uri uri, String token) async {
+    final http.Response response = await _send(
+      () => _client.get(uri, headers: _headers(token)),
+    );
+    if (response.statusCode == 404) return null;
+    _checkStatus(response);
+    return utf8.decode(response.bodyBytes, allowMalformed: true);
+  }
+
+  /// Locates the first lyric stream (Plex `streamType=4`) in a track's metadata
+  /// JSON, returning its server-absolute `key` (the path the content is fetched
+  /// from) and reported `format` (e.g. `lrc`/`txt`), or `null` when the track
+  /// carries none. Walks Metadata → Media → Part → Stream defensively: any
+  /// missing or odd level is skipped, never thrown. A relative `key` is refused
+  /// (it would splice into the base URL's authority), the same guard the stream
+  /// URL builder applies.
+  static ({String key, String? format})? _findLyricStream(
+    Map<String, dynamic> json,
+  ) {
+    final Object? container = json['MediaContainer'];
+    if (container is! Map<String, dynamic>) return null;
+    final Object? metadata = container['Metadata'];
+    if (metadata is! List) return null;
+    for (final Object? item in metadata) {
+      if (item is! Map<String, dynamic>) continue;
+      final Object? media = item['Media'];
+      if (media is! List) continue;
+      for (final Object? rendition in media) {
+        if (rendition is! Map<String, dynamic>) continue;
+        final Object? parts = rendition['Part'];
+        if (parts is! List) continue;
+        for (final Object? part in parts) {
+          if (part is! Map<String, dynamic>) continue;
+          final Object? streams = part['Stream'];
+          if (streams is! List) continue;
+          for (final Object? stream in streams) {
+            if (stream is! Map<String, dynamic>) continue;
+            if (_asInt(stream['streamType']) != _lyricStreamType) continue;
+            final String? key = _nonEmpty(stream['key']);
+            if (key == null || !key.startsWith('/')) continue;
+            return (key: key, format: _nonEmpty(stream['format']));
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Turns a lyric stream body into [Lyrics]. Plex serves either its structured
+  /// JSON document (agent / LyricFind lyrics) or the raw `.lrc`/`.txt` file bytes
+  /// (a local sidecar). A JSON object body is read structurally; anything else
+  /// is the raw text, parsed by the shared [LyricsTextParser] — so a Plex `.lrc`
+  /// renders synced and a `.txt` static, exactly like a local sidecar. Returns
+  /// `null` when nothing usable remains; total — malformed input never throws.
+  static Lyrics? _parseLyricBody(String body, String? format) {
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      decoded = null; // Raw .lrc/.txt text (a local sidecar), not JSON.
+    }
+    if (decoded is Map<String, dynamic>) {
+      return _parseStructuredLyrics(decoded);
+    }
+    return (format?.toLowerCase() == 'txt')
+        ? LyricsTextParser.parsePlain(body)
+        : LyricsTextParser.parseLrc(body);
+  }
+
+  /// Parses Plex's structured lyric JSON: `MediaContainer.Lyrics[].Line[]`, each
+  /// line's text the concatenation of its `Span[].text` and its timestamp the
+  /// line's (or first span's) `startOffset` in **milliseconds**. Timed lines win
+  /// (synced, ordered by time, mirroring the `.lrc` parser); a document with no
+  /// offsets degrades to plain lines. `null` when no usable line remains.
+  static Lyrics? _parseStructuredLyrics(Map<String, dynamic> json) {
+    final Object? container = json['MediaContainer'];
+    if (container is! Map<String, dynamic>) return null;
+    final Object? documents = container['Lyrics'];
+    if (documents is! List) return null;
+    final List<LyricLine> timed = <LyricLine>[];
+    final List<String> plain = <String>[];
+    for (final Object? document in documents) {
+      if (document is! Map<String, dynamic>) continue;
+      final Object? lines = document['Line'];
+      if (lines is! List) continue;
+      for (final Object? line in lines) {
+        if (line is! Map<String, dynamic>) continue;
+        final String text = _structuredLineText(line);
+        final int? offsetMs = _structuredLineOffsetMs(line);
+        if (offsetMs != null && offsetMs >= 0) {
+          timed.add(
+            LyricLine(text: text, start: Duration(milliseconds: offsetMs)),
+          );
+        } else {
+          plain.add(text);
+        }
+      }
+    }
+    if (timed.isNotEmpty) {
+      // Order by time so the model's active-line search (ascending order) holds.
+      timed.sort((LyricLine a, LyricLine b) => a.start!.compareTo(b.start!));
+      return Lyrics(lines: timed);
+    }
+    if (plain.isEmpty) return null;
+    // Reuse the plain parser's blank-trim + empty→null handling.
+    return LyricsTextParser.parsePlain(plain.join('\n'));
+  }
+
+  /// The text of one structured lyric line: its `Span[].text` joined in order,
+  /// falling back to a line-level `text` when a server reports no spans.
+  static String _structuredLineText(Map<String, dynamic> line) {
+    final Object? spans = line['Span'];
+    if (spans is List) {
+      final StringBuffer buffer = StringBuffer();
+      for (final Object? span in spans) {
+        if (span is Map<String, dynamic> && span['text'] is String) {
+          buffer.write(span['text'] as String);
+        }
+      }
+      if (buffer.isNotEmpty) return buffer.toString();
+    }
+    final Object? text = line['text'];
+    return text is String ? text : '';
+  }
+
+  /// The millisecond start offset of a structured lyric line: the line's own
+  /// `startOffset`, or the first span's when the line carries none; `null` for
+  /// an untimed line.
+  static int? _structuredLineOffsetMs(Map<String, dynamic> line) {
+    final int? lineOffset = _asInt(line['startOffset']);
+    if (lineOffset != null) return lineOffset;
+    final Object? spans = line['Span'];
+    if (spans is List) {
+      for (final Object? span in spans) {
+        if (span is Map<String, dynamic>) {
+          final int? spanOffset = _asInt(span['startOffset']);
+          if (spanOffset != null) return spanOffset;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Reads a JSON value PMS may emit as a number or a numeric string (e.g.
+  /// `streamType`, `startOffset`) as an `int`, or `null` for anything else.
+  static int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
+  /// A trimmed, non-empty [String] for a JSON string [value], or `null`.
+  static String? _nonEmpty(Object? value) {
+    if (value is! String) return null;
+    final String trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   /// The headers every API call sends: `Accept: application/json` (Plex defaults

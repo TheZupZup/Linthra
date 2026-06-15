@@ -184,12 +184,12 @@ void main() {
       (tester) async {
     await _pump(tester);
 
-    // Phase 1 is stream-only → only Streaming appears.
+    // Phase 1 implements streaming + lyrics → both chips appear; the rest don't.
     expect(find.text('Streaming'), findsOneWidget);
+    expect(find.text('Lyrics'), findsOneWidget);
     expect(find.text('Offline'), findsNothing);
     expect(find.text('Cast'), findsNothing);
     expect(find.text('Favorites'), findsNothing);
-    expect(find.text('Lyrics'), findsNothing);
   });
 
   testWidgets('Connect is disabled until both manual fields are filled',

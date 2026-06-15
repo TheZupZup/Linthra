@@ -46,16 +46,19 @@ void main() {
       expect(caps.canListPlaylists, isFalse);
     });
 
-    test('plex: stream-only in phase 1 (docs/plex.md capability matrix)', () {
+    test('plex: stream + lyrics in phase 1 (docs/plex.md capability matrix)',
+        () {
       final caps = MusicProviders.plex.capabilities;
       expect(caps.canStream, isTrue);
+      // Lyrics are fetched on demand from the track's Plex lyric stream (synced
+      // `.lrc` or plain), so they read ✅ — the one capability beyond streaming.
+      expect(caps.canLyrics, isTrue);
       // Everything else is declared unsupported so its actions stay hidden/
       // disabled rather than failing — exactly how Subsonic deferred features.
       expect(caps.canCache, isFalse);
       expect(caps.canFavoriteTracks, isFalse);
       expect(caps.canReadFavoriteState, isFalse);
       expect(caps.canSyncFavorites, isFalse);
-      expect(caps.canLyrics, isFalse);
       // Cast stays off in phase 1 to keep the credential-in-URL surface small.
       expect(caps.canCast, isFalse);
       expect(caps.canListPlaylists, isFalse);
