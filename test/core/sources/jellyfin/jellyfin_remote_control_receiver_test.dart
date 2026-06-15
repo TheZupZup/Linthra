@@ -38,17 +38,19 @@ const JellyfinSession _session = JellyfinSession(
   deviceId: 'dev-1',
 );
 
-String _playstate(String command) => jsonEncode(<String, dynamic>{
-      'MessageType': 'Playstate',
-      'Data': <String, dynamic>{'Command': command},
-    });
+String _playstate(String command) {
+  return jsonEncode(<String, dynamic>{
+    'MessageType': 'Playstate',
+    'Data': <String, dynamic>{'Command': command},
+  });
+}
 
 void main() {
   test('registers capabilities and connects on start', () async {
     final FakeJellyfinClient client = FakeJellyfinClient();
     final _FakeSocket socket = _FakeSocket();
     Uri? connectedTo;
-    final JellyfinRemoteControlReceiver receiver = JellyfinRemoteControlReceiver(
+    final receiver = JellyfinRemoteControlReceiver(
       session: () => _session,
       client: () => client,
       connect: (Uri url) async {
@@ -71,14 +73,13 @@ void main() {
   test('emits a neutral command for a Playstate message', () async {
     final FakeJellyfinClient client = FakeJellyfinClient();
     final _FakeSocket socket = _FakeSocket();
-    final JellyfinRemoteControlReceiver receiver = JellyfinRemoteControlReceiver(
+    final receiver = JellyfinRemoteControlReceiver(
       session: () => _session,
       client: () => client,
       connect: (Uri _) async => socket,
     );
     final List<RemoteCommand> received = <RemoteCommand>[];
-    final StreamSubscription<RemoteCommand> sub =
-        receiver.commands.listen(received.add);
+    final sub = receiver.commands.listen(received.add);
 
     await receiver.start();
     await pumpEventQueue();
@@ -94,7 +95,7 @@ void main() {
   test('answers ForceKeepAlive with a KeepAlive frame', () async {
     final FakeJellyfinClient client = FakeJellyfinClient();
     final _FakeSocket socket = _FakeSocket();
-    final JellyfinRemoteControlReceiver receiver = JellyfinRemoteControlReceiver(
+    final receiver = JellyfinRemoteControlReceiver(
       session: () => _session,
       client: () => client,
       connect: (Uri _) async => socket,
@@ -117,7 +118,7 @@ void main() {
   test('does not connect when signed out', () async {
     final FakeJellyfinClient client = FakeJellyfinClient();
     int connectCalls = 0;
-    final JellyfinRemoteControlReceiver receiver = JellyfinRemoteControlReceiver(
+    final receiver = JellyfinRemoteControlReceiver(
       session: () => null,
       client: () => client,
       connect: (Uri _) async {
@@ -138,7 +139,7 @@ void main() {
   test('stop disconnects the socket', () async {
     final FakeJellyfinClient client = FakeJellyfinClient();
     final _FakeSocket socket = _FakeSocket();
-    final JellyfinRemoteControlReceiver receiver = JellyfinRemoteControlReceiver(
+    final receiver = JellyfinRemoteControlReceiver(
       session: () => _session,
       client: () => client,
       connect: (Uri _) async => socket,
