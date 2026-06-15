@@ -16,14 +16,30 @@ void main() {
     });
 
     test('falls back to the default order for unlisted sources', () {
-      // Nothing preferred: jellyfin < subsonic < local by the fixed default.
+      // Nothing preferred: jellyfin < subsonic < plex < local by the fixed
+      // default (remote servers before local).
       expect(
         SourcePriority.fallback.rankOf('jellyfin'),
         lessThan(SourcePriority.fallback.rankOf('subsonic')),
       );
       expect(
         SourcePriority.fallback.rankOf('subsonic'),
+        lessThan(SourcePriority.fallback.rankOf('plex')),
+      );
+      expect(
+        SourcePriority.fallback.rankOf('plex'),
         lessThan(SourcePriority.fallback.rankOf('local')),
+      );
+    });
+
+    test('plex is a known source, ranked ahead of an unknown one', () {
+      // Plex now has a deterministic, non-trailing rank rather than sharing the
+      // unknown-source tail, so a Plex copy is preferred over a truly unknown
+      // provider when both hold the same song.
+      const priority = SourcePriority(<String>['jellyfin']);
+      expect(
+        priority.rankOf('plex'),
+        lessThan(priority.rankOf('webdav')),
       );
     });
 

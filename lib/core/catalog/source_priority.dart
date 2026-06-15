@@ -20,6 +20,7 @@ class SourcePriority {
   static const List<String> defaultOrder = <String>[
     'jellyfin',
     'subsonic',
+    'plex',
     'local',
   ];
 

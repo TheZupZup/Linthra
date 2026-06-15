@@ -107,6 +107,21 @@ void main() {
       expect(PlexTrackMapper.toTrack(zero).duration, Duration.zero);
     });
 
+    test('carries the track number from the Plex index', () {
+      const item = PlexMetadata(ratingKey: '301', title: 'Nightcall', index: 7);
+      expect(PlexTrackMapper.toTrack(item).trackNumber, 7);
+    });
+
+    test('leaves trackNumber null for an absent or non-positive index', () {
+      const absent = PlexMetadata(ratingKey: '1', title: 't');
+      const zero = PlexMetadata(ratingKey: '2', title: 't', index: 0);
+      // PMS omits the index it doesn't know; a stray 0 is meaningless as a
+      // track number, so both fold to null (the grouping layer keeps the
+      // server's listing order rather than forcing a bogus "track 0").
+      expect(PlexTrackMapper.toTrack(absent).trackNumber, isNull);
+      expect(PlexTrackMapper.toTrack(zero).trackNumber, isNull);
+    });
+
     test('leaves artworkUri null when the item reports no thumb', () {
       const item = PlexMetadata(ratingKey: '1', title: 't');
       // No thumb → null → the UI shows its placeholder (not a broken image).
@@ -147,6 +162,35 @@ void main() {
       final album = PlexTrackMapper.toAlbum(item);
       expect(album.artistName, isNull);
       expect(album.artworkUri, isNull);
+    });
+
+    test('carries the release year and track count when reported', () {
+      const item = PlexMetadata(
+        ratingKey: '201',
+        type: 'album',
+        title: 'OutRun',
+        year: 2013,
+        leafCount: 13,
+      );
+      final album = PlexTrackMapper.toAlbum(item);
+      expect(album.year, 2013);
+      expect(album.trackCount, 13);
+    });
+
+    test('defaults year to null and track count to 0 when PMS omits them', () {
+      const item = PlexMetadata(ratingKey: '201', title: 'OutRun');
+      final album = PlexTrackMapper.toAlbum(item);
+      // A missing year stays null (Unknown); a missing count is 0, mirroring
+      // Jellyfin's `childCount ?? 0`.
+      expect(album.year, isNull);
+      expect(album.trackCount, 0);
+    });
+
+    test('folds a non-positive year to null', () {
+      const item = PlexMetadata(ratingKey: '201', title: 'OutRun', year: 0);
+      // PMS occasionally reports year 0 for an unknown date; that is not a real
+      // year, so it folds to null like an omitted field.
+      expect(PlexTrackMapper.toAlbum(item).year, isNull);
     });
   });
 

@@ -40,6 +40,7 @@ void main() {
       expect(find.text('Automatic'), findsOneWidget);
       expect(find.text('Jellyfin'), findsOneWidget);
       expect(find.text('Navidrome / Subsonic'), findsOneWidget);
+      expect(find.text('Plex'), findsOneWidget);
       expect(find.text('Local music'), findsOneWidget);
     });
 
@@ -60,6 +61,21 @@ void main() {
       expect(
         container.read(librarySourcePriorityProvider).preferredOrder.first,
         'jellyfin',
+      );
+    });
+
+    testWidgets('choosing Plex persists it and pins it to the head',
+        (tester) async {
+      final container = await pump(tester);
+
+      await tester.tap(find.text('Plex'));
+      await tester.pumpAndSettle();
+
+      expect(container.read(defaultProviderControllerProvider), 'plex');
+      expect(await store.read(), 'plex');
+      expect(
+        container.read(librarySourcePriorityProvider).preferredOrder.first,
+        'plex',
       );
     });
 

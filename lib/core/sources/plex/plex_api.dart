@@ -252,6 +252,9 @@ class PlexMetadata {
     this.grandparentTitle,
     this.thumb,
     this.duration,
+    this.index,
+    this.year,
+    this.leafCount,
     this.media = const <PlexMedia>[],
   });
 
@@ -287,6 +290,20 @@ class PlexMetadata {
   /// Duration in **milliseconds**, when reported (PMS reports track length in
   /// ms, unlike Subsonic's whole seconds or Jellyfin's 100-ns ticks).
   final int? duration;
+
+  /// A track's **track number** within its album (PMS `index`), when reported;
+  /// `null` for an artist/album or a track PMS doesn't number. Plex reports the
+  /// **disc** number separately as `parentIndex`, which Linthra's [Track] model
+  /// has no field for, so it is intentionally not parsed (a disc field would be
+  /// a shared-model + schema change neither Jellyfin nor Subsonic carry).
+  final int? index;
+
+  /// An album's release **year** (PMS `year`), when reported; `null` otherwise.
+  final int? year;
+
+  /// An album's **track count** (PMS `leafCount` — the number of tracks under
+  /// it), when reported; `null` otherwise.
+  final int? leafCount;
 
   /// The item's `Media` entries (present on tracks; an album/artist listing
   /// omits them). Each holds the [PlexPart]s whose [PlexPart.key] is the actual
@@ -337,6 +354,9 @@ class PlexMetadata {
       grandparentTitle: _asString(json['grandparentTitle']),
       thumb: _asString(json['thumb']),
       duration: (json['duration'] as num?)?.toInt(),
+      index: (json['index'] as num?)?.toInt(),
+      year: (json['year'] as num?)?.toInt(),
+      leafCount: (json['leafCount'] as num?)?.toInt(),
       media: media,
     );
   }
