@@ -218,6 +218,126 @@ void main() {
     });
   });
 
+  group('fetchHomeUsers', () {
+    test('GETs /api/v2/home/users with the token in the header only', () async {
+      http.Request? captured;
+      final HttpPlexTvClient client = _client(MockClient((r) async {
+        captured = r;
+        return _json(const <String, dynamic>{'users': <Object?>[]});
+      }));
+
+      await client.fetchHomeUsers(token: _accountToken);
+
+      expect(captured!.method, 'GET');
+      expect(captured!.url.path, '/api/v2/home/users');
+      expect(captured!.headers['x-plex-token'], _accountToken);
+      expect(captured!.url.toString(), isNot(contains(_accountToken)));
+    });
+
+    test('parses the users array, skipping malformed entries', () async {
+      final HttpPlexTvClient client = _client(MockClient((_) async => _json(
+            const <String, dynamic>{
+              'users': <Object?>[
+                <String, dynamic>{
+                  'id': 1,
+                  'uuid': 'uuid-owner',
+                  'title': 'Dad',
+                  'admin': true,
+                  'protected': true,
+                },
+                <String, dynamic>{'title': 'no uuid'}, // unusable
+                'garbage',
+              ],
+            },
+          )));
+
+      final List<PlexHomeUser> users =
+          await client.fetchHomeUsers(token: _accountToken);
+
+      expect(users, hasLength(1));
+      expect(users.single.uuid, 'uuid-owner');
+      expect(users.single.title, 'Dad');
+      expect(users.single.admin, isTrue);
+      expect(users.single.protected, isTrue);
+    });
+
+    test('tolerates a bare array envelope', () async {
+      final HttpPlexTvClient client = _client(MockClient((_) async => _json(
+            const <Object?>[
+              <String, dynamic>{'uuid': 'u1', 'title': 'A'},
+            ],
+          )));
+
+      final List<PlexHomeUser> users =
+          await client.fetchHomeUsers(token: _accountToken);
+      expect(users.single.uuid, 'u1');
+    });
+
+    test('treats a non-list users field as unusable', () async {
+      final HttpPlexTvClient client = _client(
+        MockClient(
+            (_) async => _json(const <String, dynamic>{'users': 'nope'})),
+      );
+
+      await expectLater(
+        client.fetchHomeUsers(token: _accountToken),
+        throwsA(isA<PlexException>()
+            .having((e) => e.kind, 'kind', PlexErrorKind.unexpected)),
+      );
+    });
+  });
+
+  group('switchHomeUser', () {
+    test('POSTs the switch and returns the granted token', () async {
+      http.Request? captured;
+      final HttpPlexTvClient client = _client(MockClient((r) async {
+        captured = r;
+        return _json(const <String, dynamic>{
+          'uuid': 'uuid-kid',
+          'authToken': 'kid-scoped-token',
+        });
+      }));
+
+      final String token = await client.switchHomeUser(
+        uuid: 'uuid-kid',
+        token: _accountToken,
+        pin: '1234',
+      );
+
+      expect(token, 'kid-scoped-token');
+      expect(captured!.method, 'POST');
+      expect(captured!.url.path, '/api/v2/home/users/uuid-kid/switch');
+      expect(captured!.url.queryParameters['pin'], '1234');
+      // The account (owner) token authorizes the switch via the header.
+      expect(captured!.headers['x-plex-token'], _accountToken);
+    });
+
+    test('a 401 (wrong/missing pin) maps to an unauthorized rejection',
+        () async {
+      final HttpPlexTvClient client =
+          _client(MockClient((_) async => http.Response('', 401)));
+
+      await expectLater(
+        client.switchHomeUser(uuid: 'uuid-kid', token: _accountToken),
+        throwsA(isA<PlexException>()
+            .having((e) => e.kind, 'kind', PlexErrorKind.unauthorized)),
+      );
+    });
+
+    test('a 2xx switch with no token is unusable', () async {
+      final HttpPlexTvClient client = _client(
+        MockClient(
+            (_) async => _json(const <String, dynamic>{'uuid': 'uuid-kid'})),
+      );
+
+      await expectLater(
+        client.switchHomeUser(uuid: 'uuid-kid', token: _accountToken),
+        throwsA(isA<PlexException>()
+            .having((e) => e.kind, 'kind', PlexErrorKind.unexpected)),
+      );
+    });
+  });
+
   group('token safety', () {
     test('every failure path throws a token-free message', () async {
       final List<MockClient> failures = <MockClient>[
@@ -233,6 +353,25 @@ void main() {
         final HttpPlexTvClient client = _client(mock);
         try {
           await client.fetchResources(token: _accountToken);
+          fail('expected a PlexException');
+        } on PlexException catch (error) {
+          expect(error.message, isNot(contains(_accountToken)));
+          expect(error.toString(), isNot(contains(_accountToken)));
+        }
+      }
+    });
+
+    test('a failed home-user switch never echoes the account token', () async {
+      final List<MockClient> failures = <MockClient>[
+        MockClient((_) async => http.Response('', 401)),
+        MockClient((_) async => http.Response('', 500)),
+        MockClient((_) async => throw http.ClientException('boom')),
+      ];
+
+      for (final MockClient mock in failures) {
+        final HttpPlexTvClient client = _client(mock);
+        try {
+          await client.switchHomeUser(uuid: 'u', token: _accountToken);
           fail('expected a PlexException');
         } on PlexException catch (error) {
           expect(error.message, isNot(contains(_accountToken)));

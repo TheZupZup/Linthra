@@ -79,6 +79,27 @@ const PlexResource _atticResource = PlexResource(
   ],
 );
 
+/// The same office server but with no server-scoped token, so
+/// `connectToServer` falls back to whatever account/profile token the flow
+/// carries — letting a test assert the *profile* token ends up in the session.
+const PlexResource _unscopedOfficeResource = PlexResource(
+  name: 'Office Server',
+  clientIdentifier: 'fake-machine-id',
+  provides: 'server',
+  connections: <PlexResourceConnection>[
+    PlexResourceConnection(uri: 'https://office.abc.plex.direct:32400'),
+  ],
+);
+
+const String _kidsToken = 'super-secret-kids-account-token';
+
+const PlexHomeUser _ownerUser =
+    PlexHomeUser(uuid: 'uuid-owner', title: 'Dad', admin: true);
+const PlexHomeUser _kidUser =
+    PlexHomeUser(uuid: 'uuid-kid', title: 'Kids', restricted: true);
+const PlexHomeUser _protectedUser =
+    PlexHomeUser(uuid: 'uuid-teen', title: 'Teen', protected: true);
+
 /// An [ExternalLinkLauncher] that records what it was asked to open and
 /// never touches a real browser.
 class _RecordingLauncher implements ExternalLinkLauncher {
@@ -1887,6 +1908,286 @@ void main() {
         expect(text, isNot(contains(secret)));
       }
       expect(text, contains('<redacted>'));
+    });
+  });
+
+  group('connect with Plex (user selection)', () {
+    test('a multi-profile account shows the user picker before any sync',
+        () async {
+      final container = _container(
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          homeUsers: const <PlexHomeUser>[_ownerUser, _kidUser],
+          resources: const <PlexResource>[_officeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.connectWithPlex();
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.pickingUser);
+      expect(state.users, const <PlexUserChoice>[
+        PlexUserChoice(uuid: 'uuid-owner', title: 'Dad', admin: true),
+        PlexUserChoice(uuid: 'uuid-kid', title: 'Kids', restricted: true),
+      ]);
+      // Nothing connected, synced, or even server-listed yet — the whole point
+      // is that onboarding pauses here instead of barrelling into a sync.
+      expect(state.servers, isEmpty);
+      expect(notifier.session, isNull);
+      expect(container.read(plexMusicSourceProvider), isNull);
+    });
+
+    test('picking the owner connects with the account token — no switch',
+        () async {
+      final store = InMemoryPlexSessionStore();
+      final tvClient = FakePlexTvClient(
+        checkPinScript: <Object?>[_accountToken],
+        homeUsers: const <PlexHomeUser>[_ownerUser, _kidUser],
+        resources: const <PlexResource>[_officeResource],
+      );
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+      await notifier.connectWithPlex();
+
+      final ok = await notifier.selectUser('uuid-owner');
+
+      expect(ok, isTrue);
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.connected,
+      );
+      // The owner already holds the account token: no switch call was made…
+      expect(tvClient.switchCount, 0);
+      // …and the servers were listed as the owner.
+      expect(tvClient.lastResourcesToken, _accountToken);
+      expect((await store.read())!.token, _serverScopedToken);
+    });
+
+    test(
+        'picking a managed profile switches into it and connects scoped to '
+        'that profile', () async {
+      final store = InMemoryPlexSessionStore();
+      final tvClient = FakePlexTvClient(
+        checkPinScript: <Object?>[_accountToken],
+        homeUsers: const <PlexHomeUser>[_ownerUser, _kidUser],
+        switchTokens: <String, String>{'uuid-kid': _kidsToken},
+        // Unscoped, so the persisted token is the *profile* token — proof the
+        // session (and so every later sync) is scoped to the picked user.
+        resources: const <PlexResource>[_unscopedOfficeResource],
+      );
+      final container = _container(store: store, tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+      await notifier.connectWithPlex();
+
+      final ok = await notifier.selectUser('uuid-kid');
+
+      expect(ok, isTrue);
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.connected,
+      );
+      // The flow switched into the kid profile once…
+      expect(tvClient.switchCount, 1);
+      expect(tvClient.lastSwitchedUuid, 'uuid-kid');
+      expect(tvClient.lastSwitchToken, _accountToken);
+      // …and everything after the switch ran as that profile: the servers were
+      // listed with the profile token, and the session carries it.
+      expect(tvClient.lastResourcesToken, _kidsToken);
+      expect((await store.read())!.token, _kidsToken);
+    });
+
+    test('a protected profile is switched with the entered PIN', () async {
+      final tvClient = FakePlexTvClient(
+        checkPinScript: <Object?>[_accountToken],
+        homeUsers: const <PlexHomeUser>[_ownerUser, _protectedUser],
+        switchTokens: <String, String>{'uuid-teen': 'teen-token'},
+        resources: const <PlexResource>[_officeResource],
+      );
+      final container = _container(tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+      await notifier.connectWithPlex();
+
+      await notifier.selectUser('uuid-teen', pin: '4242');
+
+      expect(tvClient.lastSwitchedUuid, 'uuid-teen');
+      expect(tvClient.lastSwitchPin, '4242');
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.connected,
+      );
+    });
+
+    test('a wrong PIN returns to the user picker, then retries successfully',
+        () async {
+      final tvClient = FakePlexTvClient(
+        checkPinScript: <Object?>[_accountToken],
+        homeUsers: const <PlexHomeUser>[_ownerUser, _protectedUser],
+        switchError: PlexException.signInRejected(),
+        resources: const <PlexResource>[_officeResource],
+      );
+      final container = _container(tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+      await notifier.connectWithPlex();
+
+      final ok = await notifier.selectUser('uuid-teen', pin: '0000');
+
+      expect(ok, isFalse);
+      var state = container.read(plexSettingsControllerProvider);
+      // Back on the picker, both profiles still offered, nothing connected.
+      expect(state.phase, PlexConnectionPhase.pickingUser);
+      expect(state.users, hasLength(2));
+      expect(state.errorMessage, contains('PIN'));
+      expect(state.errorKind, PlexErrorKind.unauthorized);
+      expect(notifier.session, isNull);
+
+      // Entering the right PIN switches and connects.
+      tvClient.switchError = null;
+      final retry = await notifier.selectUser('uuid-teen', pin: '4242');
+      expect(retry, isTrue);
+      state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.errorMessage, isNull);
+    });
+
+    test('a single-profile account skips the picker entirely', () async {
+      final tvClient = FakePlexTvClient(
+        checkPinScript: <Object?>[_accountToken],
+        // Plex Home off (or just the owner): one user, nothing to choose.
+        homeUsers: const <PlexHomeUser>[_ownerUser],
+        resources: const <PlexResource>[_officeResource],
+      );
+      final container = _container(tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.connectWithPlex();
+
+      // Straight to connected, as the owner — no picker, no switch.
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.connected,
+      );
+      expect(tvClient.switchCount, 0);
+      expect(tvClient.lastResourcesToken, _accountToken);
+    });
+
+    test('a home-users fetch failure falls back to connecting as the owner',
+        () async {
+      final tvClient = FakePlexTvClient(
+        checkPinScript: <Object?>[_accountToken],
+        homeUsersError: PlexException.plexTvError(503),
+        resources: const <PlexResource>[_officeResource],
+      );
+      final container = _container(tvClient: tvClient);
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.connectWithPlex();
+
+      // The picker is an enhancement, never a gate: the sign-in still connects,
+      // with no error from the swallowed profiles lookup.
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(state.errorMessage, isNull);
+      expect(tvClient.lastResourcesToken, _accountToken);
+    });
+
+    test('cancelling from the user picker restores the signed-out card',
+        () async {
+      final store = InMemoryPlexSessionStore();
+      final container = _container(
+        store: store,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          homeUsers: const <PlexHomeUser>[_ownerUser, _kidUser],
+          resources: const <PlexResource>[_officeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+      await notifier.connectWithPlex();
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.pickingUser,
+      );
+
+      notifier.cancelPlexLink();
+
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.disconnected,
+      );
+      // The abandoned flow released its profiles: picking now is a no-op.
+      expect(await notifier.selectUser('uuid-kid'), isFalse);
+      expect(await store.read(), isNull);
+      expect(notifier.session, isNull);
+    });
+
+    test('selecting an unknown profile id is a no-op', () async {
+      final container = _container(
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          homeUsers: const <PlexHomeUser>[_ownerUser, _kidUser],
+          resources: const <PlexResource>[_officeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+      await notifier.connectWithPlex();
+
+      expect(await notifier.selectUser('uuid-nobody'), isFalse);
+      expect(
+        container.read(plexSettingsControllerProvider).phase,
+        PlexConnectionPhase.pickingUser,
+      );
+    });
+
+    test('no profile or account token ever reaches the state through the flow',
+        () async {
+      final container = _container(
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          homeUsers: const <PlexHomeUser>[_ownerUser, _kidUser],
+          switchTokens: <String, String>{'uuid-kid': _kidsToken},
+          resources: const <PlexResource>[_unscopedOfficeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await _settle();
+
+      const List<String> secrets = <String>[_accountToken, _kidsToken];
+      void expectStateTokenFree() {
+        final state = container.read(plexSettingsControllerProvider);
+        final List<String> texts = <String>[
+          state.baseUrl ?? '',
+          state.serverName ?? '',
+          state.statusMessage ?? '',
+          state.errorMessage ?? '',
+          for (final PlexUserChoice user in state.users) user.toString(),
+        ];
+        for (final String text in texts) {
+          for (final String secret in secrets) {
+            expect(text, isNot(contains(secret)));
+          }
+        }
+      }
+
+      await notifier.connectWithPlex();
+      expectStateTokenFree();
+      await notifier.selectUser('uuid-kid');
+      expectStateTokenFree();
+
+      // The live session still redacts its (profile-scoped) token when printed.
+      final String text = notifier.session.toString();
+      for (final String secret in secrets) {
+        expect(text, isNot(contains(secret)));
+      }
     });
   });
 }

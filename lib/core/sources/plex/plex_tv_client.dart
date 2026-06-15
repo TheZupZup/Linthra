@@ -43,4 +43,29 @@ abstract interface class PlexTvClient {
   /// `X-Plex-Token` header. Each returned server carries its own
   /// server-scoped `accessToken` — the credential Linthra actually keeps.
   Future<List<PlexResource>> fetchResources({required String token});
+
+  /// Lists the account's Plex Home users (profiles) via
+  /// `GET /api/v2/home/users`, so the caller can let the user pick whose
+  /// library to use before syncing. [token] is the account token granted by
+  /// [checkPin]; it rides in the `X-Plex-Token` header.
+  ///
+  /// The listing carries **no** per-user token (that is minted by
+  /// [switchHomeUser]); a single user means there is nothing to pick.
+  Future<List<PlexHomeUser>> fetchHomeUsers({required String token});
+
+  /// Switches into the Plex Home user [uuid] via
+  /// `POST /api/v2/home/users/{uuid}/switch`, returning that profile's own
+  /// auth token — the credential that scopes every later fetch to what the
+  /// profile may see.
+  ///
+  /// [token] is the account (owner) token, in the `X-Plex-Token` header. A
+  /// protected profile needs its [pin]. The returned token is a secret — the
+  /// caller hands it on (to fetch resources / build a session) and never logs
+  /// or persists it as-is. Throws `PlexException.signInRejected` (401/403) when
+  /// the PIN is missing or wrong, and the usual token-free failures otherwise.
+  Future<String> switchHomeUser({
+    required String uuid,
+    required String token,
+    String? pin,
+  });
 }

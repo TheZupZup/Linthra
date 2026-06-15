@@ -18,7 +18,12 @@ class FakePlexTvClient implements PlexTvClient {
     List<Object?>? checkPinScript,
     this.resources = const <PlexResource>[],
     this.resourcesError,
-  }) : checkPinScript = checkPinScript ?? <Object?>[];
+    this.homeUsers = const <PlexHomeUser>[],
+    this.homeUsersError,
+    Map<String, String>? switchTokens,
+    this.switchError,
+  })  : checkPinScript = checkPinScript ?? <Object?>[],
+        switchTokens = switchTokens ?? <String, String>{};
 
   /// Canned PIN for [createPin].
   PlexPin pin;
@@ -34,11 +39,25 @@ class FakePlexTvClient implements PlexTvClient {
   List<PlexResource> resources;
   PlexException? resourcesError;
 
+  /// Canned Plex Home users for [fetchHomeUsers].
+  List<PlexHomeUser> homeUsers;
+  PlexException? homeUsersError;
+
+  /// Per-uuid tokens returned by [switchHomeUser]; an unmapped uuid falls back
+  /// to a deterministic `switched-token-<uuid>`.
+  Map<String, String> switchTokens;
+  PlexException? switchError;
+
   // Recorded inputs.
   int createPinCount = 0;
   int checkPinCount = 0;
   int? lastCheckedPinId;
   String? lastResourcesToken;
+  String? lastHomeUsersToken;
+  int switchCount = 0;
+  String? lastSwitchedUuid;
+  String? lastSwitchToken;
+  String? lastSwitchPin;
 
   @override
   Future<PlexPin> createPin() async {
@@ -64,5 +83,28 @@ class FakePlexTvClient implements PlexTvClient {
     final PlexException? error = resourcesError;
     if (error != null) throw error;
     return resources;
+  }
+
+  @override
+  Future<List<PlexHomeUser>> fetchHomeUsers({required String token}) async {
+    lastHomeUsersToken = token;
+    final PlexException? error = homeUsersError;
+    if (error != null) throw error;
+    return homeUsers;
+  }
+
+  @override
+  Future<String> switchHomeUser({
+    required String uuid,
+    required String token,
+    String? pin,
+  }) async {
+    switchCount++;
+    lastSwitchedUuid = uuid;
+    lastSwitchToken = token;
+    lastSwitchPin = pin;
+    final PlexException? error = switchError;
+    if (error != null) throw error;
+    return switchTokens[uuid] ?? 'switched-token-$uuid';
   }
 }

@@ -65,6 +65,13 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// [_accountToken]; cleared with it.
   List<PlexResource> _flowServers = const <PlexResource>[];
 
+  /// The account's Plex Home users behind the display-safe
+  /// [PlexSettingsState.users] choices, kept between fetching them and the
+  /// user's pick so [selectUser] can look up the picked profile (its `admin`
+  /// flag decides whether a switch is needed). Holds no token; cleared by
+  /// [_resetLinkFlow] with the rest of the flow state.
+  List<PlexHomeUser> _homeUsers = const <PlexHomeUser>[];
+
   /// The active sign-in link, kept so "Open the sign-in page again" can
   /// re-launch the same PIN's page after the user closed the browser tab.
   PlexPinLink? _activeLink;
@@ -230,12 +237,15 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
 
   /// Starts the "Connect with Plex" browser sign-in: mints a plex.tv PIN,
   /// opens the hosted approval page in the browser, polls until the user
-  /// approves it, then fetches the account's Plex Media Servers — connecting
-  /// straight away when there is exactly one, otherwise showing the server
-  /// picker ([selectServer] finishes it). Safe to call while connected: the
-  /// existing session stays live (and is restored on cancel/failure) until a
-  /// new one actually lands, which is what makes this the "reconnect" action
-  /// for an expired token too.
+  /// approves it, then fetches the account's Plex Home users (profiles) and —
+  /// when there is more than one — shows the user picker ([selectUser] finishes
+  /// it) so only the chosen profile's library is synced. A single-profile
+  /// account skips straight to the server step: fetch the account's Plex Media
+  /// Servers, connecting straight away when there is exactly one, otherwise
+  /// showing the server picker ([selectServer] finishes it). Safe to call while
+  /// connected: the existing session stays live (and is restored on
+  /// cancel/failure) until a new one actually lands, which is what makes this
+  /// the "reconnect" action for an expired token too.
   Future<void> connectWithPlex() async {
     if (state.isBusy || state.isLinkFlowActive) return;
     final int attempt = ++_linkAttempt;
@@ -294,11 +304,54 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     // Cancelled (null) or superseded: someone else owns the card now.
     if (_linkAttempt != attempt || accountToken == null) return;
 
+    // The flow now holds the account token — only until a server is connected,
+    // the flow is cancelled, or it fails.
+    _accountToken = accountToken;
+
+    // Before any sync, fetch the account's Plex Home users so the person can
+    // pick whose library to use. Best-effort by contract: an account without
+    // Plex Home (or a plex.tv hiccup) just skips the picker and connects as the
+    // owner, exactly as before this step existed — listing profiles must never
+    // gate the sign-in.
+    state = state.copyWith(
+      phase: PlexConnectionPhase.loadingUsers,
+      statusMessage: 'Signed in. Finding your Plex users…',
+    );
+    List<PlexHomeUser> users;
+    try {
+      users = await ref
+          .read(plexPinAuthProvider)
+          .fetchHomeUsers(accountToken: accountToken);
+    } on PlexException {
+      users = const <PlexHomeUser>[];
+    }
+    if (_linkAttempt != attempt) return;
+
+    if (users.length <= 1) {
+      // Zero or one profile: nothing to choose — connect as the owner with the
+      // account token.
+      await _continueToServers(accountToken, attempt);
+      return;
+    }
+    // Several profiles: let the user pick whose library to use first.
+    _homeUsers = users;
+    state = state.copyWith(
+      phase: PlexConnectionPhase.pickingUser,
+      users: _userChoicesFor(users),
+      statusMessage: null,
+    );
+  }
+
+  /// The shared "find and pick a server" tail of the sign-in flow, run with
+  /// whichever token scopes this connection: the account (owner) token for a
+  /// single-profile account, or the picked Home profile's token after a switch.
+  /// One server connects directly; several show the picker; none shows the
+  /// picker's clean empty state.
+  Future<void> _continueToServers(String accountToken, int attempt) async {
     state = state.copyWith(
       phase: PlexConnectionPhase.loadingServers,
-      statusMessage: 'Signed in. Finding your Plex Media Servers…',
+      statusMessage: 'Finding your Plex Media Servers…',
     );
-
     final List<PlexResource> servers;
     try {
       servers = await ref
@@ -312,8 +365,9 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     }
     if (_linkAttempt != attempt) return;
 
-    // The flow now holds secrets (account token, per-server tokens) — only
-    // until a server is connected, the flow is cancelled, or it fails.
+    // The flow now holds the connection-scoping token plus the per-server
+    // tokens — only until a server is connected, the flow is cancelled, or it
+    // fails.
     _accountToken = accountToken;
     _flowServers = servers;
 
@@ -341,6 +395,74 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       }
     }
     return false;
+  }
+
+  /// Connects as the picked Plex Home user from the user picker. Switches into
+  /// that profile to mint its own token — so the fetched servers and the
+  /// eventual sync only ever see what that profile may — then continues to the
+  /// server step. The owner/admin already holds the account token, so picking
+  /// them needs no switch. A protected profile needs its [pin]; a failed switch
+  /// returns to the user picker with a friendly, token-free reason so another
+  /// profile (or the same one with the right PIN) can be tried.
+  ///
+  /// Returns whether the switch step proceeded (the connection then completes
+  /// through the server step); an unknown id, or a pick outside the picker, is
+  /// a no-op that returns `false`.
+  Future<bool> selectUser(String uuid, {String? pin}) async {
+    if (state.phase != PlexConnectionPhase.pickingUser) return false;
+    final String? accountToken = _accountToken;
+    if (accountToken == null) return false;
+    PlexHomeUser? picked;
+    for (final PlexHomeUser user in _homeUsers) {
+      if (user.uuid == uuid) {
+        picked = user;
+        break;
+      }
+    }
+    if (picked == null) return false;
+    final int attempt = _linkAttempt;
+
+    final String who =
+        picked.title.isNotEmpty ? picked.title : 'your Plex user';
+    state = state.copyWith(
+      phase: PlexConnectionPhase.loadingServers,
+      statusMessage: 'Switching to $who…',
+      errorMessage: null,
+      errorKind: null,
+    );
+
+    final String userToken;
+    if (picked.admin) {
+      // The owner's profile is exactly who the account token belongs to — no
+      // switch call (or PIN) needed.
+      userToken = accountToken;
+    } else {
+      try {
+        userToken = await ref.read(plexPinAuthProvider).switchToUser(
+              uuid: uuid,
+              accountToken: accountToken,
+              pin: pin,
+            );
+      } on PlexException catch (error) {
+        if (_linkAttempt != attempt) return false;
+        // Back to the user picker so another profile — or the right PIN — can
+        // be tried. A protected profile's rejection is almost always the PIN.
+        final bool pinIssue =
+            picked.protected && error.kind == PlexErrorKind.unauthorized;
+        state = state.copyWith(
+          phase: PlexConnectionPhase.pickingUser,
+          statusMessage: null,
+          errorMessage: pinIssue
+              ? "That PIN wasn't accepted. Check it and try again."
+              : error.message,
+          errorKind: error.kind,
+        );
+        return false;
+      }
+    }
+    if (_linkAttempt != attempt) return false;
+    await _continueToServers(userToken, attempt);
+    return true;
   }
 
   /// Abandons the "Connect with Plex" flow at any of its stages, releasing
@@ -502,6 +624,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     _linkAttempt++;
     _accountToken = null;
     _flowServers = const <PlexResource>[];
+    _homeUsers = const <PlexHomeUser>[];
     _activeLink = null;
     _linkFlowOwnsCard = false;
   }
@@ -531,6 +654,21 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       return;
     }
     state = const PlexSettingsState();
+  }
+
+  /// The display-safe picker projections of the flow's Home users — the only
+  /// shape of them that may reach [state].
+  List<PlexUserChoice> _userChoicesFor(List<PlexHomeUser> users) {
+    return List<PlexUserChoice>.unmodifiable(<PlexUserChoice>[
+      for (final PlexHomeUser user in users)
+        PlexUserChoice(
+          uuid: user.uuid,
+          title: user.title.isNotEmpty ? user.title : 'Plex user',
+          admin: user.admin,
+          restricted: user.restricted,
+          protected: user.protected,
+        ),
+    ]);
   }
 
   /// The display-safe picker projections of the flow's server resources —

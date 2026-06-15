@@ -517,6 +517,78 @@ void main() {
     expect((await store.read())!.token, 'super-secret-attic-token');
   });
 
+  testWidgets('a multi-profile account picks from the user list first',
+      (tester) async {
+    final store = InMemoryPlexSessionStore();
+    await _pump(
+      tester,
+      client: FakePlexClient(sections: const [_musicSection]),
+      store: store,
+      tvClient: FakePlexTvClient(
+        checkPinScript: <Object?>[_accountToken],
+        homeUsers: const <PlexHomeUser>[
+          PlexHomeUser(uuid: 'uuid-owner', title: 'Dad', admin: true),
+          PlexHomeUser(uuid: 'uuid-kid', title: 'Kids', restricted: true),
+        ],
+        resources: const <PlexResource>[_officeResource],
+      ),
+    );
+
+    await tester.tap(find.text('Connect with Plex'));
+    await tester.pumpAndSettle();
+
+    // The user picker leads, before any server or library step.
+    expect(find.text('Choose your Plex user'), findsOneWidget);
+    expect(find.text('Dad'), findsOneWidget);
+    expect(find.text('Kids'), findsOneWidget);
+    expect(find.textContaining('Account owner'), findsOneWidget);
+    expect(find.textContaining('Managed profile'), findsOneWidget);
+    // Not connected yet — onboarding paused on the picker, no library sync.
+    expect(find.text('Music libraries'), findsNothing);
+
+    await tester.tap(find.text('Kids'));
+    await tester.pumpAndSettle();
+
+    // Picking the profile carries the flow through to the connected card.
+    expect(find.text('Music libraries'), findsOneWidget);
+    expect(find.text('Disconnect Plex'), findsOneWidget);
+  });
+
+  testWidgets('a protected profile reveals an inline PIN entry to continue',
+      (tester) async {
+    final tvClient = FakePlexTvClient(
+      checkPinScript: <Object?>[_accountToken],
+      homeUsers: const <PlexHomeUser>[
+        PlexHomeUser(uuid: 'uuid-owner', title: 'Dad', admin: true),
+        PlexHomeUser(uuid: 'uuid-teen', title: 'Teen', protected: true),
+      ],
+      resources: const <PlexResource>[_officeResource],
+    );
+    await _pump(
+      tester,
+      client: FakePlexClient(sections: const [_musicSection]),
+      tvClient: tvClient,
+    );
+
+    await tester.tap(find.text('Connect with Plex'));
+    await tester.pumpAndSettle();
+
+    // The protected profile is flagged and, when tapped, asks for its PIN
+    // inline (part of the card, not a dialog) instead of switching at once.
+    expect(find.textContaining('PIN protected'), findsOneWidget);
+    await tester.tap(find.text('Teen'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Enter the PIN for Teen'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '4242');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    // The PIN was forwarded to the switch, and the flow connected.
+    expect(tvClient.lastSwitchPin, '4242');
+    expect(find.text('Disconnect Plex'), findsOneWidget);
+  });
+
   testWidgets('an account with no servers shows a clean empty state',
       (tester) async {
     await _pump(

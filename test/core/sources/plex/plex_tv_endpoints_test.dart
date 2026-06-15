@@ -24,6 +24,53 @@ void main() {
     });
   });
 
+  group('homeUsers', () {
+    test('lists the account profiles at /api/v2/home/users', () {
+      final Uri url = PlexTvEndpoints.homeUsers();
+      expect(url.toString(), 'https://plex.tv/api/v2/home/users');
+      // The token rides in the header, so the URL itself is token-free.
+      expect(url.query, isEmpty);
+    });
+  });
+
+  group('switchHomeUser', () {
+    test('switches a profile by uuid, no pin', () {
+      final Uri url = PlexTvEndpoints.switchHomeUser(uuid: 'uuid-kids');
+      expect(
+        url.toString(),
+        'https://plex.tv/api/v2/home/users/uuid-kids/switch',
+      );
+      expect(url.query, isEmpty);
+    });
+
+    test('passes a profile pin as a query param', () {
+      final Uri url =
+          PlexTvEndpoints.switchHomeUser(uuid: 'uuid-kids', pin: '1234');
+      expect(url.path, '/api/v2/home/users/uuid-kids/switch');
+      expect(url.queryParameters['pin'], '1234');
+    });
+
+    test('an empty pin is omitted, not sent blank', () {
+      final Uri url =
+          PlexTvEndpoints.switchHomeUser(uuid: 'uuid-kids', pin: '');
+      expect(url.query, isEmpty);
+    });
+
+    test('percent-encodes the uuid and pin', () {
+      final Uri url =
+          PlexTvEndpoints.switchHomeUser(uuid: 'a/b uuid', pin: '12&34');
+      final String text = url.toString();
+      expect(text, contains('home/users/a%2Fb%20uuid/switch'));
+      expect(text, contains('pin=12%2634'));
+    });
+
+    test('never carries a token parameter', () {
+      final Uri url =
+          PlexTvEndpoints.switchHomeUser(uuid: 'uuid-kids', pin: '1234');
+      expect(url.toString().toLowerCase(), isNot(contains('x-plex-token')));
+    });
+  });
+
   group('authApp', () {
     test('builds the hosted sign-in page with params in the fragment', () {
       final Uri url = PlexTvEndpoints.authApp(
