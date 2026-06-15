@@ -221,6 +221,12 @@ follow-ups — and Plex follows the same token-safety rules as every other
 provider (token encrypted at rest, never logged, never shown again after
 saving, never woven into a persisted URI or cache filename).
 
+Linthra also reports a playback **timeline**, so it appears as an active player
+in the server's Now Playing dashboard. That report is one-way, though, so the
+player does not yet *react* to remote play/pause/skip commands from other Plex
+apps — receiving those is the separate **Plex Companion** protocol, designed in
+[plex-remote-control.md](plex-remote-control.md).
+
 ## Future provider possibilities
 
 The `MusicSource` seam is designed so more **self-hosted / user-owned** backends
