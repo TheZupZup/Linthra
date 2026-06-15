@@ -43,10 +43,37 @@ abstract final class AppRoutes {
   static String smartMixPath(String id) => '$smartMixes/$id';
 
   static const String downloads = '/downloads';
+
+  /// The Settings hub: a list of categories, each opening its own detail page
+  /// below. The categories are children of [settings] so they keep the bottom
+  /// nav and pop back into that tab.
   static const String settings = '/settings';
 
-  /// The "Report a bug" builder, reached from Settings. A child of [settings]
-  /// so it keeps the bottom nav and pops back into that tab.
+  /// "Connections" — the music-source connections (Jellyfin, Plex,
+  /// Navidrome/Subsonic, local files). A child of [settings].
+  static const String settingsConnections = '/settings/connections';
+
+  /// "Music & playback" — default source and playback behaviour. A child of
+  /// [settings].
+  static const String settingsPlayback = '/settings/playback';
+
+  /// "Cache & data" — smart pre-cache and the on-device cache limit. A child of
+  /// [settings].
+  static const String settingsCache = '/settings/cache';
+
+  /// "Offline & downloads" — the Wi-Fi / mobile-data download policy. A child of
+  /// [settings].
+  static const String settingsDownloads = '/settings/downloads';
+
+  /// "Diagnostics & support" — report a bug and copy a safe diagnostics
+  /// snapshot. A child of [settings].
+  static const String settingsDiagnostics = '/settings/diagnostics';
+
+  /// "About" — version, build, and project links. A child of [settings].
+  static const String settingsAbout = '/settings/about';
+
+  /// The "Report a bug" builder, reached from Diagnostics & support. A child of
+  /// [settings] so it keeps the bottom nav and pops back into that tab.
   static const String reportBug = '/settings/report-bug';
 
   /// Full-screen now-playing view, pushed above the shell.

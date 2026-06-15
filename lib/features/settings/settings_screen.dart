@@ -1,21 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/dimens.dart';
+import '../../app/routes.dart';
 import '../../core/app_info.dart';
 import '../../shared/widgets/linthra_logo_mark.dart';
-import '../../shared/widgets/settings_section_header.dart';
-import 'bug_report/report_bug_settings_section.dart';
-import 'cache/cache_settings_section.dart';
-import 'diagnostics/diagnostics_settings_section.dart';
-import 'network/network_settings_section.dart';
-import 'playback/playback_settings_section.dart';
-import 'precache/precache_settings_section.dart';
-import 'source/default_provider_section.dart';
-import 'source/playback_source_strategy_section.dart';
-import 'source/provider_summary_cards.dart';
+import 'hub/settings_category_tile.dart';
 
-/// Settings. Hosts the connection/source and offline-storage options, plus a
-/// quiet brand/about footer. Theme and other options will join them here.
+/// The Settings hub: a short, scannable list of categories rather than one long
+/// technical form. Each row opens its own page (Connections, Music & playback,
+/// Cache & data, …) where the existing setting cards live, unchanged. Grouping
+/// the options this way is the whole point — it reorganises Settings to feel
+/// like a modern app, without changing what any setting does.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -25,97 +21,95 @@ class SettingsScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
-        children: const [
-          // Music sources — where Linthra finds music to play. Each source is a
-          // compact card: status at a glance, with the full connection settings
-          // a tap away behind "Manage". Local music is a source here,
-          // deliberately kept away from the Storage & offline group below so it
-          // is not confused with offline downloads.
-          SettingsSectionHeader('Music sources'),
-          SizedBox(height: AppSpacing.sm),
-          JellyfinProviderCard(),
-          SizedBox(height: AppSpacing.md),
-          SubsonicProviderCard(),
-          SizedBox(height: AppSpacing.md),
-          LocalMusicProviderCard(),
-          SizedBox(height: AppSpacing.md),
-          // Plex is phase 1 (stream-only) and clearly badged Experimental
-          // until the remaining capabilities ship.
-          PlexProviderCard(),
-          SizedBox(height: AppSpacing.md),
-          DefaultProviderSettingsSection(),
-          SizedBox(height: AppSpacing.md),
-          PlaybackSourceStrategySettingsSection(),
-          SizedBox(height: AppSpacing.lg),
-          // Storage & offline — Linthra-managed on-device storage: songs you
-          // download for offline playback and the cache that speeds playback up.
-          SettingsSectionHeader('Storage & offline'),
-          SizedBox(height: AppSpacing.sm),
-          CacheSettingsSection(),
-          SizedBox(height: AppSpacing.md),
-          NetworkSettingsSection(),
-          SizedBox(height: AppSpacing.md),
-          PrecacheSettingsSection(),
-          SizedBox(height: AppSpacing.lg),
-          SettingsSectionHeader('Playback'),
-          SizedBox(height: AppSpacing.sm),
-          PlaybackSettingsSection(),
-          SizedBox(height: AppSpacing.lg),
-          SettingsSectionHeader('Help & diagnostics'),
-          SizedBox(height: AppSpacing.sm),
-          ReportBugSettingsSection(),
-          SizedBox(height: AppSpacing.md),
-          DiagnosticsSettingsSection(),
-          SizedBox(height: AppSpacing.md),
-          _AboutCard(),
+        children: <Widget>[
+          const _BrandHeader(),
+          const SizedBox(height: AppSpacing.md),
+          SettingsCategoryTile(
+            icon: Icons.hub_outlined,
+            title: 'Connections',
+            subtitle: 'Jellyfin, Plex, Navidrome/Subsonic, local files',
+            onTap: () => context.push(AppRoutes.settingsConnections),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SettingsCategoryTile(
+            icon: Icons.play_circle_outline,
+            title: 'Music & playback',
+            subtitle: 'Default source and playback behaviour',
+            onTap: () => context.push(AppRoutes.settingsPlayback),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SettingsCategoryTile(
+            icon: Icons.sd_storage_outlined,
+            title: 'Cache & data',
+            subtitle: 'Smart pre-cache and cache size',
+            onTap: () => context.push(AppRoutes.settingsCache),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SettingsCategoryTile(
+            icon: Icons.download_outlined,
+            title: 'Offline & downloads',
+            subtitle: 'Mobile data and offline downloads',
+            onTap: () => context.push(AppRoutes.settingsDownloads),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SettingsCategoryTile(
+            icon: Icons.help_outline,
+            title: 'Diagnostics & support',
+            subtitle: 'Report a bug, copy diagnostics',
+            onTap: () => context.push(AppRoutes.settingsDiagnostics),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SettingsCategoryTile(
+            icon: Icons.info_outline,
+            title: 'About',
+            subtitle: 'Version and project links',
+            onTap: () => context.push(AppRoutes.settingsAbout),
+          ),
         ],
       ),
     );
   }
 }
 
-/// A calm brand footer: the Linthra mark, name, tagline, and version. Keeps the
-/// identity present in-app without shouting.
-class _AboutCard extends StatelessWidget {
-  const _AboutCard();
+/// A compact brand presence at the top of the hub: the Linthra mark, name, and
+/// tagline. Keeps the identity in view without the full About panel (which lives
+/// one tap away under "About").
+class _BrandHeader extends StatelessWidget {
+  const _BrandHeader();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Row(
-          children: [
-            const LinthraLogoMark(size: 44),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    AppInfo.name,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.3,
-                    ),
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: AppSpacing.sm,
+      ),
+      child: Row(
+        children: <Widget>[
+          const LinthraLogoMark(size: 40),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  AppInfo.name,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    AppInfo.tagline,
-                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    'Version ${AppInfo.version}',
-                    style: theme.textTheme.labelSmall?.copyWith(color: muted),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  AppInfo.tagline,
+                  style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
