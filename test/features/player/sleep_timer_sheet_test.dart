@@ -3,10 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/features/player/player_providers.dart';
+import 'package:linthra/features/player/player_screen.dart';
 import 'package:linthra/features/player/sleep_timer_controller.dart';
-import 'package:linthra/features/player/widgets/now_playing_actions.dart';
 import 'package:linthra/features/player/widgets/sleep_timer_sheet.dart';
+
+import 'fake_playback_controller.dart';
 
 /// An inert [Timer] that never fires, so arming the countdown in a widget test
 /// schedules no real timers (which would otherwise leave the test pending).
@@ -112,25 +116,31 @@ void main() {
     });
   });
 
-  group('NowPlayingActions sleep timer', () {
-    testWidgets('includes a Sleep timer action that opens the sheet',
+  group('Now-playing sleep timer', () {
+    testWidgets('the overflow menu opens the sleep timer sheet',
         (tester) async {
       await tester.pumpWidget(
-        const ProviderScope(
-          child: MaterialApp(
-            home: Scaffold(
-              body: NowPlayingActions(
-                track: Track(id: '1', title: 'Song One', uri: 'jellyfin:1'),
+        ProviderScope(
+          overrides: <Override>[
+            playbackControllerProvider.overrideWithValue(
+              FakePlaybackController(
+                initial: const PlaybackState(
+                  status: PlaybackStatus.playing,
+                  currentTrack:
+                      Track(id: '1', title: 'Song One', uri: 'jellyfin:1'),
+                ),
               ),
             ),
-          ),
+          ],
+          child: const MaterialApp(home: PlayerScreen()),
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.byTooltip('Sleep timer'), findsOneWidget);
-
-      await tester.tap(find.byTooltip('Sleep timer'));
+      // Sleep timer lives in the now-playing overflow menu.
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sleep timer'));
       await tester.pumpAndSettle();
 
       // The sheet is open: the prompt and presets are visible.

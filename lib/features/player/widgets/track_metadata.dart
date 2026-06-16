@@ -6,9 +6,11 @@ import '../../../core/services/playback_source_label.dart';
 
 /// Title / artist / album block for the now-playing screen.
 ///
-/// Only renders the lines it actually has, so a track with no artist or album
-/// stays clean rather than showing blank rows. Text is centered and clipped to
-/// keep the layout stable under long titles.
+/// Left-aligned beneath the artwork, with a deliberate three-step hierarchy: the
+/// title carries full weight, the artist is a clear secondary line, and the
+/// album recedes to a quiet tag. Only renders the lines it actually has, so a
+/// track with no artist or album stays clean, and clips long values so the
+/// layout stays stable.
 class TrackMetadata extends StatelessWidget {
   const TrackMetadata({
     required this.title,
@@ -24,24 +26,22 @@ class TrackMetadata extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // A deliberate three-step hierarchy: the title carries full weight, the
-    // artist is a clear secondary line, and the album recedes to a quiet tag.
-    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.75);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.72);
     final fainter = theme.colorScheme.onSurface.withValues(alpha: 0.5);
     final hasArtist = artistName != null && artistName!.isNotEmpty;
     final hasAlbum = albumName != null && albumName!.isNotEmpty;
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           title,
           style: theme.textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.w700,
-            letterSpacing: -0.2,
+            letterSpacing: -0.3,
             height: 1.15,
           ),
-          textAlign: TextAlign.center,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
@@ -53,7 +53,6 @@ class TrackMetadata extends StatelessWidget {
               color: muted,
               fontWeight: FontWeight.w500,
             ),
-            textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -66,7 +65,6 @@ class TrackMetadata extends StatelessWidget {
               color: fainter,
               letterSpacing: 0.1,
             ),
-            textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

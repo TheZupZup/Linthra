@@ -1,100 +1,55 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 
-import '../../../app/colors.dart';
-import '../../../shared/widgets/artwork_image.dart';
+import '../player_theme.dart';
 
 /// The full-bleed backdrop behind the now-playing content.
 ///
-/// When artwork is available it shows a heavily blurred, dimmed copy of it so
-/// the screen feels like it belongs to the song; otherwise it falls back to a
-/// calm accent-tinted gradient. Either way a dark scrim is layered on top so the
-/// title, slider, and controls stay legible. Artwork that fails to load quietly
-/// drops back to the gradient — the background is decorative and never blocks
-/// playback.
+/// A calm, soft-light wash: a warm cream-to-blush vertical gradient with a faint
+/// halo of the live [accent] near the top, so the screen quietly belongs to the
+/// song without the heavy, dark, blurred artwork of the old player. It is purely
+/// decorative — text and controls sit on solid, high-contrast ink above it.
 class NowPlayingBackground extends StatelessWidget {
-  const NowPlayingBackground({required this.artworkUri, super.key});
+  const NowPlayingBackground({required this.accent, super.key});
 
-  final Uri? artworkUri;
+  /// The album-derived (or fallback) accent, woven in faintly at the top.
+  final Color accent;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final Uri? uri = artworkUri;
-    // The backdrop is expensive to paint (a full-screen 40px gaussian blur) but
-    // changes only when the track's artwork changes. A RepaintBoundary gives it
-    // its own retained compositing layer so the high-frequency playback updates
-    // layered above it — the ~4 Hz progress bar, the equalizer indicator — never
-    // re-rasterize the blur. That isolation matters more on 90/120/144 Hz panels,
-    // where there are simply more frames in which the cached layer pays off.
+    // Cheap to paint and changes only when the accent (track) changes, so its
+    // own retained layer keeps the high-frequency progress updates above it from
+    // re-rasterizing the gradient.
     return RepaintBoundary(
       child: Stack(
         fit: StackFit.expand,
         children: [
-          _Gradient(theme: theme),
-          if (uri != null)
-            ImageFiltered(
-              imageFilter: ui.ImageFilter.blur(sigmaX: 40, sigmaY: 40),
-              child: Image(
-                image: artworkImageProvider(uri),
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
-                // A failed/decoding image leaves just the gradient showing.
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                frameBuilder: (context, child, frame, wasSync) {
-                  if (wasSync || frame != null) return child;
-                  return const SizedBox.shrink();
-                },
-              ),
-            ),
-          // Scrim: darken toward the bottom where the controls live.
-          DecoratedBox(
+          const DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  theme.colorScheme.surface.withValues(alpha: 0.30),
-                  theme.colorScheme.surface.withValues(alpha: 0.70),
-                  theme.colorScheme.surface.withValues(alpha: 0.92),
+                  PlayerPalette.background,
+                  PlayerPalette.background,
+                  PlayerPalette.blush,
                 ],
-                stops: const [0.0, 0.55, 1.0],
+                stops: [0.0, 0.55, 1.0],
+              ),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0, -0.75),
+                radius: 1.1,
+                colors: [
+                  accent.withValues(alpha: 0.14),
+                  accent.withValues(alpha: 0.0),
+                ],
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Gradient extends StatelessWidget {
-  const _Gradient({required this.theme});
-
-  final ThemeData theme;
-
-  @override
-  Widget build(BuildContext context) {
-    final surface = theme.colorScheme.surface;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.alphaBlend(
-              AppColors.brand.withValues(alpha: 0.32),
-              surface,
-            ),
-            surface,
-            Color.alphaBlend(
-              AppColors.accent.withValues(alpha: 0.12),
-              surface,
-            ),
-          ],
-          stops: const [0.0, 0.55, 1.0],
-        ),
       ),
     );
   }

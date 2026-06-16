@@ -222,7 +222,7 @@ class _Body extends ConsumerWidget {
 /// cast SDK directly — so a command failure can't break playback (the service
 /// swallows it and surfaces a calm notice). It follows live volume updates from
 /// [CastState] (which the sheet watches) while tracking the in-progress drag
-/// locally, mirroring [PlaybackProgressBar]. When the device doesn't support
+/// locally, mirroring the now-playing seek bar. When the device doesn't support
 /// volume control ([CastState.supportsVolumeControl] false) the slider and mute
 /// are disabled with an honest note rather than hidden, so the section stays
 /// stable.

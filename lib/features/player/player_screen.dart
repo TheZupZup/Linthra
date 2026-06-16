@@ -1,69 +1,98 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/dimens.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../playlists/widgets/add_to_playlist_sheet.dart';
 import 'cast/cast_button.dart';
 import 'cast/cast_providers.dart';
+import 'player_accent_provider.dart';
 import 'player_providers.dart';
+import 'player_theme.dart';
+import 'sleep_timer_controller.dart';
 import 'widgets/album_artwork.dart';
 import 'widgets/now_playing_actions.dart';
 import 'widgets/now_playing_background.dart';
 import 'widgets/playback_controls.dart';
-import 'widgets/playback_progress_bar.dart';
+import 'widgets/sleep_timer_sheet.dart';
 import 'widgets/track_metadata.dart';
+import 'widgets/waveform_seek_bar.dart';
 
 /// Full-screen now-playing view. Renders from [playbackStateProvider] and drives
 /// playback through the [PlaybackController]; it never touches the audio engine,
-/// Jellyfin, or the cache directly. Layout is composed from small widgets
-/// (background, artwork, metadata, progress, controls, actions) so this file
-/// stays a thin orchestrator. Pushed above the shell via AppRoutes.player.
+/// Jellyfin, or the cache directly.
+///
+/// These two screens (this and the lyrics page) deliberately use a soft-light,
+/// "music-first" theme ([PlayerTheme]) scoped locally with a `Theme` wrapper, so
+/// the dark app shell is untouched. The accent is derived from the current
+/// track's album art for highlights only ([playerAccentProvider]). Layout is
+/// composed from small widgets (background, artwork, metadata, waveform seek,
+/// controls, actions) so this file stays a thin orchestrator. Pushed above the
+/// shell via AppRoutes.player.
 class PlayerScreen extends ConsumerWidget {
   const PlayerScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Watch only the current track (id-distinct), so the ~5 Hz position ticks
-    // never rebuild this whole screen — above all the full-screen *blurred*
-    // artwork background, which is expensive to re-paint and was rebuilding on
-    // every tick. The position/status pieces watch their own slice in
-    // [_LiveControls], so they stay live without dragging the heavy widgets.
+    // never rebuild this whole screen. The position/status pieces watch their
+    // own slice in [_LiveControls], so they stay live without dragging the heavy
+    // widgets (background, artwork, theme).
     final Track? streamed = ref.watch(
       playbackStateProvider.select((s) => s.valueOrNull?.currentTrack),
     );
     final Track? track =
         streamed ?? ref.read(playbackControllerProvider).state.currentTrack;
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: NowPlayingBackground(artworkUri: track?.artworkUri),
-          ),
-          SafeArea(
-            child: Column(
-              children: [
-                const _Header(),
-                Expanded(
-                  child: track == null
-                      ? const _EmptyNowPlaying()
-                      : _NowPlaying(track: track),
+    // The live accent, derived from the album art (or the brand fallback). It
+    // changes only on a track change, so it never re-themes on a tick.
+    final Color accent = ref
+        .watch(playerAccentProvider(track?.artworkUri))
+        .maybeWhen(data: (c) => c, orElse: () => PlayerPalette.fallbackAccent);
+
+    return AnimatedTheme(
+      data: PlayerTheme.of(accent),
+      duration: const Duration(milliseconds: 400),
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.dark.copyWith(
+          statusBarColor: Colors.transparent,
+          systemNavigationBarColor: PlayerPalette.background,
+          systemNavigationBarIconBrightness: Brightness.dark,
+        ),
+        child: Scaffold(
+          body: Stack(
+            children: [
+              Positioned.fill(child: NowPlayingBackground(accent: accent)),
+              SafeArea(
+                child: Column(
+                  children: [
+                    _Header(track: track),
+                    Expanded(
+                      child: track == null
+                          ? const _EmptyNowPlaying()
+                          : _NowPlaying(track: track),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-/// Top bar: a collapse affordance, a calm "Now Playing" caption, and the cast
-/// button. Transparent so the blurred artwork shows through.
+/// Top bar: a collapse affordance, a calm "Now Playing" caption, the cast
+/// button, and an overflow menu (add to playlist · sleep timer). Transparent so
+/// the soft backdrop shows through.
 class _Header extends StatelessWidget {
-  const _Header();
+  const _Header({required this.track});
+
+  final Track? track;
 
   @override
   Widget build(BuildContext context) {
@@ -81,8 +110,6 @@ class _Header extends StatelessWidget {
             tooltip: 'Close',
           ),
           Expanded(
-            // A calm, tracked eyebrow rather than a heavy title, so the artwork
-            // below is unmistakably the hero of the screen.
             child: Text(
               'Now Playing',
               textAlign: TextAlign.center,
@@ -93,11 +120,75 @@ class _Header extends StatelessWidget {
               ),
             ),
           ),
-          // Trailing cast control; ~48dp wide, balancing the leading button so
-          // the title stays centered.
           const CastButton(),
+          if (track != null)
+            _OverflowMenu(track: track!)
+          else
+            const SizedBox(width: 48),
         ],
       ),
+    );
+  }
+}
+
+enum _PlayerMenuAction { addToPlaylist, sleepTimer }
+
+/// The now-playing overflow: add-to-playlist and the sleep timer, kept out of
+/// the on-screen rows so the player stays uncluttered. The trigger lights up in
+/// the brand colour while a sleep countdown is running.
+class _OverflowMenu extends ConsumerWidget {
+  const _OverflowMenu({required this.track});
+
+  final Track track;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final bool sleepActive = ref.watch(
+      sleepTimerControllerProvider.select((s) => s.isActive),
+    );
+    final Color muted = theme.colorScheme.onSurfaceVariant;
+
+    return PopupMenuButton<_PlayerMenuAction>(
+      tooltip: 'More',
+      icon: Icon(
+        Icons.more_vert,
+        color: sleepActive ? theme.colorScheme.primary : null,
+      ),
+      onSelected: (action) {
+        switch (action) {
+          case _PlayerMenuAction.addToPlaylist:
+            showAddToPlaylistSheet(context, <Track>[track]);
+          case _PlayerMenuAction.sleepTimer:
+            showSleepTimerSheet(context);
+        }
+      },
+      itemBuilder: (context) => <PopupMenuEntry<_PlayerMenuAction>>[
+        PopupMenuItem<_PlayerMenuAction>(
+          value: _PlayerMenuAction.addToPlaylist,
+          child: Row(
+            children: [
+              Icon(Icons.playlist_add, size: 20, color: muted),
+              const SizedBox(width: AppSpacing.md),
+              const Text('Add to playlist'),
+            ],
+          ),
+        ),
+        PopupMenuItem<_PlayerMenuAction>(
+          value: _PlayerMenuAction.sleepTimer,
+          child: Row(
+            children: [
+              Icon(
+                sleepActive ? Icons.bedtime : Icons.bedtime_outlined,
+                size: 20,
+                color: sleepActive ? theme.colorScheme.primary : muted,
+              ),
+              const SizedBox(width: AppSpacing.md),
+              const Text('Sleep timer'),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -122,24 +213,23 @@ class _NowPlaying extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // A tighter side margin lets the artwork breathe wider and gives the
-    // transport controls more room to spread, while the generous gaps below
-    // group the screen into three calm bands: artwork · metadata · controls.
+    // Three calm bands — artwork · metadata + controls — with generous gaps.
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
+        AppSpacing.lg,
         AppSpacing.sm,
-        AppSpacing.md,
+        AppSpacing.lg,
         AppSpacing.lg,
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(
             child: Center(
               child: ConstrainedBox(
-                // Cap the hero on tablets/foldables so it stays a square cover,
-                // not an oversized panel; phones use the full width.
-                constraints: const BoxConstraints(maxWidth: 480),
+                // Cap the hero on tablets/foldables so it stays a square cover;
+                // phones use the full width.
+                constraints: const BoxConstraints(maxWidth: 460),
                 child: AspectRatio(
                   aspectRatio: 1,
                   child: DecoratedBox(
@@ -147,10 +237,10 @@ class _NowPlaying extends StatelessWidget {
                       borderRadius: BorderRadius.circular(AppRadii.lg),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.4),
-                          blurRadius: 40,
-                          spreadRadius: -12,
-                          offset: const Offset(0, 20),
+                          color: Colors.black.withValues(alpha: 0.18),
+                          blurRadius: 32,
+                          spreadRadius: -10,
+                          offset: const Offset(0, 16),
                         ),
                       ],
                     ),
@@ -170,9 +260,9 @@ class _NowPlaying extends StatelessWidget {
             albumName: track.albumName,
           ),
           const SizedBox(height: AppSpacing.lg),
-          // The only part of the screen that follows the live, high-frequency
-          // playback state — kept separate so the artwork, metadata, and the
-          // blurred background above never rebuild on a position tick.
+          // The only part that follows the live, high-frequency playback state —
+          // kept separate so the artwork and metadata above never rebuild on a
+          // position tick.
           const _LiveControls(),
           const SizedBox(height: AppSpacing.md),
           NowPlayingActions(track: track),
@@ -182,9 +272,9 @@ class _NowPlaying extends StatelessWidget {
   }
 }
 
-/// The source/error line, seekable progress bar, and transport controls —
-/// everything that must follow position/status. Isolated into its own consumer
-/// so a position tick rebuilds only this slim column, not the screen.
+/// The source/error line, waveform seek bar, and transport controls — everything
+/// that must follow position/status. Isolated into its own consumer so a
+/// position tick rebuilds only this slim column, not the screen.
 class _LiveControls extends ConsumerWidget {
   const _LiveControls();
 
@@ -197,12 +287,11 @@ class _LiveControls extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         _SourceOrError(state: state),
-        const SizedBox(height: AppSpacing.md),
-        PlaybackProgressBar(
+        const SizedBox(height: AppSpacing.sm),
+        WaveformSeekBar(
           position: state.position,
           duration: state.duration,
-          onSeek: (position) =>
-              ref.read(playbackControllerProvider).seek(position),
+          onSeek: (pos) => controller.seek(pos),
         ),
         const SizedBox(height: AppSpacing.sm),
         PlaybackControls(state: state),
@@ -213,9 +302,8 @@ class _LiveControls extends ConsumerWidget {
 
 /// Under the metadata: while casting, a clear `Casting to …` indicator;
 /// otherwise a friendly error message when playback failed, or the
-/// playback-source badge ("Playing from Navidrome / Jellyfin / Local music /
-/// Cache") once a track has resolved — naming the copy actually playing, not the
-/// active/default provider. Shows nothing while a track is still loading locally.
+/// playback-source badge once a track has resolved. Shows nothing while a track
+/// is still loading locally.
 class _SourceOrError extends ConsumerWidget {
   const _SourceOrError({required this.state});
 
@@ -263,8 +351,7 @@ class _SourceOrError extends ConsumerWidget {
   }
 }
 
-/// A small, calm "Buffering…" hint shown on Now Playing during a mid-stream
-/// re-buffer, so the screen reads as catching-up rather than frozen.
+/// A small, calm "Buffering…" hint shown during a mid-stream re-buffer.
 class _BufferingIndicator extends StatelessWidget {
   const _BufferingIndicator();
 
@@ -295,8 +382,8 @@ class _BufferingIndicator extends StatelessWidget {
   }
 }
 
-/// A small, on-brand `Casting to …` chip shown on Now Playing while a cast
-/// session is connected, so it's obvious the phone is a remote.
+/// A small, on-brand `Casting to …` chip shown while a cast session is
+/// connected, so it's obvious the phone is a remote.
 class _CastingIndicator extends StatelessWidget {
   const _CastingIndicator({required this.deviceName});
 
@@ -309,11 +396,7 @@ class _CastingIndicator extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          Icons.cast_connected,
-          size: 16,
-          color: theme.colorScheme.primary,
-        ),
+        Icon(Icons.cast_connected, size: 16, color: theme.colorScheme.primary),
         const SizedBox(width: AppSpacing.xs),
         Flexible(
           child: Text(
