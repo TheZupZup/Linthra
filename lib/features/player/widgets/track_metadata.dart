@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../app/dimens.dart';
 import '../../../core/models/playback_source.dart';
 import '../../../core/services/playback_source_label.dart';
+import '../../../ui_linthra/design_tokens.dart';
+import '../../../ui_linthra/now_playing_layout_config.dart';
 
 /// Title / artist / album block for the now-playing screen.
 ///
@@ -26,8 +27,8 @@ class TrackMetadata extends StatelessWidget {
     final theme = Theme.of(context);
     // A deliberate three-step hierarchy: the title carries full weight, the
     // artist is a clear secondary line, and the album recedes to a quiet tag.
-    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.75);
-    final fainter = theme.colorScheme.onSurface.withValues(alpha: 0.5);
+    // The exact styles live in NowPlayingTextStyles so they can be retuned in
+    // one place; the gaps live in NowPlayingLayout.
     final hasArtist = artistName != null && artistName!.isNotEmpty;
     final hasAlbum = albumName != null && albumName!.isNotEmpty;
 
@@ -36,36 +37,26 @@ class TrackMetadata extends StatelessWidget {
       children: [
         Text(
           title,
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.2,
-            height: 1.15,
-          ),
+          style: NowPlayingTextStyles.title(theme),
           textAlign: TextAlign.center,
-          maxLines: 2,
+          maxLines: NowPlayingTypeTokens.titleMaxLines,
           overflow: TextOverflow.ellipsis,
         ),
         if (hasArtist) ...[
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: NowPlayingLayout.gapTitleToArtist),
           Text(
             artistName!,
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: muted,
-              fontWeight: FontWeight.w500,
-            ),
+            style: NowPlayingTextStyles.artist(theme),
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         ],
         if (hasAlbum) ...[
-          const SizedBox(height: AppSpacing.xs),
+          const SizedBox(height: NowPlayingLayout.gapArtistToAlbum),
           Text(
             albumName!,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: fainter,
-              letterSpacing: 0.1,
-            ),
+            style: NowPlayingTextStyles.album(theme),
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -110,18 +101,18 @@ class PlaybackSourceChip extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(_iconFor(source), size: 15, color: color),
-        const SizedBox(width: AppSpacing.xs + 2),
+        Icon(
+          _iconFor(source),
+          size: NowPlayingProgressTokens.sourceIconSize,
+          color: color,
+        ),
+        const SizedBox(width: NowPlayingLayout.gapSourceIconToText),
         Flexible(
           child: Text(
             PlaybackSourceLabel.phrase(trackUri: trackUri, source: source),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.2,
-              color: color,
-            ),
+            style: NowPlayingTextStyles.source(theme),
           ),
         ),
       ],

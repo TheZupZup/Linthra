@@ -5,6 +5,8 @@ import '../../app/dimens.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../ui_linthra/design_tokens.dart';
+import '../../ui_linthra/now_playing_layout_config.dart';
 import 'cast/cast_button.dart';
 import 'cast/cast_providers.dart';
 import 'player_providers.dart';
@@ -69,28 +71,21 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.xs,
-        vertical: AppSpacing.xs,
-      ),
+      padding: NowPlayingLayout.headerPadding,
       child: Row(
         children: [
           IconButton(
             onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.keyboard_arrow_down),
-            tooltip: 'Close',
+            icon: const Icon(NowPlayingLabels.closeIcon),
+            tooltip: NowPlayingLabels.closeTooltip,
           ),
           Expanded(
             // A calm, tracked eyebrow rather than a heavy title, so the artwork
             // below is unmistakably the hero of the screen.
             child: Text(
-              'Now Playing',
+              NowPlayingLabels.header,
               textAlign: TextAlign.center,
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.0,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-              ),
+              style: NowPlayingTextStyles.header(theme),
             ),
           ),
           // Trailing cast control; ~48dp wide, balancing the leading button so
@@ -108,9 +103,9 @@ class _EmptyNowPlaying extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const EmptyState(
-      icon: Icons.music_note_outlined,
-      title: 'Nothing playing',
-      message: 'Pick a track to start listening.',
+      icon: NowPlayingLabels.emptyIcon,
+      title: NowPlayingLabels.emptyTitle,
+      message: NowPlayingLabels.emptyMessage,
     );
   }
 }
@@ -125,13 +120,11 @@ class _NowPlaying extends StatelessWidget {
     // A tighter side margin lets the artwork breathe wider and gives the
     // transport controls more room to spread, while the generous gaps below
     // group the screen into three calm bands: artwork · metadata · controls.
+    // All of these numbers live in lib/ui_linthra/ so they can be retuned there.
+    final BorderRadius artworkRadius =
+        BorderRadius.circular(NowPlayingArtworkTokens.cornerRadius);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        AppSpacing.sm,
-        AppSpacing.md,
-        AppSpacing.lg,
-      ),
+      padding: NowPlayingLayout.contentPadding,
       child: Column(
         children: [
           Expanded(
@@ -139,42 +132,46 @@ class _NowPlaying extends StatelessWidget {
               child: ConstrainedBox(
                 // Cap the hero on tablets/foldables so it stays a square cover,
                 // not an oversized panel; phones use the full width.
-                constraints: const BoxConstraints(maxWidth: 480),
+                constraints: const BoxConstraints(
+                  maxWidth: NowPlayingArtworkTokens.maxWidth,
+                ),
                 child: AspectRatio(
-                  aspectRatio: 1,
+                  aspectRatio: NowPlayingArtworkTokens.aspectRatio,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(AppRadii.lg),
+                      borderRadius: artworkRadius,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.4),
-                          blurRadius: 40,
-                          spreadRadius: -12,
-                          offset: const Offset(0, 20),
+                          color: Colors.black.withValues(
+                            alpha: NowPlayingArtworkTokens.shadowOpacity,
+                          ),
+                          blurRadius: NowPlayingArtworkTokens.shadowBlur,
+                          spreadRadius: NowPlayingArtworkTokens.shadowSpread,
+                          offset: NowPlayingArtworkTokens.shadowOffset,
                         ),
                       ],
                     ),
                     child: AlbumArtwork(
                       artworkUri: track.artworkUri,
-                      borderRadius: BorderRadius.circular(AppRadii.lg),
+                      borderRadius: artworkRadius,
                     ),
                   ),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: AppSpacing.xl),
+          const SizedBox(height: NowPlayingLayout.gapArtworkToMetadata),
           TrackMetadata(
             title: track.title,
             artistName: track.artistName,
             albumName: track.albumName,
           ),
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: NowPlayingLayout.gapMetadataToControls),
           // The only part of the screen that follows the live, high-frequency
           // playback state — kept separate so the artwork, metadata, and the
           // blurred background above never rebuild on a position tick.
           const _LiveControls(),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: NowPlayingLayout.gapControlsToActions),
           NowPlayingActions(track: track),
         ],
       ),
@@ -197,14 +194,14 @@ class _LiveControls extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         _SourceOrError(state: state),
-        const SizedBox(height: AppSpacing.md),
+        const SizedBox(height: NowPlayingLayout.gapSourceToProgress),
         PlaybackProgressBar(
           position: state.position,
           duration: state.duration,
           onSeek: (position) =>
               ref.read(playbackControllerProvider).seek(position),
         ),
-        const SizedBox(height: AppSpacing.sm),
+        const SizedBox(height: NowPlayingLayout.gapProgressToTransport),
         PlaybackControls(state: state),
       ],
     );
@@ -238,7 +235,7 @@ class _SourceOrError extends ConsumerWidget {
 
     if (state.status == PlaybackStatus.error) {
       return Text(
-        state.errorMessage ?? "Couldn't play this track",
+        state.errorMessage ?? NowPlayingLabels.genericError,
         style: theme.textTheme.bodyMedium?.copyWith(
           color: theme.colorScheme.error,
         ),
@@ -254,7 +251,9 @@ class _SourceOrError extends ConsumerWidget {
     if (source == null) {
       // Reserve the inline chip's height so the column doesn't shift when the
       // source resolves a beat after the track loads.
-      return const SizedBox(height: 22);
+      return const SizedBox(
+        height: NowPlayingProgressTokens.sourceLineReservedHeight,
+      );
     }
     return PlaybackSourceChip(
       source: source,
@@ -284,7 +283,7 @@ class _BufferingIndicator extends StatelessWidget {
         ),
         const SizedBox(width: AppSpacing.xs),
         Text(
-          'Buffering…',
+          NowPlayingLabels.buffering,
           style: theme.textTheme.labelLarge?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
             letterSpacing: 0.3,
@@ -310,14 +309,14 @@ class _CastingIndicator extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(
-          Icons.cast_connected,
+          NowPlayingLabels.castingIcon,
           size: 16,
           color: theme.colorScheme.primary,
         ),
         const SizedBox(width: AppSpacing.xs),
         Flexible(
           child: Text(
-            'Casting to $deviceName',
+            NowPlayingLabels.casting(deviceName),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.labelLarge?.copyWith(

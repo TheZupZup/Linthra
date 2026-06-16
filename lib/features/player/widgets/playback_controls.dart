@@ -5,6 +5,7 @@ import '../../../app/colors.dart';
 import '../../../core/models/playback_state.dart';
 import '../../../core/models/repeat_mode.dart';
 import '../../../core/services/playback_controller.dart';
+import '../../../ui_linthra/design_tokens.dart';
 import '../player_providers.dart';
 
 /// The transport row: shuffle · previous · play/pause · next · repeat.
@@ -29,14 +30,14 @@ class PlaybackControls extends ConsumerWidget {
       children: [
         _ShuffleButton(state: state, controller: controller),
         IconButton(
-          iconSize: 38,
+          iconSize: NowPlayingButtonTokens.skipIconSize,
           onPressed: state.hasPrevious ? controller.skipToPrevious : null,
           icon: const Icon(Icons.skip_previous),
           tooltip: 'Previous',
         ),
         _PlayPauseButton(state: state, controller: controller),
         IconButton(
-          iconSize: 38,
+          iconSize: NowPlayingButtonTokens.skipIconSize,
           onPressed: state.hasNext ? controller.skipToNext : null,
           icon: const Icon(Icons.skip_next),
           tooltip: 'Next',
@@ -60,7 +61,7 @@ class _ShuffleButton extends StatelessWidget {
     final theme = Theme.of(context);
     final enabled = state.shuffleEnabled;
     return IconButton(
-      iconSize: 24,
+      iconSize: NowPlayingButtonTokens.modeIconSize,
       onPressed: () => controller.setShuffleEnabled(!enabled),
       icon: const Icon(Icons.shuffle),
       isSelected: enabled,
@@ -68,7 +69,8 @@ class _ShuffleButton extends StatelessWidget {
       // play button; warm accent when on, matching the rest of the app.
       color: enabled
           ? theme.colorScheme.secondary
-          : theme.colorScheme.onSurface.withValues(alpha: 0.65),
+          : theme.colorScheme.onSurface
+              .withValues(alpha: NowPlayingOpacityTokens.inactiveMode),
       tooltip: enabled ? 'Shuffle on' : 'Shuffle',
     );
   }
@@ -88,7 +90,7 @@ class _RepeatButton extends StatelessWidget {
     final mode = state.repeatMode;
     final active = mode != RepeatMode.off;
     return IconButton(
-      iconSize: 24,
+      iconSize: NowPlayingButtonTokens.modeIconSize,
       onPressed: () => controller.setRepeatMode(mode.next),
       icon: Icon(
         mode == RepeatMode.one ? Icons.repeat_one : Icons.repeat,
@@ -96,7 +98,8 @@ class _RepeatButton extends StatelessWidget {
       isSelected: active,
       color: active
           ? theme.colorScheme.secondary
-          : theme.colorScheme.onSurface.withValues(alpha: 0.65),
+          : theme.colorScheme.onSurface
+              .withValues(alpha: NowPlayingOpacityTokens.inactiveMode),
       tooltip: _tooltipFor(mode),
     );
   }
@@ -144,17 +147,18 @@ class _PlayPauseButton extends StatelessWidget {
     return Tooltip(
       message: playing ? 'Pause' : 'Play',
       child: Container(
-        width: 72,
-        height: 72,
+        width: NowPlayingButtonTokens.playButtonDiameter,
+        height: NowPlayingButtonTokens.playButtonDiameter,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: _gradient,
           boxShadow: [
             BoxShadow(
-              color: AppColors.accent.withValues(alpha: 0.45),
-              blurRadius: 24,
-              spreadRadius: -4,
-              offset: const Offset(0, 8),
+              color: AppColors.accent
+                  .withValues(alpha: NowPlayingButtonTokens.playGlowOpacity),
+              blurRadius: NowPlayingButtonTokens.playGlowBlur,
+              spreadRadius: NowPlayingButtonTokens.playGlowSpread,
+              offset: NowPlayingButtonTokens.playGlowOffset,
             ),
           ],
         ),
@@ -175,9 +179,9 @@ class _PlayPauseButton extends StatelessWidget {
 
   Widget _loadingIcon() {
     return const SizedBox.square(
-      dimension: 26,
+      dimension: NowPlayingButtonTokens.playSpinnerSize,
       child: CircularProgressIndicator(
-        strokeWidth: 2.5,
+        strokeWidth: NowPlayingButtonTokens.playSpinnerStroke,
         valueColor: AlwaysStoppedAnimation<Color>(AppColors.onAccent),
       ),
     );
@@ -186,7 +190,7 @@ class _PlayPauseButton extends StatelessWidget {
   Widget _playIcon(bool playing) {
     return Icon(
       playing ? Icons.pause : Icons.play_arrow,
-      size: 40,
+      size: NowPlayingButtonTokens.playIconSize,
       color: AppColors.onAccent,
     );
   }

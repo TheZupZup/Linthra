@@ -67,6 +67,7 @@ class is bound to its interface, and where tests swap in fakes.
 | Smart mixes | `lib/features/smart_mixes/`, `lib/core/services/smart_playlist_resolver.dart` |
 | Diagnostics & "Report a bug" | `lib/core/diagnostics/`, `lib/features/settings/bug_report/` |
 | Settings UI | `lib/features/settings/settings_screen.dart` + section folders beside it |
+| Now Playing **look** (spacing, sizes, button order, labels) | `lib/ui_linthra/` — see the [UI editing guide](ui-editing-guide.md) |
 | Stored preferences vs. secrets | `lib/data/repositories/shared_preferences_*.dart` vs. `secure_*_session_store.dart` |
 
 ## Playback

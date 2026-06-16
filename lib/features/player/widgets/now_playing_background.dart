@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/colors.dart';
 import '../../../shared/widgets/artwork_image.dart';
+import '../../../ui_linthra/design_tokens.dart';
 
 /// The full-bleed backdrop behind the now-playing content.
 ///
@@ -35,7 +36,10 @@ class NowPlayingBackground extends StatelessWidget {
           _Gradient(theme: theme),
           if (uri != null)
             ImageFiltered(
-              imageFilter: ui.ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+              imageFilter: ui.ImageFilter.blur(
+                sigmaX: NowPlayingBackgroundTokens.blurStrength,
+                sigmaY: NowPlayingBackgroundTokens.blurStrength,
+              ),
               child: Image(
                 image: artworkImageProvider(uri),
                 fit: BoxFit.cover,
@@ -55,11 +59,17 @@ class NowPlayingBackground extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  theme.colorScheme.surface.withValues(alpha: 0.30),
-                  theme.colorScheme.surface.withValues(alpha: 0.70),
-                  theme.colorScheme.surface.withValues(alpha: 0.92),
+                  theme.colorScheme.surface.withValues(
+                    alpha: NowPlayingBackgroundTokens.scrimTopOpacity,
+                  ),
+                  theme.colorScheme.surface.withValues(
+                    alpha: NowPlayingBackgroundTokens.scrimMidOpacity,
+                  ),
+                  theme.colorScheme.surface.withValues(
+                    alpha: NowPlayingBackgroundTokens.scrimBottomOpacity,
+                  ),
                 ],
-                stops: const [0.0, 0.55, 1.0],
+                stops: NowPlayingBackgroundTokens.scrimStops,
               ),
             ),
           ),
@@ -84,16 +94,20 @@ class _Gradient extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             Color.alphaBlend(
-              AppColors.brand.withValues(alpha: 0.32),
+              AppColors.brand.withValues(
+                alpha: NowPlayingBackgroundTokens.fallbackBrandTint,
+              ),
               surface,
             ),
             surface,
             Color.alphaBlend(
-              AppColors.accent.withValues(alpha: 0.12),
+              AppColors.accent.withValues(
+                alpha: NowPlayingBackgroundTokens.fallbackAccentTint,
+              ),
               surface,
             ),
           ],
-          stops: const [0.0, 0.55, 1.0],
+          stops: NowPlayingBackgroundTokens.fallbackStops,
         ),
       ),
     );

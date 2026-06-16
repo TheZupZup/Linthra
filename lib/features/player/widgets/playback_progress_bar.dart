@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../app/dimens.dart';
+import '../../../ui_linthra/design_tokens.dart';
+import '../../../ui_linthra/now_playing_layout_config.dart';
 
 /// Seekable progress bar showing the current position and total duration.
 ///
@@ -52,22 +53,22 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
     final double sliderValue = _dragMs ?? posMs.toDouble();
     final double elapsedMs = _dragMs ?? posMs.toDouble();
 
-    final muted = theme.colorScheme.onSurfaceVariant;
-    final labelStyle = theme.textTheme.labelSmall?.copyWith(
-      color: muted,
-      letterSpacing: 0.4,
-      fontFeatures: const [FontFeature.tabularFigures()],
-    );
+    final labelStyle = NowPlayingTextStyles.time(theme);
 
     return Column(
       children: [
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
-            trackHeight: 4,
-            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-            inactiveTrackColor:
-                theme.colorScheme.onSurface.withValues(alpha: 0.15),
+            trackHeight: NowPlayingProgressTokens.trackHeight,
+            overlayShape: const RoundSliderOverlayShape(
+              overlayRadius: NowPlayingProgressTokens.overlayRadius,
+            ),
+            thumbShape: const RoundSliderThumbShape(
+              enabledThumbRadius: NowPlayingProgressTokens.thumbRadius,
+            ),
+            inactiveTrackColor: theme.colorScheme.onSurface.withValues(
+              alpha: NowPlayingOpacityTokens.inactiveProgressTrack,
+            ),
           ),
           child: Slider(
             value: sliderValue,
@@ -79,7 +80,8 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
         // Snug under the track and aligned to its ends, so the times read as a
         // caption for the bar rather than a separate, floating row.
         Padding(
-          padding: const EdgeInsets.only(top: AppSpacing.xs),
+          padding:
+              const EdgeInsets.only(top: NowPlayingLayout.gapProgressToTimes),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
