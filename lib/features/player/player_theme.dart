@@ -3,67 +3,79 @@ import 'package:flutter/material.dart';
 import '../../app/colors.dart';
 import '../../app/dimens.dart';
 
-/// The warm, soft-light palette for Linthra's immersive player + lyrics
-/// surfaces.
+/// The soft, light palette for Linthra's immersive player + lyrics surfaces.
 ///
-/// The rest of the app is dark-first; these two screens deliberately switch to
-/// a calm, premium cream/blush light system (see [PlayerTheme]) because a
-/// "music-first" now-playing reads better light and airy. Brand identity is
-/// kept through the violet primary and the warm "live" accent — here the accent
-/// is usually derived from the album art (highlights only), falling back to
-/// [fallbackAccent] when there is no artwork.
+/// The rest of the app is dark-first; these two screens deliberately switch to a
+/// calm, premium light system because a "music-first" now-playing reads better
+/// light and airy. The identity is a **soft lavender** brand kept deliberately
+/// light and unsaturated (calming, never heavy), with a **warm soft orange**
+/// reserved for playback, progress, and key actions. Secondary text and inactive
+/// controls fall back to a muted gray so the colour stays purposeful.
 abstract final class PlayerPalette {
-  /// The base surface: a warm off-white the artwork sits on.
-  static const Color background = Color(0xFFFBF6F1);
+  /// The base surface: a very light, warm-leaning lavender white.
+  static const Color background = Color(0xFFFAF6FB);
 
-  /// A pale blush used low in the background gradient for subtle warmth.
-  static const Color blush = Color(0xFFF6E7E0);
+  /// A pale lavender used low in the background gradient for a soft, breathable
+  /// fade.
+  static const Color backgroundLow = Color(0xFFF1EBF7);
 
   /// Slightly lifted surface for sheets and cards over [background].
-  static const Color surface = Color(0xFFFFFBF7);
+  static const Color surface = Color(0xFFFFFFFF);
 
-  /// Soft container fill for the rounded transport buttons and the lyrics
-  /// segmented control.
-  static const Color container = Color(0xFFF0E5D9);
+  /// Soft lavender-gray container fill for the rounded transport buttons and the
+  /// lyrics segmented control.
+  static const Color container = Color(0xFFECE5F2);
 
   /// A touch deeper than [container] for selected/pressed tonal surfaces.
-  static const Color containerHigh = Color(0xFFE9DCCE);
+  static const Color containerHigh = Color(0xFFE3D9EE);
 
-  /// Primary text/icon ink — warm near-black, kept high-contrast for
-  /// readability on the cream surfaces.
-  static const Color ink = Color(0xFF2A2521);
+  /// Primary text/icon ink — a deep plum-charcoal, high-contrast on the light
+  /// surfaces for strong readability.
+  static const Color ink = Color(0xFF2B2733);
 
-  /// Secondary text (artist line, captions).
-  static const Color inkMuted = Color(0xFF6B5F55);
+  /// Muted gray for secondary text (artist line, captions) and inactive
+  /// controls.
+  static const Color inkMuted = Color(0xFF7C7689);
 
-  /// Tertiary ink for dimmed-but-legible content (inactive lyric lines).
-  static const Color inkFaint = Color(0xFFAEA294);
+  /// Softer gray for dimmed-but-legible content (inactive lyric lines).
+  static const Color inkFaint = Color(0xFFB3ADC0);
 
   /// Hairline outlines / dividers.
-  static const Color hairline = Color(0xFFEADDD0);
+  static const Color hairline = Color(0xFFE9E1F1);
 
-  /// The "live" accent used when no album colour can be derived — Linthra's
-  /// warm orange, deepened so it stays legible as a highlight on cream.
-  static const Color fallbackAccent = AppColors.accentDeep;
+  /// Soft lavender — Linthra's main brand colour, kept light and unsaturated so
+  /// the player feels calm and premium rather than heavy. Used for identity
+  /// moments: favorite, casting, the active lyrics segment, the ambient halo.
+  static const Color brand = Color(0xFF8E76D8);
+
+  /// Warm, soft orange — the "live" accent, reserved for playback, progress, and
+  /// key actions (play/pause, the seek waveform, active shuffle/repeat).
+  static const Color accent = Color(0xFFF4A258);
+
+  /// Dark, warm ink for an icon sitting on the orange accent (the play button),
+  /// where white would wash out against the warm fill.
+  static const Color onAccent = Color(0xFF3A2410);
 }
 
 /// Builds the locally-scoped soft-light [ThemeData] for the now-playing and
-/// lyrics screens, tuned around an [accent] (album-derived where possible).
+/// lyrics screens.
 ///
-/// Scoped with a `Theme`/`AnimatedTheme` wrapper on just those screens, so the
-/// dark app shell is untouched. Call sites read `colorScheme.secondary` for the
-/// live accent and `colorScheme.primary` for the violet brand, exactly as the
-/// rest of the app does, so widgets stay token-driven.
+/// Scoped with a `Theme` wrapper on just those screens, so the dark app shell is
+/// untouched. Call sites read `colorScheme.primary` for the lavender brand and
+/// `colorScheme.secondary` for the warm playback accent, exactly as the rest of
+/// the app does, so widgets stay token-driven.
 abstract final class PlayerTheme {
-  static ThemeData of(Color accent) {
+  static final ThemeData light = _build();
+
+  static ThemeData _build() {
     final ColorScheme scheme = ColorScheme.fromSeed(
-      seedColor: AppColors.brand,
+      seedColor: PlayerPalette.brand,
       brightness: Brightness.light,
     ).copyWith(
-      primary: AppColors.brand,
+      primary: PlayerPalette.brand,
       onPrimary: Colors.white,
-      secondary: accent,
-      onSecondary: onAccent(accent),
+      secondary: PlayerPalette.accent,
+      onSecondary: PlayerPalette.onAccent,
       surface: PlayerPalette.background,
       onSurface: PlayerPalette.ink,
       onSurfaceVariant: PlayerPalette.inkMuted,
@@ -107,9 +119,4 @@ abstract final class PlayerTheme {
       ),
     );
   }
-
-  /// A foreground (icon/text) colour that stays legible on top of [accent] —
-  /// dark ink on a light accent, white on a saturated/dark one.
-  static Color onAccent(Color accent) =>
-      accent.computeLuminance() > 0.55 ? PlayerPalette.ink : Colors.white;
 }

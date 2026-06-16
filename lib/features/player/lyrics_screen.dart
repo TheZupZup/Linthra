@@ -5,10 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/dimens.dart';
 import '../../core/models/lyrics.dart';
 import '../../core/models/playback_state.dart';
-import '../../core/models/track.dart';
 import '../../core/services/playback_controller.dart';
 import 'lyrics_providers.dart';
-import 'player_accent_provider.dart';
 import 'player_providers.dart';
 import 'player_theme.dart';
 import 'widgets/lyrics_view.dart';
@@ -44,14 +42,6 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
       }
     });
 
-    final Track? track = ref.watch(playbackStateProvider.select(
-          (s) => s.valueOrNull?.currentTrack,
-        )) ??
-        ref.read(playbackControllerProvider).state.currentTrack;
-    final Color accent = ref
-        .watch(playerAccentProvider(track?.artworkUri))
-        .maybeWhen(data: (c) => c, orElse: () => PlayerPalette.fallbackAccent);
-
     final AsyncValue<Lyrics?> lyricsAsync =
         ref.watch(currentTrackLyricsProvider);
     final Lyrics? lyrics = lyricsAsync.valueOrNull;
@@ -61,7 +51,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
         _mode ?? (isSynced ? LyricsViewMode.synced : LyricsViewMode.static);
 
     return Theme(
-      data: PlayerTheme.of(accent),
+      data: PlayerTheme.light,
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.dark.copyWith(
           statusBarColor: Colors.transparent,
@@ -204,7 +194,7 @@ class _Segment extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final Color fg = selected
-        ? theme.colorScheme.onSecondary
+        ? theme.colorScheme.onPrimary
         : theme.colorScheme.onSurface.withValues(alpha: enabled ? 0.7 : 0.32);
     return Expanded(
       child: GestureDetector(
@@ -215,7 +205,7 @@ class _Segment extends StatelessWidget {
           curve: Curves.easeOut,
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm + 2),
           decoration: BoxDecoration(
-            color: selected ? theme.colorScheme.secondary : Colors.transparent,
+            color: selected ? theme.colorScheme.primary : Colors.transparent,
             borderRadius: BorderRadius.circular(AppRadii.pill),
           ),
           child: Text(

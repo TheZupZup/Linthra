@@ -9,7 +9,6 @@ import '../../shared/widgets/empty_state.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
 import 'cast/cast_button.dart';
 import 'cast/cast_providers.dart';
-import 'player_accent_provider.dart';
 import 'player_providers.dart';
 import 'player_theme.dart';
 import 'sleep_timer_controller.dart';
@@ -27,11 +26,11 @@ import 'widgets/waveform_seek_bar.dart';
 ///
 /// These two screens (this and the lyrics page) deliberately use a soft-light,
 /// "music-first" theme ([PlayerTheme]) scoped locally with a `Theme` wrapper, so
-/// the dark app shell is untouched. The accent is derived from the current
-/// track's album art for highlights only ([playerAccentProvider]). Layout is
-/// composed from small widgets (background, artwork, metadata, waveform seek,
-/// controls, actions) so this file stays a thin orchestrator. Pushed above the
-/// shell via AppRoutes.player.
+/// the dark app shell is untouched: a soft lavender brand with a warm orange
+/// accent reserved for playback and progress. Layout is composed from small
+/// widgets (background, artwork, metadata, waveform seek, controls, actions) so
+/// this file stays a thin orchestrator. Pushed above the shell via
+/// AppRoutes.player.
 class PlayerScreen extends ConsumerWidget {
   const PlayerScreen({super.key});
 
@@ -47,15 +46,8 @@ class PlayerScreen extends ConsumerWidget {
     final Track? track =
         streamed ?? ref.read(playbackControllerProvider).state.currentTrack;
 
-    // The live accent, derived from the album art (or the brand fallback). It
-    // changes only on a track change, so it never re-themes on a tick.
-    final Color accent = ref
-        .watch(playerAccentProvider(track?.artworkUri))
-        .maybeWhen(data: (c) => c, orElse: () => PlayerPalette.fallbackAccent);
-
-    return AnimatedTheme(
-      data: PlayerTheme.of(accent),
-      duration: const Duration(milliseconds: 400),
+    return Theme(
+      data: PlayerTheme.light,
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.dark.copyWith(
           statusBarColor: Colors.transparent,
@@ -65,7 +57,7 @@ class PlayerScreen extends ConsumerWidget {
         child: Scaffold(
           body: Stack(
             children: [
-              Positioned.fill(child: NowPlayingBackground(accent: accent)),
+              const Positioned.fill(child: NowPlayingBackground()),
               SafeArea(
                 child: Column(
                   children: [
