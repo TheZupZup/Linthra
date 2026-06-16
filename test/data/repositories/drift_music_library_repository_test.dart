@@ -120,5 +120,54 @@ void main() {
         containsAll(<String>['local-1', 'jellyfin-1']),
       );
     });
+
+    test(
+        'upsertCatalog with a duplicate track id collapses to one row '
+        '(idempotent, last wins) instead of failing the sync', () async {
+      // A duplicate stable id within one sync (e.g. a Subsonic album fetched
+      // twice across shifting pagination) must not raise a UNIQUE-constraint
+      // error and roll back the whole catalog.
+      await repository.upsertCatalog(
+        sourceId: 'subsonic',
+        tracks: <Track>[
+          _track('dup', durationMs: 1000),
+          _track('other'),
+          _track('dup', durationMs: 2000),
+        ],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+
+      final List<Track> all = await repository.getAllTracks();
+      expect(all, hasLength(2));
+      expect(all.map((Track t) => t.id), containsAll(<String>['dup', 'other']));
+      final Track? dup = await repository.getTrackById('dup');
+      expect(dup, isNotNull);
+      expect(dup!.duration, const Duration(milliseconds: 2000));
+    });
+
+    test('incremental append tolerates a duplicate id across batches',
+        () async {
+      // The Plex incremental path writes in batches; the same id can appear in
+      // two batches. The second append must not fail on a UNIQUE constraint.
+      await repository.beginCatalogReplacement(
+        sourceId: 'plex',
+        tracks: <Track>[_track('a'), _track('shared', durationMs: 1000)],
+      );
+      await repository.appendToCatalog(
+        sourceId: 'plex',
+        tracks: <Track>[_track('b'), _track('shared', durationMs: 2000)],
+      );
+
+      final List<Track> all = await repository.getAllTracks();
+      expect(all, hasLength(3));
+      expect(
+        all.map((Track t) => t.id),
+        containsAll(<String>['a', 'b', 'shared']),
+      );
+      final Track? shared = await repository.getTrackById('shared');
+      expect(shared, isNotNull);
+      expect(shared!.duration, const Duration(milliseconds: 2000));
+    });
   });
 }
