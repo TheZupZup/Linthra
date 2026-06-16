@@ -90,9 +90,20 @@ class DriftMusicLibraryRepository
   Future<void> _insertTracks(String sourceId, List<Track> tracks) async {
     if (tracks.isEmpty) return;
     await _db.batch((Batch batch) {
+      // insertOrReplace makes the write idempotent: a source can legitimately
+      // hand us the same stable track id twice within one sync — e.g. a Subsonic
+      // album that shifts across paginated `getAlbumList2` pages and so is
+      // fetched twice, or an `appendToCatalog` batch that overlaps an earlier
+      // one during an incremental replacement. A plain insert would raise a
+      // UNIQUE-constraint error on the duplicate id and roll back the whole
+      // transaction, failing an otherwise-good sync. The id is the track's
+      // stable identity, so a duplicate is the same track; collapsing to one row
+      // (last wins) is the correct resolution. `tracks` is the only table and
+      // has no foreign keys, so the replace can never cascade.
       batch.insertAll(
         _db.tracks,
         tracks.map((Track t) => trackToCompanion(t, sourceId)).toList(),
+        mode: InsertMode.insertOrReplace,
       );
     });
   }
