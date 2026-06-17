@@ -4,12 +4,16 @@ import android.content.Context
 import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.DocumentsContract
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
 import java.util.ArrayDeque
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * Walks a user-picked Storage Access Framework tree URI through the content
@@ -31,14 +35,32 @@ import java.util.ArrayDeque
  */
 class SafDocumentScanner(private val context: Context) {
 
-    /** Lists audio documents under [treeUri], reporting back through [result]. */
+    /**
+     * Lists audio documents under [treeUri], reporting back through [result].
+     *
+     * The walk does blocking content-resolver queries and a per-file
+     * [MediaMetadataRetriever] read (plus embedded-artwork extraction), so on a
+     * large library it can take many seconds. The method-channel handler runs on
+     * the platform main thread, so doing the walk inline would freeze the UI —
+     * the bug this guards against. The walk therefore runs on a background
+     * executor, and the reply is posted back to the main thread, which is where
+     * Flutter requires [MethodChannel.Result] to be answered. The walk itself
+     * (and the result it produces) is unchanged.
+     */
     fun listAudioDocuments(treeUri: String, result: MethodChannel.Result) {
-        try {
-            result.success(walk(Uri.parse(treeUri)))
-        } catch (e: SecurityException) {
-            result.error("saf_permission", "No access to the selected folder.", null)
-        } catch (e: Exception) {
-            result.error("saf_failed", "Failed to read the selected folder.", null)
+        scanExecutor.execute {
+            try {
+                val documents = walk(Uri.parse(treeUri))
+                mainHandler.post { result.success(documents) }
+            } catch (e: SecurityException) {
+                mainHandler.post {
+                    result.error("saf_permission", "No access to the selected folder.", null)
+                }
+            } catch (e: Exception) {
+                mainHandler.post {
+                    result.error("saf_failed", "Failed to read the selected folder.", null)
+                }
+            }
         }
     }
 
@@ -369,6 +391,20 @@ class SafDocumentScanner(private val context: Context) {
     }
 
     companion object {
+        // A single background thread for the (potentially long) folder walk, so a
+        // large-library scan never runs on the platform main thread and freezes
+        // the UI. Process-wide and serialized — one scan at a time, matching the
+        // previous (main-thread) behaviour minus the freeze — and a daemon thread
+        // so it never keeps the process alive on its own.
+        private val scanExecutor: ExecutorService =
+            Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "linthra-saf-scan").apply { isDaemon = true }
+            }
+
+        // Posts the method-channel reply back to the main thread, where Flutter
+        // requires MethodChannel.Result to be answered.
+        private val mainHandler = Handler(Looper.getMainLooper())
+
         private val AUDIO_EXTENSIONS =
             listOf(".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wav")
 
