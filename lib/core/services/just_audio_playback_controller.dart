@@ -809,7 +809,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// before a resolved candidate reaches the engine, so a stale rapid-skip can't
   /// hand the engine a track the user has already moved past. Null is distinct
   /// from a real failure (which throws).
-  Future<({Track track, ResolvedPlayable resolved})?> _loadFirstWorkingCandidate(
+  Future<({Track track, ResolvedPlayable resolved})?>
+      _loadFirstWorkingCandidate(
     List<Track> candidates,
     int generation,
   ) async {
