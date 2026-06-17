@@ -79,6 +79,7 @@ compatible with MPL-2.0 and acceptable to F-Droid.
 | `cast`                   | `^2.1.0`     | (johnvuko)          | MIT            | Pure-Dart Google Cast v2 protocol for real Chromecast — **no** Google Play Services / proprietary Cast SDK. See §5 (Casting). |
 | `bonsoir`                | `^5.1.11`    | (Skyost)            | MIT            | mDNS/Bonjour service discovery used by `cast`; Android side is AOSP `NsdManager`, not GMS. Pinned to 5.x for Dart 3.6 (6.x+ needs Dart ≥3.8). See §5 (Casting). |
 | `url_launcher`           | `^6.3.0`     | flutter.dev         | BSD-3-Clause   | Opens the browser for the "Report a bug" → "Open GitHub issue" action (a prefilled, **unsubmitted** issue the user reviews). AOSP `ACTION_VIEW` intent; **no** GMS. See note below and §7 (Reporting a bug). |
+| `connectivity_plus`      | `^6.1.0`     | (fluttercommunity)  | BSD-3-Clause   | Detects Wi-Fi vs mobile/cellular vs offline for the offline-download + smart-pre-cache **mobile-data gate**. Android side is the **AOSP** `ConnectivityManager` (**no** GMS); adds **no new permission** (`ACCESS_NETWORK_STATE` is already merged via Media3, §5). See note below. |
 
 > The `http` and `flutter_secure_storage` entries were added with the Jellyfin
 > source foundation; `cast` and `bonsoir` were added with real Chromecast
@@ -91,6 +92,20 @@ compatible with MPL-2.0 and acceptable to F-Droid.
 > Services). It is wrapped behind the `ExternalLinkLauncher` interface and is
 > invoked only on an explicit user tap — the app never opens a link on its own.
 > See §7.
+>
+> `connectivity_plus` was added for the offline-download / smart-pre-cache
+> **mobile-data gate** — detecting Wi-Fi vs mobile/cellular so "Allow mobile
+> data" can actually hold caching back off a metered link. It is a Flutter
+> Community ("plus") plugin (**BSD-3-Clause**), wrapped behind the
+> `ConnectivityService` interface (`ConnectivityPlusConnectivityService`); the
+> rest of the app never touches it directly. On Android it reads the **AOSP**
+> `ConnectivityManager` — **no** Google Play Services — and adds **no new
+> Android permission**: `ACCESS_NETWORK_STATE` is already merged into the
+> manifest via Media3 (§5). Its transitive `connectivity_plus_platform_interface`
+> is **BSD-3-Clause**; the only other pull-in, `nm` (Linux NetworkManager D-Bus,
+> Canonical), is **MPL-2.0** — the same license as Linthra — and is
+> **desktop-Linux-only**, never shipped in the Android APK. Re-run the mechanical
+> transitive count (§9) on this change.
 
 ## 4. Dev / build-only dependencies (NOT shipped in the APK)
 

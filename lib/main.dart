@@ -75,6 +75,10 @@ Future<void> main() async {
       sharedPreferencesDownloadPreferencesOverride,
       sharedPreferencesPlaybackPreferencesOverride,
       fileSystemOfflineFileStoreOverride,
+      // Detect the real Wi-Fi/mobile/offline link so the mobile-data gate holds
+      // downloads and smart pre-cache back off a metered connection (the
+      // optimistic default always reported Wi-Fi, so the gate never engaged).
+      connectivityPlusServiceOverride,
       remoteTrackDownloaderOverride,
       // Let playback fall back to another copy of the same song when the
       // preferred source fails to resolve or start (the candidates come from the

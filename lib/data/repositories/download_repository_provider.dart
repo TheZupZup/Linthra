@@ -6,6 +6,7 @@ import '../../core/repositories/download_repository.dart';
 import '../../core/repositories/download_store.dart';
 import '../../core/repositories/offline_file_store.dart';
 import '../../core/services/cached_track_locator.dart';
+import '../../core/services/connectivity_plus_connectivity_service.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/offline_cache_manager.dart';
 import '../../core/services/optimistic_connectivity_service.dart';
@@ -130,6 +131,17 @@ final sharedPreferencesDownloadPreferencesOverride =
 final fileSystemOfflineFileStoreOverride =
     offlineFileStoreProvider.overrideWithValue(
   FileSystemOfflineFileStore(),
+);
+
+/// Production binding: detect the real connection type with `connectivity_plus`
+/// so the mobile-data gate actually holds offline downloads and smart pre-cache
+/// back off a metered (or undetermined) link. Without this override the
+/// optimistic default reports Wi-Fi and the gate can never engage — which is the
+/// "pre-cache runs on mobile data" bug. Applied in `main`; tests keep the
+/// plugin-free optimistic default (or inject a fake) so they stay device-free.
+final connectivityPlusServiceOverride =
+    connectivityServiceProvider.overrideWith(
+  (ref) => ConnectivityPlusConnectivityService(),
 );
 
 /// The fallback [RemoteTrackDownloader] when no source can fetch a track: it

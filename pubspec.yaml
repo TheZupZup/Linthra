@@ -62,6 +62,14 @@ dependencies:
   # the rest of the app depends on the JellyfinClient interface, never on http
   # directly. The Dart-team package, so it stays small and dependency-light.
   http: ^1.2.0
+  # Network reachability (Wi-Fi vs mobile/cellular vs offline) for the offline
+  # download + smart pre-cache mobile-data gate. Used only by
+  # ConnectivityPlusConnectivityService behind the ConnectivityService
+  # interface; the policy that consults it lives in CacheDownloadRepository and
+  # the rest of the app never touches connectivity_plus directly. A Flutter
+  # Community ("plus") plugin that reads Android's standard ConnectivityManager
+  # (no Google Play Services), so it stays F-Droid/open-source compatible.
+  connectivity_plus: ^6.1.0
   # MD5 hashing for the Subsonic/Navidrome token+salt auth scheme
   # (token = md5(password + salt)). Used only by SubsonicAuth so a Subsonic
   # session can authenticate every request without ever persisting the
