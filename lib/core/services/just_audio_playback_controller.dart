@@ -179,6 +179,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   // so each track (and each successful stretch) gets its own one-retry budget.
   int _retriesForCurrent = 0;
 
+  // Guards against overlapping playback transitions. Every action that changes
+  // what's playing — skip to next/previous, jump within the queue or history,
+  // load a new queue, restart, resume after a cast handoff, or seek — bumps this
+  // counter; the in-flight [_playCurrent] captures it at its start and abandons
+  // its async result (resolve + engine load) the moment the counter moves on. So
+  // when the user rapidly skips, only the latest action's track is ever loaded,
+  // emitted, or played: a stale resolve that finishes late can't override the
+  // track they actually landed on. The queue itself stays correct independently
+  // of this — its mutations are synchronous — so this only gates the async
+  // load/playback, never the queue order.
+  int _playbackGeneration = 0;
+
   // The latest engine position awaiting a coalesced flush, and the timer that
   // flushes it. The engine's positionStream can fire several times a second
   // (more in bursts during seeking/buffering); emitting a new state for every
@@ -679,6 +691,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     bool autoplay = true,
     bool isRetry = false,
   }) async {
+    // Open a new playback generation: this transition supersedes any earlier
+    // one still resolving/loading. Captured locally so the awaits below can tell
+    // when a newer skip/seek has taken over and bail before clobbering it.
+    final int generation = ++_playbackGeneration;
     final track = _queue.current;
     if (track == null) return;
 
@@ -732,14 +748,24 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // one can't resolve or start. A single-source track has just one candidate,
     // so this behaves exactly as a direct load did.
     final List<Track> candidates = _candidates.candidatesFor(track);
-    final ({Track track, ResolvedPlayable resolved}) outcome;
+    final ({Track track, ResolvedPlayable resolved})? outcome;
     try {
-      outcome = await _loadFirstWorkingCandidate(candidates);
+      outcome = await _loadFirstWorkingCandidate(candidates, generation);
     } on PlaybackResolutionException catch (error) {
+      // A failure from a transition the user has already skipped past must not
+      // surface as an error on the track they actually landed on.
+      if (generation != _playbackGeneration) return;
       // Every candidate failed: surface one friendly, secret-free message.
       _emitError(track, error.message);
       return;
     }
+
+    // Superseded while resolving/loading — a newer skip/seek bumped the
+    // generation (outcome is null when it raced before the engine load, or the
+    // counter moved on after it returned). Drop this stale result without
+    // touching the queue, the emitted state, or playback: the newer transition
+    // now owns the engine and will load/play its own track.
+    if (outcome == null || generation != _playbackGeneration) return;
 
     // Make the copy that actually started the current one, so the queue, the
     // mini-player, and the "Playing from …" indicator all reflect the source
@@ -760,6 +786,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // handoff; then start — the source is already loaded.
     await _applyVolume();
     if (startAt > Duration.zero) await _player.seek(startAt);
+    // One last check before audio starts: a skip/seek that landed while this
+    // track was loading owns playback now, so don't start a track the user has
+    // already moved past.
+    if (generation != _playbackGeneration) return;
     // play()'s future completes when playback ends, so we don't await it.
     if (autoplay) unawaited(_player.play());
   }
@@ -773,8 +803,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// worded exactly as before; only a genuine multi-source all-fail collapses to
   /// the generic "any available source" message. It makes a single pass and
   /// never retries, so it always terminates.
-  Future<({Track track, ResolvedPlayable resolved})> _loadFirstWorkingCandidate(
+  ///
+  /// Returns null instead — without loading anything — when a newer playback
+  /// transition supersedes [generation] (the captured [_playbackGeneration])
+  /// before a resolved candidate reaches the engine, so a stale rapid-skip can't
+  /// hand the engine a track the user has already moved past. Null is distinct
+  /// from a real failure (which throws).
+  Future<({Track track, ResolvedPlayable resolved})?>
+      _loadFirstWorkingCandidate(
     List<Track> candidates,
+    int generation,
   ) async {
     final List<PlaybackResolutionException> failures =
         <PlaybackResolutionException>[];
@@ -796,6 +834,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         ));
         continue;
       }
+      // The user skipped or seeked while this candidate was resolving: abandon
+      // the load before handing a now-stale source to the engine, so only the
+      // newest transition's track is ever loaded or played. Checked after the
+      // resolve await (which is where the time goes) and before touching the
+      // shared engine.
+      if (generation != _playbackGeneration) return null;
       try {
         // setUrl handles file://, content:// (Android), and https:// URIs alike,
         // so local files, SAF documents, and remote streams share one path. The
@@ -903,6 +947,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   @override
   Future<void> seek(Duration position) async {
     if (_suspended) return;
+    // A seek is a playback action too: bump the generation so a still-resolving
+    // earlier load can't complete afterwards and yank playback off the spot the
+    // user just chose (or onto a different track). In normal flow nothing is
+    // loading when a seek arrives — the progress bar only seeks once a duration
+    // is known — so this just invalidates a stale in-flight load when one races.
+    _playbackGeneration++;
     return _player.seek(position);
   }
 
