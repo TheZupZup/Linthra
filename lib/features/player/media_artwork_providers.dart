@@ -10,9 +10,9 @@ import '../settings/plex/plex_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
 import 'player_providers.dart';
 
-/// The pixel size Linthra requests Subsonic cover art at for the **media
-/// session** (lock screen / Android Auto now-playing card). Small enough to
-/// download quickly and let the platform decode it without jank or OOM, but
+/// The pixel size Linthra requests Subsonic and Plex cover art at for the
+/// **media session** (lock screen / Android Auto now-playing card). Small enough
+/// to download quickly and let the platform decode it without jank or OOM, but
 /// crisp on those surfaces. The in-app full-size render (PR #170) is unaffected.
 const int kMediaSessionArtworkSize = 512;
 
@@ -26,11 +26,13 @@ const int kMediaSessionArtworkSize = 512;
 /// Each provider's resolver owns one reference scheme and returns `null` for the
 /// rest, so they chain safely: a `subsonic-cover:` goes to Subsonic, a
 /// `plex-thumb:` to Plex. Mirrors `main.dart`'s in-app
-/// `installArtworkReferenceResolver`, but asks Subsonic for a media-session-
-/// sized cover ([kMediaSessionArtworkSize]) — small and fast to decode on the
-/// lock screen / Android Auto card. The credential is woven in here and used
-/// once by the cache to fetch; it is never persisted (the catalog stores only
-/// the credential-free reference) or logged.
+/// `installArtworkReferenceResolver`, but asks *each* provider for a media-
+/// session-sized cover ([kMediaSessionArtworkSize]) — small and fast to decode
+/// on the lock screen / Android Auto card — so Subsonic (`getCoverArt?size=…`)
+/// and Plex (a photo-transcode cover) feed the shared artwork cache the same
+/// modest-size image rather than a full-resolution one. The credential is woven
+/// in here and used once by the cache to fetch; it is never persisted (the
+/// catalog stores only the credential-free reference) or logged.
 Uri? resolveMediaSessionArtworkUrl(
   Uri reference, {
   SubsonicSession? subsonic,
@@ -45,7 +47,11 @@ Uri? resolveMediaSessionArtworkUrl(
     if (resolved != null) return resolved;
   }
   if (plex != null) {
-    final Uri? resolved = PlexArtwork.resolve(reference, plex);
+    final Uri? resolved = PlexArtwork.resolve(
+      reference,
+      plex,
+      size: kMediaSessionArtworkSize,
+    );
     if (resolved != null) return resolved;
   }
   return null;

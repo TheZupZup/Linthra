@@ -32,8 +32,7 @@ void main() {
     // media session (lock screen / Android Auto). Before the fix the resolver
     // only knew Subsonic, so a Plex reference resolved to null, was never
     // fetched/cached, and the now-playing card showed no art.
-    test('resolves a Plex plex-thumb: reference with the live Plex session',
-        () {
+    test('resolves a Plex reference at the media-session size', () {
       final Uri? resolved = resolveMediaSessionArtworkUrl(
         _plexThumb('/library/metadata/123/thumb/1670000000'),
         plex: _plex,
@@ -42,7 +41,14 @@ void main() {
       expect(resolved, isNotNull);
       expect(resolved!.host, 'plex.example.com');
       expect(resolved.port, 32400);
-      expect(resolved.path, '/library/metadata/123/thumb/1670000000');
+      // Like Subsonic, the media-session path asks PMS for a small, fast-to-
+      // decode cover (via the photo transcoder) rather than the full-resolution
+      // thumb — so the now-playing card stays crisp without a huge bitmap
+      // crossing the process boundary, and the shared cache holds a modest file.
+      expect(resolved.path, '/photo/:/transcode');
+      expect(resolved.queryParameters['url'],
+          '/library/metadata/123/thumb/1670000000');
+      expect(resolved.queryParameters['width'], '$kMediaSessionArtworkSize');
       // The token rides in the query (the image layer can't set headers) — and
       // it is the live session's token, woven in on demand.
       expect(resolved.queryParameters['X-Plex-Token'], 'plex-secret-token');

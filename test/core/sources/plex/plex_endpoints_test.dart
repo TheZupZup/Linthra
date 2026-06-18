@@ -306,6 +306,82 @@ void main() {
         );
       }
     });
+
+    test('a size scales the cover through the photo transcoder', () {
+      // The media-session path asks for a small, fast-to-decode cover (the Plex
+      // analogue of Subsonic's getCoverArt?size=…), so a plain thumb is wrapped
+      // in /photo/:/transcode and the original thumb rides as the `url` value.
+      final Uri uri = PlexEndpoints.coverArt(
+        _base,
+        thumbPath: thumb,
+        token: _token,
+        size: 512,
+      );
+      final Map<String, String> q = uri.queryParameters;
+      expect(uri.path, '/photo/:/transcode');
+      expect(q[PlexEndpoints.urlParam], thumb);
+      expect(q[PlexEndpoints.widthParam], '512');
+      expect(q[PlexEndpoints.heightParam], '512');
+      // The token still rides in the query (the image layer can't set headers).
+      expect(q[PlexEndpoints.tokenParam], _token);
+      expect(uri.path, isNot(contains(_token)));
+    });
+
+    test('omitting the size keeps the full-size cover URL (in-app render)', () {
+      // The default (no size) is byte-for-byte the original behaviour: the raw
+      // thumb path, not a transcode — so the in-app full-size render is
+      // unaffected, exactly like Subsonic's size-free coverArt.
+      final Uri full =
+          PlexEndpoints.coverArt(_base, thumbPath: thumb, token: _token);
+      final Map<String, String> q = full.queryParameters;
+      expect(full.path, thumb);
+      expect(q.containsKey(PlexEndpoints.urlParam), isFalse);
+      expect(q.containsKey(PlexEndpoints.widthParam), isFalse);
+    });
+
+    test('a non-positive size falls back to the full-size cover URL', () {
+      final Uri uri = PlexEndpoints.coverArt(
+        _base,
+        thumbPath: thumb,
+        token: _token,
+        size: 0,
+      );
+      final Map<String, String> q = uri.queryParameters;
+      expect(uri.path, thumb);
+      expect(q.containsKey(PlexEndpoints.widthParam), isFalse);
+      expect(q[PlexEndpoints.tokenParam], _token);
+    });
+
+    test('a thumb already a transcoder path is not wrapped a second time', () {
+      // A thumb PMS itself reports as /photo/:/transcode already carries its own
+      // sizing; wrapping it again would hand the transcoder its own URL to
+      // scale. So even with a size it is served as-is (its own width survives).
+      final Uri uri = PlexEndpoints.coverArt(
+        _base,
+        thumbPath:
+            '/photo/:/transcode?url=/library/metadata/123/thumb/167&width=200',
+        token: _token,
+        size: 512,
+      );
+      final Map<String, String> q = uri.queryParameters;
+      expect(uri.path, '/photo/:/transcode');
+      expect(q[PlexEndpoints.urlParam], '/library/metadata/123/thumb/167');
+      // Its own width is untouched — no 512 override, no nested transcode.
+      expect(q[PlexEndpoints.widthParam], '200');
+      expect(q[PlexEndpoints.tokenParam], _token);
+    });
+
+    test('a sized cover URL still redacts cleanly for logging', () {
+      final String url = PlexEndpoints.coverArt(
+        _base,
+        thumbPath: thumb,
+        token: _token,
+        size: 512,
+      ).toString();
+      final String redacted = PlexEndpoints.redactToken(url);
+      expect(redacted, isNot(contains(_token)));
+      expect(redacted, contains('X-Plex-Token=<redacted>'));
+    });
   });
 
   group('PlexEndpoints.redactToken guards URL/log lines', () {

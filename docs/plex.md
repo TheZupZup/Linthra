@@ -308,6 +308,14 @@ freshly-emptied catalog is never mistaken for "already in sync".
 The platform media session (lock screen / Android Auto) additionally caches the
 fetched cover bytes on disk through `MediaArtworkCache`, keyed by the reference
 hash, so a cover fetched once is reused across launches without re-downloading.
+Plex feeds that shared cache exactly like Subsonic: the in-app render fetches the
+full-size cover, while the media session asks for a small, fast-to-decode one
+(`kMediaSessionArtworkSize`) — the Subsonic side via `getCoverArt?size=…`, the
+Plex side via PMS's photo transcoder (`/photo/:/transcode?width=…&height=…&url=…`).
+The size lives only in the fetched URL, never in the cache key (still the
+size-free `plex-thumb:` reference hash), so the two render paths share one cache
+entry per cover and a Plex cover is cached at the same modest size as a Subsonic
+one — no full-resolution media-session bitmap, no provider-specific cache logic.
 
 > **Security.** Nothing cached here carries a credential: the catalog stores
 > opaque `plex:` / `plex-thumb:` references, and the durable signature is a

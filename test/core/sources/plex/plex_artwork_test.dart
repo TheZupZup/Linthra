@@ -33,6 +33,28 @@ void main() {
       expect(resolved.queryParameters['X-Plex-Token'], 'the-secret-token');
     });
 
+    test('a size scales the cover for the media session via the transcoder',
+        () {
+      // Mirrors SubsonicArtwork.resolve(size:): the media-session cache asks for
+      // a small, fast-to-decode cover, so a plain thumb resolves to a photo-
+      // transcode URL at the requested size — keeping Plex's media-session art
+      // the same modest size as Subsonic's, not a full-resolution bitmap.
+      final Uri? resolved = PlexArtwork.resolve(
+        _reference('/library/metadata/123/thumb/1670000000'),
+        _session,
+        size: 512,
+      );
+
+      expect(resolved, isNotNull);
+      expect(resolved!.host, 'plex.example.com');
+      expect(resolved.port, 32400);
+      expect(resolved.path, '/photo/:/transcode');
+      expect(resolved.queryParameters['url'],
+          '/library/metadata/123/thumb/1670000000');
+      expect(resolved.queryParameters['width'], '512');
+      expect(resolved.queryParameters['X-Plex-Token'], 'the-secret-token');
+    });
+
     test('keeps the token in the query only, never in the path', () {
       final Uri resolved = PlexArtwork.resolve(
         _reference('/library/metadata/123/thumb/1'),

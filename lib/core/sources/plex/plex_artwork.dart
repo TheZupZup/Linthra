@@ -27,6 +27,13 @@ abstract final class PlexArtwork {
   /// resolver untouched). The token is woven in here, on demand, and never
   /// persisted — the stored reference stays credential-free.
   ///
+  /// [size] (px), when set, asks PMS to scale the cover to that size (via
+  /// [PlexEndpoints.coverArt]'s photo transcoder): it is left unset for the
+  /// in-app full-size render and set for the platform media-session cache, which
+  /// wants a small, fast-to-decode cover — exactly the split (and the same
+  /// `size` seam) `SubsonicArtwork.resolve` uses, so a Plex cover flows through
+  /// the shared artwork cache at the same size a Subsonic one does.
+  ///
   /// This never throws — it returns `null` for anything it can't mint a sound
   /// URL from, so the caller's placeholder is the worst case. It runs
   /// synchronously inside widget builds (the `artworkImageProvider` seam), so
@@ -36,7 +43,7 @@ abstract final class PlexArtwork {
   /// path that isn't server-absolute is refused rather than spliced into the
   /// base URL's authority (it could silently point at the wrong host); and a
   /// path the URL parser rejects degrades to the placeholder too.
-  static Uri? resolve(Uri reference, PlexSession session) {
+  static Uri? resolve(Uri reference, PlexSession session, {int? size}) {
     final String? thumbPath = PlexTrackMapper.thumbPath(reference);
     if (thumbPath == null) return null;
     if (session.baseUrl.isEmpty || session.token.isEmpty) return null;
@@ -46,6 +53,7 @@ abstract final class PlexArtwork {
         session.baseUrl,
         thumbPath: thumbPath,
         token: session.token,
+        size: size,
       );
     } on FormatException {
       return null;
