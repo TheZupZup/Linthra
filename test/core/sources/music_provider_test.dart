@@ -46,28 +46,27 @@ void main() {
       expect(caps.canListPlaylists, isFalse);
     });
 
-    test('plex: stream + lyrics in phase 1 (docs/plex.md capability matrix)',
-        () {
+    test('plex: stream/cache/lyrics implemented; server writes stay off', () {
       final caps = MusicProviders.plex.capabilities;
       expect(caps.canStream, isTrue);
+      expect(caps.canCache, isTrue);
+      expect(caps.canRemoveOfflineCopy, isTrue);
       // Lyrics are fetched on demand from the track's Plex lyric stream (synced
-      // `.lrc` or plain), so they read ✅ — the one capability beyond streaming.
+      // `.lrc` or plain), so they read ✅ — the one capability beyond playback
+      // and offline caching.
       expect(caps.canLyrics, isTrue);
       // Everything else is declared unsupported so its actions stay hidden/
       // disabled rather than failing — exactly how Subsonic deferred features.
-      expect(caps.canCache, isFalse);
       expect(caps.canFavoriteTracks, isFalse);
       expect(caps.canReadFavoriteState, isFalse);
       expect(caps.canSyncFavorites, isFalse);
-      // Cast stays off in phase 1 to keep the credential-in-URL surface small.
+      // Cast stays off for now to keep the credential-in-URL surface small.
       expect(caps.canCast, isFalse);
       expect(caps.canListPlaylists, isFalse);
       expect(caps.canCreatePlaylist, isFalse);
       expect(caps.canEditPlaylist, isFalse);
       expect(caps.canDeletePlaylist, isFalse);
       expect(caps.canSyncPlaylists, isFalse);
-      // No cache means no app-managed offline copy to remove.
-      expect(caps.canRemoveOfflineCopy, isFalse);
     });
 
     test('identity fields', () {
@@ -88,13 +87,15 @@ void main() {
       expect(MusicProviders.plex.capabilities.canRemoveFromLibrary, isTrue);
 
       // On-device tracks have no app-managed offline copy to remove; remote
-      // providers do.
+      // providers with offline cache support do.
       expect(MusicProviders.local.capabilities.canRemoveOfflineCopy, isFalse);
       expect(MusicProviders.jellyfin.capabilities.canRemoveOfflineCopy, isTrue);
+      expect(MusicProviders.subsonic.capabilities.canRemoveOfflineCopy, isTrue);
+      expect(MusicProviders.plex.capabilities.canRemoveOfflineCopy, isTrue);
 
       // Destructive file/server deletes are not enabled in this release for any
       // provider, so those actions stay hidden everywhere. Plex is additionally
-      // read-only by design (phase 1 never writes to the server).
+      // library-read-only by design and never deletes items from PMS.
       for (final caps in <MusicProviderCapabilities>[
         MusicProviders.local.capabilities,
         MusicProviders.jellyfin.capabilities,
