@@ -30,10 +30,14 @@ import 'plex_api.dart';
 /// Relationships: the domain models reference artists/albums by *name* — there
 /// is no album/artist id slot on [Track]/[Album] today (grouping is name-based,
 /// see `library_grouping.dart`) — so the parent/grandparent links Plex reports
-/// are carried via their titles: a track's `grandparentTitle` →
-/// [Track.artistName] and `parentTitle` → [Track.albumName]; an album's
-/// `parentTitle` → [Album.artistName]. When PMS omits them they stay `null`
-/// and the grouping layer folds the item into its Unknown Album/Artist buckets.
+/// are carried via their titles: a track's `grandparentTitle` (its album
+/// artist) → [Track.artistName] and `parentTitle` → [Track.albumName]; an
+/// album's `parentTitle` → [Album.artistName]. A track with no album-artist
+/// link falls back to its own credited `originalTitle`, and a track with no
+/// `thumb` to its album's `parentThumb`, so a Plex track carries the same
+/// artist + cover a Subsonic/Jellyfin track does (see [toTrack]). When PMS omits
+/// every candidate they stay `null` and the grouping layer folds the item into
+/// its Unknown Album/Artist buckets.
 abstract final class PlexTrackMapper {
   /// Prefix marking a [Track.uri] as a Plex item (`plex:<ratingKey>`) rather
   /// than a file path or another provider's item.
@@ -48,22 +52,44 @@ abstract final class PlexTrackMapper {
   /// Display fallback for the rare track whose Plex `title` is missing/blank.
   static const String _untitledTrack = 'Untitled';
 
-  /// Maps a **track** (Plex type 10) listing/metadata item, carrying its
-  /// **track number** ([Track.trackNumber]) from PMS's `index` so albums play
-  /// and display in order — mirroring Jellyfin's `indexNumber` and Subsonic's
-  /// `track`. Plex's separate **disc** number (`parentIndex`) is intentionally
-  /// not mapped: the shared [Track] model has no disc field (see
-  /// [PlexMetadata.index]).
+  /// Maps a **track** (Plex type 10) listing/metadata item into the canonical
+  /// [Track], mirroring `JellyfinTrackMapper` / `SubsonicTrackMapper` field for
+  /// field:
+  ///
+  ///  - **track number** ([Track.trackNumber]) from PMS's `index`, so albums
+  ///    play and display in order — Jellyfin's `indexNumber`, Subsonic's
+  ///    `track`. A non-positive index folds to `null` (see [_positiveOrNull]).
+  ///  - **artist** ([Track.artistName]) from `grandparentTitle` (the
+  ///    **album artist** the album hangs under), falling back to the track's own
+  ///    credited `originalTitle` when PMS didn't denormalise the album-artist
+  ///    link. Preferring the album artist keeps every track of one album under a
+  ///    single (album, artist) grouping key (`library_grouping.dart`) instead of
+  ///    splitting a compilation per track — the same reason
+  ///    `JellyfinTrackMapper` prefers `albumArtist` over the per-track artist.
+  ///  - **album** ([Track.albumName]) from `parentTitle`.
+  ///  - **artwork** ([Track.artworkUri]) from the track's own `thumb`, falling
+  ///    back to its album cover (`parentThumb`) so a track without distinct art
+  ///    still shows its album cover — exactly as a Subsonic track (whose
+  ///    `coverArt` is the album's) always does.
+  ///
+  /// Plex's separate **disc** number (`parentIndex`) is intentionally not
+  /// mapped: the shared [Track] model carries no disc field, and adding one is a
+  /// model + DB-schema change neither Jellyfin nor Subsonic share (see
+  /// [PlexMetadata.index]). For a single-disc album, `index` alone is the full
+  /// order; a multi-disc album orders by track number within whatever order the
+  /// grouping layer lists it, the same limitation every provider has today.
   static Track toTrack(PlexMetadata item) {
     return Track(
       id: item.ratingKey,
       title: _nonBlank(item.title) ?? _untitledTrack,
       uri: '$uriScheme${item.ratingKey}',
-      artistName: _nonBlank(item.grandparentTitle),
+      artistName: _firstNonBlank(item.grandparentTitle, item.originalTitle),
       albumName: _nonBlank(item.parentTitle),
       duration: _durationFromMillis(item.duration),
       trackNumber: _positiveOrNull(item.index),
-      artworkUri: _artworkReference(item.thumb),
+      artworkUri: _artworkReference(
+        _firstNonBlank(item.thumb, item.parentThumb),
+      ),
     );
   }
 
@@ -157,6 +183,15 @@ abstract final class PlexTrackMapper {
     if (value == null || value <= 0) return null;
     return value;
   }
+
+  /// The first of [primary] / [fallback] that carries real (non-blank) text, or
+  /// `null` when neither does. Lets a track fall back from its album-artist link
+  /// to its own credited artist, and from its own thumb to the album cover —
+  /// the same shape as `JellyfinTrackMapper`'s `albumArtist ?? artists.first`.
+  /// A blank (whitespace-only) primary is treated as absent, so the fallback
+  /// still wins.
+  static String? _firstNonBlank(String? primary, String? fallback) =>
+      _nonBlank(primary) ?? _nonBlank(fallback);
 
   /// Trims [text] and treats blank as absent, so a whitespace-only Plex field
   /// falls back the same way a missing one does.

@@ -209,7 +209,16 @@ The `MusicSource` contract is small (`id`, `displayName`,
   code edit phase 1 makes (plus a new provider-matrix row in docs).
 - **Type mapping** → Plex **8 → `Artist`**, **9 → `Album`**, **10 → `Track`**,
   using `parentRatingKey` / `grandparentRatingKey` to fill artist/album names,
-  mirroring Jellyfin's mapper, with missing-field fallbacks.
+  mirroring Jellyfin's mapper, with missing-field fallbacks. A track's
+  `index` → `Track.trackNumber` (album order), `parentTitle` → `albumName`, and
+  `grandparentTitle` (the **album artist**) → `artistName`. Two fallbacks mirror
+  the other providers so a Plex track carries the same canonical fields: the
+  artist falls back to the track's own credited `originalTitle` when PMS didn't
+  denormalise the album-artist link (Jellyfin does `albumArtist ?? artist`),
+  and a track with no `thumb` falls back to its album cover (`parentThumb`) so
+  it shows art the way a Subsonic track's `coverArt` always does. The shared
+  `Track` model carries no **disc** number, so Plex's `parentIndex` is left
+  unmapped — matching Jellyfin and Subsonic, which carry no disc field either.
 - **Track URIs** → `plex:<ratingKey>`. The `ratingKey` is the stable per-server
   id; it is **not** the Part key, so it carries no credential and never names a
   file path.

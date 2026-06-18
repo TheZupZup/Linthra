@@ -192,6 +192,33 @@ void main() {
       expect(track.firstPartKey, '/library/parts/12345/167/file.flac');
     });
 
+    test('parses a track\'s originalTitle and parentThumb fallback fields', () {
+      final PlexMetadata track = _single(<String, dynamic>{
+        'ratingKey': '321',
+        'type': 'track',
+        'title': 'Avril 14th',
+        // A compilation entry: the album artist (grandparentTitle) is the
+        // various-artists umbrella, while originalTitle credits the performer.
+        'grandparentTitle': 'Various Artists',
+        'originalTitle': 'Aphex Twin',
+        // No own thumb, only the album's (parentThumb).
+        'parentThumb': '/library/metadata/200/thumb/55',
+      });
+      expect(track.originalTitle, 'Aphex Twin');
+      expect(track.parentThumb, '/library/metadata/200/thumb/55');
+      expect(track.thumb, isNull);
+    });
+
+    test('leaves originalTitle / parentThumb null when PMS omits them', () {
+      final PlexMetadata track = _single(<String, dynamic>{
+        'ratingKey': '322',
+        'type': 'track',
+        'title': 'Plain track',
+      });
+      expect(track.originalTitle, isNull);
+      expect(track.parentThumb, isNull);
+    });
+
     test('tolerates a track without duration or media', () {
       final PlexMetadata track = _single(<String, dynamic>{
         'ratingKey': '124',

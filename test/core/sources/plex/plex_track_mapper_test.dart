@@ -100,6 +100,76 @@ void main() {
       expect(track.albumName, isNull);
     });
 
+    test('prefers the album artist (grandparentTitle) over originalTitle', () {
+      const item = PlexMetadata(
+        ratingKey: '301',
+        title: 'Nightcall',
+        grandparentTitle: 'Kavinsky',
+        originalTitle: 'Lovefoxxx',
+      );
+      // The album artist keeps every track of one album under a single
+      // grouping key, mirroring Jellyfin's albumArtist preference — so the
+      // per-track originalTitle is only a fallback, never an override.
+      expect(PlexTrackMapper.toTrack(item).artistName, 'Kavinsky');
+    });
+
+    test('falls back to the credited originalTitle when no album artist', () {
+      const missing = PlexMetadata(
+        ratingKey: '301',
+        title: 'Avril 14th',
+        originalTitle: 'Aphex Twin',
+      );
+      const blank = PlexMetadata(
+        ratingKey: '302',
+        title: 'Avril 14th',
+        grandparentTitle: '   ',
+        originalTitle: 'Aphex Twin',
+      );
+      // A track whose album-artist link PMS didn't denormalise still surfaces
+      // its real performer instead of folding into "Unknown Artist".
+      expect(PlexTrackMapper.toTrack(missing).artistName, 'Aphex Twin');
+      expect(PlexTrackMapper.toTrack(blank).artistName, 'Aphex Twin');
+    });
+
+    test('prefers the track\'s own thumb over the album cover (parentThumb)',
+        () {
+      const item = PlexMetadata(
+        ratingKey: '301',
+        title: 'Nightcall',
+        thumb: '/library/metadata/301/thumb/1',
+        parentThumb: '/library/metadata/201/thumb/9',
+      );
+      expect(
+        PlexTrackMapper.toTrack(item).artworkUri.toString(),
+        'plex-thumb:/library/metadata/301/thumb/1',
+      );
+    });
+
+    test('falls back to the album cover (parentThumb) when no track thumb', () {
+      const missing = PlexMetadata(
+        ratingKey: '301',
+        title: 'Nightcall',
+        parentThumb: '/library/metadata/201/thumb/9',
+      );
+      const blank = PlexMetadata(
+        ratingKey: '302',
+        title: 'Nightcall',
+        thumb: '  ',
+        parentThumb: '/library/metadata/201/thumb/9',
+      );
+      // A track without distinct art still shows its album cover, the way a
+      // Subsonic track (whose coverArt is the album's) always does — and the
+      // reference stays a credential-free plex-thumb: path.
+      expect(
+        PlexTrackMapper.toTrack(missing).artworkUri.toString(),
+        'plex-thumb:/library/metadata/201/thumb/9',
+      );
+      expect(
+        PlexTrackMapper.toTrack(blank).artworkUri.toString(),
+        'plex-thumb:/library/metadata/201/thumb/9',
+      );
+    });
+
     test('maps absent or zero duration to zero', () {
       const absent = PlexMetadata(ratingKey: '1', title: 't');
       const zero = PlexMetadata(ratingKey: '2', title: 't', duration: 0);
