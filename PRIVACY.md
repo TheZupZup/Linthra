@@ -73,4 +73,4 @@ https://github.com/TheZupZup/Linthra
 
 For privacy questions or support, contact:
 
-thezupzup@gmail.com
+support@linthra.ca

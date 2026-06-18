@@ -452,6 +452,7 @@ h1, h2, h3 { line-height: 1.2; margin: 0; }
 .footer-links a { color: var(--muted); font-size: 0.92rem; }
 .footer-links a:hover { color: var(--text); }
 .footer-credit { margin: 0; color: var(--muted); font-size: 0.92rem; }
+.footer-support { margin: 0; color: var(--muted); font-size: 0.92rem; }
 
 /* ---------- Legal / privacy page ---------- */
 .legal { padding: 56px 0 72px; }
