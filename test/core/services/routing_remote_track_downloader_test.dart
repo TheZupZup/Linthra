@@ -30,14 +30,17 @@ class _FakeDownloader implements RemoteTrackDownloader {
 void main() {
   late _FakeDownloader jellyfin;
   late _FakeDownloader subsonic;
+  late _FakeDownloader plex;
   late RoutingRemoteTrackDownloader router;
 
   setUp(() {
     jellyfin = _FakeDownloader('jellyfin:', 'j');
     subsonic = _FakeDownloader('subsonic:', 's');
+    plex = _FakeDownloader('plex:', 'p');
     router = RoutingRemoteTrackDownloader(<RemoteTrackDownloader>[
       jellyfin,
       subsonic,
+      plex,
     ]);
   });
 
@@ -48,6 +51,10 @@ void main() {
     );
     expect(
       router.isRemote(const Track(id: 'j1', title: 'x', uri: 'jellyfin:j1')),
+      isTrue,
+    );
+    expect(
+      router.isRemote(const Track(id: 'p1', title: 'x', uri: 'plex:p1')),
       isTrue,
     );
     expect(
@@ -63,6 +70,17 @@ void main() {
     expect(data.fileExtension, 's');
     expect(subsonic.fetched, <String>['s1']);
     expect(jellyfin.fetched, isEmpty);
+    expect(plex.fetched, isEmpty);
+  });
+
+  test('fetch routes Plex tracks to the Plex downloader', () async {
+    final data =
+        await router.fetch(const Track(id: 'p1', title: 'x', uri: 'plex:p1'));
+
+    expect(data.fileExtension, 'p');
+    expect(plex.fetched, <String>['p1']);
+    expect(jellyfin.fetched, isEmpty);
+    expect(subsonic.fetched, isEmpty);
   });
 
   test('throws for a track no member can fetch', () {
