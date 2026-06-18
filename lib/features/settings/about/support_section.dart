@@ -1,13 +1,18 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
 import '../../../app/external_link_launcher_provider.dart';
+import '../../../core/app_info.dart';
+import 'app_info_report.dart';
 import 'bug_report_email.dart';
 
 /// The "Support" card on the About page: a one-line description of what Linthra
-/// is, a tester-friendly "Report a bug" action, the support inbox, and a link to
-/// the privacy policy.
+/// is, a tester-friendly "Report a bug" action, a "Copy app info" action, the
+/// support inbox, and a link to the privacy policy.
 ///
 /// "Report a bug" and "Email support" open the user's mail app through a
 /// `mailto:` link (the bug action prefills a recipient, subject, and a fill-in
@@ -15,6 +20,12 @@ import 'bug_report_email.dart';
 /// browser. All go through the shared [externalLinkLauncherProvider] — the same
 /// seam the rest of the About page and the diagnostics "Report a bug" flow use —
 /// so every launch is an explicit tap and widget tests stay plugin-free.
+///
+/// "Copy app info" is kept separate from the email flow: it copies a short,
+/// paste-ready app-info block (built by [AppInfoReport]) to the clipboard and
+/// confirms with a snackbar. It sends nothing and collects no personal data —
+/// only the app version and, on Android, the OS version, with blank prompts the
+/// tester fills in.
 class SupportSection extends ConsumerWidget {
   const SupportSection({super.key});
 
@@ -75,6 +86,14 @@ class SupportSection extends ConsumerWidget {
           ),
           const Divider(height: 0),
           _SupportRow(
+            icon: Icons.info_outline,
+            label: 'Copy app info',
+            value: 'Version & device details for a bug report',
+            trailingIcon: Icons.copy_outlined,
+            onTap: () => _copyAppInfo(context),
+          ),
+          const Divider(height: 0),
+          _SupportRow(
             icon: Icons.mail_outline,
             label: 'Email support',
             value: _supportEmail,
@@ -109,23 +128,47 @@ class SupportSection extends ConsumerWidget {
       );
     }
   }
+
+  /// Copies a short, paste-ready app-info block to the clipboard and confirms
+  /// with a snackbar — the low-friction path for a tester to attach useful
+  /// details to a bug report. The block is assembled by [AppInfoReport] from the
+  /// app version and, on Android, the OS version; nothing is sent and no
+  /// personal data, server URL, token, username, or path is included. The
+  /// messenger is captured before the await so we don't touch [context] across
+  /// an async gap — the same guard the link rows use.
+  Future<void> _copyAppInfo(BuildContext context) async {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final String info = AppInfoReport.build(
+      linthraVersion: AppInfo.version,
+      androidVersion:
+          Platform.isAndroid ? Platform.operatingSystemVersion : null,
+    );
+    await Clipboard.setData(ClipboardData(text: info));
+    messenger.showSnackBar(
+      const SnackBar(content: Text('App info copied to the clipboard.')),
+    );
+  }
 }
 
-/// A single tappable row in the support card: a leading icon, a label, and the
-/// "opens externally" affordance. An optional [value] (the support address) is
-/// shown as a subtitle so the inbox is visible without tapping.
+/// A single tappable row in the support card: a leading icon, a label, and a
+/// trailing affordance ([trailingIcon], the "opens externally" arrow by
+/// default; the copy row overrides it with a copy glyph). An optional [value]
+/// (e.g. the support address) is shown as a subtitle so the detail is visible
+/// without tapping.
 class _SupportRow extends StatelessWidget {
   const _SupportRow({
     required this.icon,
     required this.label,
     required this.onTap,
     this.value,
+    this.trailingIcon = Icons.open_in_new,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   final String? value;
+  final IconData? trailingIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -135,7 +178,9 @@ class _SupportRow extends StatelessWidget {
       leading: Icon(icon, color: theme.colorScheme.primary),
       title: Text(label),
       subtitle: value == null ? null : Text(value!),
-      trailing: Icon(Icons.open_in_new, size: 18, color: muted),
+      trailing: trailingIcon == null
+          ? null
+          : Icon(trailingIcon, size: 18, color: muted),
       onTap: onTap,
     );
   }
