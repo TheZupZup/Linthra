@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
+import 'package:linthra/features/settings/about/bug_report_email.dart';
 import 'package:linthra/features/settings/about/support_section.dart';
 
 class _FakeLinkLauncher implements ExternalLinkLauncher {
@@ -47,9 +48,25 @@ void main() {
         ),
         findsOneWidget,
       );
+      expect(find.text('Report a bug'), findsOneWidget);
       expect(find.text('Email support'), findsOneWidget);
       expect(find.text('support@linthra.ca'), findsOneWidget);
       expect(find.text('Privacy policy'), findsOneWidget);
+    });
+
+    testWidgets('tapping "Report a bug" opens a prefilled mailto draft',
+        (tester) async {
+      final _FakeLinkLauncher launcher = await _pump(tester);
+
+      await tester.tap(find.text('Report a bug'));
+      await tester.pumpAndSettle();
+
+      final Uri? opened = launcher.opened;
+      expect(opened, isNotNull);
+      expect(opened!.scheme, 'mailto');
+      expect(opened.path, 'support@linthra.ca');
+      expect(opened.queryParameters['subject'], 'Linthra bug report');
+      expect(opened.queryParameters['body'], BugReportEmail.body);
     });
 
     testWidgets('tapping "Email support" opens a mailto link', (tester) async {

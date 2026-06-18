@@ -3,15 +3,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
 import '../../../app/external_link_launcher_provider.dart';
+import 'bug_report_email.dart';
 
 /// The "Support" card on the About page: a one-line description of what Linthra
-/// is, the support inbox, and a link to the privacy policy.
+/// is, a tester-friendly "Report a bug" action, the support inbox, and a link to
+/// the privacy policy.
 ///
-/// The email row opens the user's mail app through a `mailto:` link; the privacy
-/// policy opens in the browser. Both go through the shared
-/// [externalLinkLauncherProvider] — the same seam the rest of the About page and
-/// the "Report a bug" flow use — so every launch is an explicit tap and widget
-/// tests stay plugin-free.
+/// "Report a bug" and "Email support" open the user's mail app through a
+/// `mailto:` link (the bug action prefills a recipient, subject, and a fill-in
+/// body for Google Play closed testers); the privacy policy opens in the
+/// browser. All go through the shared [externalLinkLauncherProvider] — the same
+/// seam the rest of the About page and the diagnostics "Report a bug" flow use —
+/// so every launch is an explicit tap and widget tests stay plugin-free.
 class SupportSection extends ConsumerWidget {
   const SupportSection({super.key});
 
@@ -62,6 +65,13 @@ class SupportSection extends ConsumerWidget {
                 ),
               ],
             ),
+          ),
+          const Divider(height: 0),
+          _SupportRow(
+            icon: Icons.bug_report_outlined,
+            label: 'Report a bug',
+            value: 'Email us a prefilled report',
+            onTap: () => _open(context, ref, BugReportEmail.mailtoUri()),
           ),
           const Divider(height: 0),
           _SupportRow(
