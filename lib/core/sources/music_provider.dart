@@ -259,26 +259,23 @@ abstract final class MusicProviders {
     ),
   );
 
-  /// Plex (phase 1, experimental — see docs/plex.md and issue #178).
+  /// Plex (experimental — see docs/plex.md and issue #178).
   /// `plex:<ratingKey>` URIs are recognized end to end, and the Settings card
-  /// (badged Experimental) lets the user connect with a manual server URL +
-  /// token and pick which music libraries to include.
+  /// lets the user connect, pick which music libraries to include, and sync a
+  /// token-free local catalog slice.
   ///
-  /// Stream + lyrics: caching, favorites, playlists, and cast stay declared
-  /// unsupported so their actions stay hidden/disabled rather than failing —
-  /// exactly how Subsonic shipped streaming first. Lyrics are fetched on demand
-  /// from the track's Plex lyric stream (synced `.lrc` or plain), the one read
-  /// beyond streaming. Cast stays off in phase 1 to keep the credential-in-URL
-  /// surface small (a Plex stream URL carries the token as a query param).
+  /// Streaming, lyrics, and offline caching are implemented. Favorites,
+  /// playlists, and cast stay declared unsupported so their actions remain
+  /// hidden/disabled rather than failing. Cast stays off for now to keep the
+  /// credential-in-URL surface small (a Plex stream URL carries the token as a
+  /// query param).
   static const MusicProvider plex = MusicProvider(
     sourceId: 'plex',
     displayName: 'Plex',
     serverUrlLabel: 'Server URL',
     capabilities: MusicProviderCapabilities(
       canStream: true,
-      // Offline caching is a documented follow-up (docs/plex.md → Out of
-      // scope), so there is no app-managed copy to remove either.
-      canCache: false,
+      canCache: true,
       canFavoriteTracks: false,
       canReadFavoriteState: false,
       canSyncFavorites: false,
@@ -287,9 +284,9 @@ abstract final class MusicProviders {
       canLyrics: true,
       canCast: false,
       canRemoveFromLibrary: true,
-      canRemoveOfflineCopy: false,
+      canRemoveOfflineCopy: true,
       canDeleteLocalFile: false,
-      // Phase 1 is read-only: Linthra never writes to a Plex server.
+      // Plex remains library-read-only: Linthra never deletes items from PMS.
       canDeleteRemoteItem: false,
       canListPlaylists: false,
       canCreatePlaylist: false,
