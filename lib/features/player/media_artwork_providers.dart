@@ -5,6 +5,7 @@ import '../../core/models/subsonic_session.dart';
 import '../../core/services/media_artwork_cache.dart';
 import '../../core/services/media_artwork_prewarm_service.dart';
 import '../../core/sources/plex/plex_artwork.dart';
+import '../../core/sources/plex/plex_track_mapper.dart';
 import '../../core/sources/subsonic/subsonic_artwork.dart';
 import '../settings/plex/plex_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
@@ -57,6 +58,45 @@ Uri? resolveMediaSessionArtworkUrl(
   return null;
 }
 
+/// The query marker the media-session cover size rides under inside a Plex
+/// cache key (see [mediaSessionArtworkCacheKey]). It exists only to distinguish
+/// cached sizes and is never sent to a server, so its exact spelling is private.
+const String _cacheKeySizeMarker = 'mscover';
+
+/// The credential-free identity the media-session artwork cache keys a cover
+/// under (the `cacheKeyReference` seam of [MediaArtworkCache]).
+///
+/// For a Plex `plex-thumb:` reference it folds in the media-session cover size
+/// ([kMediaSessionArtworkSize]) — the downscaled size Plex actually fetches for
+/// the session (a photo-transcode cover, see `PlexArtwork.resolve`) — so that
+/// downscaled entry can never be reused for, or collide with, a full-resolution
+/// one. The size rides **only here, in the cache key**: it is not added to the
+/// stored `Track.artworkUri`, so the in-app render still resolves the full-size
+/// cover, and `coverReady`/the handler still match on the original reference.
+///
+/// Subsonic (`subsonic-cover:`) and every other reference are returned
+/// unchanged, so their cache identity — and their on-disk entries — are
+/// byte-for-byte what they were before (Subsonic always fetches a single,
+/// constant media-session size, so it needs no size tag). The marker is
+/// non-secret and the input reference is already credential-free, so the key
+/// stays secret-free.
+Uri mediaSessionArtworkCacheKey(Uri reference) {
+  if (!reference.isScheme(PlexTrackMapper.artworkScheme)) return reference;
+  try {
+    return reference.replace(
+      queryParameters: <String, String>{
+        ...reference.queryParameters,
+        _cacheKeySizeMarker: '$kMediaSessionArtworkSize',
+      },
+    );
+  } catch (_) {
+    // The keying transform must never throw into the cache path — cached() is
+    // synchronous and ungated. A malformed reference simply keys unchanged
+    // (worst case it shares the bare-reference slot, the prior behaviour).
+    return reference;
+  }
+}
+
 /// The privacy-safe media-session artwork cache for Subsonic/Navidrome and Plex.
 ///
 /// The platform media session loads `MediaItem.artUri` itself, somewhere Linthra
@@ -65,7 +105,8 @@ Uri? resolveMediaSessionArtworkUrl(
 /// The cache instead fetches the cover itself (weaving the live session's
 /// credential in on demand via [resolveMediaSessionArtworkUrl], used once and
 /// never stored or logged), writes the bytes to a private file keyed by a hash
-/// of the credential-free reference (`subsonic-cover:` / `plex-thumb:`), and
+/// of the credential-free reference (`subsonic-cover:` / `plex-thumb:`, with the
+/// Plex media-session size folded in via [mediaSessionArtworkCacheKey]), and
 /// exposes it as a safe local `content://`. Jellyfin (token-free http) and local
 /// (`file:`) covers are already platform-loadable and never reach this cache.
 /// Reads the sessions live, so sign-in/out is picked up; signed out, or on any
@@ -77,6 +118,7 @@ final mediaArtworkCacheProvider = Provider<MediaArtworkCache>((ref) {
       subsonic: ref.read(subsonicSettingsControllerProvider.notifier).session,
       plex: ref.read(plexSettingsControllerProvider.notifier).session,
     ),
+    cacheKeyReference: mediaSessionArtworkCacheKey,
   );
   ref.onDispose(cache.dispose);
   return cache;

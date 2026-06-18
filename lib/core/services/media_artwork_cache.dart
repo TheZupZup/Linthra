@@ -39,10 +39,12 @@ import 'media_artwork_source.dart';
 class MediaArtworkCache implements MediaArtworkSource {
   MediaArtworkCache({
     required Uri? Function(Uri reference) resolveUrl,
+    Uri Function(Uri reference)? cacheKeyReference,
     Future<List<int>?> Function(Uri url)? fetch,
     Future<Directory> Function()? directory,
     http.Client? httpClient,
   })  : _resolveUrl = resolveUrl,
+        _cacheKeyReference = cacheKeyReference,
         _directory = directory ?? _defaultDirectory,
         _httpClient = httpClient ?? http.Client() {
     // Default to the shared-client fetcher (an instance method, so it can reuse
@@ -55,6 +57,21 @@ class MediaArtworkCache implements MediaArtworkSource {
   /// (e.g. signed out, or a Jellyfin/local URL). The returned URL carries the
   /// credential and is used only inside [resolve].
   final Uri? Function(Uri reference) _resolveUrl;
+
+  /// Optional transform from a reference to the **credential-free identity it is
+  /// cached under**, so a render-affecting attribute that is *not* part of the
+  /// reference itself can still be folded into the cache key. Defaults to the
+  /// reference unchanged, so every existing caller keys exactly as before.
+  ///
+  /// The media-session wiring uses it to fold the fetched cover *size* into a
+  /// Plex cover's identity: Plex serves the media session a downscaled
+  /// ([kMediaSessionArtworkSize]) cover, so tagging the key with that size keeps
+  /// a downscaled entry from ever being reused for — or colliding with — a
+  /// different size. It must stay credential-free (it only ever adds a non-secret
+  /// marker to an already credential-free reference), so the key, filename, and
+  /// `content://` path stay secret-free. The *original* reference is still what
+  /// reaches the fetch URL and the [coverReady] stream.
+  final Uri Function(Uri reference)? _cacheKeyReference;
 
   /// The HTTP client used by the default fetcher. Reused across cover fetches so
   /// the sequential pre-warm benefits from keep-alive (one TLS handshake per
@@ -94,13 +111,13 @@ class MediaArtworkCache implements MediaArtworkSource {
   /// the media handler can attach it while building a `MediaItem` without
   /// awaiting — covers are warmed ahead of time by `MediaArtworkPrewarmService`.
   @override
-  Uri? cached(Uri reference) => _memo[_cacheKey(reference)];
+  Uri? cached(Uri reference) => _memo[_cacheKey(_keyReferenceFor(reference))];
 
   /// Resolves [reference] to a safe `content://` artwork URI, fetching and
   /// caching the image on a miss. Returns `null` (never throws) when the artwork
   /// can't be produced safely — the caller then shows no artwork.
   Future<Uri?> resolve(Uri reference) {
-    final String key = _cacheKey(reference);
+    final String key = _cacheKey(_keyReferenceFor(reference));
     final Uri? memoized = _memo[key];
     if (memoized != null) return Future<Uri?>.value(memoized);
     final Completer<Uri?>? pending = _inFlight[key];
@@ -177,11 +194,20 @@ class MediaArtworkCache implements MediaArtworkSource {
     await _coverReady.close();
   }
 
+  /// The credential-free identity [reference] is keyed under — [reference]
+  /// itself unless a [_cacheKeyReference] transform was supplied. Applied to both
+  /// [resolve] and [cached] so a warmed cover is always found under the same key
+  /// it was written with; the *original* reference still reaches the fetch URL
+  /// and [coverReady].
+  Uri _keyReferenceFor(Uri reference) =>
+      _cacheKeyReference?.call(reference) ?? reference;
+
   /// A credential-free, filename-safe cache key: the SHA-256 of the
-  /// *credential-free* reference string (e.g. `subsonic-cover:al-123`). The
-  /// reference carries no username, salt, token, server URL, or auth query, so
-  /// neither does the key — and hashing also keeps an odd id from escaping the
-  /// cache directory.
+  /// *credential-free* keying identity (e.g. `subsonic-cover:al-123`, or a Plex
+  /// `plex-thumb:` reference with its media-session size folded in — see
+  /// [_cacheKeyReference]). The identity carries no username, salt, token, server
+  /// URL, or auth query, so neither does the key — and hashing also keeps an odd
+  /// id from escaping the cache directory.
   static String _cacheKey(Uri reference) =>
       sha256.convert(utf8.encode(reference.toString())).toString();
 
