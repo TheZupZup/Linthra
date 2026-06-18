@@ -3,12 +3,12 @@ import '../../models/track.dart';
 /// The narrow capability the playback resolver needs from a signed-in Plex
 /// connection: confirm the session still works, then mint a stream URL.
 ///
-/// [PlexMusicSource] implements it; keeping it tiny lets the future resolver
-/// depend on just this (not the whole source or any HTTP), and lets tests fake
-/// the source directly to drive every outcome — expired token, unreachable
-/// server, a vanished item — without a real server. Mirrors
-/// `JellyfinStreamSource`; phase 1 is stream-only (no offline cache), so unlike
-/// `SubsonicStreamSource` there is no download seam to expose.
+/// [PlexMusicSource] implements it; keeping it tiny lets the resolver depend on
+/// just this (not the whole source or any HTTP), and lets tests fake the source
+/// directly to drive every outcome — expired token, unreachable server, a
+/// vanished item — without a real server. Offline caching uses the separate
+/// `PlexDownloadSource` seam so playback and download responsibilities remain
+/// independent.
 ///
 /// Security: a Plex stream URL carries the `X-Plex-Token` in its **query** (the
 /// audio engine can't set headers), so it is minted here on demand, at play
