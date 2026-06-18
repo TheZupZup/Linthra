@@ -55,10 +55,11 @@ void main() {
       expect(find.text('License (MPL-2.0)'), findsOneWidget);
     });
 
-    testWidgets('composes the support section (email + privacy policy)',
+    testWidgets('composes the support section (bug report + email + privacy)',
         (tester) async {
       await _pump(tester);
 
+      expect(find.text('Report a bug'), findsOneWidget);
       expect(find.text('Email support'), findsOneWidget);
       expect(find.text('support@linthra.ca'), findsOneWidget);
       expect(find.text('Privacy policy'), findsOneWidget);
