@@ -250,7 +250,9 @@ class PlexMetadata {
     this.grandparentRatingKey,
     this.parentTitle,
     this.grandparentTitle,
+    this.originalTitle,
     this.thumb,
+    this.parentThumb,
     this.duration,
     this.index,
     this.year,
@@ -278,14 +280,32 @@ class PlexMetadata {
   /// reported — a free fallback so the mapper needn't refetch the parent.
   final String? parentTitle;
 
-  /// The grandparent's title (a track's artist name), when reported.
+  /// The grandparent's title (a track's **album-artist** name — the artist node
+  /// the album hangs under), when reported.
   final String? grandparentTitle;
+
+  /// A track's own credited artist (PMS `originalTitle`), when it differs from
+  /// the album artist — Plex sets this on compilation / "various artists" and
+  /// featured-artist tracks. The mapper uses it only as a **fallback** for a
+  /// track whose [grandparentTitle] (album artist) PMS didn't denormalise, so a
+  /// real performer name is preferred over folding into "Unknown Artist".
+  /// `null` for albums/artists and for ordinary tracks whose artist matches the
+  /// album artist.
+  final String? originalTitle;
 
   /// The item's cover-art *path* (e.g. `/library/metadata/123/thumb/167…`), when
   /// present. A path, not a URL: the token is woven in only at render time by
   /// [PlexEndpoints.coverArt], and the catalog stores a credential-free
   /// `plex-thumb:` reference (a later PR), never this turned into a tokened URL.
   final String? thumb;
+
+  /// The **parent's** cover-art path (a track's album cover, an album's artist
+  /// image — PMS `parentThumb`), when reported. The mapper uses it only as a
+  /// **fallback** for a track that carries no [thumb] of its own, so a Plex
+  /// track still shows its album cover the way a Subsonic track (whose
+  /// `coverArt` is the album's) always does. A path, not a URL — same
+  /// credential-free, render-time-only treatment as [thumb].
+  final String? parentThumb;
 
   /// Duration in **milliseconds**, when reported (PMS reports track length in
   /// ms, unlike Subsonic's whole seconds or Jellyfin's 100-ns ticks).
@@ -352,7 +372,9 @@ class PlexMetadata {
       grandparentRatingKey: _asString(json['grandparentRatingKey']),
       parentTitle: _asString(json['parentTitle']),
       grandparentTitle: _asString(json['grandparentTitle']),
+      originalTitle: _asString(json['originalTitle']),
       thumb: _asString(json['thumb']),
+      parentThumb: _asString(json['parentThumb']),
       duration: (json['duration'] as num?)?.toInt(),
       index: (json['index'] as num?)?.toInt(),
       year: (json['year'] as num?)?.toInt(),
