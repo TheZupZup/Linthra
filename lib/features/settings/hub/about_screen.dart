@@ -5,6 +5,7 @@ import '../../../app/dimens.dart';
 import '../../../app/external_link_launcher_provider.dart';
 import '../../../core/app_info.dart';
 import '../../../shared/widgets/linthra_logo_mark.dart';
+import '../about/support_section.dart';
 import 'settings_detail_scaffold.dart';
 
 /// The "About" page of the Settings hub.
@@ -31,6 +32,8 @@ class AboutScreen extends ConsumerWidget {
         const _BrandPanel(),
         const SizedBox(height: AppSpacing.md),
         const _BuildInfoCard(),
+        const SizedBox(height: AppSpacing.md),
+        const SupportSection(),
         const SizedBox(height: AppSpacing.md),
         _LinksCard(
           onOpenRepo: () => _open(context, ref, _repoUrl),

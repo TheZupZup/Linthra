@@ -62,7 +62,7 @@ class SettingsScreen extends StatelessWidget {
           SettingsCategoryTile(
             icon: Icons.info_outline,
             title: 'About',
-            subtitle: 'Version and project links',
+            subtitle: 'Version, support, and project links',
             onTap: () => context.push(AppRoutes.settingsAbout),
           ),
         ],
