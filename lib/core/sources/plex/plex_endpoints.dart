@@ -31,6 +31,11 @@ abstract final class PlexEndpoints {
   static const String _metadataPath = '/library/metadata';
   static const String _timelinePath = '/:/timeline';
 
+  /// PMS's photo transcoder — scales an image to a requested size. Used by
+  /// [coverArt] to mint a small, fast-to-decode cover for the platform media
+  /// session, the Plex analogue of Subsonic's `getCoverArt?size=…` (see there).
+  static const String _photoTranscodePath = '/photo/:/transcode';
+
   // --- Query-parameter keys, named once so a typo can't split a request. ---
 
   /// The Plex auth token. Carried in the query of **stream/cover-art** URLs only
@@ -46,6 +51,23 @@ abstract final class PlexEndpoints {
 
   /// Pagination: the maximum number of items to return in one page.
   static const String containerSizeParam = 'X-Plex-Container-Size';
+
+  // --- Photo-transcoder (sized cover art) query keys; see [coverArt]. ---
+
+  /// The server-absolute image path the photo transcoder should scale, carried
+  /// as a query *value*. Named once so the key can't drift between call sites.
+  static const String urlParam = 'url';
+
+  /// The target width / height (px) handed to the photo transcoder.
+  static const String widthParam = 'width';
+  static const String heightParam = 'height';
+
+  /// Whether the transcoder treats width/height as a *minimum* box the result
+  /// must cover (`1`), and whether it may upscale a smaller source (`1`) —
+  /// mirroring the defaults Plex's own clients (and python-plexapi) send, so the
+  /// request hits the transcoder's best-tested path.
+  static const String minSizeParam = 'minSize';
+  static const String upscaleParam = 'upscale';
 
   // --- Timeline (playback reporting) query keys; see [timeline]. ---
 
@@ -167,20 +189,60 @@ abstract final class PlexEndpoints {
   }) =>
       _withToken(_join(baseUrl, partKey), token);
 
-  /// The cover-art URL for an item's `thumb` path:
-  /// `{baseUrl}{thumbPath}?X-Plex-Token=…`.
+  /// The cover-art URL for an item's `thumb` path. Two shapes, exactly mirroring
+  /// how `SubsonicEndpoints.coverArt` treats its `size` so both providers feed
+  /// the shared artwork cache the same way:
+  ///
+  ///  - **full size** ([size] omitted): `{baseUrl}{thumbPath}?X-Plex-Token=…` —
+  ///    the original cover, for the in-app full-size render.
+  ///  - **sized** ([size] given): the cover scaled through PMS's photo
+  ///    transcoder — `{baseUrl}/photo/:/transcode?width=…&height=…&url=…&X-Plex-Token=…`
+  ///    — for the platform media session (lock screen / Android Auto card),
+  ///    which wants a small, fast-to-decode cover instead of a full-resolution
+  ///    bitmap crossing the process boundary. This is the Plex analogue of the
+  ///    sized cover Subsonic's `size` parameter asks its server for, so a Plex
+  ///    media-session cover is cached at the same modest size as a Subsonic one.
   ///
   /// [thumbPath] is the server-absolute `thumb` path an item reports (e.g.
-  /// `/library/metadata/123/thumb/167…`). Like [streamUrl], the image is fetched
-  /// plainly (no headers), so the [token] rides in the query — woven in here, on
-  /// demand at render time, and never persisted (the catalog stores only a
-  /// credential-free `plex-thumb:` reference).
+  /// `/library/metadata/123/thumb/167…`). A thumb PMS *already* reports as a
+  /// transcoder request (`/photo/:/transcode?…`) carries its own sizing in its
+  /// query, so it is served as-is even when a [size] is asked for — never
+  /// wrapped in a second transcode (which would hand the transcoder its own URL
+  /// to scale). Like [streamUrl], the image is fetched plainly (no headers), so
+  /// the [token] rides in the query — woven in here, on demand at render time,
+  /// and never persisted (the catalog stores only a credential-free
+  /// `plex-thumb:` reference, with no size baked in).
   static Uri coverArt(
     String baseUrl, {
     required String thumbPath,
     required String token,
-  }) =>
-      _withToken(_join(baseUrl, thumbPath), token);
+    int? size,
+  }) {
+    if (size == null || size <= 0 || _isPhotoTranscode(thumbPath)) {
+      return _withToken(_join(baseUrl, thumbPath), token);
+    }
+    final Uri transcode = _join(baseUrl, _photoTranscodePath).replace(
+      queryParameters: <String, String>{
+        widthParam: '$size',
+        heightParam: '$size',
+        minSizeParam: '1',
+        upscaleParam: '1',
+        urlParam: thumbPath,
+      },
+    );
+    return _withToken(transcode, token);
+  }
+
+  /// Whether [thumbPath] is itself a photo-transcoder request — a thumb PMS
+  /// reports already sized through `/photo/:/transcode`. Such a path carries its
+  /// own `width`/`url` query, so [coverArt] serves it unchanged rather than
+  /// nesting a second transcode. Only the path identifies the endpoint; any
+  /// query it carries is irrelevant here.
+  static bool _isPhotoTranscode(String thumbPath) {
+    final int query = thumbPath.indexOf('?');
+    final String path = query < 0 ? thumbPath : thumbPath.substring(0, query);
+    return path == _photoTranscodePath;
+  }
 
   /// [url] with the live session [token] woven into its query, **preserving**
   /// any query the path already carried — a thumb can legitimately be a sizing
