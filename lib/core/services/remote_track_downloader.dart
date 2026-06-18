@@ -16,9 +16,10 @@ class RemoteTrackData {
 ///
 /// This is the seam the download repository uses to obtain a remote source's
 /// audio without knowing anything about that source's protocol, URLs, or auth.
-/// The Jellyfin implementation lives behind it; the repository depends only on
-/// this interface, so the offline-cache policy stays source-agnostic and tests
-/// can drive downloads with a fake that returns canned bytes.
+/// The Jellyfin, Subsonic/Navidrome, and Plex implementations live behind it;
+/// the repository depends only on this interface, so the offline-cache policy
+/// stays source-agnostic and tests can drive downloads with a fake that returns
+/// canned bytes.
 ///
 /// Security invariant: an implementation resolves any authenticated URL only at
 /// fetch time and must never return, log, or embed an access token — or that
