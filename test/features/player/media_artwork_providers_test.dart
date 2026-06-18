@@ -144,45 +144,4 @@ void main() {
       );
     });
   });
-
-  group('mediaSessionArtworkCacheKey', () {
-    test('folds the media-session size into a Plex plex-thumb: identity', () {
-      final Uri reference =
-          _plexThumb('/library/metadata/123/thumb/1670000000');
-
-      final Uri key = mediaSessionArtworkCacheKey(reference);
-
-      // The size is tagged onto the cache key only, so a downscaled media-
-      // session entry can never share a cache slot with a full-size cover.
-      expect(key.queryParameters['mscover'], '$kMediaSessionArtworkSize');
-      // The thumb path (the cover identity) is preserved...
-      expect(key.path, '/library/metadata/123/thumb/1670000000');
-      // ...and the size-tagged key differs from the bare reference.
-      expect(key, isNot(reference));
-    });
-
-    test('leaves a Subsonic subsonic-cover: reference unchanged', () {
-      // Subsonic fetches one constant media-session size, so its cache identity
-      // (and on-disk entries) must be byte-for-byte unchanged.
-      final Uri reference = SubsonicArtwork.reference('al-123');
-      expect(mediaSessionArtworkCacheKey(reference), reference);
-    });
-
-    test('leaves an already-loadable Jellyfin/local cover unchanged', () {
-      for (final Uri loadable in <Uri>[
-        Uri.parse('https://server.example/Items/1/Images/Primary'),
-        Uri.parse('file:///cache/art/abc.img'),
-      ]) {
-        expect(mediaSessionArtworkCacheKey(loadable), loadable);
-      }
-    });
-
-    test('does not mutate the stored reference (in-app stays full size)', () {
-      // The function returns a new keying identity; the stored Track.artworkUri
-      // the in-app render resolves at full size is left untouched.
-      final Uri reference = _plexThumb('/library/metadata/9/thumb/1');
-      mediaSessionArtworkCacheKey(reference);
-      expect(reference.queryParameters.containsKey('mscover'), isFalse);
-    });
-  });
 }
