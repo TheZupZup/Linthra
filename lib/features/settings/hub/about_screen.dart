@@ -6,6 +6,7 @@ import '../../../app/external_link_launcher_provider.dart';
 import '../../../core/app_info.dart';
 import '../../../shared/widgets/linthra_logo_mark.dart';
 import '../about/support_section.dart';
+import '../about/tester_checklist_section.dart';
 import '../about/whats_new_section.dart';
 import 'settings_detail_scaffold.dart';
 
@@ -35,6 +36,8 @@ class AboutScreen extends ConsumerWidget {
         const _BuildInfoCard(),
         const SizedBox(height: AppSpacing.md),
         const WhatsNewSection(),
+        const SizedBox(height: AppSpacing.md),
+        const TesterChecklistSection(),
         const SizedBox(height: AppSpacing.md),
         const SupportSection(),
         const SizedBox(height: AppSpacing.md),

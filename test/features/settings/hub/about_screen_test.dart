@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/core/app_info.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
+import 'package:linthra/features/settings/about/tester_checklist_section.dart';
 import 'package:linthra/features/settings/about/whats_new_section.dart';
 import 'package:linthra/features/settings/hub/about_screen.dart';
 
@@ -76,6 +77,14 @@ void main() {
       expect(find.text('Version ${AppInfo.version}'), findsOneWidget);
       // The static highlights are shown verbatim.
       expect(find.text(WhatsNewSection.releaseNotes.first), findsOneWidget);
+    });
+
+    testWidgets('composes the tester checklist', (tester) async {
+      await _pump(tester);
+
+      expect(find.text('Tester checklist'), findsOneWidget);
+      // The static checklist items are shown verbatim.
+      expect(find.text(TesterChecklistSection.items.first), findsOneWidget);
     });
 
     testWidgets('tapping "Source code" opens the repository', (tester) async {
