@@ -6,6 +6,7 @@ import '../../services/music_source.dart';
 import '../../services/playback_diagnostics.dart';
 import 'plex_api.dart';
 import 'plex_client.dart';
+import 'plex_download_source.dart';
 import 'plex_endpoints.dart';
 import 'plex_exception.dart';
 import 'plex_stream_source.dart';
@@ -29,16 +30,17 @@ import 'plex_track_mapper.dart';
 /// library picker in Settings fills it — simply yields empty lists, never an
 /// error.
 ///
-/// Playback is two-step by design (see docs/plex.md → MusicSource mapping): a
-/// track's opaque `plex:<ratingKey>` URI is resolved at play time via a
-/// `GET /library/metadata/{ratingKey}` lookup, because the playable `Part` key
+/// Playback and offline caching both resolve through the same live metadata
+/// lookup: a track's opaque `plex:<ratingKey>` URI is expanded at play/download
+/// time via `GET /library/metadata/{ratingKey}`, because the playable `Part` key
 /// differs from the `ratingKey`. That live lookup doubles as the reachability/
-/// auth check Jellyfin and Subsonic get from probing their stream URL: an
-/// expired token, an offline server, or a vanished item surfaces as a typed,
-/// token-free `PlexException` before the audio engine ever touches a URL. Only
-/// then is the tokenized stream URL minted — the token never reaches a
+/// auth check Jellyfin and Subsonic get from probing their stream/download URL:
+/// an expired token, an offline server, or a vanished item surfaces as a typed,
+/// token-free `PlexException` before the audio engine or cache ever touches a
+/// URL. Only then is the tokenized Part URL minted — the token never reaches a
 /// [Track], the catalog, or an error message.
-class PlexMusicSource implements MusicSource, PlexStreamSource {
+class PlexMusicSource
+    implements MusicSource, PlexStreamSource, PlexDownloadSource {
   const PlexMusicSource({required this.session, required PlexClient client})
       : _client = client;
 
@@ -107,9 +109,9 @@ class PlexMusicSource implements MusicSource, PlexStreamSource {
   }
 
   /// Confirms the token is still accepted and the server reachable, via
-  /// `GET /identity`, so the player can surface a precise error before
-  /// attempting to stream. Throws a `PlexException` on failure; the token
-  /// never appears in it.
+  /// `GET /identity`, so the player/downloader can surface a precise error
+  /// before attempting to stream or cache bytes. Throws a `PlexException` on
+  /// failure; the token never appears in it.
   @override
   Future<void> verifyReachable() async {
     await _client.fetchIdentity(baseUrl: session.baseUrl, token: session.token);
@@ -130,17 +132,7 @@ class PlexMusicSource implements MusicSource, PlexStreamSource {
   @override
   Future<Uri?> resolvePlayableUri(Track track) async {
     final String ratingKey = _ratingKey(track);
-    if (ratingKey.trim().isEmpty) {
-      // No ratingKey can name no item; `GET /library/metadata/` (no id) is a
-      // junk request, so fail as the same typed "not available" a vanished
-      // item gets — friendly in the player, never a raw HTTP error.
-      throw PlexException.notFound();
-    }
-    final PlexMetadata item = await _client.fetchMetadata(
-      baseUrl: session.baseUrl,
-      token: session.token,
-      ratingKey: ratingKey,
-    );
+    final PlexMetadata item = await _fetchMetadataForRatingKey(ratingKey);
     // Log the (non-secret) resolution before minting any tokenized URL, so a
     // track that resolves to no playable part is still diagnosable.
     PlaybackDiagnostics.resolved(
@@ -150,19 +142,44 @@ class PlexMusicSource implements MusicSource, PlexStreamSource {
     );
     final String? partKey = item.firstPartKey;
     if (partKey == null) return null;
-    return _mintStreamUrl(partKey);
+    return _mintTokenizedPartUrl(partKey);
   }
 
-  /// Mints the tokenized direct-play URL for [partKey] — the only call site of
-  /// [PlexEndpoints.streamUrl].
+  /// Resolves a `plex:<ratingKey>` track to the same original-file Part URL the
+  /// player direct-plays, for offline caching. The URL is minted only for the
+  /// cache fetch and never stored in catalog/cache metadata.
+  @override
+  Future<Uri?> resolveDownloadUri(Track track) async {
+    final PlexMetadata item = await _fetchMetadataForRatingKey(_ratingKey(track));
+    final String? partKey = item.firstPartKey;
+    if (partKey == null) return null;
+    return _mintTokenizedPartUrl(partKey);
+  }
+
+  Future<PlexMetadata> _fetchMetadataForRatingKey(String ratingKey) {
+    if (ratingKey.trim().isEmpty) {
+      // No ratingKey can name no item; `GET /library/metadata/` (no id) is a
+      // junk request, so fail as the same typed "not available" a vanished
+      // item gets — friendly in the player/downloader, never a raw HTTP error.
+      throw PlexException.notFound();
+    }
+    return _client.fetchMetadata(
+      baseUrl: session.baseUrl,
+      token: session.token,
+      ratingKey: ratingKey,
+    );
+  }
+
+  /// Mints the tokenized direct-file URL for [partKey] — the only call site of
+  /// [PlexEndpoints.streamUrl]. Plex uses the same Part key for direct playback
+  /// and original-file cache fetches.
   ///
   /// A real Part key is always a server-absolute path (`/library/parts/…`); a
   /// relative one would splice into the base URL's authority (corrupting the
   /// port, or pointing at a different host), so it is refused — and a key the
-  /// URL parser rejects outright is refused the same way — as the typed
-  /// "response Linthra could not use", keeping the "only `PlexException`
-  /// escapes" contract instead of handing the player an untyped failure.
-  Uri _mintStreamUrl(String partKey) {
+  /// URL parser can't use fails the same way — as the typed "response Linthra
+  /// could not use", keeping the "only `PlexException` escapes" contract.
+  Uri _mintTokenizedPartUrl(String partKey) {
     if (!partKey.startsWith('/')) {
       throw PlexException.unsupportedResponse();
     }
