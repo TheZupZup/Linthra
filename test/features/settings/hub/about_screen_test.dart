@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/core/app_info.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
+import 'package:linthra/features/settings/about/whats_new_section.dart';
 import 'package:linthra/features/settings/hub/about_screen.dart';
 
 class _FakeLinkLauncher implements ExternalLinkLauncher {
@@ -65,6 +66,16 @@ void main() {
       expect(find.text('Email support'), findsOneWidget);
       expect(find.text('support@linthra.ca'), findsOneWidget);
       expect(find.text('Privacy policy'), findsOneWidget);
+    });
+
+    testWidgets('composes the "What\'s new" section for the running version',
+        (tester) async {
+      await _pump(tester);
+
+      expect(find.text("What's new"), findsOneWidget);
+      expect(find.text('Version ${AppInfo.version}'), findsOneWidget);
+      // The static highlights are shown verbatim.
+      expect(find.text(WhatsNewSection.releaseNotes.first), findsOneWidget);
     });
 
     testWidgets('tapping "Source code" opens the repository', (tester) async {
