@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
-import 'package:linthra/core/app_info.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
-import 'package:linthra/features/settings/hub/about_screen.dart';
+import 'package:linthra/features/settings/about/support_section.dart';
 
 class _FakeLinkLauncher implements ExternalLinkLauncher {
   _FakeLinkLauncher({this.result = true});
@@ -24,18 +23,12 @@ Future<_FakeLinkLauncher> _pump(
   bool launchResult = true,
 }) async {
   final _FakeLinkLauncher launcher = _FakeLinkLauncher(result: launchResult);
-  // A tall surface so every card (brand, build info, support, and links) is laid
-  // out and hittable — a ListView only builds the rows it can show.
-  tester.view.physicalSize = const Size(1000, 2000);
-  tester.view.devicePixelRatio = 1.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
     ProviderScope(
       overrides: <Override>[
         externalLinkLauncherProvider.overrideWithValue(launcher),
       ],
-      child: const MaterialApp(home: AboutScreen()),
+      child: const MaterialApp(home: Scaffold(body: SupportSection())),
     ),
   );
   await tester.pumpAndSettle();
@@ -43,42 +36,52 @@ Future<_FakeLinkLauncher> _pump(
 }
 
 void main() {
-  group('AboutScreen', () {
-    testWidgets('shows brand, version, and the link rows', (tester) async {
-      await _pump(tester);
-
-      expect(find.text(AppInfo.name), findsOneWidget);
-      // The running version is shown verbatim.
-      expect(find.text(AppInfo.version), findsOneWidget);
-      expect(find.text('Source code'), findsOneWidget);
-      expect(find.text('Releases'), findsOneWidget);
-      expect(find.text('License (MPL-2.0)'), findsOneWidget);
-    });
-
-    testWidgets('composes the support section (email + privacy policy)',
+  group('SupportSection', () {
+    testWidgets('shows the description, support email, and privacy policy',
         (tester) async {
       await _pump(tester);
 
+      expect(
+        find.text(
+          'Open-source music player for local and self-hosted libraries.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Email support'), findsOneWidget);
       expect(find.text('support@linthra.ca'), findsOneWidget);
       expect(find.text('Privacy policy'), findsOneWidget);
     });
 
-    testWidgets('tapping "Source code" opens the repository', (tester) async {
-      final launcher = await _pump(tester);
+    testWidgets('tapping "Email support" opens a mailto link', (tester) async {
+      final _FakeLinkLauncher launcher = await _pump(tester);
 
-      await tester.tap(find.text('Source code'));
+      await tester.tap(find.text('Email support'));
       await tester.pumpAndSettle();
 
       expect(
-          launcher.opened, Uri.parse('https://github.com/thezupzup/linthra'));
+        launcher.opened,
+        Uri(scheme: 'mailto', path: 'support@linthra.ca'),
+      );
+    });
+
+    testWidgets('tapping "Privacy policy" opens the policy URL',
+        (tester) async {
+      final _FakeLinkLauncher launcher = await _pump(tester);
+
+      await tester.tap(find.text('Privacy policy'));
+      await tester.pumpAndSettle();
+
+      expect(
+        launcher.opened,
+        Uri.parse('https://github.com/thezupzup/linthra/blob/main/PRIVACY.md'),
+      );
     });
 
     testWidgets('shows a snackbar when a link cannot be opened',
         (tester) async {
       await _pump(tester, launchResult: false);
 
-      await tester.tap(find.text('Releases'));
+      await tester.tap(find.text('Privacy policy'));
       await tester.pumpAndSettle();
 
       expect(find.text("Couldn't open the link."), findsOneWidget);
