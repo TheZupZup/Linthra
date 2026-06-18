@@ -150,7 +150,8 @@ class PlexMusicSource
   /// cache fetch and never stored in catalog/cache metadata.
   @override
   Future<Uri?> resolveDownloadUri(Track track) async {
-    final PlexMetadata item = await _fetchMetadataForRatingKey(_ratingKey(track));
+    final PlexMetadata item =
+        await _fetchMetadataForRatingKey(_ratingKey(track));
     final String? partKey = item.firstPartKey;
     if (partKey == null) return null;
     return _mintTokenizedPartUrl(partKey);
