@@ -24,9 +24,10 @@ Future<_FakeLinkLauncher> _pump(
   bool launchResult = true,
 }) async {
   final _FakeLinkLauncher launcher = _FakeLinkLauncher(result: launchResult);
-  // A tall surface so every card (brand, build info, support, and links) is laid
-  // out and hittable — a ListView only builds the rows it can show.
-  tester.view.physicalSize = const Size(1000, 2000);
+  // A tall surface so every card (brand, build info, what's new, support, and
+  // links) is laid out and hittable — a ListView only builds the rows it can
+  // show.
+  tester.view.physicalSize = const Size(1000, 2200);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -53,6 +54,17 @@ void main() {
       expect(find.text('Source code'), findsOneWidget);
       expect(find.text('Releases'), findsOneWidget);
       expect(find.text('License (MPL-2.0)'), findsOneWidget);
+    });
+
+    testWidgets("composes the What's new section", (tester) async {
+      await _pump(tester);
+
+      expect(find.text("What's new"), findsOneWidget);
+      expect(find.text('Linthra ${AppInfo.version}'), findsOneWidget);
+      expect(
+        find.text('Continued Google Play closed testing preparation.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets(
