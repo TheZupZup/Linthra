@@ -6,15 +6,16 @@ import '../../../app/external_link_launcher_provider.dart';
 import '../../../core/app_info.dart';
 import '../../../shared/widgets/linthra_logo_mark.dart';
 import '../about/support_section.dart';
+import '../about/whats_new_section.dart';
 import 'settings_detail_scaffold.dart';
 
 /// The "About" page of the Settings hub.
 ///
 /// A calm brand panel (the Linthra mark, name, and tagline), the version/build
-/// the app is running, and a short list of project links. The links open in the
-/// browser through the shared [externalLinkLauncherProvider] — the same seam the
-/// "Report a bug" flow uses — so every launch is an explicit tap and tests stay
-/// plugin-free.
+/// the app is running, recent test-build notes, and a short list of project
+/// links. The links open in the browser through the shared
+/// [externalLinkLauncherProvider] — the same seam the "Report a bug" flow uses —
+/// so every launch is an explicit tap and tests stay plugin-free.
 class AboutScreen extends ConsumerWidget {
   const AboutScreen({super.key});
 
@@ -32,6 +33,8 @@ class AboutScreen extends ConsumerWidget {
         const _BrandPanel(),
         const SizedBox(height: AppSpacing.md),
         const _BuildInfoCard(),
+        const SizedBox(height: AppSpacing.md),
+        const WhatsNewSection(),
         const SizedBox(height: AppSpacing.md),
         const SupportSection(),
         const SizedBox(height: AppSpacing.md),
