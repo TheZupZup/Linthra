@@ -10,10 +10,12 @@ import '../../core/services/offline_cache_manager.dart';
 import '../../core/services/remote_track_downloader.dart';
 import '../../core/services/routing_remote_track_downloader.dart';
 import '../../core/sources/jellyfin/jellyfin_track_downloader.dart';
+import '../../core/sources/plex/plex_track_downloader.dart';
 import '../../core/sources/subsonic/subsonic_track_downloader.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
+import '../settings/plex/plex_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
 
 /// The live download status of a single track, for the Library row indicator.
@@ -30,7 +32,7 @@ final trackDownloadStatusProvider =
 /// The live byte progress of a single in-flight download, for the row's
 /// determinate ring. Null when the track isn't downloading (or its server
 /// didn't report a size, leaving progress indeterminate). Auto-disposed so
-/// off-screen rows drop the subscription.
+/// off-screen rows drop their subscription.
 final trackDownloadProgressProvider = StreamProvider.autoDispose
     .family<DownloadProgress?, String>((ref, trackId) {
   final repository = ref.watch(downloadRepositoryProvider);
@@ -230,13 +232,13 @@ final precacheCountProvider =
   PrecacheCountController.new,
 );
 
-/// Production binding: makes remote (Jellyfin and Subsonic/Navidrome) tracks
-/// downloadable for offline use by routing the remote downloader across both
-/// sources, each wired to its live signed-in source (read lazily, so sign-in/out
-/// is picked up without a rebuild). The credential-bearing download URL is
-/// minted only at fetch time inside each downloader; nothing here stores it.
-/// Applied in `main`; tests override [remoteTrackDownloaderProvider] with their
-/// own fake.
+/// Production binding: makes remote (Jellyfin, Subsonic/Navidrome, and Plex)
+/// tracks downloadable for offline use by routing the remote downloader across
+/// all signed-in sources, each wired to its live source (read lazily, so
+/// sign-in/out is picked up without a rebuild). Credential-bearing download URLs
+/// are minted only at fetch time inside each downloader; nothing here stores
+/// them. Applied in `main`; tests override [remoteTrackDownloaderProvider] with
+/// their own fake.
 final remoteTrackDownloaderOverride =
     remoteTrackDownloaderProvider.overrideWith((ref) {
   // Read (not watch) the live sources lazily at fetch time, mirroring the
@@ -245,5 +247,6 @@ final remoteTrackDownloaderOverride =
   return RoutingRemoteTrackDownloader(<RemoteTrackDownloader>[
     JellyfinTrackDownloader(() => ref.read(jellyfinMusicSourceProvider)),
     SubsonicTrackDownloader(() => ref.read(subsonicMusicSourceProvider)),
+    PlexTrackDownloader(() => ref.read(plexMusicSourceProvider)),
   ]);
 });
