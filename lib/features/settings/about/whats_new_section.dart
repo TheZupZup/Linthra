@@ -20,10 +20,12 @@ class WhatsNewSection extends StatelessWidget {
   /// handful of concise bullets and updated when cutting a new build; exposed so
   /// the widget test can assert each line renders without duplicating the copy.
   static const List<String> releaseNotes = <String>[
-    'Added support and bug report links for testers.',
-    'Improved About and project information.',
-    'Continued Google Play closed testing preparation.',
-    'Stability and polish improvements.',
+    'Plex tracks can now be downloaded for offline playback.',
+    'Cached tracks play from your device, and fall back to streaming if a '
+        'file is missing or unreadable.',
+    'Offline downloads are now written atomically, so an interrupted '
+        "download can't leave a broken file.",
+    'Reproducible per-ABI release builds for F-Droid.',
   ];
 
   @override
