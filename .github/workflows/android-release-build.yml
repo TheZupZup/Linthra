@@ -332,14 +332,19 @@ jobs:
       # already verified pubspec.yaml matches the tag, and the verification step
       # below confirms the built APKs carry that version.
       #
-      # We do THREE builds and stash each before the next runs so they cannot
-      # clobber one another in build/app/outputs/:
+      # We do THREE kinds of build and stash each before the next runs so they
+      # cannot clobber one another in build/app/outputs/:
       #   1. universal APK (`flutter build apk --release`)
-      #   2. per-ABI APKs (`flutter build apk --release --split-per-abi`)
-      #      → armeabi-v7a / arm64-v8a / x86_64, with versionCodeOverride from
-      #      android/app/build.gradle (base * 10 + abi rank) so each per-ABI
-      #      APK matches the corresponding `versionCode` (1000391 / 1000392 /
-      #      1000393) in metadata/io.github.thezupzup.linthra.yml.
+      #   2. per-ABI APKs — built ONE ABI at a time, each in its own clean
+      #      `flutter build apk --release --split-per-abi
+      #      --target-platform=android-<arch>` invocation, exactly as F-Droid
+      #      builds each versionCode. versionCodeOverride from
+      #      android/app/build.gradle (base * 10 + abi rank) makes each per-ABI
+      #      APK match the corresponding `versionCode` (…1 / …2 / …3) in
+      #      metadata/io.github.thezupzup.linthra.yml. Building per-target (not
+      #      all ABIs in one --split-per-abi pass) keeps the 64-bit split
+      #      manifests byte-identical to F-Droid's — see the per-ABI step below
+      #      and docs/fdroid-reproducibility-arm64.md.
       #   3. AAB (`flutter build appbundle --release`) — still universal; AAB
       #      already provides per-ABI delivery on its own.
       #
@@ -357,31 +362,54 @@ jobs:
           base="${{ steps.mode.outputs.asset_base }}"
           cp build/app/outputs/flutter-apk/app-release.apk "dist/${base}.apk"
 
-      # Build the per-ABI APKs from a CLEAN tree so they match F-Droid's build
-      # byte-for-byte. F-Droid builds these by running ONLY `flutter build apk
-      # --release --split-per-abi` in a fresh checkout. Doing the per-ABI build
-      # here in the SAME workspace right after the universal `flutter build apk
-      # --release` left AGP 8.x's per-split manifest processing in an
-      # incremental state that systematically emitted the 64-bit (arm64-v8a /
-      # x86_64) split manifests with one extra source line before <application>
-      # in the compiled AndroidManifest.xml. That difference is purely cosmetic
-      # line-number metadata (string pools, resources.arsc, classes.dex and
-      # every lib/*.so were byte-identical), but it shifted the manifest bytes,
-      # so F-Droid's reproducible-build verification could not transplant the
-      # upstream signature onto its rebuild and failed with
+      # Build the per-ABI APKs the SAME way F-Droid builds each one: a single
+      # `flutter build apk --release --split-per-abi --target-platform=android-<arch>`
+      # in a clean tree, ONE ABI at a time. F-Droid's metadata builds each
+      # versionCode (1059991/1059992/1059993) in its own fresh checkout with
+      # exactly that command (see metadata/io.github.thezupzup.linthra.yml).
+      #
+      # This workflow used to build all three ABIs together in a single
+      # `flutter build apk --release --split-per-abi` pass. That produced 64-bit
+      # (arm64-v8a / x86_64) split APKs whose compiled AndroidManifest.xml
+      # carried one extra source line before <application> compared to F-Droid's
+      # single-ABI build (last manifest line 266 vs 265). The difference is
+      # purely cosmetic line-number metadata — string pools, resources.arsc,
+      # classes.dex and every lib/*.so are byte-identical — but it shifts the
+      # manifest bytes, so F-Droid's reproducible-build verification could not
+      # transplant the upstream signature onto its rebuild and failed with
       # "signature copying failed: APK Signing Block offset < central directory
-      # offset" for arm64-v8a/x86_64 — while armeabi-v7a happened to match and
-      # verified. Cleaning here makes this build mirror F-Droid's clean
-      # split-only build. The universal APK is already stashed above, and
-      # `flutter clean` only removes build/.dart_tool intermediates (not dist/),
-      # so nothing produced so far is lost. See docs/fdroid-reproducibility-arm64.md.
-      - name: Clean before per-ABI build (F-Droid reproducibility)
+      # offset" for arm64-v8a/x86_64 (armeabi-v7a happened to match, so it
+      # verified). Building each ABI in isolation, exactly like F-Droid, makes
+      # the uploaded reference APK byte-identical to F-Droid's rebuild.
+      # See docs/fdroid-reproducibility-arm64.md.
+      - name: Build per-ABI release APKs (isolated, matching F-Droid)
         run: |
-          flutter clean
-          flutter pub get
-
-      - name: Build release APK (per-ABI)
-        run: flutter build apk --release --split-per-abi
+          set -euo pipefail
+          base="${{ steps.mode.outputs.asset_base }}"
+          tmp="$RUNNER_TEMP/perabi"
+          mkdir -p "$tmp"
+          # ABI -> Flutter --target-platform, matching F-Droid's per-versionCode
+          # build commands in metadata/io.github.thezupzup.linthra.yml.
+          for entry in "armeabi-v7a:android-arm" "arm64-v8a:android-arm64" "x86_64:android-x64"; do
+            abi="${entry%%:*}"
+            plat="${entry##*:}"
+            flutter clean
+            flutter pub get
+            flutter build apk --release --split-per-abi --target-platform="$plat"
+            src="build/app/outputs/flutter-apk/app-${abi}-release.apk"
+            if [ ! -f "$src" ]; then
+              echo "::error::Per-ABI APK missing after build: $src"
+              exit 1
+            fi
+            cp "$src" "$tmp/app-${abi}-release.apk"
+            echo "Built $abi ($plat) in its own clean invocation."
+          done
+          # `flutter clean` above wiped build/app/outputs, so restore the
+          # universal APK (already stashed) and all three per-ABI APKs to where
+          # the existing Stash / Verify steps below expect them.
+          mkdir -p build/app/outputs/flutter-apk
+          cp "$tmp"/app-*-release.apk build/app/outputs/flutter-apk/
+          cp "dist/${base}.apk" build/app/outputs/flutter-apk/app-release.apk
 
       # Stash the per-ABI APKs under their public/canonical names. The naming
       # MUST stay aligned with the per-Build `binary:` URLs in

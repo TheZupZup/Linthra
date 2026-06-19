@@ -53,16 +53,23 @@ The toolchains are otherwise **identical** on both sides — AGP `8.2.1`
 aapt2 (proven by the identical `resources.arsc`), the same NDK (proven by the
 identical `.so` files). So **pinning tool versions changes nothing.**
 
-The one behavioural difference is *how the build is invoked*:
+The one behavioural difference is *how the build is invoked*. The F-Droid MR
+([!40071](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/40071)) builds
+each versionCode **on its own**:
 
-* **Our release CI** builds the universal APK first (`flutter build apk
-  --release`) and then the splits (`… --split-per-abi`) in the **same
-  workspace**.
-* **F-Droid** runs **only** `flutter build apk --release --split-per-abi` in a
-  **fresh checkout**.
+* **F-Droid** builds each ABI alone, in a fresh checkout, with a single
+  `flutter build apk --release --split-per-abi --target-platform=android-<arch>`
+  (`android-arm` / `android-arm64` / `android-x64`).
+* **Our release CI** built **all three ABIs together** in one
+  `flutter build apk --release --split-per-abi` pass (after a universal build in
+  the same workspace).
 
-AGP's per-split manifest processing, run in that warmed/incremental workspace,
-systematically shifts the 64-bit split manifests by one source line. The apps
+Building all ABIs in one pass gives the 64-bit (arm64-v8a / x86_64) split
+manifests one extra `AndroidManifest.xml` source line versus F-Droid's
+single-ABI build (last manifest line **266 vs 265**); armeabi-v7a lands on the
+same number either way, which is why it reproduces. Proof: F-Droid's own arm64
+rebuild — built with `--target-platform=android-arm64` — has manifest line
+**265**, identical to what a single-target build on our side produces. The apps
 are functionally byte-identical; the difference is cosmetic line metadata only.
 
 Classification: **build/Gradle reproducibility issue** — *not* a bad/corrupt
@@ -70,10 +77,19 @@ APK, *not* bad metadata, *not* a wrong versionCode, *not* a signing-key problem.
 
 ## Primary fix (keep reproducible + upstream signature)
 
-Make the release build mirror F-Droid's clean build: run `flutter clean` before
-the `--split-per-abi` step so the per-ABI APKs are produced from a clean tree.
+Build each per-ABI reference APK the **same way F-Droid builds it** — one ABI at
+a time, in its own clean tree, with the matching `--target-platform`:
+
+```
+flutter build apk --release --split-per-abi --target-platform=android-arm     # armeabi-v7a
+flutter build apk --release --split-per-abi --target-platform=android-arm64   # arm64-v8a
+flutter build apk --release --split-per-abi --target-platform=android-x64     # x86_64
+```
+
 Implemented in `.github/workflows/android-release-build.yml`
-("Clean before per-ABI build (F-Droid reproducibility)").
+("Build per-ABI release APKs (isolated, matching F-Droid)"). This is a stronger
+fix than just cleaning before a single multi-ABI pass, because the trigger is
+the multi-ABI pass itself, not merely a warm workspace.
 
 **This must be validated on a release candidate before relying on it.** It is a
 strong, mechanism-backed hypothesis, but reproducibility is only proven once an
