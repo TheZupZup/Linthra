@@ -145,6 +145,12 @@ final localPlaybackControllerProvider =
     // library lazily at play time, so the session-pinned engine still sees a
     // fresh catalog (and default-source change) without being rebuilt.
     candidates: ref.read(playbackCandidateSourceProvider),
+    // When a track's offline-cache file won't open (corrupt, or reclaimed after
+    // the existence check), fall back to streaming the *same* track — this
+    // resolver resolves past the offline cache (the offline-first resolver's own
+    // fallback), so even a single-source cached track recovers to its live
+    // stream rather than erroring.
+    streamingFallbackResolver: ref.read(remoteCacheResolverProvider),
     // Record a completed play when a track reaches its end. Read lazily at
     // completion time (not watched), so the play-history repository never ties
     // into the engine's lifecycle. Only the track id is recorded; it stays
