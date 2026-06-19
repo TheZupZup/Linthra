@@ -184,10 +184,11 @@ void main() {
       (tester) async {
     await _pump(tester);
 
-    // Phase 1 implements streaming + lyrics → both chips appear; the rest don't.
+    // Phase 1 implements streaming + lyrics + offline caching → those chips
+    // appear; cast and favorites stay declared unsupported, so they don't.
     expect(find.text('Streaming'), findsOneWidget);
     expect(find.text('Lyrics'), findsOneWidget);
-    expect(find.text('Offline'), findsNothing);
+    expect(find.text('Offline'), findsOneWidget);
     expect(find.text('Cast'), findsNothing);
     expect(find.text('Favorites'), findsNothing);
   });
