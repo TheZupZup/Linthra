@@ -14,6 +14,7 @@ import 'package:linthra/data/repositories/cache_download_repository.dart';
 import 'package:linthra/data/repositories/in_memory_download_preferences.dart';
 import 'package:linthra/data/repositories/in_memory_download_store.dart';
 import 'package:linthra/data/repositories/in_memory_offline_file_store.dart';
+import 'package:linthra/data/repositories/store_cached_track_locator.dart';
 
 /// A connectivity stand-in whose reported status the test can flip at will.
 class _FakeConnectivity implements ConnectivityService {
@@ -175,7 +176,7 @@ void main() {
       await repository.requestDownload(_jellyfin('j1'));
       final String fileName = (await store.loadDownloads()).single.fileName!;
 
-      await repository.removeDownload('j1');
+      await repository.removeDownload(_jellyfin('j1'));
 
       expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
       expect(await repository.downloadedTrackIds(), isEmpty);
@@ -234,7 +235,7 @@ void main() {
         final repository = build();
         await repository.requestDownload(_local('a'));
 
-        await repository.removeDownload('a');
+        await repository.removeDownload(_local('a'));
 
         expect(await repository.statusFor('a'), DownloadStatus.notDownloaded);
         expect(await store.loadDownloads(), isEmpty);
@@ -534,7 +535,7 @@ void main() {
         expect(await repository.statusFor('j2'), DownloadStatus.downloaded);
         expect(await repository.statusFor('j3'), DownloadStatus.downloaded);
         // The evicted file's bytes are gone from disk.
-        expect(files.bytesFor('j1.mp3'), isNull);
+        expect(files.bytesFor('jellyfin_j1.mp3'), isNull);
       });
 
       test(
@@ -563,7 +564,7 @@ void main() {
         await repository.requestDownload(_jellyfin('j1'));
         await repository.requestDownload(_jellyfin('j2'));
         // j1 was just played, so j2 is now the least-recently-used.
-        await repository.notePlayed('j1');
+        await repository.notePlayed(_jellyfin('j1'));
         await repository.requestDownload(_jellyfin('j3'));
 
         expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
@@ -575,7 +576,7 @@ void main() {
         final repository = buildLimited(maxBytes: 10, now: incrementingClock());
 
         await repository.requestDownload(_jellyfin('j1')); // oldest
-        await repository.setPinned('j1', true);
+        await repository.setPinned(_jellyfin('j1'), true);
         await repository.requestDownload(_jellyfin('j2'));
         await repository.requestDownload(_jellyfin('j3')); // forces eviction
 
@@ -606,7 +607,7 @@ void main() {
         // Room for one 4-byte track only.
         final repository = buildLimited(maxBytes: 4);
         await repository.requestDownload(_jellyfin('j1'));
-        await repository.setPinned('j1', true);
+        await repository.setPinned(_jellyfin('j1'), true);
 
         Object? caught;
         try {
@@ -627,7 +628,7 @@ void main() {
         expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
         expect((await store.loadDownloads()).map((c) => c.trackId),
             <String>['j1']);
-        expect(files.bytesFor('j1.mp3'), isNotNull);
+        expect(files.bytesFor('jellyfin_j1.mp3'), isNotNull);
       });
     });
 
@@ -923,7 +924,7 @@ void main() {
           preferences: preferences,
         );
         await repository.requestDownload(_jellyfin('keep'));
-        await repository.setPinned('keep', true);
+        await repository.setPinned(_jellyfin('keep'), true);
         final int fetchesBefore = downloader.fetchCount;
 
         // Best-effort: never throws, caches nothing, and skips the fetch
@@ -1000,30 +1001,30 @@ void main() {
         );
         await repository.requestDownload(_jellyfin('j1'));
         await repository.requestDownload(_jellyfin('j2'));
-        await repository.setPinned('j1', true);
+        await repository.setPinned(_jellyfin('j1'), true);
 
         await repository.clearAll();
 
         // Pinned items included: clear-all is the nuclear option.
         expect(await repository.downloadedTrackIds(), isEmpty);
         expect(await store.loadDownloads(), isEmpty);
-        expect(spy.bytesFor('j1.mp3'), isNull);
-        expect(spy.bytesFor('j2.mp3'), isNull);
+        expect(spy.bytesFor('jellyfin_j1.mp3'), isNull);
+        expect(spy.bytesFor('jellyfin_j2.mp3'), isNull);
       });
 
       test('clear unpinned preserves pinned tracks', () async {
         final repository = build();
         await repository.requestDownload(_jellyfin('keep'));
         await repository.requestDownload(_jellyfin('drop'));
-        await repository.setPinned('keep', true);
+        await repository.setPinned(_jellyfin('keep'), true);
 
         await repository.clearUnpinned();
 
         expect(await repository.statusFor('keep'), DownloadStatus.downloaded);
         expect(
             await repository.statusFor('drop'), DownloadStatus.notDownloaded);
-        expect(files.bytesFor('keep.mp3'), isNotNull);
-        expect(files.bytesFor('drop.mp3'), isNull);
+        expect(files.bytesFor('jellyfin_keep.mp3'), isNotNull);
+        expect(files.bytesFor('jellyfin_drop.mp3'), isNull);
       });
 
       test('clearing never deletes a local source file', () async {
@@ -1042,7 +1043,7 @@ void main() {
 
         // Only the app-managed remote file was ever handed to delete(); the
         // local track has no managed file, so its source is never touched.
-        expect(spy.deleted, <String>['remote.mp3']);
+        expect(spy.deleted, <String>['jellyfin_remote.mp3']);
         expect(spy.deleted.any((f) => f.contains('song')), isFalse);
       });
 
@@ -1079,7 +1080,7 @@ void main() {
             repository.requestDownload(_jellyfin('j1'));
         // Wait until the bytes are actually being fetched, then cancel.
         await _pumpUntil(() => downloader.fetchCount >= 1);
-        await repository.removeDownload('j1');
+        await repository.removeDownload(_jellyfin('j1'));
         // The in-flight fetch now completes — it must commit nothing.
         gate.complete();
         await request;
@@ -1091,7 +1092,7 @@ void main() {
         expect(snapshot.usedBytes, 0);
         expect(snapshot.entries, isEmpty);
         // The cancelled fetch wrote no managed file at all.
-        expect(spy.bytesFor('j1.mp3'), isNull);
+        expect(spy.bytesFor('jellyfin_j1.mp3'), isNull);
       });
 
       test('a cancelled download can be requested again and downloads',
@@ -1102,7 +1103,7 @@ void main() {
 
         final Future<void> first = repository.requestDownload(_jellyfin('j1'));
         await _pumpUntil(() => downloader.fetchCount >= 1);
-        await repository.removeDownload('j1');
+        await repository.removeDownload(_jellyfin('j1'));
         gate.complete();
         await first;
         expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
@@ -1186,11 +1187,11 @@ void main() {
       expect(outcome, DownloadRequestOutcome.started);
       expect(await repo.statusFor('101'), DownloadStatus.downloaded);
       // Bytes are stored under the non-secret ratingKey id; no token anywhere.
-      expect(files.bytesFor('101.mp3'), _FakeRemoteDownloader.bytes);
+      expect(files.bytesFor('plex_101.mp3'), _FakeRemoteDownloader.bytes);
       final saved = await store.loadDownloads();
       expect(saved, hasLength(1));
       expect(saved.single.trackId, '101');
-      expect(saved.single.fileName, '101.mp3');
+      expect(saved.single.fileName, 'plex_101.mp3');
       // The source type marks it as Plex — how the cache stays provider-aware.
       expect(saved.single.sourceType, 'plex');
     });
@@ -1213,12 +1214,12 @@ void main() {
         () async {
       final repo = build();
       await repo.requestDownload(plex('101'));
-      expect(files.bytesFor('101.mp3'), isNotNull);
+      expect(files.bytesFor('plex_101.mp3'), isNotNull);
 
-      await repo.removeDownload('101');
+      await repo.removeDownload(plex('101'));
 
       expect(await repo.statusFor('101'), DownloadStatus.notDownloaded);
-      expect(files.bytesFor('101.mp3'), isNull);
+      expect(files.bytesFor('plex_101.mp3'), isNull);
       expect(await store.loadDownloads(), isEmpty);
     });
 
@@ -1232,7 +1233,7 @@ void main() {
       await repo.requestDownload(plex('101'));
 
       expect(await repo.statusFor('101'), DownloadStatus.failed);
-      expect(files.bytesFor('101.mp3'), isNull);
+      expect(files.bytesFor('plex_101.mp3'), isNull);
       expect(await store.loadDownloads(), isEmpty);
     });
 
@@ -1257,10 +1258,68 @@ void main() {
       };
       expect(byId['101']!.sourceType, 'plex');
       expect(byId['j1']!.sourceType, 'jellyfin');
-      expect(byId['101']!.fileName, '101.mp3');
-      expect(byId['j1']!.fileName, 'j1.mp3');
-      expect(files.bytesFor('101.mp3'), isNotNull);
-      expect(files.bytesFor('j1.mp3'), isNotNull);
+      expect(byId['101']!.fileName, 'plex_101.mp3');
+      expect(byId['j1']!.fileName, 'jellyfin_j1.mp3');
+      expect(files.bytesFor('plex_101.mp3'), isNotNull);
+      expect(files.bytesFor('jellyfin_j1.mp3'), isNotNull);
+    });
+
+    test('Plex and Jellyfin tracks that share a catalog id never conflict',
+        () async {
+      // The hard case the catalog's id-uniqueness can't guarantee on its own:
+      // two providers expose the SAME local id ("101"). The cache must keep them
+      // fully independent — distinct files, distinct metadata, correct
+      // resolution, and isolated removal — so a Plex cache can never shadow,
+      // overwrite, or remove another provider's copy.
+      final both = _FakeRemoteDownloader(
+        schemes: const <String>['plex:', 'jellyfin:'],
+      );
+      final repo = build(downloader: both);
+      final locator = StoreCachedTrackLocator(store, files);
+
+      const Track plex101 = Track(id: '101', title: 'P', uri: 'plex:101');
+      const Track jelly101 = Track(id: '101', title: 'J', uri: 'jellyfin:101');
+
+      await repo.requestDownload(plex101);
+      // The shared id must NOT make the second look already-downloaded.
+      await repo.requestDownload(jelly101);
+
+      // Both were actually fetched and cached.
+      expect(
+        both.fetched.map((Track t) => t.uri).toSet(),
+        <String>{'plex:101', 'jellyfin:101'},
+      );
+
+      // Two distinct persisted entries, each tagged by its provider, written to
+      // distinct, provider-namespaced files (the token-free id is namespaced).
+      final saved = await store.loadDownloads();
+      expect(saved, hasLength(2));
+      final plexEntry =
+          saved.firstWhere((CachedTrack c) => c.sourceType == 'plex');
+      final jellyEntry =
+          saved.firstWhere((CachedTrack c) => c.sourceType == 'jellyfin');
+      expect(plexEntry.trackId, '101');
+      expect(jellyEntry.trackId, '101');
+      expect(plexEntry.fileName, 'plex_101.mp3');
+      expect(jellyEntry.fileName, 'jellyfin_101.mp3');
+      expect(plexEntry.fileName, isNot(jellyEntry.fileName));
+
+      // Each resolves to its OWN cached file — no shadowing across providers.
+      final plexPath = await locator.cachedFilePath(plex101);
+      final jellyPath = await locator.cachedFilePath(jelly101);
+      expect(plexPath, isNotNull);
+      expect(jellyPath, isNotNull);
+      expect(plexPath, isNot(jellyPath));
+
+      // Removing the Plex copy leaves the Jellyfin copy fully intact.
+      await repo.removeDownload(plex101);
+      expect(await locator.cachedFilePath(plex101), isNull);
+      expect(await locator.cachedFilePath(jelly101), jellyPath);
+      final remaining = await store.loadDownloads();
+      expect(remaining, hasLength(1));
+      expect(remaining.single.sourceType, 'jellyfin');
+      expect(files.bytesFor('plex_101.mp3'), isNull);
+      expect(files.bytesFor('jellyfin_101.mp3'), isNotNull);
     });
   });
 }

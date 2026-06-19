@@ -18,7 +18,7 @@ class OfflineFirstPlayableUriResolver implements PlayableUriResolver {
   const OfflineFirstPlayableUriResolver({
     required CachedTrackLocator locator,
     required PlayableUriResolver fallback,
-    void Function(String trackId)? onCacheHit,
+    void Function(Track track)? onCacheHit,
   })  : _locator = locator,
         _fallback = fallback,
         _onCacheHit = onCacheHit;
@@ -26,10 +26,10 @@ class OfflineFirstPlayableUriResolver implements PlayableUriResolver {
   final CachedTrackLocator _locator;
   final PlayableUriResolver _fallback;
 
-  /// Called with the track id on a cache hit, so the cache manager can refresh
-  /// its least-recently-used position. Fire-and-forget: a failure here must
-  /// never stop playback, so it isn't awaited.
-  final void Function(String trackId)? _onCacheHit;
+  /// Called with the track on a cache hit, so the cache manager can refresh its
+  /// least-recently-used position for the right provider's copy. Fire-and-forget:
+  /// a failure here must never stop playback, so it isn't awaited.
+  final void Function(Track track)? _onCacheHit;
 
   @override
   bool handles(Track track) => _fallback.handles(track);
@@ -43,7 +43,7 @@ class OfflineFirstPlayableUriResolver implements PlayableUriResolver {
         resolver: 'OfflineFirstPlayableUriResolver',
         itemId: track.id,
       );
-      _onCacheHit?.call(track.id);
+      _onCacheHit?.call(track);
       return ResolvedPlayable(
         Uri.file(cachedPath),
         PlaybackSource.offlineCache,

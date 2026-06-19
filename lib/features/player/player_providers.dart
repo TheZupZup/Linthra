@@ -113,8 +113,8 @@ final playableUriResolverProvider = Provider<PlayableUriResolver>((ref) {
     // eviction keeps what's actually listened to. Read lazily (no build-time
     // dependency on the cache manager) and never awaited — a metadata write
     // must not block or break playback.
-    onCacheHit: (trackId) =>
-        unawaited(ref.read(offlineCacheManagerProvider).notePlayed(trackId)),
+    onCacheHit: (track) =>
+        unawaited(ref.read(offlineCacheManagerProvider).notePlayed(track)),
   );
 });
 

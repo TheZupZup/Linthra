@@ -83,5 +83,39 @@ void main() {
 
       expect(await build().cachedFilePath(_plex('101')), isNull);
     });
+
+    test('a Plex and a Jellyfin entry sharing an id resolve to their own files',
+        () async {
+      // Provider-aware matching: identical trackIds from different sources each
+      // resolve to their own file, never the other's.
+      await files.write('plex_101', const <int>[1], extension: 'mp3');
+      await files.write('jellyfin_101', const <int>[2], extension: 'mp3');
+      await store.saveDownloads(<CachedTrack>[
+        const CachedTrack(
+            trackId: '101', fileName: 'plex_101.mp3', sourceType: 'plex'),
+        const CachedTrack(
+            trackId: '101',
+            fileName: 'jellyfin_101.mp3',
+            sourceType: 'jellyfin'),
+      ]);
+
+      expect(await build().cachedFilePath(_plex('101')),
+          '/offline_audio/plex_101.mp3');
+      expect(await build().cachedFilePath(_jellyfin('101')),
+          '/offline_audio/jellyfin_101.mp3');
+    });
+
+    test('a legacy entry without a recorded source still resolves by id',
+        () async {
+      // Back-compat: a cached file written before source tagging carries no
+      // sourceType, so it falls back to an id-only match and keeps working.
+      await files.write('legacy', const <int>[9], extension: 'mp3');
+      await store.saveDownloads(<CachedTrack>[
+        const CachedTrack(trackId: 'legacy', fileName: 'legacy.mp3'),
+      ]);
+
+      expect(await build().cachedFilePath(_jellyfin('legacy')),
+          '/offline_audio/legacy.mp3');
+    });
   });
 }

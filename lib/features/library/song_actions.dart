@@ -104,7 +104,7 @@ abstract final class SongActions {
         continue;
       }
       try {
-        await repository.removeDownload(track.id);
+        await repository.removeDownload(track);
         removed++;
       } catch (_) {
         failed++;
