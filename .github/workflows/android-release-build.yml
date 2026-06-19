@@ -357,6 +357,29 @@ jobs:
           base="${{ steps.mode.outputs.asset_base }}"
           cp build/app/outputs/flutter-apk/app-release.apk "dist/${base}.apk"
 
+      # Build the per-ABI APKs from a CLEAN tree so they match F-Droid's build
+      # byte-for-byte. F-Droid builds these by running ONLY `flutter build apk
+      # --release --split-per-abi` in a fresh checkout. Doing the per-ABI build
+      # here in the SAME workspace right after the universal `flutter build apk
+      # --release` left AGP 8.x's per-split manifest processing in an
+      # incremental state that systematically emitted the 64-bit (arm64-v8a /
+      # x86_64) split manifests with one extra source line before <application>
+      # in the compiled AndroidManifest.xml. That difference is purely cosmetic
+      # line-number metadata (string pools, resources.arsc, classes.dex and
+      # every lib/*.so were byte-identical), but it shifted the manifest bytes,
+      # so F-Droid's reproducible-build verification could not transplant the
+      # upstream signature onto its rebuild and failed with
+      # "signature copying failed: APK Signing Block offset < central directory
+      # offset" for arm64-v8a/x86_64 — while armeabi-v7a happened to match and
+      # verified. Cleaning here makes this build mirror F-Droid's clean
+      # split-only build. The universal APK is already stashed above, and
+      # `flutter clean` only removes build/.dart_tool intermediates (not dist/),
+      # so nothing produced so far is lost. See docs/fdroid-reproducibility-arm64.md.
+      - name: Clean before per-ABI build (F-Droid reproducibility)
+        run: |
+          flutter clean
+          flutter pub get
+
       - name: Build release APK (per-ABI)
         run: flutter build apk --release --split-per-abi
 
