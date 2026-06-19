@@ -36,7 +36,11 @@ class _FakeConnectivity implements ConnectivityService {
 /// hold downloads in flight and observe how many run at once ([maxActive]).
 /// [error] is mutable so a test can fail an attempt, then clear it and retry.
 class _FakeRemoteDownloader implements RemoteTrackDownloader {
-  _FakeRemoteDownloader({this.error, this.gate});
+  _FakeRemoteDownloader({
+    this.error,
+    this.gate,
+    this.schemes = const <String>['jellyfin:'],
+  });
 
   /// The canned bytes every successful fetch returns.
   static const List<int> bytes = <int>[1, 2, 3, 4];
@@ -47,13 +51,18 @@ class _FakeRemoteDownloader implements RemoteTrackDownloader {
   /// When set, [fetch] awaits this before completing.
   final Future<void>? gate;
 
+  /// The remote URI schemes this fake claims. Defaults to Jellyfin so existing
+  /// tests are unchanged; the Plex group overrides it (and the isolation test
+  /// claims both providers at once).
+  final List<String> schemes;
+
   int fetchCount = 0;
   int activeNow = 0;
   int maxActive = 0;
   final List<Track> fetched = <Track>[];
 
   @override
-  bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
+  bool isRemote(Track track) => schemes.any(track.uri.startsWith);
 
   @override
   Future<RemoteTrackData> fetch(
@@ -1139,6 +1148,119 @@ void main() {
         // bytes were pulled exactly once (not just de-duplicated at commit).
         expect(downloader.fetchCount, 1);
       });
+    });
+  });
+
+  group('CacheDownloadRepository — Plex tracks (provider-aware caching)', () {
+    late InMemoryDownloadStore store;
+    late InMemoryOfflineFileStore files;
+    late InMemoryDownloadPreferences preferences;
+    late _FakeConnectivity connectivity;
+    late _FakeRemoteDownloader plexDownloader;
+
+    CacheDownloadRepository build({RemoteTrackDownloader? downloader}) =>
+        CacheDownloadRepository(
+          store: store,
+          files: files,
+          downloader: downloader ?? plexDownloader,
+          connectivity: connectivity,
+          preferences: preferences,
+        );
+
+    setUp(() {
+      store = InMemoryDownloadStore();
+      files = InMemoryOfflineFileStore();
+      preferences = InMemoryDownloadPreferences();
+      connectivity = _FakeConnectivity(NetworkStatus.wifi);
+      plexDownloader = _FakeRemoteDownloader(schemes: const <String>['plex:']);
+    });
+
+    Track plex(String id) => Track(id: id, title: id, uri: 'plex:$id');
+
+    test('downloads a Plex track and tags the persisted entry as plex',
+        () async {
+      final repo = build();
+
+      final outcome = await repo.requestDownload(plex('101'));
+
+      expect(outcome, DownloadRequestOutcome.started);
+      expect(await repo.statusFor('101'), DownloadStatus.downloaded);
+      // Bytes are stored under the non-secret ratingKey id; no token anywhere.
+      expect(files.bytesFor('101.mp3'), _FakeRemoteDownloader.bytes);
+      final saved = await store.loadDownloads();
+      expect(saved, hasLength(1));
+      expect(saved.single.trackId, '101');
+      expect(saved.single.fileName, '101.mp3');
+      // The source type marks it as Plex — how the cache stays provider-aware.
+      expect(saved.single.sourceType, 'plex');
+    });
+
+    test('a cached Plex track survives a restart (metadata persists)',
+        () async {
+      await build().requestDownload(plex('101'));
+
+      // A fresh repository over the same durable stores re-loads the download.
+      final reborn = build();
+      expect(await reborn.statusFor('101'), DownloadStatus.downloaded);
+      final snapshot = await reborn.cacheSnapshot();
+      expect(
+        snapshot.entries.map((CachedTrack e) => e.trackId),
+        contains('101'),
+      );
+    });
+
+    test('removing a cached Plex track deletes its file and clears status',
+        () async {
+      final repo = build();
+      await repo.requestDownload(plex('101'));
+      expect(files.bytesFor('101.mp3'), isNotNull);
+
+      await repo.removeDownload('101');
+
+      expect(await repo.statusFor('101'), DownloadStatus.notDownloaded);
+      expect(files.bytesFor('101.mp3'), isNull);
+      expect(await store.loadDownloads(), isEmpty);
+    });
+
+    test('a failed Plex fetch marks it failed and caches nothing', () async {
+      // A cache failure must not break streaming: the track is simply marked
+      // failed (offering retry) and no file/metadata is written, so playback
+      // streams normally when the track is reached.
+      plexDownloader.error = StateError('Plex download failed.');
+      final repo = build();
+
+      await repo.requestDownload(plex('101'));
+
+      expect(await repo.statusFor('101'), DownloadStatus.failed);
+      expect(files.bytesFor('101.mp3'), isNull);
+      expect(await store.loadDownloads(), isEmpty);
+    });
+
+    test('Plex and Jellyfin copies cache independently — no cross-conflict',
+        () async {
+      // One downloader that claims both providers, so both tracks cache through
+      // the same repository. They must persist as two distinct, correctly-tagged
+      // entries — a Plex cache can never shadow or evict a Jellyfin one.
+      final both = _FakeRemoteDownloader(
+        schemes: const <String>['plex:', 'jellyfin:'],
+      );
+      final repo = build(downloader: both);
+
+      await repo.requestDownload(plex('101'));
+      await repo.requestDownload(_jellyfin('j1'));
+
+      expect(await repo.statusFor('101'), DownloadStatus.downloaded);
+      expect(await repo.statusFor('j1'), DownloadStatus.downloaded);
+      final saved = await store.loadDownloads();
+      final byId = <String, CachedTrack>{
+        for (final CachedTrack c in saved) c.trackId: c,
+      };
+      expect(byId['101']!.sourceType, 'plex');
+      expect(byId['j1']!.sourceType, 'jellyfin');
+      expect(byId['101']!.fileName, '101.mp3');
+      expect(byId['j1']!.fileName, 'j1.mp3');
+      expect(files.bytesFor('101.mp3'), isNotNull);
+      expect(files.bytesFor('j1.mp3'), isNotNull);
     });
   });
 }

@@ -134,6 +134,41 @@ void main() {
       );
     });
 
+    test('prefers a cached Plex file, reporting the offline-cache source',
+        () async {
+      // Provider-agnostic: a plex: track resolves to its cached file exactly
+      // like a Jellyfin one — cached playback source selection.
+      const plex = Track(id: '101', title: 'Nightcall', uri: 'plex:101');
+      final fallback = _RecordingResolver(Uri.parse('https://plex/stream/101'));
+      final resolver = OfflineFirstPlayableUriResolver(
+        locator: _FakeLocator('/offline_audio/101.flac'),
+        fallback: fallback,
+      );
+
+      final resolved = await resolver.resolve(plex);
+
+      expect(resolved.uri.toFilePath(), '/offline_audio/101.flac');
+      expect(resolved.source, PlaybackSource.offlineCache);
+      expect(fallback.resolved, isNull);
+    });
+
+    test('streams a Plex track when its cache file is gone (locator null)',
+        () async {
+      // The locator returns null once the bytes are gone, so playback falls
+      // back to the Plex stream rather than opening a missing file.
+      const plex = Track(id: '101', title: 'Nightcall', uri: 'plex:101');
+      final fallback = _RecordingResolver(Uri.parse('https://plex/stream/101'));
+      final resolver = OfflineFirstPlayableUriResolver(
+        locator: _FakeLocator(null),
+        fallback: fallback,
+      );
+
+      final resolved = await resolver.resolve(plex);
+
+      expect(resolved.source, PlaybackSource.streamingDirect);
+      expect(fallback.resolved, plex);
+    });
+
     test('handles delegates to the fallback', () {
       final resolver = OfflineFirstPlayableUriResolver(
         locator: _FakeLocator(null),
