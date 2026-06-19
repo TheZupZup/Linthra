@@ -264,21 +264,26 @@ abstract final class MusicProviders {
   /// (badged Experimental) lets the user connect with a manual server URL +
   /// token and pick which music libraries to include.
   ///
-  /// Stream + lyrics: caching, favorites, playlists, and cast stay declared
-  /// unsupported so their actions stay hidden/disabled rather than failing —
-  /// exactly how Subsonic shipped streaming first. Lyrics are fetched on demand
-  /// from the track's Plex lyric stream (synced `.lrc` or plain), the one read
-  /// beyond streaming. Cast stays off in phase 1 to keep the credential-in-URL
-  /// surface small (a Plex stream URL carries the token as a query param).
+  /// Stream, lyrics, and offline caching are implemented; favorites, playlists,
+  /// and cast stay declared unsupported so their actions stay hidden/disabled
+  /// rather than failing — exactly how Subsonic shipped streaming first.
+  /// Caching fetches the original Part file (`download=1`) through the shared,
+  /// provider-agnostic offline cache, keyed by the stable `plex:<ratingKey>`
+  /// identity and named only from the non-secret track id, so the token never
+  /// reaches a cache file (docs/plex.md → Token safety rules). Lyrics are
+  /// fetched on demand from the track's Plex lyric stream (synced `.lrc` or
+  /// plain). Cast stays off in phase 1 to keep the credential-in-URL surface
+  /// small (a Plex stream URL carries the token as a query param).
   static const MusicProvider plex = MusicProvider(
     sourceId: 'plex',
     displayName: 'Plex',
     serverUrlLabel: 'Server URL',
     capabilities: MusicProviderCapabilities(
       canStream: true,
-      // Offline caching is a documented follow-up (docs/plex.md → Out of
-      // scope), so there is no app-managed copy to remove either.
-      canCache: false,
+      // Offline caching fetches the original Part file into the shared cache,
+      // named only from the non-secret track id — so an app-managed copy exists
+      // to remove (canRemoveOfflineCopy below).
+      canCache: true,
       canFavoriteTracks: false,
       canReadFavoriteState: false,
       canSyncFavorites: false,
@@ -287,7 +292,7 @@ abstract final class MusicProviders {
       canLyrics: true,
       canCast: false,
       canRemoveFromLibrary: true,
-      canRemoveOfflineCopy: false,
+      canRemoveOfflineCopy: true,
       canDeleteLocalFile: false,
       // Phase 1 is read-only: Linthra never writes to a Plex server.
       canDeleteRemoteItem: false,

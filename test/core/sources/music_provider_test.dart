@@ -46,16 +46,20 @@ void main() {
       expect(caps.canListPlaylists, isFalse);
     });
 
-    test('plex: stream + lyrics in phase 1 (docs/plex.md capability matrix)',
+    test('plex: stream + lyrics + caching in phase 1 (docs/plex.md matrix)',
         () {
       final caps = MusicProviders.plex.capabilities;
       expect(caps.canStream, isTrue);
       // Lyrics are fetched on demand from the track's Plex lyric stream (synced
-      // `.lrc` or plain), so they read ✅ — the one capability beyond streaming.
+      // `.lrc` or plain), so they read ✅.
       expect(caps.canLyrics, isTrue);
+      // Offline caching fetches the original Part file into the shared cache,
+      // keyed by the stable plex:<ratingKey> identity and named only from the
+      // non-secret track id — so it caches ✅ and the copy can be removed ✅.
+      expect(caps.canCache, isTrue);
+      expect(caps.canRemoveOfflineCopy, isTrue);
       // Everything else is declared unsupported so its actions stay hidden/
       // disabled rather than failing — exactly how Subsonic deferred features.
-      expect(caps.canCache, isFalse);
       expect(caps.canFavoriteTracks, isFalse);
       expect(caps.canReadFavoriteState, isFalse);
       expect(caps.canSyncFavorites, isFalse);
@@ -66,8 +70,6 @@ void main() {
       expect(caps.canEditPlaylist, isFalse);
       expect(caps.canDeletePlaylist, isFalse);
       expect(caps.canSyncPlaylists, isFalse);
-      // No cache means no app-managed offline copy to remove.
-      expect(caps.canRemoveOfflineCopy, isFalse);
     });
 
     test('identity fields', () {
@@ -91,6 +93,8 @@ void main() {
       // providers do.
       expect(MusicProviders.local.capabilities.canRemoveOfflineCopy, isFalse);
       expect(MusicProviders.jellyfin.capabilities.canRemoveOfflineCopy, isTrue);
+      expect(MusicProviders.subsonic.capabilities.canRemoveOfflineCopy, isTrue);
+      expect(MusicProviders.plex.capabilities.canRemoveOfflineCopy, isTrue);
 
       // Destructive file/server deletes are not enabled in this release for any
       // provider, so those actions stay hidden everywhere. Plex is additionally
