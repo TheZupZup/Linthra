@@ -43,6 +43,12 @@ abstract final class PlexEndpoints {
   /// `X-Plex-Token` *header* instead, so it never reaches a logged API URL.
   static const String tokenParam = 'X-Plex-Token';
 
+  /// Whether PMS should serve a Part as a direct file download (`1`) instead of
+  /// a playable stream. Set on [downloadUrl] so the offline cache fetches the
+  /// original media bytes (no transcode) and the fetch isn't registered as a
+  /// play/session on the server.
+  static const String downloadParam = 'download';
+
   /// The numeric metadata `type` selector for a section listing (8/9/10).
   static const String typeParam = 'type';
 
@@ -188,6 +194,27 @@ abstract final class PlexEndpoints {
     required String token,
   }) =>
       _withToken(_join(baseUrl, partKey), token);
+
+  /// The direct-download URL for a track's [partKey] — the original media file,
+  /// for the offline cache. The mirror of [streamUrl]: the same server-absolute
+  /// Part path (`/library/parts/…`, appended to [baseUrl] as-is) and the same
+  /// token-in-query rule, with `download=1` added so PMS serves the original
+  /// bytes as a plain file (no transcode decision) and doesn't register the
+  /// fetch as a play. Like [streamUrl] it is fetched by an HTTP client that
+  /// can't set headers, so the [token] rides in the **query** — woven in here,
+  /// on demand at fetch time, never stored on a [Track] or in the catalog. A
+  /// query the Part key already carries is preserved ahead of `download=1`,
+  /// exactly as [_withToken] preserves it ahead of the token.
+  static Uri downloadUrl(
+    String baseUrl, {
+    required String partKey,
+    required String token,
+  }) {
+    final Uri part = _join(baseUrl, partKey);
+    final String query =
+        part.hasQuery ? '${part.query}&$downloadParam=1' : '$downloadParam=1';
+    return _withToken(part.replace(query: query), token);
+  }
 
   /// The cover-art URL for an item's `thumb` path. Two shapes, exactly mirroring
   /// how `SubsonicEndpoints.coverArt` treats its `size` so both providers feed

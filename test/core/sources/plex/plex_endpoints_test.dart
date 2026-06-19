@@ -214,6 +214,44 @@ void main() {
     });
   });
 
+  group('PlexEndpoints.downloadUrl (original file + token in the query)', () {
+    const String partKey = '/library/parts/12345/167/file.flac';
+
+    test('appends the server-absolute Part key to the base URL', () {
+      final Uri uri =
+          PlexEndpoints.downloadUrl(_base, partKey: partKey, token: _token);
+      expect(uri.path, '/library/parts/12345/167/file.flac');
+      expect(uri.host, 'plex.example.com');
+      expect(uri.port, 32400);
+    });
+
+    test('asks PMS for the original file with download=1', () {
+      final Uri uri =
+          PlexEndpoints.downloadUrl(_base, partKey: partKey, token: _token);
+      expect(uri.queryParameters[PlexEndpoints.downloadParam], '1');
+    });
+
+    test('weaves the token into the query — never the path', () {
+      final Uri uri =
+          PlexEndpoints.downloadUrl(_base, partKey: partKey, token: _token);
+      expect(uri.queryParameters[PlexEndpoints.tokenParam], _token);
+      expect(uri.path, isNot(contains(_token)));
+    });
+
+    test('merges download=1 and the token into a query the key already carried',
+        () {
+      final Uri uri = PlexEndpoints.downloadUrl(
+        _base,
+        partKey: '/library/parts/12345/167/file.flac?foo=bar',
+        token: _token,
+      );
+      expect(uri.path, '/library/parts/12345/167/file.flac');
+      expect(uri.queryParameters['foo'], 'bar');
+      expect(uri.queryParameters[PlexEndpoints.downloadParam], '1');
+      expect(uri.queryParameters[PlexEndpoints.tokenParam], _token);
+    });
+  });
+
   group('PlexEndpoints.coverArt (thumb path + token in the query)', () {
     const String thumb = '/library/metadata/123/thumb/1670000000';
 

@@ -304,6 +304,77 @@ void main() {
     });
   });
 
+  group('resolveDownloadUri', () {
+    const Track track = Track(id: '301', title: 'Nightcall', uri: 'plex:301');
+
+    test(
+        'looks up the Part and mints the original-file (download=1) URL only '
+        'then', () async {
+      client.metadataByRatingKey = const <String, PlexMetadata>{
+        '301': PlexMetadata(
+          ratingKey: '301',
+          type: 'track',
+          title: 'Nightcall',
+          media: <PlexMedia>[
+            PlexMedia(parts: <PlexPart>[
+              PlexPart(key: '/library/parts/9001/1700000000/file.flac'),
+            ]),
+          ],
+        ),
+      };
+
+      final uri = await source().resolveDownloadUri(track);
+
+      // Same two-step lookup the play path uses, keyed by the opaque uri.
+      expect(client.requestedRatingKeys, <String>['301']);
+      // The download URL fetches the Part's original bytes (download=1), with
+      // the token woven into its query only now, at fetch time.
+      expect(uri, isNotNull);
+      expect(uri!.path, '/library/parts/9001/1700000000/file.flac');
+      expect(uri.queryParameters['download'], '1');
+      expect(uri.queryParameters['X-Plex-Token'], _token);
+      // The track itself still carries the opaque, token-free reference.
+      expect(track.uri, 'plex:301');
+    });
+
+    test('returns null when the item carries no playable part', () async {
+      client.metadataByRatingKey = const <String, PlexMetadata>{
+        '301': PlexMetadata(ratingKey: '301', type: 'track', title: 'x'),
+      };
+      expect(await source().resolveDownloadUri(track), isNull);
+    });
+
+    test('a vanished item surfaces as a typed, token-free PlexException', () {
+      expect(
+        () => source().resolveDownloadUri(track),
+        throwsA(isA<PlexException>()
+            .having((e) => e.kind, 'kind', PlexErrorKind.notFound)
+            .having((e) => e.message, 'message', isNot(contains(_token)))
+            .having((e) => e.toString(), 'toString', isNot(contains(_token)))),
+      );
+    });
+
+    test('a Part key that is not server-absolute fails typed, never corrupt',
+        () async {
+      client.metadataByRatingKey = const <String, PlexMetadata>{
+        '301': PlexMetadata(
+          ratingKey: '301',
+          type: 'track',
+          title: 'x',
+          media: <PlexMedia>[
+            PlexMedia(parts: <PlexPart>[PlexPart(key: 'file.flac')]),
+          ],
+        ),
+      };
+      await expectLater(
+        source().resolveDownloadUri(track),
+        throwsA(isA<PlexException>()
+            .having((e) => e.kind, 'kind', PlexErrorKind.unsupportedResponse)
+            .having((e) => e.message, 'message', isNot(contains(_token)))),
+      );
+    });
+  });
+
   test('verifyReachable checks the server identity with the session', () async {
     await source().verifyReachable();
     expect(client.identityCount, 1);

@@ -6,6 +6,7 @@ import '../../services/music_source.dart';
 import '../../services/playback_diagnostics.dart';
 import 'plex_api.dart';
 import 'plex_client.dart';
+import 'plex_download_source.dart';
 import 'plex_endpoints.dart';
 import 'plex_exception.dart';
 import 'plex_stream_source.dart';
@@ -38,7 +39,8 @@ import 'plex_track_mapper.dart';
 /// token-free `PlexException` before the audio engine ever touches a URL. Only
 /// then is the tokenized stream URL minted — the token never reaches a
 /// [Track], the catalog, or an error message.
-class PlexMusicSource implements MusicSource, PlexStreamSource {
+class PlexMusicSource
+    implements MusicSource, PlexStreamSource, PlexDownloadSource {
   const PlexMusicSource({required this.session, required PlexClient client})
       : _client = client;
 
@@ -116,19 +118,43 @@ class PlexMusicSource implements MusicSource, PlexStreamSource {
   }
 
   /// Resolves a `plex:<ratingKey>` track to its direct-play stream URL on
-  /// demand: fetch `GET /library/metadata/{ratingKey}`, read the first `Part`
-  /// key, and mint `{baseUrl}{partKey}?X-Plex-Token=…` — the only moment the
-  /// token is woven into a URL, which is handed to the audio engine and never
-  /// persisted. Returns `null` when the item carries no playable part.
-  ///
-  /// Throws a token-free `PlexException` when the lookup fails (item gone,
-  /// token rejected, server unreachable) — and *only* `PlexException`: a track
-  /// whose uri carries no ratingKey at all (a corrupt catalog row) fails as
-  /// [PlexErrorKind.notFound] without issuing a junk request, and a Part key
-  /// the URL builder can't use fails as [PlexErrorKind.unsupportedResponse]
-  /// rather than escaping as an untyped [FormatException].
+  /// demand: look up its first `Part` key (see [_resolvePartKey]) and mint
+  /// `{baseUrl}{partKey}?X-Plex-Token=…` — the only moment the token is woven
+  /// into a stream URL, which is handed to the audio engine and never persisted.
+  /// Returns `null` when the item carries no playable part.
   @override
   Future<Uri?> resolvePlayableUri(Track track) async {
+    final String? partKey = await _resolvePartKey(track);
+    if (partKey == null) return null;
+    return _mintStreamUrl(partKey);
+  }
+
+  /// Resolves a `plex:<ratingKey>` track to its original file's *download* URL
+  /// on demand — the bytes the offline cache stores. The mirror of
+  /// [resolvePlayableUri]: the same `Part` lookup ([_resolvePartKey]), but mints
+  /// a `download=1` Part URL ([PlexEndpoints.downloadUrl]) so PMS serves the
+  /// original media (not a transcode) and doesn't count the fetch as a play. The
+  /// token is woven into the query only now, at fetch time, handed to the
+  /// downloader and never persisted. Returns `null` when the item carries no
+  /// part; throws the same typed, token-free [PlexException] family the play
+  /// path does.
+  @override
+  Future<Uri?> resolveDownloadUri(Track track) async {
+    final String? partKey = await _resolvePartKey(track);
+    if (partKey == null) return null;
+    return _mintDownloadUrl(partKey);
+  }
+
+  /// The first playable `Part` key for [track]'s `plex:<ratingKey>` item, via a
+  /// `GET /library/metadata/{ratingKey}` lookup, or `null` when the item carries
+  /// no part. Shared by the stream- and download-URL resolvers so both read the
+  /// same Part the same way and surface the same typed failures.
+  ///
+  /// Throws a token-free `PlexException` when the lookup fails (item gone, token
+  /// rejected, server unreachable) — and *only* `PlexException`: a track whose
+  /// uri carries no ratingKey at all (a corrupt catalog row) fails as
+  /// [PlexErrorKind.notFound] without issuing a junk request.
+  Future<String?> _resolvePartKey(Track track) async {
     final String ratingKey = _ratingKey(track);
     if (ratingKey.trim().isEmpty) {
       // No ratingKey can name no item; `GET /library/metadata/` (no id) is a
@@ -148,9 +174,7 @@ class PlexMusicSource implements MusicSource, PlexStreamSource {
       resolver: 'PlexMusicSource',
       itemId: ratingKey,
     );
-    final String? partKey = item.firstPartKey;
-    if (partKey == null) return null;
-    return _mintStreamUrl(partKey);
+    return item.firstPartKey;
   }
 
   /// Mints the tokenized direct-play URL for [partKey] — the only call site of
@@ -168,6 +192,26 @@ class PlexMusicSource implements MusicSource, PlexStreamSource {
     }
     try {
       return PlexEndpoints.streamUrl(
+        session.baseUrl,
+        partKey: partKey,
+        token: session.token,
+      );
+    } on FormatException {
+      throw PlexException.unsupportedResponse();
+    }
+  }
+
+  /// Mints the tokenized download URL for [partKey] — the only call site of
+  /// [PlexEndpoints.downloadUrl]. Applies the same server-absolute-path guard as
+  /// [_mintStreamUrl], so an unusable Part key fails as the typed "response
+  /// Linthra could not use" rather than a corrupt URL or an untyped
+  /// [FormatException].
+  Uri _mintDownloadUrl(String partKey) {
+    if (!partKey.startsWith('/')) {
+      throw PlexException.unsupportedResponse();
+    }
+    try {
+      return PlexEndpoints.downloadUrl(
         session.baseUrl,
         partKey: partKey,
         token: session.token,
