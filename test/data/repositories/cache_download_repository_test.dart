@@ -117,6 +117,8 @@ class _SpyOfflineFileStore implements OfflineFileStore {
 
 Track _local(String id) => Track(id: id, title: id, uri: 'file:///$id.mp3');
 Track _jellyfin(String id) => Track(id: id, title: id, uri: 'jellyfin:$id');
+Track _plex(String id) => Track(id: id, title: id, uri: 'plex:$id');
+Track _subsonic(String id) => Track(id: id, title: id, uri: 'subsonic:$id');
 
 void main() {
   group('CacheDownloadRepository', () {
@@ -495,7 +497,7 @@ void main() {
 
       CacheDownloadRepository buildLimited({
         required int maxBytes,
-        String? Function()? currentlyPlaying,
+        Track? Function()? currentlyPlaying,
         DateTime Function()? now,
       }) {
         preferences = InMemoryDownloadPreferences(maxCacheBytes: maxBytes);
@@ -505,7 +507,7 @@ void main() {
           downloader: downloader,
           connectivity: connectivity,
           preferences: preferences,
-          currentlyPlayingTrackId: currentlyPlaying,
+          currentlyPlayingTrack: currentlyPlaying,
           now: now,
         );
       }
@@ -589,7 +591,7 @@ void main() {
       test('the currently playing track is never evicted', () async {
         final repository = buildLimited(
           maxBytes: 10,
-          currentlyPlaying: () => 'j1',
+          currentlyPlaying: () => _jellyfin('j1'),
           now: incrementingClock(),
         );
 
@@ -972,7 +974,7 @@ void main() {
           downloader: downloader,
           connectivity: connectivity,
           preferences: preferences,
-          currentlyPlayingTrackId: () => 'now',
+          currentlyPlayingTrack: () => _jellyfin('now'),
         );
         await repository.prefetch(_jellyfin('now'));
         expect((await store.loadDownloads()).single.trackId, 'now');
@@ -1320,6 +1322,185 @@ void main() {
       expect(remaining.single.sourceType, 'jellyfin');
       expect(files.bytesFor('plex_101.mp3'), isNull);
       expect(files.bytesFor('jellyfin_101.mp3'), isNotNull);
+    });
+  });
+
+  // Smart cleanup is one shared, provider-agnostic policy: every offline-capable
+  // remote provider (Plex, Jellyfin, Subsonic/Navidrome) caches through the same
+  // repository and is evicted by the same LRU rules — keyed by the provider-aware
+  // (sourceType, trackId) identity so same-id tracks never shadow or evict each
+  // other. These tests drive one repository whose downloader claims all three.
+  group('CacheDownloadRepository — provider-agnostic smart cleanup', () {
+    late InMemoryDownloadStore store;
+    late InMemoryOfflineFileStore files;
+    late InMemoryDownloadPreferences preferences;
+    late _FakeConnectivity connectivity;
+    late _FakeRemoteDownloader downloader;
+
+    // A clock that advances one minute per call, so least-recently-used ordering
+    // is deterministic across providers.
+    DateTime Function() incrementingClock() {
+      int tick = 0;
+      return () => DateTime(2024, 1, 1).add(Duration(minutes: tick++));
+    }
+
+    CacheDownloadRepository buildLimited({
+      required int maxBytes,
+      Track? Function()? currentlyPlaying,
+      DateTime Function()? now,
+    }) {
+      preferences = InMemoryDownloadPreferences(maxCacheBytes: maxBytes);
+      return CacheDownloadRepository(
+        store: store,
+        files: files,
+        downloader: downloader,
+        connectivity: connectivity,
+        preferences: preferences,
+        currentlyPlayingTrack: currentlyPlaying,
+        now: now,
+      );
+    }
+
+    setUp(() {
+      store = InMemoryDownloadStore();
+      files = InMemoryOfflineFileStore();
+      connectivity = _FakeConnectivity(NetworkStatus.wifi);
+      downloader = _FakeRemoteDownloader(
+        schemes: const <String>['plex:', 'jellyfin:', 'subsonic:'],
+      );
+    });
+
+    test('a Subsonic/Navidrome track is evicted like any other provider',
+        () async {
+      final repo = buildLimited(maxBytes: 10, now: incrementingClock());
+
+      await repo.requestDownload(_subsonic('s1')); // oldest
+      await repo.requestDownload(_subsonic('s2'));
+      await repo.requestDownload(_subsonic('s3')); // forces eviction
+
+      expect(await repo.statusFor('s1'), DownloadStatus.notDownloaded);
+      expect(await repo.statusFor('s2'), DownloadStatus.downloaded);
+      expect(await repo.statusFor('s3'), DownloadStatus.downloaded);
+      expect(files.bytesFor('subsonic_s1.mp3'), isNull);
+    });
+
+    test('eviction ranks Plex, Jellyfin, and Subsonic together as one LRU list',
+        () async {
+      // Room for three 4-byte tracks; a fourth evicts the least-recently-used
+      // across ALL providers (the plex track cached first).
+      final repo = buildLimited(maxBytes: 12, now: incrementingClock());
+
+      await repo.requestDownload(_plex('a')); // oldest, across providers
+      await repo.requestDownload(_jellyfin('b'));
+      await repo.requestDownload(_subsonic('c'));
+      await repo.requestDownload(_jellyfin('d')); // forces one eviction
+
+      expect(await repo.statusFor('a'), DownloadStatus.notDownloaded);
+      expect(await repo.statusFor('b'), DownloadStatus.downloaded);
+      expect(await repo.statusFor('c'), DownloadStatus.downloaded);
+      expect(await repo.statusFor('d'), DownloadStatus.downloaded);
+      expect(files.bytesFor('plex_a.mp3'), isNull);
+    });
+
+    test('a recently played cross-provider track is kept; a stale one evicted',
+        () async {
+      final repo = buildLimited(maxBytes: 12, now: incrementingClock());
+
+      await repo.requestDownload(_plex('a')); // oldest
+      await repo.requestDownload(_jellyfin('b'));
+      await repo.requestDownload(_subsonic('c'));
+      // Replaying the oldest (Plex 'a') makes the Jellyfin 'b' the LRU now.
+      await repo.notePlayed(_plex('a'));
+      await repo.requestDownload(_subsonic('d')); // forces one eviction
+
+      expect(await repo.statusFor('a'), DownloadStatus.downloaded); // refreshed
+      expect(await repo.statusFor('b'), DownloadStatus.notDownloaded); // stale
+      expect(await repo.statusFor('c'), DownloadStatus.downloaded);
+      expect(await repo.statusFor('d'), DownloadStatus.downloaded);
+    });
+
+    test('a download evicts a same-id track from another provider (no shadow)',
+        () async {
+      // The exact same-id collision: subsonic:101 is cached and is the only
+      // evictable track; downloading plex:101 (same catalog id, different
+      // provider) must EVICT it to fit — never treat it as the incoming track's
+      // own old copy and silently overshoot the limit.
+      final repo = buildLimited(maxBytes: 4, now: incrementingClock());
+
+      await repo.requestDownload(_subsonic('101'));
+      expect(await repo.statusFor('101'), DownloadStatus.downloaded);
+
+      final outcome = await repo.requestDownload(_plex('101'));
+      expect(outcome, DownloadRequestOutcome.started);
+
+      // subsonic:101 gave way; plex:101 is the lone copy and the limit held.
+      final saved = await store.loadDownloads();
+      expect(saved, hasLength(1));
+      expect(saved.single.sourceType, 'plex');
+      expect(files.bytesFor('subsonic_101.mp3'), isNull);
+      expect(files.bytesFor('plex_101.mp3'), isNotNull);
+      expect((await repo.cacheSnapshot()).usedBytes, 4);
+    });
+
+    test('the playing track is protected per-provider, not by bare id',
+        () async {
+      // plex:101 is playing; a jellyfin:101 with the SAME id is a different
+      // track and must stay evictable — only the playing provider's copy is safe.
+      final repo = buildLimited(
+        maxBytes: 8,
+        currentlyPlaying: () => _plex('101'),
+        now: incrementingClock(),
+      );
+
+      await repo.requestDownload(_plex('101')); // playing
+      await repo.requestDownload(_jellyfin('101')); // same id, other provider
+      await repo.requestDownload(_subsonic('x')); // full → forces one eviction
+
+      final Set<String?> sources =
+          (await store.loadDownloads()).map((c) => c.sourceType).toSet();
+      expect(sources, containsAll(<String>['plex', 'subsonic']));
+      // The same-id, non-playing Jellyfin copy was evicted, not the playing one.
+      expect(sources, isNot(contains('jellyfin')));
+      expect(files.bytesFor('plex_101.mp3'), isNotNull);
+      expect(files.bytesFor('jellyfin_101.mp3'), isNull);
+    });
+
+    test('pre-cache continues after cleanup frees cross-provider space',
+        () async {
+      // A Jellyfin pre-cache fills the cache; a Plex pre-cache then evicts it
+      // (pre-cached entries are sacrificed first) and caches itself — pre-cache
+      // resumes after cleanup, and the limit holds.
+      final repo = buildLimited(maxBytes: 4, now: incrementingClock());
+
+      await repo.prefetch(_jellyfin('old'));
+      expect((await store.loadDownloads()).single.trackId, 'old');
+
+      await repo.prefetch(_plex('new'));
+
+      final saved = await store.loadDownloads();
+      expect(saved, hasLength(1));
+      expect(saved.single.sourceType, 'plex');
+      expect(saved.single.trackId, 'new');
+      expect(saved.single.preloaded, isTrue);
+      expect((await repo.cacheSnapshot()).usedBytes, 4);
+    });
+
+    test('pre-cache is skipped safely when cleanup cannot free enough',
+        () async {
+      // The cache is full of a pinned download (never evictable). A pre-cache
+      // must skip rather than break — no fetch, no throw, nothing cached.
+      final repo = buildLimited(maxBytes: 4, now: incrementingClock());
+      await repo.requestDownload(_jellyfin('pinned'));
+      await repo.setPinned(_jellyfin('pinned'), true);
+
+      await repo.prefetch(_plex('want')); // no room, nothing safe to evict
+
+      final saved = await store.loadDownloads();
+      expect(saved, hasLength(1));
+      expect(saved.single.trackId, 'pinned');
+      expect(
+          downloader.fetched.any((Track t) => t.uri == 'plex:want'), isFalse);
+      expect((await repo.cacheSnapshot()).usedBytes, 4);
     });
   });
 }

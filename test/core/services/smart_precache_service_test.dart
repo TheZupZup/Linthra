@@ -114,6 +114,24 @@ void main() {
       await service.dispose();
     });
 
+    test('honours a large configured count beyond the old 10 ceiling',
+        () async {
+      // The pre-cache loop reads the configured count — there is no hardcoded
+      // 10 — so a user choosing 20 warms 20 upcoming tracks, not 10.
+      preferences = InMemoryDownloadPreferences(precacheCount: 20);
+      final service = build();
+
+      final upNext = <Track>[for (int i = 0; i < 30; i++) _t('t$i')];
+      states.add(_playing(_t('cur'), upNext));
+      await _settle();
+
+      expect(
+        prefetcher.prefetched,
+        <String>[for (int i = 0; i < 20; i++) 't$i'],
+      );
+      await service.dispose();
+    });
+
     test('shuffle uses the shuffled upcoming order', () async {
       preferences = InMemoryDownloadPreferences(precacheCount: 3);
       final service = build();

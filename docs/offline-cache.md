@@ -77,12 +77,12 @@ wanted.
 
 ## Smart pre-cache follows the same policy
 
-Smart pre-cache warms a small, fixed number of **upcoming** queued tracks (1, 3,
-5, or 10 — configurable in **Settings → Smart pre-cache**) so the next songs
-start instantly and play offline. It is deliberately modest and **never
-downloads the whole library**. It follows the **same mobile-data policy** as
-manual downloads: on Wi-Fi always, on mobile data only when you've allowed it,
-and never offline. Pre-cache is best-effort — when the connection isn't allowed
+Smart pre-cache warms a small number of **upcoming** queued tracks (1, 3, 5, 10,
+20, or 50 — or a custom value up to 200 — configurable in **Settings → Smart
+pre-cache**, default 3) so the next songs start instantly and play offline. It
+is deliberately modest and **never downloads the whole library**. It follows the
+**same mobile-data policy** as manual downloads: on Wi-Fi always, on mobile data
+only when you've allowed it, and never offline. Pre-cache is best-effort — when the connection isn't allowed
 it simply skips (it doesn't queue), and pre-cached tracks are the first to be
 evicted under the cache limit.
 

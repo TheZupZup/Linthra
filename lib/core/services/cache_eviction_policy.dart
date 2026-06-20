@@ -23,6 +23,12 @@ class EvictionPlan {
 /// returns a plan — which keeps the rules exhaustively testable and the
 /// repository free of branching policy logic.
 ///
+/// Provider-agnostic but provider-aware: it ranks and evicts cached tracks from
+/// every remote source together (Jellyfin, Subsonic/Navidrome, Plex) by the same
+/// rules, and identifies the incoming and protected tracks by the provider-aware
+/// [CachedTrack.cacheKey] (`scheme + id`), so two providers that expose the same
+/// catalog id never shadow, protect, or evict each other.
+///
 /// Rules, in order:
 ///  - On-device tracks and zero-byte records don't count toward the budget and
 ///    are never evicted (they hold no app-managed bytes).
@@ -42,20 +48,22 @@ class CacheEvictionPolicy {
     required Iterable<CachedTrack> cached,
     required int incomingBytes,
     required int maxBytes,
-    String? protectTrackId,
-    String? incomingTrackId,
+    String? protectKey,
+    String? incomingKey,
   }) {
     int used = 0;
     final List<CachedTrack> candidates = <CachedTrack>[];
     for (final CachedTrack track in cached) {
       // A re-download replaces its own old copy, so it doesn't count as
-      // already-used space and can't evict itself.
-      if (track.trackId == incomingTrackId) continue;
+      // already-used space and can't evict itself. Keyed by the provider-aware
+      // [CachedTrack.cacheKey] (scheme + id), so a same-id track from a
+      // *different* provider is never mistaken for the incoming track's copy.
+      if (track.cacheKey == incomingKey) continue;
       used += track.sizeBytes;
       final bool evictable = track.isManaged &&
           track.sizeBytes > 0 &&
           !track.pinned &&
-          track.trackId != protectTrackId;
+          track.cacheKey != protectKey;
       if (evictable) candidates.add(track);
     }
 

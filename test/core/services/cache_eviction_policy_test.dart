@@ -3,8 +3,11 @@ import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/cache_eviction_policy.dart';
 
 /// A managed cache entry (has a file + size), the only kind eviction considers.
+/// [source] is the provider scheme (`plex`/`jellyfin`/`subsonic`); when omitted
+/// the entry has no source, exercising the legacy/source-less path.
 CachedTrack _managed(
   String id, {
+  String? source,
   int size = 100,
   DateTime? accessed,
   DateTime? cached,
@@ -13,7 +16,8 @@ CachedTrack _managed(
 }) {
   return CachedTrack(
     trackId: id,
-    fileName: '$id.mp3',
+    sourceType: source,
+    fileName: '${source ?? 'x'}_$id.mp3',
     sizeBytes: size,
     lastAccessedAt: accessed,
     cachedAt: cached,
@@ -21,6 +25,10 @@ CachedTrack _managed(
     preloaded: preloaded,
   );
 }
+
+/// The provider-aware key the policy compares against, for a given `(source,
+/// id)` — mirrors [CachedTrack.cacheKey].
+String _key(String id, {String? source}) => CachedTrack.cacheKeyFor(source, id);
 
 void main() {
   const CacheEvictionPolicy policy = CacheEvictionPolicy();
@@ -102,7 +110,7 @@ void main() {
         ],
         incomingBytes: 100,
         maxBytes: 250,
-        protectTrackId: 'playing',
+        protectKey: _key('playing'),
       );
 
       expect(plan.fits, isTrue);
@@ -117,7 +125,7 @@ void main() {
         ],
         incomingBytes: 100,
         maxBytes: 250, // used 200 + 100 = 300 > 250, nothing safe to drop
-        protectTrackId: 'playing',
+        protectKey: _key('playing'),
       );
 
       expect(plan.fits, isFalse);
@@ -193,12 +201,77 @@ void main() {
         ],
         incomingBytes: 100,
         maxBytes: 200,
-        incomingTrackId: 'a', // 'a' is being re-downloaded
+        incomingKey: _key('a'), // 'a' is being re-downloaded
       );
 
       // 'a' doesn't count as existing use, so b(100) + a(100) = 200 fits.
       expect(plan.fits, isTrue);
       expect(plan.evict, isEmpty);
+    });
+
+    group('provider isolation (same id across providers)', () {
+      test('a re-download only skips its own provider, not a same-id other',
+          () {
+        // Plex 101 is being re-downloaded; a Subsonic 101 must NOT be mistaken
+        // for its old copy — it still counts toward usage and stays evictable.
+        final plan = policy.plan(
+          cached: <CachedTrack>[
+            _managed('101',
+                source: 'plex', size: 100, accessed: DateTime(2024, 1, 1)),
+            _managed('101',
+                source: 'subsonic', size: 100, accessed: DateTime(2024, 2, 1)),
+          ],
+          incomingBytes: 100,
+          // plex:101 replaces its own old copy (skipped); subsonic:101 (100)
+          // plus the incoming (100) exceed 150, so subsonic:101 must give way.
+          // Were it shadowed by the raw id, the policy would evict nothing.
+          maxBytes: 150,
+          incomingKey: _key('101', source: 'plex'),
+        );
+
+        expect(plan.fits, isTrue);
+        // The same-id Subsonic track is evicted (it was NOT shadowed away).
+        expect(plan.evict.length, 1);
+        expect(plan.evict.single.sourceType, 'subsonic');
+      });
+
+      test('protecting the playing track protects only its provider', () {
+        // Plex 101 is playing; a Jellyfin 101 with the same id is a different
+        // track and must remain evictable.
+        final plan = policy.plan(
+          cached: <CachedTrack>[
+            _managed('101',
+                source: 'plex', size: 100, accessed: DateTime(2024, 1, 1)),
+            _managed('101',
+                source: 'jellyfin', size: 100, accessed: DateTime(2024, 2, 1)),
+          ],
+          incomingBytes: 100,
+          maxBytes: 250, // must free one; the playing plex:101 is protected
+          protectKey: _key('101', source: 'plex'),
+        );
+
+        expect(plan.fits, isTrue);
+        expect(plan.evict.single.sourceType, 'jellyfin');
+      });
+    });
+
+    test('evicts least-recently-used across providers, oldest first', () {
+      // A mixed cache (Plex, Jellyfin, Subsonic) is ranked as one LRU list.
+      final plan = policy.plan(
+        cached: <CachedTrack>[
+          _managed('p', source: 'plex', size: 100, accessed: DateTime(2024, 3)),
+          _managed('j',
+              source: 'jellyfin', size: 100, accessed: DateTime(2024, 1)),
+          _managed('s',
+              source: 'subsonic', size: 100, accessed: DateTime(2024, 2)),
+        ],
+        incomingBytes: 100,
+        maxBytes: 300, // free exactly 1 of 3 → the least-recently-used 'j'
+      );
+
+      expect(plan.fits, isTrue);
+      expect(plan.evict.single.trackId, 'j');
+      expect(plan.evict.single.sourceType, 'jellyfin');
     });
   });
 }

@@ -34,10 +34,9 @@ so no secret reaches the persisted catalog.
 | Local music           | `local`    |   ✅   |  —    | ✅ local  | ✅ local  |   ✅   |  —   |
 | Jellyfin              | `jellyfin` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
 | Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  ✅  |
-| Plex                  | `plex`     |   🚧   |  🔜   |    🔜     |    🔜     |   ✅   |  🔜  |
+| Plex                  | `plex`     |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  🔜  |
 
-✅ implemented · 🚧 in development (Plex is connectable in Settings, marked
-**Experimental**) · 🔜 planned follow-up · — not applicable. "local"
+✅ implemented · 🔜 planned follow-up · — not applicable. "local"
 favourites/playlists stay on-device; "synced" ones mirror with the server
 (server is the source of truth on refresh).
 
@@ -187,17 +186,17 @@ actions stay hidden/disabled rather than failing:
 - **In-app browse/search by artist/album** — the synced catalog lists tracks;
   richer browsing is shared work across all providers.
 
-## Plex (in development, experimental)
+## Plex
 
-A **read-only** [Plex Media Server](https://www.plex.tv/) provider is being
-built in small PRs behind the same `MusicSource` seam — see [plex.md](plex.md)
-for the full design and issue #178 for the plan. **Connecting is now possible
-in Settings** (the card is clearly badged *Experimental*): the user pastes a
-server URL + Plex token, Linthra verifies them against `/identity`, persists
-the session encrypted at rest, and — unlike Jellyfin/Subsonic, which sync the
-whole server — asks the user to **pick which music libraries** to include
-(the selection is saved with the session and scopes every fetch; connected
-with nothing selected simply means an empty library).
+A **read-only** [Plex Media Server](https://www.plex.tv/) provider built behind
+the same `MusicSource` seam — see [plex.md](plex.md) for the full design and
+issue #178 for the history. **Connect from Settings** with your Plex account
+(the in-app *Connect with Plex* sign-in) or, under *Manual setup (advanced)*, a
+server URL + Plex token. Linthra verifies the server, persists the session
+encrypted at rest, and — unlike Jellyfin/Subsonic, which sync the whole
+server — asks the user to **pick which music libraries** to include (the
+selection is saved with the session and scopes every fetch; connected with
+nothing selected simply means an empty library).
 
 **Syncing follows the selection.** Choosing a library kicks a background
 catalog sync automatically (rapid checkbox changes coalesce into one re-run),
@@ -207,19 +206,19 @@ the Plex library, a sync **replaces** the catalog's Plex slice even when the
 result is empty — deselecting a library really removes its tracks. A library
 deleted on the server is pruned from the selection on the next refresh.
 **Disconnecting** removes the Plex session *and* the synced Plex rows (without
-a session — and with no offline cache in phase 1 — they could never play
-again); reconnecting to the **same** server keeps the library selection, while
-a different server starts clean.
+a session, streaming can't resolve a play URL again); reconnecting to the
+**same** server keeps the library selection, while a different server starts
+clean.
 
-Underneath, the full plumbing is wired: the stream-only capability set,
-recognition of `plex:<ratingKey>` track URIs in the playback router (two-step
-play resolution, minting the tokenized stream URL only at play time), and
-render-time resolution of credential-free `plex-thumb:` cover references.
-Phase 1 is stream-only (direct play); offline cache, favorites, playlists,
-lyrics, cast, and the plex.tv PIN sign-in are declared unsupported /
-follow-ups — and Plex follows the same token-safety rules as every other
-provider (token encrypted at rest, never logged, never shown again after
-saving, never woven into a persisted URI or cache filename).
+Underneath, the full plumbing is wired: recognition of `plex:<ratingKey>` track
+URIs in the playback router (two-step play resolution, minting the tokenized
+stream URL only at play time), and render-time resolution of credential-free
+`plex-thumb:` cover references. **Streaming, lyrics, and offline caching are
+supported**, alongside the plex.tv *Connect with Plex* sign-in; **favorites,
+playlists, and cast stay unsupported** — declared off so their actions stay
+hidden rather than offered and failing. Plex follows the same token-safety
+rules as every other provider (token encrypted at rest, never logged, never
+shown again after saving, never woven into a persisted URI or cache filename).
 
 Linthra also reports a playback **timeline**, so it appears as an active player
 in the server's Now Playing dashboard. That report is one-way, though, so the

@@ -80,7 +80,8 @@ class ProviderSummaryCard extends StatelessWidget {
   /// Renders [detail] in the error colour (e.g. a sync that didn't finish).
   final bool detailIsError;
 
-  /// An optional pill beside the title (e.g. "Experimental").
+  /// An optional status pill beside the title (e.g. "Beta"). No provider sets
+  /// one right now; kept as a small, reusable affordance.
   final String? badgeLabel;
 
   /// The action buttons, laid out as equal-width columns. Manage is always
@@ -224,8 +225,7 @@ class _StatusLine extends StatelessWidget {
   }
 }
 
-/// A muted pill beside a card's title (e.g. "Experimental"), mirroring the
-/// badge the Plex section already uses.
+/// A muted pill beside a card's title (e.g. "Beta") for an optional status tag.
 class _Badge extends StatelessWidget {
   const _Badge({required this.label});
 
@@ -480,8 +480,9 @@ class SubsonicProviderCard extends ConsumerWidget {
   }
 }
 
-/// The Plex source as a compact card. Kept fully functional and badged
-/// "Experimental", matching the detailed section.
+/// The Plex source as a compact card, matching the detailed section. Plex is a
+/// supported provider (streaming, lyrics, and offline caching); the advanced
+/// features it doesn't support yet simply don't appear as actions.
 class PlexProviderCard extends ConsumerWidget {
   const PlexProviderCard({super.key});
 
@@ -519,7 +520,6 @@ class PlexProviderCard extends ConsumerWidget {
     return ProviderSummaryCard(
       icon: Icons.dns_outlined,
       title: 'Plex',
-      badgeLabel: 'Experimental',
       statusLabel: connected ? 'Connected' : 'Not connected',
       statusTone:
           connected ? ProviderStatusTone.positive : ProviderStatusTone.neutral,
