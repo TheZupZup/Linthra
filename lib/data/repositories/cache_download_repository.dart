@@ -67,7 +67,7 @@ class CacheDownloadRepository
     required DownloadPreferences preferences,
     CacheEvictionPolicy policy = const CacheEvictionPolicy(),
     DownloadScheduler? scheduler,
-    String? Function()? currentlyPlayingTrackId,
+    Track? Function()? currentlyPlayingTrack,
     DateTime Function()? now,
   })  : _store = store,
         _files = files,
@@ -76,7 +76,7 @@ class CacheDownloadRepository
         _preferences = preferences,
         _policy = policy,
         _scheduler = scheduler ?? DownloadScheduler(),
-        _currentlyPlayingTrackId = currentlyPlayingTrackId,
+        _currentlyPlayingTrack = currentlyPlayingTrack,
         _now = now ?? DateTime.now;
 
   final DownloadStore _store;
@@ -89,10 +89,12 @@ class CacheDownloadRepository
   /// Bounds how many remote downloads fetch their bytes at the same time.
   final DownloadScheduler _scheduler;
 
-  /// Supplies the id of the track currently playing (or `null`), so it is never
-  /// evicted out from under the user. Read lazily so the repository doesn't
-  /// depend on the playback layer at construction.
-  final String? Function()? _currentlyPlayingTrackId;
+  /// Supplies the track currently playing (or `null`), so it is never evicted
+  /// out from under the user. A whole [Track] (not just an id) so its
+  /// provider-aware [CachedTrack.cacheKey] protects exactly that provider's
+  /// copy — a same-id track from another provider stays evictable. Read lazily
+  /// so the repository doesn't depend on the playback layer at construction.
+  final Track? Function()? _currentlyPlayingTrack;
 
   final DateTime Function() _now;
 
@@ -341,8 +343,8 @@ class CacheDownloadRepository
       cached: _downloads.values,
       incomingBytes: incoming,
       maxBytes: maxBytes,
-      protectTrackId: _currentlyPlayingTrackId?.call(),
-      incomingTrackId: track.id,
+      protectKey: _protectKey(),
+      incomingKey: key,
     );
 
     if (!plan.fits) {
@@ -530,7 +532,7 @@ class CacheDownloadRepository
   /// could ever take, so the caller skips the fetch entirely. A cheap, in-memory
   /// scan — the exact fit is decided by [CacheEvictionPolicy] at commit time.
   bool _hasRoomForPrecache(int maxBytes) {
-    final String? protectId = _currentlyPlayingTrackId?.call();
+    final String? protectKey = _protectKey();
     int used = 0;
     bool hasEvictable = false;
     for (final CachedTrack c in _downloads.values) {
@@ -538,11 +540,19 @@ class CacheDownloadRepository
       if (c.isManaged &&
           c.sizeBytes > 0 &&
           !c.pinned &&
-          c.trackId != protectId) {
+          c.cacheKey != protectKey) {
         hasEvictable = true;
       }
     }
     return used < maxBytes || hasEvictable;
+  }
+
+  /// The provider-aware cache key of the currently playing track (or `null`),
+  /// for the eviction policy to protect exactly that provider's copy. Built from
+  /// the live [Track] so a same-id track from another provider isn't shielded.
+  String? _protectKey() {
+    final Track? playing = _currentlyPlayingTrack?.call();
+    return playing == null ? null : _keyForTrack(playing);
   }
 
   /// The connectivity gate as a simple yes/no, for the best-effort pre-cache
@@ -674,25 +684,25 @@ class CacheDownloadRepository
   static String _keyForTrack(Track track) =>
       _cacheKey(_sourceTypeOf(track), track.id);
 
-  /// The same identity for a persisted [entry], built from the same
-  /// `(sourceType, trackId)` it was written with — so a reloaded entry maps back
-  /// to exactly the key its live track produces, keeping cache state stable
-  /// across restarts (and back-compatible: existing entries already carry both).
-  static String _keyForCached(CachedTrack entry) =>
-      _cacheKey(entry.sourceType, entry.trackId);
+  /// The same identity for a persisted [entry] — its provider-aware
+  /// [CachedTrack.cacheKey], built from the same `(sourceType, trackId)` it was
+  /// written with, so a reloaded entry maps back to exactly the key its live
+  /// track produces and cache state stays stable across restarts.
+  static String _keyForCached(CachedTrack entry) => entry.cacheKey;
 
-  /// Composes a credential-free cache key from a source scheme and catalog id.
-  /// The NUL separator can't occur in a scheme or an id, so the pair is
-  /// unambiguous and [_trackIdOfKey] can recover the id for the id-keyed
+  /// Composes a credential-free cache key from a source scheme and catalog id —
+  /// delegating to the one shared definition [CachedTrack.cacheKeyFor], so the
+  /// repository, the metadata records, and the eviction policy can never drift
+  /// to different key formats. [_trackIdOfKey] recovers the id for the id-keyed
   /// snapshots the UI reads.
   static String _cacheKey(String? sourceType, String trackId) =>
-      '${sourceType ?? ''}\u0000$trackId';
+      CachedTrack.cacheKeyFor(sourceType, trackId);
 
   /// The catalog id embedded in a [key] from [_cacheKey] — used to project the
   /// internal, provider-aware maps back onto the id-keyed snapshots the UI and
   /// the cross-provider sync layers consume.
   static String _trackIdOfKey(String key) =>
-      key.substring(key.indexOf('\u0000') + 1);
+      key.substring(key.indexOf(String.fromCharCode(0)) + 1);
 
   /// A provider-namespaced base name for [track]'s cache file, so two providers
   /// with the same id write to distinct files (`plex_101`, `jellyfin_101`). The

@@ -337,13 +337,15 @@ final remoteControlActivatorProvider = Provider<RemoteControlActivator>((ref) {
 });
 
 /// Production binding: lets the cache eviction policy see the currently playing
-/// track so it's never deleted to make room. The closure reads the controller's
-/// latest state lazily at eviction time, so applying this override doesn't tie
-/// the download repository to the controller's lifecycle. Applied in `main`;
-/// tests keep the data-layer default (nothing playing).
-final currentlyPlayingTrackIdOverride =
-    currentlyPlayingTrackIdProvider.overrideWith(
-  (ref) => () => ref.read(playbackControllerProvider).state.currentTrack?.id,
+/// track so it's never deleted to make room. Passes the whole [Track] so the
+/// policy protects exactly that provider's copy by its provider-aware key. The
+/// closure reads the controller's latest state lazily at eviction time, so
+/// applying this override doesn't tie the download repository to the
+/// controller's lifecycle. Applied in `main`; tests keep the data-layer default
+/// (nothing playing).
+final currentlyPlayingTrackOverride =
+    currentlyPlayingTrackProvider.overrideWith(
+  (ref) => () => ref.read(playbackControllerProvider).state.currentTrack,
 );
 
 /// Production binding: drives the now-playing indicator on every track row from

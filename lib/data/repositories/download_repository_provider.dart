@@ -56,13 +56,15 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   return const OptimisticConnectivityService();
 });
 
-/// Supplies the id of the currently playing track so the cache policy never
-/// evicts it. The data layer defaults to "nothing playing" (keeping it free of
+/// Supplies the currently playing track so the cache policy never evicts it. A
+/// whole [Track] (not just an id) so the policy protects exactly that provider's
+/// copy by its provider-aware key — a same-id track from another provider stays
+/// evictable. The data layer defaults to "nothing playing" (keeping it free of
 /// any playback dependency); the app overrides this to read the live
-/// [PlaybackController] (see `currentlyPlayingTrackIdOverride`). The closure is
+/// [PlaybackController] (see `currentlyPlayingTrackOverride`). The closure is
 /// read lazily at eviction time, so wiring it never rebuilds the repository.
-final currentlyPlayingTrackIdProvider =
-    Provider<String? Function()?>((ref) => null);
+final currentlyPlayingTrackProvider =
+    Provider<Track? Function()?>((ref) => null);
 
 /// The single [CacheDownloadRepository] the app drives offline downloads
 /// through. It composes the seams above and centralizes the user-initiated,
@@ -76,7 +78,7 @@ final _cacheDownloadRepositoryProvider =
     downloader: ref.watch(remoteTrackDownloaderProvider),
     connectivity: ref.watch(connectivityServiceProvider),
     preferences: ref.watch(downloadPreferencesProvider),
-    currentlyPlayingTrackId: ref.watch(currentlyPlayingTrackIdProvider),
+    currentlyPlayingTrack: ref.watch(currentlyPlayingTrackProvider),
   );
   ref.onDispose(repository.dispose);
   return repository;

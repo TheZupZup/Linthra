@@ -63,5 +63,5 @@ class NowPlaying {
 /// watch it without pulling in `just_audio`/cast (and tests render rows without a
 /// perpetually-animating indicator or a real audio plugin). Production wires it
 /// to the live `PlaybackState` via `nowPlayingOverride` in `main.dart`, mirroring
-/// `currentlyPlayingTrackIdProvider`/`currentlyPlayingTrackIdOverride`.
+/// `currentlyPlayingTrackProvider`/`currentlyPlayingTrackOverride`.
 final nowPlayingProvider = Provider<NowPlaying>((ref) => const NowPlaying());

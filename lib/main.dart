@@ -80,7 +80,7 @@ Future<void> main() async {
       // preferred source fails to resolve or start (the candidates come from the
       // unified library, in default-source-first order).
       playbackCandidateSourceOverride,
-      currentlyPlayingTrackIdOverride,
+      currentlyPlayingTrackOverride,
       // Drive the now-playing indicator on track rows from live playback (the
       // current logical track + play/pause), so every list surface marks the
       // playing song. Inert by default in tests.

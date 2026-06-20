@@ -59,6 +59,24 @@ class CachedTrack {
   /// on-device track that is merely marked available offline).
   bool get isManaged => fileName != null && fileName!.isNotEmpty;
 
+  /// The provider-aware cache identity — the source scheme plus the catalog id —
+  /// so two providers that expose the same catalog id (a Plex ratingKey `101`
+  /// and a Subsonic id `101`) never share a cache slot, file, or eviction
+  /// decision. The shared cache and [CacheEvictionPolicy] key on this, never on
+  /// the bare [trackId].
+  String get cacheKey => cacheKeyFor(sourceType, trackId);
+
+  /// Builds a [cacheKey] from a raw `(sourceType, trackId)` pair, so a live
+  /// track (which has no [CachedTrack] yet) keys exactly the way a persisted
+  /// entry keys itself. The NUL separator can't occur in a scheme or an id, so
+  /// the pair is unambiguous.
+  static String cacheKeyFor(String? sourceType, String trackId) =>
+      '${sourceType ?? ''}${String.fromCharCode(_keySeparator)}$trackId';
+
+  /// Separator between scheme and id in a [cacheKey]: NUL, which can't occur in
+  /// a URI scheme or a catalog id, so the `(scheme, id)` pair is unambiguous.
+  static const int _keySeparator = 0;
+
   CachedTrack copyWith({
     String? fileName,
     String? sourceType,
