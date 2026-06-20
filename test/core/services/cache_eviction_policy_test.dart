@@ -28,8 +28,7 @@ CachedTrack _managed(
 
 /// The provider-aware key the policy compares against, for a given `(source,
 /// id)` — mirrors [CachedTrack.cacheKey].
-String _key(String id, {String? source}) =>
-    CachedTrack.cacheKeyFor(source, id);
+String _key(String id, {String? source}) => CachedTrack.cacheKeyFor(source, id);
 
 void main() {
   const CacheEvictionPolicy policy = CacheEvictionPolicy();
@@ -211,7 +210,8 @@ void main() {
     });
 
     group('provider isolation (same id across providers)', () {
-      test('a re-download only skips its own provider, not a same-id other', () {
+      test('a re-download only skips its own provider, not a same-id other',
+          () {
         // Plex 101 is being re-downloaded; a Subsonic 101 must NOT be mistaken
         // for its old copy — it still counts toward usage and stays evictable.
         final plan = policy.plan(

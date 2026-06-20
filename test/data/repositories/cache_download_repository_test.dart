@@ -1485,7 +1485,8 @@ void main() {
       expect((await repo.cacheSnapshot()).usedBytes, 4);
     });
 
-    test('pre-cache is skipped safely when cleanup cannot free enough', () async {
+    test('pre-cache is skipped safely when cleanup cannot free enough',
+        () async {
       // The cache is full of a pinned download (never evictable). A pre-cache
       // must skip rather than break — no fetch, no throw, nothing cached.
       final repo = buildLimited(maxBytes: 4, now: incrementingClock());
@@ -1497,7 +1498,8 @@ void main() {
       final saved = await store.loadDownloads();
       expect(saved, hasLength(1));
       expect(saved.single.trackId, 'pinned');
-      expect(downloader.fetched.any((Track t) => t.uri == 'plex:want'), isFalse);
+      expect(
+          downloader.fetched.any((Track t) => t.uri == 'plex:want'), isFalse);
       expect((await repo.cacheSnapshot()).usedBytes, 4);
     });
   });
