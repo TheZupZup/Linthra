@@ -160,7 +160,8 @@ void main() {
     await _pump(tester);
 
     expect(find.text('Plex'), findsOneWidget);
-    expect(find.text('Experimental'), findsOneWidget);
+    // Plex is a supported provider now — no "Experimental" badge.
+    expect(find.text('Experimental'), findsNothing);
     expect(find.text('Connect with Plex'), findsOneWidget);
     expect(find.text('Manual setup (advanced)'), findsOneWidget);
     // No token hunting up front: the manual fields are hidden by default.

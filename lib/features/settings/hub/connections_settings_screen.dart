@@ -22,8 +22,8 @@ class ConnectionsSettingsScreen extends StatelessWidget {
         SizedBox(height: AppSpacing.md),
         SubsonicProviderCard(),
         SizedBox(height: AppSpacing.md),
-        // Plex is phase 1 (stream-only) and clearly badged Experimental until
-        // the remaining capabilities ship.
+        // Plex supports streaming, lyrics, and offline caching; advanced
+        // features (cast, favorites, playlists) are not offered until they ship.
         PlexProviderCard(),
         SizedBox(height: AppSpacing.md),
         // Local music is a connection here, deliberately kept away from the

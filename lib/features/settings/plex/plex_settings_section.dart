@@ -9,7 +9,7 @@ import 'plex_settings_state.dart';
 import 'plex_sync_controller.dart';
 import 'plex_sync_state.dart';
 
-/// The Plex connection card on the Settings screen (experimental).
+/// The Plex connection card on the Settings screen.
 ///
 /// The primary path is **Connect with Plex**: a plex.tv sign-in in the
 /// browser, a server picker when the account has several servers, then the
@@ -171,8 +171,6 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
                 const SizedBox(width: AppSpacing.sm),
                 Text(state.isConnected ? state.displayName : 'Plex',
                     style: theme.textTheme.titleMedium),
-                const SizedBox(width: AppSpacing.sm),
-                const _ExperimentalBadge(),
               ],
             ),
             const SizedBox(height: AppSpacing.xs),
@@ -405,32 +403,6 @@ class _PlexSettingsSectionState extends ConsumerState<PlexSettingsSection> {
           ],
         ),
       ],
-    );
-  }
-}
-
-/// Marks the whole card as a work-in-progress, so nobody mistakes Plex for a
-/// finished provider while caching/favorites/lyrics/cast are still follow-ups
-/// (docs/plex.md → Out of scope).
-class _ExperimentalBadge extends StatelessWidget {
-  const _ExperimentalBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-      ),
-      child: Text(
-        'Experimental',
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: theme.colorScheme.onSecondaryContainer,
-        ),
-      ),
     );
   }
 }

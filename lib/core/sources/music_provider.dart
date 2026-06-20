@@ -259,10 +259,10 @@ abstract final class MusicProviders {
     ),
   );
 
-  /// Plex (phase 1, experimental — see docs/plex.md and issue #178).
+  /// Plex (see docs/plex.md and issue #178).
   /// `plex:<ratingKey>` URIs are recognized end to end, and the Settings card
-  /// (badged Experimental) lets the user connect with a manual server URL +
-  /// token and pick which music libraries to include.
+  /// lets the user connect with their Plex account (or a manual server URL +
+  /// token) and pick which music libraries to include.
   ///
   /// Stream, lyrics, and offline caching are implemented; favorites, playlists,
   /// and cast stay declared unsupported so their actions stay hidden/disabled
@@ -272,7 +272,7 @@ abstract final class MusicProviders {
   /// identity and named only from the non-secret track id, so the token never
   /// reaches a cache file (docs/plex.md → Token safety rules). Lyrics are
   /// fetched on demand from the track's Plex lyric stream (synced `.lrc` or
-  /// plain). Cast stays off in phase 1 to keep the credential-in-URL surface
+  /// plain). Cast stays off for now to keep the credential-in-URL surface
   /// small (a Plex stream URL carries the token as a query param).
   static const MusicProvider plex = MusicProvider(
     sourceId: 'plex',
@@ -294,7 +294,7 @@ abstract final class MusicProviders {
       canRemoveFromLibrary: true,
       canRemoveOfflineCopy: true,
       canDeleteLocalFile: false,
-      // Phase 1 is read-only: Linthra never writes to a Plex server.
+      // Read-only: Linthra never writes to a Plex server.
       canDeleteRemoteItem: false,
       canListPlaylists: false,
       canCreatePlaylist: false,
