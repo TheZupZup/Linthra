@@ -75,11 +75,74 @@ class PrecacheSettingsSection extends ConsumerWidget {
                       .setEnabled(value),
             ),
             const SizedBox(height: AppSpacing.xs),
-            _UpcomingCountSelector(
+            _SongsToPrecacheTile(
               count: count,
               enabled: isOn,
-              onChanged: (int value) =>
-                  ref.read(precacheCountProvider.notifier).setCount(value),
+              onChange: () => _changeCount(context, ref, count),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _changeCount(
+    BuildContext context,
+    WidgetRef ref,
+    int current,
+  ) async {
+    final int? chosen = await showDialog<int>(
+      context: context,
+      builder: (_) => _PrecacheCountDialog(current: current),
+    );
+    if (chosen != null) {
+      await ref.read(precacheCountProvider.notifier).setCount(chosen);
+    }
+  }
+}
+
+/// The "Songs to pre-cache" row: shows the current count and a Change button
+/// that opens the picker. Greyed out (and inert) while smart pre-cache is off,
+/// so it reads as "this tunes the feature above".
+class _SongsToPrecacheTile extends StatelessWidget {
+  const _SongsToPrecacheTile({
+    required this.count,
+    required this.enabled,
+    required this.onChange,
+  });
+
+  final int count;
+  final bool enabled;
+  final VoidCallback onChange;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.5,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Songs to pre-cache', style: theme.textTheme.bodyLarge),
+                  const SizedBox(height: 2),
+                  Text(
+                    count == 1 ? '1 upcoming track' : '$count upcoming tracks',
+                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            OutlinedButton(
+              onPressed: enabled ? onChange : null,
+              child: const Text('Change'),
             ),
           ],
         ),
@@ -88,52 +151,107 @@ class PrecacheSettingsSection extends ConsumerWidget {
   }
 }
 
-/// The "how many upcoming tracks" picker: a compact segmented control over
-/// [kPrecacheCountOptions]. Greyed out (and inert) while smart pre-cache is off,
-/// so it reads as "this tunes the feature above".
-class _UpcomingCountSelector extends StatelessWidget {
-  const _UpcomingCountSelector({
-    required this.count,
-    required this.enabled,
-    required this.onChanged,
-  });
+/// The "Songs to pre-cache" picker: the named [kPrecacheCountOptions] presets
+/// plus a custom value, bounded to [kMinPrecacheCount]–[kMaxPrecacheCount] so a
+/// hand-typed number can never queue a flood of downloads. Mirrors the cache
+/// size "Change limit" dialog so the two settings feel the same.
+class _PrecacheCountDialog extends StatefulWidget {
+  const _PrecacheCountDialog({required this.current});
 
-  final int count;
-  final bool enabled;
-  final ValueChanged<int> onChanged;
+  final int current;
+
+  @override
+  State<_PrecacheCountDialog> createState() => _PrecacheCountDialogState();
+}
+
+class _PrecacheCountDialogState extends State<_PrecacheCountDialog> {
+  late bool _custom;
+  late int _selectedPreset;
+  late final TextEditingController _customController;
+
+  @override
+  void initState() {
+    super.initState();
+    _custom = !isPrecacheCountPreset(widget.current);
+    _selectedPreset = isPrecacheCountPreset(widget.current)
+        ? widget.current
+        : kDefaultPrecacheCount;
+    _customController = TextEditingController(text: '${widget.current}');
+  }
+
+  @override
+  void dispose() {
+    _customController.dispose();
+    super.dispose();
+  }
+
+  /// The count the dialog would save, or null when the custom field is empty or
+  /// non-positive (so Save is disabled). An in-range custom number is kept; an
+  /// over-range one is capped at [kMaxPrecacheCount].
+  int? get _resolvedCount {
+    if (!_custom) return _selectedPreset;
+    final int? typed = int.tryParse(_customController.text.trim());
+    if (typed == null || typed <= 0) return null;
+    return sanitizePrecacheCount(typed);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
-    final int selected = sanitizePrecacheCount(count);
-
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.5,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Upcoming tracks to cache',
-            style: theme.textTheme.bodyMedium?.copyWith(color: muted),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: SegmentedButton<int>(
-              showSelectedIcon: false,
-              segments: <ButtonSegment<int>>[
-                for (final int option in kPrecacheCountOptions)
-                  ButtonSegment<int>(value: option, label: Text('$option')),
-              ],
-              selected: <int>{selected},
-              onSelectionChanged: enabled
-                  ? (Set<int> selection) => onChanged(selection.first)
-                  : null,
+    return AlertDialog(
+      title: const Text('Songs to pre-cache'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final int preset in kPrecacheCountOptions)
+              RadioListTile<int>(
+                contentPadding: EdgeInsets.zero,
+                title: Text('$preset'),
+                value: preset,
+                groupValue: _custom ? null : _selectedPreset,
+                onChanged: (value) => setState(() {
+                  _custom = false;
+                  if (value != null) _selectedPreset = value;
+                }),
+              ),
+            RadioListTile<bool>(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Custom'),
+              value: true,
+              groupValue: _custom,
+              onChanged: (_) => setState(() => _custom = true),
             ),
-          ),
-        ],
+            if (_custom)
+              Padding(
+                padding: const EdgeInsets.only(left: AppSpacing.md),
+                child: TextField(
+                  controller: _customController,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Songs',
+                    helperText:
+                        'Between $kMinPrecacheCount and $kMaxPrecacheCount',
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _resolvedCount == null
+              ? null
+              : () => Navigator.of(context).pop(_resolvedCount),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

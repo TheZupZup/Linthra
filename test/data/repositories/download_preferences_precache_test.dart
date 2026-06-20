@@ -6,36 +6,61 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('sanitizePrecacheCount', () {
-    test('passes through an offered count', () {
+    test('passes through a named preset', () {
       for (final int option in kPrecacheCountOptions) {
         expect(sanitizePrecacheCount(option), option);
       }
     });
 
-    test('falls back to the default for an unoffered or junk value', () {
-      expect(sanitizePrecacheCount(2), kDefaultPrecacheCount);
+    test('keeps an in-range custom value that is not a preset', () {
+      // Anything within the bounds is honoured, presets or not.
+      expect(sanitizePrecacheCount(2), 2);
+      expect(sanitizePrecacheCount(7), 7);
+      expect(sanitizePrecacheCount(42), 42);
+      expect(sanitizePrecacheCount(kMinPrecacheCount), kMinPrecacheCount);
+      expect(sanitizePrecacheCount(kMaxPrecacheCount), kMaxPrecacheCount);
+    });
+
+    test('restores the default for a below-minimum or junk value', () {
       expect(sanitizePrecacheCount(0), kDefaultPrecacheCount);
       expect(sanitizePrecacheCount(-5), kDefaultPrecacheCount);
-      expect(sanitizePrecacheCount(9999), kDefaultPrecacheCount);
+    });
+
+    test('caps an above-maximum value at the max (never thousands)', () {
+      expect(sanitizePrecacheCount(kMaxPrecacheCount + 1), kMaxPrecacheCount);
+      expect(sanitizePrecacheCount(9999), kMaxPrecacheCount);
+      expect(sanitizePrecacheCount(1000000), kMaxPrecacheCount);
     });
   });
 
   group('precacheCount preference', () {
-    test('in-memory defaults to the default and round-trips an offered value',
-        () async {
+    test('in-memory defaults to 3 (unchanged for upgrading users)', () async {
       final prefs = InMemoryDownloadPreferences();
+      // Default stays 3 so upgrading users see no behaviour change.
       expect(await prefs.precacheCount(), kDefaultPrecacheCount);
-
-      await prefs.setPrecacheCount(10);
-      expect(await prefs.precacheCount(), 10);
+      expect(kDefaultPrecacheCount, 3);
     });
 
-    test('in-memory clamps an unoffered value to the default', () async {
-      final prefs = InMemoryDownloadPreferences(precacheCount: 7);
-      expect(await prefs.precacheCount(), kDefaultPrecacheCount);
+    test('in-memory round-trips the new larger presets (20, 50)', () async {
+      final prefs = InMemoryDownloadPreferences();
 
-      await prefs.setPrecacheCount(4);
-      expect(await prefs.precacheCount(), kDefaultPrecacheCount);
+      await prefs.setPrecacheCount(20);
+      expect(await prefs.precacheCount(), 20);
+
+      await prefs.setPrecacheCount(50);
+      expect(await prefs.precacheCount(), 50);
+    });
+
+    test('in-memory keeps a custom value and clamps an out-of-range one',
+        () async {
+      final prefs = InMemoryDownloadPreferences(precacheCount: 42);
+      expect(await prefs.precacheCount(), 42); // custom, in range → kept
+
+      await prefs.setPrecacheCount(9999);
+      expect(await prefs.precacheCount(), kMaxPrecacheCount); // capped at 200
+
+      await prefs.setPrecacheCount(0);
+      expect(await prefs.precacheCount(), kDefaultPrecacheCount); // junk → 3
     });
 
     group('shared_preferences', () {
@@ -46,18 +71,34 @@ void main() {
         expect(await prefs.precacheCount(), kDefaultPrecacheCount);
       });
 
-      test('persists an offered count across instances', () async {
+      test('persists a preset across instances', () async {
         const prefs = SharedPreferencesDownloadPreferences();
-        await prefs.setPrecacheCount(5);
+        await prefs.setPrecacheCount(20);
 
         const reopened = SharedPreferencesDownloadPreferences();
-        expect(await reopened.precacheCount(), 5);
+        expect(await reopened.precacheCount(), 20);
       });
 
-      test('sanitizes an out-of-range stored value on read', () async {
-        // Simulate a value written outside the offered set.
+      test('persists a custom value across instances', () async {
+        const prefs = SharedPreferencesDownloadPreferences();
+        await prefs.setPrecacheCount(42);
+
+        const reopened = SharedPreferencesDownloadPreferences();
+        expect(await reopened.precacheCount(), 42);
+      });
+
+      test('caps an above-maximum stored value on read', () async {
+        // Simulate a value written far outside the safe range.
         SharedPreferences.setMockInitialValues(<String, Object>{
-          'downloads_precache_count': 42,
+          'downloads_precache_count': 5000,
+        });
+        const prefs = SharedPreferencesDownloadPreferences();
+        expect(await prefs.precacheCount(), kMaxPrecacheCount);
+      });
+
+      test('restores the default for a junk stored value on read', () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{
+          'downloads_precache_count': 0,
         });
         const prefs = SharedPreferencesDownloadPreferences();
         expect(await prefs.precacheCount(), kDefaultPrecacheCount);

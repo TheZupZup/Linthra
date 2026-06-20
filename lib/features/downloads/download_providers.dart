@@ -210,10 +210,10 @@ final smartPrecacheEnabledProvider =
   SmartPrecacheEnabledController.new,
 );
 
-/// Owns the "Upcoming tracks to pre-cache" count: loads the persisted value and
-/// writes changes back through [DownloadPreferences], sanitized to one of
-/// [kPrecacheCountOptions] so it can never widen pre-caching beyond the offered
-/// choices.
+/// Owns the "Songs to pre-cache" count: loads the persisted value and writes
+/// changes back through [DownloadPreferences], clamped to the supported range
+/// ([kMinPrecacheCount]–[kMaxPrecacheCount]) so a corrupt or hand-typed value
+/// can never disable pre-cache or queue a flood of downloads.
 class PrecacheCountController extends AsyncNotifier<int> {
   @override
   Future<int> build() {
