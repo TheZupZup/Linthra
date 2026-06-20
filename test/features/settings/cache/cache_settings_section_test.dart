@@ -90,7 +90,10 @@ void main() {
       await repo.requestDownload(
         const Track(id: 'j2', title: 'Cached', uri: 'jellyfin:j2'),
       );
-      await container.read(offlineCacheManagerProvider).setPinned('j1', true);
+      await container.read(offlineCacheManagerProvider).setPinned(
+            const Track(id: 'j1', title: 'Kept', uri: 'jellyfin:j1'),
+            true,
+          );
       await tester.pumpAndSettle();
       expect(find.textContaining('8 B of'), findsOneWidget);
 

@@ -1,0 +1,19 @@
+Linthra 0.1.6 — Plex offline caching.
+
+Added:
+- Plex tracks can now be downloaded for offline playback, like Jellyfin
+  and Navidrome/Subsonic.
+- Cached Plex tracks play from your device automatically, and fall back
+  to streaming when a cached file is missing or can't be opened.
+
+Changed:
+- Offline downloads are now written atomically (download, validate, then
+  swap into place), so an interrupted download can't leave a broken file.
+- Per-ABI release APKs are built in isolation to match F-Droid's
+  reproducible split-APK build.
+
+Notes:
+- Plex cached files are keyed to your library item identity and never
+  contain your Plex token.
+
+No ads, no tracking, no analytics, no telemetry.

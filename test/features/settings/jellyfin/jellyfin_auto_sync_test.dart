@@ -108,7 +108,7 @@ class _SpyDownloadRepository implements DownloadRepository {
       DownloadStatus.notDownloaded;
 
   @override
-  Future<void> removeDownload(String trackId) async {}
+  Future<void> removeDownload(Track track) async {}
 
   @override
   Future<List<String>> downloadedTrackIds() async => const <String>[];

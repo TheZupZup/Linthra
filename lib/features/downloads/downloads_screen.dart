@@ -228,7 +228,7 @@ class _ActiveDownloadTile extends ConsumerWidget {
             icon: const Icon(Icons.close),
             tooltip: 'Cancel download',
             onPressed: () =>
-                ref.read(downloadRepositoryProvider).removeDownload(track.id),
+                ref.read(downloadRepositoryProvider).removeDownload(track),
           ),
         ],
       ),
@@ -362,15 +362,14 @@ class _DownloadedTile extends ConsumerWidget {
             icon: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
             color: pinned ? Theme.of(context).colorScheme.secondary : null,
             tooltip: pinned ? 'Unpin' : 'Keep offline',
-            onPressed: () => ref
-                .read(offlineCacheManagerProvider)
-                .setPinned(track.id, !pinned),
+            onPressed: () =>
+                ref.read(offlineCacheManagerProvider).setPinned(track, !pinned),
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline),
             tooltip: 'Remove download',
             onPressed: () =>
-                ref.read(downloadRepositoryProvider).removeDownload(track.id),
+                ref.read(downloadRepositoryProvider).removeDownload(track),
           ),
         ],
       ),

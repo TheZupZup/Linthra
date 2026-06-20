@@ -88,5 +88,43 @@ void main() {
     test('delete is a no-op for a missing file', () async {
       await store.delete('missing.mp3');
     });
+
+    test('an atomic write leaves only the final file — no .part temp behind',
+        () async {
+      final String fileName =
+          await store.write('t1', const <int>[1, 2, 3], extension: 'mp3');
+
+      // The temp sibling was renamed into place, not left alongside the result.
+      final List<FileSystemEntity> entries = tempDir.listSync();
+      expect(entries, hasLength(1));
+      expect(entries.single.path, endsWith(fileName));
+      expect(entries.single.path, isNot(endsWith('.part')));
+    });
+
+    test('refuses to cache an empty download, publishing no file', () async {
+      await expectLater(
+        store.write('t1', const <int>[], extension: 'mp3'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      // Nothing was published and no temp was left behind, so the locator finds
+      // no file and playback falls back to streaming.
+      expect(await store.pathFor('t1.mp3'), isNull);
+      expect(tempDir.listSync(), isEmpty);
+    });
+
+    test('a re-download atomically replaces the prior cached bytes', () async {
+      final String fileName =
+          await store.write('t1', const <int>[1, 1, 1], extension: 'mp3');
+      final String again =
+          await store.write('t1', const <int>[2, 2], extension: 'mp3');
+
+      expect(again, fileName);
+      final String? path = await store.pathFor(fileName);
+      expect(await File(path!).readAsBytes(), <int>[2, 2]);
+      // Still exactly one file: the temp was renamed over the old copy, not
+      // accumulated alongside it.
+      expect(tempDir.listSync(), hasLength(1));
+    });
   });
 }

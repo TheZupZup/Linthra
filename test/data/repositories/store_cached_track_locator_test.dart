@@ -6,6 +6,7 @@ import 'package:linthra/data/repositories/in_memory_offline_file_store.dart';
 import 'package:linthra/data/repositories/store_cached_track_locator.dart';
 
 Track _jellyfin(String id) => Track(id: id, title: id, uri: 'jellyfin:$id');
+Track _plex(String id) => Track(id: id, title: id, uri: 'plex:$id');
 
 void main() {
   group('StoreCachedTrackLocator', () {
@@ -54,6 +55,67 @@ void main() {
       ]);
 
       expect(await build().cachedFilePath(_jellyfin('j1')), isNull);
+    });
+
+    test('returns the cached path for a downloaded Plex track', () async {
+      // A Plex track is keyed by its stable ratingKey id like any other
+      // provider — the locator is provider-agnostic.
+      final String fileName =
+          await files.write('101', const <int>[4, 5, 6], extension: 'flac');
+      await store.saveDownloads(<CachedTrack>[
+        CachedTrack(trackId: '101', fileName: fileName, sourceType: 'plex'),
+      ]);
+
+      final String? path = await build().cachedFilePath(_plex('101'));
+
+      expect(path, '/offline_audio/101.flac');
+    });
+
+    test('returns null when a Plex cache file is missing, so playback streams',
+        () async {
+      // The metadata exists but the bytes are gone (reclaimed/removed): the
+      // locator reports no path, so the offline-first resolver falls back to
+      // streaming rather than opening a missing file.
+      await store.saveDownloads(<CachedTrack>[
+        const CachedTrack(
+            trackId: '101', fileName: '101.flac', sourceType: 'plex'),
+      ]);
+
+      expect(await build().cachedFilePath(_plex('101')), isNull);
+    });
+
+    test('a Plex and a Jellyfin entry sharing an id resolve to their own files',
+        () async {
+      // Provider-aware matching: identical trackIds from different sources each
+      // resolve to their own file, never the other's.
+      await files.write('plex_101', const <int>[1], extension: 'mp3');
+      await files.write('jellyfin_101', const <int>[2], extension: 'mp3');
+      await store.saveDownloads(<CachedTrack>[
+        const CachedTrack(
+            trackId: '101', fileName: 'plex_101.mp3', sourceType: 'plex'),
+        const CachedTrack(
+            trackId: '101',
+            fileName: 'jellyfin_101.mp3',
+            sourceType: 'jellyfin'),
+      ]);
+
+      expect(await build().cachedFilePath(_plex('101')),
+          '/offline_audio/plex_101.mp3');
+      expect(await build().cachedFilePath(_jellyfin('101')),
+          '/offline_audio/jellyfin_101.mp3');
+    });
+
+    test('a legacy entry without a recorded source still resolves by id',
+        () async {
+      // Back-compat: a cached file written before source tagging carries no
+      // sourceType, so it falls back to an id-only match and keeps working.
+      await files.write('legacy', const <int>[9], extension: 'mp3');
+      await store.saveDownloads(<CachedTrack>[
+        const CachedTrack(trackId: 'legacy', fileName: 'legacy.mp3'),
+      ]);
+
+      expect(await build().cachedFilePath(_jellyfin('legacy')),
+          '/offline_audio/legacy.mp3');
     });
   });
 }

@@ -61,11 +61,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     AudioPlayer? player,
     PlayableUriResolver resolver = const LocalPlayableUriResolver(),
     PlaybackCandidateSource candidates = const NoFallbackCandidateSource(),
+    PlayableUriResolver? streamingFallbackResolver,
     Random? random,
     TrackCompletionCallback? onTrackCompleted,
   })  : _player = player ?? _defaultPlayer(),
         _resolver = resolver,
         _candidates = candidates,
+        _streamingFallbackResolver = streamingFallbackResolver,
         _random = random ?? Random(),
         _onTrackCompleted = onTrackCompleted,
         // Own audio focus only for the engine we created. An injected player
@@ -127,6 +129,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// default returns just the track itself (no fallback), so single-source
   /// playback is unchanged.
   final PlaybackCandidateSource _candidates;
+
+  /// An optional resolver used to retry a track via streaming when its
+  /// offline-cache file fails to open (reclaimed after the existence check,
+  /// corrupt, or an unreadable codec). It resolves *past* the offline cache —
+  /// the same router the offline-first resolver falls through to on a miss — so
+  /// a cached copy that won't play falls back to the live stream instead of
+  /// erroring, even for a single-source track with no sibling copy. Null (the
+  /// default, and in tests) keeps the original behavior: a failed load simply
+  /// moves to the next candidate.
+  final PlayableUriResolver? _streamingFallbackResolver;
+
   final Random _random;
 
   /// Invoked once each time a track reaches its natural end, before the repeat
@@ -849,8 +862,19 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         return (track: candidate, resolved: resolved);
       } catch (_) {
         // Resolved (and, for streams, probed) OK but the engine couldn't open
-        // it: a start failure. Word it for the source, then try the next copy.
+        // it: a start failure. Word it for the source.
         StabilityDiagnostics.playbackError('load');
+        // A cached file that won't open (reclaimed after the existence check,
+        // corrupt, or an unreadable codec) must not strand a single-source
+        // track on an error: re-resolve the same copy past the offline cache
+        // and try the live stream once before moving on.
+        final ({Track track, ResolvedPlayable resolved})? streamed =
+            await _retryFromStream(candidate, resolved, generation);
+        if (streamed != null) return streamed;
+        // Superseded by a newer skip/seek while the stream retry ran: drop this
+        // stale transition rather than recording a failure on a track the user
+        // has already moved past.
+        if (generation != _playbackGeneration) return null;
         failures.add(PlaybackResolutionException(
           _loadErrorFor(resolved.source),
           kind: PlaybackResolutionErrorKind.streamUnavailable,
@@ -863,6 +887,48 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       "Couldn't play this track from any available source.",
       kind: PlaybackResolutionErrorKind.streamUnavailable,
     );
+  }
+
+  /// Re-resolves [candidate] through the streaming fallback resolver and loads
+  /// it, for when its first resolution was an offline-cache file the engine
+  /// wouldn't open. This is the "a cache failure falls back to streaming"
+  /// guarantee — it works even for a single-source track with no sibling copy,
+  /// because it re-resolves the *same* track past the cache.
+  ///
+  /// Returns the loaded result, or null when: there is no fallback resolver (the
+  /// default / tests), the failed load was *not* a cache hit (a stream that
+  /// won't open is a real source failure handled by the normal candidate
+  /// fallback), a newer transition superseded [generation], or the stream
+  /// itself can't resolve or open.
+  Future<({Track track, ResolvedPlayable resolved})?> _retryFromStream(
+    Track candidate,
+    ResolvedPlayable failed,
+    int generation,
+  ) async {
+    final PlayableUriResolver? streamResolver = _streamingFallbackResolver;
+    if (streamResolver == null ||
+        failed.source != PlaybackSource.offlineCache) {
+      return null;
+    }
+    final ResolvedPlayable streamed;
+    try {
+      streamed = await streamResolver.resolve(candidate);
+    } catch (_) {
+      // The cached copy failed *and* the stream can't be resolved (offline, or
+      // the session/server is down): let the caller record the cache-load
+      // failure and try the next candidate.
+      return null;
+    }
+    // Don't hand a now-stale source to the shared engine if the user skipped or
+    // seeked while the stream resolved.
+    if (generation != _playbackGeneration) return null;
+    try {
+      await _player.setUrl(streamed.uri.toString());
+      return (track: candidate, resolved: streamed);
+    } catch (_) {
+      StabilityDiagnostics.playbackError('load');
+      return null;
+    }
   }
 
   /// The generic message for an engine load failure *after* a successful

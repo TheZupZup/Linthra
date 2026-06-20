@@ -162,14 +162,14 @@ class CacheDownloadRepository
           entry = cached.copyWith(sizeBytes: size);
           changed = true;
         }
-        _downloads[entry.trackId] = entry;
+        _downloads[_keyForCached(entry)] = entry;
       } else {
-        _downloads[cached.trackId] = cached;
+        _downloads[_keyForCached(cached)] = cached;
       }
       // A preloaded entry is cached and playable, but never a *download*: it
       // stays out of the status map so the downloads UI doesn't show it.
       if (!cached.preloaded) {
-        _statuses[cached.trackId] = DownloadStatus.downloaded;
+        _statuses[_keyForCached(cached)] = DownloadStatus.downloaded;
       }
     }
     if (changed) await _save();
@@ -186,7 +186,10 @@ class CacheDownloadRepository
   @override
   Future<DownloadStatus> statusFor(String trackId) async {
     await _ensureLoaded();
-    return _statuses[trackId] ?? DownloadStatus.notDownloaded;
+    // Reads the id-keyed projection (the same shape [statusStream] emits), so it
+    // agrees with the UI's per-row status. Provider-aware isolation is enforced
+    // where it matters — storage, the cache file, and removal.
+    return _snapshot()[trackId] ?? DownloadStatus.notDownloaded;
   }
 
   @override
@@ -204,13 +207,14 @@ class CacheDownloadRepository
       return DownloadRequestOutcome.started;
     }
 
+    final String key = _keyForTrack(track);
     // A fresh, explicit request supersedes any pending cancellation for this id
     // (e.g. the user removed it mid-fetch and immediately asked again).
-    _canceled.remove(track.id);
+    _canceled.remove(key);
     // Reserve the in-flight slot synchronously, before any `await`, so a second
     // request for the same track (a double tap, or a second caller) bails out
     // here instead of starting a duplicate fetch.
-    if (!_inFlight.add(track.id)) return DownloadRequestOutcome.started;
+    if (!_inFlight.add(key)) return DownloadRequestOutcome.started;
     try {
       return await _runRemoteRequest(track);
     } on CacheStorageException {
@@ -222,14 +226,14 @@ class CacheDownloadRepository
       // Other errors may carry source-specific detail; the UI only needs the
       // failed state (which offers a retry) — but a download the user cancelled
       // mid-fetch must stay gone, not flip to "failed".
-      if (!_canceled.contains(track.id)) {
-        _set(track.id, DownloadStatus.failed);
+      if (!_canceled.contains(key)) {
+        _set(key, DownloadStatus.failed);
       }
       return DownloadRequestOutcome.started;
     } finally {
-      _canceled.remove(track.id);
-      _inFlight.remove(track.id);
-      _clearProgress(track.id);
+      _canceled.remove(key);
+      _inFlight.remove(key);
+      _clearProgress(key);
     }
   }
 
@@ -237,14 +241,15 @@ class CacheDownloadRepository
   /// local, so there is no fetch, no managed file, and no network gate.
   Future<void> _requestOnDeviceDownload(Track track) async {
     await _ensureLoaded();
-    if (_statuses[track.id] == DownloadStatus.downloaded) return;
-    _downloads[track.id] = CachedTrack(
+    final String key = _keyForTrack(track);
+    if (_statuses[key] == DownloadStatus.downloaded) return;
+    _downloads[key] = CachedTrack(
       trackId: track.id,
       sourceType: _sourceTypeOf(track),
       cachedAt: _now(),
     );
     await _save();
-    _statuses[track.id] = DownloadStatus.downloaded;
+    _statuses[key] = DownloadStatus.downloaded;
     _emitStatus();
     _emitCache();
   }
@@ -254,21 +259,22 @@ class CacheDownloadRepository
   /// slot before fetching the bytes and committing them under the cache limit.
   Future<DownloadRequestOutcome> _runRemoteRequest(Track track) async {
     await _ensureLoaded();
+    final String key = _keyForTrack(track);
     // Already cached — nothing to do. (A track that is downloading or queued is
     // already in [_inFlight], so it never reaches here a second time.)
-    if (_statuses[track.id] == DownloadStatus.downloaded) {
+    if (_statuses[key] == DownloadStatus.downloaded) {
       return DownloadRequestOutcome.started;
     }
 
     // A track preloaded ahead of play is already cached: promote it to a user
     // download in place, without re-fetching its bytes.
-    final CachedTrack? preloadedEntry = _downloads[track.id];
+    final CachedTrack? preloadedEntry = _downloads[key];
     if (preloadedEntry != null &&
         preloadedEntry.preloaded &&
         preloadedEntry.isManaged) {
-      _downloads[track.id] = preloadedEntry.copyWith(preloaded: false);
+      _downloads[key] = preloadedEntry.copyWith(preloaded: false);
       await _save();
-      _statuses[track.id] = DownloadStatus.downloaded;
+      _statuses[key] = DownloadStatus.downloaded;
       _emitStatus();
       _emitCache();
       return DownloadRequestOutcome.started;
@@ -280,20 +286,20 @@ class CacheDownloadRepository
     // and the outcome tells the UI why so it can prompt instead of failing.
     final _NetworkDecision decision = await _networkDecision();
     if (decision != _NetworkDecision.allowed) {
-      _set(track.id, DownloadStatus.queued);
+      _set(key, DownloadStatus.queued);
       return decision == _NetworkDecision.offline
           ? DownloadRequestOutcome.waitingForConnection
           : DownloadRequestOutcome.waitingForWifi;
     }
 
     // Accepted: show "queued" until a concurrency slot frees up, then fetch.
-    _set(track.id, DownloadStatus.queued);
+    _set(key, DownloadStatus.queued);
     await _scheduler.schedule(() async {
-      _set(track.id, DownloadStatus.downloading);
+      _set(key, DownloadStatus.downloading);
       final RemoteTrackData data = await _downloader.fetch(
         track,
         onProgress: (int received, int? total) =>
-            _reportProgress(track.id, received, total),
+            _reportProgress(track, received, total),
       );
       // Commit serially so concurrent downloads can't jointly overshoot the
       // limit; the (slow) byte fetch above already ran in parallel.
@@ -314,16 +320,17 @@ class CacheDownloadRepository
     RemoteTrackData data, {
     bool preloaded = false,
   }) async {
+    final String key = _keyForTrack(track);
     // The user removed or cleared this download while its bytes were still in
     // flight: honour that and commit nothing — no file write, no metadata, no
     // status — so a late fetch can't resurrect it or leave a stray file.
-    if (_canceled.remove(track.id)) return;
+    if (_canceled.remove(key)) return;
     if (preloaded) {
-      final CachedTrack? existing = _downloads[track.id];
+      final CachedTrack? existing = _downloads[key];
       // A user download for the same track raced this preload (commits are
       // serialized, so by now the winner is known). Don't clobber or duplicate
       // a real download with a preloaded copy — let the user's copy stand.
-      if (_inFlight.contains(track.id) ||
+      if (_inFlight.contains(key) ||
           (existing != null && !existing.preloaded)) {
         return;
       }
@@ -340,24 +347,25 @@ class CacheDownloadRepository
 
     if (!plan.fits) {
       if (preloaded) return;
-      _set(track.id, DownloadStatus.notDownloaded);
+      _set(key, DownloadStatus.notDownloaded);
       throw const CacheStorageException();
     }
 
     bool evictedAStatus = false;
     for (final CachedTrack victim in plan.evict) {
       await _deleteManagedFile(victim);
-      _downloads.remove(victim.trackId);
-      if (_statuses.remove(victim.trackId) != null) evictedAStatus = true;
+      final String victimKey = _keyForCached(victim);
+      _downloads.remove(victimKey);
+      if (_statuses.remove(victimKey) != null) evictedAStatus = true;
     }
 
     final String fileName = await _files.write(
-      track.id,
+      _fileBaseName(track),
       data.bytes,
       extension: data.fileExtension,
     );
     final DateTime now = _now();
-    _downloads[track.id] = CachedTrack(
+    _downloads[key] = CachedTrack(
       trackId: track.id,
       fileName: fileName,
       sourceType: _sourceTypeOf(track),
@@ -370,7 +378,7 @@ class CacheDownloadRepository
     );
     await _save();
     if (!preloaded) {
-      _statuses[track.id] = DownloadStatus.downloaded;
+      _statuses[key] = DownloadStatus.downloaded;
     }
     // A preload changes only cache usage; a user download (or an eviction that
     // dropped a download) also changes download status.
@@ -383,14 +391,15 @@ class CacheDownloadRepository
     await _ensureLoaded();
     // Only remote tracks have bytes to fetch; local ones are already on disk.
     if (!_downloader.isRemote(track)) return;
+    final String key = _keyForTrack(track);
     // Already cached (download or earlier preload), or a user download already
     // has it in flight — skip rather than fetch the same bytes twice.
-    if (_downloads.containsKey(track.id)) return;
-    if (_inFlight.contains(track.id)) return;
-    if (_statuses[track.id] == DownloadStatus.downloading) return;
+    if (_downloads.containsKey(key)) return;
+    if (_inFlight.contains(key)) return;
+    if (_statuses[key] == DownloadStatus.downloading) return;
     // Reserve synchronously, before any await, so a second concurrent prefetch
     // of the same track bails here instead of fetching the same bytes twice.
-    if (!_preloading.add(track.id)) return;
+    if (!_preloading.add(key)) return;
     try {
       // Preload is best-effort and network-heavy, so it honours the mobile-data
       // policy and simply skips (rather than queueing) when it can't run now.
@@ -408,24 +417,25 @@ class CacheDownloadRepository
       // Best-effort: a failed preload caches nothing and changes no status; the
       // track still streams normally when it's reached.
     } finally {
-      _canceled.remove(track.id);
-      _preloading.remove(track.id);
+      _canceled.remove(key);
+      _preloading.remove(key);
     }
   }
 
   @override
-  Future<void> removeDownload(String trackId) async {
+  Future<void> removeDownload(Track track) async {
     await _ensureLoaded();
+    final String key = _keyForTrack(track);
     // If a fetch for this track is still in flight, mark it cancelled so its
     // late commit won't re-add the entry or leave a managed file on disk.
-    if (_inFlight.contains(trackId) || _preloading.contains(trackId)) {
-      _canceled.add(trackId);
+    if (_inFlight.contains(key) || _preloading.contains(key)) {
+      _canceled.add(key);
     }
-    final CachedTrack? existing = _downloads.remove(trackId);
+    final CachedTrack? existing = _downloads.remove(key);
     await _deleteManagedFile(existing);
     await _save();
     // Also clears a queued/failed/downloading marker, so this doubles as cancel.
-    _set(trackId, DownloadStatus.notDownloaded);
+    _set(key, DownloadStatus.notDownloaded);
     _emitCache();
   }
 
@@ -435,7 +445,7 @@ class CacheDownloadRepository
     return _statuses.entries
         .where((MapEntry<String, DownloadStatus> e) =>
             e.value == DownloadStatus.downloaded)
-        .map((MapEntry<String, DownloadStatus> e) => e.key)
+        .map((MapEntry<String, DownloadStatus> e) => _trackIdOfKey(e.key))
         .toList();
   }
 
@@ -453,21 +463,23 @@ class CacheDownloadRepository
   }
 
   @override
-  Future<void> setPinned(String trackId, bool pinned) async {
+  Future<void> setPinned(Track track, bool pinned) async {
     await _ensureLoaded();
-    final CachedTrack? existing = _downloads[trackId];
+    final String key = _keyForTrack(track);
+    final CachedTrack? existing = _downloads[key];
     if (existing == null || existing.pinned == pinned) return;
-    _downloads[trackId] = existing.copyWith(pinned: pinned);
+    _downloads[key] = existing.copyWith(pinned: pinned);
     await _save();
     _emitCache();
   }
 
   @override
-  Future<void> notePlayed(String trackId) async {
+  Future<void> notePlayed(Track track) async {
     await _ensureLoaded();
-    final CachedTrack? existing = _downloads[trackId];
+    final String key = _keyForTrack(track);
+    final CachedTrack? existing = _downloads[key];
     if (existing == null) return;
-    _downloads[trackId] = existing.copyWith(lastAccessedAt: _now());
+    _downloads[key] = existing.copyWith(lastAccessedAt: _now());
     await _save();
     _emitCache();
   }
@@ -495,8 +507,9 @@ class CacheDownloadRepository
     if (victims.isEmpty) return;
     for (final CachedTrack victim in victims) {
       await _deleteManagedFile(victim);
-      _downloads.remove(victim.trackId);
-      _statuses.remove(victim.trackId);
+      final String victimKey = _keyForCached(victim);
+      _downloads.remove(victimKey);
+      _statuses.remove(victimKey);
     }
     await _save();
     _emitStatus();
@@ -572,11 +585,11 @@ class CacheDownloadRepository
 
   Future<void> _save() => _store.saveDownloads(_downloads.values.toList());
 
-  void _set(String trackId, DownloadStatus status) {
+  void _set(String key, DownloadStatus status) {
     if (status == DownloadStatus.notDownloaded) {
-      _statuses.remove(trackId);
+      _statuses.remove(key);
     } else {
-      _statuses[trackId] = status;
+      _statuses[key] = status;
     }
     _emitStatus();
   }
@@ -604,24 +617,35 @@ class CacheDownloadRepository
     return result.future;
   }
 
-  void _reportProgress(String trackId, int received, int? total) {
-    _progress[trackId] = DownloadProgress(
-      trackId: trackId,
+  void _reportProgress(Track track, int received, int? total) {
+    _progress[_keyForTrack(track)] = DownloadProgress(
+      trackId: track.id,
       receivedBytes: received,
       totalBytes: total,
     );
     _emitProgress();
   }
 
-  void _clearProgress(String trackId) {
-    if (_progress.remove(trackId) != null) _emitProgress();
+  void _clearProgress(String key) {
+    if (_progress.remove(key) != null) _emitProgress();
   }
 
-  Map<String, DownloadStatus> _snapshot() =>
-      Map<String, DownloadStatus>.unmodifiable(_statuses);
+  /// Projects the provider-aware status map onto a catalog-id-keyed snapshot —
+  /// the shape the UI's per-row status provider and the cross-provider sync
+  /// layers consume. In the catalog (whose primary key is the id) two providers
+  /// never share an id, so the projection is lossless there; the provider-aware
+  /// keys stay internal where same-id isolation matters (storage, files,
+  /// removal).
+  Map<String, DownloadStatus> _snapshot() => <String, DownloadStatus>{
+        for (final MapEntry<String, DownloadStatus> e in _statuses.entries)
+          _trackIdOfKey(e.key): e.value,
+      };
 
   Map<String, DownloadProgress> _progressSnapshot() =>
-      Map<String, DownloadProgress>.unmodifiable(_progress);
+      <String, DownloadProgress>{
+        for (final MapEntry<String, DownloadProgress> e in _progress.entries)
+          _trackIdOfKey(e.key): e.value,
+      };
 
   CacheSnapshot _cacheSnapshot() {
     int used = 0;
@@ -642,6 +666,40 @@ class CacheDownloadRepository
     final String scheme = track.uri.substring(0, colon).toLowerCase();
     return scheme.isEmpty ? null : scheme;
   }
+
+  /// The provider-aware cache identity for [track]: its source scheme **plus**
+  /// catalog id, so two providers that expose the same local id (e.g. a Plex
+  /// ratingKey `101` and a Subsonic id `101`) never share a cache slot, file, or
+  /// status. This is the key for every in-memory map below.
+  static String _keyForTrack(Track track) =>
+      _cacheKey(_sourceTypeOf(track), track.id);
+
+  /// The same identity for a persisted [entry], built from the same
+  /// `(sourceType, trackId)` it was written with — so a reloaded entry maps back
+  /// to exactly the key its live track produces, keeping cache state stable
+  /// across restarts (and back-compatible: existing entries already carry both).
+  static String _keyForCached(CachedTrack entry) =>
+      _cacheKey(entry.sourceType, entry.trackId);
+
+  /// Composes a credential-free cache key from a source scheme and catalog id.
+  /// The NUL separator can't occur in a scheme or an id, so the pair is
+  /// unambiguous and [_trackIdOfKey] can recover the id for the id-keyed
+  /// snapshots the UI reads.
+  static String _cacheKey(String? sourceType, String trackId) =>
+      '${sourceType ?? ''}\u0000$trackId';
+
+  /// The catalog id embedded in a [key] from [_cacheKey] — used to project the
+  /// internal, provider-aware maps back onto the id-keyed snapshots the UI and
+  /// the cross-provider sync layers consume.
+  static String _trackIdOfKey(String key) =>
+      key.substring(key.indexOf('\u0000') + 1);
+
+  /// A provider-namespaced base name for [track]'s cache file, so two providers
+  /// with the same id write to distinct files (`plex_101`, `jellyfin_101`). The
+  /// [OfflineFileStore] sanitizes it further; the resulting file name is what's
+  /// persisted, so existing files (named from the bare id) keep resolving.
+  static String _fileBaseName(Track track) =>
+      '${_sourceTypeOf(track) ?? 'local'}_${track.id}';
 }
 
 /// Whether the network policy lets a download run now, and why not when it

@@ -303,7 +303,7 @@ class _OverflowMenu extends ConsumerWidget {
       case _TrackAction.cancel:
         // Cancelling an in-flight/queued download is not destructive to a saved
         // copy, so it needs no confirmation.
-        await ref.read(downloadRepositoryProvider).removeDownload(track.id);
+        await ref.read(downloadRepositoryProvider).removeDownload(track);
       case _TrackAction.removeOffline:
         await SongActions.removeOfflineCopies(context, ref, <Track>[track]);
       case _TrackAction.removeFromLibrary:

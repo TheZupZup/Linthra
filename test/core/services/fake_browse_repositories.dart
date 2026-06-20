@@ -145,5 +145,5 @@ class FakeDownloadRepository implements DownloadRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> removeDownload(String trackId) => throw UnimplementedError();
+  Future<void> removeDownload(Track track) => throw UnimplementedError();
 }

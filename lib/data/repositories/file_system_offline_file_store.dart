@@ -22,6 +22,11 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
 
   final Future<Directory> Function() _directory;
 
+  /// Suffix for the in-progress temp file an atomic [write] renames from. A
+  /// leftover (from a crash mid-write) is never referenced by download metadata,
+  /// so it is harmless, and the next same-name download overwrites it.
+  static const String _tempSuffix = '.part';
+
   static Future<Directory> _defaultDirectory() async {
     final Directory base = await getApplicationSupportDirectory();
     return Directory(p.join(base.path, 'offline_audio'));
@@ -33,13 +38,50 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
     List<int> bytes, {
     String? extension,
   }) async {
+    // Validate before writing anything: an empty download (an interrupted or
+    // truncated fetch can hand back zero bytes) is never a valid cache file —
+    // and would masquerade as one, since the playback locator only checks that
+    // a file *exists*. Refusing it here surfaces as a failed write the caller
+    // streams past, rather than a 0-byte file that fails at play time.
+    if (bytes.isEmpty) {
+      throw const FileSystemException('Refusing to cache an empty download.');
+    }
     final Directory dir = await _directory();
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
     final String fileName = _fileNameFor(trackId, extension);
-    final File file = File(p.join(dir.path, fileName));
-    await file.writeAsBytes(bytes, flush: true);
+    final File target = File(p.join(dir.path, fileName));
+
+    // Atomic publish: write to a temporary sibling, validate it, then rename it
+    // into place. A rename within one directory is atomic on the POSIX
+    // filesystems Linthra targets, so the playback locator only ever sees the
+    // fully-written file or no file — never a half-written one, even if the
+    // process is killed mid-write. The metadata that marks the track cached is
+    // written by the repository only *after* this returns, so a crash between
+    // the rename and that write just leaves an unreferenced file the next
+    // download (same name) overwrites — it is never mistaken for cached.
+    final File temp = File('${target.path}$_tempSuffix');
+    try {
+      await temp.writeAsBytes(bytes, flush: true);
+      // Confirm the temp holds every byte before publishing it, so a short
+      // write (e.g. the disk filled mid-write) is caught and discarded here
+      // rather than renamed into the cache to fail later.
+      final int written = await temp.length();
+      if (written != bytes.length) {
+        throw FileSystemException(
+          'Cached file is incomplete ($written/${bytes.length} bytes).',
+          target.path,
+        );
+      }
+      await temp.rename(target.path);
+    } on Object {
+      // Never leave a partial temp behind on any failure (validation or I/O).
+      if (await temp.exists()) {
+        await temp.delete();
+      }
+      rethrow;
+    }
     return fileName;
   }
 

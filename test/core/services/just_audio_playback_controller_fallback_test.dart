@@ -105,6 +105,9 @@ Track _track(String id, String uri) => Track(
 ResolvedPlayable _stream(String url) =>
     ResolvedPlayable(Uri.parse(url), PlaybackSource.streamingDirect);
 
+ResolvedPlayable _cache(String path) =>
+    ResolvedPlayable(Uri.file(path), PlaybackSource.offlineCache);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -117,11 +120,15 @@ void main() {
     required _FakePlayer player,
     required _FakeResolver resolver,
     required Map<String, List<Track>> candidates,
+    _FakeResolver? streamResolver,
   }) {
     final controller = JustAudioPlaybackController(
       player: player,
       resolver: resolver,
       candidates: MapPlaybackCandidateSource(() => candidates),
+      // Null by default, so every existing test keeps the original behavior; the
+      // offline-cache fallback group passes a real one.
+      streamingFallbackResolver: streamResolver,
     );
     addTearDown(controller.dispose);
     return controller;
@@ -293,6 +300,128 @@ void main() {
       expect(s.errorMessage, isNot(contains('http')));
       // Each candidate was tried exactly once — no looping.
       expect(resolver.calls, <String>['jellyfin:j', 'subsonic:s']);
+    });
+  });
+
+  group('offline-cache load failure falls back to streaming', () {
+    // A Plex track with a cached copy and no sibling copy on another provider —
+    // its own only candidate, so cross-provider fallback can't save it.
+    final Track plex = _track('p', 'plex:101');
+
+    test('a single-source cached copy that won\'t open streams the same track',
+        () async {
+      // The primary resolver reports a cache hit (a file://), but the engine
+      // can't open that file — corrupt, or reclaimed after the existence check.
+      final player = _FakePlayer(failUrls: <String>{'file:///cache/p.flac'});
+      final resolver = _FakeResolver(
+        resolved: <String, ResolvedPlayable>{
+          'plex:101': _cache('/cache/p.flac'),
+        },
+      );
+      // The streaming fallback resolves the *same* track to its live stream.
+      final streamResolver = _FakeResolver(
+        resolved: <String, ResolvedPlayable>{
+          'plex:101': _stream('https://plex/stream/101'),
+        },
+      );
+      final controller = build(
+        player: player,
+        resolver: resolver,
+        streamResolver: streamResolver,
+        candidates: const <String, List<Track>>{},
+      );
+
+      await controller.playTracks(<Track>[plex]);
+
+      final PlaybackState s = controller.state;
+      expect(s.currentTrack?.uri, 'plex:101');
+      expect(s.source, PlaybackSource.streamingDirect);
+      expect(s.status, isNot(PlaybackStatus.error));
+      // It really tried the cache file first, then the stream — each once.
+      expect(player.setUrlCalls,
+          <String>['file:///cache/p.flac', 'https://plex/stream/101']);
+    });
+
+    test('a cached copy that won\'t open and a dead stream errors, no loop',
+        () async {
+      final player = _FakePlayer(failUrls: <String>{
+        'file:///cache/p.flac',
+        'https://plex/stream/101',
+      });
+      final resolver = _FakeResolver(
+        resolved: <String, ResolvedPlayable>{
+          'plex:101': _cache('/cache/p.flac'),
+        },
+      );
+      final streamResolver = _FakeResolver(
+        resolved: <String, ResolvedPlayable>{
+          'plex:101': _stream('https://plex/stream/101'),
+        },
+      );
+      final controller = build(
+        player: player,
+        resolver: resolver,
+        streamResolver: streamResolver,
+        candidates: const <String, List<Track>>{},
+      );
+
+      await controller.playTracks(<Track>[plex]);
+
+      expect(controller.state.status, PlaybackStatus.error);
+      // Cache, then stream — each tried exactly once.
+      expect(player.setUrlCalls,
+          <String>['file:///cache/p.flac', 'https://plex/stream/101']);
+    });
+
+    test('a cache hit that opens never consults the streaming fallback',
+        () async {
+      final player = _FakePlayer();
+      final resolver = _FakeResolver(
+        resolved: <String, ResolvedPlayable>{
+          'plex:101': _cache('/cache/p.flac'),
+        },
+      );
+      final streamResolver = _FakeResolver(
+        resolved: <String, ResolvedPlayable>{
+          'plex:101': _stream('https://plex/stream/101'),
+        },
+      );
+      final controller = build(
+        player: player,
+        resolver: resolver,
+        streamResolver: streamResolver,
+        candidates: const <String, List<Track>>{},
+      );
+
+      await controller.playTracks(<Track>[plex]);
+
+      expect(controller.state.source, PlaybackSource.offlineCache);
+      // The healthy cache copy played; the stream was never resolved or opened.
+      expect(streamResolver.calls, isEmpty);
+      expect(player.setUrlCalls, <String>['file:///cache/p.flac']);
+    });
+
+    test('without a streaming fallback, a failed cache load behaves as before',
+        () async {
+      // The additive guarantee: with no fallback resolver wired (the default and
+      // in tests), a single-source cache failure still surfaces an error exactly
+      // as it did before — so nothing regresses.
+      final player = _FakePlayer(failUrls: <String>{'file:///cache/p.flac'});
+      final resolver = _FakeResolver(
+        resolved: <String, ResolvedPlayable>{
+          'plex:101': _cache('/cache/p.flac'),
+        },
+      );
+      final controller = build(
+        player: player,
+        resolver: resolver,
+        candidates: const <String, List<Track>>{},
+      );
+
+      await controller.playTracks(<Track>[plex]);
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(player.setUrlCalls, <String>['file:///cache/p.flac']);
     });
   });
 

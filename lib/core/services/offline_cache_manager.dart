@@ -1,3 +1,4 @@
+import '../models/track.dart';
 import '../repositories/download_store.dart';
 
 /// An immutable view of the offline cache for the UI: how much app-managed
@@ -44,11 +45,12 @@ abstract interface class OfflineCacheManager {
 
   /// Pins or unpins a track ("Keep offline"). Pinned tracks are never evicted
   /// automatically and survive [clearUnpinned]. A no-op for an unknown track.
-  Future<void> setPinned(String trackId, bool pinned);
+  /// Takes the whole [Track] so it acts on the right provider's cached copy.
+  Future<void> setPinned(Track track, bool pinned);
 
-  /// Records that [trackId] was just played from cache, refreshing its
+  /// Records that [track] was just played from cache, refreshing its
   /// least-recently-used position. A no-op for a track that isn't cached.
-  Future<void> notePlayed(String trackId);
+  Future<void> notePlayed(Track track);
 
   /// Removes every offline entry: deletes all app-managed cache files and the
   /// metadata, pinned items included. Never touches the user's local source

@@ -76,6 +76,9 @@ abstract interface class DownloadRepository {
   /// Emits whenever a track's download status changes.
   Stream<Map<String, DownloadStatus>> get statusStream;
 
+  /// The status of the track with catalog id [trackId], mirroring the id-keyed
+  /// [statusStream] the UI watches. (The mutating calls below take the whole
+  /// [Track] instead, because they act on one provider's specific cached copy.)
   Future<DownloadStatus> statusFor(String trackId);
 
   /// Emits per-track byte progress for in-flight downloads, keyed by track id.
@@ -98,9 +101,11 @@ abstract interface class DownloadRepository {
   /// offline) rather than started.
   Future<DownloadRequestOutcome> requestDownload(Track track);
 
-  /// Removes the offline copy of [trackId], deleting any cached file and
-  /// freeing storage.
-  Future<void> removeDownload(String trackId);
+  /// Removes the offline copy of [track], deleting any cached file and freeing
+  /// storage. Takes the whole [Track] so removal is *provider-aware*: a Plex
+  /// track and a Subsonic track that happen to share a catalog id never shadow
+  /// or remove each other's cached copy.
+  Future<void> removeDownload(Track track);
 
   /// Track IDs that are fully available offline.
   Future<List<String>> downloadedTrackIds();
