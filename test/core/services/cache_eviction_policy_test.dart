@@ -273,5 +273,71 @@ void main() {
       expect(plan.evict.single.trackId, 'j');
       expect(plan.evict.single.sourceType, 'jellyfin');
     });
+
+    group('legacy records (written before sourceType existed)', () {
+      test('protects a currently playing legacy entry by its bare id', () {
+        // Upgrade case: the cached copy of the playing track is a legacy record
+        // with no sourceType (key `\\0leg`), while the live playing track keys as
+        // jellyfin:leg. It must still be protected — never evicted out from under
+        // playback — even though its provider-aware key can't match.
+        final plan = policy.plan(
+          cached: <CachedTrack>[
+            _managed('leg',
+                accessed: DateTime(2024, 1, 1)), // legacy: no source
+            _managed('other',
+                source: 'jellyfin', accessed: DateTime(2024, 6, 1)),
+          ],
+          incomingBytes: 100,
+          maxBytes: 250, // must free one
+          protectKey: _key('leg', source: 'jellyfin'),
+        );
+
+        expect(plan.fits, isTrue);
+        // The legacy playing entry is protected; the other track goes instead.
+        expect(plan.evict.map((e) => e.trackId), <String>['other']);
+      });
+
+      test('a re-download recognizes its own legacy copy as its old copy', () {
+        // Re-downloading jellyfin:leg whose existing copy is a legacy record:
+        // it must be treated as the same track (skipped, replaced in place), not
+        // a different evictable one.
+        final plan = policy.plan(
+          cached: <CachedTrack>[
+            _managed('leg', accessed: DateTime(2024, 1, 1)), // legacy copy
+            _managed('keep',
+                source: 'jellyfin', accessed: DateTime(2024, 6, 1)),
+          ],
+          incomingBytes: 100,
+          maxBytes:
+              200, // leg replaces itself; keep(100)+incoming(100)=200 fits
+          incomingKey: _key('leg', source: 'jellyfin'),
+        );
+
+        expect(plan.fits, isTrue);
+        expect(plan.evict, isEmpty);
+      });
+
+      test('a legacy bare-id match never protects a same-id provider entry',
+          () {
+        // The playing track is jellyfin:101 (legacy copy `\\0101` exists). A
+        // *different* provider's subsonic:101 carries a sourceType, so it is
+        // matched strictly and stays evictable — the legacy fallback only ever
+        // applies to source-less records.
+        final plan = policy.plan(
+          cached: <CachedTrack>[
+            _managed('101',
+                accessed: DateTime(2024, 1, 1)), // legacy, protected
+            _managed('101', source: 'subsonic', accessed: DateTime(2024, 6, 1)),
+          ],
+          incomingBytes: 100,
+          maxBytes: 250, // must free one
+          protectKey: _key('101', source: 'jellyfin'),
+        );
+
+        expect(plan.fits, isTrue);
+        // The provider-tagged Subsonic copy is evicted; the legacy one is kept.
+        expect(plan.evict.single.sourceType, 'subsonic');
+      });
+    });
   });
 }

@@ -701,8 +701,7 @@ class CacheDownloadRepository
   /// The catalog id embedded in a [key] from [_cacheKey] — used to project the
   /// internal, provider-aware maps back onto the id-keyed snapshots the UI and
   /// the cross-provider sync layers consume.
-  static String _trackIdOfKey(String key) =>
-      key.substring(key.indexOf(String.fromCharCode(0)) + 1);
+  static String _trackIdOfKey(String key) => CachedTrack.trackIdFromKey(key);
 
   /// A provider-namespaced base name for [track]'s cache file, so two providers
   /// with the same id write to distinct files (`plex_101`, `jellyfin_101`). The

@@ -27,7 +27,9 @@ class EvictionPlan {
 /// every remote source together (Jellyfin, Subsonic/Navidrome, Plex) by the same
 /// rules, and identifies the incoming and protected tracks by the provider-aware
 /// [CachedTrack.cacheKey] (`scheme + id`), so two providers that expose the same
-/// catalog id never shadow, protect, or evict each other.
+/// catalog id never shadow, protect, or evict each other. A legacy record that
+/// predates `sourceType` (no provider) falls back to a bare-id match, so an
+/// upgrading user's currently playing legacy track is still protected.
 ///
 /// Rules, in order:
 ///  - On-device tracks and zero-byte records don't count toward the budget and
@@ -55,15 +57,15 @@ class CacheEvictionPolicy {
     final List<CachedTrack> candidates = <CachedTrack>[];
     for (final CachedTrack track in cached) {
       // A re-download replaces its own old copy, so it doesn't count as
-      // already-used space and can't evict itself. Keyed by the provider-aware
-      // [CachedTrack.cacheKey] (scheme + id), so a same-id track from a
-      // *different* provider is never mistaken for the incoming track's copy.
-      if (track.cacheKey == incomingKey) continue;
+      // already-used space and can't evict itself. Matched provider-aware (see
+      // [_matchesLiveTrack]), so a same-id track from a *different* provider is
+      // never mistaken for the incoming track's copy.
+      if (_matchesLiveTrack(track, incomingKey)) continue;
       used += track.sizeBytes;
       final bool evictable = track.isManaged &&
           track.sizeBytes > 0 &&
           !track.pinned &&
-          track.cacheKey != protectKey;
+          !_matchesLiveTrack(track, protectKey);
       if (evictable) candidates.add(track);
     }
 
@@ -89,6 +91,22 @@ class CacheEvictionPolicy {
     return fits
         ? EvictionPlan(evict: evict, fits: true)
         : const EvictionPlan(evict: <CachedTrack>[], fits: false);
+  }
+
+  /// Whether [track] is the cache slot for the live track identified by [key]
+  /// (its provider-aware [CachedTrack.cacheKey]).
+  ///
+  /// A record written before `sourceType` existed has no provider, so it can't
+  /// carry the provider-aware key — it's matched by the bare id encoded in
+  /// [key] instead, so an upgrading user's currently playing (or re-downloading)
+  /// legacy track is still recognised and protected. An entry that *does* carry
+  /// a sourceType is matched strictly, preserving same-id cross-provider
+  /// isolation.
+  static bool _matchesLiveTrack(CachedTrack track, String? key) {
+    if (key == null) return false;
+    if (track.cacheKey == key) return true;
+    return track.sourceType == null &&
+        track.trackId == CachedTrack.trackIdFromKey(key);
   }
 
   static int _leastRecentlyUsedFirst(CachedTrack a, CachedTrack b) {

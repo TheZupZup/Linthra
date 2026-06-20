@@ -73,6 +73,15 @@ class CachedTrack {
   static String cacheKeyFor(String? sourceType, String trackId) =>
       '${sourceType ?? ''}${String.fromCharCode(_keySeparator)}$trackId';
 
+  /// The catalog id encoded in a [cacheKey] / [cacheKeyFor] value — everything
+  /// after the scheme separator (the inverse of the id half of [cacheKeyFor]).
+  /// Lets the eviction policy recover the bare id to match a legacy record that
+  /// predates [sourceType] and so can't carry the provider-aware key.
+  static String trackIdFromKey(String key) {
+    final int i = key.indexOf(String.fromCharCode(_keySeparator));
+    return i < 0 ? key : key.substring(i + 1);
+  }
+
   /// Separator between scheme and id in a [cacheKey]: NUL, which can't occur in
   /// a URI scheme or a catalog id, so the `(scheme, id)` pair is unambiguous.
   static const int _keySeparator = 0;

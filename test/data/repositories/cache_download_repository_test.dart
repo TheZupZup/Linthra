@@ -1502,6 +1502,50 @@ void main() {
           downloader.fetched.any((Track t) => t.uri == 'plex:want'), isFalse);
       expect((await repo.cacheSnapshot()).usedBytes, 4);
     });
+
+    test(
+        'a currently playing legacy (sourceType-less) cached file is not evicted',
+        () async {
+      // Upgrade scenario: a cache record written before sourceType existed (bare
+      // id, no provider) is the currently playing track, now resolved as
+      // jellyfin:leg. Under cache pressure a new download must NOT delete the
+      // file backing playback — even though the legacy key can't match the
+      // provider-aware playing key.
+      final String legFile = await files.write(
+        'legacy_leg',
+        _FakeRemoteDownloader.bytes,
+        extension: 'mp3',
+      );
+      await store.saveDownloads(<CachedTrack>[
+        CachedTrack(
+          trackId: 'leg',
+          fileName: legFile,
+          // sourceType intentionally omitted — a legacy record.
+          sizeBytes: _FakeRemoteDownloader.bytes.length,
+          cachedAt: DateTime(2020),
+          lastAccessedAt: DateTime(2020),
+        ),
+      ]);
+
+      final repo = buildLimited(
+        maxBytes: _FakeRemoteDownloader.bytes.length, // room for one track only
+        currentlyPlaying: () => _jellyfin('leg'),
+      );
+
+      // No room, and the only cached entry is the playing legacy track. It must
+      // be protected, so the new download is refused rather than deleting it.
+      Object? caught;
+      try {
+        await repo.requestDownload(_jellyfin('new'));
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught, isA<CacheStorageException>());
+
+      // The legacy file backing playback survived; nothing else was cached.
+      expect(files.bytesFor(legFile), isNotNull);
+      expect(await repo.statusFor('new'), DownloadStatus.notDownloaded);
+    });
   });
 }
 
