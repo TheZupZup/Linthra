@@ -60,7 +60,7 @@ void main() {
     final int playedBefore = local.playedTracks.length;
 
     // Android Auto selects a library track.
-    await handler.playFromMediaId(MediaId.libraryTrack('b'));
+    await handler.playFromMediaId(MediaId.libraryTrack('/b.mp3'));
     await _settle();
 
     // The queue advanced (so the receiver can be told what to play), but the
@@ -128,7 +128,7 @@ void main() {
       await local.dispose();
     });
 
-    await handler.playFromMediaId(MediaId.libraryTrack('b'));
+    await handler.playFromMediaId(MediaId.libraryTrack('/b.mp3'));
     await _settle();
 
     // Local output is active, so the selection really plays on the device.
