@@ -116,10 +116,16 @@ void main() {
     test(
         'migrates a legacy id-keyed timestamp to the uri key, preserving the time',
         () async {
-      // A store written by a pre-v2 build keyed entries by the bare id. The first
-      // sync that sees the track again must adopt that timestamp under the uri
-      // key, not reset it to "now".
+      // A pre-v2 store keyed entries by the bare id; the catalog (migrated to v2)
+      // already holds the track under its uri. The one-time migration at the next
+      // catalog write must re-key the timestamp to the uri, not reset it to "now".
       final DateTime legacy = DateTime(2023, 1, 1);
+      await delegate.upsertCatalog(
+        sourceId: 'jellyfin',
+        tracks: <Track>[_t('a')],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
       await addedStore.save(<String, DateTime>{'a': legacy});
 
       final RecordingMusicLibraryRepository repo =
@@ -129,6 +135,36 @@ void main() {
       final Map<String, DateTime> added = await addedStore.load();
       expect(added['jellyfin:a'], legacy); // original time preserved
       expect(added.containsKey('a'), isFalse); // legacy key cleaned up
+    });
+
+    test('a newly-added same-id provider cannot steal a legacy timestamp',
+        () async {
+      // jellyfin:101 existed pre-upgrade (legacy timestamp under bare id 101);
+      // the migrated catalog already holds it. The user adds a Plex source that
+      // also exposes id 101, and Plex syncs first.
+      final DateTime legacy = DateTime(2023, 1, 1);
+      await delegate.upsertCatalog(
+        sourceId: 'jellyfin',
+        tracks: <Track>[_t('101')],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+      await addedStore.save(<String, DateTime>{'101': legacy});
+
+      final RecordingMusicLibraryRepository repo =
+          build(now: () => DateTime(2024, 6, 10));
+      await sync(
+        repo,
+        <Track>[const Track(id: '101', title: 'P', uri: 'plex:101')],
+        sourceId: 'plex',
+      );
+
+      final Map<String, DateTime> added = await addedStore.load();
+      // The legacy time stays with the original Jellyfin row…
+      expect(added['jellyfin:101'], legacy);
+      // …and the newly-added Plex copy is correctly treated as new.
+      expect(added['plex:101'], DateTime(2024, 6, 10));
+      expect(added.containsKey('101'), isFalse);
     });
   });
 }

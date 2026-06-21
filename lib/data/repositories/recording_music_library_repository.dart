@@ -20,9 +20,11 @@ import '../../core/sources/music_provider.dart';
 ///
 /// The map is keyed by the provider-namespaced [Track.uri] (e.g. `jellyfin:101`,
 /// `plex:101`, or a local path), not the bare `id`, so the same server-side id
-/// from two providers can't share — or clobber — one timestamp. Stores stamped
-/// under the old id key are migrated to the uri key in place the first time each
-/// track is seen again (see [_stampFirstSeen]), preserving the original time.
+/// from two providers can't share — or clobber — one timestamp. A store written
+/// by a pre-v2 build (keyed by the bare id) is migrated to uri keys once, before
+/// the first catalog write, against the catalog's current owner of each id (see
+/// [_migrateLegacyAddedKeysOnce]) — so the original time lands on the row that
+/// owned it and a later same-id row from a newly-added provider can't steal it.
 ///
 /// Reads (`getAllTracks`, etc.) pass straight through. The stored map holds only
 /// non-secret, namespaced track uris and timestamps; it never carries a token or
@@ -47,6 +49,10 @@ class RecordingMusicLibraryRepository
   final LibraryAddedStore _addedStore;
   final DateTime Function() _now;
 
+  /// Guards the one-time legacy added-at key migration so it runs at most once,
+  /// at the first catalog write (see [_migrateLegacyAddedKeysOnce]).
+  bool _migratedLegacyAddedKeys = false;
+
   @override
   Future<List<Track>> getAllTracks() => _delegate.getAllTracks();
 
@@ -66,6 +72,7 @@ class RecordingMusicLibraryRepository
     required List<Album> albums,
     required List<Artist> artists,
   }) async {
+    await _migrateLegacyAddedKeysOnce();
     await _delegate.upsertCatalog(
       sourceId: sourceId,
       tracks: tracks,
@@ -80,6 +87,7 @@ class RecordingMusicLibraryRepository
     required String sourceId,
     required List<Track> tracks,
   }) async {
+    await _migrateLegacyAddedKeysOnce();
     final MusicLibraryRepository delegate = _delegate;
     if (delegate is IncrementalCatalogWriter) {
       await (delegate as IncrementalCatalogWriter)
@@ -100,6 +108,7 @@ class RecordingMusicLibraryRepository
     required String sourceId,
     required List<Track> tracks,
   }) async {
+    await _migrateLegacyAddedKeysOnce();
     final MusicLibraryRepository delegate = _delegate;
     if (delegate is IncrementalCatalogWriter) {
       await (delegate as IncrementalCatalogWriter)
@@ -112,10 +121,10 @@ class RecordingMusicLibraryRepository
   /// preserving earlier timestamps so a routine re-sync never resets "recently
   /// added". Shared by the whole-catalog and incremental write paths.
   ///
-  /// Entries are keyed by [Track.uri]. A timestamp left under the legacy bare-`id`
-  /// key (from before this store was provider-namespaced) is migrated to the uri
-  /// key in place — preserving the original time — the first time the track is
-  /// seen again, so an upgrade never resets a user's "recently added" ordering.
+  /// Entries are keyed by [Track.uri]. Legacy bare-`id`-keyed timestamps are
+  /// re-keyed to the owning uri by [_migrateLegacyAddedKeysOnce] (which runs
+  /// before any catalog write), so by the time a track is stamped here a missing
+  /// uri key always means genuinely new — never a legacy entry to adopt.
   Future<void> _stampFirstSeen(List<Track> tracks) async {
     if (tracks.isEmpty) return;
     final Map<String, DateTime> addedAt = await _addedStore.load();
@@ -123,13 +132,46 @@ class RecordingMusicLibraryRepository
     bool changed = false;
     for (final Track track in tracks) {
       if (addedAt.containsKey(track.uri)) continue;
-      // Adopt a legacy id-keyed timestamp if one exists (and id != uri, i.e. a
-      // remote track); otherwise this is genuinely new and gets `now`.
-      final DateTime? legacy =
-          track.uri == track.id ? null : addedAt.remove(track.id);
-      addedAt[track.uri] = legacy ?? now;
+      addedAt[track.uri] = now;
       changed = true;
     }
+    if (changed) await _addedStore.save(addedAt);
+  }
+
+  /// Migrates a pre-v2 store's bare-`id`-keyed timestamps onto the
+  /// provider-namespaced [Track.uri] key, once, before the first catalog write.
+  ///
+  /// Each legacy id is resolved against the catalog's *current* owner of that id.
+  /// Running before the first write is what makes this safe: the catalog is still
+  /// the upgraded-in-place, 1:1 bare-id→provider state, so the timestamp lands on
+  /// the row that actually owned it — a later same-id row from a newly-added
+  /// provider (synced after this) can't adopt it. A bare id the catalog already
+  /// exposes under more than one provider is left untouched (ambiguous → not
+  /// mis-attributed; the read-time fallback still surfaces it).
+  Future<void> _migrateLegacyAddedKeysOnce() async {
+    if (_migratedLegacyAddedKeys) return;
+    _migratedLegacyAddedKeys = true;
+    final Map<String, DateTime> addedAt = await _addedStore.load();
+    if (addedAt.isEmpty) return;
+    // bare id -> owner uri, or null when more than one provider exposes that id.
+    final Map<String, String?> ownerByBareId = <String, String?>{};
+    for (final Track track in await _delegate.getAllTracks()) {
+      if (track.uri == track.id)
+        continue; // local: id == uri, never legacy-keyed
+      ownerByBareId[track.id] =
+          ownerByBareId.containsKey(track.id) ? null : track.uri;
+    }
+    bool changed = false;
+    ownerByBareId.forEach((String bareId, String? ownerUri) {
+      if (ownerUri == null)
+        return; // ambiguous — leave for the read-time fallback
+      final DateTime? legacy = addedAt[bareId];
+      if (legacy == null) return;
+      // Don't clobber an existing uri-keyed time; just drop the legacy key.
+      addedAt.putIfAbsent(ownerUri, () => legacy);
+      addedAt.remove(bareId);
+      changed = true;
+    });
     if (changed) await _addedStore.save(addedAt);
   }
 
