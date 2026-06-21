@@ -54,7 +54,46 @@ void main() {
 
       expect(logical, hasLength(1));
       expect(logical.single.hasMultipleSources, isTrue);
-      expect(logical.single.allTrackIds, containsAll(<String>['j', 's']));
+      expect(logical.single.allTrackUris,
+          containsAll(<String>['jellyfin:j', 'subsonic:s']));
+    });
+
+    test(
+        'two DIFFERENT songs that share a bare server-side id across providers '
+        'stay separate (no mis-group or duplicate row)', () {
+      // Grouping keys on the provider-namespaced uri, so a Jellyfin "101" and a
+      // Subsonic "101" that are unrelated songs never collide into one group —
+      // and neither is duplicated or dropped.
+      final List<LogicalTrack> logical = unifyTracks(
+        <Track>[
+          _jelly('101', title: 'Alpha', album: 'A'),
+          _sub('101', title: 'Beta', album: 'B'),
+        ],
+        _subsonicPreferred,
+      );
+
+      expect(logical, hasLength(2));
+      expect(
+        logical.map((LogicalTrack l) => l.primaryTrack.uri),
+        containsAll(<String>['jellyfin:101', 'subsonic:101']),
+      );
+      expect(logical.every((LogicalTrack l) => !l.hasMultipleSources), isTrue);
+    });
+
+    test('the SAME song still merges even when the two copies share a bare id',
+        () {
+      final List<LogicalTrack> logical = unifyTracks(
+        <Track>[
+          _jelly('101', title: 'Hello'),
+          _sub('101', title: 'Hello'),
+        ],
+        _subsonicPreferred,
+      );
+
+      expect(logical, hasLength(1));
+      expect(logical.single.hasMultipleSources, isTrue);
+      expect(logical.single.allTrackUris,
+          containsAll(<String>['jellyfin:101', 'subsonic:101']));
     });
 
     test('prefers the active/default provider for the playable copy', () {
@@ -194,7 +233,8 @@ void main() {
       );
 
       expect(logical, hasLength(1));
-      expect(logical.single.allTrackIds, containsAll(<String>['j', 's']));
+      expect(logical.single.allTrackUris,
+          containsAll(<String>['jellyfin:j', 'subsonic:s']));
     });
 
     test('an album edition suffix does not split a match', () {
@@ -263,7 +303,8 @@ void main() {
       // Two rows: the merged "Hello" (first seen at index 0) then the local file.
       expect(logical, hasLength(2));
       expect(logical.first.hasMultipleSources, isTrue);
-      expect(logical.first.allTrackIds, containsAll(<String>['j', 's']));
+      expect(logical.first.allTrackUris,
+          containsAll(<String>['jellyfin:j', 'subsonic:s']));
       expect(logical.last.primaryTrack.id, localOnly.id);
     });
   });

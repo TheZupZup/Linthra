@@ -100,10 +100,14 @@ void main() {
       expect(find.widgetWithText(TextButton, 'Cancel'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Remove'), findsOneWidget);
 
-      // Confirming removes only from the index (the fake records the ids).
+      // Confirming removes only from the index (the fake records the uris — the
+      // catalog's provider-namespaced identity, not the bare id).
       await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
       await tester.pumpAndSettle();
-      expect(repository.removedTrackIds, containsAll(<String>['a', 'b']));
+      expect(
+        repository.removedTrackUris,
+        containsAll(<String>['file:///a.mp3', 'jellyfin:b']),
+      );
     });
   });
 }

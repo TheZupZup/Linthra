@@ -149,7 +149,7 @@ void main() {
         resolver: resolver,
         // Jellyfin is the default, so it leads the candidate order.
         candidates: <String, List<Track>>{
-          'j': <Track>[jelly, sub],
+          'jellyfin:j': <Track>[jelly, sub],
         },
       );
 
@@ -180,7 +180,7 @@ void main() {
         resolver: resolver,
         // Navidrome is the default, so the displayed copy is the Subsonic one.
         candidates: <String, List<Track>>{
-          's': <Track>[sub, jelly],
+          'subsonic:s': <Track>[sub, jelly],
         },
       );
 
@@ -211,7 +211,7 @@ void main() {
         player: player,
         resolver: resolver,
         candidates: <String, List<Track>>{
-          'j': <Track>[jelly, sub],
+          'jellyfin:j': <Track>[jelly, sub],
         },
       );
 
@@ -236,7 +236,7 @@ void main() {
         player: player,
         resolver: resolver,
         candidates: <String, List<Track>>{
-          'j': <Track>[jelly, sub],
+          'jellyfin:j': <Track>[jelly, sub],
         },
       );
 
@@ -266,7 +266,7 @@ void main() {
         player: player,
         resolver: resolver,
         candidates: <String, List<Track>>{
-          'j': <Track>[jelly, sub],
+          'jellyfin:j': <Track>[jelly, sub],
         },
       );
 
@@ -286,7 +286,7 @@ void main() {
         player: player,
         resolver: resolver,
         candidates: <String, List<Track>>{
-          'j': <Track>[jelly, sub],
+          'jellyfin:j': <Track>[jelly, sub],
         },
       );
 
@@ -485,7 +485,7 @@ void main() {
         player: player,
         resolver: resolver,
         candidates: <String, List<Track>>{
-          'j': <Track>[jelly, sub],
+          'jellyfin:j': <Track>[jelly, sub],
         },
       );
 
@@ -502,7 +502,7 @@ void main() {
   // Regression: when the user changes the default source mid-queue, the candidate
   // source recomputes under the controller (it reads it lazily). End-of-track
   // continuation must pick up the new order for the *next* queued copy — and must
-  // never get stuck on stale source state. The map is keyed by every copy's id,
+  // never get stuck on stale source state. The map is keyed by every copy's uri,
   // so a queued Jellyfin copy still resolves to its candidates after the switch.
   group('end-of-track continuation after a source change', () {
     final Track j1 = _track('j1', 'jellyfin:j1');
@@ -510,19 +510,19 @@ void main() {
     final Track j2 = _track('j2', 'jellyfin:j2');
     final Track s2 = _track('s2', 'subsonic:s2');
 
-    // The live candidate map, keyed by every copy's id (what
+    // The live candidate map, keyed by every copy's uri (what
     // playbackCandidatesProvider produces). Mutated in place to model a switch.
     Map<String, List<Track>> jellyfinFirst() => <String, List<Track>>{
-          'j1': <Track>[j1, s1],
-          's1': <Track>[j1, s1],
-          'j2': <Track>[j2, s2],
-          's2': <Track>[j2, s2],
+          'jellyfin:j1': <Track>[j1, s1],
+          'subsonic:s1': <Track>[j1, s1],
+          'jellyfin:j2': <Track>[j2, s2],
+          'subsonic:s2': <Track>[j2, s2],
         };
     Map<String, List<Track>> subsonicFirst() => <String, List<Track>>{
-          'j1': <Track>[s1, j1],
-          's1': <Track>[s1, j1],
-          'j2': <Track>[s2, j2],
-          's2': <Track>[s2, j2],
+          'jellyfin:j1': <Track>[s1, j1],
+          'subsonic:s1': <Track>[s1, j1],
+          'jellyfin:j2': <Track>[s2, j2],
+          'subsonic:s2': <Track>[s2, j2],
         };
 
     void completeCurrent(JustAudioPlaybackController controller) {

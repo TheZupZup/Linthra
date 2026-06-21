@@ -32,23 +32,24 @@ class NoFallbackCandidateSource implements PlaybackCandidateSource {
   List<Track> candidatesFor(Track track) => <Track>[track];
 }
 
-/// A [PlaybackCandidateSource] backed by a lazily-read map of *display track id*
-/// → ordered candidates.
+/// A [PlaybackCandidateSource] backed by a lazily-read map of *provider-namespaced
+/// [Track.uri]* → ordered candidates.
 ///
 /// The map is read through a callback at every [candidatesFor] call, never cached,
 /// so the session-pinned playback controller always sees the latest library
 /// (after a scan, sync, sign-in, or a change to the default-source setting)
 /// without being rebuilt. A track absent from the map — a single-source song, or
 /// any track that isn't a unified library row — yields `[track]`, i.e. no
-/// fallback.
+/// fallback. Keyed by uri (not the bare id) so a queued `subsonic:101` can't
+/// resolve to a different song's candidates that happen to be `jellyfin:101`.
 class MapPlaybackCandidateSource implements PlaybackCandidateSource {
-  const MapPlaybackCandidateSource(this._candidatesById);
+  const MapPlaybackCandidateSource(this._candidatesByUri);
 
-  final Map<String, List<Track>> Function() _candidatesById;
+  final Map<String, List<Track>> Function() _candidatesByUri;
 
   @override
   List<Track> candidatesFor(Track track) {
-    final List<Track>? candidates = _candidatesById()[track.id];
+    final List<Track>? candidates = _candidatesByUri()[track.uri];
     if (candidates == null || candidates.isEmpty) return <Track>[track];
     return candidates;
   }

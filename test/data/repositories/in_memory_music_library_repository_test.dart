@@ -59,7 +59,7 @@ void main() {
       expect(await repository.getAllArtists(), <Artist>[_artist('a')]);
     });
 
-    test('getTrackById returns a match, or null if absent', () async {
+    test('getTrackByUri returns a match, or null if absent', () async {
       await repository.upsertCatalog(
         sourceId: 'local',
         tracks: <Track>[_track('a'), _track('b')],
@@ -67,8 +67,8 @@ void main() {
         artists: const <Artist>[],
       );
 
-      expect(await repository.getTrackById('b'), _track('b'));
-      expect(await repository.getTrackById('missing'), isNull);
+      expect(await repository.getTrackByUri('b'), _track('b'));
+      expect(await repository.getTrackByUri('missing'), isNull);
     });
 
     test('second upsert for a source replaces its tracks', () async {
@@ -86,7 +86,7 @@ void main() {
       );
 
       expect(await repository.getAllTracks(), <Track>[_track('new')]);
-      expect(await repository.getTrackById('old'), isNull);
+      expect(await repository.getTrackByUri('old'), isNull);
     });
 
     test('upserting another source keeps existing tracks', () async {
@@ -123,7 +123,7 @@ void main() {
       expect(all, hasLength(2));
       expect(all, contains(_track('a')));
       expect(all, contains(_track('c')));
-      expect(await repository.getTrackById('b'), isNull);
+      expect(await repository.getTrackByUri('b'), isNull);
     });
 
     test('removeTracks spans sources and leaves others intact', () async {

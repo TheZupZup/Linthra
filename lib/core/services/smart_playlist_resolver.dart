@@ -65,10 +65,13 @@ class SmartPlaylistResolver {
     List<Track> allTracks,
     Map<String, DateTime> addedAt,
   ) {
+    // Keyed by the provider-namespaced [Track.uri] (see
+    // RecordingMusicLibraryRepository), so two providers' same-id tracks don't
+    // share a first-seen timestamp.
     final List<Track> sorted = List<Track>.of(allTracks)
       ..sort((a, b) {
-        final DateTime ta = addedAt[a.id] ?? _epoch;
-        final DateTime tb = addedAt[b.id] ?? _epoch;
+        final DateTime ta = addedAt[a.uri] ?? _epoch;
+        final DateTime tb = addedAt[b.uri] ?? _epoch;
         return tb.compareTo(ta);
       });
     return _bounded(sorted);

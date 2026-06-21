@@ -46,8 +46,9 @@ void main() {
       await sync(repo, <Track>[_t('a'), _t('b')]);
 
       final Map<String, DateTime> added = await addedStore.load();
-      expect(added['a'], now);
-      expect(added['b'], now);
+      // Keyed by the provider-namespaced uri, not the bare id.
+      expect(added['jellyfin:a'], now);
+      expect(added['jellyfin:b'], now);
       // The catalog write itself still went through to the delegate.
       expect((await repo.getAllTracks()).map((Track t) => t.id),
           containsAll(<String>['a', 'b']));
@@ -59,7 +60,7 @@ void main() {
       final RecordingMusicLibraryRepository repo = build(now: () => clock);
 
       await sync(repo, <Track>[_t('a')]);
-      final DateTime firstSeenA = (await addedStore.load())['a']!;
+      final DateTime firstSeenA = (await addedStore.load())['jellyfin:a']!;
 
       // A later re-sync that still includes 'a' and adds 'b'.
       clock = DateTime(2024, 6, 10);
@@ -67,8 +68,8 @@ void main() {
 
       final Map<String, DateTime> added = await addedStore.load();
       // 'a' keeps its original first-seen time; only 'b' gets the new time.
-      expect(added['a'], firstSeenA);
-      expect(added['b'], DateTime(2024, 6, 10));
+      expect(added['jellyfin:a'], firstSeenA);
+      expect(added['jellyfin:b'], DateTime(2024, 6, 10));
     });
 
     test('forgets the timestamp when a track is removed', () async {
@@ -76,21 +77,40 @@ void main() {
           build(now: () => DateTime(2024, 6, 1));
       await sync(repo, <Track>[_t('a'), _t('b')]);
 
-      await repo.removeTracks(<String>['a']);
+      // removeTracks is keyed by uri (the catalog's identity).
+      await repo.removeTracks(<String>['jellyfin:a']);
 
       final Map<String, DateTime> added = await addedStore.load();
-      expect(added.containsKey('a'), isFalse);
-      expect(added.containsKey('b'), isTrue);
+      expect(added.containsKey('jellyfin:a'), isFalse);
+      expect(added.containsKey('jellyfin:b'), isTrue);
     });
 
-    test('the timestamp store never holds a track uri', () async {
+    test('keys the timestamp store by the provider-namespaced uri', () async {
       final RecordingMusicLibraryRepository repo = build();
-      await sync(repo, const <Track>[
-        Track(id: 'a', title: 'A', uri: 'https://server/stream?token=secret'),
-      ]);
+      await sync(repo, <Track>[_t('a')]);
       final Map<String, DateTime> added = await addedStore.load();
-      expect(added.keys, <String>['a']);
-      expect(added.toString(), isNot(contains('secret')));
+      // The credential-free uri (scheme:id) is the key — never the bare id, so
+      // two providers' same-id tracks can't share a timestamp. (Track.uri is
+      // guaranteed credential-free by the source mappers, tested there.)
+      expect(added.keys, <String>['jellyfin:a']);
+    });
+
+    test(
+        'migrates a legacy id-keyed timestamp to the uri key, preserving the time',
+        () async {
+      // A store written by a pre-v2 build keyed entries by the bare id. The first
+      // sync that sees the track again must adopt that timestamp under the uri
+      // key, not reset it to "now".
+      final DateTime legacy = DateTime(2023, 1, 1);
+      await addedStore.save(<String, DateTime>{'a': legacy});
+
+      final RecordingMusicLibraryRepository repo =
+          build(now: () => DateTime(2024, 6, 10));
+      await sync(repo, <Track>[_t('a')]);
+
+      final Map<String, DateTime> added = await addedStore.load();
+      expect(added['jellyfin:a'], legacy); // original time preserved
+      expect(added.containsKey('a'), isFalse); // legacy key cleaned up
     });
   });
 }

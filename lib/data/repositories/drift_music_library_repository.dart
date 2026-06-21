@@ -30,9 +30,9 @@ class DriftMusicLibraryRepository
   }
 
   @override
-  Future<Track?> getTrackById(String id) async {
+  Future<Track?> getTrackByUri(String uri) async {
     final TrackRow? row = await (_db.select(_db.tracks)
-          ..where((t) => t.id.equals(id)))
+          ..where((t) => t.uri.equals(uri)))
         .getSingleOrNull();
     return row == null ? null : trackFromRow(row);
   }
@@ -91,15 +91,18 @@ class DriftMusicLibraryRepository
     if (tracks.isEmpty) return;
     await _db.batch((Batch batch) {
       // insertOrReplace makes the write idempotent: a source can legitimately
-      // hand us the same stable track id twice within one sync — e.g. a Subsonic
-      // album that shifts across paginated `getAlbumList2` pages and so is
-      // fetched twice, or an `appendToCatalog` batch that overlaps an earlier
-      // one during an incremental replacement. A plain insert would raise a
-      // UNIQUE-constraint error on the duplicate id and roll back the whole
-      // transaction, failing an otherwise-good sync. The id is the track's
-      // stable identity, so a duplicate is the same track; collapsing to one row
-      // (last wins) is the correct resolution. `tracks` is the only table and
-      // has no foreign keys, so the replace can never cascade.
+      // hand us the same track twice within one sync — e.g. a Subsonic album that
+      // shifts across paginated `getAlbumList2` pages and so is fetched twice, or
+      // an `appendToCatalog` batch that overlaps an earlier one during an
+      // incremental replacement. A plain insert would raise a UNIQUE-constraint
+      // error on the duplicate and roll back the whole transaction, failing an
+      // otherwise-good sync. The row's identity is its provider-namespaced `uri`
+      // (the primary key), so a duplicate uri is the same track; collapsing to
+      // one row (last wins) is the correct resolution. Because the key is the
+      // uri — not the bare `id` — a same-`id` row from a *different* provider has
+      // a different uri and is kept as its own row rather than overwritten.
+      // `tracks` is the only table and has no foreign keys, so the replace can
+      // never cascade.
       batch.insertAll(
         _db.tracks,
         tracks.map((Track t) => trackToCompanion(t, sourceId)).toList(),
@@ -112,8 +115,8 @@ class DriftMusicLibraryRepository
   /// and nothing on a server — it is purely an index removal (see
   /// [MusicLibraryRepository.removeTracks]).
   @override
-  Future<void> removeTracks(List<String> trackIds) async {
-    if (trackIds.isEmpty) return;
-    await (_db.delete(_db.tracks)..where((t) => t.id.isIn(trackIds))).go();
+  Future<void> removeTracks(List<String> trackUris) async {
+    if (trackUris.isEmpty) return;
+    await (_db.delete(_db.tracks)..where((t) => t.uri.isIn(trackUris))).go();
   }
 }

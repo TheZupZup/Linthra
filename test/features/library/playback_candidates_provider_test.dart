@@ -101,13 +101,13 @@ void main() {
       final Map<String, List<Track>> map =
           container.read(playbackCandidatesProvider);
 
-      // Keyed by *every* copy's id (not just the displayed/primary one), so a
+      // Keyed by *every* copy's uri (not just the displayed/primary one), so a
       // copy already in the queue resolves to the song's candidates whichever
-      // one it is. Both ids map to the same ordered list; Jellyfin is preferred.
-      expect(map.keys, unorderedEquals(<String>['j', 's']));
+      // one it is. Both uris map to the same ordered list; Jellyfin is preferred.
+      expect(map.keys, unorderedEquals(<String>['jellyfin:j', 'subsonic:s']));
       const List<String> order = <String>['jellyfin:j', 'subsonic:s'];
-      expect(map['j']!.map((Track t) => t.uri).toList(), order);
-      expect(map['s']!.map((Track t) => t.uri).toList(), order);
+      expect(map['jellyfin:j']!.map((Track t) => t.uri).toList(), order);
+      expect(map['subsonic:s']!.map((Track t) => t.uri).toList(), order);
     });
 
     test('every candidate carries the row\'s best-available cover', () async {
@@ -123,7 +123,7 @@ void main() {
           container.read(playbackCandidatesProvider);
 
       // Displayed copy is the Subsonic one; Jellyfin is the fallback.
-      final List<Track> candidates = map['s']!;
+      final List<Track> candidates = map['subsonic:s']!;
       expect(candidates.map((Track t) => t.uri).toList(),
           <String>['subsonic:s', 'jellyfin:j']);
       expect(candidates.every((Track t) => t.artworkUri == _jellyArt), isTrue);
@@ -154,7 +154,7 @@ void main() {
 
       final Map<String, List<Track>> map =
           container.read(playbackCandidatesProvider);
-      expect(map['j']!.map((Track t) => t.uri).toList(),
+      expect(map['jellyfin:j']!.map((Track t) => t.uri).toList(),
           <String>['jellyfin:j', 'subsonic:s']);
     });
 
@@ -173,7 +173,7 @@ void main() {
       final Map<String, List<Track>> map =
           container.read(playbackCandidatesProvider);
       // Same display id (Jellyfin primary), but the cached Subsonic copy leads.
-      expect(map['j']!.map((Track t) => t.uri).toList(),
+      expect(map['jellyfin:j']!.map((Track t) => t.uri).toList(),
           <String>['subsonic:s', 'jellyfin:j']);
     });
 
@@ -190,7 +190,7 @@ void main() {
 
       final Map<String, List<Track>> map =
           container.read(playbackCandidatesProvider);
-      expect(map['j']!.map((Track t) => t.uri).toList(),
+      expect(map['jellyfin:j']!.map((Track t) => t.uri).toList(),
           <String>['jellyfin:j', 'subsonic:s']);
     });
   });

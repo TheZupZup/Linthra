@@ -86,18 +86,22 @@ class LogicalTrack {
     return primaryTrack.copyWith(artworkUri: art);
   }
 
-  /// A stable id for the logical row: the preferred copy's track id. Stable for
-  /// a given catalog + preference, which is all the UI (keys, selection) needs.
-  String get id => primaryTrack.id;
+  /// A stable id for the logical row: the preferred copy's provider-namespaced
+  /// [Track.uri]. Stable for a given catalog + preference, which is all the UI
+  /// (keys, selection) needs — and collision-free across providers, unlike the
+  /// bare track id.
+  String get id => primaryTrack.uri;
 
   /// Every source id this song can be played from, in preference order.
   List<String> get sourceIds =>
       <String>[for (final TrackSourceCandidate c in candidates) c.sourceId];
 
-  /// Every source copy's track id. Removing a logical track from the library
-  /// forgets *all* of these, so a hidden duplicate can't resurrect the row.
-  List<String> get allTrackIds =>
-      <String>[for (final TrackSourceCandidate c in candidates) c.track.id];
+  /// Every source copy's provider-namespaced [Track.uri]. Removing a logical
+  /// track from the library forgets *all* of these (the catalog is keyed by uri),
+  /// so a hidden duplicate can't resurrect the row — and no other provider's
+  /// same-id copy is taken down with it.
+  List<String> get allTrackUris =>
+      <String>[for (final TrackSourceCandidate c in candidates) c.track.uri];
 
   /// Whether this song is available from more than one provider.
   bool get hasMultipleSources => candidates.length > 1;

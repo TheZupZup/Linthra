@@ -254,7 +254,7 @@ class _RecordingRepository implements MusicLibraryRepository {
   Future<List<Artist>> getAllArtists() async => const <Artist>[];
 
   @override
-  Future<Track?> getTrackById(String id) async => null;
+  Future<Track?> getTrackByUri(String uri) async => null;
 
   @override
   Future<void> removeTracks(List<String> trackIds) async {}

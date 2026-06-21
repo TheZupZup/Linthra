@@ -10,15 +10,22 @@ import '../../core/repositories/music_library_repository.dart';
 /// rank by.
 ///
 /// It wraps the real repository and, on every [upsertCatalog] (the single point
-/// every source — local, Jellyfin, Subsonic — funnels a scan/sync through),
-/// records `now` for any track id not seen before, preserving the original
-/// timestamp for ids that already had one. That means a routine re-sync never
+/// every source — local, Jellyfin, Subsonic, Plex — funnels a scan/sync
+/// through), records `now` for any track not seen before, preserving the original
+/// timestamp for tracks that already had one. That means a routine re-sync never
 /// resets "recently added": only genuinely new tracks bubble to the top.
-/// [removeTracks] forgets the timestamps for ids it removes, so a track that's
-/// removed and later re-added is correctly treated as new again.
+/// [removeTracks] forgets the timestamps for the tracks it removes, so a track
+/// that's removed and later re-added is correctly treated as new again.
+///
+/// The map is keyed by the provider-namespaced [Track.uri] (e.g. `jellyfin:101`,
+/// `plex:101`, or a local path), not the bare `id`, so the same server-side id
+/// from two providers can't share — or clobber — one timestamp. Stores stamped
+/// under the old id key are migrated to the uri key in place the first time each
+/// track is seen again (see [_stampFirstSeen]), preserving the original time.
 ///
 /// Reads (`getAllTracks`, etc.) pass straight through. The stored map holds only
-/// non-secret track ids and timestamps; it never carries a uri or token.
+/// non-secret, namespaced track uris and timestamps; it never carries a token or
+/// an authenticated URL.
 ///
 /// Incremental writes ([beginCatalogReplacement] / [appendToCatalog]) stamp each
 /// streamed batch the same way [upsertCatalog] does, so a progressively-synced
@@ -49,7 +56,7 @@ class RecordingMusicLibraryRepository
   Future<List<Artist>> getAllArtists() => _delegate.getAllArtists();
 
   @override
-  Future<Track?> getTrackById(String id) => _delegate.getTrackById(id);
+  Future<Track?> getTrackByUri(String uri) => _delegate.getTrackByUri(uri);
 
   @override
   Future<void> upsertCatalog({
@@ -100,31 +107,39 @@ class RecordingMusicLibraryRepository
     await _stampFirstSeen(tracks);
   }
 
-  /// Records `now` as the first-seen time for any track id not seen before,
+  /// Records `now` as the first-seen time for any track not seen before,
   /// preserving earlier timestamps so a routine re-sync never resets "recently
   /// added". Shared by the whole-catalog and incremental write paths.
+  ///
+  /// Entries are keyed by [Track.uri]. A timestamp left under the legacy bare-`id`
+  /// key (from before this store was provider-namespaced) is migrated to the uri
+  /// key in place — preserving the original time — the first time the track is
+  /// seen again, so an upgrade never resets a user's "recently added" ordering.
   Future<void> _stampFirstSeen(List<Track> tracks) async {
     if (tracks.isEmpty) return;
     final Map<String, DateTime> addedAt = await _addedStore.load();
     final DateTime now = _now();
     bool changed = false;
     for (final Track track in tracks) {
-      if (!addedAt.containsKey(track.id)) {
-        addedAt[track.id] = now;
-        changed = true;
-      }
+      if (addedAt.containsKey(track.uri)) continue;
+      // Adopt a legacy id-keyed timestamp if one exists (and id != uri, i.e. a
+      // remote track); otherwise this is genuinely new and gets `now`.
+      final DateTime? legacy =
+          track.uri == track.id ? null : addedAt.remove(track.id);
+      addedAt[track.uri] = legacy ?? now;
+      changed = true;
     }
     if (changed) await _addedStore.save(addedAt);
   }
 
   @override
-  Future<void> removeTracks(List<String> trackIds) async {
-    await _delegate.removeTracks(trackIds);
-    if (trackIds.isEmpty) return;
+  Future<void> removeTracks(List<String> trackUris) async {
+    await _delegate.removeTracks(trackUris);
+    if (trackUris.isEmpty) return;
     final Map<String, DateTime> addedAt = await _addedStore.load();
     bool changed = false;
-    for (final String id in trackIds) {
-      if (addedAt.remove(id) != null) changed = true;
+    for (final String uri in trackUris) {
+      if (addedAt.remove(uri) != null) changed = true;
     }
     if (changed) await _addedStore.save(addedAt);
   }

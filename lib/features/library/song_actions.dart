@@ -117,26 +117,27 @@ abstract final class SongActions {
     return true;
   }
 
-  /// The track ids to forget for [tracks]. When [expandLogicalSources] is set
-  /// (library/album/artist surfaces, where each row is a logical track), a
-  /// row's id is expanded to every provider copy via [logicalSourceIdsProvider]
-  /// so removing the row can't leave a hidden duplicate behind. Elsewhere (a
-  /// playlist's specific tracks) the ids are taken verbatim.
+  /// The track uris to forget for [tracks] (the catalog is keyed by [Track.uri]).
+  /// When [expandLogicalSources] is set (library/album/artist surfaces, where
+  /// each row is a logical track), a row's uri is expanded to every provider
+  /// copy's uri via [logicalSourceIdsProvider] so removing the row can't leave a
+  /// hidden duplicate behind. Elsewhere (a playlist's specific tracks) the uris
+  /// are taken verbatim.
   static List<String> _removalIds(
     WidgetRef ref,
     List<Track> tracks,
     bool expandLogicalSources,
   ) {
     if (!expandLogicalSources) {
-      return <String>[for (final Track track in tracks) track.id];
+      return <String>[for (final Track track in tracks) track.uri];
     }
     final Map<String, List<String>> bySource =
         ref.read(logicalSourceIdsProvider);
-    final List<String> ids = <String>[];
+    final List<String> uris = <String>[];
     for (final Track track in tracks) {
-      ids.addAll(bySource[track.id] ?? <String>[track.id]);
+      uris.addAll(bySource[track.uri] ?? <String>[track.uri]);
     }
-    return ids;
+    return uris;
   }
 
   static String _offlineSummary(int removed, int failed, int skipped) {

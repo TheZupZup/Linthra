@@ -88,13 +88,28 @@ void main() {
       );
     });
 
-    test('untagged local files only match by exact id', () {
+    test('untagged local files only match by exact uri', () {
       const Track a =
           Track(id: 'file:///a.mp3', title: 'a', uri: 'file:///a.mp3');
       const Track b =
           Track(id: 'file:///b.mp3', title: 'b', uri: 'file:///b.mp3');
       expect(isCurrentPlaybackTrack(a, a), isTrue);
       expect(isCurrentPlaybackTrack(a, b), isFalse);
+    });
+
+    test('a different song sharing a bare id across providers is NOT current',
+        () {
+      // Regression for the bare-id short-circuit: a playing jellyfin:101 must
+      // not mark an unrelated subsonic:101 as the now-playing row.
+      expect(
+        isCurrentPlaybackTrack(
+          _jelly('101', title: 'Alpha', album: 'A'),
+          _sub('101', title: 'Beta', album: 'B'),
+        ),
+        isFalse,
+      );
+      // The same song across providers with a shared bare id still matches.
+      expect(isCurrentPlaybackTrack(_jelly('101'), _sub('101')), isTrue);
     });
   });
 }

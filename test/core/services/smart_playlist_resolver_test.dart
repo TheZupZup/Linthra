@@ -23,11 +23,13 @@ void main() {
     },
   );
 
+  // Keyed by the provider-namespaced uri (jellyfin:<id> here, matching the _t
+  // helper), the way RecordingMusicLibraryRepository now stamps first-seen times.
   final Map<String, DateTime> addedAt = <String, DateTime>{
-    'a': DateTime(2024, 1, 1),
-    'b': DateTime(2024, 1, 3),
-    'c': DateTime(2024, 1, 2),
-    'd': DateTime(2024, 1, 4),
+    'jellyfin:a': DateTime(2024, 1, 1),
+    'jellyfin:b': DateTime(2024, 1, 3),
+    'jellyfin:c': DateTime(2024, 1, 2),
+    'jellyfin:d': DateTime(2024, 1, 4),
   };
 
   List<Track> resolve(

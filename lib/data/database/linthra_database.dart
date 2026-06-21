@@ -13,9 +13,11 @@ part 'linthra_database.g.dart';
 /// from. Kept deliberately outside the UI and feature layers; repositories in
 /// `data/repositories/` are the only callers.
 ///
-/// Schema is at v1 with no migrations yet. When the schema changes, bump
-/// [schemaVersion] and add a `MigrationStrategy`; we are not pre-building that
-/// machinery while there is nothing to migrate from.
+/// Schema history:
+///  * **v1** — `tracks`, keyed by the bare server-side `id`.
+///  * **v2** — `tracks` re-keyed on the provider-namespaced `uri`, so the same
+///    server-side `id` from two providers (e.g. Plex `101` and Subsonic `101`)
+///    can coexist instead of overwriting each other. See [migration].
 @DriftDatabase(tables: [Tracks])
 class LinthraDatabase extends _$LinthraDatabase {
   LinthraDatabase() : super(_openConnection());
@@ -25,7 +27,49 @@ class LinthraDatabase extends _$LinthraDatabase {
   LinthraDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (Migrator m) async {
+          await m.createAll();
+        },
+        onUpgrade: (Migrator m, int from, int to) async {
+          if (from < 2) {
+            await _migrateTracksKeyToUri(m);
+          }
+        },
+      );
+
+  /// v1 → v2: move the `tracks` primary key from the bare `id` to the
+  /// provider-namespaced `uri`.
+  ///
+  /// SQLite can't alter a primary key in place, so the table is rebuilt: rename
+  /// the old one aside, create the new-shaped `tracks`, copy every row across,
+  /// then drop the old. All of it runs in one transaction so a reader never sees
+  /// a half-migrated catalog (and a failure rolls the whole thing back).
+  ///
+  /// **Data is preserved.** A v1 catalog could only ever store one row per bare
+  /// `id` (that was exactly the collision bug — a second provider's same-id row
+  /// overwrote the first), so every surviving row already has a distinct `uri`
+  /// and the copy keeps them all. `INSERT OR REPLACE` keeps the copy total even
+  /// if some older build had somehow persisted two rows sharing one `uri`.
+  Future<void> _migrateTracksKeyToUri(Migrator m) async {
+    await transaction(() async {
+      await m.database.customStatement(
+        'ALTER TABLE tracks RENAME TO tracks_legacy_v1;',
+      );
+      await m.createTable(tracks);
+      await m.database.customStatement(
+        'INSERT OR REPLACE INTO tracks '
+        '(id, source_id, title, uri, artist_name, album_name, '
+        'duration_ms, track_number, artwork_uri) '
+        'SELECT id, source_id, title, uri, artist_name, album_name, '
+        'duration_ms, track_number, artwork_uri FROM tracks_legacy_v1;',
+      );
+      await m.database.customStatement('DROP TABLE tracks_legacy_v1;');
+    });
+  }
 }
 
 QueryExecutor _openConnection() {

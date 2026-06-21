@@ -138,7 +138,7 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {id};
+  Set<GeneratedColumn> get $primaryKey => {uri};
   @override
   TrackRow map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
