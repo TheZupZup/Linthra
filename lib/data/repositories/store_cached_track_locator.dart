@@ -48,31 +48,35 @@ class StoreCachedTrackLocator implements CachedTrackLocator {
     }
     if (exact != null && exact.isNotEmpty) return _files.pathFor(exact);
     if (untagged == null || untagged.isEmpty) return null;
-    // A legacy untagged file carries no provider, so it could belong to a
-    // different provider that shares this bare id; only serve it when the catalog
-    // shows the id is unambiguous (or no oracle is wired — back-compat).
-    if (await _isAmbiguousId(track.id)) return null;
+    // A legacy untagged file carries no provider, so it could be another
+    // provider's bytes (an id shared by two providers, or a stale queued copy
+    // whose source was removed). Serve it only when the catalog attributes this
+    // bare id to exactly one provider and that provider is the requested track's.
+    if (!await _legacyOwnerMatches(track)) return null;
     return _files.pathFor(untagged);
   }
 
-  /// Whether more than one provider in the catalog exposes [bareId], in which
-  /// case a legacy untagged cache file can't be safely attributed to [bareId]'s
-  /// requested copy. False when no catalog oracle is wired, or on any error, so
-  /// playback never blocks on this check.
-  Future<bool> _isAmbiguousId(String bareId) async {
+  /// Whether a legacy untagged cache file for [track]'s bare id can be safely
+  /// attributed to [track]: true only when the catalog exposes that id under
+  /// exactly one provider and it is [track]'s own, so the untagged bytes are this
+  /// copy's — not a same-id sibling's, and not a different provider's when
+  /// [track] itself is no longer in the catalog. True when no catalog oracle is
+  /// wired, or on any error, so playback never blocks (plain id-only back-compat).
+  Future<bool> _legacyOwnerMatches(Track track) async {
     final Future<List<Track>> Function()? oracle = _catalogForLegacyMatch;
-    if (oracle == null) return false;
+    if (oracle == null) return true;
+    final String requested = _schemeOf(track.uri) ?? '';
     try {
-      final Set<String> providers = <String>{};
-      for (final Track track in await oracle()) {
-        if (track.id != bareId) continue;
-        providers.add(_schemeOf(track.uri) ?? '');
-        if (providers.length > 1) return true;
+      final Set<String> owners = <String>{};
+      for (final Track t in await oracle()) {
+        if (t.id != track.id) continue;
+        owners.add(_schemeOf(t.uri) ?? '');
+        if (owners.length > 1) return false;
       }
+      return owners.length == 1 && owners.first == requested;
     } catch (_) {
-      return false;
+      return true;
     }
-    return false;
   }
 
   /// The non-secret URI scheme of [uri] (`jellyfin`, `subsonic`, `plex`, `file`,
