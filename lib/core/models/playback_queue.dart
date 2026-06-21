@@ -162,9 +162,16 @@ class PlaybackQueue {
     final absolute = currentIndex + 1 + upNextIndex;
     final removed = tracks[absolute];
     final updated = List<Track>.of(tracks)..removeAt(absolute);
-    final updatedOriginal = originalOrder == null
-        ? null
-        : (List<Track>.of(originalOrder!)..remove(removed));
+    // Drop the same copy from originalOrder by uri (not Track == on the bare id),
+    // so a shuffled queue holding two providers' same-id rows removes the right
+    // one and a later unshuffle can't resurrect it or swap identity.
+    List<Track>? updatedOriginal;
+    if (originalOrder != null) {
+      updatedOriginal = List<Track>.of(originalOrder!);
+      final int i =
+          updatedOriginal.indexWhere((Track t) => t.uri == removed.uri);
+      if (i >= 0) updatedOriginal.removeAt(i);
+    }
     return PlaybackQueue(
       tracks: updated,
       currentIndex: currentIndex,
@@ -252,7 +259,12 @@ class PlaybackQueue {
     final original = originalOrder;
     if (original == null) return this;
     final track = current;
-    final index = track == null ? -1 : original.indexOf(track);
+    // Find the current copy by uri (not Track == on the bare id) so unshuffling a
+    // queue with two providers' same-id rows keeps the copy that's actually
+    // current, instead of jumping to the first row sharing the bare id.
+    final index = track == null
+        ? -1
+        : original.indexWhere((Track t) => t.uri == track.uri);
     return PlaybackQueue(
       tracks: List<Track>.of(original),
       currentIndex: index < 0 ? (original.isEmpty ? -1 : 0) : index,
