@@ -62,7 +62,8 @@ void main() {
       // first-seen time is still under the bare id until the next sync migrates
       // it. The read must honor that key so Recently Added keeps its order right
       // after the upgrade instead of collapsing to catalog order.
-      final List<Track> result = SmartPlaylistResolver(maxTracks: 100).resolve(
+      final List<Track> result =
+          const SmartPlaylistResolver(maxTracks: 100).resolve(
         SmartPlaylistKind.recentlyAdded,
         allTracks: <Track>[_t('a'), _t('b')],
         history: history,
