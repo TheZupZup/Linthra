@@ -201,7 +201,10 @@ class _ActiveDownloadTile extends ConsumerWidget {
     // Only the downloading row subscribes to byte progress; queued/failed rows
     // need none, so idle rows add no stream listener.
     final DownloadProgress? progress = status == DownloadStatus.downloading
-        ? ref.watch(trackDownloadProgressProvider(track.id)).valueOrNull
+        ? ref
+            .watch(trackDownloadProgressProvider(
+                CachedTrack.cacheKeyForTrack(track)))
+            .valueOrNull
         : null;
     final NowPlayingRowState? nowPlaying =
         ref.watch(nowPlayingProvider.select((n) => n.stateForRow(track)));
@@ -343,7 +346,8 @@ class _DownloadedTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final CachedTrack? entry = ref.watch(cacheEntriesByIdProvider)[track.id];
+    final CachedTrack? entry = ref
+        .watch(cacheEntriesByKeyProvider)[CachedTrack.cacheKeyForTrack(track)];
     final bool pinned = entry?.pinned ?? false;
     final NowPlayingRowState? nowPlaying =
         ref.watch(nowPlayingProvider.select((n) => n.stateForRow(track)));

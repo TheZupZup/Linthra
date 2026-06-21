@@ -152,7 +152,7 @@ void main() {
         await repository.statusFor('j1'),
         DownloadStatus.notDownloaded,
       );
-      expect(await repository.downloadedTrackIds(), isEmpty);
+      expect(await repository.downloadedTrackKeys(), isEmpty);
     });
 
     test('downloading a Jellyfin track stores a cached file reference',
@@ -181,7 +181,7 @@ void main() {
       await repository.removeDownload(_jellyfin('j1'));
 
       expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
-      expect(await repository.downloadedTrackIds(), isEmpty);
+      expect(await repository.downloadedTrackKeys(), isEmpty);
       expect(await store.loadDownloads(), isEmpty);
       expect(files.bytesFor(fileName), isNull);
     });
@@ -195,7 +195,7 @@ void main() {
 
       expect(await repository.statusFor('j1'), DownloadStatus.failed);
       expect(await store.loadDownloads(), isEmpty);
-      expect(await repository.downloadedTrackIds(), isEmpty);
+      expect(await repository.downloadedTrackKeys(), isEmpty);
     });
 
     test('a failed Jellyfin track can be retried', () async {
@@ -266,7 +266,26 @@ void main() {
 
       final reopened = build();
       expect(await reopened.statusFor('j1'), DownloadStatus.downloaded);
-      expect(await reopened.downloadedTrackIds(), <String>['j1']);
+      expect(await reopened.downloadedTrackKeys(),
+          <String>[CachedTrack.cacheKeyForTrack(_jellyfin('j1'))]);
+    });
+
+    test('the downloaded projection is provider-aware for same-id copies',
+        () async {
+      // Two providers expose the same bare id 101; only the Subsonic copy is
+      // downloaded. The public projection (downloaded keys + status snapshot)
+      // must mark that copy alone — never the Jellyfin copy sharing the id.
+      final repository = build();
+      await repository.requestDownload(_subsonic('101'));
+
+      final String subKey = CachedTrack.cacheKeyForTrack(_subsonic('101'));
+      final String jellyKey = CachedTrack.cacheKeyForTrack(_jellyfin('101'));
+      expect(await repository.downloadedTrackKeys(), <String>[subKey]);
+
+      final Map<String, DownloadStatus> snapshot =
+          await repository.statusStream.first;
+      expect(snapshot[subKey], DownloadStatus.downloaded);
+      expect(snapshot.containsKey(jellyKey), isFalse);
     });
 
     test('statusStream seeds the current snapshot then emits changes',
@@ -279,13 +298,15 @@ void main() {
       await _settle();
 
       expect(emissions.first, <String, DownloadStatus>{
-        'j1': DownloadStatus.downloaded,
+        CachedTrack.cacheKeyForTrack(_jellyfin('j1')):
+            DownloadStatus.downloaded,
       });
 
       await repository.requestDownload(_jellyfin('j2'));
       await _settle();
 
-      expect(emissions.last['j2'], DownloadStatus.downloaded);
+      expect(emissions.last[CachedTrack.cacheKeyForTrack(_jellyfin('j2'))],
+          DownloadStatus.downloaded);
       await sub.cancel();
     });
 
@@ -519,9 +540,12 @@ void main() {
         await repository.requestDownload(_jellyfin('j1'));
         await repository.requestDownload(_jellyfin('j2'));
 
-        final List<String> ids = await repository.downloadedTrackIds();
+        final List<String> ids = await repository.downloadedTrackKeys();
         ids.sort();
-        expect(ids, <String>['j1', 'j2']);
+        expect(ids, <String>[
+          CachedTrack.cacheKeyForTrack(_jellyfin('j1')),
+          CachedTrack.cacheKeyForTrack(_jellyfin('j2')),
+        ]);
         expect((await repository.cacheSnapshot()).usedBytes, 8);
       });
 
@@ -676,9 +700,13 @@ void main() {
         await Future.wait(futures);
         expect(downloader.fetchCount, 3);
         expect(downloader.maxActive, 2);
-        final List<String> ids = await repository.downloadedTrackIds();
+        final List<String> ids = await repository.downloadedTrackKeys();
         ids.sort();
-        expect(ids, <String>['j1', 'j2', 'j3']);
+        expect(ids, <String>[
+          CachedTrack.cacheKeyForTrack(_jellyfin('j1')),
+          CachedTrack.cacheKeyForTrack(_jellyfin('j2')),
+          CachedTrack.cacheKeyForTrack(_jellyfin('j3')),
+        ]);
       });
 
       test('a duplicate request for the same track is not started twice',
@@ -740,13 +768,14 @@ void main() {
         downloader = _FakeRemoteDownloader(gate: gate.future);
         final repository = build();
 
+        final String j1Key = CachedTrack.cacheKeyForTrack(_jellyfin('j1'));
         final emissions = <Map<String, DownloadProgress>>[];
         final sub = repository.progressStream.listen(emissions.add);
 
         final future = repository.requestDownload(_jellyfin('j1'));
-        await _pumpUntil(() => emissions.any((m) => m['j1'] != null));
+        await _pumpUntil(() => emissions.any((m) => m[j1Key] != null));
 
-        final DownloadProgress? mid = emissions.last['j1'];
+        final DownloadProgress? mid = emissions.last[j1Key];
         expect(mid, isNotNull);
         expect(mid!.receivedBytes, 2);
         expect(mid.totalBytes, 4);
@@ -757,7 +786,7 @@ void main() {
         await _settle();
 
         // Progress is cleared once the download finishes.
-        expect(emissions.last['j1'], isNull);
+        expect(emissions.last[j1Key], isNull);
         await sub.cancel();
       });
 
@@ -787,7 +816,7 @@ void main() {
 
         // Invisible as a download, but cached and counted toward usage.
         expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
-        expect(await repository.downloadedTrackIds(), isEmpty);
+        expect(await repository.downloadedTrackKeys(), isEmpty);
         final CachedTrack saved = (await store.loadDownloads()).single;
         expect(saved.trackId, 'j1');
         expect(saved.preloaded, isTrue);
@@ -962,7 +991,7 @@ void main() {
         final List<CachedTrack> saved = await store.loadDownloads();
         expect(saved.single.trackId, 'new');
         expect(saved.single.preloaded, isTrue);
-        expect(await repository.downloadedTrackIds(), isEmpty);
+        expect(await repository.downloadedTrackKeys(), isEmpty);
       });
 
       test('a pre-cache never evicts the currently playing track', () async {
@@ -1008,7 +1037,7 @@ void main() {
         await repository.clearAll();
 
         // Pinned items included: clear-all is the nuclear option.
-        expect(await repository.downloadedTrackIds(), isEmpty);
+        expect(await repository.downloadedTrackKeys(), isEmpty);
         expect(await store.loadDownloads(), isEmpty);
         expect(spy.bytesFor('jellyfin_j1.mp3'), isNull);
         expect(spy.bytesFor('jellyfin_j2.mp3'), isNull);
@@ -1088,7 +1117,7 @@ void main() {
         await request;
 
         expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
-        expect(await repository.downloadedTrackIds(), isEmpty);
+        expect(await repository.downloadedTrackKeys(), isEmpty);
         expect(await store.loadDownloads(), isEmpty);
         final CacheSnapshot snapshot = await repository.cacheSnapshot();
         expect(snapshot.usedBytes, 0);
@@ -1128,7 +1157,7 @@ void main() {
         gate.complete();
         await request;
 
-        expect(await repository.downloadedTrackIds(), isEmpty);
+        expect(await repository.downloadedTrackKeys(), isEmpty);
         expect(await store.loadDownloads(), isEmpty);
         expect((await repository.cacheSnapshot()).usedBytes, 0);
       });

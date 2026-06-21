@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/routes.dart';
 import '../../../core/models/track.dart';
 import '../../../core/repositories/download_repository.dart';
+import '../../../core/repositories/download_store.dart';
 import '../../../data/repositories/download_repository_provider.dart';
 import '../../downloads/download_providers.dart';
 import '../../player/now_playing.dart';
@@ -84,15 +85,18 @@ class TrackTile extends ConsumerWidget {
     // doesn't affect this row never rebuilds it.
     final NowPlayingRowState? nowPlaying =
         ref.watch(nowPlayingProvider.select((n) => n.stateForRow(track)));
+    // The provider-aware cache key joins this row to its own copy's status, so
+    // two providers' same-id copies never share a download indicator.
+    final String cacheKey = CachedTrack.cacheKeyForTrack(track);
     final status =
-        ref.watch(trackDownloadStatusProvider(track.id)).valueOrNull ??
+        ref.watch(trackDownloadStatusProvider(cacheKey)).valueOrNull ??
             DownloadStatus.notDownloaded;
     final isRemote = ref.watch(remoteTrackDownloaderProvider).isRemote(track);
     // Only the actively-downloading row watches byte progress, so idle rows add
     // no subscription. Null total (or not downloading) leaves the ring spinning.
     final double? downloadFraction = status == DownloadStatus.downloading
         ? ref
-            .watch(trackDownloadProgressProvider(track.id))
+            .watch(trackDownloadProgressProvider(cacheKey))
             .valueOrNull
             ?.fraction
         : null;

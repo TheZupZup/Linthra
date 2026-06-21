@@ -188,10 +188,16 @@ class CacheDownloadRepository
   @override
   Future<DownloadStatus> statusFor(String trackId) async {
     await _ensureLoaded();
-    // Reads the id-keyed projection (the same shape [statusStream] emits), so it
-    // agrees with the UI's per-row status. Provider-aware isolation is enforced
-    // where it matters — storage, the cache file, and removal.
-    return _snapshot()[trackId] ?? DownloadStatus.notDownloaded;
+    // A plain catalog-id convenience: the catalog's primary key makes ids unique
+    // there, so a bare id resolves to one track. The cache itself is keyed
+    // provider-aware (see [_snapshot]) and [statusStream] emits those keys — the
+    // app's per-row status joins on the cache key, never this. Scans the
+    // provider-aware map by id so a caller can still ask by plain id; under a
+    // cross-provider same-id collision it returns the first matching copy.
+    for (final MapEntry<String, DownloadStatus> e in _statuses.entries) {
+      if (_trackIdOfKey(e.key) == trackId) return e.value;
+    }
+    return DownloadStatus.notDownloaded;
   }
 
   @override
@@ -442,12 +448,12 @@ class CacheDownloadRepository
   }
 
   @override
-  Future<List<String>> downloadedTrackIds() async {
+  Future<List<String>> downloadedTrackKeys() async {
     await _ensureLoaded();
     return _statuses.entries
         .where((MapEntry<String, DownloadStatus> e) =>
             e.value == DownloadStatus.downloaded)
-        .map((MapEntry<String, DownloadStatus> e) => _trackIdOfKey(e.key))
+        .map((MapEntry<String, DownloadStatus> e) => e.key)
         .toList();
   }
 
@@ -640,22 +646,18 @@ class CacheDownloadRepository
     if (_progress.remove(key) != null) _emitProgress();
   }
 
-  /// Projects the provider-aware status map onto a catalog-id-keyed snapshot —
-  /// the shape the UI's per-row status provider and the cross-provider sync
-  /// layers consume. In the catalog (whose primary key is the id) two providers
-  /// never share an id, so the projection is lossless there; the provider-aware
-  /// keys stay internal where same-id isolation matters (storage, files,
-  /// removal).
-  Map<String, DownloadStatus> _snapshot() => <String, DownloadStatus>{
-        for (final MapEntry<String, DownloadStatus> e in _statuses.entries)
-          _trackIdOfKey(e.key): e.value,
-      };
+  /// A copy of the provider-aware status map, keyed by each track's
+  /// [CachedTrack.cacheKey] (`scheme\0id`) — the very key a live [Track] produces
+  /// via [CachedTrack.cacheKeyForTrack]. Keeping the provider-aware key in the
+  /// public projection is what stops two providers' same-id copies (`jellyfin:101`
+  /// vs `subsonic:101`) from sharing a status: the per-row status/progress
+  /// providers and the downloaded/offline sets all join on this key, so a
+  /// download of one copy never lights up the other.
+  Map<String, DownloadStatus> _snapshot() =>
+      Map<String, DownloadStatus>.of(_statuses);
 
   Map<String, DownloadProgress> _progressSnapshot() =>
-      <String, DownloadProgress>{
-        for (final MapEntry<String, DownloadProgress> e in _progress.entries)
-          _trackIdOfKey(e.key): e.value,
-      };
+      Map<String, DownloadProgress>.of(_progress);
 
   CacheSnapshot _cacheSnapshot() {
     int used = 0;
@@ -669,13 +671,11 @@ class CacheDownloadRepository
   }
 
   /// The track's non-secret URI scheme (`jellyfin`, `file`, …), never the full
-  /// URL — safe to persist as the cached track's source type.
-  static String? _sourceTypeOf(Track track) {
-    final int colon = track.uri.indexOf(':');
-    if (colon <= 0) return null;
-    final String scheme = track.uri.substring(0, colon).toLowerCase();
-    return scheme.isEmpty ? null : scheme;
-  }
+  /// URL — safe to persist as the cached track's source type. Delegates to
+  /// [CachedTrack.schemeOf] so the repository's stored key and the key a consumer
+  /// computes from a live [Track] via [CachedTrack.cacheKeyForTrack] can never
+  /// drift to different scheme logic.
+  static String? _sourceTypeOf(Track track) => CachedTrack.schemeOf(track.uri);
 
   /// The provider-aware cache identity for [track]: its source scheme **plus**
   /// catalog id, so two providers that expose the same local id (e.g. a Plex

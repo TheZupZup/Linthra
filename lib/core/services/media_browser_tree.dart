@@ -10,6 +10,7 @@ import '../models/playback_state.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
 import '../repositories/download_repository.dart';
+import '../repositories/download_store.dart';
 import '../repositories/favorites_repository.dart';
 import '../repositories/music_library_repository.dart';
 import '../repositories/playlist_repository.dart';
@@ -384,7 +385,7 @@ class MediaBrowserTree {
 
   Future<bool> _hasFavorites() async => (await _favoriteIds()).isNotEmpty;
 
-  Future<bool> _hasOffline() async => (await _downloadedIds()).isNotEmpty;
+  Future<bool> _hasOffline() async => (await _downloadedKeys()).isNotEmpty;
 
   Future<List<MediaNode>> _songNodes() async {
     final List<Track> tracks = await _allTracks();
@@ -522,12 +523,12 @@ class MediaBrowserTree {
   /// repository, so they never leak into this section. Ids with no catalog track
   /// are dropped.
   Future<List<Track>> _offlineTracks() async {
-    final Set<String> ids = await _downloadedIds();
-    if (ids.isEmpty) return const <Track>[];
+    final Set<String> keys = await _downloadedKeys();
+    if (keys.isEmpty) return const <Track>[];
     final List<Track> tracks = await _allTracks();
     return <Track>[
       for (final Track track in tracks)
-        if (ids.contains(track.id)) track,
+        if (keys.contains(CachedTrack.cacheKeyForTrack(track))) track,
     ];
   }
 
@@ -573,13 +574,13 @@ class MediaBrowserTree {
     }
   }
 
-  /// The current downloaded track-id set. Guarded: any failure yields an empty
-  /// set so a misbehaving download backend can't break browsing.
-  Future<Set<String>> _downloadedIds() async {
+  /// The current downloaded cache-key set (provider-aware). Guarded: any failure
+  /// yields an empty set so a misbehaving download backend can't break browsing.
+  Future<Set<String>> _downloadedKeys() async {
     final DownloadRepository? downloads = _downloads;
     if (downloads == null) return const <String>{};
     try {
-      return (await downloads.downloadedTrackIds()).toSet();
+      return (await downloads.downloadedTrackKeys()).toSet();
     } catch (_) {
       return const <String>{};
     }

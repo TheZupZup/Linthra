@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/linthra_audio_handler.dart';
 import 'package:linthra/core/services/media_artwork_source.dart';
 import 'package:linthra/core/services/media_browser_tree.dart';
@@ -491,7 +492,10 @@ void main() {
           MediaBrowserTree(
             FakeMusicLibraryRepository(tracks: _library),
             favorites: FakeFavoritesRepository({'a'}),
-            downloads: FakeDownloadRepository({'b', 'c'}),
+            downloads: FakeDownloadRepository(<String>{
+              CachedTrack.cacheKeyForTrack(_track('b')),
+              CachedTrack.cacheKeyForTrack(_track('c')),
+            }),
           ),
         );
       });

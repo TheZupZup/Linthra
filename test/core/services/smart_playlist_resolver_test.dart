@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/play_history.dart';
 import 'package:linthra/core/models/smart_playlist.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/smart_playlist_resolver.dart';
 
 Track _t(String id) => Track(id: id, title: 'Title $id', uri: 'jellyfin:$id');
@@ -36,7 +37,7 @@ void main() {
     SmartPlaylistKind kind, {
     List<Track>? tracks,
     Set<String> favoriteIds = const <String>{},
-    Set<String> downloadedIds = const <String>{},
+    Set<String> downloadedKeys = const <String>{},
     int maxTracks = 100,
     Random? random,
   }) {
@@ -46,7 +47,7 @@ void main() {
       history: history,
       addedAt: addedAt,
       favoriteIds: favoriteIds,
-      downloadedIds: downloadedIds,
+      downloadedKeys: downloadedKeys,
       random: random,
     );
   }
@@ -72,7 +73,7 @@ void main() {
           'b': DateTime(2024, 1, 5), // legacy bare-id key, and newer
         },
         favoriteIds: const <String>{},
-        downloadedIds: const <String>{},
+        downloadedKeys: const <String>{},
       );
       // 'b' (legacy key, Jan 5) outranks 'a' (uri key, Jan 1).
       expect(_ids(result), <String>['b', 'a']);
@@ -99,12 +100,29 @@ void main() {
       expect(_ids(result), <String>['b', 'd']);
     });
 
-    test('downloaded mix uses the cached (downloaded) id set', () {
+    test('downloaded mix uses the cached (downloaded) cache-key set', () {
       final List<Track> result = resolve(
         SmartPlaylistKind.downloaded,
-        downloadedIds: <String>{'a', 'c'},
+        downloadedKeys: <String>{
+          CachedTrack.cacheKeyForTrack(_t('a')),
+          CachedTrack.cacheKeyForTrack(_t('c')),
+        },
       );
       expect(_ids(result), <String>['a', 'c']);
+    });
+
+    test('downloaded mix is provider-aware for same-id copies', () {
+      // Two providers expose the same bare id 101; only the Subsonic copy is
+      // downloaded. The mix must show that copy alone — never the Jellyfin copy
+      // that merely shares the id.
+      const Track jelly = Track(id: '101', title: 'A', uri: 'jellyfin:101');
+      const Track sub = Track(id: '101', title: 'A', uri: 'subsonic:101');
+      final List<Track> result = resolve(
+        SmartPlaylistKind.downloaded,
+        tracks: <Track>[jelly, sub],
+        downloadedKeys: <String>{CachedTrack.cacheKeyForTrack(sub)},
+      );
+      expect(result.map((Track t) => t.uri).toList(), <String>['subsonic:101']);
     });
 
     test('never played excludes anything in the play history', () {

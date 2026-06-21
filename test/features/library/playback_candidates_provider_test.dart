@@ -5,6 +5,7 @@ import 'package:linthra/core/catalog/source_strategy.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/playback_candidate_source.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
@@ -58,7 +59,7 @@ Future<ProviderContainer> _seed({
   required List<Track> jellyfin,
   required List<Track> subsonic,
   PlaybackSourceStrategy strategy = PlaybackSourceStrategy.preferDefault,
-  Set<String> cachedIds = const <String>{},
+  Set<String> cachedKeys = const <String>{},
 }) async {
   final repo = InMemoryMusicLibraryRepository();
   final container = ProviderContainer(
@@ -68,7 +69,7 @@ Future<ProviderContainer> _seed({
           .overrideWith(() => _FixedPreference(priority)),
       playbackSourceStrategyProvider
           .overrideWith(() => _FixedStrategy(strategy)),
-      offlineAvailableTrackIdsProvider.overrideWithValue(cachedIds),
+      offlineAvailableTrackKeysProvider.overrideWithValue(cachedKeys),
     ],
   );
   addTearDown(container.dispose);
@@ -167,7 +168,7 @@ void main() {
         jellyfin: <Track>[_jelly('j', title: 'Hello')],
         subsonic: <Track>[_sub('s', title: 'Hello')],
         strategy: PlaybackSourceStrategy.preferLocalCache,
-        cachedIds: <String>{'s'},
+        cachedKeys: <String>{CachedTrack.cacheKeyFor('subsonic', 's')},
       );
 
       final Map<String, List<Track>> map =
@@ -175,6 +176,26 @@ void main() {
       // Same display id (Jellyfin primary), but the cached Subsonic copy leads.
       expect(map['jellyfin:j']!.map((Track t) => t.uri).toList(),
           <String>['subsonic:s', 'jellyfin:j']);
+    });
+
+    test('preferLocalCache is provider-aware for same-bare-id copies',
+        () async {
+      // Jellyfin and Subsonic both expose id 101; only the Subsonic copy is
+      // downloaded. "Prefer local/cache" must lead with the actually-cached
+      // Subsonic copy — the same-id Jellyfin copy must not be treated as cached
+      // just because they share the bare id.
+      final container = await _seed(
+        priority: const SourcePriority(<String>['jellyfin', 'subsonic']),
+        jellyfin: <Track>[_jelly('101', title: 'Hello')],
+        subsonic: <Track>[_sub('101', title: 'Hello')],
+        strategy: PlaybackSourceStrategy.preferLocalCache,
+        cachedKeys: <String>{CachedTrack.cacheKeyFor('subsonic', '101')},
+      );
+
+      final Map<String, List<Track>> map =
+          container.read(playbackCandidatesProvider);
+      expect(map['jellyfin:101']!.map((Track t) => t.uri).toList(),
+          <String>['subsonic:101', 'jellyfin:101']);
     });
 
     test(
@@ -206,7 +227,7 @@ void main() {
       final repo = InMemoryMusicLibraryRepository();
       final container = ProviderContainer(overrides: <Override>[
         musicLibraryRepositoryProvider.overrideWithValue(repo),
-        offlineAvailableTrackIdsProvider.overrideWithValue(const <String>{}),
+        offlineAvailableTrackKeysProvider.overrideWithValue(const <String>{}),
         // The exact production wiring the playback controller uses.
         playbackCandidateSourceOverride,
       ]);

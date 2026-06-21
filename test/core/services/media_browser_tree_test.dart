@@ -3,6 +3,7 @@ import 'package:linthra/core/catalog/library_grouping.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/media_browser_tree.dart';
 
 import '../../features/library/fake_music_library_repository.dart';
@@ -18,6 +19,13 @@ Track _track(String id, {String? artist, String? album, int? trackNumber}) {
     trackNumber: trackNumber,
   );
 }
+
+/// The provider-aware download cache keys for catalog ids built with [_track],
+/// so a test can express downloaded tracks by plain id while the repository (and
+/// the media browser) join on the cache key.
+Set<String> _dlKeys(Iterable<String> ids) => <String>{
+      for (final String id in ids) CachedTrack.cacheKeyForTrack(_track(id))
+    };
 
 PlaybackState _playing(Track current, {List<Track> upNext = const <Track>[]}) {
   return PlaybackState(
@@ -56,7 +64,7 @@ void main() {
           FakeMusicLibraryRepository(tracks: tracks),
           playlists: FakePlaylistRepository(playlists),
           favorites: FakeFavoritesRepository(favorites),
-          downloads: FakeDownloadRepository(downloads),
+          downloads: FakeDownloadRepository(_dlKeys(downloads)),
         );
       }
 
@@ -529,7 +537,7 @@ void main() {
       MediaBrowserTree buildTree([Set<String> ids = const {'b', 'c', 'x'}]) {
         return MediaBrowserTree(
           FakeMusicLibraryRepository(tracks: library),
-          downloads: FakeDownloadRepository(ids),
+          downloads: FakeDownloadRepository(_dlKeys(ids)),
         );
       }
 

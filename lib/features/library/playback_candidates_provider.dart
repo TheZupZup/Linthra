@@ -4,6 +4,7 @@ import '../../core/catalog/logical_track.dart';
 import '../../core/catalog/source_capability.dart';
 import '../../core/catalog/source_strategy.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/download_store.dart';
 import '../../core/services/playback_candidate_source.dart';
 import '../downloads/download_providers.dart';
 import '../player/player_providers.dart';
@@ -40,14 +41,16 @@ final playbackCandidatesProvider = Provider<Map<String, List<Track>>>((ref) {
   final List<LogicalTrack> logicals = ref.watch(libraryLogicalTracksProvider);
   final PlaybackSourceStrategy strategy =
       ref.watch(playbackSourceStrategyProvider);
-  final Set<String> cachedIds = ref.watch(offlineAvailableTrackIdsProvider);
+  final Set<String> cachedKeys = ref.watch(offlineAvailableTrackKeysProvider);
 
   // A candidate's capability, made cache-aware from the in-memory offline set so
-  // "prefer cache/local" can favour a downloaded copy without a disk scan.
+  // "prefer cache/local" can favour a downloaded copy without a disk scan. Keyed
+  // by the provider-aware cache key so a downloaded `subsonic:101` makes only the
+  // subsonic copy look cached — never a same-id `jellyfin:101` streaming copy.
   PlaybackSourceCapability profileOf(Track track) =>
       PlaybackSourceCapability.fromTrack(
         track,
-        cachedOffline: cachedIds.contains(track.id),
+        cachedOffline: cachedKeys.contains(CachedTrack.cacheKeyForTrack(track)),
       );
 
   final Map<String, List<Track>> byTrackUri = <String, List<Track>>{};

@@ -70,7 +70,7 @@ Future<void> main() async {
       // quality, lower data, balanced, or default).
       sharedPreferencesPlaybackSourceStrategyStoreOverride,
       // Make the playback source strategy cache-aware from the live offline set.
-      offlineAvailableTrackIdsOverride,
+      offlineAvailableTrackKeysOverride,
       sharedPreferencesDownloadStoreOverride,
       sharedPreferencesDownloadPreferencesOverride,
       sharedPreferencesPlaybackPreferencesOverride,

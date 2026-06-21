@@ -111,7 +111,7 @@ class _SpyDownloadRepository implements DownloadRepository {
   Future<void> removeDownload(Track track) async {}
 
   @override
-  Future<List<String>> downloadedTrackIds() async => const <String>[];
+  Future<List<String>> downloadedTrackKeys() async => const <String>[];
 }
 
 ProviderContainer _container({
