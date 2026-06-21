@@ -167,6 +167,35 @@ void main() {
       expect(resolver.calls, <String>['jellyfin:j', 'subsonic:s']);
     });
 
+    test('falls back across providers that share a bare id (101 -> 101)',
+        () async {
+      // jellyfin:101 and subsonic:101 are the same song with the *same* bare id.
+      // The candidate map (uri-keyed) and the queue swap (uri-compared) must
+      // still fall back to the Subsonic copy and reflect it as current.
+      final Track j101 = _track('101', 'jellyfin:101');
+      final Track s101 = _track('101', 'subsonic:101');
+      final player = _FakePlayer();
+      final resolver = _FakeResolver(
+        resolveFailures: <String>{'jellyfin:101'},
+        resolved: <String, ResolvedPlayable>{
+          'subsonic:101': _stream('https://sub/stream/101'),
+        },
+      );
+      final controller = build(
+        player: player,
+        resolver: resolver,
+        candidates: <String, List<Track>>{
+          'jellyfin:101': <Track>[j101, s101],
+        },
+      );
+
+      await controller.playTracks(<Track>[j101]);
+
+      final PlaybackState s = controller.state;
+      expect(s.currentTrack?.uri, 'subsonic:101');
+      expect(resolver.calls, <String>['jellyfin:101', 'subsonic:101']);
+    });
+
     test('default Navidrome fails → plays Jellyfin, shows Jellyfin', () async {
       final player = _FakePlayer();
       final resolver = _FakeResolver(

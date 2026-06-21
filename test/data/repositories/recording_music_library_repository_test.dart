@@ -96,6 +96,24 @@ void main() {
     });
 
     test(
+        'removing a remote track before migration also clears its legacy id key',
+        () async {
+      // Pre-v2 store: an id-keyed entry that no sync has migrated yet.
+      final DateTime legacy = DateTime(2023, 1, 1);
+      await addedStore.save(<String, DateTime>{'101': legacy});
+
+      final RecordingMusicLibraryRepository repo =
+          build(now: () => DateTime(2024, 6, 10));
+      // Remove by uri (the catalog key) before any stamp has migrated '101'.
+      await repo.removeTracks(<String>['jellyfin:101']);
+      expect((await addedStore.load()).containsKey('101'), isFalse);
+
+      // A later re-sync now treats it as genuinely new, not the stale legacy time.
+      await sync(repo, <Track>[_t('101')]); // uri: jellyfin:101
+      expect((await addedStore.load())['jellyfin:101'], DateTime(2024, 6, 10));
+    });
+
+    test(
         'migrates a legacy id-keyed timestamp to the uri key, preserving the time',
         () async {
       // A store written by a pre-v2 build keyed entries by the bare id. The first

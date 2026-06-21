@@ -263,15 +263,21 @@ class PlaybackQueue {
   /// up-next, history, and shuffle intact. Used when playback fell back to
   /// another source copy of the same song, so the queue (and the now-playing UI)
   /// reflects the copy that actually started. A no-op on an empty queue or when
-  /// [track] equals the current one. When shuffled, the same swap is applied to
-  /// [originalOrder] so a later [unshuffled] keeps the copy that played.
+  /// [track] is the same copy (same provider-namespaced uri) as the current one.
+  /// When shuffled, the same swap is applied to [originalOrder] so a later
+  /// [unshuffled] keeps the copy that played.
+  ///
+  /// Identity is compared by [Track.uri], not [Track]'s `==` (which keys on the
+  /// bare id): two providers' copies of one song can share a bare id (e.g.
+  /// `jellyfin:101` falling back to `subsonic:101`), and that swap must take
+  /// effect so `current` reflects the copy that actually started.
   PlaybackQueue replaceCurrent(Track track) {
     final Track? old = current;
-    if (old == null || old == track) return this;
+    if (old == null || old.uri == track.uri) return this;
     final updated = List<Track>.of(tracks)..[currentIndex] = track;
     List<Track>? updatedOriginal = originalOrder;
     if (originalOrder != null) {
-      final int i = originalOrder!.indexOf(old);
+      final int i = originalOrder!.indexWhere((Track t) => t.uri == old.uri);
       if (i >= 0) {
         updatedOriginal = List<Track>.of(originalOrder!)..[i] = track;
       }

@@ -4,6 +4,7 @@ import '../../core/models/track.dart';
 import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/library_added_store.dart';
 import '../../core/repositories/music_library_repository.dart';
+import '../../core/sources/music_provider.dart';
 
 /// A [MusicLibraryRepository] decorator that stamps each track with the time it
 /// first entered the library, so the "Recently added" smart mix has a signal to
@@ -140,6 +141,12 @@ class RecordingMusicLibraryRepository
     bool changed = false;
     for (final String uri in trackUris) {
       if (addedAt.remove(uri) != null) changed = true;
+      // Also drop a pre-v2 bare-id entry for a remote track that hasn't been
+      // migrated yet, so a remove-then-readd before the first post-upgrade sync
+      // is correctly treated as newly added (rather than adopting the stale
+      // legacy timestamp in _stampFirstSeen).
+      final String? legacyId = MusicProviders.bareRemoteIdForTrackUri(uri);
+      if (legacyId != null && addedAt.remove(legacyId) != null) changed = true;
     }
     if (changed) await _addedStore.save(addedAt);
   }

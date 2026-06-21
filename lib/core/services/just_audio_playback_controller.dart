@@ -785,7 +785,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // that succeeded — not the preferred one that may have failed. The resolved
     // source rides along on later position/status updates until the next load.
     final Track played = outcome.track;
-    if (played.id != track.id) _queue = _queue.replaceCurrent(played);
+    // Compare by uri, not the bare id: a fallback can land on another provider's
+    // copy that shares the bare id (jellyfin:101 -> subsonic:101), and the queue
+    // must still swap to it so completion/retry read the copy that started.
+    if (played.uri != track.uri) _queue = _queue.replaceCurrent(played);
     _emit(_state.copyWith(
       currentTrack: played,
       source: outcome.resolved.source,

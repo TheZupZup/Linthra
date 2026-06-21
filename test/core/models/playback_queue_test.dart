@@ -388,6 +388,21 @@ void main() {
       expect(identical(queue.replaceCurrent(_track('a')), queue), isTrue);
     });
 
+    test('swaps to another provider copy that shares the bare id (fallback)',
+        () {
+      // jellyfin:101 falling back to subsonic:101 — same bare id, different uri.
+      // The swap must take effect (it previously no-op'd via Track == on id), so
+      // `current` reflects the copy that actually started.
+      const jelly = Track(id: '101', title: 'Hello', uri: 'jellyfin:101');
+      const sub = Track(id: '101', title: 'Hello', uri: 'subsonic:101');
+      final queue = PlaybackQueue.of(<Track>[jelly]);
+
+      final replaced = queue.replaceCurrent(sub);
+
+      expect(identical(replaced, queue), isFalse);
+      expect(replaced.current!.uri, 'subsonic:101');
+    });
+
     test('a later unshuffle keeps the replaced copy, not the original', () {
       final queue = PlaybackQueue.of([_track('a'), _track('b'), _track('c')])
           .shuffled(Random(1));

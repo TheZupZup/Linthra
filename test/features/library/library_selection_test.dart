@@ -14,6 +14,12 @@ const List<Track> _mixed = <Track>[
   Track(id: 'b', title: 'Song B', uri: 'jellyfin:b'),
 ];
 
+// Two unrelated songs that share a bare server-side id across providers.
+const List<Track> _sameBareId = <Track>[
+  Track(id: '101', title: 'Alpha', uri: 'jellyfin:101'),
+  Track(id: '101', title: 'Beta', uri: 'subsonic:101'),
+];
+
 Future<FakeMusicLibraryRepository> _pump(
   WidgetTester tester, {
   List<Track> tracks = _mixed,
@@ -47,6 +53,19 @@ void main() {
       await tester.tap(find.text('Song B'));
       await tester.pumpAndSettle();
       expect(find.text('2 selected'), findsOneWidget);
+    });
+
+    testWidgets(
+        'same bare-id rows from different providers select independently',
+        (tester) async {
+      await _pump(tester, tracks: _sameBareId);
+
+      // Long-press one of the two same-id rows: only it is selected, because
+      // selection keys on the provider-namespaced uri, not the bare id.
+      await tester.longPress(find.text('Alpha'));
+      await tester.pumpAndSettle();
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(find.text('2 selected'), findsNothing);
     });
 
     testWidgets('offers safe actions and hides unsafe destructive deletes',
