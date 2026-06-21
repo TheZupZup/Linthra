@@ -16,6 +16,7 @@ import 'file_system_offline_file_store.dart';
 import 'in_memory_download_preferences.dart';
 import 'in_memory_download_store.dart';
 import 'in_memory_offline_file_store.dart';
+import 'music_library_repository_provider.dart';
 import 'shared_preferences_download_preferences.dart';
 import 'shared_preferences_download_store.dart';
 import 'store_cached_track_locator.dart';
@@ -79,6 +80,11 @@ final _cacheDownloadRepositoryProvider =
     connectivity: ref.watch(connectivityServiceProvider),
     preferences: ref.watch(downloadPreferencesProvider),
     currentlyPlayingTrack: ref.watch(currentlyPlayingTrackProvider),
+    // One-time migration of legacy (pre-v0.1.6, sourceType-less) cache records to
+    // provider-aware keys, inferring each one's provider from the catalog. Read
+    // lazily (not watched) so wiring it never rebuilds the repository.
+    catalogForMigration: () =>
+        ref.read(musicLibraryRepositoryProvider).getAllTracks(),
   );
   ref.onDispose(repository.dispose);
   return repository;

@@ -288,6 +288,61 @@ void main() {
       expect(snapshot.containsKey(jellyKey), isFalse);
     });
 
+    test('migrates a legacy (sourceType-less) record to a provider-aware key',
+        () async {
+      // Seed a pre-v0.1.6 download: a managed file plus a CachedTrack with no
+      // sourceType, which keys as `\0101`.
+      files = InMemoryOfflineFileStore();
+      final String fileName =
+          await files.write('101', <int>[1, 2, 3, 4], extension: 'mp3');
+      store = InMemoryDownloadStore(initialDownloads: <CachedTrack>[
+        CachedTrack(trackId: '101', fileName: fileName, sizeBytes: 4),
+      ]);
+      // The catalog resolves bare id 101 to one provider (1:1 pre-upgrade).
+      final repository = CacheDownloadRepository(
+        store: store,
+        files: files,
+        downloader: downloader,
+        connectivity: connectivity,
+        preferences: preferences,
+        catalogForMigration: () async => <Track>[_jellyfin('101')],
+      );
+
+      // The download now resolves under the provider-aware key…
+      expect(await repository.downloadedTrackKeys(),
+          <String>[CachedTrack.cacheKeyForTrack(_jellyfin('101'))]);
+      // …and the record was re-saved with the inferred sourceType (so it stays
+      // provider-aware next launch), with its cache file untouched.
+      final List<CachedTrack> saved = await store.loadDownloads();
+      expect(saved.single.sourceType, 'jellyfin');
+      expect(saved.single.fileName, fileName);
+    });
+
+    test('leaves a legacy record unmigrated when its bare id is ambiguous',
+        () async {
+      files = InMemoryOfflineFileStore();
+      final String fileName =
+          await files.write('101', <int>[1, 2, 3, 4], extension: 'mp3');
+      store = InMemoryDownloadStore(initialDownloads: <CachedTrack>[
+        CachedTrack(trackId: '101', fileName: fileName, sizeBytes: 4),
+      ]);
+      // Two providers now expose id 101 — the legacy download can't be safely
+      // attributed, so it must be left as-is rather than mis-keyed.
+      final repository = CacheDownloadRepository(
+        store: store,
+        files: files,
+        downloader: downloader,
+        connectivity: connectivity,
+        preferences: preferences,
+        catalogForMigration: () async =>
+            <Track>[_jellyfin('101'), _subsonic('101')],
+      );
+
+      expect(await repository.downloadedTrackKeys(),
+          <String>[CachedTrack.cacheKeyFor(null, '101')]);
+      expect((await store.loadDownloads()).single.sourceType, isNull);
+    });
+
     test('statusStream seeds the current snapshot then emits changes',
         () async {
       await build().requestDownload(_jellyfin('j1'));
