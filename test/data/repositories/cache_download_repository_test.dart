@@ -343,6 +343,38 @@ void main() {
       expect((await store.loadDownloads()).single.sourceType, isNull);
     });
 
+    test('a migrated legacy cache belongs only to the matched provider copy',
+        () async {
+      // Pre-v0.1.6 the catalog was 1:1, so a legacy download for id 101 was one
+      // provider's (Plex here). After it migrates, a later same-bare-id copy from
+      // another provider (subsonic:101) must NOT inherit the download.
+      files = InMemoryOfflineFileStore();
+      final String fileName =
+          await files.write('101', <int>[1, 2, 3, 4], extension: 'mp3');
+      store = InMemoryDownloadStore(initialDownloads: <CachedTrack>[
+        CachedTrack(trackId: '101', fileName: fileName, sizeBytes: 4),
+      ]);
+      final repository = CacheDownloadRepository(
+        store: store,
+        files: files,
+        downloader: downloader,
+        connectivity: connectivity,
+        preferences: preferences,
+        catalogForMigration: () async => <Track>[_plex('101')],
+      );
+
+      // Migrated to the Plex copy only…
+      expect(await repository.downloadedTrackKeys(),
+          <String>[CachedTrack.cacheKeyForTrack(_plex('101'))]);
+      // …so a same-id Subsonic copy is not seen as downloaded.
+      final Map<String, DownloadStatus> snapshot =
+          await repository.statusStream.first;
+      expect(
+          snapshot.containsKey(CachedTrack.cacheKeyForTrack(_subsonic('101'))),
+          isFalse);
+      expect(await repository.statusFor('101'), DownloadStatus.downloaded);
+    });
+
     test('statusStream seeds the current snapshot then emits changes',
         () async {
       await build().requestDownload(_jellyfin('j1'));
