@@ -156,15 +156,15 @@ class RecordingMusicLibraryRepository
     // bare id -> owner uri, or null when more than one provider exposes that id.
     final Map<String, String?> ownerByBareId = <String, String?>{};
     for (final Track track in await _delegate.getAllTracks()) {
-      if (track.uri == track.id)
-        continue; // local: id == uri, never legacy-keyed
+      // Local tracks have id == uri, so they are never legacy bare-id-keyed.
+      if (track.uri == track.id) continue;
       ownerByBareId[track.id] =
           ownerByBareId.containsKey(track.id) ? null : track.uri;
     }
     bool changed = false;
     ownerByBareId.forEach((String bareId, String? ownerUri) {
-      if (ownerUri == null)
-        return; // ambiguous — leave for the read-time fallback
+      // Ambiguous bare id — leave it for the read-time fallback, don't guess.
+      if (ownerUri == null) return;
       final DateTime? legacy = addedAt[bareId];
       if (legacy == null) return;
       // Don't clobber an existing uri-keyed time; just drop the legacy key.
