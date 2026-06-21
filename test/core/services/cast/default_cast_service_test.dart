@@ -342,6 +342,30 @@ void main() {
       expect(service.state.isCasting, isTrue);
     });
 
+    test('re-casts a same-bare-id copy from another provider (uri de-dupe)',
+        () async {
+      // Two castable copies that share a server-side id: switching from one to
+      // the other must reload the receiver, not be dropped as the "same track"
+      // (the de-dupe keys on the uri, not the bare id).
+      const jelly101 = Track(id: '101', title: 'Alpha', uri: 'jellyfin:101');
+      const sub101 = Track(id: '101', title: 'Beta', uri: 'subsonic:101');
+      current = jelly101;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      expect(handle.loaded, hasLength(1));
+
+      current = sub101;
+      trackChanges.add(sub101);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(handle.loaded, hasLength(2));
+      expect(handle.loaded.last.title, 'Beta');
+    });
+
     test('reconnecting re-casts the current track (no stale dedupe)', () async {
       current = _jellyfinTrack;
       final firstHandle = _FakeHandle();
