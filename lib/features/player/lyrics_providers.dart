@@ -31,15 +31,17 @@ final lyricsServiceProvider = Provider<LyricsService>((ref) {
 });
 
 /// Lyrics for a single track, keyed by the track itself (whose equality is its
-/// stable id), fetched on demand and cached while watched. Auto-disposed so a
-/// track that is no longer current drops its request.
+/// provider-namespaced uri), fetched on demand and cached while watched — so two
+/// same-bare-id copies from different providers (`jellyfin:101`, `subsonic:101`)
+/// resolve independently. Auto-disposed so a track no longer current drops its
+/// request.
 final trackLyricsProvider =
     FutureProvider.autoDispose.family<Lyrics?, Track>((ref, track) {
   return ref.watch(lyricsServiceProvider).lyricsFor(track);
 });
 
-/// The track playing right now, distinct by id. Selecting `currentTrack` (whose
-/// equality is id-based) means this changes only when the *track* changes — not
+/// The track playing right now, distinct by uri. Selecting `currentTrack` (whose
+/// equality is uri-based) means this changes only when the *track* changes — not
 /// on every position tick — so lyrics aren't refetched every second. Falls back
 /// to the controller's latest state until the first stream event arrives, so
 /// opening lyrics mid-playback resolves immediately (mirroring the player UI).
@@ -53,7 +55,8 @@ final _currentlyPlayingTrackProvider = Provider.autoDispose<Track?>((ref) {
 
 /// Lyrics for whatever is playing now — the seam the Now Playing lyrics view
 /// watches. It re-resolves whenever the current track changes (keyed, through
-/// [trackLyricsProvider], by the track's stable id) and reports loading during
+/// [trackLyricsProvider], by the track's provider-namespaced uri) and reports
+/// loading during
 /// the switch, so the previous song's lines never linger. Resolves to
 /// `data(null)` when nothing is playing. The UI watches this and never calls a
 /// lyrics provider directly.
