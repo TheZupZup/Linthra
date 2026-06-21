@@ -27,19 +27,24 @@ void main() {
       expect(before, isNot(after));
     });
 
-    test('a current-track provider swap with the same bare id is not equal', () {
-      final PlaybackState a = const PlaybackState(status: PlaybackStatus.playing)
-          .copyWith(currentTrack: _jelly('101'));
-      final PlaybackState b = const PlaybackState(status: PlaybackStatus.playing)
-          .copyWith(currentTrack: _sub('101'));
+    test('a current-track provider swap with the same bare id is not equal',
+        () {
+      final PlaybackState a =
+          const PlaybackState(status: PlaybackStatus.playing)
+              .copyWith(currentTrack: _jelly('101'));
+      final PlaybackState b =
+          const PlaybackState(status: PlaybackStatus.playing)
+              .copyWith(currentTrack: _sub('101'));
       expect(a, isNot(b));
     });
 
     test('identical states stay equal and hash the same', () {
-      final PlaybackState a = const PlaybackState(status: PlaybackStatus.playing)
-          .copyWith(currentTrack: _jelly('101'), upNext: <Track>[_jelly('2')]);
-      final PlaybackState b = const PlaybackState(status: PlaybackStatus.playing)
-          .copyWith(currentTrack: _jelly('101'), upNext: <Track>[_jelly('2')]);
+      final PlaybackState a =
+          const PlaybackState(status: PlaybackStatus.playing).copyWith(
+              currentTrack: _jelly('101'), upNext: <Track>[_jelly('2')]);
+      final PlaybackState b =
+          const PlaybackState(status: PlaybackStatus.playing).copyWith(
+              currentTrack: _jelly('101'), upNext: <Track>[_jelly('2')]);
       expect(a, b);
       expect(a.hashCode, b.hashCode);
     });
