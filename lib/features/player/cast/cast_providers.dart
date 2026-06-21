@@ -71,7 +71,12 @@ final chromecastCastServiceOverride = castServiceProvider.overrideWith((ref) {
     transport: ChromecastCastTransport(),
     mediaResolver: ref.read(castMediaResolverProvider),
     currentTrack: () => local.state.currentTrack,
-    trackChanges: local.stateStream.map((s) => s.currentTrack).distinct(),
+    // Distinct by uri, not Track == (which is bare-id), so a same-bare-id cast
+    // skip/fallback (jellyfin:101 -> subsonic:101) still reaches the receiver
+    // instead of being filtered out before _handOff sees it.
+    trackChanges: local.stateStream
+        .map((s) => s.currentTrack)
+        .distinct((a, b) => a?.uri == b?.uri),
   );
   ref.onDispose(service.dispose);
   return service;

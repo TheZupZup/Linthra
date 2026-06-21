@@ -117,6 +117,11 @@ final cachedTrackLocatorProvider = Provider<CachedTrackLocator>((ref) {
   return StoreCachedTrackLocator(
     ref.watch(downloadStoreProvider),
     ref.watch(offlineFileStoreProvider),
+    // A legacy untagged cache record is served by bare id only when the catalog
+    // shows that id maps to one provider — never another provider's same-id copy.
+    // Read lazily so wiring it never rebuilds the locator.
+    catalogForLegacyMatch: () =>
+        ref.read(musicLibraryRepositoryProvider).getAllTracks(),
   );
 });
 
