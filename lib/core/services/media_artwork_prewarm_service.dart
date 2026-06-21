@@ -89,12 +89,14 @@ class MediaArtworkPrewarmService {
     }
   }
 
-  /// A fingerprint of the now-playing + look-ahead track ids, so warming reacts
-  /// to queue/track changes but not to position/status ticks (same key).
+  /// A fingerprint of the now-playing + look-ahead track uris, so warming reacts
+  /// to queue/track changes but not to position/status ticks (same key). Keyed by
+  /// uri (not the bare id) so switching between two providers' same-id copies
+  /// still triggers a warm.
   String _keyFor(PlaybackState state) {
-    final String current = state.currentTrack?.id ?? '-';
+    final String current = state.currentTrack?.uri ?? '-';
     final String ahead =
-        state.upNext.take(_lookahead).map((Track t) => t.id).join(',');
+        state.upNext.take(_lookahead).map((Track t) => t.uri).join(',');
     return '$current|$ahead';
   }
 

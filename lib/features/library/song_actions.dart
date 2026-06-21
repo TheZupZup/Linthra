@@ -91,15 +91,16 @@ abstract final class SongActions {
     );
     if (!confirmed) return false;
 
-    final String? playingId =
-        ref.read(playbackControllerProvider).state.currentTrack?.id;
+    final String? playingUri =
+        ref.read(playbackControllerProvider).state.currentTrack?.uri;
     final repository = ref.read(downloadRepositoryProvider);
     int removed = 0;
     int failed = 0;
     int skipped = 0;
     for (final Track track in tracks) {
-      // Never delete the cached file backing what's playing right now.
-      if (track.id == playingId) {
+      // Never delete the cached file backing what's playing right now. Compare
+      // by uri so a same-id copy from another provider isn't wrongly skipped.
+      if (track.uri == playingUri) {
         skipped++;
         continue;
       }

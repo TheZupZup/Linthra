@@ -356,6 +356,29 @@ void main() {
       await service.dispose();
     });
 
+    test('a same-id provider fallback is reported as a track change', () async {
+      // A preferred copy fails and playback falls back to another provider's
+      // copy that shares the bare id. The reporting identity is the uri, so the
+      // failed copy's session is closed (onTrackChanged) and the copy actually
+      // playing opens its own start — distinguished here by its duration.
+      final service = build();
+      const Track jelly = Track(id: '101', title: 'Alpha', uri: 'jellyfin:101');
+      const Track sub = Track(id: '101', title: 'Beta', uri: 'subsonic:101');
+
+      states.add(_state(PlaybackStatus.playing, jelly,
+          duration: const Duration(minutes: 3)));
+      states.add(_state(PlaybackStatus.playing, sub,
+          duration: const Duration(minutes: 2)));
+      await _settle();
+
+      expect(reporter.events, <String>[
+        'started:101@0/180000', // the failed-preferred jellyfin copy (3 min)
+        'changed:101->101',
+        'started:101@0/120000', // the subsonic copy actually playing (2 min)
+      ]);
+      await service.dispose();
+    });
+
     test('a skip while paused still closes the outgoing track', () async {
       final service = build();
       final Track a = _track('a');

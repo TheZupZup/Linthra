@@ -57,6 +57,26 @@ void main() {
           <String>['d', 'b', 'c', 'a']);
     });
 
+    test('recently added falls back to a legacy bare-id timestamp', () {
+      // An upgraded user whose store predates uri keys: a remote track's
+      // first-seen time is still under the bare id until the next sync migrates
+      // it. The read must honor that key so Recently Added keeps its order right
+      // after the upgrade instead of collapsing to catalog order.
+      final List<Track> result = SmartPlaylistResolver(maxTracks: 100).resolve(
+        SmartPlaylistKind.recentlyAdded,
+        allTracks: <Track>[_t('a'), _t('b')],
+        history: history,
+        addedAt: <String, DateTime>{
+          'jellyfin:a': DateTime(2024, 1, 1), // already migrated to the uri key
+          'b': DateTime(2024, 1, 5), // legacy bare-id key, and newer
+        },
+        favoriteIds: const <String>{},
+        downloadedIds: const <String>{},
+      );
+      // 'b' (legacy key, Jan 5) outranks 'a' (uri key, Jan 1).
+      expect(_ids(result), <String>['b', 'a']);
+    });
+
     test('recently played is most-recently-played first, played-only', () {
       // a@Jan1, b@Jan3, c@Jan2 → b, c, a; d was never played so it's excluded.
       expect(_ids(resolve(SmartPlaylistKind.recentlyPlayed)),

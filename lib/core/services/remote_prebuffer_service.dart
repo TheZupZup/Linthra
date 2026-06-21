@@ -60,7 +60,7 @@ class RemotePrebufferService {
   /// position/duration/status so listening doesn't thrash on playback ticks.
   String _keyFor(PlaybackState state) {
     final StringBuffer buffer = StringBuffer()
-      ..write(state.currentTrack?.id ?? '-')
+      ..write(state.currentTrack?.uri ?? '-')
       ..write('|')
       ..write(state.shuffleEnabled)
       ..write('|')
@@ -70,7 +70,7 @@ class RemotePrebufferService {
         _ahead < state.upNext.length ? _ahead : state.upNext.length;
     for (int i = 0; i < count; i++) {
       buffer
-        ..write(state.upNext[i].id)
+        ..write(state.upNext[i].uri)
         ..write(',');
     }
     return buffer.toString();

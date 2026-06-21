@@ -65,16 +65,29 @@ class SmartPlaylistResolver {
     List<Track> allTracks,
     Map<String, DateTime> addedAt,
   ) {
-    // Keyed by the provider-namespaced [Track.uri] (see
-    // RecordingMusicLibraryRepository), so two providers' same-id tracks don't
-    // share a first-seen timestamp.
     final List<Track> sorted = List<Track>.of(allTracks)
-      ..sort((a, b) {
-        final DateTime ta = addedAt[a.uri] ?? _epoch;
-        final DateTime tb = addedAt[b.uri] ?? _epoch;
-        return tb.compareTo(ta);
-      });
+      ..sort(
+          (a, b) => _addedTime(b, addedAt).compareTo(_addedTime(a, addedAt)));
     return _bounded(sorted);
+  }
+
+  /// First-seen time for [track] (the newest-first sort key). Reads the
+  /// provider-namespaced [Track.uri] key written by
+  /// RecordingMusicLibraryRepository so two providers' same-id tracks don't share
+  /// a timestamp. Falls back to the legacy bare-`id` key for a remote track whose
+  /// timestamp predates the uri-keyed store and hasn't been migrated yet — the
+  /// first post-upgrade sync migrates it in place, but this read can run before
+  /// that, so the fallback keeps Recently Added in order immediately after an
+  /// upgrade instead of collapsing the whole library to catalog order until the
+  /// next sync. Unknown tracks sort oldest (at [_epoch]).
+  DateTime _addedTime(Track track, Map<String, DateTime> addedAt) {
+    final DateTime? byUri = addedAt[track.uri];
+    if (byUri != null) return byUri;
+    if (track.uri != track.id) {
+      final DateTime? legacy = addedAt[track.id];
+      if (legacy != null) return legacy;
+    }
+    return _epoch;
   }
 
   /// Resolves [orderedIds] against the catalog, preserving the given order and

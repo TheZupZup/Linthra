@@ -91,10 +91,13 @@ class PlaybackReportingService {
     final Track? track = state.currentTrack;
     final Track? previous = _track;
 
-    if (track?.id != previous?.id) {
-      // The queue moved (skip, natural advance, or cleared to nothing). Tell
-      // reporters even when the new track never starts, so the outgoing
-      // track's session is always closed.
+    if (track?.uri != previous?.uri) {
+      // The queue moved (skip, natural advance, a same-id provider fallback, or
+      // cleared to nothing). Compare by uri so a fallback that swaps providers
+      // but keeps the bare id (jellyfin:101 → subsonic:101) still closes the
+      // outgoing session and opens one for the copy actually playing. Tell
+      // reporters even when the new track never starts, so the outgoing track's
+      // session is always closed.
       if (previous != null && _isActive) {
         final Track? next = track;
         _enqueue(() => _reporter.onTrackChanged(previous, next));
