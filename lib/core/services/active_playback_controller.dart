@@ -112,7 +112,15 @@ class ActivePlaybackController implements PlaybackController {
 
   void _emitMerged() {
     final PlaybackState next = _merge();
-    if (next == _lastEmitted) return;
+    // PlaybackState == leans on Track == (bare id), so a same-bare-id provider
+    // swap (a retry/fallback from jellyfin:101 to subsonic:101, same status and
+    // source) compares equal even though a different copy is now current.
+    // Compare the current uri too, so that swap still reaches UI/reporting
+    // instead of being suppressed by this guard.
+    if (next == _lastEmitted &&
+        next.currentTrack?.uri == _lastEmitted.currentTrack?.uri) {
+      return;
+    }
     _lastEmitted = next;
     if (!_states.isClosed) _states.add(next);
   }

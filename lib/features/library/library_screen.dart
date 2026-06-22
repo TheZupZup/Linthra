@@ -45,7 +45,7 @@ class LibraryScreen extends ConsumerStatefulWidget {
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with SingleTickerProviderStateMixin {
-  final Set<String> _selectedIds = <String>{};
+  final Set<String> _selectedUris = <String>{};
   bool _selecting = false;
 
   late final TabController _tabController;
@@ -101,11 +101,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       jellyfinSyncControllerProvider.select((s) => s.isSyncing),
     );
 
-    // Drop any selected ids that are no longer in the catalog (e.g. after a
-    // removal) so the count and actions stay accurate.
+    // Drop any selected rows no longer in the catalog (e.g. after a removal) so
+    // the count and actions stay accurate. Keyed by the provider-namespaced uri,
+    // not the bare id, so two different-provider songs sharing an id can't be
+    // selected (or bulk-acted on) together.
     final List<Track> selected = <Track>[
       for (final Track track in songs)
-        if (_selectedIds.contains(track.id)) track,
+        if (_selectedUris.contains(track.uri)) track,
     ];
 
     if (_selecting) {
@@ -264,7 +266,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       tracks: tracks,
       selectable: true,
       selectionActive: _selecting,
-      selectedIds: _selectedIds,
+      selectedUris: _selectedUris,
       onSelectStart: _enterSelection,
       onSelectToggle: _toggle,
     );
@@ -309,25 +311,25 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   void _enterSelection(Track track) {
     setState(() {
       _selecting = true;
-      _selectedIds
+      _selectedUris
         ..clear()
-        ..add(track.id);
+        ..add(track.uri);
     });
   }
 
   void _toggle(Track track) {
     setState(() {
-      if (!_selectedIds.add(track.id)) {
-        _selectedIds.remove(track.id);
+      if (!_selectedUris.add(track.uri)) {
+        _selectedUris.remove(track.uri);
       }
-      if (_selectedIds.isEmpty) _selecting = false;
+      if (_selectedUris.isEmpty) _selecting = false;
     });
   }
 
   void _exitSelection() {
     setState(() {
       _selecting = false;
-      _selectedIds.clear();
+      _selectedUris.clear();
     });
   }
 

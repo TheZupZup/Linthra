@@ -69,6 +69,7 @@ class CacheDownloadRepository
     DownloadScheduler? scheduler,
     Track? Function()? currentlyPlayingTrack,
     DateTime Function()? now,
+    Future<List<Track>> Function()? catalogForMigration,
   })  : _store = store,
         _files = files,
         _downloader = downloader,
@@ -77,7 +78,8 @@ class CacheDownloadRepository
         _policy = policy,
         _scheduler = scheduler ?? DownloadScheduler(),
         _currentlyPlayingTrack = currentlyPlayingTrack,
-        _now = now ?? DateTime.now;
+        _now = now ?? DateTime.now,
+        _catalogForMigration = catalogForMigration;
 
   final DownloadStore _store;
   final OfflineFileStore _files;
@@ -97,6 +99,15 @@ class CacheDownloadRepository
   final Track? Function()? _currentlyPlayingTrack;
 
   final DateTime Function() _now;
+
+  /// Resolves the current catalog tracks, used once on load to migrate legacy
+  /// (pre-v0.1.6, `sourceType`-less) cache records to provider-aware keys by
+  /// inferring each record's provider from the catalog. The pre-v0.1.6 catalog is
+  /// 1:1 bare-id→provider, so an unambiguous match is safe; an id the catalog now
+  /// exposes under two providers is left unmigrated rather than mis-attributed.
+  /// Null in tests/dev that don't exercise migration; the app wires it to the
+  /// music library.
+  final Future<List<Track>> Function()? _catalogForMigration;
 
   final Map<String, DownloadStatus> _statuses = <String, DownloadStatus>{};
 
@@ -150,7 +161,23 @@ class CacheDownloadRepository
   Future<void> _ensureLoaded() async {
     if (_loaded) return;
     bool changed = false;
-    for (final CachedTrack cached in await _store.loadDownloads()) {
+    final List<CachedTrack> records = await _store.loadDownloads();
+    final Map<String, String?> legacyScheme = await _legacySchemeFor(records);
+    for (final CachedTrack record in records) {
+      CachedTrack cached = record;
+      // Legacy (pre-v0.1.6) records carry no sourceType, so they key as
+      // `\0<id>` while a live track keys as `<scheme>\0<id>` — the download would
+      // look missing to the row/offline consumers, and a fresh request would
+      // re-fetch it. Re-key by inferring the provider from the catalog
+      // (unambiguous matches only); the cache file name is untouched, so the
+      // bytes keep resolving, and re-saving heals the record for next launch.
+      final String? inferred = legacyScheme[cached.trackId];
+      if (inferred != null &&
+          inferred.isNotEmpty &&
+          (cached.sourceType == null || cached.sourceType!.isEmpty)) {
+        cached = cached.copyWith(sourceType: inferred);
+        changed = true;
+      }
       if (cached.isManaged) {
         final int? size = await _files.sizeFor(cached.fileName!);
         if (size == null) {
@@ -159,15 +186,12 @@ class CacheDownloadRepository
           changed = true;
           continue;
         }
-        CachedTrack entry = cached;
         if (cached.sizeBytes == 0 && size > 0) {
-          entry = cached.copyWith(sizeBytes: size);
+          cached = cached.copyWith(sizeBytes: size);
           changed = true;
         }
-        _downloads[_keyForCached(entry)] = entry;
-      } else {
-        _downloads[_keyForCached(cached)] = cached;
       }
+      _downloads[_keyForCached(cached)] = cached;
       // A preloaded entry is cached and playable, but never a *download*: it
       // stays out of the status map so the downloads UI doesn't show it.
       if (!cached.preloaded) {
@@ -176,6 +200,32 @@ class CacheDownloadRepository
     }
     if (changed) await _save();
     _loaded = true;
+  }
+
+  /// The provider scheme for each legacy (sourceType-less) record's bare id,
+  /// resolved via the catalog oracle so those records can be re-keyed to
+  /// provider-aware identity. Empty when there's nothing to migrate or no oracle
+  /// is wired. A bare id the catalog exposes under more than one provider maps to
+  /// null (ambiguous → left unmigrated rather than mis-attributed).
+  Future<Map<String, String?>> _legacySchemeFor(
+      List<CachedTrack> records) async {
+    final Future<List<Track>> Function()? oracle = _catalogForMigration;
+    if (oracle == null) return const <String, String?>{};
+    final bool hasLegacy = records
+        .any((CachedTrack c) => c.sourceType == null || c.sourceType!.isEmpty);
+    if (!hasLegacy) return const <String, String?>{};
+    final List<Track> tracks;
+    try {
+      tracks = await oracle();
+    } catch (_) {
+      return const <String, String?>{};
+    }
+    final Map<String, String?> byId = <String, String?>{};
+    for (final Track track in tracks) {
+      byId[track.id] =
+          byId.containsKey(track.id) ? null : CachedTrack.schemeOf(track.uri);
+    }
+    return byId;
   }
 
   @override
@@ -188,10 +238,16 @@ class CacheDownloadRepository
   @override
   Future<DownloadStatus> statusFor(String trackId) async {
     await _ensureLoaded();
-    // Reads the id-keyed projection (the same shape [statusStream] emits), so it
-    // agrees with the UI's per-row status. Provider-aware isolation is enforced
-    // where it matters — storage, the cache file, and removal.
-    return _snapshot()[trackId] ?? DownloadStatus.notDownloaded;
+    // A plain catalog-id convenience: the catalog's primary key makes ids unique
+    // there, so a bare id resolves to one track. The cache itself is keyed
+    // provider-aware (see [_snapshot]) and [statusStream] emits those keys — the
+    // app's per-row status joins on the cache key, never this. Scans the
+    // provider-aware map by id so a caller can still ask by plain id; under a
+    // cross-provider same-id collision it returns the first matching copy.
+    for (final MapEntry<String, DownloadStatus> e in _statuses.entries) {
+      if (_trackIdOfKey(e.key) == trackId) return e.value;
+    }
+    return DownloadStatus.notDownloaded;
   }
 
   @override
@@ -442,12 +498,12 @@ class CacheDownloadRepository
   }
 
   @override
-  Future<List<String>> downloadedTrackIds() async {
+  Future<List<String>> downloadedTrackKeys() async {
     await _ensureLoaded();
     return _statuses.entries
         .where((MapEntry<String, DownloadStatus> e) =>
             e.value == DownloadStatus.downloaded)
-        .map((MapEntry<String, DownloadStatus> e) => _trackIdOfKey(e.key))
+        .map((MapEntry<String, DownloadStatus> e) => e.key)
         .toList();
   }
 
@@ -640,22 +696,18 @@ class CacheDownloadRepository
     if (_progress.remove(key) != null) _emitProgress();
   }
 
-  /// Projects the provider-aware status map onto a catalog-id-keyed snapshot —
-  /// the shape the UI's per-row status provider and the cross-provider sync
-  /// layers consume. In the catalog (whose primary key is the id) two providers
-  /// never share an id, so the projection is lossless there; the provider-aware
-  /// keys stay internal where same-id isolation matters (storage, files,
-  /// removal).
-  Map<String, DownloadStatus> _snapshot() => <String, DownloadStatus>{
-        for (final MapEntry<String, DownloadStatus> e in _statuses.entries)
-          _trackIdOfKey(e.key): e.value,
-      };
+  /// A copy of the provider-aware status map, keyed by each track's
+  /// [CachedTrack.cacheKey] (`scheme\0id`) — the very key a live [Track] produces
+  /// via [CachedTrack.cacheKeyForTrack]. Keeping the provider-aware key in the
+  /// public projection is what stops two providers' same-id copies (`jellyfin:101`
+  /// vs `subsonic:101`) from sharing a status: the per-row status/progress
+  /// providers and the downloaded/offline sets all join on this key, so a
+  /// download of one copy never lights up the other.
+  Map<String, DownloadStatus> _snapshot() =>
+      Map<String, DownloadStatus>.of(_statuses);
 
   Map<String, DownloadProgress> _progressSnapshot() =>
-      <String, DownloadProgress>{
-        for (final MapEntry<String, DownloadProgress> e in _progress.entries)
-          _trackIdOfKey(e.key): e.value,
-      };
+      Map<String, DownloadProgress>.of(_progress);
 
   CacheSnapshot _cacheSnapshot() {
     int used = 0;
@@ -669,13 +721,11 @@ class CacheDownloadRepository
   }
 
   /// The track's non-secret URI scheme (`jellyfin`, `file`, …), never the full
-  /// URL — safe to persist as the cached track's source type.
-  static String? _sourceTypeOf(Track track) {
-    final int colon = track.uri.indexOf(':');
-    if (colon <= 0) return null;
-    final String scheme = track.uri.substring(0, colon).toLowerCase();
-    return scheme.isEmpty ? null : scheme;
-  }
+  /// URL — safe to persist as the cached track's source type. Delegates to
+  /// [CachedTrack.schemeOf] so the repository's stored key and the key a consumer
+  /// computes from a live [Track] via [CachedTrack.cacheKeyForTrack] can never
+  /// drift to different scheme logic.
+  static String? _sourceTypeOf(Track track) => CachedTrack.schemeOf(track.uri);
 
   /// The provider-aware cache identity for [track]: its source scheme **plus**
   /// catalog id, so two providers that expose the same local id (e.g. a Plex

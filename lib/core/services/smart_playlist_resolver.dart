@@ -3,6 +3,7 @@ import 'dart:math';
 import '../models/play_history.dart';
 import '../models/smart_playlist.dart';
 import '../models/track.dart';
+import '../repositories/download_store.dart';
 
 /// Turns a [SmartPlaylistKind] plus the on-device signals into an ordered track
 /// list. Pure and synchronous: it takes everything it needs as arguments and
@@ -32,7 +33,7 @@ class SmartPlaylistResolver {
     required PlayHistory history,
     required Map<String, DateTime> addedAt,
     required Set<String> favoriteIds,
-    required Set<String> downloadedIds,
+    required Set<String> downloadedKeys,
     Random? random,
   }) {
     switch (kind) {
@@ -45,7 +46,7 @@ class SmartPlaylistResolver {
       case SmartPlaylistKind.favorites:
         return _filter(allTracks, favoriteIds);
       case SmartPlaylistKind.downloaded:
-        return _filter(allTracks, downloadedIds);
+        return _filterByKey(allTracks, downloadedKeys);
       case SmartPlaylistKind.random:
         return _random(allTracks, random);
       case SmartPlaylistKind.neverPlayed:
@@ -66,12 +67,28 @@ class SmartPlaylistResolver {
     Map<String, DateTime> addedAt,
   ) {
     final List<Track> sorted = List<Track>.of(allTracks)
-      ..sort((a, b) {
-        final DateTime ta = addedAt[a.id] ?? _epoch;
-        final DateTime tb = addedAt[b.id] ?? _epoch;
-        return tb.compareTo(ta);
-      });
+      ..sort(
+          (a, b) => _addedTime(b, addedAt).compareTo(_addedTime(a, addedAt)));
     return _bounded(sorted);
+  }
+
+  /// First-seen time for [track] (the newest-first sort key). Reads the
+  /// provider-namespaced [Track.uri] key written by
+  /// RecordingMusicLibraryRepository so two providers' same-id tracks don't share
+  /// a timestamp. Falls back to the legacy bare-`id` key for a remote track whose
+  /// timestamp predates the uri-keyed store and hasn't been migrated yet — the
+  /// first post-upgrade sync migrates it in place, but this read can run before
+  /// that, so the fallback keeps Recently Added in order immediately after an
+  /// upgrade instead of collapsing the whole library to catalog order until the
+  /// next sync. Unknown tracks sort oldest (at [_epoch]).
+  DateTime _addedTime(Track track, Map<String, DateTime> addedAt) {
+    final DateTime? byUri = addedAt[track.uri];
+    if (byUri != null) return byUri;
+    if (track.uri != track.id) {
+      final DateTime? legacy = addedAt[track.id];
+      if (legacy != null) return legacy;
+    }
+    return _epoch;
   }
 
   /// Resolves [orderedIds] against the catalog, preserving the given order and
@@ -86,12 +103,23 @@ class SmartPlaylistResolver {
     ]);
   }
 
-  /// Catalog-ordered subset whose ids are in [ids]. Not bounded: favourites and
-  /// downloads are user-curated, so the mix shows all of them.
+  /// Catalog-ordered subset whose ids are in [ids] — the favourites mix. Not
+  /// bounded: favourites are user-curated, so the mix shows all of them.
   List<Track> _filter(List<Track> allTracks, Set<String> ids) {
     return <Track>[
       for (final Track track in allTracks)
         if (ids.contains(track.id)) track,
+    ];
+  }
+
+  /// Catalog-ordered subset whose provider-aware cache key is in [keys] — the
+  /// downloaded mix. Keyed by [CachedTrack.cacheKeyForTrack] (not the bare id) so
+  /// only the copy actually downloaded appears, never a same-id copy from another
+  /// provider that isn't cached. Not bounded: downloads are user-curated.
+  List<Track> _filterByKey(List<Track> allTracks, Set<String> keys) {
+    return <Track>[
+      for (final Track track in allTracks)
+        if (keys.contains(CachedTrack.cacheKeyForTrack(track))) track,
     ];
   }
 

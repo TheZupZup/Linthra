@@ -78,7 +78,7 @@ class _RecordingRepository implements MusicLibraryRepository {
   Future<List<Artist>> getAllArtists() async => const <Artist>[];
 
   @override
-  Future<Track?> getTrackById(String id) async => null;
+  Future<Track?> getTrackByUri(String uri) async => null;
 
   @override
   Future<void> removeTracks(List<String> trackIds) async {}
@@ -111,7 +111,7 @@ class _SpyDownloadRepository implements DownloadRepository {
   Future<void> removeDownload(Track track) async {}
 
   @override
-  Future<List<String>> downloadedTrackIds() async => const <String>[];
+  Future<List<String>> downloadedTrackKeys() async => const <String>[];
 }
 
 ProviderContainer _container({

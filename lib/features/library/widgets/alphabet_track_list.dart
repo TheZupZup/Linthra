@@ -19,7 +19,7 @@ class AlphabetTrackList extends StatefulWidget {
     required this.tracks,
     this.selectable = false,
     this.selectionActive = false,
-    this.selectedIds = const <String>{},
+    this.selectedUris = const <String>{},
     this.onSelectToggle,
     this.onSelectStart,
     super.key,
@@ -33,8 +33,10 @@ class AlphabetTrackList extends StatefulWidget {
   /// Whether the host is currently in selection mode.
   final bool selectionActive;
 
-  /// Ids of the currently-selected tracks.
-  final Set<String> selectedIds;
+  /// Provider-namespaced uris ([Track.uri]) of the currently-selected tracks.
+  /// Keyed by uri, not the bare id, so two different-provider songs that share a
+  /// server-side id are never selected together.
+  final Set<String> selectedUris;
 
   /// Toggles a track's selection (tap while in selection mode).
   final void Function(Track track)? onSelectToggle;
@@ -189,7 +191,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
               index: trackIndex,
               selectable: widget.selectable,
               selectionActive: widget.selectionActive,
-              selected: widget.selectedIds.contains(track.id),
+              selected: widget.selectedUris.contains(track.uri),
               onSelectToggle: widget.onSelectToggle == null
                   ? null
                   : () => widget.onSelectToggle!(track),

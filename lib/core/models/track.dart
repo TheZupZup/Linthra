@@ -66,10 +66,18 @@ class Track {
     );
   }
 
+  /// Identity is the provider-namespaced [uri], not the bare [id]: two copies of
+  /// the same server-side id from different providers (e.g. `jellyfin:101` and
+  /// `subsonic:101`) are genuinely different tracks and must not compare equal,
+  /// or they'd collide in Sets/Maps, `List` equality, `Stream.distinct`, and
+  /// Riverpod family keys. Same-provider re-fetches share a uri, so a `copyWith`
+  /// that only refreshes metadata still compares equal (as before). Code that
+  /// wants to group same-id copies across providers keys on [id] explicitly (the
+  /// catalog unifier), so this never affects that.
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || (other is Track && other.id == id);
+      identical(this, other) || (other is Track && other.uri == uri);
 
   @override
-  int get hashCode => id.hashCode;
+  int get hashCode => uri.hashCode;
 }

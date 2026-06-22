@@ -13,16 +13,16 @@ class FakeMusicLibraryRepository implements MusicLibraryRepository {
   final List<Track> tracks;
   final Object? error;
 
-  /// Track ids passed to [removeTracks], in order, so a test can assert that a
+  /// Track uris passed to [removeTracks], in order, so a test can assert that a
   /// "Remove from Linthra library" action only removed from the index.
-  final List<String> removedTrackIds = <String>[];
+  final List<String> removedTrackUris = <String>[];
 
   @override
   Future<List<Track>> getAllTracks() async {
     if (error != null) throw error!;
     return <Track>[
       for (final Track track in tracks)
-        if (!removedTrackIds.contains(track.id)) track,
+        if (!removedTrackUris.contains(track.uri)) track,
     ];
   }
 
@@ -33,9 +33,9 @@ class FakeMusicLibraryRepository implements MusicLibraryRepository {
   Future<List<Artist>> getAllArtists() async => const <Artist>[];
 
   @override
-  Future<Track?> getTrackById(String id) async {
+  Future<Track?> getTrackByUri(String uri) async {
     for (final track in tracks) {
-      if (track.id == id) return track;
+      if (track.uri == uri) return track;
     }
     return null;
   }
@@ -49,7 +49,7 @@ class FakeMusicLibraryRepository implements MusicLibraryRepository {
   }) async {}
 
   @override
-  Future<void> removeTracks(List<String> trackIds) async {
-    removedTrackIds.addAll(trackIds);
+  Future<void> removeTracks(List<String> trackUris) async {
+    removedTrackUris.addAll(trackUris);
   }
 }

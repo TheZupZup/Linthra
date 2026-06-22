@@ -73,19 +73,25 @@ class CacheStorageException implements Exception {
 /// offline without any network fetch. The authenticated URL a remote fetch
 /// needs is resolved on demand, at download time, and never stored on the track.
 abstract interface class DownloadRepository {
-  /// Emits whenever a track's download status changes.
+  /// Emits the download status of every tracked copy whenever one changes, keyed
+  /// by the provider-aware cache key (`CachedTrack.cacheKeyForTrack`) so two
+  /// providers' same-id copies never share a status. The UI's per-row status
+  /// joins on that key.
   Stream<Map<String, DownloadStatus>> get statusStream;
 
-  /// The status of the track with catalog id [trackId], mirroring the id-keyed
-  /// [statusStream] the UI watches. (The mutating calls below take the whole
-  /// [Track] instead, because they act on one provider's specific cached copy.)
+  /// The status of the track with catalog id [trackId] — a plain-id convenience
+  /// (the catalog's primary key makes ids unique there). The app's per-row status
+  /// instead watches [statusStream], which is keyed provider-aware; the mutating
+  /// calls below take the whole [Track], so they act on one provider's copy.
   Future<DownloadStatus> statusFor(String trackId);
 
-  /// Emits per-track byte progress for in-flight downloads, keyed by track id.
-  /// An entry appears while a track is downloading and is removed once it
-  /// finishes, fails, or is canceled. Best-effort: a track whose server didn't
-  /// report a content length has a null total ([DownloadProgress.fraction] is
-  /// `null`), so the UI shows an indeterminate spinner rather than a bar.
+  /// Emits per-track byte progress for in-flight downloads, keyed by the
+  /// provider-aware cache key (`CachedTrack.cacheKeyForTrack`) — so two providers'
+  /// same-id copies never share a progress ring. An entry appears while a track
+  /// is downloading and is removed once it finishes, fails, or is canceled.
+  /// Best-effort: a track whose server didn't report a content length has a null
+  /// total ([DownloadProgress.fraction] is `null`), so the UI shows an
+  /// indeterminate spinner rather than a bar.
   Stream<Map<String, DownloadProgress>> get progressStream;
 
   /// Queues an explicit download for [track]. For remote tracks this is subject
@@ -107,6 +113,9 @@ abstract interface class DownloadRepository {
   /// or remove each other's cached copy.
   Future<void> removeDownload(Track track);
 
-  /// Track IDs that are fully available offline.
-  Future<List<String>> downloadedTrackIds();
+  /// The provider-aware cache keys (`CachedTrack.cacheKeyForTrack`) of every
+  /// track fully available offline — keys, not bare ids, so two providers'
+  /// same-id copies stay distinct and only the copy actually downloaded is
+  /// listed. Join against a catalog [Track] with `CachedTrack.cacheKeyForTrack`.
+  Future<List<String>> downloadedTrackKeys();
 }

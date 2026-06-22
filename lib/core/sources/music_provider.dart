@@ -313,6 +313,23 @@ abstract final class MusicProviders {
     return local;
   }
 
+  /// The bare server-side id inside a remote provider's `scheme:id` [trackUri]
+  /// (the `101` in `jellyfin:101`), or `null` for a local track — whose id is
+  /// the uri itself. Used to clean up a pre-v2, *bare-id*-keyed store entry that
+  /// the uri-keyed model no longer matches (e.g. `LibraryAddedStore`).
+  static String? bareRemoteIdForTrackUri(String trackUri) {
+    for (final String scheme in const <String>[
+      JellyfinTrackMapper.uriScheme,
+      SubsonicTrackMapper.uriScheme,
+      PlexTrackMapper.uriScheme,
+    ]) {
+      if (trackUri.startsWith(scheme)) {
+        return trackUri.substring(scheme.length);
+      }
+    }
+    return null;
+  }
+
   /// The capabilities of the provider that owns [trackUri].
   static MusicProviderCapabilities capabilitiesForTrackUri(String trackUri) =>
       forTrackUri(trackUri).capabilities;

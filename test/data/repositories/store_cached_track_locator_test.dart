@@ -7,6 +7,7 @@ import 'package:linthra/data/repositories/store_cached_track_locator.dart';
 
 Track _jellyfin(String id) => Track(id: id, title: id, uri: 'jellyfin:$id');
 Track _plex(String id) => Track(id: id, title: id, uri: 'plex:$id');
+Track _subsonic(String id) => Track(id: id, title: id, uri: 'subsonic:$id');
 
 void main() {
   group('StoreCachedTrackLocator', () {
@@ -116,6 +117,65 @@ void main() {
 
       expect(await build().cachedFilePath(_jellyfin('legacy')),
           '/offline_audio/legacy.mp3');
+    });
+
+    test('a legacy untagged record is not served when the id is ambiguous',
+        () async {
+      // jellyfin:101 was cached pre-tagging (untagged). A Subsonic source now
+      // also exposes id 101, so the untagged bytes can't be attributed — the
+      // locator must serve neither copy from them (it streams instead).
+      final String fileName =
+          await files.write('legacy101', const <int>[9], extension: 'mp3');
+      await store.saveDownloads(<CachedTrack>[
+        CachedTrack(trackId: '101', fileName: fileName),
+      ]);
+      final StoreCachedTrackLocator locator = StoreCachedTrackLocator(
+        store,
+        files,
+        catalogForLegacyMatch: () async =>
+            <Track>[_jellyfin('101'), _subsonic('101')],
+      );
+
+      expect(await locator.cachedFilePath(_jellyfin('101')), isNull);
+      expect(await locator.cachedFilePath(_subsonic('101')), isNull);
+    });
+
+    test('a legacy untagged record is served when the id is unambiguous',
+        () async {
+      // Only one provider exposes id 101, so the untagged bytes are safely its.
+      final String fileName =
+          await files.write('legacy101', const <int>[9], extension: 'mp3');
+      await store.saveDownloads(<CachedTrack>[
+        CachedTrack(trackId: '101', fileName: fileName),
+      ]);
+      final StoreCachedTrackLocator locator = StoreCachedTrackLocator(
+        store,
+        files,
+        catalogForLegacyMatch: () async => <Track>[_jellyfin('101')],
+      );
+
+      expect(await locator.cachedFilePath(_jellyfin('101')),
+          '/offline_audio/legacy101.mp3');
+    });
+
+    test(
+        'a legacy untagged record is withheld when the sole owner is a '
+        'different provider', () async {
+      // The requested copy (plex:101) is no longer in the catalog (its source was
+      // removed) but stays queued; the only owner of id 101 is now Jellyfin, so
+      // the untagged file is Jellyfin's and must not play for the Plex copy.
+      final String fileName =
+          await files.write('legacy101', const <int>[9], extension: 'mp3');
+      await store.saveDownloads(<CachedTrack>[
+        CachedTrack(trackId: '101', fileName: fileName),
+      ]);
+      final StoreCachedTrackLocator locator = StoreCachedTrackLocator(
+        store,
+        files,
+        catalogForLegacyMatch: () async => <Track>[_jellyfin('101')],
+      );
+
+      expect(await locator.cachedFilePath(_plex('101')), isNull);
     });
   });
 }

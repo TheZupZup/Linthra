@@ -41,19 +41,21 @@ import 'track_identity.dart';
 /// list, say) sees the same ordering it always did.
 List<LogicalTrack> unifyTracks(List<Track> tracks, SourcePriority priority) {
   // First pass: bucket eligible tracks by block key, then resolve each block
-  // into same-song groups. groupByTrackId maps a track id to the members of its
-  // group (a group of one for a track that matched nothing).
+  // into same-song groups. groupByUri maps a track's provider-namespaced uri to
+  // the members of its group (a group of one for a track that matched nothing).
+  // Keying by uri — not the bare id — keeps two providers' same-id tracks from
+  // overwriting each other's group, which would mis-merge or duplicate a row.
   final Map<String, List<Track>> blocks = <String, List<Track>>{};
   for (final Track track in tracks) {
     final String? key = matchBlockKey(track);
     if (key == null) continue;
     blocks.putIfAbsent(key, () => <Track>[]).add(track);
   }
-  final Map<String, List<Track>> groupByTrackId = <String, List<Track>>{};
+  final Map<String, List<Track>> groupByUri = <String, List<Track>>{};
   for (final List<Track> block in blocks.values) {
     for (final List<Track> group in _groupBlock(block, priority)) {
       for (final Track member in group) {
-        groupByTrackId[member.id] = group;
+        groupByUri[member.uri] = group;
       }
     }
   }
@@ -65,14 +67,14 @@ List<LogicalTrack> unifyTracks(List<Track> tracks, SourcePriority priority) {
   final Set<String> emittedAnchors = <String>{};
   final List<LogicalTrack> result = <LogicalTrack>[];
   for (final Track track in tracks) {
-    final List<Track>? group = groupByTrackId[track.id];
+    final List<Track>? group = groupByUri[track.uri];
     if (group == null || _distinctSourceCount(group) < 2) {
       result.add(LogicalTrack.single(_candidate(track)));
       continue;
     }
-    // group.first is the block's stable anchor, so it is a deterministic id for
-    // "have I already emitted this merged group?".
-    if (!emittedAnchors.add(group.first.id)) continue;
+    // group.first is the block's stable anchor, so its uri is a deterministic key
+    // for "have I already emitted this merged group?".
+    if (!emittedAnchors.add(group.first.uri)) continue;
     result.add(LogicalTrack(_orderedCandidates(group, priority)));
   }
   return result;
@@ -121,7 +123,8 @@ int _distinctSourceCount(List<Track> members) {
 }
 
 /// Orders a merged group's copies best-first by source preference, breaking ties
-/// on the track id so the result is total and deterministic.
+/// on the provider-namespaced uri so the result is total and deterministic even
+/// when two copies share a bare id across providers.
 List<TrackSourceCandidate> _orderedCandidates(
   List<Track> members,
   SourcePriority priority,
@@ -133,20 +136,21 @@ List<TrackSourceCandidate> _orderedCandidates(
     final int byRank =
         priority.rankOf(a.sourceId).compareTo(priority.rankOf(b.sourceId));
     if (byRank != 0) return byRank;
-    return a.track.id.compareTo(b.track.id);
+    return a.track.uri.compareTo(b.track.uri);
   });
   return candidates;
 }
 
-/// A total comparator ordering tracks by source preference, then by id, so a
+/// A total comparator ordering tracks by source preference, then by uri, so a
 /// block's anchor (its first element) is the most-preferred copy and the grouping
-/// never depends on the input order.
+/// never depends on the input order. Ties break on the uri (not the bare id) so
+/// two providers' same-id tracks still order deterministically.
 int Function(Track, Track) _byPriorityThenId(SourcePriority priority) {
   return (Track a, Track b) {
     final int byRank = priority
         .rankOf(trackSourceId(a))
         .compareTo(priority.rankOf(trackSourceId(b)));
     if (byRank != 0) return byRank;
-    return a.id.compareTo(b.id);
+    return a.uri.compareTo(b.uri);
   };
 }

@@ -472,8 +472,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     }
   }
 
-  void _emit(PlaybackState next) {
-    if (next == _state) return;
+  void _emit(PlaybackState next, {bool force = false}) {
+    // [force] bypasses the equality guard for a state that differs only in a way
+    // PlaybackState == can't see — namely a same-bare-id provider swap, where
+    // Track == compares only the bare id (jellyfin:101 == subsonic:101), so the
+    // new state compares equal even though a different provider's copy is now
+    // playing. Without it the update would be dropped and UI/reporting would keep
+    // showing the failed provider.
+    if (!force && next == _state) return;
     _state = next;
     if (!_states.isClosed) _states.add(next);
   }
@@ -785,14 +791,24 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // that succeeded — not the preferred one that may have failed. The resolved
     // source rides along on later position/status updates until the next load.
     final Track played = outcome.track;
-    if (played.id != track.id) _queue = _queue.replaceCurrent(played);
-    _emit(_state.copyWith(
-      currentTrack: played,
-      source: outcome.resolved.source,
-      upNext: _queue.upNext,
-      previous: _queue.history,
-      hasPrevious: _queue.hasPrevious,
-    ));
+    // Compare by uri, not the bare id: a fallback can land on another provider's
+    // copy that shares the bare id (jellyfin:101 -> subsonic:101), and the queue
+    // must still swap to it so completion/retry read the copy that started.
+    final bool swappedProvider = played.uri != track.uri;
+    if (swappedProvider) _queue = _queue.replaceCurrent(played);
+    _emit(
+      _state.copyWith(
+        currentTrack: played,
+        source: outcome.resolved.source,
+        upNext: _queue.upNext,
+        previous: _queue.history,
+        hasPrevious: _queue.hasPrevious,
+      ),
+      // A same-bare-id provider swap leaves every field equal under
+      // PlaybackState == (Track == is by bare id), so force the emission —
+      // otherwise UI/reporting keep showing the failed provider's copy.
+      force: swappedProvider,
+    );
 
     // Level this track before it's heard (its ReplayGain, or full volume when
     // normalization is off); resume at the preserved position after a cast

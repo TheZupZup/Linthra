@@ -91,15 +91,16 @@ abstract final class SongActions {
     );
     if (!confirmed) return false;
 
-    final String? playingId =
-        ref.read(playbackControllerProvider).state.currentTrack?.id;
+    final String? playingUri =
+        ref.read(playbackControllerProvider).state.currentTrack?.uri;
     final repository = ref.read(downloadRepositoryProvider);
     int removed = 0;
     int failed = 0;
     int skipped = 0;
     for (final Track track in tracks) {
-      // Never delete the cached file backing what's playing right now.
-      if (track.id == playingId) {
+      // Never delete the cached file backing what's playing right now. Compare
+      // by uri so a same-id copy from another provider isn't wrongly skipped.
+      if (track.uri == playingUri) {
         skipped++;
         continue;
       }
@@ -117,26 +118,27 @@ abstract final class SongActions {
     return true;
   }
 
-  /// The track ids to forget for [tracks]. When [expandLogicalSources] is set
-  /// (library/album/artist surfaces, where each row is a logical track), a
-  /// row's id is expanded to every provider copy via [logicalSourceIdsProvider]
-  /// so removing the row can't leave a hidden duplicate behind. Elsewhere (a
-  /// playlist's specific tracks) the ids are taken verbatim.
+  /// The track uris to forget for [tracks] (the catalog is keyed by [Track.uri]).
+  /// When [expandLogicalSources] is set (library/album/artist surfaces, where
+  /// each row is a logical track), a row's uri is expanded to every provider
+  /// copy's uri via [logicalSourceIdsProvider] so removing the row can't leave a
+  /// hidden duplicate behind. Elsewhere (a playlist's specific tracks) the uris
+  /// are taken verbatim.
   static List<String> _removalIds(
     WidgetRef ref,
     List<Track> tracks,
     bool expandLogicalSources,
   ) {
     if (!expandLogicalSources) {
-      return <String>[for (final Track track in tracks) track.id];
+      return <String>[for (final Track track in tracks) track.uri];
     }
     final Map<String, List<String>> bySource =
         ref.read(logicalSourceIdsProvider);
-    final List<String> ids = <String>[];
+    final List<String> uris = <String>[];
     for (final Track track in tracks) {
-      ids.addAll(bySource[track.id] ?? <String>[track.id]);
+      uris.addAll(bySource[track.uri] ?? <String>[track.uri]);
     }
-    return ids;
+    return uris;
   }
 
   static String _offlineSummary(int removed, int failed, int skipped) {

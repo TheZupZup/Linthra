@@ -388,6 +388,21 @@ void main() {
       expect(identical(queue.replaceCurrent(_track('a')), queue), isTrue);
     });
 
+    test('swaps to another provider copy that shares the bare id (fallback)',
+        () {
+      // jellyfin:101 falling back to subsonic:101 — same bare id, different uri.
+      // The swap must take effect (it previously no-op'd via Track == on id), so
+      // `current` reflects the copy that actually started.
+      const jelly = Track(id: '101', title: 'Hello', uri: 'jellyfin:101');
+      const sub = Track(id: '101', title: 'Hello', uri: 'subsonic:101');
+      final queue = PlaybackQueue.of(<Track>[jelly]);
+
+      final replaced = queue.replaceCurrent(sub);
+
+      expect(identical(replaced, queue), isFalse);
+      expect(replaced.current!.uri, 'subsonic:101');
+    });
+
     test('a later unshuffle keeps the replaced copy, not the original', () {
       final queue = PlaybackQueue.of([_track('a'), _track('b'), _track('c')])
           .shuffled(Random(1));
@@ -400,6 +415,46 @@ void main() {
       expect(ids, contains('A'));
       expect(ids, isNot(contains('a')));
       expect(restored.current, _track('A'));
+    });
+  });
+
+  group('provider-aware identity (two rows share a bare id across providers)',
+      () {
+    const jelly = Track(id: '101', title: 'Alpha', uri: 'jellyfin:101');
+    const sub = Track(id: '101', title: 'Beta', uri: 'subsonic:101');
+
+    test('unshuffle keeps the current copy, not the first row sharing the id',
+        () {
+      // Shuffled state: the subsonic copy is current; pre-shuffle order had the
+      // jellyfin copy first. indexOf-by-id would jump current to jellyfin.
+      const shuffled = PlaybackQueue(
+        tracks: <Track>[sub, jelly],
+        currentIndex: 0,
+        originalOrder: <Track>[jelly, sub],
+      );
+
+      final restored = shuffled.unshuffled();
+
+      expect(restored.current!.uri, 'subsonic:101');
+      expect(restored.tracks.map((Track t) => t.uri),
+          <String>['jellyfin:101', 'subsonic:101']);
+    });
+
+    test('removeUpNextAt drops the right copy from originalOrder by uri', () {
+      // current = jelly, upNext = [sub], same originalOrder. Removing the upNext
+      // entry must drop the subsonic copy — not the jellyfin one that shares its
+      // bare id (which `List.remove` via Track == would have hit first).
+      const q = PlaybackQueue(
+        tracks: <Track>[jelly, sub],
+        currentIndex: 0,
+        originalOrder: <Track>[jelly, sub],
+      );
+
+      final result = q.removeUpNextAt(0);
+
+      expect(result.upNext, isEmpty);
+      expect(result.unshuffled().tracks.map((Track t) => t.uri),
+          <String>['jellyfin:101']);
     });
   });
 }

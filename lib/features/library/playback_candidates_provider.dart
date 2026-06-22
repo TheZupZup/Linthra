@@ -4,23 +4,25 @@ import '../../core/catalog/logical_track.dart';
 import '../../core/catalog/source_capability.dart';
 import '../../core/catalog/source_strategy.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/download_store.dart';
 import '../../core/services/playback_candidate_source.dart';
 import '../downloads/download_providers.dart';
 import '../player/player_providers.dart';
 import 'playback_source_strategy_controller.dart';
 import 'unified_library_providers.dart';
 
-/// Maps *every source copy's* track id to its song's ordered source candidates,
-/// so playback can fall back to another copy of the same song when the preferred
-/// one fails — no matter which copy was the one actually queued.
+/// Maps *every source copy's* [Track.uri] to its song's ordered source
+/// candidates, so playback can fall back to another copy of the same song when
+/// the preferred one fails — no matter which copy was the one actually queued.
 ///
-/// Keying by every copy's id (not just the displayed/primary one) is what keeps
+/// Keying by every copy's uri (not just the displayed/primary one) is what keeps
 /// the queue honest when the user changes the default source: the displayed copy
 /// flips to the new provider, but a copy already sitting in the queue (or saved in
-/// a playlist) keeps its old id. Mapping that id to the *same* freshly-ordered
+/// a playlist) keeps its old uri. Mapping that uri to the *same* freshly-ordered
 /// candidate list means the next play of that queued copy uses the new preferred
 /// source — and still has its fallbacks — instead of being orphaned to the old
-/// source until the queue is rebuilt (an app restart).
+/// source until the queue is rebuilt (an app restart). The uri (not the bare id)
+/// is the key so two providers' same-id copies never collide on one entry.
 ///
 /// Only de-duplicated rows that actually span more than one provider are listed —
 /// a single-source song needs no fallback and is left out (the controller treats
@@ -39,17 +41,19 @@ final playbackCandidatesProvider = Provider<Map<String, List<Track>>>((ref) {
   final List<LogicalTrack> logicals = ref.watch(libraryLogicalTracksProvider);
   final PlaybackSourceStrategy strategy =
       ref.watch(playbackSourceStrategyProvider);
-  final Set<String> cachedIds = ref.watch(offlineAvailableTrackIdsProvider);
+  final Set<String> cachedKeys = ref.watch(offlineAvailableTrackKeysProvider);
 
   // A candidate's capability, made cache-aware from the in-memory offline set so
-  // "prefer cache/local" can favour a downloaded copy without a disk scan.
+  // "prefer cache/local" can favour a downloaded copy without a disk scan. Keyed
+  // by the provider-aware cache key so a downloaded `subsonic:101` makes only the
+  // subsonic copy look cached — never a same-id `jellyfin:101` streaming copy.
   PlaybackSourceCapability profileOf(Track track) =>
       PlaybackSourceCapability.fromTrack(
         track,
-        cachedOffline: cachedIds.contains(track.id),
+        cachedOffline: cachedKeys.contains(CachedTrack.cacheKeyForTrack(track)),
       );
 
-  final Map<String, List<Track>> byTrackId = <String, List<Track>>{};
+  final Map<String, List<Track>> byTrackUri = <String, List<Track>>{};
   for (final LogicalTrack logical in logicals) {
     if (!logical.hasMultipleSources) continue;
     final List<Track> candidates = <Track>[
@@ -60,14 +64,14 @@ final playbackCandidatesProvider = Provider<Map<String, List<Track>>>((ref) {
     // PR1/PR2 default-source order (and runtime fallback over it) is unchanged.
     final List<Track> ordered =
         orderBySourceStrategy(candidates, strategy, profileOf);
-    // Index the same list under every copy's id, so whichever copy is queued
-    // resolves to it. Ids are unique to one logical song, so the keys never
-    // collide across rows.
+    // Index the same list under every copy's provider-namespaced uri, so
+    // whichever copy is queued resolves to it. Uris are globally unique to one
+    // copy, so two providers' same-id tracks never collide on one entry.
     for (final Track candidate in candidates) {
-      byTrackId[candidate.id] = ordered;
+      byTrackUri[candidate.uri] = ordered;
     }
   }
-  return byTrackId;
+  return byTrackUri;
 });
 
 /// Wires the real, library-backed [PlaybackCandidateSource] into the playback

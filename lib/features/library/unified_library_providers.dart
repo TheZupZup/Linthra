@@ -36,16 +36,18 @@ final libraryUnifiedTracksProvider = Provider<List<Track>>((ref) {
   ];
 });
 
-/// Maps a preferred-copy track id to every source copy's track id, so removing a
-/// displayed (logical) row from the library forgets all of its provider copies —
-/// otherwise a hidden duplicate would resurrect the row on the next reload.
+/// Maps a preferred-copy [Track.uri] to every source copy's [Track.uri], so
+/// removing a displayed (logical) row from the library forgets all of its
+/// provider copies — otherwise a hidden duplicate would resurrect the row on the
+/// next reload. Keyed by uri (not the bare id) so a row's removal targets exactly
+/// its own provider copies and never a different provider's same-id track.
 ///
-/// Ids that aren't a logical primary (e.g. a specific track chosen inside a
+/// Uris that aren't a logical primary (e.g. a specific track chosen inside a
 /// playlist) map to just themselves, so non-library callers are unaffected.
 final logicalSourceIdsProvider = Provider<Map<String, List<String>>>((ref) {
   final Map<String, List<String>> byPrimary = <String, List<String>>{};
   for (final LogicalTrack logical in ref.watch(libraryLogicalTracksProvider)) {
-    byPrimary[logical.id] = logical.allTrackIds;
+    byPrimary[logical.id] = logical.allTrackUris;
   }
   return byPrimary;
 });

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/play_history.dart';
 import 'package:linthra/core/models/smart_playlist.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/smart_playlist_resolver.dart';
 
 Track _t(String id) => Track(id: id, title: 'Title $id', uri: 'jellyfin:$id');
@@ -23,18 +24,20 @@ void main() {
     },
   );
 
+  // Keyed by the provider-namespaced uri (jellyfin:<id> here, matching the _t
+  // helper), the way RecordingMusicLibraryRepository now stamps first-seen times.
   final Map<String, DateTime> addedAt = <String, DateTime>{
-    'a': DateTime(2024, 1, 1),
-    'b': DateTime(2024, 1, 3),
-    'c': DateTime(2024, 1, 2),
-    'd': DateTime(2024, 1, 4),
+    'jellyfin:a': DateTime(2024, 1, 1),
+    'jellyfin:b': DateTime(2024, 1, 3),
+    'jellyfin:c': DateTime(2024, 1, 2),
+    'jellyfin:d': DateTime(2024, 1, 4),
   };
 
   List<Track> resolve(
     SmartPlaylistKind kind, {
     List<Track>? tracks,
     Set<String> favoriteIds = const <String>{},
-    Set<String> downloadedIds = const <String>{},
+    Set<String> downloadedKeys = const <String>{},
     int maxTracks = 100,
     Random? random,
   }) {
@@ -44,7 +47,7 @@ void main() {
       history: history,
       addedAt: addedAt,
       favoriteIds: favoriteIds,
-      downloadedIds: downloadedIds,
+      downloadedKeys: downloadedKeys,
       random: random,
     );
   }
@@ -53,6 +56,27 @@ void main() {
     test('recently added is newest-first by first-seen time', () {
       expect(_ids(resolve(SmartPlaylistKind.recentlyAdded)),
           <String>['d', 'b', 'c', 'a']);
+    });
+
+    test('recently added falls back to a legacy bare-id timestamp', () {
+      // An upgraded user whose store predates uri keys: a remote track's
+      // first-seen time is still under the bare id until the next sync migrates
+      // it. The read must honor that key so Recently Added keeps its order right
+      // after the upgrade instead of collapsing to catalog order.
+      final List<Track> result =
+          const SmartPlaylistResolver(maxTracks: 100).resolve(
+        SmartPlaylistKind.recentlyAdded,
+        allTracks: <Track>[_t('a'), _t('b')],
+        history: history,
+        addedAt: <String, DateTime>{
+          'jellyfin:a': DateTime(2024, 1, 1), // already migrated to the uri key
+          'b': DateTime(2024, 1, 5), // legacy bare-id key, and newer
+        },
+        favoriteIds: const <String>{},
+        downloadedKeys: const <String>{},
+      );
+      // 'b' (legacy key, Jan 5) outranks 'a' (uri key, Jan 1).
+      expect(_ids(result), <String>['b', 'a']);
     });
 
     test('recently played is most-recently-played first, played-only', () {
@@ -76,12 +100,29 @@ void main() {
       expect(_ids(result), <String>['b', 'd']);
     });
 
-    test('downloaded mix uses the cached (downloaded) id set', () {
+    test('downloaded mix uses the cached (downloaded) cache-key set', () {
       final List<Track> result = resolve(
         SmartPlaylistKind.downloaded,
-        downloadedIds: <String>{'a', 'c'},
+        downloadedKeys: <String>{
+          CachedTrack.cacheKeyForTrack(_t('a')),
+          CachedTrack.cacheKeyForTrack(_t('c')),
+        },
       );
       expect(_ids(result), <String>['a', 'c']);
+    });
+
+    test('downloaded mix is provider-aware for same-id copies', () {
+      // Two providers expose the same bare id 101; only the Subsonic copy is
+      // downloaded. The mix must show that copy alone — never the Jellyfin copy
+      // that merely shares the id.
+      const Track jelly = Track(id: '101', title: 'A', uri: 'jellyfin:101');
+      const Track sub = Track(id: '101', title: 'A', uri: 'subsonic:101');
+      final List<Track> result = resolve(
+        SmartPlaylistKind.downloaded,
+        tracks: <Track>[jelly, sub],
+        downloadedKeys: <String>{CachedTrack.cacheKeyForTrack(sub)},
+      );
+      expect(result.map((Track t) => t.uri).toList(), <String>['subsonic:101']);
     });
 
     test('never played excludes anything in the play history', () {

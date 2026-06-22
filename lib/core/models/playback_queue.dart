@@ -162,9 +162,16 @@ class PlaybackQueue {
     final absolute = currentIndex + 1 + upNextIndex;
     final removed = tracks[absolute];
     final updated = List<Track>.of(tracks)..removeAt(absolute);
-    final updatedOriginal = originalOrder == null
-        ? null
-        : (List<Track>.of(originalOrder!)..remove(removed));
+    // Drop the same copy from originalOrder by uri (not Track == on the bare id),
+    // so a shuffled queue holding two providers' same-id rows removes the right
+    // one and a later unshuffle can't resurrect it or swap identity.
+    List<Track>? updatedOriginal;
+    if (originalOrder != null) {
+      updatedOriginal = List<Track>.of(originalOrder!);
+      final int i =
+          updatedOriginal.indexWhere((Track t) => t.uri == removed.uri);
+      if (i >= 0) updatedOriginal.removeAt(i);
+    }
     return PlaybackQueue(
       tracks: updated,
       currentIndex: currentIndex,
@@ -252,7 +259,12 @@ class PlaybackQueue {
     final original = originalOrder;
     if (original == null) return this;
     final track = current;
-    final index = track == null ? -1 : original.indexOf(track);
+    // Find the current copy by uri (not Track == on the bare id) so unshuffling a
+    // queue with two providers' same-id rows keeps the copy that's actually
+    // current, instead of jumping to the first row sharing the bare id.
+    final index = track == null
+        ? -1
+        : original.indexWhere((Track t) => t.uri == track.uri);
     return PlaybackQueue(
       tracks: List<Track>.of(original),
       currentIndex: index < 0 ? (original.isEmpty ? -1 : 0) : index,
@@ -263,15 +275,21 @@ class PlaybackQueue {
   /// up-next, history, and shuffle intact. Used when playback fell back to
   /// another source copy of the same song, so the queue (and the now-playing UI)
   /// reflects the copy that actually started. A no-op on an empty queue or when
-  /// [track] equals the current one. When shuffled, the same swap is applied to
-  /// [originalOrder] so a later [unshuffled] keeps the copy that played.
+  /// [track] is the same copy (same provider-namespaced uri) as the current one.
+  /// When shuffled, the same swap is applied to [originalOrder] so a later
+  /// [unshuffled] keeps the copy that played.
+  ///
+  /// Identity is compared by [Track.uri], not [Track]'s `==` (which keys on the
+  /// bare id): two providers' copies of one song can share a bare id (e.g.
+  /// `jellyfin:101` falling back to `subsonic:101`), and that swap must take
+  /// effect so `current` reflects the copy that actually started.
   PlaybackQueue replaceCurrent(Track track) {
     final Track? old = current;
-    if (old == null || old == track) return this;
+    if (old == null || old.uri == track.uri) return this;
     final updated = List<Track>.of(tracks)..[currentIndex] = track;
     List<Track>? updatedOriginal = originalOrder;
     if (originalOrder != null) {
-      final int i = originalOrder!.indexOf(old);
+      final int i = originalOrder!.indexWhere((Track t) => t.uri == old.uri);
       if (i >= 0) {
         updatedOriginal = List<Track>.of(originalOrder!)..[i] = track;
       }

@@ -19,25 +19,29 @@ import '../settings/plex/plex_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
 
 /// The live download status of a single track, for the Library row indicator.
-/// Defaults to [DownloadStatus.notDownloaded] until the repository reports
-/// otherwise. Auto-disposed so off-screen rows drop their subscription.
+/// The family argument is the track's provider-aware cache key
+/// ([CachedTrack.cacheKeyForTrack]) so two providers' same-id copies each show
+/// their own status. Defaults to [DownloadStatus.notDownloaded] until the
+/// repository reports otherwise. Auto-disposed so off-screen rows drop their
+/// subscription.
 final trackDownloadStatusProvider =
-    StreamProvider.autoDispose.family<DownloadStatus, String>((ref, trackId) {
+    StreamProvider.autoDispose.family<DownloadStatus, String>((ref, cacheKey) {
   final repository = ref.watch(downloadRepositoryProvider);
   return repository.statusStream
-      .map((statuses) => statuses[trackId] ?? DownloadStatus.notDownloaded)
+      .map((statuses) => statuses[cacheKey] ?? DownloadStatus.notDownloaded)
       .distinct();
 });
 
 /// The live byte progress of a single in-flight download, for the row's
-/// determinate ring. Null when the track isn't downloading (or its server
-/// didn't report a size, leaving progress indeterminate). Auto-disposed so
-/// off-screen rows drop the subscription.
+/// determinate ring. The family argument is the track's provider-aware cache key
+/// ([CachedTrack.cacheKeyForTrack]). Null when the track isn't downloading (or
+/// its server didn't report a size, leaving progress indeterminate).
+/// Auto-disposed so off-screen rows drop the subscription.
 final trackDownloadProgressProvider = StreamProvider.autoDispose
-    .family<DownloadProgress?, String>((ref, trackId) {
+    .family<DownloadProgress?, String>((ref, cacheKey) {
   final repository = ref.watch(downloadRepositoryProvider);
   return repository.progressStream
-      .map((progress) => progress[trackId])
+      .map((progress) => progress[cacheKey])
       .distinct();
 });
 
@@ -47,12 +51,14 @@ final downloadedTracksProvider = StreamProvider<List<Track>>((ref) async* {
   final repository = ref.watch(downloadRepositoryProvider);
   final library = ref.watch(musicLibraryRepositoryProvider);
   await for (final statuses in repository.statusStream) {
-    final downloadedIds = statuses.entries
+    final downloadedKeys = statuses.entries
         .where((e) => e.value == DownloadStatus.downloaded)
         .map((e) => e.key)
         .toSet();
     final tracks = await library.getAllTracks();
-    yield tracks.where((t) => downloadedIds.contains(t.id)).toList();
+    yield tracks
+        .where((t) => downloadedKeys.contains(CachedTrack.cacheKeyForTrack(t)))
+        .toList();
   }
 });
 
@@ -82,11 +88,13 @@ final activeDownloadsProvider =
       continue;
     }
     final tracks = await library.getAllTracks();
-    final byId = <String, Track>{for (final t in tracks) t.id: t};
+    final byKey = <String, Track>{
+      for (final t in tracks) CachedTrack.cacheKeyForTrack(t): t,
+    };
     yield <ActiveDownload>[
       for (final entry in active.entries)
-        if (byId[entry.key] != null)
-          (track: byId[entry.key]!, status: entry.value),
+        if (byKey[entry.key] != null)
+          (track: byKey[entry.key]!, status: entry.value),
     ]..sort(_compareActiveDownloads);
   }
 });
@@ -118,35 +126,40 @@ final cacheSnapshotProvider = StreamProvider<CacheSnapshot>((ref) {
   return ref.watch(offlineCacheManagerProvider).cacheStream;
 });
 
-/// The cached-track metadata keyed by track id, for quick per-row lookups.
-final cacheEntriesByIdProvider = Provider<Map<String, CachedTrack>>((ref) {
+/// The cached-track metadata keyed by the provider-aware cache key
+/// ([CachedTrack.cacheKey]), for quick per-row lookups. Keyed by cache key (not
+/// the bare id) so two providers' same-id copies never shadow each other; look up
+/// with [CachedTrack.cacheKeyForTrack].
+final cacheEntriesByKeyProvider = Provider<Map<String, CachedTrack>>((ref) {
   final snapshot = ref.watch(cacheSnapshotProvider).valueOrNull;
   if (snapshot == null) return const <String, CachedTrack>{};
   return <String, CachedTrack>{
-    for (final entry in snapshot.entries) entry.trackId: entry,
+    for (final entry in snapshot.entries) entry.cacheKey: entry,
   };
 });
 
-/// The ids of tracks that have an offline copy on disk (a downloaded or
-/// pre-cached copy with managed bytes) — the safe, in-memory signal the playback
-/// source strategy uses to favour cache/local copies, without a disk scan or any
-/// path/URL.
+/// The provider-aware cache keys ([CachedTrack.cacheKey]) of tracks that have an
+/// offline copy on disk (a downloaded or pre-cached copy with managed bytes) —
+/// the safe, in-memory signal the playback source strategy uses to favour
+/// cache/local copies, without a disk scan or any path/URL. Keyed by cache key
+/// (not bare id), so a download of `subsonic:101` never makes `jellyfin:101` look
+/// cached; join with [CachedTrack.cacheKeyForTrack].
 ///
 /// Defaults to empty so the library/playback layers don't pull the whole cache
-/// stack in tests; `main` applies [offlineAvailableTrackIdsOverride] to derive
+/// stack in tests; `main` applies [offlineAvailableTrackKeysOverride] to derive
 /// it live from the cache snapshot. Tests override it directly with a set.
-final offlineAvailableTrackIdsProvider =
+final offlineAvailableTrackKeysProvider =
     Provider<Set<String>>((ref) => const <String>{});
 
-/// Production binding: the live set of offline-available track ids, recomputed
-/// from [cacheEntriesByIdProvider] whenever the cache changes. Only entries with
+/// Production binding: the live set of offline-available cache keys, recomputed
+/// from [cacheEntriesByKeyProvider] whenever the cache changes. Only entries with
 /// managed bytes count (an on-device marker with no file is not a cached copy).
-final offlineAvailableTrackIdsOverride =
-    offlineAvailableTrackIdsProvider.overrideWith((ref) {
-  final Map<String, CachedTrack> entries = ref.watch(cacheEntriesByIdProvider);
+final offlineAvailableTrackKeysOverride =
+    offlineAvailableTrackKeysProvider.overrideWith((ref) {
+  final Map<String, CachedTrack> entries = ref.watch(cacheEntriesByKeyProvider);
   return <String>{
     for (final CachedTrack entry in entries.values)
-      if (entry.isManaged) entry.trackId,
+      if (entry.isManaged) entry.cacheKey,
   };
 });
 

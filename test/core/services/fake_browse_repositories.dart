@@ -115,16 +115,16 @@ class FakeFavoritesRepository implements FavoritesRepository {
 }
 
 /// Minimal [DownloadRepository] for browse-tree tests: reports a fixed set of
-/// downloaded (offline) track ids. Only the read the media browser uses
-/// ([downloadedTrackIds]) is implemented; the download lifecycle surface throws,
-/// so a test that accidentally relied on it would fail loudly.
+/// downloaded (offline) provider-aware cache keys. Only the read the media
+/// browser uses ([downloadedTrackKeys]) is implemented; the download lifecycle
+/// surface throws, so a test that accidentally relied on it would fail loudly.
 class FakeDownloadRepository implements DownloadRepository {
-  FakeDownloadRepository(Set<String> downloadedIds) : _ids = downloadedIds;
+  FakeDownloadRepository(Set<String> downloadedKeys) : _keys = downloadedKeys;
 
-  final Set<String> _ids;
+  final Set<String> _keys;
 
   @override
-  Future<List<String>> downloadedTrackIds() async => _ids.toList();
+  Future<List<String>> downloadedTrackKeys() async => _keys.toList();
 
   // Download lifecycle surface — not exercised by the media browser, so it
   // throws to fail loudly if a test ever depends on it.

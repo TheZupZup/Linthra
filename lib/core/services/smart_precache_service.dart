@@ -78,7 +78,7 @@ class SmartPrecacheService {
   /// position/duration/status so listening doesn't thrash on playback ticks.
   static String _keyFor(PlaybackState state) {
     final StringBuffer buffer = StringBuffer()
-      ..write(state.currentTrack?.id ?? '-')
+      ..write(state.currentTrack?.uri ?? '-')
       ..write('|')
       ..write(state.shuffleEnabled)
       ..write('|')
@@ -86,7 +86,7 @@ class SmartPrecacheService {
       ..write('|');
     for (final Track track in state.upNext) {
       buffer
-        ..write(track.id)
+        ..write(track.uri)
         ..write(',');
     }
     return buffer.toString();

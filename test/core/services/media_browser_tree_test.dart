@@ -3,6 +3,7 @@ import 'package:linthra/core/catalog/library_grouping.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/media_browser_tree.dart';
 
 import '../../features/library/fake_music_library_repository.dart';
@@ -18,6 +19,13 @@ Track _track(String id, {String? artist, String? album, int? trackNumber}) {
     trackNumber: trackNumber,
   );
 }
+
+/// The provider-aware download cache keys for catalog ids built with [_track],
+/// so a test can express downloaded tracks by plain id while the repository (and
+/// the media browser) join on the cache key.
+Set<String> _dlKeys(Iterable<String> ids) => <String>{
+      for (final String id in ids) CachedTrack.cacheKeyForTrack(_track(id))
+    };
 
 PlaybackState _playing(Track current, {List<Track> upNext = const <Track>[]}) {
   return PlaybackState(
@@ -56,7 +64,7 @@ void main() {
           FakeMusicLibraryRepository(tracks: tracks),
           playlists: FakePlaylistRepository(playlists),
           favorites: FakeFavoritesRepository(favorites),
-          downloads: FakeDownloadRepository(downloads),
+          downloads: FakeDownloadRepository(_dlKeys(downloads)),
         );
       }
 
@@ -167,10 +175,13 @@ void main() {
       test('exposes every catalog track as a playable leaf', () async {
         final nodes = await _kids(treeOf(library), MediaId.library);
 
+        // Leaves are keyed by an opaque hash of the track uri (collision-free
+        // across providers); libraryTrack() does the hashing, so we compare to
+        // it built from each track's uri.
         expect(nodes.map((n) => n.id), [
-          MediaId.libraryTrack('a'),
-          MediaId.libraryTrack('b'),
-          MediaId.libraryTrack('c'),
+          MediaId.libraryTrack('/a.mp3'),
+          MediaId.libraryTrack('/b.mp3'),
+          MediaId.libraryTrack('/c.mp3'),
         ]);
         expect(nodes.every((n) => n.playable), isTrue);
         expect(nodes.first.track, library.first);
@@ -196,7 +207,8 @@ void main() {
 
       test('a library track resolves to the whole catalog at its index',
           () async {
-        final request = await _pick(treeOf(library), MediaId.libraryTrack('b'));
+        final request =
+            await _pick(treeOf(library), MediaId.libraryTrack('/b.mp3'));
 
         expect(request, isNotNull);
         expect(request!.tracks, library);
@@ -205,9 +217,32 @@ void main() {
 
       test('a missing library track resolves to null', () async {
         expect(
-          await _pick(treeOf(library), MediaId.libraryTrack('zzz')),
+          await _pick(treeOf(library), MediaId.libraryTrack('/zzz.mp3')),
           isNull,
         );
+      });
+
+      test(
+          'same bare-id songs from different providers get distinct media ids '
+          'and resolve to the right copy', () async {
+        const jelly = Track(id: '101', title: 'Alpha', uri: 'jellyfin:101');
+        const sub = Track(id: '101', title: 'Beta', uri: 'subsonic:101');
+        final tree = treeOf(<Track>[jelly, sub]);
+
+        final nodes = await _kids(tree, MediaId.library);
+        // Distinct, collision-free leaf ids (would have collided on the bare id).
+        final List<String> ids = nodes.map((n) => n.id).toList();
+        expect(ids, <String>[
+          MediaId.libraryTrack('jellyfin:101'),
+          MediaId.libraryTrack('subsonic:101'),
+        ]);
+        expect(ids[0], isNot(ids[1]));
+
+        // Each leaf resolves to its own provider copy, not whichever shares 101.
+        final jReq = await _pick(tree, MediaId.libraryTrack('jellyfin:101'));
+        final sReq = await _pick(tree, MediaId.libraryTrack('subsonic:101'));
+        expect(jReq!.tracks[jReq.startIndex].uri, 'jellyfin:101');
+        expect(sReq!.tracks[sReq.startIndex].uri, 'subsonic:101');
       });
     });
 
@@ -502,7 +537,7 @@ void main() {
       MediaBrowserTree buildTree([Set<String> ids = const {'b', 'c', 'x'}]) {
         return MediaBrowserTree(
           FakeMusicLibraryRepository(tracks: library),
-          downloads: FakeDownloadRepository(ids),
+          downloads: FakeDownloadRepository(_dlKeys(ids)),
         );
       }
 

@@ -165,8 +165,12 @@ void main() {
 
       final Map<String, List<String>> bySource =
           container.read(logicalSourceIdsProvider);
-      // The visible row is the Subsonic primary; removing it forgets both copies.
-      expect(bySource['s'], containsAll(<String>['j', 's']));
+      // The visible row is the Subsonic primary; the map is keyed by its uri and
+      // removing it forgets both copies (also by uri).
+      expect(
+        bySource['subsonic:s'],
+        containsAll(<String>['jellyfin:j', 'subsonic:s']),
+      );
     });
   });
 }

@@ -1,3 +1,5 @@
+import '../models/track.dart';
+
 /// A reference to a single offline-cached track: which track it is, the file
 /// that holds its downloaded bytes (when there is one), and the small bits of
 /// metadata the cache manager needs to clean up intelligently.
@@ -72,6 +74,24 @@ class CachedTrack {
   /// the pair is unambiguous.
   static String cacheKeyFor(String? sourceType, String trackId) =>
       '${sourceType ?? ''}${String.fromCharCode(_keySeparator)}$trackId';
+
+  /// The [cacheKey] a live catalog [track] maps to — the same `(sourceType,
+  /// trackId)` identity a persisted entry keys itself by, so a caller can join a
+  /// [Track] to its cache state (status, progress, the downloaded/offline sets)
+  /// without the bare-id collision two providers' same-id copies (`jellyfin:101`
+  /// vs `subsonic:101`) would cause. Mirrors the repository's internal key, so a
+  /// live track and a persisted entry for it land on exactly the same key.
+  static String cacheKeyForTrack(Track track) =>
+      cacheKeyFor(schemeOf(track.uri), track.id);
+
+  /// The non-secret URI scheme of [uri] (`jellyfin`, `file`, …), lowercased, or
+  /// `null` when it has none — the `sourceType` half of a [cacheKey].
+  static String? schemeOf(String uri) {
+    final int colon = uri.indexOf(':');
+    if (colon <= 0) return null;
+    final String scheme = uri.substring(0, colon).toLowerCase();
+    return scheme.isEmpty ? null : scheme;
+  }
 
   /// Separator between scheme and id in a [cacheKey]: NUL, which can't occur in
   /// a URI scheme or a catalog id, so the `(scheme, id)` pair is unambiguous.

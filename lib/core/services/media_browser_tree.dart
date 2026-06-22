@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import '../catalog/library_grouping.dart';
@@ -7,6 +10,7 @@ import '../models/playback_state.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
 import '../repositories/download_repository.dart';
+import '../repositories/download_store.dart';
 import '../repositories/favorites_repository.dart';
 import '../repositories/music_library_repository.dart';
 import '../repositories/playlist_repository.dart';
@@ -17,7 +21,8 @@ import '../repositories/playlist_repository.dart';
 /// Category IDs are plain constants; leaf and container IDs encode where the
 /// item lives so a later `playFromMediaId` can be resolved back to a track
 /// without extra state:
-///  - `library/<trackId>` — a catalog track (the Songs list).
+///  - `library/<uriHash>` — a catalog track (the Songs list), keyed by an
+///    opaque hash of the track uri so two providers' same-id songs never collide.
 ///  - `album/<albumId>` — an album *container* (browsable); its children are
 ///    `album/<albumId>/<index>` track leaves.
 ///  - `artist/<artistId>` — an artist *container* (browsable); its children are
@@ -34,11 +39,11 @@ import '../repositories/playlist_repository.dart';
 /// (or an `al-`/`ar-`/`unknown-...` sentinel) that never itself contains a `/`.
 ///
 /// Security invariant: every id is built only from non-secret, opaque ids — a
-/// catalog/track id (the bare item id, never the `jellyfin:`/`subsonic:` uri), a
-/// derived album/artist grouping id, a local playlist id, or a small integer
-/// index. No id ever carries a Jellyfin/Subsonic access token or an
-/// authenticated stream URL; the stream URL is minted lazily at play time by the
-/// resolver, never here.
+/// derived album/artist grouping id, a local playlist id, a small integer index,
+/// or an opaque hash of the track uri (the Songs leaf). No id ever carries a
+/// `jellyfin:`/`subsonic:` uri, a local file path, a Jellyfin/Subsonic access
+/// token, or an authenticated stream URL; the stream URL is minted lazily at play
+/// time by the resolver, never here.
 abstract final class MediaId {
   /// The root the platform requests first (audio_service's `browsableRootId`).
   static const String root = 'root';
@@ -66,7 +71,22 @@ abstract final class MediaId {
   static const String _favoritePrefix = 'favorite/';
   static const String _offlinePrefix = 'offline/';
 
-  static String libraryTrack(String trackId) => '$_libraryPrefix$trackId';
+  /// A playable leaf for a flat-"Songs" track, keyed by an opaque hash of the
+  /// track's provider-namespaced [Track.uri]. Hashing (not the raw uri) keeps the
+  /// id collision-free across providers — two songs that share a bare server-side
+  /// id (`jellyfin:101` vs `subsonic:101`) get distinct leaves — while upholding
+  /// the security invariant above: the id carries no scheme, path, or uri, only
+  /// hex. It is also stable for a given track (same uri → same hash), so a
+  /// `playFromMediaId` resolves deterministically. Resolve by re-hashing each
+  /// candidate's uri and matching against [libraryTrackId].
+  static String libraryTrack(String trackUri) =>
+      '$_libraryPrefix${libraryTrackHash(trackUri)}';
+
+  /// The opaque, collision-free, leak-safe hash of [trackUri] used as the Songs
+  /// leaf id. SHA-256 hex; carries no scheme/path/token.
+  static String libraryTrackHash(String trackUri) =>
+      sha256.convert(utf8.encode(trackUri)).toString();
+
   static String queueItem(int index) => '$_queuePrefix$index';
 
   /// An album *container* node id (its children are the album's tracks).
@@ -110,6 +130,8 @@ abstract final class MediaId {
   static bool isArtistTrack(String id) => _isLeaf(id, _artistPrefix);
   static bool isPlaylistTrack(String id) => _isLeaf(id, _playlistPrefix);
 
+  /// The opaque track hash encoded in a library leaf id (`library/<hash>`),
+  /// matched against [libraryTrackHash] of a candidate's uri to resolve it.
   static String libraryTrackId(String id) =>
       id.substring(_libraryPrefix.length);
 
@@ -296,8 +318,11 @@ class MediaBrowserTree {
   ) async {
     if (MediaId.isLibraryTrack(mediaId)) {
       final List<Track> tracks = await _allTracks();
-      final String trackId = MediaId.libraryTrackId(mediaId);
-      final int index = tracks.indexWhere((Track t) => t.id == trackId);
+      // Match by the uri hash, so two providers' same-id songs resolve to the
+      // right copy (the flat Songs list can now hold both).
+      final String trackHash = MediaId.libraryTrackId(mediaId);
+      final int index = tracks.indexWhere(
+          (Track t) => MediaId.libraryTrackHash(t.uri) == trackHash);
       if (index < 0) return null;
       return MediaPlaybackRequest(tracks: tracks, startIndex: index);
     }
@@ -360,14 +385,16 @@ class MediaBrowserTree {
 
   Future<bool> _hasFavorites() async => (await _favoriteIds()).isNotEmpty;
 
-  Future<bool> _hasOffline() async => (await _downloadedIds()).isNotEmpty;
+  Future<bool> _hasOffline() async => (await _downloadedKeys()).isNotEmpty;
 
   Future<List<MediaNode>> _songNodes() async {
     final List<Track> tracks = await _allTracks();
     if (tracks.isEmpty) return _placeholder('Sync your library first');
     return <MediaNode>[
       for (final Track track in tracks)
-        _trackNode(MediaId.libraryTrack(track.id), track),
+        // Key the leaf by a hash of the provider-namespaced uri so two same-id
+        // songs from different providers get distinct, collision-free media ids.
+        _trackNode(MediaId.libraryTrack(track.uri), track),
     ];
   }
 
@@ -496,12 +523,12 @@ class MediaBrowserTree {
   /// repository, so they never leak into this section. Ids with no catalog track
   /// are dropped.
   Future<List<Track>> _offlineTracks() async {
-    final Set<String> ids = await _downloadedIds();
-    if (ids.isEmpty) return const <Track>[];
+    final Set<String> keys = await _downloadedKeys();
+    if (keys.isEmpty) return const <Track>[];
     final List<Track> tracks = await _allTracks();
     return <Track>[
       for (final Track track in tracks)
-        if (ids.contains(track.id)) track,
+        if (keys.contains(CachedTrack.cacheKeyForTrack(track))) track,
     ];
   }
 
@@ -547,13 +574,13 @@ class MediaBrowserTree {
     }
   }
 
-  /// The current downloaded track-id set. Guarded: any failure yields an empty
-  /// set so a misbehaving download backend can't break browsing.
-  Future<Set<String>> _downloadedIds() async {
+  /// The current downloaded cache-key set (provider-aware). Guarded: any failure
+  /// yields an empty set so a misbehaving download backend can't break browsing.
+  Future<Set<String>> _downloadedKeys() async {
     final DownloadRepository? downloads = _downloads;
     if (downloads == null) return const <String>{};
     try {
-      return (await downloads.downloadedTrackIds()).toSet();
+      return (await downloads.downloadedTrackKeys()).toSet();
     } catch (_) {
       return const <String>{};
     }

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/linthra_audio_handler.dart';
 import 'package:linthra/core/services/media_artwork_source.dart';
 import 'package:linthra/core/services/media_browser_tree.dart';
@@ -392,10 +393,12 @@ void main() {
       test('library lists every catalog track as a playable leaf', () async {
         final children = await handler.getChildren(MediaId.library);
 
+        // Leaves are keyed by a hash of the uri; libraryTrack() hashes, so we
+        // compare to it built from each track's uri (/<id>.mp3 here).
         expect(children.map((i) => i.id), [
-          MediaId.libraryTrack('a'),
-          MediaId.libraryTrack('b'),
-          MediaId.libraryTrack('c'),
+          MediaId.libraryTrack('/a.mp3'),
+          MediaId.libraryTrack('/b.mp3'),
+          MediaId.libraryTrack('/c.mp3'),
         ]);
         expect(children.first.title, 'Song a');
         expect(children.first.playable, isTrue);
@@ -451,7 +454,7 @@ void main() {
       });
 
       test('selecting a library track plays it and queues the rest', () async {
-        await handler.playFromMediaId(MediaId.libraryTrack('b'));
+        await handler.playFromMediaId(MediaId.libraryTrack('/b.mp3'));
         await _settle();
 
         expect(controller.state.currentTrack?.id, 'b');
@@ -489,7 +492,10 @@ void main() {
           MediaBrowserTree(
             FakeMusicLibraryRepository(tracks: _library),
             favorites: FakeFavoritesRepository({'a'}),
-            downloads: FakeDownloadRepository({'b', 'c'}),
+            downloads: FakeDownloadRepository(<String>{
+              CachedTrack.cacheKeyForTrack(_track('b')),
+              CachedTrack.cacheKeyForTrack(_track('c')),
+            }),
           ),
         );
       });
@@ -649,7 +655,7 @@ void main() {
       test('a queue selected from the car supports next & previous', () async {
         // Selecting a library track in the car builds the queue (the rest of
         // the library becomes up-next), then car skip moves within that queue.
-        await handler.playFromMediaId(MediaId.libraryTrack('a'));
+        await handler.playFromMediaId(MediaId.libraryTrack('/a.mp3'));
         await _settle();
         expect(handler.mediaItem.value?.id, 'a');
 
@@ -826,9 +832,10 @@ void main() {
 
         final items = await libHandler.getChildren(MediaId.library);
 
+        // Keyed by a hash of the uri; pass the same uris libraryTrack() hashes.
         expect(items.map((i) => i.id), [
-          MediaId.libraryTrack('jf-guid-123'),
-          MediaId.libraryTrack('local-1'),
+          MediaId.libraryTrack('jellyfin:jf-guid-123'),
+          MediaId.libraryTrack('/storage/music/local.mp3'),
         ]);
         for (final item in items) {
           // Ids never carry a token, an auth query, a URI scheme, or a stream

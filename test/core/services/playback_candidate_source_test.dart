@@ -19,14 +19,14 @@ void main() {
 
     test('returns the mapped, ordered candidates for a known track', () {
       final source = MapPlaybackCandidateSource(() => <String, List<Track>>{
-            'j': <Track>[jelly, sub],
+            'jellyfin:j': <Track>[jelly, sub],
           });
       expect(source.candidatesFor(jelly), <Track>[jelly, sub]);
     });
 
     test('an unknown (single-source) track yields just itself', () {
       final source = MapPlaybackCandidateSource(() => <String, List<Track>>{
-            'j': <Track>[jelly, sub],
+            'jellyfin:j': <Track>[jelly, sub],
           });
       final Track lonely = _t('x', 'jellyfin:x');
       expect(source.candidatesFor(lonely), <Track>[lonely]);
@@ -34,9 +34,22 @@ void main() {
 
     test('an empty mapped list falls back to the track itself', () {
       final source = MapPlaybackCandidateSource(() => <String, List<Track>>{
-            'j': <Track>[],
+            'jellyfin:j': <Track>[],
           });
       expect(source.candidatesFor(jelly), <Track>[jelly]);
+    });
+
+    test('keys on the uri, so a shared bare id resolves to the right song', () {
+      // Two unrelated songs that share the bare id "101" across providers.
+      final Track jelly101 = _t('101', 'jellyfin:101');
+      final Track sub101 = _t('101', 'subsonic:101');
+      final source = MapPlaybackCandidateSource(() => <String, List<Track>>{
+            'jellyfin:101': <Track>[jelly101],
+            'subsonic:101': <Track>[sub101],
+          });
+      // Each resolves to its own entry — not the other provider's same-id song.
+      expect(source.candidatesFor(jelly101), <Track>[jelly101]);
+      expect(source.candidatesFor(sub101), <Track>[sub101]);
     });
 
     test('the map is read lazily on every call (live library)', () {
@@ -48,7 +61,7 @@ void main() {
 
       // The library updates; the same source now sees the new candidates.
       map = <String, List<Track>>{
-        'j': <Track>[jelly, sub],
+        'jellyfin:j': <Track>[jelly, sub],
       };
       expect(source.candidatesFor(jelly), <Track>[jelly, sub]);
     });

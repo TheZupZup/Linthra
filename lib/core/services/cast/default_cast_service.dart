@@ -93,12 +93,14 @@ class DefaultCastService implements CastService {
   /// changes within a session). Null until the receiver reports one.
   CastVolume? _volume;
 
-  /// The id of the track currently loaded on the receiver, so a re-emission of
-  /// the *same* track (a duplicate stream event, a metadata refresh) is a no-op
-  /// instead of a needless re-resolve + reload — which would restart playback on
-  /// the receiver and re-mint a stream URL. Cleared whenever the session ends or
-  /// nothing castable is loaded. Distinct track changes still reload.
-  String? _castingTrackId;
+  /// The provider-namespaced [Track.uri] of the track currently loaded on the
+  /// receiver, so a re-emission of the *same* track (a duplicate stream event, a
+  /// metadata refresh) is a no-op instead of a needless re-resolve + reload —
+  /// which would restart playback on the receiver and re-mint a stream URL. Keyed
+  /// by uri (not the bare id) so switching to another provider's copy that shares
+  /// a server-side id (`jellyfin:101` → `subsonic:101`) still reloads the
+  /// receiver. Cleared whenever the session ends or nothing castable is loaded.
+  String? _castingTrackUri;
 
   @override
   CastState get state => _state;
@@ -253,7 +255,7 @@ class DefaultCastService implements CastService {
     if (handle == null) return; // disconnected mid-flight
 
     if (track == null) {
-      _castingTrackId = null;
+      _castingTrackUri = null;
       _emitPlayback(CastPlaybackStatus.idle);
       _emit(_connected(device));
       return;
@@ -262,10 +264,11 @@ class DefaultCastService implements CastService {
     // Already streaming this exact track on the receiver: a duplicate emission
     // (or a metadata-only change carrying the same track) must not reload — that
     // would restart receiver playback and re-resolve the stream URL for nothing.
-    if (_state.isCasting && _castingTrackId == track.id) return;
+    // Compare by uri so a different provider's same-id copy still reloads.
+    if (_state.isCasting && _castingTrackUri == track.uri) return;
 
     if (!_mediaResolver.canCast(track)) {
-      _castingTrackId = null;
+      _castingTrackUri = null;
       _emitPlayback(CastPlaybackStatus.idle);
       _emit(_connected(device, message: localFileLimitation));
       return;
@@ -275,12 +278,12 @@ class DefaultCastService implements CastService {
     try {
       media = await _mediaResolver.resolve(track);
     } on CastMediaException catch (error) {
-      _castingTrackId = null;
+      _castingTrackUri = null;
       _emitPlayback(CastPlaybackStatus.idle);
       _emit(_connected(device, message: error.message));
       return;
     } catch (_) {
-      _castingTrackId = null;
+      _castingTrackUri = null;
       _emitPlayback(CastPlaybackStatus.idle);
       _emit(_connected(device, message: "Couldn't cast this track."));
       return;
@@ -292,7 +295,7 @@ class DefaultCastService implements CastService {
     try {
       await handle.loadMedia(media);
     } catch (_) {
-      _castingTrackId = null;
+      _castingTrackUri = null;
       _emitPlayback(CastPlaybackStatus.idle);
       _emit(_connected(device,
           message: "Couldn't start playback on ${device.name}."));
@@ -300,7 +303,7 @@ class DefaultCastService implements CastService {
     }
     // Remember what is now loaded so a duplicate emission of the same track is a
     // no-op (see the guard above).
-    _castingTrackId = track.id;
+    _castingTrackUri = track.uri;
 
     // Playing on the receiver now. Marking isCasting true is the signal the
     // ActivePlaybackController uses to silence the local engine. Report a fresh
@@ -430,7 +433,7 @@ class DefaultCastService implements CastService {
     _volume = null;
     // Forget what was loaded so a reconnect re-casts the current track from
     // scratch rather than treating it as a duplicate of the last session.
-    _castingTrackId = null;
+    _castingTrackUri = null;
     final CastSessionHandle? handle = _handle;
     _handle = null;
     if (handle != null) await _safeClose(handle);

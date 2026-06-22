@@ -97,6 +97,35 @@ void main() {
       expect(state.position, const Duration(seconds: 42));
     });
 
+    test('emits a same-bare-id provider swap the merge guard would hide',
+        () async {
+      // A retry/fallback swaps the current copy to another provider that shares
+      // the bare id (jellyfin:101 -> subsonic:101), same status. PlaybackState ==
+      // leans on Track == (bare id), so the merge guard must compare the uri too
+      // or this swap never reaches UI/reporting.
+      const Track jelly = Track(id: '101', title: 'X', uri: 'jellyfin:101');
+      const Track sub = Track(id: '101', title: 'X', uri: 'subsonic:101');
+      local = FakePlaybackController(
+        initial: const PlaybackState(
+          status: PlaybackStatus.playing,
+          currentTrack: jelly,
+        ),
+      );
+      final controller = build();
+      addTearDown(controller.dispose);
+
+      local.emit(const PlaybackState(
+        status: PlaybackStatus.playing,
+        currentTrack: sub,
+      ));
+
+      final PlaybackState state = await _waitFor(
+        controller,
+        (s) => s.currentTrack?.uri == 'subsonic:101',
+      );
+      expect(state.currentTrack?.uri, 'subsonic:101');
+    });
+
     test('passive position updates never re-issue play or load', () async {
       local = FakePlaybackController();
       await local.playTracks(const <Track>[_trackA, _trackB]);

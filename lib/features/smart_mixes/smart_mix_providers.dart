@@ -23,9 +23,11 @@ final playHistoryProvider = StreamProvider<PlayHistory>((ref) {
   return ref.watch(playHistoryRepositoryProvider).historyStream;
 });
 
-/// The set of fully-downloaded (offline) track ids, recomputed whenever the
-/// download status map changes, so the "Downloaded" mix tracks the cache.
-final _downloadedTrackIdsProvider = StreamProvider<Set<String>>((ref) {
+/// The set of fully-downloaded (offline) cache keys, recomputed whenever the
+/// download status map changes, so the "Downloaded" mix tracks the cache. The
+/// status map's keys are the provider-aware cache keys, so a download of one
+/// provider's copy never pulls a same-id copy from another provider into the mix.
+final _downloadedTrackKeysProvider = StreamProvider<Set<String>>((ref) {
   final DownloadRepository repository = ref.watch(downloadRepositoryProvider);
   return repository.statusStream.map((Map<String, DownloadStatus> statuses) {
     return <String>{
@@ -43,7 +45,7 @@ typedef SmartPlaylistInputs = ({
   PlayHistory history,
   Map<String, DateTime> addedAt,
   Set<String> favoriteIds,
-  Set<String> downloadedIds,
+  Set<String> downloadedKeys,
 });
 
 final smartPlaylistInputsProvider =
@@ -56,8 +58,8 @@ final smartPlaylistInputsProvider =
       ref.watch(playHistoryProvider).valueOrNull ?? PlayHistory.empty;
   final Set<String> favoriteIds =
       ref.watch(favoriteIdsProvider).valueOrNull ?? const <String>{};
-  final Set<String> downloadedIds =
-      ref.watch(_downloadedTrackIdsProvider).valueOrNull ?? const <String>{};
+  final Set<String> downloadedKeys =
+      ref.watch(_downloadedTrackKeysProvider).valueOrNull ?? const <String>{};
 
   final List<Track> allTracks = await library.getAllTracks();
   final Map<String, DateTime> addedAt = await addedStore.load();
@@ -67,7 +69,7 @@ final smartPlaylistInputsProvider =
     history: history,
     addedAt: addedAt,
     favoriteIds: favoriteIds,
-    downloadedIds: downloadedIds,
+    downloadedKeys: downloadedKeys,
   );
 });
 
@@ -103,7 +105,7 @@ final smartPlaylistTracksProvider = FutureProvider.autoDispose
       history: PlayHistory.empty,
       addedAt: const <String, DateTime>{},
       favoriteIds: const <String>{},
-      downloadedIds: const <String>{},
+      downloadedKeys: const <String>{},
       random: Random(),
     );
   }
@@ -119,7 +121,7 @@ List<Track> _resolve(SmartPlaylistKind kind, SmartPlaylistInputs inputs) {
     history: inputs.history,
     addedAt: inputs.addedAt,
     favoriteIds: inputs.favoriteIds,
-    downloadedIds: inputs.downloadedIds,
+    downloadedKeys: inputs.downloadedKeys,
     random: Random(),
   );
 }
