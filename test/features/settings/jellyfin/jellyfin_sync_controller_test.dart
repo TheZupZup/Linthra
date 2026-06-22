@@ -35,12 +35,15 @@ const _session = JellyfinSession(
 /// A recording [MusicLibraryRepository] that captures the last upsert so a test
 /// can assert what the sync stored, and can be made to throw on upsert.
 class _RecordingRepository implements MusicLibraryRepository {
-  _RecordingRepository({this.upsertError});
+  _RecordingRepository({
+    this.upsertError,
+    List<Track> existing = const <Track>[],
+  }) : upsertedTracks = existing;
 
   final Object? upsertError;
 
   String? upsertedSourceId;
-  List<Track> upsertedTracks = const <Track>[];
+  List<Track> upsertedTracks;
   List<Album> upsertedAlbums = const <Album>[];
   List<Artist> upsertedArtists = const <Artist>[];
   int upsertCount = 0;
@@ -217,6 +220,31 @@ void main() {
       final state = container.read(jellyfinSyncControllerProvider);
       expect(state.status, JellyfinSyncStatus.error);
       expect(state.message, contains("Couldn't reach"));
+    });
+
+    test('keeps existing catalog rows when the server is unreachable',
+        () async {
+      // Offline-recovery guarantee: a failed sync must never wipe the local
+      // catalog, so an already-synced library stays visible while the server is
+      // temporarily offline.
+      const existing = <Track>[
+        Track(id: 'j1', title: 'Old One', uri: 'jellyfin:j1'),
+      ];
+      final repository = _RecordingRepository(existing: existing);
+      final container = _container(
+        repository: repository,
+        source: _source(itemsError: JellyfinException.notReachable()),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      expect(
+        container.read(jellyfinSyncControllerProvider).status,
+        JellyfinSyncStatus.error,
+      );
+      // The write was never reached, so the existing rows are untouched.
+      expect(repository.upsertCount, 0);
+      expect(await repository.getAllTracks(), existing);
     });
 
     test('maps an expired token to a sign-in-again message', () async {

@@ -81,7 +81,13 @@ List<PlexMetadata> _trackItems(int count) => <PlexMetadata>[
 /// is kept only for interface completeness and is not used by the controller).
 class _RecordingRepository
     implements MusicLibraryRepository, IncrementalCatalogWriter {
-  _RecordingRepository({this.beginError, this.appendGate});
+  _RecordingRepository({
+    this.beginError,
+    this.appendGate,
+    List<Track> existing = const <Track>[],
+  }) {
+    stored.addAll(existing);
+  }
 
   /// When set, the first (begin) write throws it, so a storage failure can be
   /// proven to surface friendly and never half-write.
@@ -242,6 +248,31 @@ void main() {
       expect(state.isError, isTrue);
       expect(state.message, contains('Connect to your Plex server'));
       expect(repo.writeCount, 0);
+    });
+
+    test('keeps existing catalog rows when the server is unreachable',
+        () async {
+      // Offline-recovery guarantee: a failed scan must not delete the Plex slice
+      // it was about to replace — the begin/append writes are never reached, so
+      // the already-synced rows stay visible while the server is offline.
+      const existing = <Track>[
+        Track(id: 'p1', title: 'Old One', uri: 'plex:p1'),
+      ];
+      final repo = _RecordingRepository(existing: existing);
+      final container = _container(
+        client: FakePlexClient(itemsError: PlexException.notReachable()),
+        session: _session,
+        repository: repo,
+      );
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      await container.read(plexSyncControllerProvider.notifier).sync();
+
+      expect(container.read(plexSyncControllerProvider).isError, isTrue);
+      expect(repo.writeCount, 0);
+      expect(await repo.getAllTracks(), existing);
     });
 
     test(

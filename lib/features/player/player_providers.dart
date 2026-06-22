@@ -12,6 +12,8 @@ import '../../core/services/playable_uri_resolver.dart';
 import '../../core/services/playback_candidate_source.dart';
 import '../../core/services/playback_controller.dart';
 import '../../core/services/playback_reporting_service.dart';
+import '../../core/services/provider_reachability.dart';
+import '../../core/services/reachability_aware_playable_uri_resolver.dart';
 import '../../core/services/remote_cache/remote_cache_resolver.dart';
 import '../../core/services/remote_cache/remote_playback_cache.dart';
 import '../../core/services/remote_cache/remote_stream_prebufferer.dart';
@@ -54,20 +56,60 @@ final remotePlaybackCacheProvider = Provider<RemotePlaybackCache>((ref) {
   return RemotePlaybackCache();
 });
 
+/// A brief, per-provider memory of reachability outcomes, shared for the whole
+/// session so the play path and the background prebuffer agree on whether a
+/// server is currently reachable.
+///
+/// Pinned (not rebuilt on sign-in/out) so a recorded outage survives across the
+/// burst of tracks it's meant to cover; its own short TTL ages entries out, and
+/// the per-provider keys mean signing out of one provider can't strand another.
+final providerReachabilityProvider = Provider<ProviderReachability>((ref) {
+  return CachingProviderReachability();
+});
+
 /// The source router: Jellyfin, Subsonic, Plex, then the on-device catch-all.
 ///
 /// Depends only on lazily-read source getters, so signing in/out is picked up
 /// without rebuilding (keeping the instance stable for the session). Shared by
 /// the cache resolver (which reads through it on a miss) and the prebufferer
 /// (which warms through it), so both mint URLs exactly the same way.
+///
+/// Each remote resolver is wrapped in a [ReachabilityAwarePlayableUriResolver]
+/// so a server that's offline fails fast (and the player falls back to a cached
+/// copy or another provider promptly) instead of re-paying a connect timeout for
+/// every track. The wrapper keys on the provider id, so the Jellyfin/Plex/
+/// Subsonic memories stay isolated even when two providers share a bare track
+/// id. The on-device resolver is never wrapped — a local file doesn't go
+/// offline.
 final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
+  PlayableUriResolver reachabilityAware(
+    PlayableUriResolver inner,
+    String? Function() providerKey,
+  ) {
+    return ReachabilityAwarePlayableUriResolver(
+      inner: inner,
+      providerKey: providerKey,
+      reachability: ref.read(providerReachabilityProvider),
+      connectivity: ref.read(connectivityServiceProvider),
+    );
+  }
+
   return RoutingPlayableUriResolver(<PlayableUriResolver>[
-    JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
-    SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
+    reachabilityAware(
+      JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
+      () => ref.read(jellyfinMusicSourceProvider) == null ? null : 'jellyfin',
+    ),
+    reachabilityAware(
+      SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
+      () => ref.read(subsonicMusicSourceProvider) == null ? null : 'subsonic',
+    ),
     // With no Plex session the source provider is null and a plex: track
     // resolves to a friendly "not signed in" rather than falling through
     // as unplayable.
-    PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
+    reachabilityAware(
+      PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
+      () => ref.read(plexMusicSourceProvider) == null ? null : 'plex',
+    ),
     const LocalPlayableUriResolver(),
   ]);
 });
