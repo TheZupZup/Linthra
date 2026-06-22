@@ -58,7 +58,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         tracksAsync.valueOrNull ?? PlaylistTracks.empty;
     final List<Track> selected = <Track>[
       for (final Track track in resolved.tracks)
-        if (_selectedIds.contains(track.id)) track,
+        if (_selectedIds.contains(track.uri)) track,
     ];
 
     return PopScope(
@@ -169,7 +169,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       itemCount: tracks.length,
       itemBuilder: (context, index) {
         final Track track = tracks[index];
-        final bool selected = _selectedIds.contains(track.id);
+        final bool selected = _selectedIds.contains(track.uri);
         return ListTile(
           selected: selected,
           leading: SizedBox.square(
@@ -236,7 +236,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     final NowPlayingRowState? nowPlaying =
         ref.watch(nowPlayingProvider.select((n) => n.stateForRow(track)));
     return ListTile(
-      key: ValueKey<String>(track.id),
+      key: ValueKey<String>(track.uri),
       leading: TrackArtwork(
         artworkUri: track.artworkUri,
         nowPlaying: nowPlaying,
@@ -370,14 +370,14 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       _selecting = true;
       _selectedIds
         ..clear()
-        ..add(track.id);
+        ..add(track.uri);
     });
   }
 
   void _toggle(Track track) {
     setState(() {
-      if (!_selectedIds.add(track.id)) {
-        _selectedIds.remove(track.id);
+      if (!_selectedIds.add(track.uri)) {
+        _selectedIds.remove(track.uri);
       }
       if (_selectedIds.isEmpty) _selecting = false;
     });
@@ -450,13 +450,13 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   Future<void> _removeOneFromPlaylist(Playlist playlist, Track track) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     final repository = ref.read(playlistRepositoryProvider);
-    await repository.removeTrack(playlist.id, track.id);
+    await repository.removeTrack(playlist.id, track.uri);
     messenger.showSnackBar(
       SnackBar(
         content: Text('Removed “${track.title}” from playlist.'),
         action: SnackBarAction(
           label: 'Undo',
-          onPressed: () => repository.addTrack(playlist.id, track.id),
+          onPressed: () => repository.addTrack(playlist.id, track.uri),
         ),
       ),
     );
@@ -476,7 +476,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     if (!confirmed) return;
     final repository = ref.read(playlistRepositoryProvider);
     for (final Track track in selected) {
-      await repository.removeTrack(widget.playlistId, track.id);
+      await repository.removeTrack(widget.playlistId, track.uri);
     }
     messenger.showSnackBar(
       SnackBar(

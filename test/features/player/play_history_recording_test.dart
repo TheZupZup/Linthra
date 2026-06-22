@@ -36,12 +36,12 @@ void main() {
 
       controller.completeCurrent(); // 'a' finishes, 'b' starts
       await Future<void>.delayed(Duration.zero);
-      expect(history.current.playCountFor('a'), 1);
-      expect(history.current.playCountFor('b'), 0);
+      expect(history.current.playCountFor('jellyfin:a'), 1);
+      expect(history.current.playCountFor('jellyfin:b'), 0);
 
       controller.completeCurrent(); // 'b' finishes (queue ends)
       await Future<void>.delayed(Duration.zero);
-      expect(history.current.playCountFor('b'), 1);
+      expect(history.current.playCountFor('jellyfin:b'), 1);
     });
 
     test('repeat-one counts each completed loop as a play', () async {
@@ -52,7 +52,7 @@ void main() {
       controller.completeCurrent();
       await Future<void>.delayed(Duration.zero);
 
-      expect(history.current.playCountFor('a'), 2);
+      expect(history.current.playCountFor('jellyfin:a'), 2);
     });
 
     test('skipping a track does NOT count as a play', () async {
@@ -61,8 +61,8 @@ void main() {
       await controller.skipToNext(); // user skip, not a completion
       await Future<void>.delayed(Duration.zero);
 
-      expect(history.current.hasPlayed('a'), isFalse);
-      expect(history.current.hasPlayed('b'), isFalse);
+      expect(history.current.hasPlayed('jellyfin:a'), isFalse);
+      expect(history.current.hasPlayed('jellyfin:b'), isFalse);
     });
   });
 }

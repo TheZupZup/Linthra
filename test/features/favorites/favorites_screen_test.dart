@@ -68,8 +68,8 @@ void main() {
           Track(id: 'other', title: 'Charlie', uri: 'file:///c.mp3'),
         ],
         favorites: const FavoritesData(
-          localIds: {'local1'},
-          remoteIds: {'remote1'},
+          localIds: {'file:///a.mp3'},
+          remoteIds: {'jellyfin:remote1'},
         ),
       );
 
@@ -101,7 +101,7 @@ void main() {
       await _pump(
         tester,
         tracks: const <Track>[],
-        favorites: const FavoritesData(remoteIds: {'j1'}),
+        favorites: const FavoritesData(remoteIds: {'jellyfin:j1'}),
         libraryError: Exception('boom'),
       );
 
@@ -121,7 +121,8 @@ void main() {
           Track(id: 'b', title: 'Bravo', uri: 'file:///b.mp3'),
           Track(id: 'c', title: 'Charlie', uri: 'file:///c.mp3'),
         ],
-        favorites: const FavoritesData(localIds: {'a', 'b', 'c'}),
+        favorites: const FavoritesData(
+            localIds: {'file:///a.mp3', 'file:///b.mp3', 'file:///c.mp3'}),
         playback: controller,
       );
 

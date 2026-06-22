@@ -35,14 +35,18 @@ abstract interface class PlaylistRepository {
 
   Future<void> deletePlaylist(String id);
 
-  /// Appends [trackId] to the playlist if it is not already present (a no-op for
-  /// a duplicate, so adding the same track twice can't create a double entry).
-  Future<void> addTrack(String playlistId, String trackId);
+  /// Appends [trackUri] (a provider-namespaced [Track.uri]) to the playlist if it
+  /// is not already present (a no-op for a duplicate, so adding the same track
+  /// twice can't create a double entry). Identity is the uri, so the same
+  /// server-side id from another provider is a distinct entry, not a duplicate.
+  Future<void> addTrack(String playlistId, String trackUri);
 
-  /// Appends every id in [trackIds] not already present, preserving their order.
-  Future<void> addTracks(String playlistId, List<String> trackIds);
+  /// Appends every uri in [trackUris] not already present, preserving their
+  /// order. Entries are provider-namespaced [Track.uri]s.
+  Future<void> addTracks(String playlistId, List<String> trackUris);
 
-  Future<void> removeTrack(String playlistId, String trackId);
+  /// Removes the entry for [trackUri] (a provider-namespaced [Track.uri]).
+  Future<void> removeTrack(String playlistId, String trackUri);
 
   /// Moves the track at [oldIndex] to [newIndex] within the playlist.
   Future<void> reorderTracks(String playlistId, int oldIndex, int newIndex);

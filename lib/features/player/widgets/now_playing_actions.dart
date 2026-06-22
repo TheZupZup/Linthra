@@ -28,7 +28,7 @@ class NowPlayingActions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
-    final bool isFavorite = ref.watch(isFavoriteProvider(track.id));
+    final bool isFavorite = ref.watch(isFavoriteProvider(track.uri));
     final bool sleepTimerActive = ref.watch(
       sleepTimerControllerProvider.select((s) => s.isActive),
     );

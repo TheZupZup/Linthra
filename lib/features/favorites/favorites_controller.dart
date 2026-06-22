@@ -6,11 +6,12 @@ import '../player/favorites_providers.dart';
 
 /// The favourited tracks to show in the Favorites view.
 ///
-/// Joins the favourite id set (from [favoriteIdsProvider] — local-folder
+/// Joins the favourite uri set (from [favoriteIdsProvider] — local-folder
 /// favourites plus the Jellyfin server's set, which is the source of truth for
-/// remote tracks) against the offline catalog, so every liked track that's in
-/// the library appears whether it's local or Jellyfin. Re-resolves whenever the
-/// favourite set changes, keeping the list live as hearts toggle.
+/// remote tracks) against the offline catalog, matching on the
+/// provider-namespaced [Track.uri] so a same-id track from another provider is
+/// never surfaced by mistake. Re-resolves whenever the favourite set changes,
+/// keeping the list live as hearts toggle.
 final favoriteTracksProvider = FutureProvider<List<Track>>((ref) async {
   final Set<String> ids = await ref.watch(favoriteIdsProvider.future);
   if (ids.isEmpty) return const <Track>[];
@@ -18,6 +19,6 @@ final favoriteTracksProvider = FutureProvider<List<Track>>((ref) async {
       await ref.watch(musicLibraryRepositoryProvider).getAllTracks();
   return <Track>[
     for (final Track track in tracks)
-      if (ids.contains(track.id)) track,
+      if (ids.contains(track.uri)) track,
   ];
 });

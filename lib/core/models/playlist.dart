@@ -49,10 +49,12 @@ enum PlaylistSyncState {
 
 /// A user-created, ordered collection of tracks.
 ///
-/// Stores stable Linthra track ids (for a Jellyfin playlist these equal the
-/// Jellyfin item ids; for a local playlist they are local track ids) rather than
-/// full [Track] objects, so ordering and membership persist cheaply and survive
-/// a catalog re-scan.
+/// Stores provider-namespaced [Track.uri]s (`jellyfin:101`, `subsonic:101`, a
+/// local path) rather than full [Track] objects, so ordering and membership
+/// persist cheaply and survive a catalog re-scan — and so a member `jellyfin:101`
+/// is never confused with `subsonic:101`. A Jellyfin-synced playlist holds only
+/// `jellyfin:` uris; the repository maps each to its bare item id at the server
+/// boundary, since the Jellyfin API speaks bare ids.
 ///
 /// Security invariant: a playlist is *persisted* metadata, so it must never
 /// carry a secret. [remoteId] is the non-secret server playlist id; do not add a
@@ -88,7 +90,7 @@ class Playlist {
   /// local-only playlist (or one whose remote create has not landed yet).
   final String? remoteId;
 
-  /// Ordered, stable track ids. Empty for a brand-new playlist.
+  /// Ordered, provider-namespaced track uris. Empty for a brand-new playlist.
   final List<String> trackIds;
 
   final DateTime? createdAt;

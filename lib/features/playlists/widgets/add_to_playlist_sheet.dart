@@ -131,14 +131,16 @@ class _AddToPlaylistSheet extends ConsumerWidget {
       );
       return;
     }
-    // The repository skips ids already in the playlist, so the count the user
-    // sees must be the genuinely-new ones — not the whole addable list.
+    // The repository skips uris already in the playlist, so the count the user
+    // sees must be the genuinely-new ones — not the whole addable list. Keyed by
+    // the provider-namespaced uri, so adding `subsonic:101` to a playlist that
+    // holds `jellyfin:101` is a real add, not a no-op "already there".
     final Set<String> existing = playlist.trackIds.toSet();
     final int added =
-        addable.where((Track t) => !existing.contains(t.id)).length;
+        addable.where((Track t) => !existing.contains(t.uri)).length;
     await ref.read(playlistRepositoryProvider).addTracks(
       playlist.id,
-      <String>[for (final Track track in addable) track.id],
+      <String>[for (final Track track in addable) track.uri],
     );
     navigator.pop();
     messenger.showSnackBar(
@@ -171,7 +173,7 @@ class _AddToPlaylistSheet extends ConsumerWidget {
     if (addable.isNotEmpty) {
       await repository.addTracks(
         created.id,
-        <String>[for (final Track track in addable) track.id],
+        <String>[for (final Track track in addable) track.uri],
       );
     }
     navigator.pop();

@@ -45,13 +45,15 @@ void main() {
 
       await repo.setFavorite(_jellyfin('j1'), true);
 
-      expect(repo.isFavorite('j1'), isTrue);
+      // Tracked by the provider-namespaced uri…
+      expect(repo.isFavorite('jellyfin:j1'), isTrue);
+      // …but the server push still uses the bare item id.
       expect(
         client.favoriteCalls,
         <({String itemId, bool favorite})>[(itemId: 'j1', favorite: true)],
       );
-      // Persisted under the (server-owned) remote set.
-      expect((await store.load()).remoteIds, <String>{'j1'});
+      // Persisted under the (server-owned) remote set, as a uri.
+      expect((await store.load()).remoteIds, <String>{'jellyfin:j1'});
     });
 
     test('unfavoriting a Jellyfin track deletes it on the server', () async {
@@ -60,7 +62,7 @@ void main() {
 
       await repo.setFavorite(_jellyfin('j1'), false);
 
-      expect(repo.isFavorite('j1'), isFalse);
+      expect(repo.isFavorite('jellyfin:j1'), isFalse);
       expect(client.favoriteCalls.last, (itemId: 'j1', favorite: false));
     });
 
@@ -70,11 +72,23 @@ void main() {
 
       await repo.setFavorite(_local('a'), true);
 
-      expect(repo.isFavorite('a'), isTrue);
+      expect(repo.isFavorite('file:///a.mp3'), isTrue);
       expect(client.favoriteCalls, isEmpty);
       final loaded = await store.load();
-      expect(loaded.localIds, <String>{'a'});
+      expect(loaded.localIds, <String>{'file:///a.mp3'});
       expect(loaded.remoteIds, isEmpty);
+    });
+
+    test('favoriting one provider never favourites a same-id sibling',
+        () async {
+      // Only Jellyfin supports favouriting today, but the heart is keyed by uri
+      // so a future provider's same-id copy can never be wrongly flagged.
+      final repo = build(session: _session);
+
+      await repo.setFavorite(_jellyfin('101'), true);
+
+      expect(repo.isFavorite('jellyfin:101'), isTrue);
+      expect(repo.isFavorite('subsonic:101'), isFalse);
     });
 
     test('favoritesStream emits the union of local and remote favourites',
@@ -88,7 +102,7 @@ void main() {
       await repo.setFavorite(_jellyfin('j1'), true);
       await _settle();
 
-      expect(emissions.last, <String>{'a', 'j1'});
+      expect(emissions.last, <String>{'file:///a.mp3', 'jellyfin:j1'});
       await sub.cancel();
     });
 
@@ -101,8 +115,9 @@ void main() {
 
       await repo.refreshFromRemote();
 
-      expect(repo.isFavorite('a'), isTrue); // local kept
-      expect(repo.isFavorite('j9'), isTrue); // remote adopted
+      expect(repo.isFavorite('file:///a.mp3'), isTrue); // local kept
+      // Adopted and namespaced to the jellyfin: uri the UI keys on.
+      expect(repo.isFavorite('jellyfin:j9'), isTrue);
     });
 
     test('refreshFromRemote reports the synced favourite count', () async {
@@ -141,8 +156,8 @@ void main() {
       await repo.setFavorite(_jellyfin('j1'), true);
 
       // Still favourited locally despite the failed push.
-      expect(repo.isFavorite('j1'), isTrue);
-      expect((await store.load()).remoteIds, <String>{'j1'});
+      expect(repo.isFavorite('jellyfin:j1'), isTrue);
+      expect((await store.load()).remoteIds, <String>{'jellyfin:j1'});
     });
 
     test('without a session, favourites stay purely local', () async {
@@ -151,20 +166,23 @@ void main() {
       await repo.setFavorite(_jellyfin('j1'), true);
       await repo.refreshFromRemote();
 
-      expect(repo.isFavorite('j1'), isTrue);
+      expect(repo.isFavorite('jellyfin:j1'), isTrue);
       expect(client.favoriteCalls, isEmpty);
     });
 
     test('loads persisted favourites from the store on first read', () async {
       store = InMemoryFavoritesStore(
-        const FavoritesData(localIds: <String>{'a'}, remoteIds: <String>{'j1'}),
+        const FavoritesData(
+          localIds: <String>{'file:///a.mp3'},
+          remoteIds: <String>{'jellyfin:j1'},
+        ),
       );
       final repo = build(session: _session);
 
       // The synchronous mirror is empty until the first stream read loads it.
       final ids = await repo.favoritesStream.first;
 
-      expect(ids, <String>{'a', 'j1'});
+      expect(ids, <String>{'file:///a.mp3', 'jellyfin:j1'});
     });
 
     test('clearRemote drops server favourites but keeps on-device ones',
@@ -172,17 +190,17 @@ void main() {
       final repo = build(session: _session);
       await repo.setFavorite(_jellyfin('j1'), true); // server-synced
       await repo.setFavorite(_local('a'), true); // device-local
-      expect(repo.isFavorite('j1'), isTrue);
-      expect(repo.isFavorite('a'), isTrue);
+      expect(repo.isFavorite('jellyfin:j1'), isTrue);
+      expect(repo.isFavorite('file:///a.mp3'), isTrue);
 
       await repo.clearRemote();
 
       // The remote (account) favourite is gone; the local one survives.
-      expect(repo.isFavorite('j1'), isFalse);
-      expect(repo.isFavorite('a'), isTrue);
+      expect(repo.isFavorite('jellyfin:j1'), isFalse);
+      expect(repo.isFavorite('file:///a.mp3'), isTrue);
       final loaded = await store.load();
       expect(loaded.remoteIds, isEmpty);
-      expect(loaded.localIds, <String>{'a'});
+      expect(loaded.localIds, <String>{'file:///a.mp3'});
     });
 
     test('clearRemote emits the reduced set on the stream', () async {
@@ -196,7 +214,7 @@ void main() {
       await _settle();
       await sub.cancel();
 
-      expect(emissions.last, isNot(contains('j1')));
+      expect(emissions.last, isNot(contains('jellyfin:j1')));
     });
 
     test('clearRemote is a no-op when there are no server favourites',
@@ -206,8 +224,8 @@ void main() {
 
       await repo.clearRemote();
 
-      expect(repo.isFavorite('a'), isTrue);
-      expect((await store.load()).localIds, <String>{'a'});
+      expect(repo.isFavorite('file:///a.mp3'), isTrue);
+      expect((await store.load()).localIds, <String>{'file:///a.mp3'});
     });
   });
 }

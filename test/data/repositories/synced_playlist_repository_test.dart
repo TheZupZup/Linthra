@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/playlist.dart';
+import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/remote_sync_result.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
@@ -83,6 +84,23 @@ void main() {
       await repository.removeTrack(created.id, 'b');
       final Playlist? updated = await repository.getPlaylistById(created.id);
       expect(updated!.trackIds, <String>['a', 'c']);
+    });
+
+    test('same-id tracks from different providers are distinct members',
+        () async {
+      // jellyfin:101 and subsonic:101 share the bare id 101; adding the second
+      // is a real add, not a duplicate, and removing one keeps the other.
+      final Playlist created = await repository.createPlaylist('Mix');
+      await repository.addTrack(created.id, 'jellyfin:101');
+      await repository.addTrack(created.id, 'subsonic:101');
+      // Re-adding an existing uri is still a no-op.
+      await repository.addTrack(created.id, 'jellyfin:101');
+      expect((await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['jellyfin:101', 'subsonic:101']);
+
+      await repository.removeTrack(created.id, 'jellyfin:101');
+      expect((await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['subsonic:101']);
     });
 
     test('reorders tracks (ReorderableListView index convention)', () async {
@@ -177,11 +195,13 @@ void main() {
         'Server Mix',
         source: PlaylistSource.jellyfin,
       );
-      await repository.addTrack(created.id, 'jelly-item-7');
+      await repository.addTrack(created.id, 'jellyfin:jelly-item-7');
       expect(client.addItemCalls.single.playlistId, 'srv-1');
+      // Membership is stored as a jellyfin: uri but the server gets the bare id.
       expect(client.addItemCalls.single.itemIds, <String>['jelly-item-7']);
       final Playlist? updated = await repository.getPlaylistById(created.id);
-      expect(updated!.syncState, PlaylistSyncState.synced);
+      expect(updated!.trackIds, <String>['jellyfin:jelly-item-7']);
+      expect(updated.syncState, PlaylistSyncState.synced);
     });
 
     test('deletes the server playlist when deleting a synced one', () async {
@@ -230,10 +250,10 @@ void main() {
       );
       // Now make the next server call fail.
       client.playlistError = JellyfinException.notReachable();
-      await repository.addTrack(created.id, 'jelly-item-1');
+      await repository.addTrack(created.id, 'jellyfin:jelly-item-1');
       final Playlist? updated = await repository.getPlaylistById(created.id);
       // The local add still stands…
-      expect(updated!.trackIds, contains('jelly-item-1'));
+      expect(updated!.trackIds, contains('jellyfin:jelly-item-1'));
       // …but the sync state is honest about the failure.
       expect(updated.syncState, PlaylistSyncState.syncFailed);
     });
@@ -252,7 +272,8 @@ void main() {
       expect(all.single.name, 'From Server');
       expect(all.single.remoteId, 'srv-77');
       expect(all.single.source, PlaylistSource.jellyfin);
-      expect(all.single.trackIds, <String>['a', 'b']);
+      // Server item ids are namespaced to jellyfin: uris on import.
+      expect(all.single.trackIds, <String>['jellyfin:a', 'jellyfin:b']);
       expect(all.single.syncState, PlaylistSyncState.synced);
     });
 
@@ -370,15 +391,92 @@ void main() {
         'Server Mix',
         source: PlaylistSource.jellyfin,
       );
-      await repository.addTrack(created.id, 'jelly-item-1');
+      await repository.addTrack(created.id, 'jellyfin:jelly-item-1');
       for (final Playlist p in await repository.getAllPlaylists()) {
         expect(p.remoteId, isNot(contains(_token)));
         expect(p.id, isNot(contains(_token)));
         expect(p.lastSyncError ?? '', isNot(contains(_token)));
-        for (final String trackId in p.trackIds) {
-          expect(trackId, isNot(contains(_token)));
+        for (final String trackUri in p.trackIds) {
+          expect(trackUri, isNot(contains(_token)));
         }
       }
+    });
+  });
+
+  group('SyncedPlaylistRepository (legacy bare-id membership migration)', () {
+    late InMemoryPlaylistStore store;
+
+    setUp(() {
+      store = InMemoryPlaylistStore();
+    });
+
+    SyncedPlaylistRepository build({
+      Future<List<Track>> Function()? catalog,
+    }) {
+      return SyncedPlaylistRepository(
+        store: store,
+        idGenerator: () => 'pl-x',
+        now: () => DateTime(2024, 1, 1),
+        catalogForMigration: catalog,
+      );
+    }
+
+    test('namespaces a Jellyfin playlist\'s bare item ids (no oracle needed)',
+        () async {
+      await store.save(<Playlist>[
+        const Playlist(
+          id: 'p1',
+          name: 'Server Mix',
+          source: PlaylistSource.jellyfin,
+          remoteId: 'srv-1',
+          trackIds: <String>['101', '202'],
+          syncState: PlaylistSyncState.synced,
+        ),
+      ]);
+      final SyncedPlaylistRepository repository = build();
+
+      final Playlist? migrated = await repository.getPlaylistById('p1');
+      expect(migrated!.trackIds, <String>['jellyfin:101', 'jellyfin:202']);
+    });
+
+    test('resolves a local playlist\'s bare remote id against the catalog',
+        () async {
+      await store.save(<Playlist>[
+        const Playlist(
+          id: 'p1',
+          name: 'Local Mix',
+          // A local path (already a uri) and a bare remote id from adding a
+          // streamed track to a local playlist.
+          trackIds: <String>['/music/song.mp3', '101'],
+        ),
+      ]);
+      // The catalog exposes id 101 under a single provider → safe to attribute.
+      final SyncedPlaylistRepository repository = build(
+        catalog: () async => const <Track>[
+          Track(id: '/music/song.mp3', title: 'Song', uri: '/music/song.mp3'),
+          Track(id: '101', title: 'Alpha', uri: 'subsonic:101'),
+        ],
+      );
+
+      final Playlist? migrated = await repository.getPlaylistById('p1');
+      expect(migrated!.trackIds, <String>['/music/song.mp3', 'subsonic:101']);
+    });
+
+    test('leaves an ambiguous local bare id untouched (never guesses)',
+        () async {
+      await store.save(<Playlist>[
+        const Playlist(id: 'p1', name: 'Local Mix', trackIds: <String>['101']),
+      ]);
+      // Two providers expose id 101 → the entry can't be safely attributed.
+      final SyncedPlaylistRepository repository = build(
+        catalog: () async => const <Track>[
+          Track(id: '101', title: 'Alpha', uri: 'jellyfin:101'),
+          Track(id: '101', title: 'Beta', uri: 'subsonic:101'),
+        ],
+      );
+
+      final Playlist? migrated = await repository.getPlaylistById('p1');
+      expect(migrated!.trackIds, <String>['101']); // preserved, not mis-keyed
     });
   });
 }

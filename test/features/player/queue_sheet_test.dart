@@ -147,8 +147,8 @@ void main() {
       final List<Playlist> saved = await store.load();
       expect(saved, hasLength(1));
       expect(saved.single.name, 'My Queue');
-      // Order is history + current + up-next: [A, B, C].
-      expect(saved.single.trackIds, <String>['A', 'B', 'C']);
+      // Order is history + current + up-next, stored by provider uri.
+      expect(saved.single.trackIds, <String>['/A.mp3', '/B.mp3', '/C.mp3']);
       expect(saved.single.source, PlaylistSource.local);
       expect(find.textContaining('Saved 3 songs to'), findsOneWidget);
     });

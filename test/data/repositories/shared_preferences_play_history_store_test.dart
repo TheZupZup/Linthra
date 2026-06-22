@@ -16,18 +16,20 @@ void main() {
           SharedPreferencesPlayHistoryStore();
       final PlayHistory history = PlayHistory(
         stats: <String, TrackPlayStats>{
-          'a': TrackPlayStats(playCount: 3, lastPlayedAt: DateTime(2024, 5, 1)),
-          'b': TrackPlayStats(playCount: 1, lastPlayedAt: DateTime(2024, 5, 2)),
+          'jellyfin:a':
+              TrackPlayStats(playCount: 3, lastPlayedAt: DateTime(2024, 5, 1)),
+          'subsonic:b':
+              TrackPlayStats(playCount: 1, lastPlayedAt: DateTime(2024, 5, 2)),
         },
       );
 
       await store.save(history);
       final PlayHistory loaded = await store.load();
 
-      expect(loaded.playCountFor('a'), 3);
-      expect(loaded.lastPlayedFor('a'), DateTime(2024, 5, 1));
-      expect(loaded.playCountFor('b'), 1);
-      expect(loaded.lastPlayedFor('b'), DateTime(2024, 5, 2));
+      expect(loaded.playCountFor('jellyfin:a'), 3);
+      expect(loaded.lastPlayedFor('jellyfin:a'), DateTime(2024, 5, 1));
+      expect(loaded.playCountFor('subsonic:b'), 1);
+      expect(loaded.lastPlayedFor('subsonic:b'), DateTime(2024, 5, 2));
     });
 
     test('returns empty for no stored value', () async {
@@ -57,17 +59,16 @@ void main() {
       expect(loaded.playCountFor('a'), 2);
     });
 
-    test('the persisted document holds only ids/counts/times — no token',
+    test('the persisted document holds only uris/counts/times — no token',
         () async {
-      // Even if a track carried a tokenized uri, play history stores only the
-      // id, so the persisted JSON can never leak it.
+      // The stored key is the provider-namespaced uri (the catalog's identity),
+      // never a token or authenticated stream URL, so the JSON can't leak one.
       const String token = 'super-secret-token-1234567890';
       const SharedPreferencesPlayHistoryStore store =
           SharedPreferencesPlayHistoryStore();
-      // The id is the only track field play history ever sees.
       await store.save(PlayHistory(
         stats: <String, TrackPlayStats>{
-          'track-1': TrackPlayStats(
+          'jellyfin:track-1': TrackPlayStats(
             playCount: 1,
             lastPlayedAt: DateTime(2024, 1, 1),
           ),
@@ -76,7 +77,7 @@ void main() {
 
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       final String raw = prefs.getString('play_history_v1') ?? '';
-      expect(raw, contains('track-1'));
+      expect(raw, contains('jellyfin:track-1'));
       expect(raw, isNot(contains(token)));
       expect(raw, isNot(contains('http')));
     });

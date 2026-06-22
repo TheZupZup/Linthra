@@ -36,7 +36,7 @@ class PlaylistTracks {
   final int missingCount;
 }
 
-/// Resolves a playlist's stored track ids to catalog [Track]s, preserving order
+/// Resolves a playlist's stored track uris to catalog [Track]s, preserving order
 /// and gracefully dropping (and counting) any that the catalog no longer has.
 /// Re-runs whenever the playlist changes.
 final playlistTracksProvider =
@@ -47,13 +47,15 @@ final playlistTracksProvider =
   }
   final List<Track> all =
       await ref.watch(musicLibraryRepositoryProvider).getAllTracks();
-  final Map<String, Track> byId = <String, Track>{
-    for (final Track track in all) track.id: track,
+  // Resolve by the provider-namespaced uri, so a `jellyfin:101` entry can never
+  // resolve to a `subsonic:101` catalog track that merely shares the bare id.
+  final Map<String, Track> byUri = <String, Track>{
+    for (final Track track in all) track.uri: track,
   };
   final List<Track> resolved = <Track>[];
   int missing = 0;
-  for (final String trackId in playlist.trackIds) {
-    final Track? track = byId[trackId];
+  for (final String trackUri in playlist.trackIds) {
+    final Track? track = byUri[trackUri];
     if (track != null) {
       resolved.add(track);
     } else {

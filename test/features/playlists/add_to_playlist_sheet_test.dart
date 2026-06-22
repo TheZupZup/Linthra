@@ -43,9 +43,10 @@ void main() {
     testWidgets('reports only the genuinely-added count, not duplicates',
         (tester) async {
       final store = InMemoryPlaylistStore();
-      // 'a' is already in the playlist; only 'b' is genuinely new.
+      // 'a' is already in the playlist (by uri); only 'b' is genuinely new.
       await store.save(<Playlist>[
-        const Playlist(id: 'p1', name: 'My Mix', trackIds: <String>['a']),
+        const Playlist(
+            id: 'p1', name: 'My Mix', trackIds: <String>['file:///a.mp3']),
       ]);
       await _pump(tester, store, <Track>[_track('a'), _track('b')]);
 
@@ -65,7 +66,7 @@ void main() {
         const Playlist(
           id: 'p1',
           name: 'My Mix',
-          trackIds: <String>['a', 'b'],
+          trackIds: <String>['file:///a.mp3', 'file:///b.mp3'],
         ),
       ]);
       await _pump(tester, store, <Track>[_track('a'), _track('b')]);

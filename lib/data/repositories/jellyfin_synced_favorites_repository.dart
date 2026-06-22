@@ -11,12 +11,15 @@ import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 /// The app's [FavoritesRepository]: an optimistic local mirror with Jellyfin
 /// sync layered on top.
 ///
-/// Favourites live in a [FavoritesStore] split into device-local ids (local
-/// tracks) and remote ids (Jellyfin item ids). A toggle updates the right set
-/// immediately, emits, and persists; for a Jellyfin track while signed in it
-/// then pushes to the server best-effort. [refreshFromRemote] adopts the
-/// server's set as the remote truth, leaving local-track favourites alone, so
-/// favourites set on another client show up here.
+/// Favourites live in a [FavoritesStore] split into device-local uris (local
+/// tracks) and remote uris (Jellyfin), keyed by the provider-namespaced
+/// [Track.uri] so a favourite on `jellyfin:101` can't collide with
+/// `subsonic:101`. A toggle updates the right set immediately, emits, and
+/// persists; for a Jellyfin track while signed in it then pushes to the server
+/// best-effort using the bare item id. [refreshFromRemote] adopts the server's
+/// set (namespaced back to jellyfin: uris) as the remote truth, leaving
+/// local-track favourites alone, so favourites set on another client show up
+/// here.
 ///
 /// Security: only non-secret track/item ids are stored or sent. The session
 /// (with its token) is read lazily through [_session] for the request header —
@@ -63,27 +66,30 @@ class JellyfinSyncedFavoritesRepository implements FavoritesRepository {
   }
 
   @override
-  bool isFavorite(String trackId) =>
-      _data.localIds.contains(trackId) || _data.remoteIds.contains(trackId);
+  bool isFavorite(String trackUri) =>
+      _data.localIds.contains(trackUri) || _data.remoteIds.contains(trackUri);
 
   @override
   Future<void> setFavorite(Track track, bool favorite) async {
     await _ensureLoaded();
     final bool remote = _isRemote(track);
+    // Identity is the provider-namespaced uri so two providers' same-id tracks
+    // stay distinct; the server push below still uses the bare item id.
+    final String key = track.uri;
     if (remote) {
       final Set<String> ids = <String>{..._data.remoteIds};
       if (favorite) {
-        ids.add(track.id);
+        ids.add(key);
       } else {
-        ids.remove(track.id);
+        ids.remove(key);
       }
       _data = _data.copyWith(remoteIds: ids);
     } else {
       final Set<String> ids = <String>{..._data.localIds};
       if (favorite) {
-        ids.add(track.id);
+        ids.add(key);
       } else {
-        ids.remove(track.id);
+        ids.remove(key);
       }
       _data = _data.copyWith(localIds: ids);
     }
@@ -115,16 +121,22 @@ class JellyfinSyncedFavoritesRepository implements FavoritesRepository {
     }
     try {
       final Set<String> serverIds = await client.fetchFavoriteIds(session);
+      // The server speaks bare item ids; namespace them to the jellyfin: uri the
+      // store and UI key on, so a server favourite matches its catalog track.
+      final Set<String> serverUris = <String>{
+        for (final String id in serverIds)
+          '${JellyfinTrackMapper.uriScheme}$id',
+      };
       // Skip the emit/save when nothing actually changed, to avoid churn — but
       // still report the (unchanged) count as a successful sync.
-      final bool unchanged = serverIds.length == _data.remoteIds.length &&
-          serverIds.containsAll(_data.remoteIds);
+      final bool unchanged = serverUris.length == _data.remoteIds.length &&
+          serverUris.containsAll(_data.remoteIds);
       if (!unchanged) {
-        _data = _data.copyWith(remoteIds: serverIds);
+        _data = _data.copyWith(remoteIds: serverUris);
         _emit();
         await _store.save(_data);
       }
-      return FavoritesSyncResult.synced(serverIds.length);
+      return FavoritesSyncResult.synced(serverUris.length);
     } catch (_) {
       // Offline or transient: keep what we have and report a friendly failure.
       return const FavoritesSyncResult.failed();

@@ -57,7 +57,10 @@ Future<void> _pump(
 Future<InMemoryPlaylistStore> _seededStore() async {
   final InMemoryPlaylistStore store = InMemoryPlaylistStore();
   await store.save(<Playlist>[
-    const Playlist(id: 'p1', name: 'Road Trip', trackIds: <String>['a', 'b']),
+    const Playlist(
+        id: 'p1',
+        name: 'Road Trip',
+        trackIds: <String>['file:///a.mp3', 'file:///b.mp3']),
   ]);
   return store;
 }

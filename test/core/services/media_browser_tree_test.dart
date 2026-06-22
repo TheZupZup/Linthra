@@ -88,7 +88,7 @@ void main() {
         final tree = treeWith(
           tracks: library,
           playlists: [const Playlist(id: 'p1', name: 'Roadtrip')],
-          favorites: {'a'},
+          favorites: {'/a.mp3'},
           downloads: {'b'},
         );
 
@@ -135,7 +135,7 @@ void main() {
               .map((n) => n.id),
           isNot(contains(MediaId.favorites)),
         );
-        final tree = treeWith(tracks: library, favorites: {'a'});
+        final tree = treeWith(tracks: library, favorites: {'/a.mp3'});
         expect((await _kids(tree, MediaId.root)).map((n) => n.id),
             contains(MediaId.favorites));
       });
@@ -157,7 +157,7 @@ void main() {
         final tree = treeWith(
           tracks: library,
           playlists: [const Playlist(id: 'p1', name: 'Roadtrip')],
-          favorites: {'a'},
+          favorites: {'/a.mp3'},
           downloads: {'b'},
         );
 
@@ -422,8 +422,11 @@ void main() {
 
     group('playlists', () {
       final playlists = <Playlist>[
-        // 'x' is not in the catalog and must be dropped (it can't be played).
-        const Playlist(id: 'p1', name: 'Roadtrip', trackIds: ['c', 'a', 'x']),
+        // '/x.mp3' is not in the catalog and must be dropped (can't be played).
+        const Playlist(
+            id: 'p1',
+            name: 'Roadtrip',
+            trackIds: ['/c.mp3', '/a.mp3', '/x.mp3']),
         const Playlist(id: 'p2', name: 'Empty'),
       ];
 
@@ -487,15 +490,35 @@ void main() {
             await _pick(buildTree(), MediaId.playlistTrack('nope', 0)), isNull);
         expect(await _kids(buildTree(), MediaId.playlist('nope')), isEmpty);
       });
+
+      test('a member resolves to its own provider, not a same-id sibling',
+          () async {
+        const Track jelly =
+            Track(id: '101', title: 'Alpha', uri: 'jellyfin:101');
+        const Track sub = Track(id: '101', title: 'Beta', uri: 'subsonic:101');
+        final tree = MediaBrowserTree(
+          FakeMusicLibraryRepository(tracks: const <Track>[jelly, sub]),
+          playlists: FakePlaylistRepository(<Playlist>[
+            const Playlist(
+                id: 'p1', name: 'Mix', trackIds: <String>['jellyfin:101']),
+          ]),
+        );
+
+        final nodes = await _kids(tree, MediaId.playlist('p1'));
+        // The `jellyfin:101` entry resolves to the Jellyfin track only.
+        expect(nodes.map((n) => n.title), <String>['Alpha']);
+      });
     });
 
     group('favorites', () {
-      // Catalog order is a, b, c; favouriting a and c (plus a stale 'x' not in
-      // the catalog) must list/resolve as [a, c] in catalog order.
-      MediaBrowserTree buildTree([Set<String> ids = const {'a', 'c', 'x'}]) {
+      // Catalog order is a, b, c; favouriting a and c (plus a stale '/x.mp3' not
+      // in the catalog) must list/resolve as [a, c] in catalog order. Favourites
+      // are keyed by uri, matching _track's '/$id.mp3'.
+      MediaBrowserTree buildTree(
+          [Set<String> uris = const {'/a.mp3', '/c.mp3', '/x.mp3'}]) {
         return MediaBrowserTree(
           FakeMusicLibraryRepository(tracks: library),
-          favorites: FakeFavoritesRepository(ids),
+          favorites: FakeFavoritesRepository(uris),
         );
       }
 
@@ -528,6 +551,21 @@ void main() {
 
       test('an out-of-range favourite index resolves to null', () async {
         expect(await _pick(buildTree(), MediaId.favoriteItem(9)), isNull);
+      });
+
+      test('a favourite on one provider never surfaces a same-id sibling',
+          () async {
+        const Track jelly =
+            Track(id: '101', title: 'Alpha', uri: 'jellyfin:101');
+        const Track sub = Track(id: '101', title: 'Beta', uri: 'subsonic:101');
+        final tree = MediaBrowserTree(
+          FakeMusicLibraryRepository(tracks: const <Track>[jelly, sub]),
+          favorites: FakeFavoritesRepository(const <String>{'jellyfin:101'}),
+        );
+
+        final nodes = await _kids(tree, MediaId.favorites);
+        // Only the favourited copy appears — not its same-id Subsonic sibling.
+        expect(nodes.map((n) => n.title), <String>['Alpha']);
       });
     });
 
