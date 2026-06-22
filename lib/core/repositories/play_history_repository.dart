@@ -9,9 +9,13 @@ import '../models/track.dart';
 /// touching the backing store directly, mirroring how the player reads a
 /// `PlaybackState` and never the audio engine.
 ///
-/// Privacy invariant: only the track *id* is recorded — never its uri, a token,
-/// or an authenticated URL — and the history stays on the device (no telemetry,
-/// no server upload).
+/// History is keyed by the provider-namespaced [Track.uri], so a play of
+/// `jellyfin:101` never makes `subsonic:101` look played.
+///
+/// Privacy invariant: only the non-secret [Track.uri] is recorded — the same
+/// identity the catalog and "recently added" store persist — never a token or
+/// an authenticated stream URL, and the history stays on the device (no
+/// telemetry, no server upload).
 abstract interface class PlayHistoryRepository {
   /// Emits the current history immediately, then on every recorded play.
   Stream<PlayHistory> get historyStream;
@@ -20,6 +24,6 @@ abstract interface class PlayHistoryRepository {
   PlayHistory get current;
 
   /// Records that [track] finished playing: increments its play count and sets
-  /// its last-played time to now. Only [Track.id] is read. Never throws.
+  /// its last-played time to now, keyed by [Track.uri]. Never throws.
   Future<void> recordCompletion(Track track);
 }

@@ -10,13 +10,15 @@ import 'remote_sync_result.dart';
 /// storage directly — mirroring how the player reads a [PlaybackState] and never
 /// the audio engine.
 abstract interface class FavoritesRepository {
-  /// Emits the current favourite track-id set immediately, then on every change.
+  /// Emits the current favourite track-uri set immediately, then on every
+  /// change. Entries are provider-namespaced [Track.uri]s, so a same-id track
+  /// from another provider is never wrongly reported as a favourite.
   Stream<Set<String>> get favoritesStream;
 
-  /// Whether [trackId] is currently a favourite. A synchronous best-effort read
+  /// Whether [trackUri] is currently a favourite. A synchronous best-effort read
   /// of the in-memory mirror (empty until the first load); the stream is what
-  /// the UI should bind to.
-  bool isFavorite(String trackId);
+  /// the UI should bind to. Keyed by the provider-namespaced uri.
+  bool isFavorite(String trackUri);
 
   /// Marks (or unmarks) [track] as a favourite. Updates immediately and, for a
   /// Jellyfin track while signed in, pushes the change to the server. Never

@@ -2,6 +2,11 @@ import 'package:flutter/foundation.dart';
 
 /// The persisted favourite sets, split by source so a remote refresh can replace
 /// the server-owned set without disturbing favourites on local-only tracks.
+///
+/// Both sets hold the provider-namespaced [Track.uri] (`jellyfin:101`, a local
+/// path), not the bare server-side id — so a favourite on `jellyfin:101` is
+/// never confused with `subsonic:101`. The split is by *source*, not identity:
+/// `localIds` are on-device tracks, `remoteIds` are the server-mirrored ones.
 @immutable
 class FavoritesData {
   const FavoritesData({
@@ -11,10 +16,12 @@ class FavoritesData {
 
   static const FavoritesData empty = FavoritesData();
 
-  /// Favourite track ids that live only on this device (local-folder tracks).
+  /// Favourite track uris that live only on this device (local-folder tracks).
   final Set<String> localIds;
 
-  /// Favourite Jellyfin item ids, mirrored from and pushed to the server.
+  /// Favourite remote track uris (Jellyfin), mirrored from and pushed to the
+  /// server. The server speaks bare item ids, so the repository maps each uri to
+  /// its bare id at the request boundary.
   final Set<String> remoteIds;
 
   FavoritesData copyWith({Set<String>? localIds, Set<String>? remoteIds}) {

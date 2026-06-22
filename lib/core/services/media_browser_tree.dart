@@ -507,12 +507,14 @@ class MediaBrowserTree {
   /// track. Favourite ids with no matching catalog track (e.g. a server
   /// favourite not synced to this device) are dropped — they can't be played.
   Future<List<Track>> _favoriteTracks() async {
-    final Set<String> ids = await _favoriteIds();
-    if (ids.isEmpty) return const <Track>[];
+    final Set<String> uris = await _favoriteIds();
+    if (uris.isEmpty) return const <Track>[];
     final List<Track> tracks = await _allTracks();
+    // Match on the provider-namespaced uri the favourites set now holds, so a
+    // favourite on `jellyfin:101` never surfaces `subsonic:101` in the car.
     return <Track>[
       for (final Track track in tracks)
-        if (ids.contains(track.id)) track,
+        if (uris.contains(track.uri)) track,
     ];
   }
 
@@ -539,12 +541,14 @@ class MediaBrowserTree {
     if (playlists == null) return const <Track>[];
     final Playlist? playlist = await _playlistById(playlists, playlistId);
     if (playlist == null || playlist.trackIds.isEmpty) return const <Track>[];
-    final Map<String, Track> byId = <String, Track>{
-      for (final Track track in await _allTracks()) track.id: track,
+    // Resolve by the provider-namespaced uri the membership now stores, so a
+    // `jellyfin:101` entry can't resolve to a same-id `subsonic:101` track.
+    final Map<String, Track> byUri = <String, Track>{
+      for (final Track track in await _allTracks()) track.uri: track,
     };
     return <Track>[
-      for (final String id in playlist.trackIds)
-        if (byId[id] != null) byId[id]!,
+      for (final String uri in playlist.trackIds)
+        if (byUri[uri] != null) byUri[uri]!,
     ];
   }
 
@@ -561,9 +565,10 @@ class MediaBrowserTree {
     }
   }
 
-  /// The current favourite track-id set, read from the repository's stream
-  /// (which yields the current set immediately). Guarded: any failure yields an
-  /// empty set so a misbehaving favourites backend can't break browsing.
+  /// The current favourite track-uri set (provider-namespaced), read from the
+  /// repository's stream (which yields the current set immediately). Guarded: any
+  /// failure yields an empty set so a misbehaving favourites backend can't break
+  /// browsing.
   Future<Set<String>> _favoriteIds() async {
     final FavoritesRepository? favorites = _favorites;
     if (favorites == null) return const <String>{};

@@ -16,11 +16,16 @@ void main() {
   // A small catalog plus the on-device signals each mix is built from.
   final List<Track> catalog = <Track>[_t('a'), _t('b'), _t('c'), _t('d')];
 
+  // Keyed by the provider-namespaced uri (jellyfin:<id> here, matching the _t
+  // helper), the way play history now records completions.
   final PlayHistory history = PlayHistory(
     stats: <String, TrackPlayStats>{
-      'a': TrackPlayStats(playCount: 5, lastPlayedAt: DateTime(2024, 1, 1)),
-      'b': TrackPlayStats(playCount: 1, lastPlayedAt: DateTime(2024, 1, 3)),
-      'c': TrackPlayStats(playCount: 3, lastPlayedAt: DateTime(2024, 1, 2)),
+      'jellyfin:a':
+          TrackPlayStats(playCount: 5, lastPlayedAt: DateTime(2024, 1, 1)),
+      'jellyfin:b':
+          TrackPlayStats(playCount: 1, lastPlayedAt: DateTime(2024, 1, 3)),
+      'jellyfin:c':
+          TrackPlayStats(playCount: 3, lastPlayedAt: DateTime(2024, 1, 2)),
     },
   );
 
@@ -91,11 +96,11 @@ void main() {
           _ids(resolve(SmartPlaylistKind.mostPlayed)), <String>['a', 'c', 'b']);
     });
 
-    test('favorites mix uses the favorite id set', () {
+    test('favorites mix uses the favorite uri set', () {
       final List<Track> result = resolve(
         SmartPlaylistKind.favorites,
         // 'z' isn't in the catalog and must be ignored gracefully.
-        favoriteIds: <String>{'b', 'd', 'z'},
+        favoriteIds: <String>{'jellyfin:b', 'jellyfin:d', 'jellyfin:z'},
       );
       expect(_ids(result), <String>['b', 'd']);
     });
@@ -128,6 +133,57 @@ void main() {
     test('never played excludes anything in the play history', () {
       // a, b, c have history; only d is never played.
       expect(_ids(resolve(SmartPlaylistKind.neverPlayed)), <String>['d']);
+    });
+
+    group('does not cross-contaminate same-id provider copies', () {
+      // jellyfin:101 and subsonic:101 share the bare id 101; only the Jellyfin
+      // copy has play history / is favourited.
+      const Track jelly = Track(id: '101', title: 'Alpha', uri: 'jellyfin:101');
+      const Track sub = Track(id: '101', title: 'Beta', uri: 'subsonic:101');
+      final List<Track> twoProviders = <Track>[jelly, sub];
+      final PlayHistory jellyOnly = PlayHistory(
+        stats: <String, TrackPlayStats>{
+          'jellyfin:101':
+              TrackPlayStats(playCount: 4, lastPlayedAt: DateTime(2024, 1, 1)),
+        },
+      );
+
+      List<Track> resolveTwo(SmartPlaylistKind kind,
+          {Set<String> favoriteIds = const <String>{}}) {
+        return const SmartPlaylistResolver().resolve(
+          kind,
+          allTracks: twoProviders,
+          history: jellyOnly,
+          addedAt: const <String, DateTime>{},
+          favoriteIds: favoriteIds,
+          downloadedKeys: const <String>{},
+        );
+      }
+
+      test('recently played shows only the played copy', () {
+        expect(resolveTwo(SmartPlaylistKind.recentlyPlayed).map((t) => t.uri),
+            <String>['jellyfin:101']);
+      });
+
+      test('most played shows only the played copy', () {
+        expect(resolveTwo(SmartPlaylistKind.mostPlayed).map((t) => t.uri),
+            <String>['jellyfin:101']);
+      });
+
+      test('never played keeps the unplayed sibling', () {
+        // The Jellyfin copy was played; the Subsonic copy never was, so only it
+        // appears — not excluded by its sibling's history.
+        expect(resolveTwo(SmartPlaylistKind.neverPlayed).map((t) => t.uri),
+            <String>['subsonic:101']);
+      });
+
+      test('favorites shows only the favourited copy', () {
+        expect(
+          resolveTwo(SmartPlaylistKind.favorites,
+              favoriteIds: <String>{'jellyfin:101'}).map((t) => t.uri),
+          <String>['jellyfin:101'],
+        );
+      });
     });
 
     test('random mix is bounded by maxTracks', () {

@@ -316,7 +316,8 @@ void main() {
           .where((p) => p.remoteId == 'srv-1');
       expect(imported, hasLength(1));
       expect(imported.single.name, 'Road Trip');
-      expect(imported.single.trackIds, <String>['a']);
+      // Server item ids are namespaced to jellyfin: uris on import.
+      expect(imported.single.trackIds, <String>['jellyfin:a']);
     });
 
     test('a library sync adopts Jellyfin favourites and reports them',
@@ -339,8 +340,9 @@ void main() {
       final state = container.read(jellyfinSyncControllerProvider);
       expect(state.favoriteCount, 2);
       expect(state.message, contains('2 favorites'));
-      expect(favorites.isFavorite('fav-1'), isTrue);
-      expect(favorites.isFavorite('fav-2'), isTrue);
+      // Server favourites are namespaced to jellyfin: uris.
+      expect(favorites.isFavorite('jellyfin:fav-1'), isTrue);
+      expect(favorites.isFavorite('jellyfin:fav-2'), isTrue);
     });
 
     test('a playlist sync failure is reported without failing the track sync',

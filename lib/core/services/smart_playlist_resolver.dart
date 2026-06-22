@@ -40,9 +40,9 @@ class SmartPlaylistResolver {
       case SmartPlaylistKind.recentlyAdded:
         return _recentlyAdded(allTracks, addedAt);
       case SmartPlaylistKind.recentlyPlayed:
-        return _byIdOrder(allTracks, history.recentlyPlayedIds);
+        return _byUriOrder(allTracks, history.recentlyPlayedKeys);
       case SmartPlaylistKind.mostPlayed:
-        return _byIdOrder(allTracks, history.mostPlayedIds);
+        return _byUriOrder(allTracks, history.mostPlayedKeys);
       case SmartPlaylistKind.favorites:
         return _filter(allTracks, favoriteIds);
       case SmartPlaylistKind.downloaded:
@@ -53,7 +53,7 @@ class SmartPlaylistResolver {
         return _bounded(
           <Track>[
             for (final Track track in allTracks)
-              if (!history.hasPlayed(track.id)) track,
+              if (!history.hasPlayed(track.uri)) track,
           ],
         );
     }
@@ -91,24 +91,27 @@ class SmartPlaylistResolver {
     return _epoch;
   }
 
-  /// Resolves [orderedIds] against the catalog, preserving the given order and
-  /// dropping ids the catalog no longer has.
-  List<Track> _byIdOrder(List<Track> allTracks, List<String> orderedIds) {
-    final Map<String, Track> byId = <String, Track>{
-      for (final Track track in allTracks) track.id: track,
+  /// Resolves [orderedUris] (provider-namespaced play-history keys) against the
+  /// catalog, preserving the given order and dropping uris the catalog no longer
+  /// has. Keying on [Track.uri] keeps the right copy when two providers share a
+  /// bare id, so a play of `jellyfin:101` never surfaces `subsonic:101`.
+  List<Track> _byUriOrder(List<Track> allTracks, List<String> orderedUris) {
+    final Map<String, Track> byUri = <String, Track>{
+      for (final Track track in allTracks) track.uri: track,
     };
     return _bounded(<Track>[
-      for (final String id in orderedIds)
-        if (byId[id] != null) byId[id]!,
+      for (final String uri in orderedUris)
+        if (byUri[uri] != null) byUri[uri]!,
     ]);
   }
 
-  /// Catalog-ordered subset whose ids are in [ids] — the favourites mix. Not
+  /// Catalog-ordered subset whose uris are in [uris] — the favourites mix. Keyed
+  /// by [Track.uri] so a same-id copy from another provider isn't pulled in. Not
   /// bounded: favourites are user-curated, so the mix shows all of them.
-  List<Track> _filter(List<Track> allTracks, Set<String> ids) {
+  List<Track> _filter(List<Track> allTracks, Set<String> uris) {
     return <Track>[
       for (final Track track in allTracks)
-        if (ids.contains(track.id)) track,
+        if (uris.contains(track.uri)) track,
     ];
   }
 

@@ -21,7 +21,7 @@ void main() {
           id: 'p1',
           name: 'Local Mix',
           description: 'desc',
-          trackIds: const <String>['a', 'b'],
+          trackIds: const <String>['file:///a.mp3', 'subsonic:b'],
           createdAt: DateTime(2024, 1, 1),
           updatedAt: DateTime(2024, 1, 2),
         ),
@@ -30,7 +30,7 @@ void main() {
           name: 'Server Mix',
           source: PlaylistSource.jellyfin,
           remoteId: 'srv-1',
-          trackIds: <String>['x'],
+          trackIds: <String>['jellyfin:x'],
           syncState: PlaylistSyncState.synced,
         ),
       ];
@@ -41,7 +41,7 @@ void main() {
       expect(loaded, hasLength(2));
       expect(loaded[0].name, 'Local Mix');
       expect(loaded[0].description, 'desc');
-      expect(loaded[0].trackIds, <String>['a', 'b']);
+      expect(loaded[0].trackIds, <String>['file:///a.mp3', 'subsonic:b']);
       expect(loaded[0].createdAt, DateTime(2024, 1, 1));
       expect(loaded[1].source, PlaylistSource.jellyfin);
       expect(loaded[1].remoteId, 'srv-1');

@@ -2,12 +2,15 @@ import 'dart:async';
 
 import '../../core/models/jellyfin_session.dart';
 import '../../core/models/playlist.dart';
+import '../../core/models/track.dart';
 import '../../core/repositories/playlist_repository.dart';
 import '../../core/repositories/playlist_store.dart';
 import '../../core/repositories/remote_sync_result.dart';
 import '../../core/sources/jellyfin/jellyfin_api.dart';
 import '../../core/sources/jellyfin/jellyfin_client.dart';
 import '../../core/sources/jellyfin/jellyfin_exception.dart';
+import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
+import '../../core/sources/music_provider.dart';
 
 /// The app's [PlaylistRepository]: a local, persisted set of playlists with
 /// optional best-effort Jellyfin sync layered on top.
@@ -32,13 +35,21 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     JellyfinSession? Function()? session,
     String Function()? idGenerator,
     DateTime Function()? now,
+    Future<List<Track>> Function()? catalogForMigration,
   })  : _store = store,
         _client = client,
         _session = session,
         _newId = idGenerator ?? _defaultIdGenerator(),
-        _now = now ?? DateTime.now;
+        _now = now ?? DateTime.now,
+        _catalogForMigration = catalogForMigration;
 
   final PlaylistStore _store;
+
+  /// Supplies the current catalog for the one-time bare-id → uri membership
+  /// migration of *local* playlists, or null when none is needed (tests, the
+  /// data-layer default). A Jellyfin playlist needs no oracle — its bare ids are
+  /// unambiguously Jellyfin items.
+  final Future<List<Track>> Function()? _catalogForMigration;
 
   /// The Jellyfin HTTP seam, or `null` when playlists are local-only (tests, the
   /// data-layer default). Read lazily alongside [_session].
@@ -57,6 +68,10 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   List<Playlist> _playlists = <Playlist>[];
   bool _loaded = false;
 
+  /// Guards the one-time legacy bare-id → uri membership migration so it runs at
+  /// most once, after the catalog is available (see [_migrateLegacyTrackIdsOnce]).
+  bool _migratedLegacyTrackIds = false;
+
   static String Function() _defaultIdGenerator() {
     int counter = 0;
     return () {
@@ -67,9 +82,11 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   }
 
   Future<void> _ensureLoaded() async {
-    if (_loaded) return;
-    _playlists = await _store.load();
-    _loaded = true;
+    if (!_loaded) {
+      _playlists = await _store.load();
+      _loaded = true;
+    }
+    await _migrateLegacyTrackIdsOnce();
   }
 
   JellyfinSession? _liveSession() => _session?.call();
@@ -170,20 +187,20 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   }
 
   @override
-  Future<void> addTrack(String playlistId, String trackId) =>
-      addTracks(playlistId, <String>[trackId]);
+  Future<void> addTrack(String playlistId, String trackUri) =>
+      addTracks(playlistId, <String>[trackUri]);
 
   @override
-  Future<void> addTracks(String playlistId, List<String> trackIds) async {
+  Future<void> addTracks(String playlistId, List<String> trackUris) async {
     await _ensureLoaded();
     final Playlist? playlist = _byId(playlistId);
     if (playlist == null) return;
     final List<String> added = <String>[];
     final List<String> updated = <String>[...playlist.trackIds];
-    for (final String trackId in trackIds) {
-      if (trackId.isEmpty || updated.contains(trackId)) continue;
-      updated.add(trackId);
-      added.add(trackId);
+    for (final String trackUri in trackUris) {
+      if (trackUri.isEmpty || updated.contains(trackUri)) continue;
+      updated.add(trackUri);
+      added.add(trackUri);
     }
     if (added.isEmpty) return;
     await _mutate(
@@ -193,18 +210,20 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     await _pushMembership(
       playlistId,
       (JellyfinClient client, JellyfinSession session, String remoteId) =>
-          client.addItemsToPlaylist(session, remoteId, added),
+          // The server speaks bare item ids; a synced playlist only holds
+          // jellyfin: uris, so map them back at the request boundary.
+          client.addItemsToPlaylist(session, remoteId, _jellyfinItemIds(added)),
     );
   }
 
   @override
-  Future<void> removeTrack(String playlistId, String trackId) async {
+  Future<void> removeTrack(String playlistId, String trackUri) async {
     await _ensureLoaded();
     final Playlist? playlist = _byId(playlistId);
-    if (playlist == null || !playlist.trackIds.contains(trackId)) return;
+    if (playlist == null || !playlist.trackIds.contains(trackUri)) return;
     final List<String> updated = <String>[
-      for (final String id in playlist.trackIds)
-        if (id != trackId) id,
+      for (final String uri in playlist.trackIds)
+        if (uri != trackUri) uri,
     ];
     await _mutate(
       playlistId,
@@ -213,7 +232,8 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     await _pushMembership(
       playlistId,
       (JellyfinClient client, JellyfinSession session, String remoteId) =>
-          client.removeItemsFromPlaylist(session, remoteId, <String>[trackId]),
+          client.removeItemsFromPlaylist(
+              session, remoteId, _jellyfinItemIds(<String>[trackUri])),
     );
   }
 
@@ -294,12 +314,14 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     ];
     bool changed = next.length != _playlists.length;
     for (final JellyfinPlaylistDto dto in remote) {
-      List<String> itemIds;
+      List<String> trackUris;
       try {
         final List<JellyfinPlaylistEntry> entries =
             await client.fetchPlaylistEntries(session, dto.id);
-        itemIds = <String>[
-          for (final JellyfinPlaylistEntry e in entries) e.itemId,
+        // The server returns bare item ids; namespace them to jellyfin: uris so
+        // imported membership keys the same way local edits and the catalog do.
+        trackUris = <String>[
+          for (final JellyfinPlaylistEntry e in entries) _jellyfinUri(e.itemId),
         ];
       } on JellyfinException catch (_) {
         // Skip this playlist's membership refresh; keep the rest going.
@@ -314,7 +336,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
             name: dto.name,
             source: PlaylistSource.jellyfin,
             remoteId: dto.id,
-            trackIds: itemIds,
+            trackIds: trackUris,
             createdAt: _now(),
             updatedAt: _now(),
             syncState: PlaylistSyncState.synced,
@@ -326,7 +348,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         if (index >= 0) {
           next[index] = existing.copyWith(
             name: dto.name,
-            trackIds: itemIds,
+            trackIds: trackUris,
             syncState: PlaylistSyncState.synced,
             lastSyncError: () => null,
             updatedAt: _now(),
@@ -367,6 +389,128 @@ class SyncedPlaylistRepository implements PlaylistRepository {
 
   // --- Internal helpers --------------------------------------------------
 
+  /// Re-keys a pre-uri store's bare-`id` membership onto the provider-namespaced
+  /// [Track.uri], once, after the catalog is available.
+  ///
+  /// A Jellyfin-synced playlist could only ever hold Jellyfin items, so each of
+  /// its bare ids is namespaced with the `jellyfin:` scheme unambiguously. A
+  /// local playlist's members are resolved against the catalog: a local path is
+  /// already its own uri; a bare remote id adopts its catalog owner's uri when a
+  /// single provider exposes it, and is left untouched when more than one does —
+  /// or when the catalog doesn't have it — so a member is never mis-attributed
+  /// to the wrong provider. Persists locally only (never pushes to the server).
+  Future<void> _migrateLegacyTrackIdsOnce() async {
+    if (_migratedLegacyTrackIds) return;
+    final bool anyMembers =
+        _playlists.any((Playlist p) => p.trackIds.isNotEmpty);
+    if (!anyMembers) {
+      _migratedLegacyTrackIds = true;
+      return;
+    }
+
+    // Resolve local-playlist members against the catalog. A Jellyfin playlist
+    // needs no oracle, so only fetch when a local playlist actually has members.
+    Set<String> catalogUris = const <String>{};
+    Map<String, String?> ownerByBareId = const <String, String?>{};
+    final Future<List<Track>> Function()? oracle = _catalogForMigration;
+    final bool needCatalog = oracle != null &&
+        _playlists.any((Playlist p) =>
+            p.source == PlaylistSource.local && p.trackIds.isNotEmpty);
+    if (needCatalog) {
+      final List<Track> tracks;
+      try {
+        tracks = await oracle();
+      } catch (_) {
+        return; // Transient read failure: defer so a later call can retry.
+      }
+      // An empty catalog this early is "not loaded yet", not "no library";
+      // defer so an unambiguous local membership isn't stranded as a bare id.
+      if (tracks.isEmpty) return;
+      catalogUris = <String>{for (final Track t in tracks) t.uri};
+      final Map<String, String?> owners = <String, String?>{};
+      for (final Track t in tracks) {
+        if (t.uri == t.id) continue; // local: id == uri, never a bare-id key.
+        owners[t.id] = owners.containsKey(t.id) ? null : t.uri;
+      }
+      ownerByBareId = owners;
+    }
+    _migratedLegacyTrackIds = true;
+
+    bool changed = false;
+    final List<Playlist> next = <Playlist>[];
+    for (final Playlist playlist in _playlists) {
+      final List<String> migrated =
+          _migrateTrackIds(playlist, catalogUris, ownerByBareId);
+      if (identical(migrated, playlist.trackIds)) {
+        next.add(playlist);
+      } else {
+        changed = true;
+        next.add(playlist.copyWith(trackIds: migrated));
+      }
+    }
+    if (changed) {
+      _playlists = next;
+      await _persistAndEmit();
+    }
+  }
+
+  /// The migrated membership for [playlist], or its existing list unchanged when
+  /// nothing needed re-keying. Collapses any duplicate the re-key introduces
+  /// (preserving first-seen order), so a playlist can't end up with two entries
+  /// for the same track.
+  List<String> _migrateTrackIds(
+    Playlist playlist,
+    Set<String> catalogUris,
+    Map<String, String?> ownerByBareId,
+  ) {
+    if (playlist.trackIds.isEmpty) return playlist.trackIds;
+    bool changed = false;
+    final Set<String> seen = <String>{};
+    final List<String> result = <String>[];
+    for (final String id in playlist.trackIds) {
+      final String mapped =
+          _migrateOneTrackId(id, playlist.source, catalogUris, ownerByBareId);
+      if (mapped != id) changed = true;
+      if (seen.add(mapped)) {
+        result.add(mapped);
+      } else {
+        changed = true; // a duplicate collapsed away
+      }
+    }
+    return changed ? result : playlist.trackIds;
+  }
+
+  /// Maps one legacy membership entry to its provider uri. Entries that already
+  /// carry a known scheme are returned unchanged.
+  String _migrateOneTrackId(
+    String id,
+    PlaylistSource source,
+    Set<String> catalogUris,
+    Map<String, String?> ownerByBareId,
+  ) {
+    // Already provider-namespaced (jellyfin:/subsonic:/plex:): nothing to do.
+    if (MusicProviders.bareRemoteIdForTrackUri(id) != null) return id;
+    // A synced playlist's bare ids are unambiguously Jellyfin item ids.
+    if (source == PlaylistSource.jellyfin) return _jellyfinUri(id);
+    // Local playlist: a local path is already its own uri.
+    if (catalogUris.contains(id)) return id;
+    // A bare remote id adopts its unique catalog owner (ambiguous/unknown → as-is).
+    return ownerByBareId[id] ?? id;
+  }
+
+  /// The provider uri for a bare Jellyfin item id (`101` → `jellyfin:101`).
+  static String _jellyfinUri(String itemId) =>
+      '${JellyfinTrackMapper.uriScheme}$itemId';
+
+  /// The bare Jellyfin item ids for the `jellyfin:` uris in [uris], in order.
+  /// Non-Jellyfin uris are dropped: a Jellyfin server playlist can only hold
+  /// Jellyfin items, so this is what the server API is given.
+  static List<String> _jellyfinItemIds(List<String> uris) => <String>[
+        for (final String uri in uris)
+          if (uri.startsWith(JellyfinTrackMapper.uriScheme))
+            uri.substring(JellyfinTrackMapper.uriScheme.length),
+      ];
+
   /// Pushes a freshly created playlist to the server, returning the updated
   /// playlist (with a [Playlist.remoteId] + [PlaylistSyncState.synced] on
   /// success, or [PlaylistSyncState.syncFailed] + a friendly error on failure).
@@ -378,7 +522,9 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       final String remoteId = await client.createPlaylist(
         session,
         name: playlist.name,
-        itemIds: playlist.trackIds,
+        // Map the playlist's jellyfin: uris back to the bare item ids the
+        // server API expects (non-Jellyfin uris, if any, are dropped).
+        itemIds: _jellyfinItemIds(playlist.trackIds),
       );
       return await _mutate(
         playlist.id,

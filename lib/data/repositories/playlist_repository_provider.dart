@@ -5,6 +5,7 @@ import '../../core/repositories/playlist_store.dart';
 import '../../features/settings/jellyfin/jellyfin_settings_controller.dart';
 import '../../features/settings/jellyfin/jellyfin_settings_providers.dart';
 import 'in_memory_playlist_store.dart';
+import 'music_library_repository_provider.dart';
 import 'shared_preferences_playlist_store.dart';
 import 'synced_playlist_repository.dart';
 
@@ -22,6 +23,10 @@ final playlistStoreProvider = Provider<PlaylistStore>((ref) {
 final playlistRepositoryProvider = Provider<PlaylistRepository>((ref) {
   final SyncedPlaylistRepository repository = SyncedPlaylistRepository(
     store: ref.watch(playlistStoreProvider),
+    // Resolve legacy bare-id local-playlist membership onto provider uris
+    // against the live catalog (unambiguous ids only).
+    catalogForMigration: () =>
+        ref.read(musicLibraryRepositoryProvider).getAllTracks(),
   );
   ref.onDispose(repository.dispose);
   return repository;
@@ -45,6 +50,8 @@ final jellyfinPlaylistSyncOverride =
     client: ref.read(jellyfinClientProvider),
     session: () =>
         ref.read(jellyfinSettingsControllerProvider.notifier).session,
+    catalogForMigration: () =>
+        ref.read(musicLibraryRepositoryProvider).getAllTracks(),
   );
   ref.onDispose(repository.dispose);
   return repository;

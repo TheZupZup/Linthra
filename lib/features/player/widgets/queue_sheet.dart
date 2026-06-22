@@ -196,7 +196,7 @@ class QueueSheet extends ConsumerWidget {
     );
     await repository.addTracks(
       created.id,
-      <String>[for (final Track track in tracks) track.id],
+      <String>[for (final Track track in tracks) track.uri],
     );
     messenger.showSnackBar(
       SnackBar(
