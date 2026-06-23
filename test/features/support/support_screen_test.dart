@@ -90,9 +90,25 @@ void main() {
       expect(find.text('App store and distribution costs'), findsOneWidget);
       expect(find.text('Long-term maintenance'), findsOneWidget);
 
-      // The core-stays-free reassurance.
+      // The core-stays-free reassurance — support changes nothing.
       expect(
           find.textContaining('All core features stay free'), findsOneWidget);
+      expect(find.textContaining('unlocks nothing'), findsOneWidget);
+    });
+
+    testWidgets(
+        'includes a secondary, playful "lonely maintainer" note with '
+        '"No pressure" kept visible', (tester) async {
+      await _pump(tester);
+
+      expect(find.textContaining("I'm lonely"), findsOneWidget);
+      expect(
+        find.textContaining('keep Linthra alive except you'),
+        findsOneWidget,
+      );
+      // The anti-guilt-trip reassurance is present and visible.
+      expect(find.textContaining('No pressure'), findsOneWidget);
+      expect(find.textContaining('build something cool'), findsOneWidget);
     });
 
     testWidgets('renders a row per action from the provider', (tester) async {

@@ -24,6 +24,12 @@ build-safe structure that lets a future Play Store build add supporter purchases
   future build offers a "supporter" purchase, it buys goodwill (and a thank-you),
   not functionality.
 
+A small, deliberately **secondary and playful** "lonely maintainer" aside sits
+at the bottom of the screen. It is tone only: rendered inline (never a popup),
+below the serious explanation (never the headline), it keeps "No pressure"
+visible, blocks no navigation, and unlocks/changes nothing. It is not premium
+wording and is F-Droid/Play-safe.
+
 ## 2. Reaching the screen
 
 In the app: **Settings → About → Support Linthra**.

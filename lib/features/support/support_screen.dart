@@ -40,6 +40,8 @@ class SupportScreen extends ConsumerWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           const _FreeForeverNote(),
+          const SizedBox(height: AppSpacing.md),
+          const _LonelyMaintainerNote(),
         ],
       ),
     );
@@ -245,12 +247,61 @@ class _FreeForeverNote extends StatelessWidget {
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Text(
-            'All core features stay free and unlocked — support never gates '
-            'anything in Linthra.',
+            'All core features stay free and unlocked. Support never gates '
+            'anything, unlocks nothing, and changes nothing about how the app '
+            'works.',
             style: theme.textTheme.bodySmall?.copyWith(color: muted),
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A small, deliberately secondary and playful aside beneath the serious
+/// explanation. It is tone only: it sits at the bottom (never the headline),
+/// is rendered inline (never a popup), blocks no navigation, gates and unlocks
+/// nothing, and keeps "No pressure" in view so it never reads as a guilt-trip.
+class _LonelyMaintainerNote extends StatelessWidget {
+  const _LonelyMaintainerNote();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color faint = theme.colorScheme.onSurface.withValues(alpha: 0.5);
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.primary.withValues(alpha: 0.05),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              "I'm lonely… I'm so lonely… I got nobody 🥺",
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: faint,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Nobody to help me keep Linthra alive except you.',
+              style: theme.textTheme.bodySmall?.copyWith(color: faint),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            // Kept the most readable line of the aside so the reassurance — not
+            // the lament — is what stands out.
+            Text(
+              'No pressure. Just support if you want to help this lonely '
+              'maintainer build something cool. ❤️',
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
