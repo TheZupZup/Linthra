@@ -127,7 +127,8 @@ void main() {
           reason: 'the matching regain resumes a focus-loss pause');
     });
 
-    test('a permanent loss pauses and a later regain does NOT resume', () async {
+    test('a permanent loss pauses and a later regain does NOT resume',
+        () async {
       final p = _RecordingPlayer();
       final controller = JustAudioPlaybackController(player: p);
       addTearDown(controller.dispose);

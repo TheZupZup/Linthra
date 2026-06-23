@@ -725,7 +725,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// receiver owns its own volume while suspended, so this is a no-op then.
   Future<void> _applyVolume() async {
     if (_suspended) return;
-    double volume = volumeFor(_queue.current, normalizeVolume: _normalizeVolume);
+    double volume =
+        volumeFor(_queue.current, normalizeVolume: _normalizeVolume);
     // While another app holds a duckable transient focus, attenuate (but keep
     // playing). [_restoreDuckedVolume] clears the flag and re-applies full
     // volume on the unduck/regain, so the engine is never left ducked.
