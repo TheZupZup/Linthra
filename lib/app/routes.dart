@@ -65,6 +65,10 @@ abstract final class AppRoutes {
   /// [settings].
   static const String settingsDownloads = '/settings/downloads';
 
+  /// "Appearance" — pick an in-app branding variant for the Linthra mark. Purely
+  /// cosmetic; a child of [settings].
+  static const String settingsAppearance = '/settings/appearance';
+
   /// "Diagnostics & support" — report a bug and copy a safe diagnostics
   /// snapshot. A child of [settings].
   static const String settingsDiagnostics = '/settings/diagnostics';

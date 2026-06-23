@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../core/app_info.dart';
-import '../../shared/widgets/linthra_logo_mark.dart';
+import '../appearance/selected_logo_mark.dart';
 import 'hub/settings_category_tile.dart';
 
 /// The Settings hub: a short, scannable list of categories rather than one long
@@ -53,6 +53,13 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           SettingsCategoryTile(
+            icon: Icons.palette_outlined,
+            title: 'Appearance',
+            subtitle: 'App icon and in-app branding',
+            onTap: () => context.push(AppRoutes.settingsAppearance),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SettingsCategoryTile(
             icon: Icons.help_outline,
             title: 'Diagnostics & support',
             subtitle: 'Report a bug, copy diagnostics',
@@ -88,7 +95,7 @@ class _BrandHeader extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          const LinthraLogoMark(size: 40),
+          const SelectedLinthraLogoMark(size: 40),
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(

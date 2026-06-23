@@ -9,6 +9,7 @@ import 'core/models/subsonic_session.dart';
 import 'core/services/linthra_audio_handler.dart';
 import 'core/sources/plex/plex_artwork.dart';
 import 'core/sources/subsonic/subsonic_artwork.dart';
+import 'data/repositories/app_icon_variant_store_provider.dart';
 import 'data/repositories/default_provider_store_provider.dart';
 import 'data/repositories/download_repository_provider.dart';
 import 'data/repositories/favorites_repository_provider.dart';
@@ -103,6 +104,9 @@ Future<void> main() async {
       // Persist on-device play history (counts + last-played) for the
       // "Recently played" / "Most played" / "Never played" smart mixes.
       sharedPreferencesPlayHistoryStoreOverride,
+      // Persist the user's chosen in-app branding variant (Settings →
+      // Appearance). A single non-secret variant id; purely cosmetic.
+      sharedPreferencesAppIconVariantStoreOverride,
       // Lyrics from whichever source owns the track: a signed-in Jellyfin or
       // Subsonic/Navidrome server, or a sidecar .lrc/.txt next to a local file.
       lyricsServiceOverride,
