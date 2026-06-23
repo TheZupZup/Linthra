@@ -305,8 +305,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       final AudioSession session = await AudioSession.instance;
       // `androidWillPauseWhenDucked: true` stops the OS from *silently*
       // auto-ducking (and, on some devices, never restoring) our stream when
-      // another app grabs `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` — the
-      // "open ChatGPT / another app and Linthra keeps playing but goes silent"
+      // any other app grabs `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` — the
+      // "another app takes focus and Linthra keeps playing but goes silent"
       // bug. With it set, the duck is delivered to our interruption handler
       // instead, so we own the volume change deterministically and always
       // restore it on regain (see [_onAudioInterruption]).

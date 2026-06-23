@@ -56,9 +56,9 @@ AudioInterruptionEvent _end(AudioInterruptionType type) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  // The field bug: with music playing, opening another app (e.g. ChatGPT)
-  // grabs a duckable transient focus and Linthra goes silent and never
-  // recovers. These exercise the controller's focus handling end to end via a
+  // The field bug: with music playing, any other app grabbing a duckable
+  // transient focus left Linthra silent and never recovering.
+  // These exercise the controller's focus handling end to end via a
   // recording fake engine: a duck lowers (but never silences) the volume, and
   // any regain/unduck always restores it — so Linthra can never be left
   // muted/ducked once focus returns.
@@ -204,11 +204,12 @@ void main() {
   });
 
   group('voice session: repeated transient losses still resume on regain', () {
-    // The remaining field bug: a single ChatGPT voice session emits *several*
-    // transient losses back to back (may-duck focus on open, then exclusive
-    // mic/voice focus — both surface as transient pauses with the session set to
-    // pause-when-ducked). The 2nd loss must not disarm the resume by observing
-    // the already-paused state, or the regain at voice-end never restores sound.
+    // The remaining field bug: a single voice/mic session in another app emits
+    // *several* transient losses back to back (may-duck focus on open, then
+    // exclusive mic/voice focus — both surface as transient pauses with the
+    // session set to pause-when-ducked). The 2nd loss must not disarm the resume
+    // by observing the already-paused state, or the regain at the end never
+    // restores sound.
     test('two sustained transient losses then one regain resume playback',
         () async {
       final p = _RecordingPlayer();
