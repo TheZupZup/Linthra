@@ -589,15 +589,28 @@ Future<LinthraAudioHandler?> connectMediaSession(
       config: const audio.AudioServiceConfig(
         androidNotificationChannelId: 'com.linthra.audio',
         androidNotificationChannelName: 'Linthra playback',
-        // Keep the notification ongoing (un-swipeable) while the session reports
-        // `playing`, so the foreground media service — and the CPU/Wi-Fi wake
-        // locks it holds — stay alive with the screen off. `audio_service`
-        // requires `androidStopForegroundOnPause: true` (the default, set
-        // explicitly here) whenever the notification is ongoing: the service is
-        // foregrounded only while playing and demoted on a real pause, never on
-        // a mid-stream re-buffer (see [_isSessionPlaying]).
-        androidNotificationOngoing: true,
-        androidStopForegroundOnPause: true,
+        // Keep the foreground media service alive *across a pause*, not just
+        // while playing. With `androidStopForegroundOnPause: true`,
+        // `audio_service` releases the foreground service AND the CPU wake lock
+        // the moment the session reports `playing: false` — which lets the OS
+        // freeze the Flutter isolate while backgrounded. The on-device audio
+        // focus handling runs in that isolate (just_audio disables ExoPlayer's
+        // native focus and routes interruptions through audio_session/Dart), so
+        // a frozen isolate can't process the `AUDIOFOCUS_GAIN` that another app
+        // emits when it ends a voice/transient interruption — and playback only
+        // recovers when reopening the app unfreezes the isolate. Keeping the
+        // service foreground on pause keeps the isolate alive, so recovery
+        // happens in the background from the controller, never depending on the
+        // UI being reopened. The notification can no longer be ongoing-only
+        // (audio_service asserts `!ongoing || stopForegroundOnPause`); with the
+        // service kept foreground the notification persists regardless. Tradeoff:
+        // the wake lock is held while paused too (audio_service couples the two),
+        // i.e. slightly more battery if left paused — not stopped — for a long
+        // time; this is the standard "keep the session resumable while paused"
+        // behaviour. Foreground-while-playing (the screen-off-cutout fix in
+        // [_isSessionPlaying]) is unchanged.
+        androidNotificationOngoing: false,
+        androidStopForegroundOnPause: false,
         // Downscale the album-art bitmap `audio_service` embeds in the session
         // metadata. The metadata (with the bitmap) is delivered to the platform
         // session and to Android Auto across a process boundary; a full-size
