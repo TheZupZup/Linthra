@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
+import 'package:linthra/app/routes.dart';
 import 'package:linthra/core/app_info.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
 import 'package:linthra/features/settings/about/whats_new_section.dart';
@@ -104,6 +106,56 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text("Couldn't open the link."), findsOneWidget);
+    });
+
+    testWidgets('offers a "Support Linthra" entry', (tester) async {
+      await _pump(tester);
+
+      expect(find.text('Support Linthra'), findsOneWidget);
+      expect(
+        find.text('Free and open source — support is optional'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('tapping "Support Linthra" opens the support screen',
+        (tester) async {
+      final _FakeLinkLauncher launcher = _FakeLinkLauncher();
+      // A tall surface so the support card (mid-page) is laid out and hittable.
+      tester.view.physicalSize = const Size(1000, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      // A minimal router so the tap can be proven to push the support route,
+      // standing in the real SupportScreen with a marker leaf.
+      final GoRouter router = GoRouter(
+        initialLocation: AppRoutes.settingsAbout,
+        routes: <RouteBase>[
+          GoRoute(
+            path: AppRoutes.settingsAbout,
+            builder: (_, __) => const AboutScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.settingsSupport,
+            builder: (_, __) => const Scaffold(body: Text('SUPPORT_PAGE')),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            externalLinkLauncherProvider.overrideWithValue(launcher),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Support Linthra'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('SUPPORT_PAGE'), findsOneWidget);
     });
   });
 }

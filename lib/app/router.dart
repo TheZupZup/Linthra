@@ -20,6 +20,7 @@ import '../features/settings/settings_screen.dart';
 import '../features/shell/home_shell.dart';
 import '../features/smart_mixes/smart_mix_detail_screen.dart';
 import '../features/smart_mixes/smart_mixes_screen.dart';
+import '../features/support/support_screen.dart';
 import 'routes.dart';
 
 /// Single source of truth for navigation. Exposed through Riverpod so future
@@ -127,6 +128,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'about',
                     builder: (context, state) => const AboutScreen(),
+                  ),
+                  GoRoute(
+                    path: 'support',
+                    builder: (context, state) => const SupportScreen(),
                   ),
                   GoRoute(
                     path: 'report-bug',
