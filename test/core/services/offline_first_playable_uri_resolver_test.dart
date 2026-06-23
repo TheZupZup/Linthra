@@ -4,6 +4,8 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/cached_track_locator.dart';
 import 'package:linthra/core/services/offline_first_playable_uri_resolver.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
+import 'package:linthra/core/services/provider_reachability.dart';
+import 'package:linthra/core/services/reachability_aware_playable_uri_resolver.dart';
 
 /// A locator that returns a canned cached path (or null for a miss).
 class _FakeLocator implements CachedTrackLocator {
@@ -132,6 +134,28 @@ void main() {
           ),
         ),
       );
+    });
+
+    test('prefers the cached copy even when the streaming provider is offline',
+        () async {
+      // The full offline-recovery path: a downloaded copy plays without ever
+      // touching the unreachable provider. The offline-first resolver returns
+      // the cache hit before the reachability-aware streaming fallback runs, so
+      // a server being down can't stop a track the user already has.
+      final offlineProvider = ReachabilityAwarePlayableUriResolver(
+        inner: _OfflineResolver(), // always "couldn't reach the server"
+        providerKey: () => 'jellyfin',
+        reachability: CachingProviderReachability(),
+      );
+      final resolver = OfflineFirstPlayableUriResolver(
+        locator: _FakeLocator('/offline_audio/t1.mp3'),
+        fallback: offlineProvider,
+      );
+
+      final resolved = await resolver.resolve(_track);
+
+      expect(resolved.source, PlaybackSource.offlineCache);
+      expect(resolved.uri.toFilePath(), '/offline_audio/t1.mp3');
     });
 
     test('prefers a cached Plex file, reporting the offline-cache source',

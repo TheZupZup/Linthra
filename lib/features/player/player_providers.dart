@@ -12,6 +12,8 @@ import '../../core/services/playable_uri_resolver.dart';
 import '../../core/services/playback_candidate_source.dart';
 import '../../core/services/playback_controller.dart';
 import '../../core/services/playback_reporting_service.dart';
+import '../../core/services/provider_reachability.dart';
+import '../../core/services/reachability_aware_playable_uri_resolver.dart';
 import '../../core/services/remote_cache/remote_cache_resolver.dart';
 import '../../core/services/remote_cache/remote_playback_cache.dart';
 import '../../core/services/remote_cache/remote_stream_prebufferer.dart';
@@ -23,12 +25,14 @@ import '../../core/services/routing_playable_uri_resolver.dart';
 import '../../core/services/routing_server_playback_reporter.dart';
 import '../../core/services/server_playback_reporter.dart';
 import '../../core/services/smart_precache_service.dart';
+import '../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../core/sources/jellyfin/jellyfin_playable_uri_resolver.dart';
 import '../../core/sources/jellyfin/jellyfin_playback_reporter.dart';
 import '../../core/sources/jellyfin/jellyfin_remote_control_receiver.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../core/sources/plex/plex_playable_uri_resolver.dart';
 import '../../core/sources/plex/plex_playback_reporter.dart';
+import '../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import '../../core/sources/subsonic/subsonic_playback_reporter.dart';
 import '../../data/repositories/download_repository_provider.dart';
@@ -54,20 +58,79 @@ final remotePlaybackCacheProvider = Provider<RemotePlaybackCache>((ref) {
   return RemotePlaybackCache();
 });
 
+/// A brief, per-provider memory of reachability outcomes, shared for the whole
+/// session so the play path and the background prebuffer agree on whether a
+/// server is currently reachable.
+///
+/// Pinned (not rebuilt on sign-in/out) so a recorded outage survives across the
+/// burst of tracks it's meant to cover; its own short TTL ages entries out, and
+/// the per-provider keys mean signing out of one provider can't strand another.
+final providerReachabilityProvider = Provider<ProviderReachability>((ref) {
+  return CachingProviderReachability();
+});
+
 /// The source router: Jellyfin, Subsonic, Plex, then the on-device catch-all.
 ///
 /// Depends only on lazily-read source getters, so signing in/out is picked up
 /// without rebuilding (keeping the instance stable for the session). Shared by
 /// the cache resolver (which reads through it on a miss) and the prebufferer
 /// (which warms through it), so both mint URLs exactly the same way.
+///
+/// Each remote resolver is wrapped in a [ReachabilityAwarePlayableUriResolver]
+/// so a server that's offline fails fast (and the player falls back to a cached
+/// copy or another provider promptly) instead of re-paying a connect timeout for
+/// every track. The wrapper keys on the **provider + signed-in server/account**
+/// (a non-secret fingerprint), not just the provider name: a Jellyfin/Plex/
+/// Subsonic memory stays isolated from the other providers, *and* an outage
+/// recorded for one server never fast-fails a different server the user signs
+/// into — the key changes, so the new server is probed fresh rather than
+/// inheriting the old one's stale "offline". A signed-out provider has no key,
+/// so it's never cached. The on-device resolver is never wrapped — a local file
+/// doesn't go offline.
 final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
+  PlayableUriResolver reachabilityAware(
+    PlayableUriResolver inner,
+    String? Function() providerKey,
+  ) {
+    return ReachabilityAwarePlayableUriResolver(
+      inner: inner,
+      providerKey: providerKey,
+      reachability: ref.read(providerReachabilityProvider),
+      connectivity: ref.read(connectivityServiceProvider),
+    );
+  }
+
   return RoutingPlayableUriResolver(<PlayableUriResolver>[
-    JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
-    SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
+    reachabilityAware(
+      JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
+      () {
+        final source = ref.read(jellyfinMusicSourceProvider);
+        return source == null
+            ? null
+            : 'jellyfin:${jellyfinAccountFingerprint(source.session)}';
+      },
+    ),
+    reachabilityAware(
+      SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
+      () {
+        final source = ref.read(subsonicMusicSourceProvider);
+        return source == null
+            ? null
+            : 'subsonic:${subsonicAccountFingerprint(source.session)}';
+      },
+    ),
     // With no Plex session the source provider is null and a plex: track
     // resolves to a friendly "not signed in" rather than falling through
     // as unplayable.
-    PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
+    reachabilityAware(
+      PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
+      () {
+        final source = ref.read(plexMusicSourceProvider);
+        return source == null
+            ? null
+            : 'plex:${source.session.machineIdentifier}';
+      },
+    ),
     const LocalPlayableUriResolver(),
   ]);
 });

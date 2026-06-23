@@ -23,12 +23,15 @@ const _session = SubsonicSession(
 );
 
 class _RecordingRepository implements MusicLibraryRepository {
-  _RecordingRepository({this.upsertError});
+  _RecordingRepository({
+    this.upsertError,
+    List<Track> existing = const <Track>[],
+  }) : upsertedTracks = existing;
 
   final Object? upsertError;
 
   String? upsertedSourceId;
-  List<Track> upsertedTracks = const <Track>[];
+  List<Track> upsertedTracks;
   int upsertCount = 0;
 
   @override
@@ -173,6 +176,31 @@ void main() {
       final state = container.read(subsonicSyncControllerProvider);
       expect(state.status, SubsonicSyncStatus.error);
       expect(state.message, contains("Couldn't reach"));
+    });
+
+    test('keeps existing catalog rows when the server is unreachable',
+        () async {
+      // Offline-recovery guarantee: a failed sync must never wipe what's already
+      // in the local catalog, so the library stays usable while the server is
+      // temporarily unreachable.
+      const existing = <Track>[
+        Track(id: 's1', title: 'Old One', uri: 'subsonic:s1'),
+      ];
+      final repository = _RecordingRepository(existing: existing);
+      final container = _container(
+        repository: repository,
+        source: _source(listError: SubsonicException.notReachable()),
+      );
+
+      await container.read(subsonicSyncControllerProvider.notifier).sync();
+
+      expect(
+        container.read(subsonicSyncControllerProvider).status,
+        SubsonicSyncStatus.error,
+      );
+      // The write was never reached, so the existing rows are untouched.
+      expect(repository.upsertCount, 0);
+      expect(await repository.getAllTracks(), existing);
     });
 
     test('does not leak the credential through an error message', () async {
