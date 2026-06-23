@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/appearance/appearance_settings_screen.dart';
 import '../features/downloads/downloads_screen.dart';
 import '../features/favorites/favorites_screen.dart';
 import '../features/library/album_detail_screen.dart';
@@ -119,6 +120,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'downloads',
                     builder: (context, state) => const OfflineDownloadsScreen(),
+                  ),
+                  GoRoute(
+                    path: 'appearance',
+                    builder: (context, state) =>
+                        const AppearanceSettingsScreen(),
                   ),
                   GoRoute(
                     path: 'diagnostics',

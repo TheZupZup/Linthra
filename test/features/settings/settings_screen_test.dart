@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:linthra/app/routes.dart';
@@ -24,6 +25,7 @@ GoRouter _router() {
       leaf(AppRoutes.settingsPlayback, 'PLAYBACK_PAGE'),
       leaf(AppRoutes.settingsCache, 'CACHE_PAGE'),
       leaf(AppRoutes.settingsDownloads, 'DOWNLOADS_PAGE'),
+      leaf(AppRoutes.settingsAppearance, 'APPEARANCE_PAGE'),
       leaf(AppRoutes.settingsDiagnostics, 'DIAGNOSTICS_PAGE'),
       leaf(AppRoutes.settingsAbout, 'ABOUT_PAGE'),
     ],
@@ -37,7 +39,9 @@ Future<void> _pump(WidgetTester tester) async {
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(MaterialApp.router(routerConfig: _router()));
+  await tester.pumpWidget(
+    ProviderScope(child: MaterialApp.router(routerConfig: _router())),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -50,11 +54,12 @@ void main() {
       expect(find.text(AppInfo.name), findsOneWidget);
       expect(find.text(AppInfo.tagline), findsOneWidget);
 
-      // The six categories of the Master Settings Hub.
+      // The seven categories of the Master Settings Hub.
       expect(find.text('Connections'), findsOneWidget);
       expect(find.text('Music & playback'), findsOneWidget);
       expect(find.text('Cache & data'), findsOneWidget);
       expect(find.text('Offline & downloads'), findsOneWidget);
+      expect(find.text('Appearance'), findsOneWidget);
       expect(find.text('Diagnostics & support'), findsOneWidget);
       expect(find.text('About'), findsOneWidget);
     });
@@ -65,6 +70,7 @@ void main() {
         ('Music & playback', 'PLAYBACK_PAGE'),
         ('Cache & data', 'CACHE_PAGE'),
         ('Offline & downloads', 'DOWNLOADS_PAGE'),
+        ('Appearance', 'APPEARANCE_PAGE'),
         ('Diagnostics & support', 'DIAGNOSTICS_PAGE'),
         ('About', 'ABOUT_PAGE'),
       ];

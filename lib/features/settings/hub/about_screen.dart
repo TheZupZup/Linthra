@@ -6,7 +6,7 @@ import '../../../app/dimens.dart';
 import '../../../app/external_link_launcher_provider.dart';
 import '../../../app/routes.dart';
 import '../../../core/app_info.dart';
-import '../../../shared/widgets/linthra_logo_mark.dart';
+import '../../appearance/selected_logo_mark.dart';
 import '../about/support_section.dart';
 import '../about/whats_new_section.dart';
 import 'settings_detail_scaffold.dart';
@@ -82,7 +82,7 @@ class _BrandPanel extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Row(
           children: <Widget>[
-            const LinthraLogoMark(size: 48),
+            const SelectedLinthraLogoMark(size: 48),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(
