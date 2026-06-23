@@ -26,19 +26,21 @@ void main() {
       expect(auth.isAuthFailure, isTrue);
       expect(auth.isOffline, isFalse);
       expect(auth.isReachable, isFalse);
-      // And crucially it is NOT a transient outage, so it is never cached as
-      // "don't bother retrying" — a fresh sign-in must work immediately.
-      expect(auth.isTransientOutage, isFalse);
+      // And crucially it is NOT a cacheable server outage, so it is never cached
+      // as "don't bother retrying" — a fresh sign-in must work immediately.
+      expect(auth.isServerOutage, isFalse);
     });
 
-    test('the transient-outage states are exactly the three reach failures',
+    test('the server-outage states are exactly server-unreachable and timeout',
         () {
-      expect(ReachabilityStatus.networkUnavailable.isTransientOutage, isTrue);
-      expect(ReachabilityStatus.serverUnreachable.isTransientOutage, isTrue);
-      expect(ReachabilityStatus.timeout.isTransientOutage, isTrue);
-      // Reachable and auth failure are deliberately excluded.
-      expect(ReachabilityStatus.reachable.isTransientOutage, isFalse);
-      expect(ReachabilityStatus.authFailure.isTransientOutage, isFalse);
+      // Only these two are worth caching as "skip the probe for a moment".
+      expect(ReachabilityStatus.serverUnreachable.isServerOutage, isTrue);
+      expect(ReachabilityStatus.timeout.isServerOutage, isTrue);
+      // networkUnavailable is device-global (judged fresh, never cached);
+      // reachable and authFailure are not outages — all three are excluded.
+      expect(ReachabilityStatus.networkUnavailable.isServerOutage, isFalse);
+      expect(ReachabilityStatus.reachable.isServerOutage, isFalse);
+      expect(ReachabilityStatus.authFailure.isServerOutage, isFalse);
     });
   });
 

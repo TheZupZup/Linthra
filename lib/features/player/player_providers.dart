@@ -25,12 +25,14 @@ import '../../core/services/routing_playable_uri_resolver.dart';
 import '../../core/services/routing_server_playback_reporter.dart';
 import '../../core/services/server_playback_reporter.dart';
 import '../../core/services/smart_precache_service.dart';
+import '../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../core/sources/jellyfin/jellyfin_playable_uri_resolver.dart';
 import '../../core/sources/jellyfin/jellyfin_playback_reporter.dart';
 import '../../core/sources/jellyfin/jellyfin_remote_control_receiver.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../core/sources/plex/plex_playable_uri_resolver.dart';
 import '../../core/sources/plex/plex_playback_reporter.dart';
+import '../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import '../../core/sources/subsonic/subsonic_playback_reporter.dart';
 import '../../data/repositories/download_repository_provider.dart';
@@ -77,10 +79,14 @@ final providerReachabilityProvider = Provider<ProviderReachability>((ref) {
 /// Each remote resolver is wrapped in a [ReachabilityAwarePlayableUriResolver]
 /// so a server that's offline fails fast (and the player falls back to a cached
 /// copy or another provider promptly) instead of re-paying a connect timeout for
-/// every track. The wrapper keys on the provider id, so the Jellyfin/Plex/
-/// Subsonic memories stay isolated even when two providers share a bare track
-/// id. The on-device resolver is never wrapped — a local file doesn't go
-/// offline.
+/// every track. The wrapper keys on the **provider + signed-in server/account**
+/// (a non-secret fingerprint), not just the provider name: a Jellyfin/Plex/
+/// Subsonic memory stays isolated from the other providers, *and* an outage
+/// recorded for one server never fast-fails a different server the user signs
+/// into — the key changes, so the new server is probed fresh rather than
+/// inheriting the old one's stale "offline". A signed-out provider has no key,
+/// so it's never cached. The on-device resolver is never wrapped — a local file
+/// doesn't go offline.
 final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
   PlayableUriResolver reachabilityAware(
     PlayableUriResolver inner,
@@ -97,18 +103,33 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
   return RoutingPlayableUriResolver(<PlayableUriResolver>[
     reachabilityAware(
       JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
-      () => ref.read(jellyfinMusicSourceProvider) == null ? null : 'jellyfin',
+      () {
+        final source = ref.read(jellyfinMusicSourceProvider);
+        return source == null
+            ? null
+            : 'jellyfin:${jellyfinAccountFingerprint(source.session)}';
+      },
     ),
     reachabilityAware(
       SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
-      () => ref.read(subsonicMusicSourceProvider) == null ? null : 'subsonic',
+      () {
+        final source = ref.read(subsonicMusicSourceProvider);
+        return source == null
+            ? null
+            : 'subsonic:${subsonicAccountFingerprint(source.session)}';
+      },
     ),
     // With no Plex session the source provider is null and a plex: track
     // resolves to a friendly "not signed in" rather than falling through
     // as unplayable.
     reachabilityAware(
       PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
-      () => ref.read(plexMusicSourceProvider) == null ? null : 'plex',
+      () {
+        final source = ref.read(plexMusicSourceProvider);
+        return source == null
+            ? null
+            : 'plex:${source.session.machineIdentifier}';
+      },
     ),
     const LocalPlayableUriResolver(),
   ]);

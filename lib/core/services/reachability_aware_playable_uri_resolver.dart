@@ -12,11 +12,14 @@ import 'reachability.dart';
 /// the source router) and adds a short-lived reachability memory around it:
 ///
 ///  1. **No network at all** → fail fast with a clear "you're offline" message
-///     instead of attempting a doomed connection. (Only when a
-///     [ConnectivityService] is wired and reports offline.)
-///  2. **Recently seen unreachable** (within the cache's brief TTL) → skip the
-///     probe and fail fast, so the *next* tracks in a burst fall straight to a
-///     cached copy or another provider rather than each re-paying the timeout.
+///     instead of attempting a doomed connection. Judged fresh from the
+///     [ConnectivityService] every call and never cached, so the moment the
+///     network returns this stops firing. (Only when a [ConnectivityService] is
+///     wired and reports offline.)
+///  2. **This server seen unreachable recently** (a server-level outage within
+///     the cache's brief TTL) → skip the probe and fail fast, so the *next*
+///     tracks in a burst fall straight to a cached copy or another provider
+///     rather than each re-paying the timeout.
 ///  3. **Otherwise** → resolve for real and record the outcome (reachable, or
 ///     the kind of failure), so the memory stays current.
 ///
@@ -73,15 +76,20 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     //    a connection that can only time out. The offline-first resolver above
     //    has already tried (and missed) a downloaded copy by the time we get
     //    here, so this is the honest end of the line for a streamed track.
+    //    Judged fresh every call and never cached: the instant connectivity
+    //    returns this is false again, so a reconnect is never blocked by a stale
+    //    "offline" the way a cached value would be.
     if (await _isOffline()) {
-      _reachability.record(key, ReachabilityStatus.networkUnavailable);
       throw _failFast(ReachabilityStatus.networkUnavailable);
     }
 
-    // 2. We saw this provider fail to respond very recently — skip the doomed
-    //    probe and let the caller fall back immediately.
+    // 2. We have a network, but saw this server fail to respond very recently —
+    //    skip the doomed probe and let the caller fall back immediately. Only a
+    //    server-level outage gates this (never the device-offline state from
+    //    step 1, which is already judged fresh), so a reconnected device probes
+    //    a recovered server straight away.
     final ReachabilityStatus? remembered = _reachability.statusOf(key);
-    if (remembered != null && remembered.isTransientOutage) {
+    if (remembered != null && remembered.isServerOutage) {
       throw _failFast(remembered);
     }
 

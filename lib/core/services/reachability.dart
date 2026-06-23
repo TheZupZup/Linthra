@@ -43,16 +43,19 @@ enum ReachabilityStatus {
   /// connectivity one.
   bool get isAuthFailure => this == ReachabilityStatus.authFailure;
 
-  /// A transient inability to reach the server: no network, the server is down,
-  /// or a probe timed out. These are the states where retrying the *same*
-  /// provider right now is pointless, so a caller should prefer a cached or
-  /// alternate copy and skip a doomed network round-trip.
+  /// A *server-level* outage worth remembering briefly so the next track skips a
+  /// doomed probe: this server was found unreachable, or a probe ran past its
+  /// deadline. These are the cacheable "don't re-try this server for a moment"
+  /// states — a caller should prefer a cached or alternate copy instead.
   ///
-  /// [authFailure] is intentionally **not** included: the server is reachable
-  /// (so another request might be answered), and the fix is re-authenticating,
-  /// not waiting/retrying — so it must never be cached as "don't bother trying".
-  bool get isTransientOutage =>
-      this == ReachabilityStatus.networkUnavailable ||
+  /// Two states are deliberately excluded:
+  ///  - [networkUnavailable] is a *device-global* condition that flips the
+  ///    instant the network returns, so it is judged fresh from connectivity on
+  ///    every attempt and never cached — otherwise a stale "offline" would block
+  ///    a working server for the cache's lifetime after a reconnect.
+  ///  - [authFailure] means the server *was* reached; the fix is
+  ///    re-authenticating, which must work immediately — never "don't bother".
+  bool get isServerOutage =>
       this == ReachabilityStatus.serverUnreachable ||
       this == ReachabilityStatus.timeout;
 }

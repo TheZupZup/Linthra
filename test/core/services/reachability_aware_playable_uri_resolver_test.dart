@@ -34,18 +34,18 @@ class _FakeInner implements PlayableUriResolver {
   }
 }
 
-/// A connectivity service pinned to a single status.
+/// A connectivity service whose status a test can flip, to simulate the network
+/// dropping and returning between resolve calls.
 class _FakeConnectivity implements ConnectivityService {
-  _FakeConnectivity(this._status);
+  _FakeConnectivity(this.status);
 
-  final NetworkStatus _status;
-
-  @override
-  Stream<NetworkStatus> get statusStream =>
-      Stream<NetworkStatus>.value(_status);
+  NetworkStatus status;
 
   @override
-  Future<NetworkStatus> currentStatus() async => _status;
+  Stream<NetworkStatus> get statusStream => Stream<NetworkStatus>.value(status);
+
+  @override
+  Future<NetworkStatus> currentStatus() async => status;
 }
 
 const Track _track = Track(id: 't1', title: 'One', uri: 'jellyfin:t1');
@@ -193,10 +193,35 @@ void main() {
             )),
       );
       expect(inner.calls, 0, reason: 'offline must not hit the network');
-      expect(
-        reachability.statusOf('jellyfin'),
-        ReachabilityStatus.networkUnavailable,
+      // Device-offline is judged fresh and never cached, so it doesn't poison
+      // the per-server memory — a reconnect probes straight away (next test).
+      expect(reachability.statusOf('jellyfin'), isNull);
+    });
+
+    test(
+        'a reconnect probes immediately, not blocked by a prior offline result',
+        () async {
+      // Regression guard: once offline and then online again, the next resolve
+      // must probe the recovered server rather than replay a stale "offline" for
+      // the cache's lifetime.
+      final reachability = CachingProviderReachability();
+      final inner = _FakeInner();
+      final connectivity = _FakeConnectivity(NetworkStatus.offline);
+      final resolver = _build(
+        inner: inner,
+        reachability: reachability,
+        connectivity: connectivity,
       );
+
+      // Offline: fails fast without probing.
+      await expectLater(resolver.resolve(_track), throwsA(anything));
+      expect(inner.calls, 0);
+
+      // Network returns: the very next resolve probes and succeeds.
+      connectivity.status = NetworkStatus.wifi;
+      final ResolvedPlayable resolved = await resolver.resolve(_track);
+      expect(resolved.source, PlaybackSource.streamingDirect);
+      expect(inner.calls, 1);
     });
 
     test('does not crash and resolves normally when network is available',
