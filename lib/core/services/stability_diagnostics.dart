@@ -45,8 +45,9 @@ abstract final class StabilityDiagnostics {
   static String? lastInterruptionKind;
 
   /// The last audio-focus event seen for the on-device engine and how it was
-  /// handled (`loss:paused`, `regain:ignored`, `duck:ignored`, `noisy:paused`),
-  /// retained for diagnostics. Null until one occurs.
+  /// handled (`loss-transient:paused`, `loss-permanent:paused`,
+  /// `loss-duck:ducked`, `unduck:restored`, `regain:resumed`, `regain:ignored`,
+  /// `noisy:paused`), retained for diagnostics. Null until one occurs.
   ///
   /// This is the breadcrumb that proves playback is *not* auto-resumed when
   /// audio focus comes back — the screen-wake / exit-Doze / exit-battery-saver /
@@ -109,12 +110,15 @@ abstract final class StabilityDiagnostics {
   static String describePlaybackError(String kind) => 'playback error: $kind';
 
   /// An audio-focus event for the on-device engine and how it was handled.
-  /// [event] is a fixed structural label — `loss:paused` (a real focus loss, so
-  /// we paused), `regain:ignored` (focus came back; we did NOT resume),
-  /// `duck:ignored`, or `noisy:paused` (headphones unplugged). Retained in
-  /// [lastAudioFocusEvent] and recorded so a "music started by itself on screen
-  /// wake / when leaving battery saver" report shows the focus regain was
-  /// ignored rather than treated as a play. Never a track, URL, or token.
+  /// [event] is a fixed structural label — e.g. `loss-transient:paused` (a real
+  /// transient loss, so we paused), `loss-duck:ducked` (a duckable transient, so
+  /// we lowered the volume but kept playing), `unduck:restored` (the duck ended,
+  /// so we restored full volume), `regain:resumed`/`regain:ignored` (focus came
+  /// back; we resumed only if a transient loss had armed it), or `noisy:paused`
+  /// (headphones unplugged). Retained in [lastAudioFocusEvent] and recorded so a
+  /// "music started by itself on screen wake / went silent in the background"
+  /// report shows exactly which event paused, ducked, resumed, or restored.
+  /// Never a track, URL, or token.
   static void audioFocus(String event) {
     lastAudioFocusEvent = event;
     SafeEventLog.instance.record('audio-focus', event);

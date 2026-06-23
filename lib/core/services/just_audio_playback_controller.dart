@@ -36,11 +36,16 @@ enum AudioFocusAction {
   /// A permanent loss (another media app took focus): pause and stay paused.
   pausePermanent,
 
-  /// Focus regained — resume only if a transient loss had armed it.
+  /// Focus regained — resume only if a transient loss had armed it. Always
+  /// restores the engine volume first, so a prior duck can never linger.
   resume,
 
-  /// Nothing to do (a duckable transient we keep playing through, or its end).
-  ignore,
+  /// A duckable transient began (`AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK`): attenuate
+  /// the engine volume but keep playing, rather than going silent.
+  duck,
+
+  /// A duckable transient ended: restore the engine volume to its normal level.
+  unduck,
 }
 
 /// [PlaybackController] backed by `just_audio`.
@@ -168,6 +173,21 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// a brief transient interruption to background playback recovers.
   bool _resumeAfterTransientLoss = false;
 
+  /// Whether another app currently holds a *duckable* transient focus
+  /// (`AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK`), so the engine volume is attenuated
+  /// to [_duckVolumeFactor]. Set on the duck, and cleared — with the volume
+  /// restored — on the matching unduck and, as a safety net, on any focus
+  /// regain or a pause. So a navigation prompt / assistant lowers the music
+  /// briefly instead of either silencing it or leaving it stuck quiet once
+  /// focus returns. Exposed read-only for tests via [isDuckedForTesting].
+  bool _ducked = false;
+
+  /// The fraction of the normal engine volume used while another app holds a
+  /// duckable transient focus. Audible (not silent), so Linthra "keeps playing
+  /// with sound" through the duck and cooperates with the focus request, and
+  /// always restored to full on regain so it can never be left muted.
+  static const double _duckVolumeFactor = 0.3;
+
   PlaybackState _state = PlaybackState.idle;
   PlaybackQueue _queue = PlaybackQueue.empty;
 
@@ -268,7 +288,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Future<void> _attachAudioSession() async {
     try {
       final AudioSession session = await AudioSession.instance;
-      await session.configure(const AudioSessionConfiguration.music());
+      // `androidWillPauseWhenDucked: true` stops the OS from *silently*
+      // auto-ducking (and, on some devices, never restoring) our stream when
+      // another app grabs `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` — the
+      // "open ChatGPT / another app and Linthra keeps playing but goes silent"
+      // bug. With it set, the duck is delivered to our interruption handler
+      // instead, so we own the volume change deterministically and always
+      // restore it on regain (see [_onAudioInterruption]).
+      await session.configure(
+        const AudioSessionConfiguration.music()
+            .copyWith(androidWillPauseWhenDucked: true),
+      );
       _interruptionSub =
           session.interruptionEventStream.listen(_onAudioInterruption);
       _becomingNoisySub =
@@ -306,12 +336,33 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         StabilityDiagnostics.audioFocus(_resumeAfterTransientLoss
             ? 'loss-transient:paused'
             : 'loss-transient:already-paused');
+        // A real transient loss supersedes a duck: clear it so the resume (or a
+        // later manual play) is at full volume, never stuck at the duck level.
+        _restoreDuckedVolume();
         unawaited(pause());
       case AudioFocusAction.pausePermanent:
         _resumeAfterTransientLoss = false;
         StabilityDiagnostics.audioFocus('loss-permanent:paused');
+        _restoreDuckedVolume();
         unawaited(pause());
+      case AudioFocusAction.duck:
+        // A duckable transient (a navigation prompt, an assistant, another app
+        // opening with may-duck focus): lower the volume to an audible level and
+        // keep playing — instead of letting the OS silently auto-duck us into a
+        // stuck-quiet state it may never restore. Undone on the unduck/regain.
+        _ducked = true;
+        StabilityDiagnostics.audioFocus('loss-duck:ducked');
+        unawaited(_applyVolume());
+      case AudioFocusAction.unduck:
+        // The duckable transient ended: bring the volume back to normal.
+        StabilityDiagnostics.audioFocus(
+            _ducked ? 'unduck:restored' : 'unduck:ignored');
+        _restoreDuckedVolume();
       case AudioFocusAction.resume:
+        // Focus regained: restore the volume unconditionally first (a safety net
+        // so a prior duck can never leave us quiet), then resume only if a
+        // transient loss armed it.
+        _restoreDuckedVolume();
         if (_resumeAfterTransientLoss) {
           _resumeAfterTransientLoss = false;
           StabilityDiagnostics.audioFocus('regain:resumed');
@@ -321,12 +372,29 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           // the screen-wake / app-return / exit-Doze case — never auto-resume.
           StabilityDiagnostics.audioFocus('regain:ignored');
         }
-      case AudioFocusAction.ignore:
-        // A duckable transient (we keep playing at full volume) or its unduck.
-        StabilityDiagnostics.audioFocus(
-            event.begin ? 'duck:ignored' : 'unduck:ignored');
     }
   }
+
+  /// Clears an active duck and pushes the normal (un-attenuated) volume back to
+  /// the engine. A no-op when not ducked, so calling it on every regain/pause is
+  /// safe and guarantees Linthra is never left in a ducked/muted state.
+  void _restoreDuckedVolume() {
+    if (!_ducked) return;
+    _ducked = false;
+    unawaited(_applyVolume());
+  }
+
+  /// Drives [_onAudioInterruption] from a test (an injected player turns off the
+  /// real audio_session wiring), so the duck/restore and pause/resume contract
+  /// can be exercised without a platform channel.
+  @visibleForTesting
+  void onAudioInterruption(AudioInterruptionEvent event) =>
+      _onAudioInterruption(event);
+
+  /// Whether the engine volume is currently attenuated by an active duck — so a
+  /// test can assert the duck/restore lifecycle.
+  @visibleForTesting
+  bool get isDuckedForTesting => _ducked;
 
   /// Classifies an audio-focus [event] into the action the engine should take,
   /// per the standard Android contract. Pure and unit-tested, so the
@@ -347,7 +415,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         case AudioInterruptionType.unknown:
           return AudioFocusAction.pausePermanent;
         case AudioInterruptionType.duck:
-          return AudioFocusAction.ignore;
+          return AudioFocusAction.duck;
       }
     }
     // Interruption ended / focus regained.
@@ -356,7 +424,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       case AudioInterruptionType.unknown:
         return AudioFocusAction.resume;
       case AudioInterruptionType.duck:
-        return AudioFocusAction.ignore;
+        return AudioFocusAction.unduck;
     }
   }
 
@@ -367,6 +435,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (_suspended) return;
     _resumeAfterTransientLoss = false;
     StabilityDiagnostics.audioFocus('noisy:paused');
+    // Clear any active duck so the next play is at full volume, not stuck quiet.
+    _restoreDuckedVolume();
     unawaited(pause());
   }
 
@@ -655,8 +725,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// receiver owns its own volume while suspended, so this is a no-op then.
   Future<void> _applyVolume() async {
     if (_suspended) return;
-    final double volume =
-        volumeFor(_queue.current, normalizeVolume: _normalizeVolume);
+    double volume = volumeFor(_queue.current, normalizeVolume: _normalizeVolume);
+    // While another app holds a duckable transient focus, attenuate (but keep
+    // playing). [_restoreDuckedVolume] clears the flag and re-applies full
+    // volume on the unduck/regain, so the engine is never left ducked.
+    if (_ducked) volume *= _duckVolumeFactor;
     try {
       await _player.setVolume(volume);
     } catch (_) {
