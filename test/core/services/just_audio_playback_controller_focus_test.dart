@@ -11,8 +11,13 @@ import 'package:linthra/core/services/just_audio_playback_controller.dart';
 /// events straight into [JustAudioPlaybackController.onAudioInterruption].
 class _RecordingPlayer extends Fake implements AudioPlayer {
   final List<double> volumes = <double>[];
-  int playCalls = 0;
-  int pauseCalls = 0;
+
+  /// The ordered transport calls ('play' / 'pause') the controller drove, so a
+  /// test can assert the *final* engine intent after a race (the last entry),
+  /// not just how many of each happened.
+  final List<String> transport = <String>[];
+  int get playCalls => transport.where((t) => t == 'play').length;
+  int get pauseCalls => transport.where((t) => t == 'pause').length;
 
   @override
   Stream<PlayerState> get playerStateStream =>
@@ -28,9 +33,9 @@ class _RecordingPlayer extends Fake implements AudioPlayer {
   @override
   Future<void> setVolume(double volume) async => volumes.add(volume);
   @override
-  Future<void> play() async => playCalls++;
+  Future<void> play() async => transport.add('play');
   @override
-  Future<void> pause() async => pauseCalls++;
+  Future<void> pause() async => transport.add('pause');
   @override
   Future<void> stop() async {}
   @override
@@ -322,6 +327,132 @@ void main() {
 
       expect(p.playCalls, 0);
       expect(p.volumes, isEmpty);
+    });
+  });
+
+  // The intermittent (~1-in-2) field failure was a race: transport was issued
+  // fire-and-forget from several triggers (the debounce timer, the interruption
+  // stream, the foreground callback), so a pause and its resume could overlap
+  // and settle nondeterministically. Transport now runs through one serialized
+  // chain and the latest focus decision wins (stale actions are skipped), so the
+  // *final* engine intent is deterministic regardless of event ordering/timing.
+  group('focus recovery is deterministic under racing/stale events', () {
+    test('pause then an immediate regain ends playing (last intent wins)',
+        () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.focusPauseDebounce = Duration.zero;
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      // Loss → the (zero-debounce) pause is enqueued, then a regain arrives.
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _settle();
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+
+      expect(p.transport, isNotEmpty);
+      expect(p.transport.last, 'play',
+          reason: 'whatever the interleaving, recovery must end playing');
+    });
+
+    test('a regain superseding a queued pause never leaves us paused',
+        () async {
+      // Drive the boundary where the debounce pause has been enqueued onto the
+      // chain but a regain supersedes it: the engine must end playing, not stuck
+      // paused.
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _pastDebounce(); // pause applied
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+
+      expect(p.transport.last, 'play');
+    });
+
+    test('a manual pause during a pending loss blocks the later regain resume',
+        () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      // Transient loss arms a resume (debounce still pending)…
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      // …but the user pauses explicitly before it resolves.
+      await controller.pause();
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+      await _pastDebounce();
+
+      // Focus returns: a user pause must veto the auto-resume.
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+
+      expect(p.playCalls, 0,
+          reason: 'an explicit user pause must never auto-resume on regain');
+    });
+
+    test('foreground restore racing a focus gain ends playing, not paused',
+        () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _pastDebounce(); // paused for focus
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+
+      // Both recovery paths fire close together (unlock delivers a gain and the
+      // app returns to the foreground): the result must be deterministic.
+      controller.onAppForegrounded();
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+
+      expect(p.transport.last, 'play',
+          reason: 'foreground and gain recovery must converge on playing');
+    });
+
+    test('volume restore is idempotent across repeated recoveries', () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAudioInterruption(_begin(AudioInterruptionType.duck));
+      // Several recovery signals in a row must all be safe and converge on full.
+      controller.onAudioInterruption(_end(AudioInterruptionType.duck));
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      controller.onAppForegrounded();
+      await _settle();
+
+      expect(controller.isDuckedForTesting, isFalse);
+      expect(p.volumes.last, 1.0,
+          reason: 'repeated restores must leave full volume, never ducked');
+    });
+
+    test('a stale duck event cannot leave the player ducked after a regain',
+        () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAudioInterruption(_begin(AudioInterruptionType.duck));
+      controller
+          .onAudioInterruption(_end(AudioInterruptionType.pause)); // regain
+      await _settle();
+
+      expect(controller.isDuckedForTesting, isFalse);
+      expect(p.volumes.last, 1.0);
     });
   });
 }
