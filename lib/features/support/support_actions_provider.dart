@@ -110,7 +110,7 @@ List<SupportAction> supportActionsFor(SupportDistribution distribution) {
         title: 'Become a supporter',
         description: 'One-time supporter purchases are coming to the Play '
             'Store edition.',
-        icon: Icons.workspace_premium_outlined,
+        icon: Icons.card_giftcard_outlined,
         kind: SupportActionKind.comingSoon,
       ),
     );

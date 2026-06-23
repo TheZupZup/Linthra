@@ -22,7 +22,7 @@ void main() {
         id: 'play-supporter',
         title: 'Become a supporter',
         description: 'Coming to the Play Store edition.',
-        icon: Icons.workspace_premium_outlined,
+        icon: Icons.card_giftcard_outlined,
         kind: SupportActionKind.comingSoon,
       );
 

@@ -27,8 +27,8 @@ build-safe structure that lets a future Play Store build add supporter purchases
 A small, deliberately **secondary and playful** "lonely maintainer" aside sits
 at the bottom of the screen. It is tone only: rendered inline (never a popup),
 below the serious explanation (never the headline), it keeps "No pressure"
-visible, blocks no navigation, and unlocks/changes nothing. It is not premium
-wording and is F-Droid/Play-safe.
+visible, blocks no navigation, and unlocks/changes nothing. It is not a paywall
+or upsell, and is F-Droid/Play-safe.
 
 ## 2. Reaching the screen
 

@@ -43,7 +43,7 @@ const List<SupportAction> _actions = <SupportAction>[
     id: 'play-supporter',
     title: 'Become a supporter',
     description: 'Coming soon to the Play Store edition.',
-    icon: Icons.workspace_premium_outlined,
+    icon: Icons.card_giftcard_outlined,
     kind: SupportActionKind.comingSoon,
   ),
 ];
@@ -82,6 +82,11 @@ void main() {
       expect(find.text('Support Linthra'), findsWidgets);
       expect(find.text('Linthra is free and open source'), findsOneWidget);
       expect(find.textContaining('completely optional'), findsOneWidget);
+      // The crisp, scannable trio stays visible.
+      expect(
+        find.text('No ads. No tracking. No locked core features.'),
+        findsOneWidget,
+      );
 
       // Where support goes — the four funded areas.
       expect(find.text('Where your support goes'), findsOneWidget);

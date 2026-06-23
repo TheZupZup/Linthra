@@ -110,6 +110,13 @@ class _IntroCard extends StatelessWidget {
               'project keep going.',
               style: theme.textTheme.bodyMedium?.copyWith(color: muted),
             ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'No ads. No tracking. No locked core features.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
             const SizedBox(height: AppSpacing.md),
             Text(
               'Where your support goes',
