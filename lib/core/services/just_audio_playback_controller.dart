@@ -188,6 +188,21 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// always restored to full on regain so it can never be left muted.
   static const double _duckVolumeFactor = 0.3;
 
+  /// A pending transient-loss pause awaiting [focusPauseDebounce]. A brief
+  /// screen-off / Doze focus *blip* (a loss immediately followed by a regain,
+  /// which some OEMs emit when the screen turns off) is cancelled here before it
+  /// ever pauses — so the foreground media service is never demoted and the OS
+  /// can't freeze background playback (which would only recover on reopening the
+  /// app). Null when no transient loss is in flight.
+  Timer? _pendingFocusPause;
+
+  /// How long a transient focus loss must persist before it actually pauses, so
+  /// a brief screen-off/Doze focus blip is absorbed without pausing while a real
+  /// call / another app's voice session (which holds focus) still pauses.
+  /// Settable in tests to keep them fast; never changed in production.
+  @visibleForTesting
+  Duration focusPauseDebounce = const Duration(milliseconds: 250);
+
   PlaybackState _state = PlaybackState.idle;
   PlaybackQueue _queue = PlaybackQueue.empty;
 
@@ -341,15 +356,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         // never resume (the "voice ends and Linthra stays silent" bug).
         _resumeAfterTransientLoss =
             _state.isPlaying || _state.isBusy || _resumeAfterTransientLoss;
-        StabilityDiagnostics.audioFocus(_resumeAfterTransientLoss
-            ? 'loss-transient:paused'
-            : 'loss-transient:already-paused');
         // A real transient loss supersedes a duck: clear it so the resume (or a
         // later manual play) is at full volume, never stuck at the duck level.
         _restoreDuckedVolume();
-        unawaited(pause());
+        // Debounced: a brief screen-off / Doze focus blip is absorbed by the
+        // matching regain below before this fires, so it never pauses (and so
+        // never demotes the foreground service). Only a loss that lasts past the
+        // window actually pauses.
+        _scheduleTransientPause();
       case AudioFocusAction.pausePermanent:
         _resumeAfterTransientLoss = false;
+        _cancelPendingFocusPause();
         StabilityDiagnostics.audioFocus('loss-permanent:paused');
         _restoreDuckedVolume();
         unawaited(pause());
@@ -368,10 +385,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _restoreDuckedVolume();
       case AudioFocusAction.resume:
         // Focus regained: restore the volume unconditionally first (a safety net
-        // so a prior duck can never leave us quiet), then resume only if a
-        // transient loss armed it.
+        // so a prior duck can never leave us quiet).
         _restoreDuckedVolume();
-        if (_resumeAfterTransientLoss) {
+        if (_cancelPendingFocusPause()) {
+          // The transient loss never outlasted the debounce window — a brief
+          // screen-off / Doze focus blip. We never paused, so just keep playing
+          // and disarm the now-moot resume. Pausing+resuming here would demote
+          // the foreground service and risk an OS freeze with the screen off.
+          _resumeAfterTransientLoss = false;
+          StabilityDiagnostics.audioFocus('regain:churn-absorbed');
+        } else if (_resumeAfterTransientLoss) {
           _resumeAfterTransientLoss = false;
           StabilityDiagnostics.audioFocus('regain:resumed');
           unawaited(play());
@@ -381,6 +404,35 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           StabilityDiagnostics.audioFocus('regain:ignored');
         }
     }
+  }
+
+  /// Schedules the pause for a transient focus loss after [focusPauseDebounce]
+  /// rather than pausing immediately, so a brief screen-off / Doze focus blip (a
+  /// loss the matching regain cancels straight away) is absorbed without ever
+  /// pausing — the foreground media service stays up and background playback
+  /// can't be frozen. A loss that persists past the window (a real call / voice
+  /// session) still pauses. Idempotent: a repeated loss while one is already
+  /// pending keeps the single in-flight timer.
+  void _scheduleTransientPause() {
+    if (_pendingFocusPause != null) return;
+    _pendingFocusPause = Timer(focusPauseDebounce, () {
+      _pendingFocusPause = null;
+      StabilityDiagnostics.audioFocus(_resumeAfterTransientLoss
+          ? 'loss-transient:paused'
+          : 'loss-transient:already-paused');
+      unawaited(pause());
+    });
+  }
+
+  /// Cancels a not-yet-fired transient-loss pause. Returns whether one was
+  /// pending, so a caller can tell an absorbed blip (we never paused) from a
+  /// regain after a real, already-applied pause.
+  bool _cancelPendingFocusPause() {
+    final Timer? pending = _pendingFocusPause;
+    if (pending == null) return false;
+    pending.cancel();
+    _pendingFocusPause = null;
+    return true;
   }
 
   /// Clears an active duck and pushes the normal (un-attenuated) volume back to
@@ -419,6 +471,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void onAppForegrounded() {
     if (_suspended) return;
     _restoreDuckedVolume();
+    if (_cancelPendingFocusPause()) {
+      // A transient loss hadn't paused yet (still within the debounce window)
+      // and the app is back in front: keep playing rather than pause.
+      _resumeAfterTransientLoss = false;
+      return;
+    }
     if (_resumeAfterTransientLoss) {
       _resumeAfterTransientLoss = false;
       StabilityDiagnostics.audioFocus('foreground:resumed');
@@ -472,6 +530,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _onBecomingNoisy() {
     if (_suspended) return;
     _resumeAfterTransientLoss = false;
+    // Headphones really were pulled: pause now, superseding any pending
+    // (debounced) transient-loss pause.
+    _cancelPendingFocusPause();
     StabilityDiagnostics.audioFocus('noisy:paused');
     // Clear any active duck so the next play is at full volume, not stuck quiet.
     _restoreDuckedVolume();
@@ -1153,6 +1214,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   @override
   Future<void> dispose() async {
     _resetPositionFlush();
+    _cancelPendingFocusPause();
     await _interruptionSub?.cancel();
     await _becomingNoisySub?.cancel();
     for (final subscription in _subscriptions) {

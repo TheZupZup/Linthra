@@ -41,6 +41,13 @@ class _RecordingPlayer extends Fake implements AudioPlayer {
 /// fires so the test can observe them.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
+/// A short transient-loss debounce so a scheduled pause fires quickly in tests.
+const Duration _testDebounce = Duration(milliseconds: 10);
+
+/// Waits past [_testDebounce] so a scheduled transient-loss pause has fired.
+Future<void> _pastDebounce() =>
+    Future<void>.delayed(const Duration(milliseconds: 40));
+
 AudioInterruptionEvent _begin(AudioInterruptionType type) =>
     AudioInterruptionEvent(true, type);
 AudioInterruptionEvent _end(AudioInterruptionType type) =>
@@ -111,20 +118,41 @@ void main() {
   });
 
   group('audio focus pause/resume only on a transient loss', () {
-    test('a transient loss pauses, and the matching regain resumes', () async {
+    test('a sustained transient loss pauses, and the regain resumes', () async {
       final p = _RecordingPlayer();
       final controller = JustAudioPlaybackController(player: p);
       addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
       controller.handleEngineState(PlayerState(true, ProcessingState.ready));
 
+      // The loss outlasts the debounce window, so it really pauses.
       controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
-      await _settle();
-      expect(p.pauseCalls, 1, reason: 'a transient loss pauses');
+      await _pastDebounce();
+      expect(p.pauseCalls, 1, reason: 'a sustained transient loss pauses');
 
       controller.onAudioInterruption(_end(AudioInterruptionType.pause));
       await _settle();
       expect(p.playCalls, 1,
           reason: 'the matching regain resumes a focus-loss pause');
+    });
+
+    test('a brief transient loss blip is absorbed (never pauses)', () async {
+      // The screen-off / Doze churn case: a transient loss immediately followed
+      // by a regain must NOT pause — pausing would demote the foreground media
+      // service and risk the OS freezing background playback with the screen off.
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _pastDebounce();
+
+      expect(p.pauseCalls, 0,
+          reason: 'a loss cancelled by a quick regain must never pause');
+      expect(p.playCalls, 0, reason: 'never paused, so nothing to resume');
     });
 
     test('a permanent loss pauses and a later regain does NOT resume',
@@ -181,20 +209,23 @@ void main() {
     // mic/voice focus — both surface as transient pauses with the session set to
     // pause-when-ducked). The 2nd loss must not disarm the resume by observing
     // the already-paused state, or the regain at voice-end never restores sound.
-    test('two transient losses then one regain resume playback', () async {
+    test('two sustained transient losses then one regain resume playback',
+        () async {
       final p = _RecordingPlayer();
       final controller = JustAudioPlaybackController(player: p);
       addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
       controller.handleEngineState(PlayerState(true, ProcessingState.ready));
 
-      // First loss pauses; simulate the engine actually going paused.
+      // First loss outlasts the debounce and pauses; simulate the engine going
+      // paused.
       controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
-      await _settle();
+      await _pastDebounce();
       controller.handleEngineState(PlayerState(false, ProcessingState.ready));
 
       // Second loss arrives while already paused — must keep the resume armed.
       controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
-      await _settle();
+      await _pastDebounce();
 
       // Voice ends: a single regain must resume.
       controller.onAudioInterruption(_end(AudioInterruptionType.pause));
@@ -230,13 +261,15 @@ void main() {
       final p = _RecordingPlayer();
       final controller = JustAudioPlaybackController(player: p);
       addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
       controller.handleEngineState(PlayerState(true, ProcessingState.ready));
 
+      // The loss outlasts the debounce so it really pauses, then no regain is
+      // ever delivered; returning to the foreground recovers.
       controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
-      await _settle();
+      await _pastDebounce();
       controller.handleEngineState(PlayerState(false, ProcessingState.ready));
 
-      // No regain is ever delivered; returning to the foreground recovers.
       controller.onAppForegrounded();
       await _settle();
 
