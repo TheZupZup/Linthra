@@ -145,6 +145,14 @@ where help is most useful right now. The
 
 Found Linthra useful? A **GitHub star** helps others discover it.
 
+**Support development (optional).** Linthra is free, with no ads and no
+tracking, and every core feature stays free. If you'd like to help fund
+development, testing devices, app-store costs, and long-term maintenance, the
+app has an in-app **Settings → About → Support Linthra** screen. The supporter
+model — and how Play Store billing will be added **only** in Play builds later,
+while F-Droid builds stay free of any proprietary billing dependency — is
+described in [docs/SUPPORT.md](./docs/SUPPORT.md).
+
 ## Self-hosted sources
 
 Sources sit behind one interface, so the app treats them uniformly:
@@ -190,6 +198,7 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 | --- | --- |
 | Contributing & setup | [CONTRIBUTING.md](./CONTRIBUTING.md) |
 | Where to help (contributor roadmap) | [docs/contributor-roadmap.md](./docs/contributor-roadmap.md) |
+| Supporting Linthra (optional supporter model) | [docs/SUPPORT.md](./docs/SUPPORT.md) |
 | Codebase tour (where everything lives) | [docs/codebase-tour.md](./docs/codebase-tour.md) |
 | Architecture & extension points | [docs/architecture.md](./docs/architecture.md) |
 | Development, build & CI | [docs/development.md](./docs/development.md) |

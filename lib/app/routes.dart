@@ -72,6 +72,12 @@ abstract final class AppRoutes {
   /// "About" — version, build, and project links. A child of [settings].
   static const String settingsAbout = '/settings/about';
 
+  /// "Support Linthra" — voluntary, optional ways to support development.
+  /// Reached from About; a child of [settings] so it keeps the bottom nav and
+  /// pops back into that tab. Free and open-source: nothing here gates a
+  /// feature.
+  static const String settingsSupport = '/settings/support';
+
   /// The "Report a bug" builder, reached from Diagnostics & support. A child of
   /// [settings] so it keeps the bottom nav and pops back into that tab.
   static const String reportBug = '/settings/report-bug';
