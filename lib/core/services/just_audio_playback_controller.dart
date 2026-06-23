@@ -331,8 +331,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     switch (audioFocusAction(event)) {
       case AudioFocusAction.pauseTransient:
         // Resume afterwards only if this interrupted active playback; never
-        // arm a resume for something the user had already paused.
-        _resumeAfterTransientLoss = _state.isPlaying || _state.isBusy;
+        // arm a resume for something the user had already paused. Crucially,
+        // keep an already-armed resume armed: a single voice session can emit
+        // *several* transient losses in a row (an app grabbing may-duck focus
+        // then escalating to exclusive mic/voice focus, which — with the
+        // session configured to pause when ducked — all surface as transient
+        // pauses). Re-reading `isPlaying` on the 2nd event would see the
+        // already-paused state and wrongly disarm, so the eventual regain would
+        // never resume (the "voice ends and Linthra stays silent" bug).
+        _resumeAfterTransientLoss =
+            _state.isPlaying || _state.isBusy || _resumeAfterTransientLoss;
         StabilityDiagnostics.audioFocus(_resumeAfterTransientLoss
             ? 'loss-transient:paused'
             : 'loss-transient:already-paused');
@@ -396,6 +404,28 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   @visibleForTesting
   bool get isDuckedForTesting => _ducked;
 
+  /// A safety restore for when the app returns to the foreground.
+  ///
+  /// On Android the only signal that a transient interruption ended is an
+  /// `AUDIOFOCUS_GAIN`, but some apps end a voice/mic session *without*
+  /// delivering a clean gain to us (they hold or quietly drop focus) — leaving
+  /// us paused-for-focus or ducked with no event to undo it. Coming back to the
+  /// foreground is a safe moment to recover exactly the way a regain would:
+  /// restore the volume unconditionally (never stay ducked/muted), and resume
+  /// **only** if a transient focus loss had armed it — never a track the user
+  /// paused themselves. A no-op when nothing is pending, so a plain
+  /// background→foreground while playing never changes anything.
+  @override
+  void onAppForegrounded() {
+    if (_suspended) return;
+    _restoreDuckedVolume();
+    if (_resumeAfterTransientLoss) {
+      _resumeAfterTransientLoss = false;
+      StabilityDiagnostics.audioFocus('foreground:resumed');
+      unawaited(play());
+    }
+  }
+
   /// Classifies an audio-focus [event] into the action the engine should take,
   /// per the standard Android contract. Pure and unit-tested, so the
   /// "screen-on never resumes / a permanent loss stays paused / a transient loss
@@ -406,6 +436,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   ///  - begin + `unknown` ← `AUDIOFOCUS_LOSS` (a permanent loss; focus abandoned)
   ///  - begin + `duck`    ← `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK`
   ///  - end   + any       ← `AUDIOFOCUS_GAIN` (focus regained)
+  ///
+  /// Note: because the session is configured with `androidWillPauseWhenDucked:
+  /// true` (see [_attachAudioSession]), audio_session converts a real
+  /// `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` into a `pause` event rather than a
+  /// `duck` — so on a live Android device a duckable transient is handled as a
+  /// transient pause (and the matching regain resumes). The `duck`/`unduck`
+  /// branches still exist for iOS and any caller that ducks explicitly, and keep
+  /// the volume-restore contract honest there.
   @visibleForTesting
   static AudioFocusAction audioFocusAction(AudioInterruptionEvent event) {
     if (event.begin) {

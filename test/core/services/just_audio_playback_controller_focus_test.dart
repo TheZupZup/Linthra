@@ -174,4 +174,120 @@ void main() {
           reason: 'only a loss that interrupted active playback resumes');
     });
   });
+
+  group('voice session: repeated transient losses still resume on regain', () {
+    // The remaining field bug: a single ChatGPT voice session emits *several*
+    // transient losses back to back (may-duck focus on open, then exclusive
+    // mic/voice focus — both surface as transient pauses with the session set to
+    // pause-when-ducked). The 2nd loss must not disarm the resume by observing
+    // the already-paused state, or the regain at voice-end never restores sound.
+    test('two transient losses then one regain resume playback', () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      // First loss pauses; simulate the engine actually going paused.
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _settle();
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+
+      // Second loss arrives while already paused — must keep the resume armed.
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _settle();
+
+      // Voice ends: a single regain must resume.
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+
+      expect(p.playCalls, 1,
+          reason: 'a repeated transient loss must not disarm the resume');
+    });
+
+    test('a manual pause then a transient loss still does not resume',
+        () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      // The user paused first (engine paused, never armed by a focus loss).
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _settle();
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _settle();
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+
+      expect(p.playCalls, 0,
+          reason: 'a user pause before the interruption must not auto-resume');
+    });
+  });
+
+  group('foreground safety restore (no clean focus gain)', () {
+    test('foregrounding resumes a transient-loss pause when no gain arrives',
+        () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _settle();
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+
+      // No regain is ever delivered; returning to the foreground recovers.
+      controller.onAppForegrounded();
+      await _settle();
+
+      expect(p.playCalls, 1,
+          reason:
+              'a foreground return resumes a focus-loss pause with no gain');
+    });
+
+    test('foregrounding restores a lingering duck even with no gain', () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAudioInterruption(_begin(AudioInterruptionType.duck));
+      await _settle();
+      expect(controller.isDuckedForTesting, isTrue);
+
+      controller.onAppForegrounded();
+      await _settle();
+
+      expect(controller.isDuckedForTesting, isFalse);
+      expect(p.volumes.last, 1.0,
+          reason: 'a foreground return must lift a lingering duck');
+    });
+
+    test('foregrounding does not resume a user pause', () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      // Plain user pause: no focus loss ever armed a resume.
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+
+      controller.onAppForegrounded();
+      await _settle();
+
+      expect(p.playCalls, 0,
+          reason: 'foregrounding must never resume a track the user paused');
+    });
+
+    test('foregrounding while playing normally changes nothing', () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAppForegrounded();
+      await _settle();
+
+      expect(p.playCalls, 0);
+      expect(p.volumes, isEmpty);
+    });
+  });
 }

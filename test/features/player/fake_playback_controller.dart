@@ -184,6 +184,15 @@ class FakePlaybackController implements LocalPlaybackController {
     normalizeVolumeEnabled = enabled;
   }
 
+  /// How many times the foreground audio-focus safety restore was invoked, so
+  /// cast-routing tests can assert it runs only off the cast path.
+  int foregroundedCount = 0;
+
+  @override
+  void onAppForegrounded() {
+    foregroundedCount++;
+  }
+
   /// Test seam mirroring the production controller's completion handling: drives
   /// what plays when the current track finishes, honouring the repeat mode.
   void completeCurrent() {
