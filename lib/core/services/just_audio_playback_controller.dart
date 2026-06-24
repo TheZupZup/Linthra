@@ -536,32 +536,23 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   @visibleForTesting
   bool get isDuckedForTesting => _ducked;
 
-  /// A safety restore for when the app returns to the foreground.
+  /// A volume safety-net for when the app returns to the foreground.
   ///
-  /// On Android the only signal that a transient interruption ended is an
-  /// `AUDIOFOCUS_GAIN`, but some apps end a voice/mic session *without*
-  /// delivering a clean gain to us (they hold or quietly drop focus) — leaving
-  /// us paused-for-focus or ducked with no event to undo it. Coming back to the
-  /// foreground is a safe moment to recover exactly the way a regain would:
-  /// restore the volume unconditionally (never stay ducked/muted), and resume
-  /// **only** if a transient focus loss had armed it — never a track the user
-  /// paused themselves. A no-op when nothing is pending, so a plain
-  /// background→foreground while playing never changes anything.
+  /// If a duck somehow lingered (e.g. an iOS duck whose unduck was never
+  /// delivered), restore full volume so Linthra is never left quietly ducked.
+  ///
+  /// It deliberately does **not** resume playback. The only valid signal that a
+  /// transient interruption has ended is an `AUDIOFOCUS_GAIN`, which is now
+  /// processed reliably in the background (the media service stays foreground
+  /// across a pause, so the isolate isn't frozen — see the audio-service config
+  /// in `LinthraAudioHandler`). Resuming on a mere foreground event could
+  /// restart audio over an interruption that is *still* holding focus — e.g.
+  /// opening Linthra while a call is ongoing — so resume is left entirely to the
+  /// real focus regain. A no-op while playing or paused-without-a-duck.
   @override
   void onAppForegrounded() {
     if (_suspended) return;
     _restoreDuckedVolume();
-    if (_cancelPendingFocusPause()) {
-      // A transient loss hadn't paused yet (still within the debounce window)
-      // and the app is back in front: keep playing rather than pause.
-      _resumeAfterTransientLoss = false;
-      return;
-    }
-    if (_resumeAfterTransientLoss) {
-      _resumeAfterTransientLoss = false;
-      StabilityDiagnostics.audioFocus('foreground:resumed');
-      _enqueueFocusResume();
-    }
   }
 
   /// Classifies an audio-focus [event] into the action the engine should take,

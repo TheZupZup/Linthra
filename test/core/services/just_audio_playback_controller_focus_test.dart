@@ -261,27 +261,32 @@ void main() {
     });
   });
 
-  group('foreground safety restore (no clean focus gain)', () {
-    test('foregrounding resumes a transient-loss pause when no gain arrives',
+  group('foreground safety restore (volume only, never resumes)', () {
+    test('foregrounding does NOT resume a focus-loss pause (gain owns resume)',
         () async {
+      // Resuming on a mere foreground event could restart audio over an
+      // interruption that still holds focus (e.g. opening Linthra mid-call).
+      // Resume is left entirely to the real AUDIOFOCUS_GAIN, which is now
+      // processed reliably in the background.
       final p = _RecordingPlayer();
       final controller = JustAudioPlaybackController(player: p);
       addTearDown(controller.dispose);
       controller.focusPauseDebounce = _testDebounce;
       controller.handleEngineState(PlayerState(true, ProcessingState.ready));
 
-      // The loss outlasts the debounce so it really pauses, then no regain is
-      // ever delivered; returning to the foreground recovers.
       controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
       await _pastDebounce();
       controller.handleEngineState(PlayerState(false, ProcessingState.ready));
 
       controller.onAppForegrounded();
       await _settle();
+      expect(p.playCalls, 0,
+          reason: 'foreground must not resume while focus may still be held');
 
-      expect(p.playCalls, 1,
-          reason:
-              'a foreground return resumes a focus-loss pause with no gain');
+      // The real regain still resumes.
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+      expect(p.playCalls, 1, reason: 'the AUDIOFOCUS_GAIN owns the resume');
     });
 
     test('foregrounding restores a lingering duck even with no gain', () async {
@@ -411,14 +416,14 @@ void main() {
       await _pastDebounce(); // paused for focus
       controller.handleEngineState(PlayerState(false, ProcessingState.ready));
 
-      // Both recovery paths fire close together (unlock delivers a gain and the
-      // app returns to the foreground): the result must be deterministic.
+      // Unlock both foregrounds the app (volume-only safety net) and delivers
+      // the gain that owns the resume — the result must converge on playing.
       controller.onAppForegrounded();
       controller.onAudioInterruption(_end(AudioInterruptionType.pause));
       await _settle();
 
       expect(p.transport.last, 'play',
-          reason: 'foreground and gain recovery must converge on playing');
+          reason: 'the focus gain must resume; foreground must not fight it');
     });
 
     test('volume restore is idempotent across repeated recoveries', () async {
