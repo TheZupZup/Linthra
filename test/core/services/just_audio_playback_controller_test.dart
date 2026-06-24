@@ -212,8 +212,8 @@ void main() {
           AudioFocusAction.pausePermanent);
     });
 
-    test('a duckable transient is ignored (we keep playing, never pause)', () {
-      expect(action(true, AudioInterruptionType.duck), AudioFocusAction.ignore);
+    test('a duckable transient ducks (we lower volume, never pause)', () {
+      expect(action(true, AudioInterruptionType.duck), AudioFocusAction.duck);
     });
 
     test('a focus regain only ever maps to resume (gated at the call site)',
@@ -226,9 +226,9 @@ void main() {
           action(false, AudioInterruptionType.pause), AudioFocusAction.resume);
       expect(action(false, AudioInterruptionType.unknown),
           AudioFocusAction.resume);
-      // An unduck end is ignored.
+      // A duck end restores the volume.
       expect(
-          action(false, AudioInterruptionType.duck), AudioFocusAction.ignore);
+          action(false, AudioInterruptionType.duck), AudioFocusAction.unduck);
     });
   });
 }

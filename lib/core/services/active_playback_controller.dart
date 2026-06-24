@@ -199,10 +199,17 @@ class ActivePlaybackController implements PlaybackController {
     }
   }
 
-  /// Re-syncs from the receiver when the app returns to the foreground while
-  /// casting. Never touches local playback.
+  /// Handles the app returning to the foreground. While casting, re-syncs from
+  /// the receiver. Otherwise runs the local engine's audio-focus safety restore
+  /// — undoing any lingering duck and resuming only a transient-focus-loss pause
+  /// — so a voice/mic session in another app that ended without a clean focus
+  /// gain can't leave Linthra stuck silent or ducked.
   void onAppResumed() {
-    if (_casting) unawaited(_cast.refresh());
+    if (_casting) {
+      unawaited(_cast.refresh());
+    } else {
+      _local.onAppForegrounded();
+    }
   }
 
   // --- Transport commands route to the active output ----------------------

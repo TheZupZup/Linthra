@@ -404,13 +404,18 @@ void main() {
       expect(local.resumeCount, resumesBefore);
     });
 
-    test('onAppResumed is a no-op when not casting', () async {
+    test('onAppResumed runs the local safety restore when not casting',
+        () async {
       final controller = build();
       addTearDown(controller.dispose);
 
       controller.onAppResumed();
 
+      // Never refreshes the receiver off the cast path, but does invoke the
+      // local engine's audio-focus safety restore so a voice/mic session that
+      // ended without a clean focus gain can't leave Linthra stuck silent.
       expect(cast.refreshCount, 0);
+      expect(local.foregroundedCount, 1);
     });
   });
 

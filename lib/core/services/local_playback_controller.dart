@@ -31,4 +31,11 @@ abstract interface class LocalPlaybackController implements PlaybackController {
   /// even loudness; when off, audio plays untouched. Applies to the currently
   /// loaded track immediately, so toggling takes effect without a track change.
   void setVolumeNormalizationEnabled(bool enabled);
+
+  /// A safety restore when the app returns to the foreground: undoes any
+  /// lingering audio-focus duck and resumes playback only if a transient focus
+  /// loss had paused it, recovering the case where another app's voice/mic
+  /// session ended without delivering a clean focus gain. Never resumes a track
+  /// the user paused, and a no-op while suspended or when nothing is pending.
+  void onAppForegrounded();
 }
