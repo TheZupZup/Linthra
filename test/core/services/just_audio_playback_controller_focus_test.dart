@@ -30,10 +30,20 @@ class _RecordingPlayer extends Fake implements AudioPlayer {
   Stream<PlaybackEvent> get playbackEventStream =>
       const Stream<PlaybackEvent>.empty();
 
+  /// When true, `play()` returns a future that never completes — simulating
+  /// just_audio, whose `play()` future only completes when playback *ends*. Lets
+  /// a test prove the focus chain isn't blocked for the rest of the track.
+  bool playNeverCompletes = false;
+  final Completer<void> _blockedPlay = Completer<void>();
+
   @override
   Future<void> setVolume(double volume) async => volumes.add(volume);
   @override
-  Future<void> play() async => transport.add('play');
+  Future<void> play() async {
+    transport.add('play');
+    if (playNeverCompletes) await _blockedPlay.future;
+  }
+
   @override
   Future<void> pause() async => transport.add('pause');
   @override
@@ -424,6 +434,36 @@ void main() {
 
       expect(p.transport.last, 'play',
           reason: 'the focus gain must resume; foreground must not fight it');
+    });
+
+    test('a later focus loss still pauses after a recovered resume', () async {
+      // just_audio's play() future only completes when the track ends, so the
+      // resume's play() must NOT be awaited on the serialized chain — otherwise
+      // a new interruption (a call after a recovered prompt) would be queued
+      // behind the still-running play and never pause until the song finished.
+      final p = _RecordingPlayer()..playNeverCompletes = true;
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      // First interruption, then recover → resume (play that "never completes").
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _pastDebounce();
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+      expect(p.transport.contains('play'), isTrue,
+          reason: 'the regain resumes');
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      // A new interruption during the same still-playing track must pause.
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _pastDebounce();
+
+      expect(p.transport.last, 'pause',
+          reason: 'a later focus loss must pause even though the resume play() '
+              'future has not completed — the chain must not block on it');
     });
 
     test('volume restore is idempotent across repeated recoveries', () async {

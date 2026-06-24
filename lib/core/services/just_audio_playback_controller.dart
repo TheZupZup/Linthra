@@ -491,9 +491,19 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   /// Queues a transport resume for a focus regain. A cast receiver owns audio
   /// while suspended, so it is a no-op then.
+  ///
+  /// `_player.play()`'s future completes only when playback *ends*, so awaiting
+  /// it on the serialized chain would keep the chain occupied for the rest of
+  /// the track — every later focus action (a new pause, a duck, a volume
+  /// restore) would be blocked until the song finished (e.g. a phone call after
+  /// a recovered prompt would play through). Fire it without awaiting; the chain
+  /// still guarantees the resume is *issued* only after any preceding pause has
+  /// settled, which is all the ordering we need.
   void _enqueueFocusResume() {
     if (_suspended) return;
-    _enqueueTransport(() => _player.play());
+    _enqueueTransport(() async {
+      unawaited(_player.play());
+    });
   }
 
   /// Queues the engine volume for the current duck state on the same serialized
