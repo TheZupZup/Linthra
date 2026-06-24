@@ -18,6 +18,12 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
 
 - ☐ `flutter build apk --debug` (or the release-signed APK) installs and launches.
 - ☐ App icon and name (`Linthra`) appear correctly in the launcher.
+- ☐ **App icon switching** (Settings ▸ Appearance ▸ App icon & branding): each
+  variant updates the real launcher icon; the app still opens from the launcher,
+  still shows in Android Auto, and playback/notification stays uninterrupted
+  during the switch; the choice survives a restart; switching back to Classic
+  works. Full list in
+  [docs/app-icon-branding.md](./app-icon-branding.md#manual-qa-checklist-android).
 - ☐ Settings ▸ About shows the **same** version as the installed build and the
   GitHub release tag (guarded by `app_info_version_test.dart`, but eyeball it).
 

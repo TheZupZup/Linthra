@@ -15,6 +15,7 @@ import 'data/repositories/download_repository_provider.dart';
 import 'data/repositories/favorites_repository_provider.dart';
 import 'data/repositories/jellyfin_auto_sync_store_provider.dart';
 import 'data/repositories/jellyfin_session_store_provider.dart';
+import 'data/repositories/launcher_icon_service_provider.dart';
 import 'data/repositories/library_added_store_provider.dart';
 import 'data/repositories/music_library_repository_provider.dart';
 import 'data/repositories/play_history_repository_provider.dart';
@@ -107,6 +108,9 @@ Future<void> main() async {
       // Persist the user's chosen in-app branding variant (Settings →
       // Appearance). A single non-secret variant id; purely cosmetic.
       sharedPreferencesAppIconVariantStoreOverride,
+      // Switch the real Android launcher icon to match that choice (a no-op off
+      // Android); toggles <activity-alias> entries, never touching playback.
+      platformLauncherIconServiceOverride,
       // Lyrics from whichever source owns the track: a signed-in Jellyfin or
       // Subsonic/Navidrome server, or a sidecar .lrc/.txt next to a local file.
       lyricsServiceOverride,
