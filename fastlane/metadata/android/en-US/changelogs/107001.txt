@@ -1,0 +1,26 @@
+Linthra 0.1.7-alpha.1 — Android audio stability (testing pre-release).
+
+This testing pre-release focuses on background and audio-focus
+reliability after the audio fixes in PR #244.
+
+Fixed:
+- Linthra could get stuck silent after another app took audio focus
+  (notification sounds, voice/microphone, and short interruptions).
+- Sound sometimes only came back after reopening the app; it now
+  recovers in the background.
+- Playback could stop or mute when the screen locked.
+
+Improved:
+- More stable in Android Auto after the audio/background fixes.
+- Background playback now behaves more like a normal Android music
+  player.
+
+Battery note:
+- Linthra may keep its playback service alive a little longer while
+  paused so it can recover reliably in the background. This may use
+  slightly more battery only if Linthra is left paused for a long
+  time. It is intentional for reliability and can be optimized later.
+
+This is a pre-release for testers; expect to report rough edges.
+
+No ads, no tracking, no analytics, no telemetry.
