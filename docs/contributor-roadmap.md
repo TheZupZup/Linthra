@@ -5,6 +5,11 @@ roadmap or a promise of dates. Linthra is early alpha, built by a small group of
 people who care about owning their music. Pick whatever looks fun; small
 contributions are welcome and land fast.
 
+For the higher-level product direction — the phased plan from the v0.1.7
+stabilization pass through Backup/Restore, the optional Linthra Connect, and
+Linthra Desktop — see the [product roadmap](./roadmap.md). This page is its
+task-level companion.
+
 New to the project? Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for setup,
 then come back here to find something to work on.
 
