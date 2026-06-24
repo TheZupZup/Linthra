@@ -38,6 +38,33 @@ void main() {
     });
   });
 
+  group('supportLinksEnabledFromDefine', () {
+    test('defaults to enabled for the empty or unknown value', () {
+      expect(supportLinksEnabledFromDefine(''), isTrue);
+      expect(supportLinksEnabledFromDefine('whatever'), isTrue);
+      expect(supportLinksEnabledFromDefine('on'), isTrue);
+      expect(supportLinksEnabledFromDefine('true'), isTrue);
+    });
+
+    test('disables for the off aliases, case- and space-insensitively', () {
+      for (final String value in <String>[
+        'off',
+        'false',
+        '0',
+        'no',
+        'disabled',
+        '  OFF ',
+        'False',
+      ]) {
+        expect(
+          supportLinksEnabledFromDefine(value),
+          isFalse,
+          reason: '"$value" should disable support links',
+        );
+      }
+    });
+  });
+
   group('supportActionsFor', () {
     test('the F-Droid build offers external links only — no billing seat', () {
       final List<SupportAction> actions =
@@ -88,6 +115,24 @@ void main() {
           expect(uri, isNotNull, reason: '${action.id} must have a url');
           expect(uri!.scheme, 'https', reason: '${action.id} must be https');
           expect(uri.host, isNotEmpty);
+        }
+      }
+    });
+
+    test('every shipped support link passes the runtime launch guard', () {
+      // The same links the https check above asserts must also satisfy the
+      // runtime guard the screen uses, so a correct build never trips it.
+      for (final SupportDistribution distribution
+          in SupportDistribution.values) {
+        for (final SupportAction action in supportActionsFor(distribution)) {
+          if (action.kind != SupportActionKind.externalLink) {
+            continue;
+          }
+          expect(
+            isLaunchableHttpUrl(action.uri),
+            isTrue,
+            reason: '${action.id} must be a launchable web link',
+          );
         }
       }
     });

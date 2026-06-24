@@ -82,9 +82,15 @@ void main() {
       expect(find.text('Support Linthra'), findsWidgets);
       expect(find.text('Linthra is free and open source'), findsOneWidget);
       expect(find.textContaining('completely optional'), findsOneWidget);
+      expect(find.textContaining('never required'), findsOneWidget);
       // The crisp, scannable trio stays visible.
       expect(
         find.text('No ads. No tracking. No locked core features.'),
+        findsOneWidget,
+      );
+      // The explicit "support doesn't buy features" line.
+      expect(
+        find.textContaining('Donating does not unlock features'),
         findsOneWidget,
       );
 
@@ -158,6 +164,46 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text("Couldn't open the link."), findsOneWidget);
+    });
+
+    testWidgets('refuses to open a non-web (non-http) link', (tester) async {
+      const List<SupportAction> nonWeb = <SupportAction>[
+        SupportAction(
+          id: 'bad-scheme',
+          title: 'Sketchy link',
+          description: 'Not a web link.',
+          icon: Icons.warning_amber_outlined,
+          kind: SupportActionKind.externalLink,
+          url: 'tel:+15551234567',
+        ),
+      ];
+      final _FakeLinkLauncher launcher = await _pump(tester, actions: nonWeb);
+
+      await tester.tap(find.text('Sketchy link'));
+      await tester.pumpAndSettle();
+
+      // The guard declined to launch the odd scheme and fell back to a snackbar.
+      expect(launcher.opened, isNull);
+      expect(find.text("Couldn't open the link."), findsOneWidget);
+    });
+
+    testWidgets(
+        'a links-disabled build shows the info copy but no actions or aside',
+        (tester) async {
+      // What supportActionsProvider yields when LINTHRA_SUPPORT_LINKS=off.
+      await _pump(tester, actions: const <SupportAction>[]);
+
+      // The free/optional explanation still renders.
+      expect(find.text('Linthra is free and open source'), findsOneWidget);
+      expect(
+        find.textContaining('All core features stay free'),
+        findsOneWidget,
+      );
+
+      // No action rows, and no call-to-action aside (nothing to act on).
+      expect(find.byType(ListTile), findsNothing);
+      expect(find.text('GitHub Sponsors'), findsNothing);
+      expect(find.textContaining("I'm lonely"), findsNothing);
     });
   });
 }

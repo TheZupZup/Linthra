@@ -26,22 +26,30 @@ class SupportScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final List<SupportAction> actions = ref.watch(supportActionsProvider);
+    // A links-disabled build (LINTHRA_SUPPORT_LINKS=off) yields no actions; the
+    // screen then degrades to a purely informational page — the free/optional
+    // copy with no actions card and no call-to-action aside.
+    final bool hasActions = actions.isNotEmpty;
     return Scaffold(
       appBar: AppBar(title: const Text('Support Linthra')),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
         children: <Widget>[
           const _IntroCard(),
-          const SizedBox(height: AppSpacing.md),
-          _ActionsCard(
-            actions: actions,
-            onOpenLink: (SupportAction action) =>
-                _openLink(context, ref, action),
-          ),
+          if (hasActions) ...<Widget>[
+            const SizedBox(height: AppSpacing.md),
+            _ActionsCard(
+              actions: actions,
+              onOpenLink: (SupportAction action) =>
+                  _openLink(context, ref, action),
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           const _FreeForeverNote(),
-          const SizedBox(height: AppSpacing.md),
-          const _LonelyMaintainerNote(),
+          if (hasActions) ...<Widget>[
+            const SizedBox(height: AppSpacing.md),
+            const _LonelyMaintainerNote(),
+          ],
         ],
       ),
     );
@@ -57,12 +65,19 @@ class SupportScreen extends ConsumerWidget {
     SupportAction action,
   ) async {
     final Uri? url = action.uri;
-    if (url == null) {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    // Only ever hand the OS an http(s) web link. A correct build always passes
+    // this (every shipped link is an https constant in SupportLinks); the guard
+    // makes a mis-edited non-web link fail safe — we decline rather than launch
+    // an unexpected scheme.
+    if (!isLaunchableHttpUrl(url)) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("Couldn't open the link.")),
+      );
       return;
     }
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     final bool launched =
-        await ref.read(externalLinkLauncherProvider).open(url);
+        await ref.read(externalLinkLauncherProvider).open(url!);
     if (!launched) {
       messenger.showSnackBar(
         const SnackBar(content: Text("Couldn't open the link.")),
@@ -105,9 +120,9 @@ class _IntroCard extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Supporting Linthra is completely optional. Every feature is '
-              'free, with no ads and no tracking — support simply helps the '
-              'project keep going.',
+              'Supporting Linthra is completely optional and never required. '
+              'Every feature is free, with no ads and no tracking — support '
+              'simply helps the project keep going.',
               style: theme.textTheme.bodyMedium?.copyWith(color: muted),
             ),
             const SizedBox(height: AppSpacing.sm),
@@ -116,6 +131,12 @@ class _IntroCard extends StatelessWidget {
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Donating does not unlock features — core playback and '
+              'self-hosted music features stay free.',
+              style: theme.textTheme.bodyMedium?.copyWith(color: muted),
             ),
             const SizedBox(height: AppSpacing.md),
             Text(

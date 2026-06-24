@@ -8,6 +8,7 @@ import 'package:linthra/core/app_info.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
 import 'package:linthra/features/settings/about/whats_new_section.dart';
 import 'package:linthra/features/settings/hub/about_screen.dart';
+import 'package:linthra/features/support/support_actions_provider.dart';
 
 class _FakeLinkLauncher implements ExternalLinkLauncher {
   _FakeLinkLauncher({this.result = true});
@@ -116,6 +117,37 @@ void main() {
         find.text('Free and open source — support is optional'),
         findsOneWidget,
       );
+    });
+
+    testWidgets(
+        'hides the "Support Linthra" entry when support links are disabled',
+        (tester) async {
+      // A links-disabled build (LINTHRA_SUPPORT_LINKS=off): the donation entry
+      // point must disappear, while the help/contact "Support" card stays.
+      tester.view.physicalSize = const Size(1000, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            externalLinkLauncherProvider.overrideWithValue(_FakeLinkLauncher()),
+            supportLinksEnabledProvider.overrideWithValue(false),
+          ],
+          child: const MaterialApp(home: AboutScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The donation entry is gone...
+      expect(find.text('Support Linthra'), findsNothing);
+      expect(
+        find.text('Free and open source — support is optional'),
+        findsNothing,
+      );
+      // ...but the help/contact "Support" card is unaffected.
+      expect(find.text('Report a bug'), findsOneWidget);
+      expect(find.text('Privacy policy'), findsOneWidget);
     });
 
     testWidgets('tapping "Support Linthra" opens the support screen',
