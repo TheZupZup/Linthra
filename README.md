@@ -181,6 +181,12 @@ Linthra is built to respect the people who use it:
 
 ## Roadmap
 
+The phased **[product roadmap](./docs/roadmap.md)** — v0.1.7 stabilization →
+Backup/Restore → optional Linthra Connect → Linthra Desktop — has the direction and
+its one guiding rule: **Linthra works on its own; Linthra Connect is optional** (no
+Docker, no account, no desktop dependency, no required pairing). The feature-level
+view:
+
 **Next up:** local tag/metadata parsing + album artwork · Subsonic favourites,
 lyrics & cover art · full playlist sync · album/playlist "download all" +
 background download manager · real connectivity detection for the Wi-Fi gate ·
@@ -197,7 +203,9 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 | Topic | Doc |
 | --- | --- |
 | Contributing & setup | [CONTRIBUTING.md](./CONTRIBUTING.md) |
+| Product roadmap (phased direction) | [docs/roadmap.md](./docs/roadmap.md) |
 | Where to help (contributor roadmap) | [docs/contributor-roadmap.md](./docs/contributor-roadmap.md) |
+| Backup & restore (file format) | [docs/backup-restore-format.md](./docs/backup-restore-format.md) |
 | Supporting Linthra (optional supporter model) | [docs/SUPPORT.md](./docs/SUPPORT.md) |
 | Codebase tour (where everything lives) | [docs/codebase-tour.md](./docs/codebase-tour.md) |
 | Architecture & extension points | [docs/architecture.md](./docs/architecture.md) |
