@@ -1,6 +1,6 @@
-Linthra 0.1.7-alpha.1 — Android audio stability.
+Linthra 0.1.7 — Android audio stability.
 
-A stability pre-release focused on background playback and recovery.
+A stability release focused on background playback and recovery.
 
 Fixed:
 - Linthra could get stuck silent after another app took audio focus.
