@@ -68,3 +68,19 @@ class SupportAction {
   /// The [url] as a [Uri], or null when this action has none.
   Uri? get uri => url == null ? null : Uri.parse(url!);
 }
+
+/// Whether [uri] is safe for the Support screen to hand to the external browser
+/// launcher: a non-empty `http`/`https` web link and nothing else.
+///
+/// Defense in depth. Every link that ships today is an `https` constant in
+/// `SupportLinks`, so in a correct build this always passes; the guard exists so
+/// that a future mis-edited link carrying a non-web scheme — a `tel:`,
+/// `mailto:`, `file:`, `javascript:`, or a custom app-intent URI — fails *safe*:
+/// the screen declines to launch it rather than handing an unexpected scheme to
+/// the OS. It is the runtime backstop to the compile-time `https` check the
+/// support-links test enforces, and it is pure so it is unit-testable without a
+/// widget or a real launcher.
+bool isLaunchableHttpUrl(Uri? uri) =>
+    uri != null &&
+    (uri.isScheme('https') || uri.isScheme('http')) &&
+    uri.host.isNotEmpty;

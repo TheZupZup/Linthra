@@ -68,7 +68,7 @@ Everything lives under [`lib/features/support/`](../lib/features/support/):
 | File | Responsibility |
 | ---- | -------------- |
 | `support_action.dart` | `SupportAction` — one way to support, as plain data (id, title, description, icon, `kind`, optional `url`). `SupportActionKind` is a small closed set: `externalLink` or `comingSoon`. |
-| `support_actions_provider.dart` | The build seam: `SupportDistribution` (the channel), `supportActionsFor(distribution)` (a pure catalog), `SupportLinks` (the URLs in one place), and `supportActionsProvider` (what the screen reads). |
+| `support_actions_provider.dart` | The build seam: `SupportDistribution` (the channel), `supportActionsFor(distribution)` (a pure catalog), `SupportLinks` (the URLs in one place), `supportLinksEnabled` (the per-channel kill switch), and `supportActionsProvider` / `supportLinksEnabledProvider` (what the screen and About page read). |
 | `support_screen.dart` | `SupportScreen` — renders the copy and whatever actions the provider yields. It owns **no** donation or payment logic. |
 
 Two deliberate properties:
@@ -85,6 +85,24 @@ Two deliberate properties:
    `LINTHRA_VERSION_NAME` override). The default is the safe one: a plain
    `flutter build` gets external links only.
 
+3. **A per-channel kill switch can drop support entirely.**
+   `supportLinksEnabled` reads `--dart-define=LINTHRA_SUPPORT_LINKS=...` and
+   **defaults to enabled**. Build with `LINTHRA_SUPPORT_LINKS=off` (also
+   `false`, `0`, `no`, `disabled`) and the in-app entry point disappears (the
+   About page hides its "Support Linthra" card) and `supportActionsProvider`
+   yields an empty list, so the screen — if reached directly — degrades to a
+   purely informational "free & open source" page with no links. This is the
+   lever for a distribution channel whose policy forbids in-app donation links,
+   or a fork that wants none. Like the distribution flag it is **support-only**:
+   it never affects playback, caching, providers, Android Auto, Cast,
+   Backup/Restore, or any other app behavior.
+
+The launcher path is also guarded: the screen only ever opens an `http`/`https`
+web link (`isLaunchableHttpUrl`). Every shipped link is an `https` constant, so
+this always passes today; the guard is defense in depth so a future mis-edited
+link with a non-web scheme (a `tel:`, `mailto:`, `file:`, or custom app intent)
+fails safe instead of being handed to the OS.
+
 ## 5. F-Droid safety
 
 - The default `SupportDistribution` is `fdroid`, so an ordinary `flutter build`
@@ -100,6 +118,23 @@ Two deliberate properties:
   **only** in the Play flavor — never as a shared/default dependency.
 
 ## 6. The future Play Store build (not in this PR)
+
+> **Store-policy note — external donation/payment links.** F-Droid and GitHub
+> builds may link out to donations freely. **A Play Store build may not.**
+> Google Play's payments policy can restrict apps from linking out to external
+> donations/payments unless the developer is a registered charity (and outright
+> requires Google Play Billing for in-app purchases of digital goods). So a Play
+> build may need to **change or remove** the external donation links — not just
+> add billing. Two levers already exist and need **no screen change**:
+>
+> - `--dart-define=LINTHRA_DISTRIBUTION=play` — keep the links but adjust the set
+>   per policy (e.g. swap GitHub Sponsors for a Play-Billing supporter action).
+> - `--dart-define=LINTHRA_SUPPORT_LINKS=off` — drop the external links and the
+>   entry point entirely for a channel that forbids them.
+>
+> Confirm the current Play policy before shipping a Play build; this is a policy
+> question, not a code one, and the levers above are how the code adapts to the
+> answer.
 
 Play Store billing will be implemented **only in Play builds, later.** The
 structure is already in place:
@@ -130,11 +165,17 @@ the F-Droid build.**
 ## 7. Tests
 
 - `test/features/support/support_action_test.dart` — the data model (URL
-  parsing, the `externalLink`-needs-a-`url` assertion).
+  parsing, the `externalLink`-needs-a-`url` assertion) and the
+  `isLaunchableHttpUrl` launch guard (accepts http/https, rejects null, non-web
+  schemes, and host-less URLs).
 - `test/features/support/support_actions_provider_test.dart` — the distribution
-  parser and that F-Droid offers links only while Play adds the disabled
-  placeholder; every external link is a well-formed `https` URL.
-- `test/features/support/support_screen_test.dart` — the copy, link taps (via a
-  fake launcher), the disabled placeholder, and the snackbar fallback.
-- `test/features/settings/hub/about_screen_test.dart` — the About entry and that
-  it navigates to the support route.
+  parser, the `LINTHRA_SUPPORT_LINKS` kill-switch parser, and that F-Droid
+  offers links only while Play adds the disabled placeholder; every external
+  link is a well-formed `https` URL that passes the runtime launch guard.
+- `test/features/support/support_screen_test.dart` — the copy (including the
+  "donating does not unlock features" line), link taps (via a fake launcher),
+  the disabled placeholder, the snackbar fallback, refusal to open a non-web
+  link, and the links-disabled informational page (no actions card, no aside).
+- `test/features/settings/hub/about_screen_test.dart` — the About entry, that it
+  navigates to the support route, and that it hides when support links are
+  disabled (while the help/contact card stays).

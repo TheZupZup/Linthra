@@ -20,6 +20,13 @@ enum SupportDistribution {
   /// the Google Play Billing supporter purchase a later, Play-only PR will
   /// implement. Selecting it today changes only which rows are listed; it adds
   /// no billing code or dependency.
+  ///
+  /// Store-policy note: a Play build may need to handle the **external**
+  /// donation links differently from F-Droid — Google Play's payments policy can
+  /// restrict linking out to donations for non-charity developers. The Play-only
+  /// PR should adjust those links per policy (e.g. route supporters to Play
+  /// Billing instead), and `LINTHRA_SUPPORT_LINKS=off` can drop the external
+  /// links entirely for a channel that forbids them. See docs/SUPPORT.md §6.
   play;
 
   /// The channel this build was compiled for, from the dart-define (default
@@ -39,6 +46,43 @@ enum SupportDistribution {
       default:
         return SupportDistribution.fdroid;
     }
+  }
+}
+
+/// Whether this build offers any voluntary support links at all.
+///
+/// Read once from `--dart-define=LINTHRA_SUPPORT_LINKS=...`, **defaulting to
+/// enabled**, and parsed by [supportLinksEnabledFromDefine]. Build with
+/// `--dart-define=LINTHRA_SUPPORT_LINKS=off` (also: `false`, `0`, `no`,
+/// `disabled`) to compile an edition with the in-app "Support Linthra" entry
+/// point and every external donation link removed entirely.
+///
+/// This is the per-channel kill switch the audit asks for: it is the seam for a
+/// distribution channel whose policy forbids in-app donation links (some app
+/// stores restrict linking out to donations for non-charity developers — see
+/// docs/SUPPORT.md §6), or for a fork that wants none. Like
+/// [SupportDistribution] it is read from the environment and is **support-only**:
+/// it changes nothing but which support actions (if any) are offered, and never
+/// touches playback, caching, providers, Android Auto, Cast, Backup/Restore, or
+/// any other app behavior.
+bool get supportLinksEnabled => supportLinksEnabledFromDefine(
+      const String.fromEnvironment('LINTHRA_SUPPORT_LINKS'),
+    );
+
+/// Pure parser behind [supportLinksEnabled]: maps the dart-define string to a
+/// flag, **defaulting to enabled** for the empty or unknown value so an ordinary
+/// `flutter build` keeps the links. Exposed so the mapping is unit-testable
+/// without recompiling under a dart-define.
+bool supportLinksEnabledFromDefine(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'off':
+    case 'false':
+    case '0':
+    case 'no':
+    case 'disabled':
+      return false;
+    default:
+      return true;
   }
 }
 
@@ -126,6 +170,22 @@ List<SupportAction> supportActionsFor(SupportDistribution distribution) {
 /// [supportActionsFor]) to surface its supporter purchase, while F-Droid and
 /// dev builds keep the external links and nothing else. Declaring it as a
 /// provider also lets widget tests inject a fixed list without a dart-define.
+///
+/// When [supportLinksEnabled] is false (the per-channel kill switch) this yields
+/// an empty list, so a build compiled with `LINTHRA_SUPPORT_LINKS=off` offers no
+/// support actions at all and the screen degrades to a purely informational
+/// page.
 final supportActionsProvider = Provider<List<SupportAction>>(
-  (ref) => supportActionsFor(SupportDistribution.current),
+  (ref) => supportLinksEnabled
+      ? supportActionsFor(SupportDistribution.current)
+      : const <SupportAction>[],
 );
+
+/// Whether the in-app "Support Linthra" entry point should be shown.
+///
+/// Mirrors [supportLinksEnabled] behind a provider so the About page can hide
+/// its "Support Linthra" card in a links-disabled build, and so widget tests can
+/// flip the switch without a dart-define. Reads the same env flag, so the entry
+/// point and the actions are always consistent.
+final supportLinksEnabledProvider =
+    Provider<bool>((ref) => supportLinksEnabled);
