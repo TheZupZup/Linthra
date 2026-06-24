@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/colors.dart';
 import '../../app/dimens.dart';
+import '../../data/repositories/launcher_icon_service_provider.dart';
 import '../../shared/widgets/linthra_logo_mark.dart';
 import 'app_icon_controller.dart';
 import 'app_icon_variant.dart';
@@ -22,6 +23,10 @@ class AppearanceSettingsScreen extends ConsumerWidget {
     final List<AppIconVariant> variants =
         ref.watch(availableAppIconVariantsProvider);
     final AppIconVariant selected = ref.watch(appIconControllerProvider);
+    // Only Android can switch the real launcher icon; elsewhere the picker
+    // changes the in-app mark only, so we skip the home-screen hint there.
+    final bool launcherSwitchSupported =
+        ref.watch(launcherIconServiceProvider).isSupported;
     return Scaffold(
       appBar: AppBar(title: const Text('App icon & branding')),
       body: ListView(
@@ -32,12 +37,40 @@ class AppearanceSettingsScreen extends ConsumerWidget {
           _VariantGrid(
             variants: variants,
             selectedId: selected.id,
-            onSelect: (AppIconVariant variant) =>
-                ref.read(appIconControllerProvider.notifier).select(variant),
+            onSelect: (AppIconVariant variant) => _onSelect(
+              context,
+              ref,
+              variant: variant,
+              isNewSelection: variant.id != selected.id,
+              announceLauncherChange: launcherSwitchSupported,
+            ),
           ),
         ],
       ),
     );
+  }
+
+  /// Applies the selection and, when the real launcher icon actually changes
+  /// (Android, and only for a *new* pick), surfaces a brief note that some
+  /// launchers need a moment or a refresh before the new icon shows.
+  void _onSelect(
+    BuildContext context,
+    WidgetRef ref, {
+    required AppIconVariant variant,
+    required bool isNewSelection,
+    required bool announceLauncherChange,
+  }) {
+    ref.read(appIconControllerProvider.notifier).select(variant);
+    if (isNewSelection && announceLauncherChange) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Launcher icon updated. Some launchers take a few seconds — or a '
+            'refresh — to show the new icon.',
+          ),
+        ),
+      );
+    }
   }
 }
 
@@ -72,9 +105,10 @@ class _IntroCard extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             Text(
               'Choose how the Linthra mark looks across the app — in About, the '
-              'Settings header, and more. Every variant is free and available to '
-              'everyone, and your choice is purely cosmetic: it changes nothing '
-              'about how Linthra plays, syncs, or stores your music.',
+              'Settings header, and, on Android, as your home-screen and '
+              'app-drawer icon. Every variant is free and available to everyone, '
+              'and your choice is purely cosmetic: it changes nothing about how '
+              'Linthra plays, syncs, or stores your music.',
               style: theme.textTheme.bodyMedium?.copyWith(color: muted),
             ),
           ],

@@ -23,6 +23,10 @@ class MainActivity : AudioServiceActivity() {
     // battery saver. Lazy so it binds to this activity once, on first resume.
     private val displayRefreshRate by lazy { DisplayRefreshRate(this) }
 
+    // Switches the launcher icon by toggling <activity-alias> entries. Bound to
+    // the application context (not this activity) so it never leaks the activity.
+    private val launcherIconChannel by lazy { LauncherIconChannel(applicationContext) }
+
     override fun onResume() {
         super.onResume()
         displayRefreshRate.onResume()
@@ -89,6 +93,16 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        // Launcher-icon switching: enable the chosen <activity-alias> and
+        // disable the others (LauncherIconChannel). Separate channel from SAF so
+        // each stays small and auditable.
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            LauncherIconChannel.CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            launcherIconChannel.handle(call, result)
+        }
     }
 
     private fun startFolderPick(result: MethodChannel.Result) {

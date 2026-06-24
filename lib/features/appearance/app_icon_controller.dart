@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/repositories/app_icon_variant_store_provider.dart';
+import '../../data/repositories/launcher_icon_service_provider.dart';
 import '../support/support_actions_provider.dart';
 import 'app_icon_variant.dart';
 
@@ -25,18 +26,25 @@ class AppIconController extends Notifier<AppIconVariant> {
   }
 
   Future<void> _load() async {
+    AppIconVariant resolved = AppIconVariants.classic;
     try {
       final String? stored = await ref.read(appIconVariantStoreProvider).read();
-      final AppIconVariant resolved = AppIconVariants.byId(stored);
+      resolved = AppIconVariants.byId(stored);
       if (resolved.id != state.id) {
         state = resolved;
       }
     } catch (_) {
       // A storage hiccup must never break the UI; keep Classic.
     }
+    // Re-assert the launcher icon for the restored choice on every cold start,
+    // so it survives a restart (and an OS that reset the alias). The native
+    // side only flips aliases whose state differs, so this is a no-op — and
+    // causes no launcher refresh — when the icon is already correct.
+    await _applyLauncherIcon(resolved.id);
   }
 
-  /// Selects [variant] and persists it. A no-op when nothing changes.
+  /// Selects [variant], persists it, and switches the real launcher icon to
+  /// match (Android only). A no-op when nothing changes.
   Future<void> select(AppIconVariant variant) async {
     if (variant.id == state.id) {
       return;
@@ -46,6 +54,20 @@ class AppIconController extends Notifier<AppIconVariant> {
       await ref.read(appIconVariantStoreProvider).write(variant.id);
     } catch (_) {
       // Best-effort persistence: the in-memory choice still applies this session.
+    }
+    await _applyLauncherIcon(variant.id);
+  }
+
+  /// Switches the device launcher icon to [variantId]'s alias, best-effort.
+  ///
+  /// Launcher switching is Android-only and best-effort: a failure, or a
+  /// platform/device without runtime switching, must never break the in-app
+  /// selection — which has already been applied and persisted above.
+  Future<void> _applyLauncherIcon(String variantId) async {
+    try {
+      await ref.read(launcherIconServiceProvider).applyVariant(variantId);
+    } catch (_) {
+      // Ignored on purpose; the in-app branding choice still stands.
     }
   }
 }

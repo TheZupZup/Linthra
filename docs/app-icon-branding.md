@@ -1,11 +1,14 @@
 # App icon & branding
 
-Linthra lets you choose how its brand mark looks across the app. The picker
-lives under **Settings → Appearance → App icon & branding**.
+Linthra lets you choose how its brand mark looks — across the app and, on
+Android, as the real **launcher icon** on your home screen and app drawer. The
+picker lives under **Settings → Appearance → App icon & branding**.
 
 This is purely cosmetic. Every variant is free and available to everyone in
 every build, the choice gates nothing, and it changes nothing about how Linthra
-plays, syncs, caches, or stores your music.
+plays, syncs, caches, or stores your music. (Some launchers take a few seconds —
+or a manual refresh — to show a newly chosen icon; that's the launcher's caching,
+not a failure.)
 
 ## What a "variant" is
 
@@ -50,6 +53,11 @@ A small, data-driven feature that mirrors the Support module's per-build seam:
   Settings header reflect the choice immediately. `LinthraLogoMark` itself stays
   presentational and state-free; its default constructor renders the classic
   mark byte-for-byte as before.
+- **Launcher icon (Android)** — the same selection also switches the real
+  launcher icon via `LauncherIconService`. The controller calls it best-effort on
+  every change *and* re-asserts it on startup, so the home-screen icon survives a
+  restart. It is Android-only and degrades to a safe no-op everywhere else (see
+  "Launcher icon switching" below).
 
 ## F-Droid safety
 
@@ -84,42 +92,91 @@ The seam for it is already here: filter or mark variants in
 adds its Play-only row. The picker screen renders whatever list it is given, so
 that change needs no screen edits and no change to the F-Droid build.
 
-## Launcher icon switching — deferred, documented here
+## Launcher icon switching (Android)
 
-This PR customises **in-app** branding only. Switching the actual Android
-**launcher** icon is deliberately out of scope because it is invasive and risks
-F-Droid reproducibility. Documented here so a future PR has a starting point:
+Choosing a variant also switches the **real** Android launcher icon, using
+`<activity-alias>` entries toggled at runtime. It is Android-only and
+best-effort: off Android, or if the platform call fails, the in-app mark still
+changes and nothing throws.
 
-### The `activity-alias` approach
+### How it works
 
-Android can expose several launcher icons for one app by declaring multiple
-`<activity-alias>` entries in `AndroidManifest.xml`, each pointing at the main
-activity but with its own `android:icon`/`android:roundIcon` and an
-`android.intent.category.LAUNCHER` intent filter. Exactly one alias is enabled
-at a time; switching is done at runtime with:
+- **One alias per variant.** `AndroidManifest.xml` declares an `<activity-alias>`
+  for every variant (`.IconClassic`, `.IconDark`, `.IconNeon`, `.IconServer`,
+  `.IconWaveform`, `.IconLonely`, `.IconGold`), each with its own `android:icon`
+  and a `MAIN`/`LAUNCHER` intent filter, all `targetActivity=".MainActivity"`.
+  `.MainActivity` no longer carries the launcher intent filter itself — it is the
+  shared target. `.IconClassic` ships `android:enabled="true"` and reuses the
+  existing `@mipmap/ic_launcher`; the rest ship disabled. Exactly one alias is
+  ever enabled.
+- **Switching.** `LauncherIconChannel.kt` enables the chosen alias and disables
+  the others with
+  `PackageManager.setComponentEnabledSetting(..., DONT_KILL_APP)`, so the running
+  process — playback, the audio foreground service and its notification, and the
+  Android Auto session — is **never killed**. It enables the target *before*
+  disabling the rest (so there is never a moment with zero enabled launchers) and
+  only writes components whose effective state actually changes (so re-asserting
+  the current icon is a no-op that triggers no launcher refresh).
+- **Dart side.** `LauncherIconAliases` (pure data) maps each variant id to its
+  alias name — the single contract shared with the manifest and the Kotlin
+  `ALIASES` list. `LauncherIconService` has an Android method-channel
+  implementation, a no-op for other platforms/tests, and a platform-selecting
+  wrapper (`PlatformLauncherIconService`), mirroring `PlatformFolderPickerService`.
+  `AppIconController` calls it on every selection *and* re-asserts it on startup
+  from the persisted choice, so the icon survives a restart.
 
-```kotlin
-packageManager.setComponentEnabledSetting(
-    ComponentName(context, "<package>.<AliasName>"),
-    PackageManager.COMPONENT_ENABLED_STATE_ENABLED, // or DISABLED for the others
-    PackageManager.DONT_KILL_APP,
-)
+### Why every alias targets one activity
+
+Because all aliases point at the same `.MainActivity`, the launched activity, the
+`audio_service` media session, Android Auto (`MediaBrowserService`), the media
+notification, the media-button receiver, the artwork `FileProvider`, and deep
+links behave **identically** no matter which icon is active — only the
+home-screen / app-drawer icon changes. There are no custom deep-link filters on
+`MainActivity`, so moving `MAIN`/`LAUNCHER` onto the aliases affects nothing else.
+
+### Icon assets
+
+`tool/branding/generate_icons.py` is the single source of truth. Alongside the
+classic assets (unchanged), it renders, for each variant `<id>`:
+
+- `mipmap-<density>/ic_launcher_<id>.png` — legacy launcher tile,
+- `mipmap-<density>/ic_launcher_<id>_foreground.png` — adaptive foreground,
+- `mipmap-anydpi-v26/ic_launcher_<id>.xml` — adaptive icon reusing the shared
+  `@drawable/ic_launcher_background`.
+
+The variant bars use the same footprint/gap math as `LinthraLogoMark`, so the
+launcher icon matches the picker tile. The `VARIANTS` table in the script mirrors
+`app_icon_variant.dart`; keep them in step. Regenerate with:
+
+```
+python3 tool/branding/generate_icons.py
 ```
 
-driven from Dart over a small platform `MethodChannel`.
+### F-Droid reproducibility
 
-### Why it is deferred
+The added assets are PNGs written deterministically by the stdlib-only generator
+(no Pillow, no timestamps, no randomness) and compile into `resources.arsc`,
+which F-Droid's reproducible build already produces byte-identically; the classic
+`ic_launcher.*` outputs are unchanged. The new `<activity-alias>` entries add
+manifest lines but no new class of nondeterminism — the per-ABI manifest
+line-number divergence tracked in
+[`docs/fdroid-reproducibility-arm64.md`](fdroid-reproducibility-arm64.md) is
+structural and pre-existing. Always regenerate icons with the tool (never edit
+the PNGs by hand) so determinism holds. No new dependencies, billing, tracking,
+or feature gating are introduced.
 
-- **Multiple pre-rendered icon sets.** Each alias needs its own mipmap set in
-  every density, regenerated via `tool/branding/generate_icons.py`. That
-  multiplies committed PNGs and the icon-generation surface.
-- **Manifest churn + launcher behaviour.** Each variant adds an alias; toggling
-  one typically makes the launcher drop and re-add the icon (it can briefly
-  disappear or move), which is a jarring UX that needs care.
-- **F-Droid reproducibility.** More generated binary assets and manifest entries
-  enlarge the reproducible-build surface that
-  [`docs/fdroid-reproducibility-arm64.md`](fdroid-reproducibility-arm64.md)
-  guards.
+## Manual QA checklist (Android)
 
-Given that, real launcher-icon switching is left to a later, focused PR. The
-in-app branding here is intentionally self-contained and does not depend on it.
+Run on a real device/emulator after changing launcher icons:
+
+- [ ] Fresh install shows the default **Classic** launcher icon.
+- [ ] Selecting **each** variant updates the home-screen / app-drawer icon (allow
+      a few seconds or a launcher refresh).
+- [ ] The app still **opens from the launcher** after each switch.
+- [ ] The app still appears and browses correctly in **Android Auto**.
+- [ ] **Notification / media controls** keep working *during and after* a switch —
+      playback is not interrupted (`DONT_KILL_APP`).
+- [ ] The app **survives a restart** with the selected icon (cold kill + relaunch).
+- [ ] **Switching back to Classic** works.
+- [ ] Non-Android (desktop) ignores the feature: the in-app mark still changes and
+      there are no errors.
