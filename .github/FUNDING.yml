@@ -1,0 +1,8 @@
+# Shows the "Sponsor" button on the repository. The handle matches the in-app
+# Support screen's GitHub Sponsors link (SupportLinks.gitHubSponsors in
+# lib/features/support/support_actions_provider.dart).
+#
+# Sponsorship is optional and never required: Linthra is free and open source,
+# no feature is locked behind donation, and there are no ads or tracking. See
+# docs/SUPPORT.md for the full, voluntary supporter model.
+github: thezupzup
