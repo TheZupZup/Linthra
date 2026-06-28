@@ -224,7 +224,7 @@ partial playlist sync, optimistic connectivity) are documented per feature.
 | Reporting a bug | [docs/reporting-bugs.md](./docs/reporting-bugs.md) |
 | Playlists & safe removal | [docs/playlists-and-delete.md](./docs/playlists-and-delete.md) |
 | Smart mixes (automatic playlists) | [docs/smart-mixes.md](./docs/smart-mixes.md) |
-| App icon & branding (in-app personalization) | [docs/app-icon-branding.md](./docs/app-icon-branding.md) |
+| App icon & branding (in-app + real Android launcher icon) | [docs/app-icon-branding.md](./docs/app-icon-branding.md) |
 | Manual QA checklist | [docs/manual-test-checklist.md](./docs/manual-test-checklist.md) |
 | Release process & signing | [docs/release-process.md](./docs/release-process.md) · [signing](./docs/release-signing.md) |
 | F-Droid readiness | [docs/fdroid-readiness.md](./docs/fdroid-readiness.md) |
