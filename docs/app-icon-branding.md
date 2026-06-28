@@ -144,13 +144,46 @@ classic assets (unchanged), it renders, for each variant `<id>`:
 - `mipmap-anydpi-v26/ic_launcher_<id>.xml` — adaptive icon reusing the shared
   `@drawable/ic_launcher_background`.
 
-The variant bars use the same footprint/gap math as `LinthraLogoMark`, so the
-launcher icon matches the picker tile. The `VARIANTS` table in the script mirrors
-`app_icon_variant.dart`; keep them in step. Regenerate with:
+> **Every variant must match the default Classic launcher icon's visual size.**
+> A launcher icon is judged next to the rest of the home screen, so a variant
+> that is even slightly larger, lower, or visually heavier than the default looks
+> wrong. The generator therefore draws every variant in the **same optical
+> footprint as Classic** — the same padding/inset, the same baseline, and the
+> same bounding box — and only the colours and the relative bar pattern change.
+
+Concretely, the variant path (`_variant_bars`) reuses the **classic** bar
+geometry rather than the in-app `LinthraLogoMark` geometry:
+
+- The bar group spans `VARIANT_GROUP_FOOTPRINT` (= the classic four-bar group
+  width, `4·0.13 + 3·0.10 = 0.82` of the layout region) at the classic
+  gap-to-bar ratio (`0.10/0.13`). A 4-bar variant therefore reproduces Classic's
+  bar width exactly; a 5-bar variant (Waveform) fits the **same** footprint with
+  proportionally thinner bars, so it never grows wider or heavier.
+- Bars are bottom-aligned to the classic baseline (`0.80` of the region) and
+  their heights are **normalised so each variant's tallest bar equals Classic's
+  tallest** — giving every variant Classic's exact vertical extent while keeping
+  its own bar pattern (level meter, rising signal, symmetric wave, lone bar…).
+- The mark is laid out in the same regions Classic uses — the squircle tile for
+  the legacy icon and the central `0.62` adaptive **safe zone** for the
+  foreground — so the bars stay inside the adaptive mask and never touch its
+  edges, exactly like the default.
+
+The net effect: for the legacy tile and the adaptive foreground alike, every
+variant's rendered bar bounding box is identical to Classic's (verified by
+decoding the generated PNGs). Note this is a deliberate trade-off — the launcher
+variants are sized to match the **Classic launcher icon**, not the in-app
+`LinthraLogoMark` picker tile, because on the home screen they sit next to the
+default, not next to the picker. The `VARIANTS` table in the script mirrors
+`app_icon_variant.dart` (id, gradient, bar pattern); keep them in step.
+Regenerate with:
 
 ```
 python3 tool/branding/generate_icons.py
 ```
+
+After regenerating, the classic `ic_launcher.*` and store assets stay
+byte-for-byte identical (verify with `sha256sum`); only the
+`ic_launcher_<id>.*` variant assets change.
 
 ### F-Droid reproducibility
 
@@ -172,6 +205,10 @@ Run on a real device/emulator after changing launcher icons:
 - [ ] Fresh install shows the default **Classic** launcher icon.
 - [ ] Selecting **each** variant updates the home-screen / app-drawer icon (allow
       a few seconds or a launcher refresh).
+- [ ] **Size check:** each variant's icon matches **Classic's** visual size on
+      the home screen — none looks oversized, cropped, stretched, lower, or
+      visually heavier than the default. (The mark stays inside the adaptive mask
+      and never touches its edges.)
 - [ ] The app still **opens from the launcher** after each switch.
 - [ ] The app still appears and browses correctly in **Android Auto**.
 - [ ] **Notification / media controls** keep working *during and after* a switch —
