@@ -133,7 +133,7 @@ class JellyfinMusicSource
   /// stream endpoint (`/Audio/<id>/stream` with `static=true`) so the server
   /// returns the original file bytes — what `just_audio`/ExoPlayer can open
   /// directly — rather than negotiating a transcode/HLS variant the engine may
-  /// reject. Auth rides in the `api_key` query (not a header) because that is
+  /// reject. Auth rides in the `ApiKey` query (not a header) because that is
   /// what the engine fetches with, and query auth survives the redirects a
   /// stripped header would not.
   @override

@@ -51,6 +51,25 @@ void main() {
       // The token rides only in the auth header, never logged elsewhere.
       expect(captured!.headers['Authorization'], contains(_token));
     });
+
+    test('skips a malformed playlist (numeric Id/Name), keeping the good one',
+        () async {
+      final HttpJellyfinClient client = _client(MockClient((request) async {
+        return _json(<String, dynamic>{
+          'Items': <dynamic>[
+            <String, dynamic>{'Id': 123, 'Name': 'Bad'},
+            <String, dynamic>{'Id': 'pl-good', 'Name': 'Good'},
+          ],
+        });
+      }));
+
+      final List<JellyfinPlaylistDto> playlists =
+          await client.fetchPlaylists(_session);
+
+      // The numeric-Id playlist coerces away and is skipped; the listing loop
+      // does not throw, and the good playlist still loads.
+      expect(playlists.map((p) => p.id), <String>['pl-good']);
+    });
   });
 
   group('fetchPlaylistEntries', () {
@@ -69,6 +88,21 @@ void main() {
           await client.fetchPlaylistEntries(_session, 'pl-1');
       expect(entries.map((e) => e.itemId), <String>['a', 'b']);
       expect(entries.first.playlistItemId, 'e-a');
+    });
+
+    test('skips an entry with a non-string Id, keeping the rest', () async {
+      final HttpJellyfinClient client = _client(MockClient((request) async {
+        return _json(<String, dynamic>{
+          'Items': <dynamic>[
+            <String, dynamic>{'Id': 42, 'PlaylistItemId': 'e-bad'},
+            <String, dynamic>{'Id': 'b', 'PlaylistItemId': 'e-b'},
+          ],
+        });
+      }));
+
+      final List<JellyfinPlaylistEntry> entries =
+          await client.fetchPlaylistEntries(_session, 'pl-1');
+      expect(entries.map((e) => e.itemId), <String>['b']);
     });
   });
 

@@ -26,7 +26,7 @@ typedef JellyfinControlSocketConnector = Future<JellyfinControlSocket> Function(
 );
 
 /// Production connector: a `dart:io` [WebSocket]. The [url] carries the access
-/// token in its `api_key` query, so it must never be logged here.
+/// token in its `ApiKey` query, so it must never be logged here.
 Future<JellyfinControlSocket> connectJellyfinControlSocket(Uri url) async {
   final WebSocket socket = await WebSocket.connect(url.toString());
   return _WebSocketJellyfinControlSocket(socket);

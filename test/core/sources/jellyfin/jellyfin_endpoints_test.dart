@@ -115,8 +115,9 @@ void main() {
     test('primaryImage is a token-free cover-art URL', () {
       final Uri uri = JellyfinEndpoints.primaryImage(_base, itemId: 'item-7');
       expect(uri.path, '/Items/item-7/Images/Primary');
-      // Artwork needs no auth, so it carries no token (safe to persist/cache).
-      expect(uri.toString(), isNot(contains('api_key')));
+      // Artwork needs no auth, so it carries no token at all (safe to
+      // persist/cache) — neither the canonical ApiKey nor the legacy api_key.
+      expect(uri.hasQuery, isFalse);
     });
   });
 
@@ -160,8 +161,13 @@ void main() {
       expect(uri.queryParameters['DeviceId'], 'device-1');
     });
 
-    test('weaves the token into the api_key query, never the path', () {
-      expect(uri.queryParameters['api_key'], _token);
+    test('weaves the token into the canonical ApiKey query, never the path',
+        () {
+      expect(uri.queryParameters['ApiKey'], _token);
+      // The PascalCase ApiKey is read unconditionally by Jellyfin 10.x and 12;
+      // the legacy lowercase api_key is gated off by default on Jellyfin 12, so
+      // it must not be the carrier.
+      expect(uri.queryParameters.containsKey('api_key'), isFalse);
       // The token is in the query only — never in the path the catalog/logs see.
       expect(uri.path, isNot(contains(_token)));
     });
@@ -178,9 +184,30 @@ void main() {
       expect(uri.path, '/Items/t1/Download');
     });
 
-    test('weaves the token into the api_key query, never the path', () {
-      expect(uri.queryParameters['api_key'], _token);
+    test('weaves the token into the canonical ApiKey query, never the path',
+        () {
+      expect(uri.queryParameters['ApiKey'], _token);
+      expect(uri.queryParameters.containsKey('api_key'), isFalse);
       expect(uri.path, isNot(contains(_token)));
+    });
+  });
+
+  group('JellyfinEndpoints.controlSocket', () {
+    final Uri uri = JellyfinEndpoints.controlSocket(
+      _base,
+      accessToken: _token,
+      deviceId: 'device-1',
+    );
+
+    test('upgrades to wss and carries the token in the canonical ApiKey query',
+        () {
+      expect(uri.scheme, 'wss');
+      expect(uri.path, '/socket');
+      expect(uri.queryParameters['ApiKey'], _token);
+      expect(uri.queryParameters['deviceId'], 'device-1');
+      // Same JF12 rationale as the stream/download URLs: the socket handshake
+      // authenticates through the same path, so it must use ApiKey too.
+      expect(uri.queryParameters.containsKey('api_key'), isFalse);
     });
   });
 }

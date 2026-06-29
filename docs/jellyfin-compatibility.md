@@ -33,12 +33,29 @@ trusted LAN is also accepted.
 
 ### Server version support
 
-Linthra is tested against **Jellyfin 10.8.0 and newer**. The REST endpoints it
-uses (below) are long-standing across the 10.x line, so an older server is
-labelled *untested* (and the user is gently warned) rather than blocked. The
-reported version is parsed only for this **diagnostic** classification — it never
+Linthra is actively tested against the **Jellyfin 10.10.x and 10.11.x** line and
+treats **Jellyfin 12** — the next release after 10.11, as there is no 11 — as
+*forward-tolerant*: allowed, never blocked, and never version-branched. The
+reported version is parsed only for a **diagnostic** classification — it never
 changes which endpoints or parameters Linthra sends. Deliberately avoiding
 version-sniffing keeps the integration robust against future server updates.
+
+`jellyfinServerSupportFor` classifies the reported version into four bands, each
+surfaced in the settings note and the diagnostics report:
+
+| Band | When | What the user sees |
+| --- | --- | --- |
+| **supported** | major ≤ `kMaximumTestedJellyfinMajor` (10) **and** ≥ `kMinimumTestedJellyfinVersion` (10.8.0) | nothing — the normal case |
+| **newer than tested** | major **above** the tested ceiling (Jellyfin 12+) | a calm "newer major version Linthra hasn't validated — streaming should still work; please report any issues" |
+| **untested (older)** | below the 10.8.0 floor | "older than Linthra is tested against — should still work, but untested" |
+| **unknown** | version absent or unparseable | nothing actionable; still recorded in diagnostics |
+
+Both bounds are conservative *diagnostic* markers, never gates: a server outside
+the tested range is gently flagged, not refused. The version parser tolerates the
+usual shapes — `10.11.11`, `12.0`, `12.0.0`, `12.0.0-rc1`, a 4th segment, a
+`+build` suffix — and falls back to *unknown* (not a crash) for anything it can't
+read. Raise `kMaximumTestedJellyfinMajor` (or the floor) only once a newer
+baseline has actually been tested.
 
 ## Expected server URL examples
 
@@ -92,18 +109,31 @@ between call sites and the full surface is auditable here.
 | Toggle favourite | `POST` / `DELETE /Users/{userId}/FavoriteItems/{itemId}` | POST marks, DELETE clears. |
 | Lyrics | `GET /Audio/{itemId}/Lyrics` | 404 = "no lyrics", a normal outcome. |
 | Cover art | `GET /Items/{itemId}/Images/Primary` | **Token-free**; safe to cache/persist. |
-| Direct stream | `GET /Audio/{itemId}/stream?static=true&api_key=…&UserId=…&DeviceId=…` | `static=true` serves the original file (no transcode). Token in query. |
-| Download | `GET /Items/{itemId}/Download?api_key=…` | Original file for the offline cache. Token in query. |
+| Direct stream | `GET /Audio/{itemId}/stream?static=true&ApiKey=…&UserId=…&DeviceId=…` | `static=true` serves the original file (no transcode). Token in the `ApiKey` query (see Authentication). |
+| Download | `GET /Items/{itemId}/Download?ApiKey=…` | Original file for the offline cache. Token in the `ApiKey` query. |
 | Report playback start | `POST /Sessions/Playing` | Body `{ItemId, PositionTicks, …}`; shows Linthra on the dashboard. Best-effort. |
 | Report playback progress | `POST /Sessions/Playing/Progress` | Throttled heartbeat; `IsPaused` carries pause/resume. Best-effort. |
 | Report playback stop | `POST /Sessions/Playing/Stopped` | Settles the server's session/play state. Best-effort. |
 
-**Authentication header.** Authenticated JSON calls send the standard Jellyfin
+**Authentication.** Authenticated JSON calls send the standard Jellyfin
 `Authorization: MediaBrowser Client="Linthra", Device="Linthra", DeviceId="…",
-Version="…", Token="…"` header, built once in `JellyfinAuthHeader`. The token is
-woven into a header or an `api_key` query only at request time and is **never**
-stored on a track, written to the catalog, logged, shown in the UI, or placed in
-an error.
+Version="…", Token="…"` header — the modern, non-legacy scheme — built once in
+`JellyfinAuthHeader`. Media URLs the audio engine fetches directly (the stream,
+download, and control-socket URLs) can't carry a header, so they carry the token
+in the **`ApiKey`** query parameter instead.
+
+Why `ApiKey` (PascalCase), not the older `api_key`? Jellyfin 12 disables *legacy*
+authorization by default (the server's `EnableLegacyAuthorization` switch), which
+gates the lowercase `api_key` query parameter and the `X-Emby-*` headers. The
+PascalCase `ApiKey` is Jellyfin's canonical, non-legacy query key, read
+*unconditionally* on both the 10.x line and Jellyfin 12 — so using it everywhere
+keeps media URLs authenticated on a stock Jellyfin 12 server while staying fully
+backward compatible with 10.8+. (A media URL sent with the legacy `api_key` would
+arrive unauthenticated — a 401 — on a default-config Jellyfin 12.)
+
+The token is woven into a header or the `ApiKey` query only at request time and
+is **never** stored on a track, written to the catalog, logged, shown in the UI,
+or placed in an error.
 
 ### How streaming responses are classified
 
@@ -129,14 +159,19 @@ error:
 - **No version-gated request behavior.** The version is read for diagnostics
   only. Do not add `if (version >= x) useEndpointA else useEndpointB` branches;
   prefer endpoints stable across the 10.x line.
-- **Tolerant parsing.** Unknown JSON fields are ignored and a missing `Items`
-  array reads as empty. Every mapped field is read through a *coercing* helper,
-  so an item that omits a field — or sends it with the **wrong type** (a number
-  where a string is expected, a numeric string for `RunTimeTicks`, …) — yields a
-  safe fallback for that one field instead of throwing. An entry too malformed
-  to use at all (missing `Id`/`Name`, or not an object) is **skipped and
-  counted**, never thrown, so one bad track can't fail the whole sync; the
-  sync then reports "some items could not be synced" rather than an error.
+- **Tolerant parsing.** Unknown JSON fields are ignored and a missing **or
+  `null`** `Items` array reads as empty. Every mapped field is read through a
+  *coercing* helper, so an item that omits a field — or sends it with the
+  **wrong type** (a number where a string is expected, a numeric string for
+  `RunTimeTicks`, a restructured `ImageTags`, …) — yields a safe fallback for
+  that one field instead of throwing. The same coercions now cover **every** wire
+  DTO — server info, the auth result, and playlists/entries — not just library
+  items, so a retyped `Version`, token, or playlist id fails *cleanly* (a clear
+  "not a Jellyfin server" / sign-in error, or a skipped entry) rather than
+  crashing with a `TypeError`. An entry too malformed to use at all (missing
+  `Id`/`Name`, or not an object) is **skipped and counted**, never thrown, so one
+  bad track can't fail the whole sync; the sync then reports "some items could
+  not be synced" rather than an error.
 - **Paginated, bounded reads.** Library listings are pulled in bounded pages
   (`StartIndex`/`Limit`) with a brief yield between them, so a large/slow
   library can't time out one unbounded request or hammer the server, and
@@ -151,6 +186,37 @@ error:
 - **Bump the tested floor** (`kMinimumTestedJellyfinVersion`) only when you have
   actually tested against, and intend to require, a newer baseline.
 
+### Stable API contract assumptions
+
+Because Linthra never version-branches, it instead relies on a small set of
+long-standing API contracts. They hold across the 10.x line and Jellyfin 12; if a
+verified future Jellyfin release changes one, this is the list to check, and the
+fix is centralized (usually one line in `JellyfinEndpoints`):
+
+- **Auth rejection is `401`/`403`.** Only these statuses mean "token rejected"
+  (and only from an auth-verifying call — `/Users/Me` or `AuthenticateByName`).
+  A changed status would mis-message but **cannot** force a sign-out or wipe the
+  catalog: sign-out is user-initiated only, and a failed/empty sync always keeps
+  the existing library.
+- **Token query auth is `ApiKey`.** The non-legacy, always-read query key (see
+  Authentication). The legacy lowercase `api_key` is off by default on Jellyfin
+  12.
+- **Paging is `StartIndex`/`Limit`**, and a listing is `{ "Items": [...],
+  "TotalRecordCount": n }`. A missing/`null` `Items` reads as empty; a
+  missing/non-numeric `TotalRecordCount` falls back to short-page/empty-page
+  termination (with a page-count backstop), so the worst case of a paging change
+  is bounded truncation — never an infinite loop or a wipe.
+- **Stable paths:** `/System/Info/Public`, `/Users/AuthenticateByName`,
+  `/Users/Me`, `/Items`, `/Artists`, `/Playlists/{id}/Items`, the `/Sessions/*`
+  reporting/capabilities endpoints, and the `/socket` control WebSocket.
+- **Favourites use the per-user path form** `…/Users/{userId}/FavoriteItems/
+  {itemId}`. Jellyfin has deprecated path-embedded user ids in favour of
+  query-param forms but still honours this through Jellyfin 12. It is best-effort
+  (a failure never wipes the catalog or signs the user out); if a future release
+  removes it, treat a `404` on toggle as "favourites unsupported" rather than
+  adding a version branch. Library and favourite *listing* already use the modern
+  `/Items?UserId=…` query form.
+
 ## Safe troubleshooting steps
 
 1. **Test connection first.** It checks reachability and that the address is
@@ -164,8 +230,11 @@ error:
    page; confirm the tunnel is healthy and Zero Trust isn't gating the host.
 6. **"This track isn't available"** (404) → the item may have been moved/removed
    or lives in a library your user can't see; re-sync the library.
-7. **Untested-version note** → streaming usually still works; upgrade the server
-   if you hit issues.
+7. **Untested-version note** (older server) → streaming usually still works;
+   upgrade the server if you hit issues.
+8. **"Newer than tested" note** (Jellyfin 12+) → Linthra hasn't validated this
+   major version yet; streaming should still work — please report any issues so
+   the tested ceiling can be raised.
 
 ## Reporting a Jellyfin issue without leaking secrets
 
@@ -184,8 +253,10 @@ Last error: none
 ```
 
 What it includes: app version, connection state, server name/version/product,
-the version-support classification, the **host only** (never a full URL), and
-the **kind** of the last error.
+the version-support classification (`supported` / `newer than tested` /
+`untested (older than recommended)` / `unknown` — enough to spot a Jellyfin 12
+server at a glance), the **host only** (never a full URL), and the **kind** of
+the last error.
 
 What it never includes: your **password**, the **access token**, the
 `Authorization` header, or any **full authenticated URL** (the address is

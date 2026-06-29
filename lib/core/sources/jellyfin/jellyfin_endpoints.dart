@@ -34,10 +34,21 @@ abstract final class JellyfinEndpoints {
 
   // --- Query-parameter keys, named once so a typo can't split a request. ---
 
-  /// The access token, carried in a media URL's query (not an `Authorization`
-  /// header) so it survives the redirects a stripped header would not and
-  /// matches exactly what the audio engine fetches with.
-  static const String apiKeyParam = 'api_key';
+  /// The query-parameter name that carries the access token in a media URL —
+  /// the stream, download, and control-socket URLs — instead of an
+  /// `Authorization` header, because that is what the Android audio engine
+  /// (`just_audio`/ExoPlayer) fetches with, and query auth survives the
+  /// redirects a stripped header would not.
+  ///
+  /// This is the PascalCase `ApiKey`: Jellyfin's canonical, non-legacy query
+  /// key, read unconditionally across the 10.x line *and* Jellyfin 12. The
+  /// lowercase `api_key` (and the `X-Emby-*` headers) is a legacy form Jellyfin
+  /// 12 only honours when the server opts back in with `EnableLegacyAuthorization`
+  /// — off by default — so an `api_key` media URL would arrive unauthenticated
+  /// (401) on a stock Jellyfin 12 server while `ApiKey` keeps working. `ApiKey`
+  /// has been accepted since well before 10.8, so this is also fully backward
+  /// compatible. See docs/jellyfin-compatibility.md.
+  static const String apiKeyParam = 'ApiKey';
 
   /// `static=true` asks Jellyfin to serve the original file bytes as-is.
   static const String staticParam = 'static';
@@ -243,11 +254,11 @@ abstract final class JellyfinEndpoints {
   static Uri capabilitiesFull(String baseUrl) =>
       _join(baseUrl, _capabilitiesFullPath);
 
-  /// The session control WebSocket: `{ws|wss}://<host>/socket?api_key=…&deviceId=…`.
+  /// The session control WebSocket: `{ws|wss}://<host>/socket?ApiKey=…&deviceId=…`.
   ///
   /// Built from [baseUrl] by switching the scheme to `ws`/`wss`. The server
   /// pushes remote-control (Playstate/GeneralCommand) messages down this socket
-  /// once the session is registered. Auth rides in the [accessToken] `api_key`
+  /// once the session is registered. Auth rides in the [accessToken] `ApiKey`
   /// query — exactly like the audio stream URL ([audioStream]) — so the receiver
   /// must treat this Uri as a secret and never log it.
   static Uri controlSocket(
@@ -299,7 +310,7 @@ abstract final class JellyfinEndpoints {
         },
       );
 
-  /// The original-file download URL: `/Items/<id>/Download?api_key=…`, used so
+  /// The original-file download URL: `/Items/<id>/Download?ApiKey=…`, used so
   /// the offline copy is the real source file rather than a transcode. Like
   /// [audioStream], the token is woven in on demand and never stored.
   static Uri download(

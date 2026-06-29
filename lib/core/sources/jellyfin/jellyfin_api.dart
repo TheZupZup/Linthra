@@ -111,16 +111,22 @@ class JellyfinServerInfo {
   /// Parses the response, or returns `null` when the body lacks the fields a
   /// real Jellyfin server always sends (so the client can report "not a
   /// Jellyfin server" instead of surfacing a half-empty object).
+  ///
+  /// Every field is read through [_coerceString], so a server that sends a
+  /// required field with an unexpected type (a numeric `Version`, say) reads as
+  /// absent — a clean "not a Jellyfin server" — rather than throwing a
+  /// `TypeError` that would crash Test-connection / version detection. The
+  /// optional fields simply degrade to `null`.
   static JellyfinServerInfo? fromJson(Map<String, dynamic> json) {
-    final String? name = json['ServerName'] as String?;
-    final String? version = json['Version'] as String?;
+    final String? name = _coerceString(json['ServerName']);
+    final String? version = _coerceString(json['Version']);
     if (name == null || version == null) return null;
     return JellyfinServerInfo(
       serverName: name,
       version: version,
-      id: json['Id'] as String?,
-      productName: json['ProductName'] as String?,
-      operatingSystem: json['OperatingSystem'] as String?,
+      id: _coerceString(json['Id']),
+      productName: _coerceString(json['ProductName']),
+      operatingSystem: _coerceString(json['OperatingSystem']),
     );
   }
 }
@@ -143,20 +149,24 @@ class JellyfinAuthResult {
   final String? serverId;
 
   /// Parses the auth response, or returns `null` if the token/user are absent
-  /// (an unexpected body) so the client can fail clearly.
+  /// or the wrong type (an unexpected body) so the client can fail clearly with
+  /// a sign-in error rather than throw a `TypeError`. Every field is read
+  /// through [_coerceString], which already rejects empty/whitespace, so a
+  /// blank token or user id is treated as absent.
   static JellyfinAuthResult? fromJson(Map<String, dynamic> json) {
-    final String? token = json['AccessToken'] as String?;
+    final String? token = _coerceString(json['AccessToken']);
     final Object? user = json['User'];
     final String? userId =
-        user is Map<String, dynamic> ? user['Id'] as String? : null;
-    if (token == null || token.isEmpty || userId == null || userId.isEmpty) {
+        user is Map<String, dynamic> ? _coerceString(user['Id']) : null;
+    if (token == null || userId == null) {
       return null;
     }
     return JellyfinAuthResult(
       accessToken: token,
       userId: userId,
-      userName: user is Map<String, dynamic> ? user['Name'] as String? : null,
-      serverId: json['ServerId'] as String?,
+      userName:
+          user is Map<String, dynamic> ? _coerceString(user['Name']) : null,
+      serverId: _coerceString(json['ServerId']),
     );
   }
 
@@ -205,15 +215,16 @@ class JellyfinItemDto {
   /// by the caller) so a single malformed entry can't break a whole listing.
   ///
   /// Tolerant by construction: every optional field is read through a *coercing*
-  /// helper ([_string], [_int], [_stringList]) rather than a raw `as` cast, so a
-  /// weird server that sends a number where a string is expected (or vice versa)
-  /// yields a safe fallback (`null`/empty) for that one field instead of
-  /// throwing a `TypeError` that would abort the whole sync. Only a missing or
-  /// blank id/name — an item Linthra cannot reference or label — is rejected.
+  /// helper ([_coerceString], [_coerceInt], [_coerceStringList]) rather than a
+  /// raw `as` cast, so a weird server that sends a number where a string is
+  /// expected (or vice versa) yields a safe fallback (`null`/empty) for that one
+  /// field instead of throwing a `TypeError` that would abort the whole sync.
+  /// Only a missing or blank id/name — an item Linthra cannot reference or
+  /// label — is rejected.
   static JellyfinItemDto? fromJson(Map<String, dynamic> json) {
-    final String? id = _string(json['Id']);
-    final String? name = _string(json['Name']);
-    if (id == null || id.isEmpty || name == null || name.isEmpty) return null;
+    final String? id = _coerceString(json['Id']);
+    final String? name = _coerceString(json['Name']);
+    if (id == null || name == null) return null;
 
     final Object? imageTags = json['ImageTags'];
     final bool hasPrimary = imageTags is Map && imageTags['Primary'] != null;
@@ -221,55 +232,66 @@ class JellyfinItemDto {
     return JellyfinItemDto(
       id: id,
       name: name,
-      album: _string(json['Album']),
-      albumId: _string(json['AlbumId']),
-      albumArtist: _string(json['AlbumArtist']),
-      artists: _stringList(json['Artists']),
-      runTimeTicks: _int(json['RunTimeTicks']),
-      indexNumber: _int(json['IndexNumber']),
-      productionYear: _int(json['ProductionYear']),
-      childCount: _int(json['ChildCount']),
+      album: _coerceString(json['Album']),
+      albumId: _coerceString(json['AlbumId']),
+      albumArtist: _coerceString(json['AlbumArtist']),
+      artists: _coerceStringList(json['Artists']),
+      runTimeTicks: _coerceInt(json['RunTimeTicks']),
+      indexNumber: _coerceInt(json['IndexNumber']),
+      productionYear: _coerceInt(json['ProductionYear']),
+      childCount: _coerceInt(json['ChildCount']),
       hasPrimaryImage: hasPrimary,
     );
   }
+}
 
-  /// A trimmed non-empty [String] from a wire value, or `null` for anything
-  /// else (a number, bool, list, missing, or blank). Trimming means a field
-  /// that is all whitespace reads as absent rather than a blank label.
-  static String? _string(Object? value) {
-    if (value is! String) return null;
+/// Shared, tolerant coercions for the wire values every DTO in this file reads.
+///
+/// Jellyfin 12 (and the occasional proxy or plugin) can send a field with an
+/// unexpected type — a number where a string is expected, a numeric string for
+/// a count — or omit it entirely. Reading every field through these coercions,
+/// rather than a raw `as` cast, means such a value yields a safe fallback for
+/// that one field instead of throwing a `TypeError` that would abort parsing an
+/// entire response. The rule across the app: missing / renamed / null / retyped
+/// fields are non-fatal. Proven first on [JellyfinItemDto] (PR #253) and hoisted
+/// here so the server-info, auth, and playlist DTOs are equally robust.
+
+/// A trimmed non-empty [String] from a wire value, or `null` for anything
+/// else (a number, bool, list, missing, or blank). Trimming means a field
+/// that is all whitespace reads as absent rather than a blank label.
+String? _coerceString(Object? value) {
+  if (value is! String) return null;
+  final String trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+/// An [int] from a wire value, accepting the JSON `num` Jellyfin normally
+/// sends *and* a numeric string some plugins/proxies emit. Returns `null` for
+/// anything non-numeric (a non-number string, bool, list, …) so one weird
+/// field never throws.
+int? _coerceInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) {
     final String trimmed = value.trim();
-    return trimmed.isEmpty ? null : trimmed;
+    // Symmetric with the `num` path: a fractional numeric string ("123.9")
+    // truncates exactly like the JSON number 123.9 would, rather than being
+    // dropped because `int.tryParse` rejects the decimal point.
+    return int.tryParse(trimmed) ?? double.tryParse(trimmed)?.toInt();
   }
+  return null;
+}
 
-  /// An [int] from a wire value, accepting the JSON `num` Jellyfin normally
-  /// sends *and* a numeric string some plugins/proxies emit. Returns `null` for
-  /// anything non-numeric (a non-number string, bool, list, …) so one weird
-  /// field never throws.
-  static int? _int(Object? value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) {
-      final String trimmed = value.trim();
-      // Symmetric with the `num` path: a fractional numeric string ("123.9")
-      // truncates exactly like the JSON number 123.9 would, rather than being
-      // dropped because `int.tryParse` rejects the decimal point.
-      return int.tryParse(trimmed) ?? double.tryParse(trimmed)?.toInt();
-    }
-    return null;
-  }
-
-  /// The non-empty strings from a wire list, or an empty list when the value
-  /// isn't a list at all. Non-string entries inside the list are dropped rather
-  /// than throwing, so a partially malformed `Artists` array still yields the
-  /// good names.
-  static List<String> _stringList(Object? value) {
-    if (value is! List) return const <String>[];
-    return <String>[
-      for (final Object? entry in value)
-        if (entry is String && entry.trim().isNotEmpty) entry.trim(),
-    ];
-  }
+/// The non-empty strings from a wire list, or an empty list when the value
+/// isn't a list at all. Non-string entries inside the list are dropped rather
+/// than throwing, so a partially malformed `Artists` array still yields the
+/// good names.
+List<String> _coerceStringList(Object? value) {
+  if (value is! List) return const <String>[];
+  return <String>[
+    for (final Object? entry in value)
+      if (entry is String && entry.trim().isNotEmpty) entry.trim(),
+  ];
 }
 
 /// The outcome of listing one [JellyfinItemKind] from the server: the items
@@ -308,12 +330,14 @@ class JellyfinPlaylistDto {
   final String id;
   final String name;
 
-  /// Parses one playlist entry, or `null` when it lacks an id/name so a single
-  /// malformed entry can't break a whole listing.
+  /// Parses one playlist entry, or `null` when it lacks a usable id/name (or
+  /// sends either with the wrong type) so a single malformed entry is skipped
+  /// by the caller rather than throwing a `TypeError` that aborts the whole
+  /// playlist listing. Both fields are read through [_coerceString].
   static JellyfinPlaylistDto? fromJson(Map<String, dynamic> json) {
-    final String? id = json['Id'] as String?;
-    final String? name = json['Name'] as String?;
-    if (id == null || id.isEmpty || name == null) return null;
+    final String? id = _coerceString(json['Id']);
+    final String? name = _coerceString(json['Name']);
+    if (id == null || name == null) return null;
     return JellyfinPlaylistDto(id: id, name: name);
   }
 }
@@ -332,11 +356,11 @@ class JellyfinPlaylistEntry {
   final String? playlistItemId;
 
   static JellyfinPlaylistEntry? fromJson(Map<String, dynamic> json) {
-    final String? id = json['Id'] as String?;
-    if (id == null || id.isEmpty) return null;
+    final String? id = _coerceString(json['Id']);
+    if (id == null) return null;
     return JellyfinPlaylistEntry(
       itemId: id,
-      playlistItemId: json['PlaylistItemId'] as String?,
+      playlistItemId: _coerceString(json['PlaylistItemId']),
     );
   }
 }

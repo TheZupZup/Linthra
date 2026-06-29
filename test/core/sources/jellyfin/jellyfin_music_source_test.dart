@@ -152,7 +152,7 @@ void main() {
       expect(uri!.path, '/Audio/t1/stream');
       expect(uri.queryParameters['static'], 'true');
       expect(uri.host, 'music.example.com');
-      expect(uri.queryParameters['api_key'], 'secret-token');
+      expect(uri.queryParameters['ApiKey'], 'secret-token');
       expect(uri.queryParameters['UserId'], 'user-1');
       expect(uri.queryParameters['DeviceId'], 'device-1');
       // The stream URL is probed before it is returned (and the probe sees the
@@ -309,7 +309,7 @@ void main() {
       expect(uri, isNotNull);
       expect(uri!.path, '/Items/t1/Download');
       expect(uri.host, 'music.example.com');
-      expect(uri.queryParameters['api_key'], 'secret-token');
+      expect(uri.queryParameters['ApiKey'], 'secret-token');
       // The track's own uri stays the token-free jellyfin id.
       expect(track.uri, 'jellyfin:t1');
     });

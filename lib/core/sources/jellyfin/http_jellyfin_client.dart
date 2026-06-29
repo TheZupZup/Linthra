@@ -246,7 +246,7 @@ class HttpJellyfinClient implements JellyfinClient {
     // its media endpoints (it powers seeking), so this returns `206` with two
     // bytes rather than the whole file.
     //
-    // Auth rides in the URL's `api_key` query — exactly how the engine will
+    // Auth rides in the URL's `ApiKey` query — exactly how the engine will
     // fetch it — so no `Authorization` header is added here: the probe must
     // mirror what `just_audio`/ExoPlayer actually sends, and query auth also
     // survives the redirects (e.g. Cloudflare) a stripped header would not. The
@@ -555,7 +555,10 @@ class HttpJellyfinClient implements JellyfinClient {
       if (entry is! Map<String, dynamic>) continue;
       final Object? text = entry['Text'];
       if (text is! String) continue;
-      final int? ticks = (entry['Start'] as num?)?.toInt();
+      // Tolerant read: a server that sends `Start` as a string (or omits it)
+      // yields a plain, un-timed line rather than throwing on an `as num` cast.
+      final Object? rawStart = entry['Start'];
+      final int? ticks = rawStart is num ? rawStart.toInt() : null;
       lines.add(LyricLine(
         text: text,
         start: (ticks != null && ticks >= 0)
