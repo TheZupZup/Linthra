@@ -74,6 +74,8 @@ const Color _lonelyViolet = Color(0xFF8A7BC0);
 const Color _lonelyAmber = Color(0xFFC98A52);
 const Color _goldBright = Color(0xFFFFE08A);
 const Color _goldDeep = Color(0xFFE6A200);
+const Color _monoLight = Color(0xFFE6E6E6);
+const Color _monoDark = Color(0xFF4A4A4A);
 
 /// The built-in Linthra brand-mark variants and helpers to resolve them.
 abstract final class AppIconVariants {
@@ -149,6 +151,26 @@ abstract final class AppIconVariants {
     bars: <double>[0.46, 0.70, 0.56, 0.34],
   );
 
+  /// A clean grayscale treatment of the mark — black, white, and neutral gray.
+  static const AppIconVariant monochrome = AppIconVariant(
+    id: 'monochrome',
+    label: 'TheZupZup Monochrome',
+    description: 'A clean grayscale mark — black, white, and gray.',
+    tier: AppIconTier.free,
+    gradient: <Color>[_monoLight, _monoDark],
+    bars: <double>[0.46, 0.70, 0.56, 0.34],
+  );
+
+  /// Strictly black and white — no gray, no gradient. High-contrast minimalism.
+  static const AppIconVariant blackWhite = AppIconVariant(
+    id: 'blackwhite',
+    label: 'TheZupZup Black & White',
+    description: 'Strictly black and white — pure, high-contrast, minimal.',
+    tier: AppIconTier.free,
+    gradient: <Color>[Colors.white, Colors.white],
+    bars: <double>[0.46, 0.70, 0.56, 0.34],
+  );
+
   /// Every variant in display order; Classic first.
   static const List<AppIconVariant> all = <AppIconVariant>[
     classic,
@@ -158,6 +180,8 @@ abstract final class AppIconVariants {
     waveform,
     lonely,
     gold,
+    monochrome,
+    blackWhite,
   ];
 
   /// Resolves a stored [id] to its variant, falling back to [classic] for a

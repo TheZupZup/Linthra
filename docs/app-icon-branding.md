@@ -1,8 +1,11 @@
 # App icon & branding
 
 Linthra lets you choose how its brand mark looks — across the app and, on
-Android, as the real **launcher icon** on your home screen and app drawer. The
-picker lives under **Settings → Appearance → App icon & branding**.
+Android, as the real **launcher icon** on your home screen and app drawer.
+Selecting a variant also retints the app's **accent colours** (and, for the
+neutral variants, its brand colour), so the picker is a complete visual theme
+selector rather than only a launcher-icon picker. The picker lives under
+**Settings → Appearance → App icon & branding**.
 
 This is purely cosmetic. Every variant is free and available to everyone in
 every build, the choice gates nothing, and it changes nothing about how Linthra
@@ -34,6 +37,8 @@ The built-in set (see
 | `waveform` | Waveform          | Symmetric sound wave                   |
 | `lonely`   | Lonely maintainer | One bar standing on its own            |
 | `gold`     | Gold              | Warm gold (cosmetic supporter preview) |
+| `monochrome` | TheZupZup Monochrome | Grayscale — black, white, and gray |
+| `blackwhite` | TheZupZup Black & White | Strictly black and white (no gray) |
 
 ## Architecture
 
@@ -53,6 +58,17 @@ A small, data-driven feature that mirrors the Support module's per-build seam:
   Settings header reflect the choice immediately. `LinthraLogoMark` itself stays
   presentational and state-free; its default constructor renders the classic
   mark byte-for-byte as before.
+- **Accent themes** — `BrandPalettes` (`lib/app/brand_theme.dart`) maps each
+  variant id to a `BrandPalette` (primary/accent tones) with the same
+  "unknown → Classic" fallback. `AppTheme.dark`/`light` take a palette and thread
+  it through the whole `ThemeData`; `LinthraApp` watches the controller and
+  rebuilds the theme on every change, so the chosen accent restores on restart
+  for free. Classic's palette is exactly today's `AppColors`, so the default look
+  is unchanged. The two accent tones Material's `ColorScheme` has no slot for (the
+  play button's gradient ends) ride on a `LinthraAccents` `ThemeExtension`. Colour
+  variants keep Linthra's violet brand and only swap the accent; the neutral
+  Monochrome / Black & White variants also go neutral on the brand. Error /
+  destructive colours are never themed.
 - **Launcher icon (Android)** — the same selection also switches the real
   launcher icon via `LauncherIconService`. The controller calls it best-effort on
   every change *and* re-asserts it on startup, so the home-screen icon survives a
@@ -103,7 +119,8 @@ changes and nothing throws.
 
 - **One alias per variant.** `AndroidManifest.xml` declares an `<activity-alias>`
   for every variant (`.IconClassic`, `.IconDark`, `.IconNeon`, `.IconServer`,
-  `.IconWaveform`, `.IconLonely`, `.IconGold`), each with its own `android:icon`
+  `.IconWaveform`, `.IconLonely`, `.IconGold`, `.IconMonochrome`,
+  `.IconBlackWhite`), each with its own `android:icon`
   and a `MAIN`/`LAUNCHER` intent filter, all `targetActivity=".MainActivity"`.
   `.MainActivity` no longer carries the launcher intent filter itself — it is the
   shared target. `.IconClassic` ships `android:enabled="true"` and reuses the
@@ -142,7 +159,15 @@ classic assets (unchanged), it renders, for each variant `<id>`:
 - `mipmap-<density>/ic_launcher_<id>.png` — legacy launcher tile,
 - `mipmap-<density>/ic_launcher_<id>_foreground.png` — adaptive foreground,
 - `mipmap-anydpi-v26/ic_launcher_<id>.xml` — adaptive icon reusing the shared
-  `@drawable/ic_launcher_background`.
+  `@drawable/ic_launcher_background` (except the neutral ZupZup variants below).
+
+> **Neutral-variant backgrounds.** Most variants render their bars on the shared
+> violet squircle. The two neutral ZupZup variants override it so the icon stays
+> neutral: **Monochrome** uses a flat near-black grayscale background
+> (`@drawable/ic_launcher_background_mono`) and **Black & White** uses a flat
+> pure-black one (`@drawable/ic_launcher_background_bw`) with pure-white,
+> gradient-free bars. `VARIANT_BACKGROUNDS` in the generator plus those two
+> hand-authored drawables are the only place this is configured.
 
 > **Every variant must match the default Classic launcher icon's visual size.**
 > A launcher icon is judged next to the rest of the home screen, so a variant
@@ -217,3 +242,16 @@ Run on a real device/emulator after changing launcher icons:
 - [ ] **Switching back to Classic** works.
 - [ ] Non-Android (desktop) ignores the feature: the in-app mark still changes and
       there are no errors.
+
+### Accent theme
+
+- [ ] Selecting each variant retints the accent (sliders, selected navigation,
+      active icons, the play button, switches) to match it.
+- [ ] **Classic** keeps the current violet brand + orange accent exactly.
+- [ ] **Neon** turns the orange highlights blue/neon; **Gold** turns them
+      yellow/gold; **Monochrome** uses grayscale accents; **Black & White** uses
+      pure black/white accents.
+- [ ] The selected theme **survives a restart** (restored from the persisted
+      variant).
+- [ ] Text/glyphs on accent fills stay readable in dark mode.
+- [ ] No provider / sync / playback behaviour changes — branding is cosmetic only.

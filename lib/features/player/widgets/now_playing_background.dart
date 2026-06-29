@@ -2,7 +2,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import '../../../app/colors.dart';
 import '../../../shared/widgets/artwork_image.dart';
 
 /// The full-bleed backdrop behind the now-playing content.
@@ -84,12 +83,12 @@ class _Gradient extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             Color.alphaBlend(
-              AppColors.brand.withValues(alpha: 0.32),
+              theme.colorScheme.primary.withValues(alpha: 0.32),
               surface,
             ),
             surface,
             Color.alphaBlend(
-              AppColors.accent.withValues(alpha: 0.12),
+              theme.colorScheme.secondary.withValues(alpha: 0.12),
               surface,
             ),
           ],

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../app/colors.dart';
 import '../../../app/dimens.dart';
 import '../../../core/models/playback_state.dart';
 import '../../../core/models/playlist.dart';
@@ -268,7 +267,7 @@ class _CurrentTile extends ConsumerWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.titleMedium?.copyWith(
-          color: AppColors.accent,
+          color: theme.colorScheme.secondary,
           fontWeight: FontWeight.w700,
         ),
       ),

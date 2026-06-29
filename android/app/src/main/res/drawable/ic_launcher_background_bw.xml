@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive-icon background for the strictly black-and-white "blackwhite"
+     branding variant: a flat, pure-black square (no gradient, no gray) so the
+     pure-white equalizer foreground (ic_launcher_blackwhite_foreground) reads as
+     high-contrast black & white. Every other variant shares the violet
+     ic_launcher_background; this one exists only to keep Black & White strict.
+     Selected at runtime via the .IconBlackWhite <activity-alias>. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#000000" />
+</shape>

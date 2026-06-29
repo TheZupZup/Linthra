@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive-icon background for the grayscale "monochrome" branding variant: a
+     flat, neutral near-black square (no colour tint) so the grayscale equalizer
+     foreground (ic_launcher_monochrome_foreground) reads as a clean monochrome
+     mark. Every colour variant shares the violet ic_launcher_background; this
+     one keeps Monochrome strictly grayscale. Selected at runtime via the
+     .IconMonochrome <activity-alias>. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#141414" />
+</shape>
