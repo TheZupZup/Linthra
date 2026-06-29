@@ -37,7 +37,7 @@ void main() {
       const item = JellyfinItemDto(id: 'abc', name: 'X');
       final track = JellyfinTrackMapper.toTrack(item, baseUrl: _baseUrl);
       expect(track.uri, isNot(contains('http')));
-      expect(track.uri, isNot(contains('api_key')));
+      expect(track.uri, isNot(contains('ApiKey')));
     });
 
     test('falls back to the first listed artist when no album artist', () {

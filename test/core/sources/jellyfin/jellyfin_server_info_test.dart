@@ -45,6 +45,43 @@ void main() {
       );
     });
 
+    test('returns null (clean fail) when a required field is the wrong type',
+        () {
+      // A server that sends Version or ServerName as a number reads as "not a
+      // Jellyfin server" rather than throwing a TypeError on an `as String`.
+      expect(
+        JellyfinServerInfo.fromJson(<String, dynamic>{
+          'ServerName': 'Home',
+          'Version': 12,
+        }),
+        isNull,
+      );
+      expect(
+        JellyfinServerInfo.fromJson(<String, dynamic>{
+          'ServerName': 99,
+          'Version': '12.0.0',
+        }),
+        isNull,
+      );
+    });
+
+    test('degrades retyped optional fields to null, still parsing', () {
+      final JellyfinServerInfo? info =
+          JellyfinServerInfo.fromJson(<String, dynamic>{
+        'ServerName': 'Home',
+        'Version': '12.0.0',
+        'Id': 123,
+        'ProductName': <String, dynamic>{'weird': true},
+        'OperatingSystem': <dynamic>[],
+      });
+      expect(info, isNotNull);
+      expect(info!.serverName, 'Home');
+      expect(info.version, '12.0.0');
+      expect(info.id, isNull);
+      expect(info.productName, isNull);
+      expect(info.operatingSystem, isNull);
+    });
+
     test('exposes parsed version and support classification', () {
       const JellyfinServerInfo current =
           JellyfinServerInfo(serverName: 'Home', version: '10.9.11');
@@ -59,6 +96,12 @@ void main() {
           JellyfinServerInfo(serverName: 'Weird', version: 'custom-build');
       expect(weird.parsedVersion, isNull);
       expect(weird.support, JellyfinServerSupport.unknown);
+
+      // A Jellyfin 12 release candidate parses and is flagged forward-tolerant.
+      const JellyfinServerInfo newer =
+          JellyfinServerInfo(serverName: 'Next', version: '12.0.0-rc1');
+      expect(newer.parsedVersion, const JellyfinServerVersion(12, 0, 0));
+      expect(newer.support, JellyfinServerSupport.newerUntested);
     });
   });
 }

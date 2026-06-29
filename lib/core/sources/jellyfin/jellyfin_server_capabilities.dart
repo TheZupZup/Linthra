@@ -2,13 +2,14 @@
 ///
 /// This is intentionally *diagnostic only*: it parses the version string a
 /// server reports and classifies how well Linthra expects to work with it, so
-/// the user (and a bug report) can see "you're on an older, untested server".
+/// the user (and a bug report) can see "you're on an older, untested server" or
+/// "you're on a newer major version we haven't validated yet".
 ///
 /// It must never be used to branch request behavior — the endpoints Linthra
 /// uses (see [JellyfinEndpoints] and docs/jellyfin-compatibility.md) are stable
-/// across the Jellyfin 10.x line, so there is no need for version-sniffing
-/// hacks, and adding them would be exactly the kind of fragile coupling this
-/// hardening pass is meant to avoid.
+/// across the Jellyfin 10.x line and into Jellyfin 12, so there is no need for
+/// version-sniffing hacks, and adding them would be exactly the kind of fragile
+/// coupling this hardening pass is meant to avoid.
 library;
 
 /// A parsed Jellyfin `major.minor.patch` version.
@@ -64,8 +65,16 @@ class JellyfinServerVersion implements Comparable<JellyfinServerVersion> {
 
 /// How well Linthra expects to work with a server's reported version.
 enum JellyfinServerSupport {
-  /// At or above the oldest version Linthra is tested against.
+  /// Within the tested range: at or above the oldest tested version and at or
+  /// below the newest tested major.
   supported,
+
+  /// Newer than the newest tested **major** (e.g. Jellyfin 12, where Linthra is
+  /// tested through the 10.x line). Forward-tolerant: Linthra allows it and
+  /// expects it to work — the endpoints it uses are stable and it never
+  /// version-branches — but the combination is not yet validated, so the user
+  /// is gently told to report any issues.
+  newerUntested,
 
   /// Older than the tested minimum. Linthra may still work — the endpoints it
   /// uses are long-standing — but the combination is untested.
@@ -79,6 +88,8 @@ enum JellyfinServerSupport {
     switch (this) {
       case JellyfinServerSupport.supported:
         return 'supported';
+      case JellyfinServerSupport.newerUntested:
+        return 'newer than tested';
       case JellyfinServerSupport.untested:
         return 'untested (older than recommended)';
       case JellyfinServerSupport.unknown:
@@ -95,7 +106,22 @@ enum JellyfinServerSupport {
 const JellyfinServerVersion kMinimumTestedJellyfinVersion =
     JellyfinServerVersion(10, 8, 0);
 
-/// Classifies a reported [version] string against [kMinimumTestedJellyfinVersion].
+/// The newest Jellyfin **major** version Linthra is actively tested against.
+///
+/// Jellyfin's next release after the 10.x line is **12.0** (there is no 11), so
+/// a server reporting major 12 or above is a forward jump Linthra has not yet
+/// validated. Like the floor, this is a conservative diagnostic boundary, never
+/// a gate: such a server is labelled [JellyfinServerSupport.newerUntested] (and
+/// the user is gently told streaming should still work) — never blocked — and
+/// it never changes which endpoints or parameters Linthra sends. Raise it only
+/// when a newer major has actually been tested.
+const int kMaximumTestedJellyfinMajor = 10;
+
+/// Classifies a reported [version] string into a [JellyfinServerSupport] band,
+/// using [kMinimumTestedJellyfinVersion] as the floor and
+/// [kMaximumTestedJellyfinMajor] as the forward ceiling. Diagnostic only — the
+/// result drives a calm note and the diagnostics report, never request
+/// behavior.
 JellyfinServerSupport jellyfinServerSupportFor(String? version) {
   if (version == null || version.trim().isEmpty) {
     return JellyfinServerSupport.unknown;
@@ -103,6 +129,9 @@ JellyfinServerSupport jellyfinServerSupportFor(String? version) {
   final JellyfinServerVersion? parsed = JellyfinServerVersion.tryParse(version);
   if (parsed == null) {
     return JellyfinServerSupport.unknown;
+  }
+  if (parsed.major > kMaximumTestedJellyfinMajor) {
+    return JellyfinServerSupport.newerUntested;
   }
   return parsed >= kMinimumTestedJellyfinVersion
       ? JellyfinServerSupport.supported

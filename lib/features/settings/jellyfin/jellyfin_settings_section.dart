@@ -325,6 +325,17 @@ class _ConnectedView extends StatelessWidget {
             isError: false,
           ),
         ],
+        if (state.serverVersion != null &&
+            jellyfinServerSupportFor(state.serverVersion) ==
+                JellyfinServerSupport.newerUntested) ...[
+          const SizedBox(height: AppSpacing.sm),
+          const _StatusLine(
+            message: 'This is a newer major version of Jellyfin than Linthra '
+                'has been tested against. Streaming should still work — please '
+                'report any issues.',
+            isError: false,
+          ),
+        ],
         const SizedBox(height: AppSpacing.md),
         // The manual "Sync library" stays available at all times (disabled only
         // while a sync is running). After sign-in the first sync starts on its

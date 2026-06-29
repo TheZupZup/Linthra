@@ -25,7 +25,7 @@ import 'jellyfin_remote_command.dart';
 /// playback. [stop] disconnects without ending the command stream (a later
 /// [start] resumes); [dispose] closes everything.
 ///
-/// Token safety: the access token rides in the WebSocket URL's `api_key` query
+/// Token safety: the access token rides in the WebSocket URL's `ApiKey` query
 /// (like the audio stream URL) and the capability POST's `Authorization`
 /// header; the URL is never logged, and nothing here is persisted.
 class JellyfinRemoteControlReceiver implements RemoteControlReceiver {

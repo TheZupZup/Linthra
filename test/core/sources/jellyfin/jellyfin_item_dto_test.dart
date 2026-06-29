@@ -99,6 +99,28 @@ void main() {
       })!;
       expect(dto.hasPrimaryImage, isFalse);
     });
+
+    test('ImageTags as a list (not a map) means no primary image', () {
+      // JF12 shape drift: if ImageTags arrives as a list, hasPrimaryImage stays
+      // false and the track is still usable — only artwork degrades.
+      final dto = JellyfinItemDto.fromJson(<String, dynamic>{
+        'Id': 't1',
+        'Name': 'One',
+        'ImageTags': <dynamic>['Primary', 'Backdrop'],
+      })!;
+      expect(dto.hasPrimaryImage, isFalse);
+    });
+
+    test('ImageTags with a lowercase "primary" key means no primary image', () {
+      // The key is matched exactly; a renamed/recased key degrades to no
+      // artwork rather than guessing.
+      final dto = JellyfinItemDto.fromJson(<String, dynamic>{
+        'Id': 't1',
+        'Name': 'One',
+        'ImageTags': <String, dynamic>{'primary': 'abc'},
+      })!;
+      expect(dto.hasPrimaryImage, isFalse);
+    });
   });
 
   group('JellyfinItemDto.fromJson — wrong field types never throw', () {
@@ -138,6 +160,28 @@ void main() {
         'RunTimeTicks': 'not-a-number',
       })!;
       expect(dto.runTimeTicks, isNull);
+    });
+
+    test('an explicit null RunTimeTicks reads as null (no throw)', () {
+      // JF12 may send the field as JSON null rather than omitting it.
+      final dto = JellyfinItemDto.fromJson(<String, dynamic>{
+        'Id': 't1',
+        'Name': 'One',
+        'RunTimeTicks': null,
+      })!;
+      expect(dto.runTimeTicks, isNull);
+    });
+
+    test('a null ProductionYear and a numeric-string ChildCount coerce safely',
+        () {
+      final dto = JellyfinItemDto.fromJson(<String, dynamic>{
+        'Id': 't1',
+        'Name': 'One',
+        'ProductionYear': null,
+        'ChildCount': '12',
+      })!;
+      expect(dto.productionYear, isNull);
+      expect(dto.childCount, 12);
     });
 
     test('a floating-point RunTimeTicks is truncated to an int', () {

@@ -25,6 +25,32 @@ void main() {
       );
     });
 
+    test('parses Jellyfin 12 release and pre-release strings', () {
+      expect(JellyfinServerVersion.tryParse('12.0'),
+          const JellyfinServerVersion(12, 0, 0));
+      expect(JellyfinServerVersion.tryParse('12.0.0'),
+          const JellyfinServerVersion(12, 0, 0));
+      expect(JellyfinServerVersion.tryParse('12.0-rc'),
+          const JellyfinServerVersion(12, 0, 0));
+      expect(JellyfinServerVersion.tryParse('12.0.0-rc1'),
+          const JellyfinServerVersion(12, 0, 0));
+      expect(JellyfinServerVersion.tryParse('12.1.0'),
+          const JellyfinServerVersion(12, 1, 0));
+    });
+
+    test('ignores a 4th version segment and a rich build suffix', () {
+      expect(JellyfinServerVersion.tryParse('12.0.0.1'),
+          const JellyfinServerVersion(12, 0, 0));
+      expect(JellyfinServerVersion.tryParse('12.0.0-rc1+build.123'),
+          const JellyfinServerVersion(12, 0, 0));
+    });
+
+    test('a bare major with no minor is not parsed (stays unknown)', () {
+      // Standard Jellyfin always reports major.minor.patch; a lone "12" has no
+      // recognizable minor, so it is treated as unparseable rather than guessed.
+      expect(JellyfinServerVersion.tryParse('12'), isNull);
+    });
+
     test('returns null for an unparseable string', () {
       expect(JellyfinServerVersion.tryParse('unknown'), isNull);
       expect(JellyfinServerVersion.tryParse(''), isNull);
@@ -69,6 +95,42 @@ void main() {
           jellyfinServerSupportFor('10.9.11'), JellyfinServerSupport.supported);
       expect(
           jellyfinServerSupportFor('10.10.0'), JellyfinServerSupport.supported);
+    });
+
+    test('the tested 10.10/10.11 line is supported', () {
+      expect(
+          jellyfinServerSupportFor('10.10.0'), JellyfinServerSupport.supported);
+      expect(jellyfinServerSupportFor('10.11.11'),
+          JellyfinServerSupport.supported);
+    });
+
+    test('a newer major (Jellyfin 12+) is forward-tolerant, not blocked', () {
+      for (final String v in <String>[
+        '12.0',
+        '12.0.0',
+        '12.0-rc',
+        '12.0.0-rc1',
+        '12.1.0',
+      ]) {
+        expect(
+          jellyfinServerSupportFor(v),
+          JellyfinServerSupport.newerUntested,
+          reason: '$v should classify as newerUntested',
+        );
+      }
+    });
+
+    test('the forward boundary keys off the tested major', () {
+      // At or below the tested major stays supported; above it flips to
+      // newerUntested — guarding the kMaximumTestedJellyfinMajor boundary.
+      expect(
+        jellyfinServerSupportFor('$kMaximumTestedJellyfinMajor.99.99'),
+        JellyfinServerSupport.supported,
+      );
+      expect(
+        jellyfinServerSupportFor('${kMaximumTestedJellyfinMajor + 1}.0.0'),
+        JellyfinServerSupport.newerUntested,
+      );
     });
 
     test('a version at the tested minimum is supported', () {

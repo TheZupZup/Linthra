@@ -62,6 +62,12 @@ void main() {
         RemoteCacheKey.forUri('jellyfin:abc?api_key=SECRET'),
         isNull,
       );
+      // The PascalCase ApiKey (Jellyfin's canonical token query key) is caught
+      // too — the denylist is matched case-insensitively.
+      expect(
+        RemoteCacheKey.forUri('jellyfin:abc?ApiKey=SECRET'),
+        isNull,
+      );
       expect(
         RemoteCacheKey.forUri('plex:101?X-Plex-Token=SECRET'),
         isNull,

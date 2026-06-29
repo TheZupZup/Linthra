@@ -92,7 +92,7 @@ void main() {
   });
 
   group('JellyfinEndpoints control endpoints', () {
-    test('controlSocket builds a wss URL with api_key and deviceId', () {
+    test('controlSocket builds a wss URL with ApiKey and deviceId', () {
       final Uri uri = JellyfinEndpoints.controlSocket(
         'https://music.example.com',
         accessToken: 'tok',
@@ -101,7 +101,7 @@ void main() {
       expect(uri.scheme, 'wss');
       expect(uri.host, 'music.example.com');
       expect(uri.path, '/socket');
-      expect(uri.queryParameters['api_key'], 'tok');
+      expect(uri.queryParameters['ApiKey'], 'tok');
       expect(uri.queryParameters['deviceId'], 'dev-1');
     });
 

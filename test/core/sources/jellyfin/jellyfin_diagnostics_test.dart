@@ -20,11 +20,11 @@ void main() {
 
     test('drops scheme, path, and query (so no token can ride along)', () {
       final String? host = JellyfinDiagnostics.hostOnly(
-        'https://music.example.com/Audio/t1/stream?api_key=secret',
+        'https://music.example.com/Audio/t1/stream?ApiKey=secret',
       );
       expect(host, 'music.example.com');
       expect(host, isNot(contains('secret')));
-      expect(host, isNot(contains('api_key')));
+      expect(host, isNot(contains('ApiKey')));
       expect(host, isNot(contains('https')));
     });
 
@@ -56,6 +56,17 @@ void main() {
       expect(report, contains('Last error: none'));
     });
 
+    test('emits the forward-tolerant label for a newer-than-tested server', () {
+      final String report = JellyfinDiagnostics.describe(
+        appVersion: '0.1.0',
+        connectionState: 'connected',
+        serverVersion: '12.0.0',
+        versionSupport: JellyfinServerSupport.newerUntested,
+      );
+      expect(report, contains('Server version: 12.0.0'));
+      expect(report, contains('Version support: newer than tested'));
+    });
+
     test('reports the last error kind when present', () {
       final String report = JellyfinDiagnostics.describe(
         appVersion: '0.1.0',
@@ -72,14 +83,14 @@ void main() {
         appVersion: '0.1.0',
         connectionState: 'connected',
         serverHost: JellyfinDiagnostics.hostOnly(
-          'https://music.example.com/Audio/t1/stream?api_key=tok-secret',
+          'https://music.example.com/Audio/t1/stream?ApiKey=tok-secret',
         ),
         serverName: 'Home',
         serverVersion: '10.9.11',
       );
 
       expect(report, isNot(contains('tok-secret')));
-      expect(report, isNot(contains('api_key')));
+      expect(report, isNot(contains('ApiKey')));
       expect(report, isNot(contains('Token')));
       expect(report, isNot(contains('password')));
       expect(report, isNot(contains('/Audio/')));

@@ -187,6 +187,34 @@ void main() {
       expect(body['Pw'], 'pw-secret');
     });
 
+    test('a retyped token/user id fails as notJellyfin, not a TypeError',
+        () async {
+      // A server that sends AccessToken or User.Id as a number must not crash
+      // sign-in with a TypeError; the auth body is unusable, so it surfaces as
+      // a clean "not a Jellyfin server" from a null fromJson rather than a throw.
+      final client = _client(MockClient((_) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'AccessToken': 12345,
+              'User': <String, dynamic>{'Id': 67890, 'Name': 'Alice'},
+            }),
+            200,
+          )));
+
+      await expectLater(
+        client.authenticateByName(
+          baseUrl: _base,
+          username: 'alice',
+          password: 'pw-secret',
+          deviceId: 'dev-1',
+        ),
+        throwsA(isA<JellyfinException>().having(
+          (JellyfinException e) => e.kind,
+          'kind',
+          JellyfinErrorKind.notJellyfin,
+        )),
+      );
+    });
+
     test('maps 401 to unauthorized without leaking the password', () async {
       final client = _client(
         MockClient((_) async => http.Response('Unauthorized', 401)),
@@ -274,6 +302,23 @@ void main() {
           await client.fetchItems(_session, kind: JellyfinItemKind.album);
 
       expect(listing.items, isEmpty);
+    });
+
+    test('treats an explicit Items: null as an empty listing', () async {
+      // JF12 may send `Items: null` rather than omitting the field; the client
+      // must read it as empty (no items) rather than null-dereferencing.
+      final client = _client(
+        MockClient((_) async => http.Response(
+              jsonEncode(<String, dynamic>{'Items': null}),
+              200,
+            )),
+      );
+
+      final listing =
+          await client.fetchItems(_session, kind: JellyfinItemKind.album);
+
+      expect(listing.items, isEmpty);
+      expect(listing.skippedCount, 0);
     });
 
     test('maps an expired token (401) to unauthorized', () async {
@@ -869,6 +914,25 @@ void main() {
       final client = _client(MockClient((_) async => http.Response('', 404)));
 
       expect(await client.fetchLyrics(_session, 'item-7'), isNull);
+    });
+
+    test('a non-numeric Start yields a plain (un-timed) line, not a throw',
+        () async {
+      // JF12 / a plugin sending Start as a string must not throw on the cast;
+      // the line is kept without a timestamp.
+      final client = _client(MockClient((_) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'Lyrics': <Map<String, dynamic>>[
+                <String, dynamic>{'Text': 'Line', 'Start': 'oops'},
+              ],
+            }),
+            200,
+            headers: <String, String>{'content-type': 'application/json'},
+          )));
+
+      final lyrics = await client.fetchLyrics(_session, 'item-7');
+      expect(lyrics!.lines.single.text, 'Line');
+      expect(lyrics.lines.single.start, isNull);
     });
   });
 
