@@ -346,7 +346,9 @@ void main() {
         authenticator: FakeJellyfinAuthenticator(session: _sessionFor()),
         repository: repo,
         autoSyncStore: store,
-        // The catalog fetch fails (server unreachable) once connected.
+        // The catalog fetch fails once connected, but the server itself stays
+        // reachable (the fake's verifySession succeeds), so this is a
+        // library-sync failure — not "server unreachable".
         client:
             FakeJellyfinClient(itemsError: JellyfinException.notReachable()),
       );
@@ -356,14 +358,21 @@ void main() {
       expect(await _signIn(container), isTrue);
       await _drainAutoSync();
 
-      // Still connected, sync errored with a friendly, secret-free message.
+      // Still connected, sync errored with a friendly, secret-free message that
+      // correctly says the connection is fine and the library was kept — NOT
+      // the misleading "couldn't reach your server".
       expect(
         container.read(jellyfinSettingsControllerProvider).phase,
         JellyfinConnectionPhase.connected,
       );
       final syncState = container.read(jellyfinSyncControllerProvider);
       expect(syncState.status, JellyfinSyncStatus.error);
-      expect(syncState.message, contains("Couldn't reach"));
+      expect(
+        syncState.failureReason,
+        JellyfinSyncFailureReason.librarySyncFailed,
+      );
+      expect(syncState.message, isNot(contains("Couldn't reach")));
+      expect(syncState.message, contains('still here'));
       expect(syncState.message, isNot(contains('secret-token-value')));
       // The account is NOT recorded, so the next fresh connection retries.
       expect(await store.read(), isNull);

@@ -46,4 +46,39 @@ void main() {
       expect(line, 'jellyfin-sync: skip:artist dropped=1 kept=0');
     });
   });
+
+  group('JellyfinSyncDiagnostics.failure', () {
+    setUp(SafeEventLog.instance.clear);
+    tearDown(SafeEventLog.instance.clear);
+
+    test('records category, status, action, and probe outcome', () {
+      JellyfinSyncDiagnostics.failure(
+        category: 'notReachable',
+        action: 'library',
+        statusCode: null,
+        reachable: true,
+        authOk: true,
+      );
+
+      final String line = SafeEventLog.instance.lines.single;
+      expect(
+        line,
+        'jellyfin-sync: fail:library category=notReachable status=- '
+        'reachable=yes auth=yes',
+      );
+    });
+
+    test('renders unknown probe results as "unknown" and a status code', () {
+      JellyfinSyncDiagnostics.failure(
+        category: 'serverError',
+        action: 'library',
+        statusCode: 503,
+      );
+
+      final String line = SafeEventLog.instance.lines.single;
+      expect(line, contains('status=503'));
+      expect(line, contains('reachable=unknown'));
+      expect(line, contains('auth=unknown'));
+    });
+  });
 }

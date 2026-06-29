@@ -345,12 +345,17 @@ class _ConnectedView extends StatelessWidget {
           // Keep the connection plainly intact ("you're still signed in"), then
           // the specific, secret-free reason from the sync controller. For a
           // rejected session we frame it as "needs refreshing" and point at
-          // sign-in; every other failure is transient and offers Retry.
+          // sign-in; when the server is reachable but the library sync failed we
+          // reassure the existing library is intact; every other failure is
+          // transient and offers Retry.
           _StatusLine(
             message: syncState.needsSignIn
                 ? "You're still signed in, but your Jellyfin session needs "
                     'refreshing.'
-                : "Connected, but the library sync didn't finish.",
+                : syncState.connectionOkButSyncFailed
+                    ? 'Connected — the library sync didn\'t finish, but your '
+                        'existing music is still available.'
+                    : "Connected, but the library sync didn't finish.",
             isError: true,
           ),
           if (syncState.message != null) ...[

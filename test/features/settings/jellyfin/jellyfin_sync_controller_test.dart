@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/diagnostics/safe_event_log.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
@@ -96,10 +97,15 @@ JellyfinMusicSource _source({
   Map<JellyfinItemKind, List<JellyfinItemDto>> items =
       const <JellyfinItemKind, List<JellyfinItemDto>>{},
   JellyfinException? itemsError,
+  JellyfinException? verifyError,
 }) {
   return JellyfinMusicSource(
     session: _session,
-    client: FakeJellyfinClient(itemsByKind: items, itemsError: itemsError),
+    client: FakeJellyfinClient(
+      itemsByKind: items,
+      itemsError: itemsError,
+      verifyError: verifyError,
+    ),
   );
 }
 
@@ -211,16 +217,22 @@ void main() {
       expect(repository.upsertCount, 0);
     });
 
-    test('maps an unreachable server to a friendly message', () async {
+    test('maps a truly unreachable server to a friendly message', () async {
+      // Both the sync AND the reachability probe fail to reach the server, so
+      // this is a genuine "server unreachable".
       final container = _container(
         repository: _RecordingRepository(),
-        source: _source(itemsError: JellyfinException.notReachable()),
+        source: _source(
+          itemsError: JellyfinException.notReachable(),
+          verifyError: JellyfinException.notReachable(),
+        ),
       );
 
       await container.read(jellyfinSyncControllerProvider.notifier).sync();
 
       final state = container.read(jellyfinSyncControllerProvider);
       expect(state.status, JellyfinSyncStatus.error);
+      expect(state.failureReason, JellyfinSyncFailureReason.serverUnreachable);
       expect(state.message, contains("Couldn't reach"));
     });
 
@@ -338,10 +350,14 @@ void main() {
       expect(state.needsSignIn, isTrue);
     });
 
-    test('an unreachable server reports a server-unreachable reason', () async {
+    test('an unreachable server (probe also fails) reports server-unreachable',
+        () async {
       final container = _container(
         repository: _RecordingRepository(),
-        source: _source(itemsError: JellyfinException.notReachable()),
+        source: _source(
+          itemsError: JellyfinException.notReachable(),
+          verifyError: JellyfinException.notReachable(),
+        ),
       );
 
       await container.read(jellyfinSyncControllerProvider.notifier).sync();
@@ -351,16 +367,92 @@ void main() {
       expect(state.needsSignIn, isFalse);
     });
 
-    test('a transient server error reports a retry-later reason', () async {
+    test('a 5xx on both the sync and the probe reports a retry-later reason',
+        () async {
       final container = _container(
         repository: _RecordingRepository(),
-        source: _source(itemsError: JellyfinException.serverError(503)),
+        source: _source(
+          itemsError: JellyfinException.serverError(503),
+          verifyError: JellyfinException.serverError(503),
+        ),
       );
 
       await container.read(jellyfinSyncControllerProvider.notifier).sync();
 
       final state = container.read(jellyfinSyncControllerProvider);
       expect(state.failureReason, JellyfinSyncFailureReason.retryLater);
+    });
+
+    test(
+        'a sync failure on a still-reachable server reports library-sync-failed '
+        'and keeps the old library', () async {
+      // The reported field case: the server is plainly reachable (the probe
+      // succeeds), but the library listing failed (e.g. a timeout on a large
+      // library). It must NOT read as "server unreachable" or "sign in again".
+      const existing = <Track>[
+        Track(id: 'j1', title: 'Old One', uri: 'jellyfin:j1'),
+      ];
+      final repository = _RecordingRepository(existing: existing);
+      final container = _container(
+        repository: repository,
+        // Items fetch fails as notReachable (a mid-sync timeout), but the
+        // session probe succeeds (verifyError is null) → connection is fine.
+        source: _source(itemsError: JellyfinException.notReachable()),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.status, JellyfinSyncStatus.error);
+      expect(state.failureReason, JellyfinSyncFailureReason.librarySyncFailed);
+      expect(state.connectionOkButSyncFailed, isTrue);
+      expect(state.needsSignIn, isFalse);
+      // Not the misleading "couldn't reach" line — a calm, library-kept message.
+      expect(state.message, isNot(contains("Couldn't reach")));
+      expect(state.message, contains('still here'));
+      // The old library is untouched.
+      expect(repository.upsertCount, 0);
+      expect(await repository.getAllTracks(), existing);
+    });
+
+    test('a sync failure whose session probe is rejected needs sign-in',
+        () async {
+      // The library fetch failed and the follow-up probe says 401 — the session
+      // really is invalid, so (and only so) we ask the user to sign in again.
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _source(
+          itemsError: JellyfinException.notReachable(),
+          verifyError: JellyfinException.unauthorized(),
+        ),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.failureReason, JellyfinSyncFailureReason.signInRequired);
+      expect(state.needsSignIn, isTrue);
+    });
+
+    test('records a secret-free failure breadcrumb for diagnostics', () async {
+      SafeEventLog.instance.clear();
+      addTearDown(SafeEventLog.instance.clear);
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _source(itemsError: JellyfinException.notReachable()),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      // The breadcrumb carries the category/action and the probe outcome, no
+      // token/url/title.
+      final Iterable<String> failLines = SafeEventLog.instance.lines
+          .where((String l) => l.contains('fail:library'));
+      expect(failLines, isNotEmpty);
+      final String line = failLines.first;
+      expect(line, contains('category=notReachable'));
+      expect(line, contains('reachable=yes'));
+      expect(line, isNot(contains('secret-token')));
     });
 
     test('a second concurrent sync is bounced by the in-flight guard',

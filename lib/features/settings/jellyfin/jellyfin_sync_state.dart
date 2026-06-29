@@ -9,7 +9,8 @@ enum JellyfinSyncStatus { idle, syncing, success, error }
 /// merely unreachable or briefly erroring, and a neutral fallback otherwise —
 /// the user-facing states the sync is meant to surface.
 enum JellyfinSyncFailureReason {
-  /// The server couldn't be reached (offline, tunnel down, timeout). Retrying
+  /// The server couldn't be reached at all (offline, tunnel down) — confirmed by
+  /// a follow-up reachability probe that *also* failed to reach it. Retrying
   /// later is the fix.
   serverUnreachable,
 
@@ -17,8 +18,15 @@ enum JellyfinSyncFailureReason {
   /// to retry the same sync — so the UI points at reconnect, not "Retry".
   signInRequired,
 
-  /// The server answered but with a transient error (5xx). Retrying in a moment
-  /// is the fix.
+  /// The connection and session are fine (a reachability probe succeeded), but
+  /// the *library sync itself* didn't finish — a slow/large listing, a transient
+  /// listing error, a partial response. The existing library is kept and the
+  /// fix is simply to retry; crucially, this is NOT "server unreachable" and NOT
+  /// "sign in again", so the UI stays calm and accurate.
+  librarySyncFailed,
+
+  /// The server answered but with a transient error (5xx) on both the sync and
+  /// the reachability probe. Retrying in a moment is the fix.
   retryLater,
 
   /// Anything else (a non-Jellyfin response, an unusable shape, a local save
@@ -121,4 +129,10 @@ class JellyfinSyncState {
   /// should prompt to reconnect rather than offer a pointless "Retry".
   bool get needsSignIn =>
       failureReason == JellyfinSyncFailureReason.signInRequired;
+
+  /// The connection/session checked out but the library sync failed — the calm
+  /// "your music is still here, try again" state. Lets the UI reassure the user
+  /// the server is fine and the existing library is intact.
+  bool get connectionOkButSyncFailed =>
+      failureReason == JellyfinSyncFailureReason.librarySyncFailed;
 }

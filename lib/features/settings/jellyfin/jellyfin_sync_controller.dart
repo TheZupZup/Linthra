@@ -5,6 +5,7 @@ import '../../../core/repositories/remote_sync_result.dart';
 import '../../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../../core/sources/jellyfin/jellyfin_music_source.dart';
+import '../../../core/sources/jellyfin/jellyfin_sync_diagnostics.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/jellyfin_auto_sync_store_provider.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
@@ -175,12 +176,17 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
         }
       }
     } on JellyfinException catch (error) {
-      // A typed failure: surface a friendly line *and* a typed reason so the UI
-      // can offer the right next step (reconnect vs retry) instead of one
-      // generic error.
+      // A typed failure. Classify it by *probing the live session*, so a
+      // library-sync failure on a reachable server (a slow/large listing, a
+      // transient error, a partial response) isn't mislabeled "couldn't reach
+      // server" or "sign in again" — the misleading case seen in the field where
+      // the app had clearly reached the server (it knew the name/version) yet
+      // reported it unreachable. The probe also records a diagnostics breadcrumb.
+      final JellyfinSyncFailureReason reason =
+          await _classifyFailure(source, error);
       state = JellyfinSyncState.error(
-        _friendlyMessage(error),
-        reason: _failureReason(error.kind),
+        _messageForReason(reason, error),
+        reason: reason,
       );
     } catch (_) {
       // A non-Jellyfin failure (e.g. the local store): keep it generic and
@@ -280,10 +286,68 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
     return live != null && live.session == source.session;
   }
 
-  /// Maps a typed Jellyfin failure to the calm next step the UI should offer:
-  /// reconnect for a rejected session, "try again" for an unreachable or
-  /// briefly-erroring server, and a neutral retry otherwise.
-  JellyfinSyncFailureReason _failureReason(JellyfinErrorKind kind) {
+  /// Classifies a sync [error] into the calm next step the UI should offer, by
+  /// *probing the live session* rather than blindly trusting the sync error's
+  /// kind.
+  ///
+  /// This is the fix for the misleading field case: a slow/large listing that
+  /// times out mid-sync throws [JellyfinErrorKind.notReachable] even though the
+  /// server is plainly up (we just identified its name/version). Mapping that
+  /// straight to "server unreachable" is wrong. So instead:
+  ///  - an auth failure on the sync call is already definitive → sign in again;
+  ///  - otherwise the tiny `/Users/Me` reachability probe gives ground truth:
+  ///    it succeeds → the server/session are fine and only the *library sync*
+  ///    failed (keep the library, retry) → [librarySyncFailed]; the probe
+  ///    reports 401 → [signInRequired]; the probe can't reach it either →
+  ///    [serverUnreachable]; any other probe failure → the sync error's own
+  ///    static mapping.
+  /// A secret-free diagnostics breadcrumb records the category, status, and the
+  /// reachability/auth outcome either way.
+  Future<JellyfinSyncFailureReason> _classifyFailure(
+    JellyfinMusicSource source,
+    JellyfinException error,
+  ) async {
+    if (error.kind == JellyfinErrorKind.unauthorized) {
+      _recordFailure(error, reachable: true, authOk: false);
+      return JellyfinSyncFailureReason.signInRequired;
+    }
+    try {
+      await source.verifyReachable();
+      _recordFailure(error, reachable: true, authOk: true);
+      return JellyfinSyncFailureReason.librarySyncFailed;
+    } on JellyfinException catch (probe) {
+      switch (probe.kind) {
+        case JellyfinErrorKind.unauthorized:
+          _recordFailure(error, reachable: true, authOk: false);
+          return JellyfinSyncFailureReason.signInRequired;
+        case JellyfinErrorKind.notReachable:
+          _recordFailure(error, reachable: false, authOk: null);
+          return JellyfinSyncFailureReason.serverUnreachable;
+        default:
+          _recordFailure(error, reachable: null, authOk: null);
+          return _staticReason(error.kind);
+      }
+    }
+  }
+
+  /// Drops a secret-free diagnostics breadcrumb for a classified sync failure.
+  void _recordFailure(
+    JellyfinException error, {
+    required bool? reachable,
+    required bool? authOk,
+  }) {
+    JellyfinSyncDiagnostics.failure(
+      category: error.kind.name,
+      action: 'library',
+      statusCode: error.statusCode,
+      reachable: reachable,
+      authOk: authOk,
+    );
+  }
+
+  /// Maps a typed Jellyfin failure straight to a reason without probing — the
+  /// fallback used when the reachability probe itself failed inconclusively.
+  JellyfinSyncFailureReason _staticReason(JellyfinErrorKind kind) {
     switch (kind) {
       case JellyfinErrorKind.notReachable:
         return JellyfinSyncFailureReason.serverUnreachable;
@@ -314,28 +378,30 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   String _capitalize(String text) =>
       text.isEmpty ? text : '${text[0].toUpperCase()}${text.substring(1)}';
 
-  /// Turns a typed Jellyfin failure into a friendly, actionable line. Branches
-  /// on [JellyfinErrorKind] rather than message text so the wording can change
-  /// without breaking this mapping.
-  String _friendlyMessage(JellyfinException error) {
-    switch (error.kind) {
-      case JellyfinErrorKind.notReachable:
+  /// The friendly, secret-free line for a classified failure [reason]. Branches
+  /// on the *reason* (the probe-informed classification) rather than the raw
+  /// error kind, so the message always matches the next step the UI offers —
+  /// and a connected-but-sync-failed never reads as "couldn't reach server".
+  String _messageForReason(
+    JellyfinSyncFailureReason reason,
+    JellyfinException error,
+  ) {
+    switch (reason) {
+      case JellyfinSyncFailureReason.serverUnreachable:
         return "Couldn't reach your Jellyfin server. Check your connection and "
             'that the server is online.';
-      case JellyfinErrorKind.unauthorized:
+      case JellyfinSyncFailureReason.signInRequired:
         return 'Your Jellyfin session has expired. Sign out and sign in again '
             'to refresh it.';
-      case JellyfinErrorKind.notJellyfin:
-      case JellyfinErrorKind.webPage:
-        return "That server didn't respond like Jellyfin. Double-check the "
-            'server address in Settings.';
-      case JellyfinErrorKind.serverError:
+      case JellyfinSyncFailureReason.librarySyncFailed:
+        return 'Your server is connected, but the library could not be fully '
+            'synced just now. Your existing music is still here — try again in '
+            'a moment.';
+      case JellyfinSyncFailureReason.retryLater:
         return 'Your Jellyfin server reported an error. Try again in a moment.';
-      case JellyfinErrorKind.invalidUrl:
-      case JellyfinErrorKind.notAudioStream:
-      case JellyfinErrorKind.streamUnavailable:
-      case JellyfinErrorKind.unsupportedResponse:
-      case JellyfinErrorKind.unexpected:
+      case JellyfinSyncFailureReason.generic:
+        // Fall back to the typed error's own friendly, secret-free message
+        // (e.g. "doesn't look like a Jellyfin server").
         return error.message;
     }
   }

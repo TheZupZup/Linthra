@@ -53,6 +53,32 @@ abstract final class JellyfinSyncDiagnostics {
     );
   }
 
+  /// Records a classified sync failure for diagnostics: the failure [category]
+  /// (the error-kind name), the HTTP [statusCode] when one is known, the
+  /// [action] being synced (e.g. `library`), and whether the follow-up
+  /// reachability/auth probe found the server [reachable] and the session
+  /// [authOk] (`null` when not probed). This is exactly the breakdown needed to
+  /// tell "server unreachable" from "connected but sync failed" from "sign in
+  /// again" in a bug report — and is secret-free: category/action are fixed
+  /// labels, the status is a number, the probe results are booleans. No URL,
+  /// token, title, or raw error rides along.
+  static void failure({
+    required String category,
+    required String action,
+    int? statusCode,
+    bool? reachable,
+    bool? authOk,
+  }) {
+    String tri(bool? v) => v == null ? 'unknown' : (v ? 'yes' : 'no');
+    final String detail = 'fail:$action category=$category '
+        'status=${statusCode ?? '-'} '
+        'reachable=${tri(reachable)} auth=${tri(authOk)}';
+    SafeEventLog.instance.record('jellyfin-sync', detail);
+    if (kDebugMode) {
+      developer.log(detail, name: name);
+    }
+  }
+
   /// Records that paging [kind] hit the safety page cap and stopped early after
   /// [pages] pages — a backstop that only fires for a server that ignores
   /// `StartIndex` (a real one always advances or reports a total). Mirrored to
