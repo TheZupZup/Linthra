@@ -112,6 +112,15 @@ favourites and **local-only** playlists are kept.
 - **The first sync is taking a while.** A large library takes a moment to pull;
   the app stays responsive and the Library shows a "syncing" note until the
   tracks land. There's nothing to do but wait — it finishes in the background.
+  The library is pulled in **bounded pages** with brief yields between them, so a
+  big/slow server can't time out one giant request, playback keeps working
+  throughout, and a brief network/server blip is **retried a few times** before
+  it gives up.
+- **"Some items could not be synced."** A few tracks had metadata too malformed
+  to read (a missing title, a wrong-typed field). They are **skipped** so the
+  rest of your library still syncs — this is a calm note, not a failure, and the
+  usable music is fully available. The skipped count is in the debug log /
+  bug-report event trail (kind + counts only, never titles).
 - **"Connected, but the library sync didn't finish."** The connection is fine,
   but the sync hit a snag (server briefly unreachable, an expired session, a
   hiccup saving locally). Tap **Retry** on the Jellyfin card. Your sign-in is

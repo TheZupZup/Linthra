@@ -1,11 +1,37 @@
 /// Where a Jellyfin library sync is in its lifecycle.
 enum JellyfinSyncStatus { idle, syncing, success, error }
 
+/// Why a Jellyfin sync failed, so the UI can offer the *right* calm next step
+/// instead of one generic "error".
+///
+/// Branching on this (not on message text) lets the settings card show a
+/// reconnect prompt for an expired session, a "try again" for a server that's
+/// merely unreachable or briefly erroring, and a neutral fallback otherwise —
+/// the user-facing states the sync is meant to surface.
+enum JellyfinSyncFailureReason {
+  /// The server couldn't be reached (offline, tunnel down, timeout). Retrying
+  /// later is the fix.
+  serverUnreachable,
+
+  /// The session/token was rejected (401/403). The fix is to sign in again, not
+  /// to retry the same sync — so the UI points at reconnect, not "Retry".
+  signInRequired,
+
+  /// The server answered but with a transient error (5xx). Retrying in a moment
+  /// is the fix.
+  retryLater,
+
+  /// Anything else (a non-Jellyfin response, an unusable shape, a local save
+  /// hiccup): a neutral failure the user can retry.
+  generic,
+}
+
 /// Immutable snapshot the Jellyfin settings UI renders the sync action from.
 ///
 /// Like every other state object in the app, this holds only display-safe
-/// values: a status, a friendly [message], and how many tracks/playlists/
-/// favourites landed. It never carries a token, password, or streaming URL.
+/// values: a status, a friendly [message], how many tracks/playlists/favourites
+/// landed, how many items were skipped, and — on failure — a typed
+/// [failureReason]. It never carries a token, password, or streaming URL.
 class JellyfinSyncState {
   const JellyfinSyncState({
     this.status = JellyfinSyncStatus.idle,
@@ -13,8 +39,10 @@ class JellyfinSyncState {
     this.trackCount = 0,
     this.playlistCount = 0,
     this.favoriteCount = 0,
+    this.skippedCount = 0,
     this.playlistsFailed = false,
     this.favoritesFailed = false,
+    this.failureReason,
   });
 
   const JellyfinSyncState.syncing()
@@ -28,6 +56,7 @@ class JellyfinSyncState {
     required String message,
     int playlistCount = 0,
     int favoriteCount = 0,
+    int skippedCount = 0,
     bool playlistsFailed = false,
     bool favoritesFailed = false,
   }) : this(
@@ -36,12 +65,19 @@ class JellyfinSyncState {
           message: message,
           playlistCount: playlistCount,
           favoriteCount: favoriteCount,
+          skippedCount: skippedCount,
           playlistsFailed: playlistsFailed,
           favoritesFailed: favoritesFailed,
         );
 
-  const JellyfinSyncState.error(String message)
-      : this(status: JellyfinSyncStatus.error, message: message);
+  const JellyfinSyncState.error(
+    String message, {
+    JellyfinSyncFailureReason reason = JellyfinSyncFailureReason.generic,
+  }) : this(
+          status: JellyfinSyncStatus.error,
+          message: message,
+          failureReason: reason,
+        );
 
   final JellyfinSyncStatus status;
 
@@ -57,6 +93,11 @@ class JellyfinSyncState {
   /// How many server-synced favourites the last successful sync reconciled.
   final int favoriteCount;
 
+  /// How many items the last sync skipped because they were too malformed to
+  /// map. A successful sync with a non-zero count is the "synced with skipped
+  /// items" outcome — usable music landed, a few entries were dropped.
+  final int skippedCount;
+
   /// Whether the playlist part of the last sync failed (tracks may still have
   /// synced), so the UI can be honest about the partial outcome.
   final bool playlistsFailed;
@@ -64,6 +105,20 @@ class JellyfinSyncState {
   /// Whether the favourites part of the last sync failed.
   final bool favoritesFailed;
 
+  /// Why the last sync failed, when it did — so the UI can pick the right next
+  /// step. Null unless [status] is [JellyfinSyncStatus.error].
+  final JellyfinSyncFailureReason? failureReason;
+
   bool get isSyncing => status == JellyfinSyncStatus.syncing;
   bool get isError => status == JellyfinSyncStatus.error;
+
+  /// A success that nonetheless dropped some unparseable items — the calm
+  /// "synced, but some items could not be synced" state.
+  bool get syncedWithSkippedItems =>
+      status == JellyfinSyncStatus.success && skippedCount > 0;
+
+  /// The failure needs a fresh sign-in (an expired/rejected session), so the UI
+  /// should prompt to reconnect rather than offer a pointless "Retry".
+  bool get needsSignIn =>
+      failureReason == JellyfinSyncFailureReason.signInRequired;
 }

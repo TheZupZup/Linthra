@@ -31,7 +31,16 @@ abstract interface class JellyfinClient {
   });
 
   /// Lists library items of one [kind] for the signed-in user in [session].
-  Future<List<JellyfinItemDto>> fetchItems(
+  ///
+  /// Pulls the whole library in bounded pages (so a large/slow server can't
+  /// time out a single unbounded request) and is tolerant per item: an entry
+  /// too malformed to use is skipped, never thrown, and counted in the returned
+  /// [JellyfinItemListing.skippedCount]. A transient network/5xx failure is
+  /// retried a bounded number of times before it surfaces as a
+  /// [JellyfinException]; auth (401/403) and other client errors are not
+  /// retried. A failure *between* pages throws (so the caller keeps the
+  /// previous catalog) rather than returning a truncated listing.
+  Future<JellyfinItemListing> fetchItems(
     JellyfinSession session, {
     required JellyfinItemKind kind,
   });

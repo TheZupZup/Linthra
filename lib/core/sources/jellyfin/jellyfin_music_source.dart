@@ -48,32 +48,74 @@ class JellyfinMusicSource
 
   @override
   Future<List<Track>> fetchTracks() async {
-    final List<JellyfinItemDto> items =
+    final JellyfinItemListing listing =
         await _client.fetchItems(session, kind: JellyfinItemKind.audio);
     return <Track>[
-      for (final JellyfinItemDto item in items)
+      for (final JellyfinItemDto item in listing.items)
         JellyfinTrackMapper.toTrack(item, baseUrl: session.baseUrl),
     ];
   }
 
   @override
   Future<List<Album>> fetchAlbums() async {
-    final List<JellyfinItemDto> items =
+    final JellyfinItemListing listing =
         await _client.fetchItems(session, kind: JellyfinItemKind.album);
     return <Album>[
-      for (final JellyfinItemDto item in items)
+      for (final JellyfinItemDto item in listing.items)
         JellyfinTrackMapper.toAlbum(item, baseUrl: session.baseUrl),
     ];
   }
 
   @override
   Future<List<Artist>> fetchArtists() async {
-    final List<JellyfinItemDto> items =
+    final JellyfinItemListing listing =
         await _client.fetchItems(session, kind: JellyfinItemKind.artist);
     return <Artist>[
-      for (final JellyfinItemDto item in items)
+      for (final JellyfinItemDto item in listing.items)
         JellyfinTrackMapper.toArtist(item, baseUrl: session.baseUrl),
     ];
+  }
+
+  /// Pulls the whole library for a sync in one call: [Track]s — the only slice
+  /// the catalog persists and the part a sync exists to deliver — plus albums
+  /// and artists as **best-effort** extras, and a count of track entries the
+  /// server returned that were too malformed to map.
+  ///
+  /// Tracks are fetched first, so any *global* failure (an expired session, an
+  /// unreachable server, a 5xx that outlived its retries) throws here and aborts
+  /// the sync — leaving the previous catalog untouched. Albums and artists are
+  /// then fetched independently and a [JellyfinException] in either is swallowed
+  /// to an empty list: they are secondary (the Library derives them from tracks
+  /// and the durable catalog doesn't store them), so a hiccup reading them must
+  /// never sink an otherwise-good track sync.
+  Future<JellyfinLibrarySync> fetchLibraryForSync() async {
+    final JellyfinItemListing trackListing =
+        await _client.fetchItems(session, kind: JellyfinItemKind.audio);
+    final List<Track> tracks = <Track>[
+      for (final JellyfinItemDto item in trackListing.items)
+        JellyfinTrackMapper.toTrack(item, baseUrl: session.baseUrl),
+    ];
+    return JellyfinLibrarySync(
+      tracks: tracks,
+      albums: await _bestEffort(fetchAlbums, const <Album>[]),
+      artists: await _bestEffort(fetchArtists, const <Artist>[]),
+      skippedCount: trackListing.skippedCount,
+    );
+  }
+
+  /// Runs [fetch] and returns its result, or [fallback] if it raises a
+  /// [JellyfinException] — the best-effort wrapper for the secondary
+  /// albums/artists reads. Only the typed Jellyfin failure is swallowed; an
+  /// unexpected error still propagates so it isn't masked.
+  Future<List<T>> _bestEffort<T>(
+    Future<List<T>> Function() fetch,
+    List<T> fallback,
+  ) async {
+    try {
+      return await fetch();
+    } on JellyfinException {
+      return fallback;
+    }
   }
 
   /// Confirms the session is still valid and the server reachable, so the
@@ -177,4 +219,25 @@ class JellyfinMusicSource
       track.uri.startsWith(JellyfinTrackMapper.uriScheme)
           ? track.uri.substring(JellyfinTrackMapper.uriScheme.length)
           : track.id;
+}
+
+/// The result of [JellyfinMusicSource.fetchLibraryForSync]: the mapped catalog
+/// plus the number of track entries dropped as unparseable, so the sync can
+/// commit the good data and report skips calmly ("some items could not be
+/// synced") instead of failing outright.
+class JellyfinLibrarySync {
+  const JellyfinLibrarySync({
+    required this.tracks,
+    required this.albums,
+    required this.artists,
+    required this.skippedCount,
+  });
+
+  final List<Track> tracks;
+  final List<Album> albums;
+  final List<Artist> artists;
+
+  /// How many track entries the server returned that were too malformed to map
+  /// (missing id/name, or not an object). Zero on a clean sync.
+  final int skippedCount;
 }

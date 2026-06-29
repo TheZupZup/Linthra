@@ -61,6 +61,30 @@ void main() {
       expect(uri.path, '/Artists');
       expect(uri.queryParameters['UserId'], 'user-1');
     });
+
+    test('carries StartIndex/Limit paging params when given', () {
+      final Uri uri = JellyfinEndpoints.items(
+        _base,
+        userId: 'user-1',
+        kind: JellyfinItemKind.audio,
+        startIndex: 500,
+        limit: 250,
+      );
+      expect(uri.queryParameters['StartIndex'], '500');
+      expect(uri.queryParameters['Limit'], '250');
+      // Paging is additive — the type/sort filters are still present.
+      expect(uri.queryParameters['IncludeItemTypes'], 'Audio');
+    });
+
+    test('omits paging params entirely when not given', () {
+      final Uri uri = JellyfinEndpoints.items(
+        _base,
+        userId: 'user-1',
+        kind: JellyfinItemKind.audio,
+      );
+      expect(uri.queryParameters.containsKey('StartIndex'), isFalse);
+      expect(uri.queryParameters.containsKey('Limit'), isFalse);
+    });
   });
 
   group('JellyfinEndpoints favourites / lyrics / artwork', () {

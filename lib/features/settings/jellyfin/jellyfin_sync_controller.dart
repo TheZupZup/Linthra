@@ -108,18 +108,34 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
     _syncing = true;
     state = const JellyfinSyncState.syncing();
     try {
-      final tracks = await source.fetchTracks();
-      final albums = await source.fetchAlbums();
-      final artists = await source.fetchArtists();
+      // One tolerant pull: tracks (the catalog that matters) plus best-effort
+      // albums/artists, and a count of entries too malformed to map. A bad item
+      // is skipped here, not thrown; a global failure (auth/unreachable/5xx)
+      // throws below and leaves the old catalog intact.
+      final JellyfinLibrarySync library = await source.fetchLibraryForSync();
 
-      // Upsert only when there's something to store, so an empty fetch can
-      // never wipe an existing catalog.
-      if (tracks.isNotEmpty) {
+      // Cancellation safety: if the user signed out or switched servers/users
+      // while the (possibly long) fetch ran, the live source is gone or
+      // different. Don't commit this now-stale result over the current
+      // account's catalog. Reset to idle before bailing — leaving the abandoned
+      // run's `syncing()` state would pin the card on a perpetual "Syncing…"
+      // spinner for the *new* account (whose own sync drives the card from
+      // here); the catalog the active source left is untouched.
+      if (!_isStillCurrent(source)) {
+        state = const JellyfinSyncState();
+        return;
+      }
+
+      // Upsert only when there's something to store, so an empty (or
+      // all-skipped) fetch can never wipe an existing catalog. The write
+      // replaces the slice atomically, so the old library stays visible until a
+      // valid new one is ready to commit.
+      if (library.tracks.isNotEmpty) {
         await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
               sourceId: source.id,
-              tracks: tracks,
-              albums: albums,
-              artists: artists,
+              tracks: library.tracks,
+              albums: library.albums,
+              artists: library.artists,
             );
         // Reload the Library so the freshly synced tracks show up immediately.
         await ref.read(libraryControllerProvider.notifier).refresh();
@@ -132,13 +148,15 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       final FavoritesSyncResult favorites = await _refreshFavorites();
 
       state = JellyfinSyncState.success(
-        trackCount: tracks.length,
+        trackCount: library.tracks.length,
+        skippedCount: library.skippedCount,
         playlistCount: playlists.didSync ? playlists.playlistCount : 0,
         favoriteCount: favorites.didSync ? favorites.favoriteCount : 0,
         playlistsFailed: playlists.didFail,
         favoritesFailed: favorites.didFail,
         message: _composeMessage(
-          trackCount: tracks.length,
+          trackCount: library.tracks.length,
+          skippedCount: library.skippedCount,
           playlists: playlists,
           favorites: favorites,
         ),
@@ -157,7 +175,13 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
         }
       }
     } on JellyfinException catch (error) {
-      state = JellyfinSyncState.error(_friendlyMessage(error));
+      // A typed failure: surface a friendly line *and* a typed reason so the UI
+      // can offer the right next step (reconnect vs retry) instead of one
+      // generic error.
+      state = JellyfinSyncState.error(
+        _friendlyMessage(error),
+        reason: _failureReason(error.kind),
+      );
     } catch (_) {
       // A non-Jellyfin failure (e.g. the local store): keep it generic and
       // secret-free rather than dumping a raw error.
@@ -190,11 +214,13 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   }
 
   /// Builds the friendly success line from what actually synced: tracks,
-  /// playlists, and favourites that came across, plus an honest note for any
-  /// part that couldn't load — so a partial failure reads clearly. All values
-  /// are display-safe; no secret can reach here.
+  /// playlists, and favourites that came across, plus a calm note for any items
+  /// skipped or any part that couldn't load — so a partial outcome reads clearly
+  /// ("Some items could not be synced") rather than as a scary failure. All
+  /// values are display-safe; no secret can reach here.
   String _composeMessage({
     required int trackCount,
+    required int skippedCount,
     required PlaylistSyncResult playlists,
     required FavoritesSyncResult favorites,
   }) {
@@ -215,7 +241,9 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
     if (playlists.didFail) failures.add('playlists could not be loaded');
     if (favorites.didFail) failures.add('favorites could not be synced');
 
-    if (synced.isEmpty && failures.isEmpty) {
+    // Nothing came across, nothing was skipped, nothing failed: a genuinely
+    // empty library.
+    if (synced.isEmpty && skippedCount == 0 && failures.isEmpty) {
       return 'Your Jellyfin library looks empty — nothing to sync yet.';
     }
 
@@ -223,11 +251,55 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
     if (synced.isNotEmpty) {
       message.write('Synced ${_joinAnd(synced)} from your Jellyfin library.');
     }
+
+    // A calm, non-scary note for entries that couldn't be mapped — never a raw
+    // error, just "some items could not be synced".
+    if (skippedCount > 0) {
+      if (message.isNotEmpty) message.write(' ');
+      message.write(
+        synced.isEmpty
+            ? 'Some items in your Jellyfin library could not be synced.'
+            : 'Some items could not be synced.',
+      );
+    }
+
     if (failures.isNotEmpty) {
       if (message.isNotEmpty) message.write(' ');
       message.write('${_capitalize(_joinAnd(failures))}.');
     }
     return message.toString();
+  }
+
+  /// Whether [source] is still the live Jellyfin source for the *current*
+  /// account — i.e. the user hasn't signed out or switched servers/users while
+  /// this sync's fetch was in flight. Compared by session value, so a sign-out
+  /// (the source goes null) or a reconnect as a different account makes a
+  /// mid-flight sync abort instead of committing stale data.
+  bool _isStillCurrent(JellyfinMusicSource source) {
+    final JellyfinMusicSource? live = ref.read(jellyfinMusicSourceProvider);
+    return live != null && live.session == source.session;
+  }
+
+  /// Maps a typed Jellyfin failure to the calm next step the UI should offer:
+  /// reconnect for a rejected session, "try again" for an unreachable or
+  /// briefly-erroring server, and a neutral retry otherwise.
+  JellyfinSyncFailureReason _failureReason(JellyfinErrorKind kind) {
+    switch (kind) {
+      case JellyfinErrorKind.notReachable:
+        return JellyfinSyncFailureReason.serverUnreachable;
+      case JellyfinErrorKind.unauthorized:
+        return JellyfinSyncFailureReason.signInRequired;
+      case JellyfinErrorKind.serverError:
+        return JellyfinSyncFailureReason.retryLater;
+      case JellyfinErrorKind.invalidUrl:
+      case JellyfinErrorKind.notJellyfin:
+      case JellyfinErrorKind.webPage:
+      case JellyfinErrorKind.notAudioStream:
+      case JellyfinErrorKind.streamUnavailable:
+      case JellyfinErrorKind.unsupportedResponse:
+      case JellyfinErrorKind.unexpected:
+        return JellyfinSyncFailureReason.generic;
+    }
   }
 
   /// Joins parts with commas and a trailing "and": `["a"]` → "a";

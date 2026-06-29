@@ -61,11 +61,23 @@ abstract final class JellyfinEndpoints {
   ///
   /// Audio and albums share `/Items` filtered by type; artists have their own
   /// `/Artists` endpoint. The sort/field choices match what Linthra maps.
+  ///
+  /// [startIndex] and [limit] page the listing (`StartIndex`/`Limit`, the
+  /// standard Jellyfin paging params) so a large library is pulled in bounded
+  /// chunks rather than one unbounded request that can time out on a big/slow
+  /// server. They are stable across the 10.x line and ignored by servers that
+  /// don't paginate, so adding them is always safe.
   static Uri items(
     String baseUrl, {
     required String userId,
     required JellyfinItemKind kind,
+    int? startIndex,
+    int? limit,
   }) {
+    final Map<String, String> paging = <String, String>{
+      if (startIndex != null) 'StartIndex': '$startIndex',
+      if (limit != null) 'Limit': '$limit',
+    };
     switch (kind) {
       case JellyfinItemKind.audio:
         return _join(baseUrl, _itemsPath).replace(
@@ -76,6 +88,7 @@ abstract final class JellyfinEndpoints {
             'SortBy': 'AlbumArtist,Album,IndexNumber,SortName',
             'SortOrder': 'Ascending',
             'Fields': 'RunTimeTicks',
+            ...paging,
           },
         );
       case JellyfinItemKind.album:
@@ -87,6 +100,7 @@ abstract final class JellyfinEndpoints {
             'SortBy': 'AlbumArtist,SortName',
             'SortOrder': 'Ascending',
             'Fields': 'ProductionYear,ChildCount',
+            ...paging,
           },
         );
       case JellyfinItemKind.artist:
@@ -95,6 +109,7 @@ abstract final class JellyfinEndpoints {
             userIdParam: userId,
             'SortBy': 'SortName',
             'SortOrder': 'Ascending',
+            ...paging,
           },
         );
     }

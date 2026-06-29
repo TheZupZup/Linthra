@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/album.dart';
@@ -289,6 +291,148 @@ void main() {
       // The raw error is not surfaced to the user.
       expect(state.message, isNot(contains('disk full')));
       expect(state.message, contains('Please try again'));
+    });
+  });
+
+  group('JellyfinSyncController resilience', () {
+    test('a malformed track is skipped without failing the whole sync',
+        () async {
+      // The headline guarantee: bad items are dropped, the good ones still sync,
+      // and the outcome is a calm "synced with skipped items" — not an error.
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a'), _audio('b')],
+        },
+      );
+      client.skippedByKind = <JellyfinItemKind, int>{JellyfinItemKind.audio: 1};
+      final repository = _RecordingRepository();
+      final container = _container(
+        repository: repository,
+        source: _sourceOver(client),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.status, JellyfinSyncStatus.success);
+      expect(state.trackCount, 2);
+      expect(state.skippedCount, 1);
+      expect(state.syncedWithSkippedItems, isTrue);
+      expect(state.message, contains('2 tracks'));
+      expect(state.message, contains('Some items could not be synced'));
+      // The good tracks still landed in the catalog.
+      expect(repository.upsertedTracks, hasLength(2));
+    });
+
+    test('an expired token reports a sign-in-required reason', () async {
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _source(itemsError: JellyfinException.unauthorized()),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.status, JellyfinSyncStatus.error);
+      expect(state.failureReason, JellyfinSyncFailureReason.signInRequired);
+      expect(state.needsSignIn, isTrue);
+    });
+
+    test('an unreachable server reports a server-unreachable reason', () async {
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _source(itemsError: JellyfinException.notReachable()),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.failureReason, JellyfinSyncFailureReason.serverUnreachable);
+      expect(state.needsSignIn, isFalse);
+    });
+
+    test('a transient server error reports a retry-later reason', () async {
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _source(itemsError: JellyfinException.serverError(503)),
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.failureReason, JellyfinSyncFailureReason.retryLater);
+    });
+
+    test('a second concurrent sync is bounced by the in-flight guard',
+        () async {
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a')],
+        },
+      );
+      final gate = Completer<void>();
+      client.itemsGate = gate;
+      final repository = _RecordingRepository();
+      final container = _container(
+        repository: repository,
+        source: _sourceOver(client),
+      );
+      final notifier = container.read(jellyfinSyncControllerProvider.notifier);
+
+      // First sync starts and parks inside the (gated) item fetch.
+      final Future<void> first = notifier.sync();
+      // Second sync, fired while the first is in flight, must bail at once.
+      await notifier.sync();
+
+      // Release the first and let it finish.
+      gate.complete();
+      await first;
+
+      // Exactly one sync ran: one audio fetch, one catalog write.
+      expect(
+        client.requestedKinds
+            .where((JellyfinItemKind k) => k == JellyfinItemKind.audio)
+            .length,
+        1,
+      );
+      expect(repository.upsertCount, 1);
+    });
+
+    test('a sign-out mid-sync abandons the result without writing the catalog',
+        () async {
+      // Cancellation safety: if the live source disappears (sign-out) or changes
+      // (a different account) while the fetch is in flight, the stale result is
+      // not committed over the current catalog.
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a')],
+        },
+      );
+      final gate = Completer<void>();
+      client.itemsGate = gate;
+      final repository = _RecordingRepository();
+      final container = _container(
+        repository: repository,
+        source: _sourceOver(client),
+      );
+      final notifier = container.read(jellyfinSyncControllerProvider.notifier);
+
+      final Future<void> run = notifier.sync();
+      // Simulate sign-out: the live Jellyfin source is now gone.
+      container.updateOverrides(<Override>[
+        musicLibraryRepositoryProvider.overrideWithValue(repository),
+        jellyfinMusicSourceProvider.overrideWithValue(null),
+      ]);
+      gate.complete();
+      await run;
+
+      // The fetch completed, but the now-stale result was never written.
+      expect(repository.upsertCount, 0);
+      // …and the abandoned run did not pin the card on a perpetual "Syncing…":
+      // it reset to idle so the new account's own sync can drive the card.
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.status, JellyfinSyncStatus.idle);
+      expect(state.isSyncing, isFalse);
     });
   });
 
