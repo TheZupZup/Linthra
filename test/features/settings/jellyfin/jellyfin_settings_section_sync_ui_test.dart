@@ -120,6 +120,28 @@ void main() {
       expect(find.text('Retry sync'), findsNothing);
     });
 
+    testWidgets(
+        'a connected-but-sync-failed state reassures and offers Retry, not '
+        '"couldn\'t reach"', (tester) async {
+      await _pumpConnected(
+        tester,
+        const JellyfinSyncState.error(
+          'Your server is connected, but the library could not be fully synced '
+          'just now. Your existing music is still here — try again in a moment.',
+          reason: JellyfinSyncFailureReason.librarySyncFailed,
+        ),
+      );
+
+      // Reassuring framing — the library is intact — and a Retry, with no
+      // misleading "couldn't reach server" anywhere.
+      expect(find.textContaining('still available'), findsOneWidget);
+      expect(find.textContaining('still here'), findsOneWidget);
+      expect(find.text('Retry sync'), findsOneWidget);
+      expect(find.textContaining("Couldn't reach"), findsNothing);
+      // Not framed as needing a fresh sign-in.
+      expect(find.textContaining('session needs'), findsNothing);
+    });
+
     testWidgets('shows a friendly failure with a Retry action', (tester) async {
       await _pumpConnected(
         tester,

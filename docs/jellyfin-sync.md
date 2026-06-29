@@ -112,10 +112,29 @@ favourites and **local-only** playlists are kept.
 - **The first sync is taking a while.** A large library takes a moment to pull;
   the app stays responsive and the Library shows a "syncing" note until the
   tracks land. There's nothing to do but wait — it finishes in the background.
+  The library is pulled in **bounded pages** with brief yields between them, so a
+  big/slow server can't time out one giant request, playback keeps working
+  throughout, and a brief network/server blip is **retried a few times** before
+  it gives up.
+- **"Some items could not be synced."** A few tracks had metadata too malformed
+  to read (a missing title, a wrong-typed field). They are **skipped** so the
+  rest of your library still syncs — this is a calm note, not a failure, and the
+  usable music is fully available. The skipped count is in the debug log /
+  bug-report event trail (kind + counts only, never titles).
 - **"Connected, but the library sync didn't finish."** The connection is fine,
-  but the sync hit a snag (server briefly unreachable, an expired session, a
-  hiccup saving locally). Tap **Retry** on the Jellyfin card. Your sign-in is
-  untouched, and nothing was half-written.
+  but the sync hit a snag (a slow/large listing that timed out, a transient
+  server error, a partial response). When a sync fails, Linthra **probes the
+  live session** (a tiny `/Users/Me` check) to tell apart three cases, so it
+  never shows a misleading message:
+  - **the probe succeeds** → the server and your session are fine and only the
+    *library sync* failed. You'll see "Connected — the library sync didn't
+    finish, but your existing music is still available", your library is kept
+    intact, and **Retry** is the only thing to do. (This is the common case for
+    a large library on a slow server, and it never asks you to sign in.)
+  - **the probe is rejected (401)** → your session really has expired; only then
+    are you asked to sign out and back in.
+  - **the probe also can't reach the server** → a genuine "couldn't reach your
+    Jellyfin server".
 - **Server unreachable.** If the sync can't reach the server, you'll see a
   friendly "couldn't reach your Jellyfin server" message — check the server is
   online and reachable from the device, then Retry.

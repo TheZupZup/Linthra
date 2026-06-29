@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/lyrics.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
@@ -27,6 +29,23 @@ class FakeJellyfinClient implements JellyfinClient {
   JellyfinException? authError;
   JellyfinException? itemsError;
   JellyfinException? verifyError;
+
+  /// How many entries [fetchItems] reports as skipped per kind, so a sync test
+  /// can exercise the "synced with skipped items" outcome without a real
+  /// malformed payload.
+  Map<JellyfinItemKind, int> skippedByKind = const <JellyfinItemKind, int>{};
+
+  /// A failure [fetchItems] throws for one specific kind only (takes precedence
+  /// over [itemsError]), so a test can fail e.g. the albums read while the
+  /// tracks read succeeds — proving the best-effort secondary fetches don't sink
+  /// a good track sync.
+  Map<JellyfinItemKind, JellyfinException> errorByKind =
+      const <JellyfinItemKind, JellyfinException>{};
+
+  /// When set, every [fetchItems] call awaits this before returning, so a test
+  /// can hold a sync "in flight" and prove a second concurrent sync is bounced
+  /// by the controller's guard rather than running in parallel.
+  Completer<void>? itemsGate;
 
   /// Canned result for [probeStream]; defaults to a healthy `audio/mpeg` 200 so
   /// tests that only care about the minted URL don't have to set it.
@@ -236,16 +255,21 @@ class FakeJellyfinClient implements JellyfinClient {
   }
 
   @override
-  Future<List<JellyfinItemDto>> fetchItems(
+  Future<JellyfinItemListing> fetchItems(
     JellyfinSession session, {
     required JellyfinItemKind kind,
   }) async {
     requestedKinds.add(kind);
-    final JellyfinException? error = itemsError;
+    final Completer<void>? gate = itemsGate;
+    if (gate != null) await gate.future;
+    final JellyfinException? error = errorByKind[kind] ?? itemsError;
     if (error != null) {
       throw error;
     }
-    return itemsByKind[kind] ?? const <JellyfinItemDto>[];
+    return JellyfinItemListing(
+      items: itemsByKind[kind] ?? const <JellyfinItemDto>[],
+      skippedCount: skippedByKind[kind] ?? 0,
+    );
   }
 
   @override

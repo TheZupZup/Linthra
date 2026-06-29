@@ -85,9 +85,9 @@ between call sites and the full surface is auditable here.
 | Server info | `GET /System/Info/Public` | No auth. Backs Test connection + version/capability read. |
 | Sign in | `POST /Users/AuthenticateByName` | Body `{Username, Pw}`; returns the access token. |
 | Verify session | `GET /Users/Me` | Tiny authenticated check before streaming (401 ⇒ expired). |
-| List tracks | `GET /Items?IncludeItemTypes=Audio&Recursive=true&…` | Sorted; `Fields=RunTimeTicks`. |
-| List albums | `GET /Items?IncludeItemTypes=MusicAlbum&Recursive=true&…` | `Fields=ProductionYear,ChildCount`. |
-| List artists | `GET /Artists?…` | Dedicated artists endpoint. |
+| List tracks | `GET /Items?IncludeItemTypes=Audio&Recursive=true&…` | Sorted; `Fields=RunTimeTicks`. Paged via `StartIndex`/`Limit`. |
+| List albums | `GET /Items?IncludeItemTypes=MusicAlbum&Recursive=true&…` | `Fields=ProductionYear,ChildCount`. Paged. Best-effort (a failure doesn't sink the track sync). |
+| List artists | `GET /Artists?…` | Dedicated artists endpoint. Paged. Best-effort. |
 | Favourite ids | `GET /Items?Filters=IsFavorite&IncludeItemTypes=Audio&…` | `EnableImages=false`. |
 | Toggle favourite | `POST` / `DELETE /Users/{userId}/FavoriteItems/{itemId}` | POST marks, DELETE clears. |
 | Lyrics | `GET /Audio/{itemId}/Lyrics` | 404 = "no lyrics", a normal outcome. |
@@ -129,9 +129,22 @@ error:
 - **No version-gated request behavior.** The version is read for diagnostics
   only. Do not add `if (version >= x) useEndpointA else useEndpointB` branches;
   prefer endpoints stable across the 10.x line.
-- **Tolerant parsing.** Unknown JSON fields are ignored, a missing `Items`
-  array reads as empty, and malformed entries are skipped, so a server that adds
-  fields won't break listing.
+- **Tolerant parsing.** Unknown JSON fields are ignored and a missing `Items`
+  array reads as empty. Every mapped field is read through a *coercing* helper,
+  so an item that omits a field — or sends it with the **wrong type** (a number
+  where a string is expected, a numeric string for `RunTimeTicks`, …) — yields a
+  safe fallback for that one field instead of throwing. An entry too malformed
+  to use at all (missing `Id`/`Name`, or not an object) is **skipped and
+  counted**, never thrown, so one bad track can't fail the whole sync; the
+  sync then reports "some items could not be synced" rather than an error.
+- **Paginated, bounded reads.** Library listings are pulled in bounded pages
+  (`StartIndex`/`Limit`) with a brief yield between them, so a large/slow
+  library can't time out one unbounded request or hammer the server, and
+  playback/UI stay responsive during a sync. A transient page failure (timeout,
+  dropped connection, 5xx/408/429) is retried a **bounded** number of times with
+  exponential backoff; auth (401/403) and other client errors are never retried.
+  A page that ultimately fails aborts the sync (the previous catalog is kept)
+  rather than committing a truncated library.
 - **`static=true` direct play** is the safest streaming path: it serves the
   original bytes the engine can open, avoiding transcode/HLS negotiation that
   varies between server versions and codecs.

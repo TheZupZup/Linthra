@@ -343,10 +343,19 @@ class _ConnectedView extends StatelessWidget {
         if (syncState.isError) ...[
           const SizedBox(height: AppSpacing.sm),
           // Keep the connection plainly intact ("you're still signed in"), then
-          // the specific, secret-free reason from the sync controller, then a
-          // clear way to try again.
-          const _StatusLine(
-            message: "Connected, but the library sync didn't finish.",
+          // the specific, secret-free reason from the sync controller. For a
+          // rejected session we frame it as "needs refreshing" and point at
+          // sign-in; when the server is reachable but the library sync failed we
+          // reassure the existing library is intact; every other failure is
+          // transient and offers Retry.
+          _StatusLine(
+            message: syncState.needsSignIn
+                ? "You're still signed in, but your Jellyfin session needs "
+                    'refreshing.'
+                : syncState.connectionOkButSyncFailed
+                    ? 'Connected — the library sync didn\'t finish, but your '
+                        'existing music is still available.'
+                    : "Connected, but the library sync didn't finish.",
             isError: true,
           ),
           if (syncState.message != null) ...[
@@ -354,17 +363,22 @@ class _ConnectedView extends StatelessWidget {
             _StatusLine(message: syncState.message!, isError: true),
           ],
           const SizedBox(height: AppSpacing.sm),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: onSync,
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Retry sync'),
+          // A rejected session won't be fixed by re-running the same sync, so
+          // point at the "Sign out & clear" action below instead of a Retry
+          // that would just fail again. Every other failure is transient.
+          if (!syncState.needsSignIn)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: onSync,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Retry sync'),
+              ),
             ),
-          ),
         ] else if (syncState.message != null) ...[
           // Syncing ("Syncing your Jellyfin library…") or the success summary
-          // ("Synced N tracks…"); both read as friendly status, not an error.
+          // ("Synced N tracks…", possibly "Some items could not be synced");
+          // both read as friendly status, not an error.
           const SizedBox(height: AppSpacing.sm),
           _StatusLine(message: syncState.message!, isError: false),
         ],

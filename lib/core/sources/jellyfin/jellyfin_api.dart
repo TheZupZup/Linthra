@@ -201,20 +201,19 @@ class JellyfinItemDto {
   /// builds an artwork URL when there's actually an image to fetch.
   final bool hasPrimaryImage;
 
-  /// Parses one item, or returns `null` when it lacks an id/name (skipped by
-  /// the caller) so a single malformed entry can't break a whole listing.
+  /// Parses one item, or returns `null` when it lacks a usable id/name (skipped
+  /// by the caller) so a single malformed entry can't break a whole listing.
+  ///
+  /// Tolerant by construction: every optional field is read through a *coercing*
+  /// helper ([_string], [_int], [_stringList]) rather than a raw `as` cast, so a
+  /// weird server that sends a number where a string is expected (or vice versa)
+  /// yields a safe fallback (`null`/empty) for that one field instead of
+  /// throwing a `TypeError` that would abort the whole sync. Only a missing or
+  /// blank id/name — an item Linthra cannot reference or label — is rejected.
   static JellyfinItemDto? fromJson(Map<String, dynamic> json) {
-    final String? id = json['Id'] as String?;
-    final String? name = json['Name'] as String?;
-    if (id == null || id.isEmpty || name == null) return null;
-
-    final Object? rawArtists = json['Artists'];
-    final List<String> artists = rawArtists is List
-        ? <String>[
-            for (final Object? a in rawArtists)
-              if (a is String && a.isNotEmpty) a,
-          ]
-        : const <String>[];
+    final String? id = _string(json['Id']);
+    final String? name = _string(json['Name']);
+    if (id == null || id.isEmpty || name == null || name.isEmpty) return null;
 
     final Object? imageTags = json['ImageTags'];
     final bool hasPrimary = imageTags is Map && imageTags['Primary'] != null;
@@ -222,17 +221,81 @@ class JellyfinItemDto {
     return JellyfinItemDto(
       id: id,
       name: name,
-      album: json['Album'] as String?,
-      albumId: json['AlbumId'] as String?,
-      albumArtist: json['AlbumArtist'] as String?,
-      artists: artists,
-      runTimeTicks: (json['RunTimeTicks'] as num?)?.toInt(),
-      indexNumber: (json['IndexNumber'] as num?)?.toInt(),
-      productionYear: (json['ProductionYear'] as num?)?.toInt(),
-      childCount: (json['ChildCount'] as num?)?.toInt(),
+      album: _string(json['Album']),
+      albumId: _string(json['AlbumId']),
+      albumArtist: _string(json['AlbumArtist']),
+      artists: _stringList(json['Artists']),
+      runTimeTicks: _int(json['RunTimeTicks']),
+      indexNumber: _int(json['IndexNumber']),
+      productionYear: _int(json['ProductionYear']),
+      childCount: _int(json['ChildCount']),
       hasPrimaryImage: hasPrimary,
     );
   }
+
+  /// A trimmed non-empty [String] from a wire value, or `null` for anything
+  /// else (a number, bool, list, missing, or blank). Trimming means a field
+  /// that is all whitespace reads as absent rather than a blank label.
+  static String? _string(Object? value) {
+    if (value is! String) return null;
+    final String trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  /// An [int] from a wire value, accepting the JSON `num` Jellyfin normally
+  /// sends *and* a numeric string some plugins/proxies emit. Returns `null` for
+  /// anything non-numeric (a non-number string, bool, list, …) so one weird
+  /// field never throws.
+  static int? _int(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) {
+      final String trimmed = value.trim();
+      // Symmetric with the `num` path: a fractional numeric string ("123.9")
+      // truncates exactly like the JSON number 123.9 would, rather than being
+      // dropped because `int.tryParse` rejects the decimal point.
+      return int.tryParse(trimmed) ?? double.tryParse(trimmed)?.toInt();
+    }
+    return null;
+  }
+
+  /// The non-empty strings from a wire list, or an empty list when the value
+  /// isn't a list at all. Non-string entries inside the list are dropped rather
+  /// than throwing, so a partially malformed `Artists` array still yields the
+  /// good names.
+  static List<String> _stringList(Object? value) {
+    if (value is! List) return const <String>[];
+    return <String>[
+      for (final Object? entry in value)
+        if (entry is String && entry.trim().isNotEmpty) entry.trim(),
+    ];
+  }
+}
+
+/// The outcome of listing one [JellyfinItemKind] from the server: the items
+/// that parsed cleanly, plus how many wire entries were **skipped** because
+/// they were too malformed to use (missing id/name, or not an object).
+///
+/// Carrying [skippedCount] alongside the items lets a sync stay tolerant —
+/// drop the bad entries rather than fail — while still telling the user, calmly,
+/// that "some items could not be synced". It is a plain count, never the raw
+/// entries, so nothing sensitive rides along.
+class JellyfinItemListing {
+  const JellyfinItemListing({
+    required this.items,
+    this.skippedCount = 0,
+  });
+
+  /// An empty listing (nothing fetched, nothing skipped) — the "valid but empty
+  /// library" outcome a missing `Items` array maps to.
+  static const JellyfinItemListing empty =
+      JellyfinItemListing(items: <JellyfinItemDto>[]);
+
+  /// The items that parsed into a usable DTO, in server order.
+  final List<JellyfinItemDto> items;
+
+  /// How many wire entries were dropped as unparseable across every page.
+  final int skippedCount;
 }
 
 /// A playlist item from `GET /Users/<userId>/Items?IncludeItemTypes=Playlist`.

@@ -70,6 +70,73 @@ void main() {
       );
     });
 
+    group('fetchLibraryForSync', () {
+      test('returns mapped tracks plus the skipped count', () async {
+        final client = FakeJellyfinClient(
+          itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+            JellyfinItemKind.audio: <JellyfinItemDto>[
+              const JellyfinItemDto(id: 't1', name: 'One'),
+              const JellyfinItemDto(id: 't2', name: 'Two'),
+            ],
+            JellyfinItemKind.album: <JellyfinItemDto>[
+              const JellyfinItemDto(id: 'a1', name: 'Album'),
+            ],
+            JellyfinItemKind.artist: <JellyfinItemDto>[
+              const JellyfinItemDto(id: 'ar1', name: 'Artist'),
+            ],
+          },
+        );
+        client.skippedByKind = <JellyfinItemKind, int>{
+          JellyfinItemKind.audio: 3,
+        };
+
+        final library = await _source(client).fetchLibraryForSync();
+
+        expect(library.tracks.map((t) => t.id).toList(), <String>['t1', 't2']);
+        expect(library.albums.single.title, 'Album');
+        expect(library.artists.single.name, 'Artist');
+        expect(library.skippedCount, 3);
+      });
+
+      test('albums/artists are best-effort — a failure there keeps the tracks',
+          () async {
+        final client = FakeJellyfinClient(
+          itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+            JellyfinItemKind.audio: <JellyfinItemDto>[
+              const JellyfinItemDto(id: 't1', name: 'One'),
+            ],
+          },
+          // Tracks succeed; the secondary album/artist reads fail.
+        );
+        client.errorByKind = <JellyfinItemKind, JellyfinException>{
+          JellyfinItemKind.album: JellyfinException.serverError(500),
+          JellyfinItemKind.artist: JellyfinException.serverError(500),
+        };
+
+        final library = await _source(client).fetchLibraryForSync();
+
+        expect(library.tracks.single.id, 't1');
+        expect(library.albums, isEmpty);
+        expect(library.artists, isEmpty);
+      });
+
+      test('a tracks failure propagates (so the caller preserves the catalog)',
+          () async {
+        final client = FakeJellyfinClient(
+          itemsError: JellyfinException.unauthorized(),
+        );
+
+        await expectLater(
+          _source(client).fetchLibraryForSync(),
+          throwsA(isA<JellyfinException>().having(
+            (JellyfinException e) => e.kind,
+            'kind',
+            JellyfinErrorKind.unauthorized,
+          )),
+        );
+      });
+    });
+
     test(
         'resolvePlayableUri mints a direct-stream URL with the token at play '
         'time', () async {

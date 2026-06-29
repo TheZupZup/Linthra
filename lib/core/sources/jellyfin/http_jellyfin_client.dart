@@ -10,6 +10,7 @@ import 'jellyfin_auth_header.dart';
 import 'jellyfin_client.dart';
 import 'jellyfin_endpoints.dart';
 import 'jellyfin_exception.dart';
+import 'jellyfin_sync_diagnostics.dart';
 
 /// The real [JellyfinClient], backed by `package:http`.
 ///
@@ -22,12 +23,53 @@ import 'jellyfin_exception.dart';
 /// Every failure becomes a [JellyfinException]; the password and token are
 /// never written to an exception, so a leaked error string can't expose them.
 class HttpJellyfinClient implements JellyfinClient {
-  HttpJellyfinClient({http.Client? httpClient})
-      : _client = httpClient ?? http.Client();
+  HttpJellyfinClient({
+    http.Client? httpClient,
+    int maxItemFetchAttempts = 3,
+    Duration retryBackoff = const Duration(milliseconds: 400),
+    int itemPageSize = 500,
+    Duration pageGap = const Duration(milliseconds: 30),
+    int maxItemPages = 10000,
+  })  : assert(maxItemFetchAttempts >= 1),
+        assert(itemPageSize >= 1),
+        assert(maxItemPages >= 1),
+        _client = httpClient ?? http.Client(),
+        _maxItemFetchAttempts = maxItemFetchAttempts,
+        _retryBackoff = retryBackoff,
+        _itemPageSize = itemPageSize,
+        _pageGap = pageGap,
+        _maxItemPages = maxItemPages;
 
   final http.Client _client;
 
   static const Duration _timeout = Duration(seconds: 20);
+
+  /// How many times a single library page is attempted before its transient
+  /// failure surfaces — bounded, so a flaky network/server is ridden out but a
+  /// genuinely down one fails in finite time rather than retrying forever.
+  final int _maxItemFetchAttempts;
+
+  /// Base backoff between page retries; the wait grows exponentially per
+  /// attempt. Injectable (and `Duration.zero` in tests) so the retry path is
+  /// covered without slowing the suite.
+  final Duration _retryBackoff;
+
+  /// How many items a single library page requests. Bounds each request so a
+  /// large/slow server can't time out one unbounded fetch of the whole library.
+  final int _itemPageSize;
+
+  /// A brief yield between library pages, to keep playback/UI responsive and
+  /// avoid hammering the server with back-to-back requests. Injectable (zero in
+  /// tests) so pagination is covered without real delays.
+  final Duration _pageGap;
+
+  /// An absolute backstop on how many pages one listing will fetch. A real
+  /// server always advances `StartIndex` (or reports a `TotalRecordCount`), so
+  /// this only ever bites a broken server that ignores paging and would
+  /// otherwise loop forever; at the default page size it still allows millions
+  /// of items — far beyond any real music library. Injectable so a test can
+  /// drive the backstop without 10,000 pages.
+  final int _maxItemPages;
 
   @override
   Future<JellyfinServerInfo> fetchServerInfo(String baseUrl) async {
@@ -80,41 +122,105 @@ class HttpJellyfinClient implements JellyfinClient {
   }
 
   @override
-  Future<List<JellyfinItemDto>> fetchItems(
+  Future<JellyfinItemListing> fetchItems(
     JellyfinSession session, {
     required JellyfinItemKind kind,
   }) async {
-    final Uri uri = JellyfinEndpoints.items(
-      session.baseUrl,
-      userId: session.userId,
-      kind: kind,
-    );
-    final http.Response response = await _send(
-      () => _client.get(uri, headers: <String, String>{
-        'Accept': 'application/json',
-        'Authorization':
-            JellyfinAuthHeader.forToken(session.deviceId, session.accessToken),
-      }),
-    );
-    _checkStatus(response);
-
-    final Map<String, dynamic> json = _decodeObject(response);
-    final Object? rawItems = json['Items'];
-    if (rawItems is! List) {
-      // A valid but empty library, or a shape we don't recognize — treat as
-      // "nothing to list" rather than an error.
-      return const <JellyfinItemDto>[];
-    }
     final List<JellyfinItemDto> items = <JellyfinItemDto>[];
-    for (final Object? entry in rawItems) {
-      if (entry is Map<String, dynamic>) {
-        final JellyfinItemDto? dto = JellyfinItemDto.fromJson(entry);
-        if (dto != null) {
-          items.add(dto);
-        }
+    int skipped = 0;
+    int startIndex = 0;
+    int page = 0;
+
+    // Page through the whole library in bounded chunks. A page-level transient
+    // failure is retried inside `_sendRetrying`; if it ultimately fails it
+    // *throws* here — so the caller keeps the previous catalog rather than
+    // committing a truncated one — while a single unparseable *item* is skipped
+    // (counted, never thrown) so one bad track can't fail the whole sync.
+    while (true) {
+      // Absolute backstop: stop (and flag the truncation) if a broken server
+      // ignores paging and would otherwise loop forever. A real server always
+      // advances or reports a total, so this never fires in practice.
+      if (page >= _maxItemPages) {
+        JellyfinSyncDiagnostics.capped(kind: kind, pages: page);
+        break;
       }
+      page++;
+
+      final Uri uri = JellyfinEndpoints.items(
+        session.baseUrl,
+        userId: session.userId,
+        kind: kind,
+        startIndex: startIndex,
+        limit: _itemPageSize,
+      );
+      final http.Response response = await _sendRetrying(
+        () => _client.get(uri, headers: <String, String>{
+          'Accept': 'application/json',
+          'Authorization': JellyfinAuthHeader.forToken(
+              session.deviceId, session.accessToken),
+        }),
+        kind: kind,
+      );
+      _checkStatus(response);
+
+      final Map<String, dynamic> json = _decodeObject(response);
+      final Object? rawItems = json['Items'];
+      if (rawItems is! List) {
+        // A valid but empty library, or a shape we don't recognize — stop here
+        // rather than treating it as an error.
+        break;
+      }
+
+      for (final Object? entry in rawItems) {
+        if (entry is! Map<String, dynamic>) {
+          skipped++;
+          continue;
+        }
+        final JellyfinItemDto? dto = _parseItem(entry);
+        if (dto == null) {
+          skipped++;
+          continue;
+        }
+        items.add(dto);
+      }
+
+      final int received = rawItems.length;
+      startIndex += received;
+
+      final Object? rawTotal = json['TotalRecordCount'];
+      final int? total = rawTotal is num ? rawTotal.toInt() : null;
+      final bool reachedTotal = total != null && startIndex >= total;
+
+      // Stop on the server's own total, on a short (final) page, or on an empty
+      // page. (A server that returns a *full* page forever is caught by the
+      // page-count backstop at the top of the loop instead.)
+      if (received == 0 || received < _itemPageSize || reachedTotal) {
+        break;
+      }
+
+      await _pageDelay();
     }
-    return items;
+
+    JellyfinSyncDiagnostics.skipped(
+      kind: kind,
+      skipped: skipped,
+      kept: items.length,
+    );
+    return JellyfinItemListing(items: items, skippedCount: skipped);
+  }
+
+  /// Parses one wire entry into a DTO, or `null` when it is unusable.
+  ///
+  /// Defence-in-depth: [JellyfinItemDto.fromJson] already coerces every field
+  /// so it shouldn't throw, but guarding here guarantees one malformed entry is
+  /// skipped — never propagated — even if a future field is added without a
+  /// coercing read.
+  static JellyfinItemDto? _parseItem(Map<String, dynamic> entry) {
+    try {
+      return JellyfinItemDto.fromJson(entry);
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
@@ -477,6 +583,76 @@ class HttpJellyfinClient implements JellyfinClient {
     }
   }
 
+  /// Like [_send] but bounded-retries *transient* failures — a timeout, a
+  /// dropped connection, or a retryable server status (5xx / 408 / 429) — with
+  /// exponential backoff, for the idempotent paged reads [fetchItems] makes.
+  ///
+  /// Auth (401/403) and other client errors are returned unretried for
+  /// [_checkStatus] to map (retrying them is pointless and could lock an
+  /// account out). Non-idempotent writes deliberately keep using single-shot
+  /// [_send] so a retried POST can't double-apply. After the last attempt a
+  /// retryable status is returned as-is so [_checkStatus] still maps it to a
+  /// friendly error; a transient transport failure throws "not reachable".
+  Future<http.Response> _sendRetrying(
+    Future<http.Response> Function() request, {
+    required JellyfinItemKind kind,
+  }) async {
+    JellyfinException lastTransport = JellyfinException.notReachable();
+    for (int attempt = 1; attempt <= _maxItemFetchAttempts; attempt++) {
+      if (attempt > 1) {
+        JellyfinSyncDiagnostics.retry(
+          kind: kind,
+          attempt: attempt,
+          maxAttempts: _maxItemFetchAttempts,
+        );
+        await _backoff(attempt);
+      }
+      final http.Response response;
+      try {
+        response = await request().timeout(_timeout);
+      } on TimeoutException {
+        lastTransport = JellyfinException.notReachable();
+        continue;
+      } on http.ClientException {
+        lastTransport = JellyfinException.notReachable();
+        continue;
+      } on Exception {
+        lastTransport = JellyfinException.notReachable();
+        continue;
+      }
+      final bool canRetryAgain = attempt < _maxItemFetchAttempts;
+      if (canRetryAgain && _isRetryableStatus(response.statusCode)) {
+        continue;
+      }
+      return response;
+    }
+    throw lastTransport;
+  }
+
+  /// Whether an HTTP status is worth retrying: a server-side 5xx, a request
+  /// timeout (408), or a rate-limit (429). A 4xx like 401/403/404 is the
+  /// server's settled answer and is never retried.
+  static bool _isRetryableStatus(int code) =>
+      code >= 500 || code == 408 || code == 429;
+
+  /// Exponential backoff before a page retry: base, 2×, 4× … per attempt. A
+  /// `Duration.zero` base (tests) waits not at all, keeping the retry path fast
+  /// to cover.
+  Future<void> _backoff(int attempt) {
+    if (_retryBackoff == Duration.zero) return Future<void>.value();
+    // `attempt` is >= 2 here (attempt 1 never backs off), so the factor is
+    // 1, 2, 4, … for attempts 2, 3, 4 …
+    final int factor = 1 << (attempt - 2);
+    return Future<void>.delayed(_retryBackoff * factor);
+  }
+
+  /// A brief yield between library pages (see [_pageGap]). Zero-cost when the
+  /// gap is `Duration.zero` (tests).
+  Future<void> _pageDelay() {
+    if (_pageGap == Duration.zero) return Future<void>.value();
+    return Future<void>.delayed(_pageGap);
+  }
+
   /// Maps an HTTP status to a [JellyfinException]. 2xx passes; everything else
   /// throws before the body is parsed, so error handling never depends on
   /// response content (and never echoes it).
@@ -489,6 +665,15 @@ class HttpJellyfinClient implements JellyfinClient {
       throw JellyfinException.unauthorized();
     }
     if (code >= 500) {
+      throw JellyfinException.serverError(code);
+    }
+    if (code == 408 || code == 429) {
+      // A request timeout or a rate-limit (often a Cloudflare/reverse-proxy
+      // 429) is *transient*, not a wrong address — surface it as a server error
+      // so the sync's calm "try again in a moment" path is taken rather than the
+      // misleading "doesn't look like a Jellyfin server". Matches the retryable
+      // set in `_isRetryableStatus`, so a persistent one that outlived its
+      // retries still reads honestly.
       throw JellyfinException.serverError(code);
     }
     // Other 4xx (wrong path, Cloudflare 4xx, …) usually mean the address isn't
