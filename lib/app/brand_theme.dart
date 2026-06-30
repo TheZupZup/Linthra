@@ -112,12 +112,12 @@ class LinthraAccents extends ThemeExtension<LinthraAccents> {
 /// theme reads them through.
 ///
 /// [classic]'s fields are exactly today's [AppColors] values, so the Classic
-/// theme is unchanged. Every colour variant keeps Linthra's violet [primary]
-/// and only swaps the [accent]; the neutral [blackWhite] variant also goes
-/// neutral on [primary] so a black-and-white theme never shows a violet button.
-/// Accents are chosen light enough to stay legible on the dark surfaces (the
-/// primary experience) with a dark [onAccent], matching Classic's
-/// orange-with-dark-glyph play button.
+/// theme is unchanged. [dark] and [neon] keep Linthra's violet [primary] and
+/// only swap the [accent] (to purple, and to neon cyan/blue); [gold] is a
+/// black-and-gold theme and [blackWhite] a pure black/white one, so both also
+/// retint [primary]. Accents are chosen to stay legible on the dark surfaces
+/// (the primary experience) with a contrasting [onAccent], matching Classic's
+/// accent-with-dark-glyph play button.
 abstract final class BrandPalettes {
   /// The default identity — today's violet brand + warm orange accent. Also the
   /// fallback for an unknown/absent id (see [byId]).
@@ -132,71 +132,38 @@ abstract final class BrandPalettes {
     accentContainer: AppColors.accentContainer,
   );
 
-  /// A calmer indigo/violet highlight in place of the orange accent.
+  /// Black + purple: the violet brand with a lighter-violet highlight in place
+  /// of the orange accent. No orange, blue, or gold.
   static const BrandPalette dark = BrandPalette(
     id: 'dark',
     primary: AppColors.brand,
     onPrimary: Colors.white,
-    accent: Color(0xFFA99BFF),
-    accentBright: Color(0xFFC6BCFF),
-    accentDeep: Color(0xFF8674E6),
-    onAccent: Color(0xFF1B1340),
-    accentContainer: Color(0xFF231C46),
+    accent: Color(0xFFC4A0FF),
+    accentBright: Color(0xFFDCC4FF),
+    accentDeep: Color(0xFFA982F0),
+    onAccent: Color(0xFF1C1140),
+    accentContainer: Color(0xFF241946),
   );
 
-  /// An electric blue/neon highlight replacing the orange accent.
+  /// Purple + neon: the violet brand with an electric cyan/blue neon highlight
+  /// in place of the orange accent. No orange.
   static const BrandPalette neon = BrandPalette(
     id: 'neon',
     primary: AppColors.brand,
     onPrimary: Colors.white,
-    accent: Color(0xFF6FA8FF),
-    accentBright: Color(0xFF9CC3FF),
-    accentDeep: Color(0xFF4886EA),
-    onAccent: Color(0xFF04162E),
-    accentContainer: Color(0xFF12263F),
+    accent: Color(0xFF34C5FF),
+    accentBright: Color(0xFF7ADBFF),
+    accentDeep: Color(0xFF1C9FE6),
+    onAccent: Color(0xFF02161F),
+    accentContainer: Color(0xFF0D2735),
   );
 
-  /// A cloud/server blue highlight for the self-hosted variant.
-  static const BrandPalette server = BrandPalette(
-    id: 'server',
-    primary: AppColors.brand,
-    onPrimary: Colors.white,
-    accent: Color(0xFF54C8E0),
-    accentBright: Color(0xFF8BDCEE),
-    accentDeep: Color(0xFF26A7C4),
-    onAccent: Color(0xFF032029),
-    accentContainer: Color(0xFF0E2B34),
-  );
-
-  /// An audio-style pink/magenta highlight.
-  static const BrandPalette waveform = BrandPalette(
-    id: 'waveform',
-    primary: AppColors.brand,
-    onPrimary: Colors.white,
-    accent: Color(0xFFFF85C2),
-    accentBright: Color(0xFFFFAAD6),
-    accentDeep: Color(0xFFE85FA4),
-    onAccent: Color(0xFF300A1E),
-    accentContainer: Color(0xFF3C1629),
-  );
-
-  /// A soft, warm amber highlight for the lonely-maintainer variant.
-  static const BrandPalette lonely = BrandPalette(
-    id: 'lonely',
-    primary: AppColors.brand,
-    onPrimary: Colors.white,
-    accent: Color(0xFFCFA877),
-    accentBright: Color(0xFFE3C49B),
-    accentDeep: Color(0xFFB48C58),
-    onAccent: Color(0xFF241809),
-    accentContainer: Color(0xFF322516),
-  );
-
-  /// A gold/yellow highlight replacing the orange accent.
+  /// Black + gold: a rich gold brand *and* gold accent on the dark surfaces, so
+  /// the whole theme reads black-and-gold (no violet, no orange/yellow mix).
   static const BrandPalette gold = BrandPalette(
     id: 'gold',
-    primary: AppColors.brand,
-    onPrimary: Colors.white,
+    primary: Color(0xFFE0A82E),
+    onPrimary: Color(0xFF1A1300),
     accent: Color(0xFFF5C518),
     accentBright: Color(0xFFFFDD55),
     accentDeep: Color(0xFFD9A400),
@@ -239,9 +206,6 @@ abstract final class BrandPalettes {
     classic,
     dark,
     neon,
-    server,
-    waveform,
-    lonely,
     gold,
     blackWhite,
   ];

@@ -138,42 +138,6 @@
             </intent-filter>
         </activity-alias>
         <activity-alias
-            android:name=".IconServer"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_server"
-            android:label="Linthra"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".IconWaveform"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_waveform"
-            android:label="Linthra"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".IconLonely"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_lonely"
-            android:label="Linthra"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
             android:name=".IconGold"
             android:enabled="false"
             android:exported="true"

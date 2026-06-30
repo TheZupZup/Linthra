@@ -47,12 +47,6 @@ abstract final class LauncherIconAliases {
       LauncherIconAlias(variantId: 'dark', aliasName: 'IconDark');
   static const LauncherIconAlias neon =
       LauncherIconAlias(variantId: 'neon', aliasName: 'IconNeon');
-  static const LauncherIconAlias server =
-      LauncherIconAlias(variantId: 'server', aliasName: 'IconServer');
-  static const LauncherIconAlias waveform =
-      LauncherIconAlias(variantId: 'waveform', aliasName: 'IconWaveform');
-  static const LauncherIconAlias lonely =
-      LauncherIconAlias(variantId: 'lonely', aliasName: 'IconLonely');
   static const LauncherIconAlias gold =
       LauncherIconAlias(variantId: 'gold', aliasName: 'IconGold');
   static const LauncherIconAlias blackWhite = LauncherIconAlias(
@@ -65,9 +59,6 @@ abstract final class LauncherIconAliases {
     classic,
     dark,
     neon,
-    server,
-    waveform,
-    lonely,
     gold,
     blackWhite,
   ];

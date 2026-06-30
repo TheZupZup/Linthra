@@ -23,16 +23,27 @@ void main() {
       expect(accents.accentDeep, AppColors.accentDeep);
     });
 
-    test('a colour variant retints the accent but not the error colour', () {
+    test('a violet-brand variant retints the accent but keeps brand + error',
+        () {
+      final ThemeData neon = AppTheme.dark(
+        BrandPalettes.byId('neon', brightness: Brightness.dark),
+      );
+      expect(neon.colorScheme.secondary, BrandPalettes.neon.accent);
+      expect(neon.colorScheme.secondary, isNot(AppColors.accent));
+      // Dark and Neon keep Linthra's violet brand — only the accent changes.
+      expect(neon.colorScheme.primary, AppColors.brand);
+      // Destructive/error colour is never themed.
+      expect(neon.colorScheme.error, AppColors.error);
+    });
+
+    test('Gold is a black-and-gold theme — gold brand + gold accent, no violet',
+        () {
       final ThemeData gold = AppTheme.dark(
         BrandPalettes.byId('gold', brightness: Brightness.dark),
       );
+      expect(gold.colorScheme.primary, BrandPalettes.gold.primary);
+      expect(gold.colorScheme.primary, isNot(AppColors.brand));
       expect(gold.colorScheme.secondary, BrandPalettes.gold.accent);
-      expect(gold.colorScheme.secondary, isNot(AppColors.accent));
-      // The brand (and so primary buttons) stays Linthra violet for the colour
-      // variants — only the accent changes.
-      expect(gold.colorScheme.primary, AppColors.brand);
-      // Destructive/error colour is never themed.
       expect(gold.colorScheme.error, AppColors.error);
     });
 

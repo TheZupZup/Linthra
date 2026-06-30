@@ -113,9 +113,6 @@ class LauncherIconChannel(private val context: Context) {
             "IconClassic",
             "IconDark",
             "IconNeon",
-            "IconServer",
-            "IconWaveform",
-            "IconLonely",
             "IconGold",
             "IconBlackWhite",
         )

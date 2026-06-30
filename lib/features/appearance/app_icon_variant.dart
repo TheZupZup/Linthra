@@ -69,9 +69,6 @@ class AppIconVariant {
 // violet+orange identity.
 const Color _neonViolet = Color(0xFFB14DFF);
 const Color _neonCyan = Color(0xFF22E0D6);
-const Color _serverTeal = Color(0xFF34D9C7);
-const Color _lonelyViolet = Color(0xFF8A7BC0);
-const Color _lonelyAmber = Color(0xFFC98A52);
 const Color _goldBright = Color(0xFFFFE08A);
 const Color _goldDeep = Color(0xFFE6A200);
 
@@ -108,43 +105,12 @@ abstract final class AppIconVariants {
     bars: <double>[0.55, 0.85, 0.70, 0.45],
   );
 
-  /// Rising signal bars in teal and violet — a nod to self-hosting.
-  static const AppIconVariant server = AppIconVariant(
-    id: 'server',
-    label: 'Self-hosted',
-    description: 'Rising signal bars in teal and violet.',
-    tier: AppIconTier.free,
-    gradient: <Color>[_serverTeal, AppColors.brand],
-    bars: <double>[0.42, 0.58, 0.74, 0.90],
-  );
-
-  /// A symmetric sound wave in the brand colours.
-  static const AppIconVariant waveform = AppIconVariant(
-    id: 'waveform',
-    label: 'Waveform',
-    description: 'A symmetric sound wave in the brand colours.',
-    tier: AppIconTier.free,
-    gradient: <Color>[AppColors.brandBright, AppColors.accent],
-    bars: <double>[0.40, 0.70, 0.90, 0.70, 0.40],
-  );
-
-  /// One bar standing bravely on its own — for the lonely maintainer.
-  static const AppIconVariant lonely = AppIconVariant(
-    id: 'lonely',
-    label: 'Lonely maintainer',
-    description: 'One bar standing bravely on its own. 🥺',
-    tier: AppIconTier.free,
-    gradient: <Color>[_lonelyViolet, _lonelyAmber],
-    bars: <double>[0.18, 0.86, 0.22, 0.16],
-  );
-
-  /// A warm gold treatment. Cosmetic only and fully available here; see
-  /// [AppIconTier.supporter].
+  /// A black-and-gold treatment of the mark. Free, like every variant.
   static const AppIconVariant gold = AppIconVariant(
     id: 'gold',
     label: 'Gold',
-    description: 'A warm gold treatment of the mark.',
-    tier: AppIconTier.supporter,
+    description: 'A black-and-gold treatment of the mark.',
+    tier: AppIconTier.free,
     gradient: <Color>[_goldBright, _goldDeep],
     bars: <double>[0.46, 0.70, 0.56, 0.34],
   );
@@ -164,9 +130,6 @@ abstract final class AppIconVariants {
     classic,
     dark,
     neon,
-    server,
-    waveform,
-    lonely,
     gold,
     blackWhite,
   ];

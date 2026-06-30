@@ -28,15 +28,12 @@ Every variant keeps the equalizer-bar identity, so Linthra stays recognisable.
 The built-in set (see
 [`app_icon_variant.dart`](../lib/features/appearance/app_icon_variant.dart)):
 
-| id         | Label             | Look                                   |
-| ---------- | ----------------- | -------------------------------------- |
-| `classic`  | Classic (default) | Signature violet→orange equalizer      |
-| `dark`     | Dark              | Stealthy single-violet                 |
-| `neon`     | Neon              | Violet → electric cyan                  |
-| `server`   | Self-hosted       | Rising teal→violet signal bars         |
-| `waveform` | Waveform          | Symmetric sound wave                   |
-| `lonely`   | Lonely maintainer | One bar standing on its own            |
-| `gold`     | Gold              | Warm gold (cosmetic supporter preview) |
+| id         | Label             | Look                              |
+| ---------- | ----------------- | --------------------------------- |
+| `classic`  | Classic (default) | Signature violet→orange equalizer |
+| `dark`     | Dark              | Black + purple (no orange)        |
+| `neon`     | Neon              | Purple + neon cyan/blue           |
+| `gold`     | Gold              | Black & gold                      |
 | `blackwhite` | TheZupZup Black & White | Strictly black and white (no gray) |
 
 ## Architecture
@@ -64,10 +61,10 @@ A small, data-driven feature that mirrors the Support module's per-build seam:
   rebuilds the theme on every change, so the chosen accent restores on restart
   for free. Classic's palette is exactly today's `AppColors`, so the default look
   is unchanged. The two accent tones Material's `ColorScheme` has no slot for (the
-  play button's gradient ends) ride on a `LinthraAccents` `ThemeExtension`. Colour
-  variants keep Linthra's violet brand and only swap the accent; the neutral
-  Black & White variant also goes neutral on the brand. Error / destructive
-  colours are never themed.
+  play button's gradient ends) ride on a `LinthraAccents` `ThemeExtension`. Dark
+  and Neon keep Linthra's violet brand and only swap the accent; Gold is a
+  black-and-gold theme and Black & White a pure black/white one, so both also
+  retint the brand. Error / destructive colours are never themed.
 - **Launcher icon (Android)** — the same selection also switches the real
   launcher icon via `LauncherIconService`. The controller calls it best-effort on
   every change *and* re-asserts it on startup, so the home-screen icon survives a
@@ -84,14 +81,15 @@ A small, data-driven feature that mirrors the Support module's per-build seam:
 - The `AppIconTier.supporter` field is a *data* seam only (see below). It is not
   a gate, and the F-Droid build always offers every tier.
 
-## Cosmetic "supporter" preview (and the future Play-only plan)
+## Cosmetic "supporter" preview seam (and the future Play-only plan)
 
-`gold` carries `AppIconTier.supporter` and shows a neutral **"Preview"** badge.
-In this build — and always in F-Droid — it is fully selectable like any other
-variant. The tier exists purely to *prepare* for a future, **Play-only** PR that
-may present supporter-tier styles as cosmetic supporter rewards behind the Play
-flavor, in the same spirit as the Play supporter purchase reserved in
-[`docs/SUPPORT.md`](SUPPORT.md).
+No built-in variant uses `AppIconTier.supporter` today — every variant is `free`
+and shows no badge. The tier exists purely as a *data seam* to prepare for a
+future, **Play-only** PR that may present supporter-tier styles as cosmetic
+supporter rewards behind the Play flavor, in the same spirit as the Play
+supporter purchase reserved in [`docs/SUPPORT.md`](SUPPORT.md). When a variant is
+marked `supporter`, the picker shows it with a neutral **"Preview"** badge — never
+a lock or a price.
 
 If/when that lands, it must:
 
@@ -117,9 +115,8 @@ changes and nothing throws.
 ### How it works
 
 - **One alias per variant.** `AndroidManifest.xml` declares an `<activity-alias>`
-  for every variant (`.IconClassic`, `.IconDark`, `.IconNeon`, `.IconServer`,
-  `.IconWaveform`, `.IconLonely`, `.IconGold`, `.IconBlackWhite`), each with its
-  own `android:icon`
+  for every variant (`.IconClassic`, `.IconDark`, `.IconNeon`, `.IconGold`,
+  `.IconBlackWhite`), each with its own `android:icon`
   and a `MAIN`/`LAUNCHER` intent filter, all `targetActivity=".MainActivity"`.
   `.MainActivity` no longer carries the launcher intent filter itself — it is the
   shared target. `.IconClassic` ships `android:enabled="true"` and reuses the
@@ -180,12 +177,12 @@ geometry rather than the in-app `LinthraLogoMark` geometry:
 - The bar group spans `VARIANT_GROUP_FOOTPRINT` (= the classic four-bar group
   width, `4·0.13 + 3·0.10 = 0.82` of the layout region) at the classic
   gap-to-bar ratio (`0.10/0.13`). A 4-bar variant therefore reproduces Classic's
-  bar width exactly; a 5-bar variant (Waveform) fits the **same** footprint with
+  bar width exactly; a variant with more bars fits the **same** footprint with
   proportionally thinner bars, so it never grows wider or heavier.
 - Bars are bottom-aligned to the classic baseline (`0.80` of the region) and
   their heights are **normalised so each variant's tallest bar equals Classic's
   tallest** — giving every variant Classic's exact vertical extent while keeping
-  its own bar pattern (level meter, rising signal, symmetric wave, lone bar…).
+  its own relative bar pattern.
 - The mark is laid out in the same regions Classic uses — the squircle tile for
   the legacy icon and the central `0.62` adaptive **safe zone** for the
   foreground — so the bars stay inside the adaptive mask and never touch its
