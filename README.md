@@ -41,10 +41,10 @@ drive it from Android Auto on a real phone. It still has honest, documented roug
 edges (see [Roadmap](#roadmap) and the per-feature docs), so it's a great time to
 jump in — small contributions land fast and shape where it goes.
 
-> **On F-Droid:** not yet. The reproducible build is being prepared, and an
-> F-Droid build follows after F-Droid's review — see
-> [docs/fdroid-readiness.md](./docs/fdroid-readiness.md). Linthra is **not on
-> Google Play** yet either.
+> **On F-Droid:** yes — Linthra is on
+> [F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/), though
+> F-Droid updates may arrive later than GitHub Releases while F-Droid processes
+> their build/review. Linthra is **not on Google Play** yet.
 
 ## 📸 Screenshots
 
@@ -97,11 +97,13 @@ Each feature has a deep-dive in [the docs](#documentation).
 
 ## Install
 
-> **GitHub Releases is the official home for Linthra builds** —
+> **GitHub Releases is the source of truth for the latest Linthra builds** —
 > **[github.com/thezupzup/linthra/releases](https://github.com/thezupzup/linthra/releases)**.
 > Each release ships **signed** APKs; the current stable build is **v0.1.8**. PR
-> and debug APKs are for testing only — not official releases. An F-Droid build
-> follows after F-Droid's review, and Linthra isn't on Google Play yet.
+> and debug APKs are for testing only — not official releases. Linthra is also on
+> [F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/), but
+> F-Droid updates may arrive later after their build/review process; Linthra isn't
+> on Google Play yet.
 > **Don't mix install sources:** GitHub APKs and F-Droid builds are signed with
 > different keys and can't update each other — pick one and stick with it.
 
