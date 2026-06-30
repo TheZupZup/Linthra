@@ -6,6 +6,8 @@ import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/app/routes.dart';
 import 'package:linthra/core/app_info.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
+import 'package:linthra/core/services/share_service.dart';
+import 'package:linthra/data/repositories/share_service_provider.dart';
 import 'package:linthra/features/settings/about/whats_new_section.dart';
 import 'package:linthra/features/settings/hub/about_screen.dart';
 import 'package:linthra/features/support/support_actions_provider.dart';
@@ -23,14 +25,43 @@ class _FakeLinkLauncher implements ExternalLinkLauncher {
   }
 }
 
-Future<_FakeLinkLauncher> _pump(
+class _FakeShareService implements ShareService {
+  _FakeShareService({this.isSupported = true, this.result = true});
+
+  @override
+  final bool isSupported;
+  final bool result;
+  String? shared;
+
+  @override
+  Future<bool> share(String text) async {
+    shared = text;
+    return result;
+  }
+}
+
+/// The fakes wired into a pumped About screen, returned together so a test can
+/// assert against either the browser launcher or the share sheet.
+class _Fakes {
+  _Fakes(this.launcher, this.share);
+
+  final _FakeLinkLauncher launcher;
+  final _FakeShareService share;
+}
+
+Future<_Fakes> _pump(
   WidgetTester tester, {
   bool launchResult = true,
+  bool shareSupported = true,
+  bool shareResult = true,
 }) async {
   final _FakeLinkLauncher launcher = _FakeLinkLauncher(result: launchResult);
-  // A tall surface so every card (brand, build info, support, and links) is laid
-  // out and hittable — a ListView only builds the rows it can show.
-  tester.view.physicalSize = const Size(1000, 2000);
+  final _FakeShareService share =
+      _FakeShareService(isSupported: shareSupported, result: shareResult);
+  // A tall surface so every card (brand, build info, support, community, and
+  // links) is laid out and hittable — a ListView only builds the rows it can
+  // show.
+  tester.view.physicalSize = const Size(1000, 2400);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -38,12 +69,13 @@ Future<_FakeLinkLauncher> _pump(
     ProviderScope(
       overrides: <Override>[
         externalLinkLauncherProvider.overrideWithValue(launcher),
+        shareServiceProvider.overrideWithValue(share),
       ],
       child: const MaterialApp(home: AboutScreen()),
     ),
   );
   await tester.pumpAndSettle();
-  return launcher;
+  return _Fakes(launcher, share);
 }
 
 void main() {
@@ -90,13 +122,74 @@ void main() {
     });
 
     testWidgets('tapping "Source code" opens the repository', (tester) async {
-      final launcher = await _pump(tester);
+      final _Fakes fakes = await _pump(tester);
 
       await tester.tap(find.text('Source code'));
       await tester.pumpAndSettle();
 
+      expect(fakes.launcher.opened,
+          Uri.parse('https://github.com/thezupzup/linthra'));
+    });
+
+    testWidgets('shows the community rows and opens each link', (tester) async {
+      final _Fakes fakes = await _pump(tester);
+
+      expect(find.text('Join the community'), findsOneWidget);
+      expect(find.text('GitHub'), findsOneWidget);
+      expect(find.text('Latest release'), findsOneWidget);
+
+      await tester.tap(find.text('Join the community'));
+      await tester.pumpAndSettle();
+      expect(fakes.launcher.opened, Uri.parse('https://reddit.com/r/Linthra'));
+
+      await tester.tap(find.text('GitHub'));
+      await tester.pumpAndSettle();
+      expect(fakes.launcher.opened,
+          Uri.parse('https://github.com/TheZupZup/Linthra'));
+
+      await tester.tap(find.text('Latest release'));
+      await tester.pumpAndSettle();
+      expect(fakes.launcher.opened,
+          Uri.parse('https://github.com/TheZupZup/Linthra/releases/latest'));
+    });
+
+    testWidgets('shows "Share Linthra" and shares via the share sheet',
+        (tester) async {
+      final _Fakes fakes = await _pump(tester);
+
+      expect(find.text('Share Linthra'), findsOneWidget);
+
+      await tester.tap(find.text('Share Linthra'));
+      await tester.pumpAndSettle();
+
+      expect(fakes.share.shared, isNotNull);
+      expect(fakes.share.shared, contains('Linthra'));
       expect(
-          launcher.opened, Uri.parse('https://github.com/thezupzup/linthra'));
+        fakes.share.shared,
+        contains('https://github.com/TheZupZup/Linthra'),
+      );
+    });
+
+    testWidgets('hides "Share Linthra" when no share sheet is available',
+        (tester) async {
+      // Off Android (or any host without a native share sheet) the row is
+      // omitted rather than offering an action that can't run.
+      await _pump(tester, shareSupported: false);
+
+      expect(find.text('Share Linthra'), findsNothing);
+      // The browser-based community rows are unaffected.
+      expect(find.text('Join the community'), findsOneWidget);
+      expect(find.text('GitHub'), findsOneWidget);
+    });
+
+    testWidgets('shows a snackbar when the share sheet cannot open',
+        (tester) async {
+      await _pump(tester, shareResult: false);
+
+      await tester.tap(find.text('Share Linthra'));
+      await tester.pumpAndSettle();
+
+      expect(find.text("Couldn't open the share sheet."), findsOneWidget);
     });
 
     testWidgets('shows a snackbar when a link cannot be opened',

@@ -27,6 +27,10 @@ class MainActivity : AudioServiceActivity() {
     // the application context (not this activity) so it never leaks the activity.
     private val launcherIconChannel by lazy { LauncherIconChannel(applicationContext) }
 
+    // Opens the system share sheet. Bound to this activity because the chooser
+    // must launch from an activity context, not the application context.
+    private val shareChannel by lazy { ShareChannel(this) }
+
     override fun onResume() {
         super.onResume()
         displayRefreshRate.onResume()
@@ -102,6 +106,16 @@ class MainActivity : AudioServiceActivity() {
             LauncherIconChannel.CHANNEL,
         ).setMethodCallHandler { call, result ->
             launcherIconChannel.handle(call, result)
+        }
+
+        // Share sheet: hand the system a short invite via ACTION_SEND
+        // (ShareChannel). Separate channel from SAF and the launcher icon so
+        // each stays small and auditable.
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            ShareChannel.CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            shareChannel.handle(call, result)
         }
     }
 
