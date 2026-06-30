@@ -17,15 +17,18 @@ import 'colors.dart';
 /// whole registry ships in every build and is trivially unit-testable, mirroring
 /// the `AppIconVariant` catalog it parallels.
 ///
-/// Roles — black-first, one accent per theme: surfaces stay dark and a single
-/// accent colour carries everything coloured (Classic orange, Neon neon-blue,
-/// Gold gold, Black & White white):
+/// Roles — black-first: surfaces stay dark and colour carries identity and
+/// energy. Classic pairs the Linthra purple identity with a warm orange accent
+/// (black + orange + purple); the neutral themes (Neon neon-blue, Gold gold,
+/// Black & White white) stay a single accent that fills both roles:
 ///  - [primary]/[primaryBright]/[onPrimary] → the colour-scheme seed and the
-///    accent's text/icon tone for selected navigation, text buttons, input
-///    focus, and selected rows. [primaryBright] is the accessible-on-dark tone.
+///    identity tone for selected navigation, text buttons, input focus, and
+///    selected rows (Linthra purple for Classic). [primaryBright] is the
+///    accessible-on-dark tone.
 ///  - [accent]/[onAccent]        → `colorScheme.secondary`/`onSecondary` — the
-///    same accent on filled call-to-action buttons, progress, sliders, the play
-///    button, and small emphasis. Equal to [primary] for these themes.
+///    energy accent on filled call-to-action buttons, progress, sliders, the
+///    play button, and small emphasis (warm orange for Classic). Equal to
+///    [primary] for the single-accent neutral themes.
 ///  - [accentBright]             → `colorScheme.onSecondaryContainer` and the
 ///    play button's gradient top (via [LinthraAccents]).
 ///  - [accentDeep]               → the play button's gradient bottom (via
@@ -48,20 +51,21 @@ class BrandPalette {
   /// The matching [AppIconVariant.id]. Never shown to users.
   final String id;
 
-  /// The theme's single accent (orange for Classic): the colour-scheme seed and
-  /// the tint behind selected navigation and selected rows. Equal to [accent].
+  /// The theme's identity colour (Linthra purple for Classic): the colour-scheme
+  /// seed and the tint behind selected navigation and selected rows. Equal to
+  /// [accent] for the single-accent neutral themes.
   final Color primary;
 
   /// Text/icon colour on a [primary] fill (and the selected switch thumb).
   final Color onPrimary;
 
-  /// A brighter take on [primary] for the accent's text/icons/borders on the
+  /// A brighter take on [primary] for the identity text/icons/borders on the
   /// dark surfaces — selected navigation, text buttons, selected rows, input
   /// focus — where [primary] itself can fall short of the text-contrast bar.
   final Color primaryBright;
 
-  /// The accent (warm orange for Classic) on filled call-to-action buttons,
-  /// progress, sliders, the play button, and small emphasis. One per theme.
+  /// The energy accent (warm orange for Classic) on filled call-to-action
+  /// buttons, progress, sliders, the play button, and small emphasis.
   final Color accent;
 
   /// Lighter accent for the play button's gradient top and tonal foregrounds.
@@ -121,20 +125,24 @@ class LinthraAccents extends ThemeExtension<LinthraAccents> {
 /// The built-in brand palettes, one per [AppIconVariant], and the resolver the
 /// theme reads them through.
 ///
-/// Every theme is a single accent on the dark surfaces, with no second hue:
-/// [classic] is orange (reusing today's [AppColors] orange), [neon] neon
-/// cyan/blue, [gold] gold, and [blackWhite] pure black/white. Each sets
-/// [primary] equal to its [accent] so the whole UI reads as one accent on
-/// black; [primaryBright] is the accessible-on-dark tone for accent text/icons.
-/// Error/destructive colours are never themed.
+/// [classic] is the full Linthra identity — black surfaces, a warm orange
+/// energy accent, and a Linthra-purple [primary] for the identity details
+/// (selected navigation, text buttons, input focus, selected rows). The neutral
+/// themes are a single accent with no second hue: [neon] neon cyan/blue, [gold]
+/// gold, and [blackWhite] pure black/white, each setting [primary] equal to its
+/// [accent] so the whole UI reads as one accent on black. [primaryBright] is the
+/// accessible-on-dark tone for identity text/icons. Error/destructive colours
+/// are never themed.
 abstract final class BrandPalettes {
-  /// The default — black + orange: a single warm orange accent on the dark
-  /// surfaces. Also the fallback for an unknown/absent id (see [byId]).
+  /// The default — black + orange + purple: a warm orange energy accent with a
+  /// Linthra-purple identity ([primary]) for selected navigation, text buttons,
+  /// input focus, and selected rows on the dark surfaces. Also the fallback for
+  /// an unknown/absent id (see [byId]).
   static const BrandPalette classic = BrandPalette(
     id: 'classic',
-    primary: AppColors.accent,
-    onPrimary: AppColors.onAccent,
-    primaryBright: AppColors.accentBright,
+    primary: AppColors.brand,
+    onPrimary: Color(0xFFFFFFFF),
+    primaryBright: AppColors.brandBright,
     accent: AppColors.accent,
     accentBright: AppColors.accentBright,
     accentDeep: AppColors.accentDeep,

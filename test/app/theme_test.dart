@@ -6,9 +6,10 @@ import 'package:linthra/app/theme.dart';
 
 void main() {
   group('AppTheme', () {
-    test('Classic dark theme is black + orange (one accent)', () {
+    test('Classic dark theme is black + orange + purple', () {
       final ThemeData theme = AppTheme.dark(BrandPalettes.classic);
-      expect(theme.colorScheme.primary, AppColors.accent);
+      // Identity (primary) is Linthra purple; the energy accent stays orange.
+      expect(theme.colorScheme.primary, AppColors.brand);
       expect(theme.colorScheme.secondary, AppColors.accent);
       expect(theme.colorScheme.onSecondary, AppColors.onAccent);
       expect(theme.colorScheme.error, AppColors.error);
@@ -64,12 +65,13 @@ void main() {
       expect(cta, AppColors.accent);
     });
 
-    test('Classic selected navigation uses the bright orange accent', () {
-      // Selected/active states carry the (accessible) bright accent tone.
+    test('Classic selected navigation uses the bright Linthra purple', () {
+      // Identity details — selected/active navigation — carry the (accessible)
+      // bright purple tone, distinct from the orange energy accent.
       final ThemeData theme = AppTheme.dark(BrandPalettes.classic);
       final IconThemeData? icon = theme.navigationBarTheme.iconTheme
           ?.resolve(<WidgetState>{WidgetState.selected});
-      expect(icon?.color, AppColors.accentBright);
+      expect(icon?.color, AppColors.brandBright);
     });
   });
 }
