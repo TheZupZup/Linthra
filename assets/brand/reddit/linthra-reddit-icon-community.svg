@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="72%">
+      <stop offset="0" stop-color="#1B1330"/>
+      <stop offset="1" stop-color="#0C0A14"/>
+    </radialGradient>
+    <radialGradient id="glowV" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#7C5CFF" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#7C5CFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowO" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#FF9F43" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#FF9F43" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9C84FF"/>
+      <stop offset="1" stop-color="#FF9F43"/>
+    </linearGradient>
+    <linearGradient id="barGrad" gradientUnits="userSpaceOnUse" x1="0" y1="75.8" x2="0" y2="391.2"><stop offset="0" stop-color="#9C84FF"/><stop offset="1" stop-color="#FF9F43"/></linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" fill="#0C0A14"/>
+  <circle cx="256" cy="256" r="256" fill="url(#bg)"/>
+  <circle cx="150" cy="150" r="230" fill="url(#glowV)"/>
+       <circle cx="372" cy="386" r="230" fill="url(#glowO)"/>
+  <circle cx="256" cy="256" r="232" fill="none" stroke="url(#ringGrad)" stroke-width="3" stroke-opacity="0.55" stroke-dasharray="3 9" stroke-linecap="round"/>
+       <circle cx="256" cy="256" r="214" fill="none" stroke="#FF9F43" stroke-width="1.5" stroke-opacity="0.18"/>
+  <g filter="url(#soft)" opacity="0.7"><g transform="translate(67.730 84.244) scale(0.73557)"><g fill="url(#barGrad)"><rect x="71.2" y="183.9" width="58.6" height="207.3" rx="29.3" ry="29.3"/><rect x="174.8" y="75.8" width="58.6" height="315.4" rx="29.3" ry="29.3"/><rect x="278.5" y="138.9" width="58.6" height="252.3" rx="29.3" ry="29.3"/><rect x="382.1" y="238" width="58.6" height="153.2" rx="29.3" ry="29.3"/></g></g></g>
+  <g transform="translate(67.730 84.244) scale(0.73557)"><g fill="url(#barGrad)"><rect x="71.2" y="183.9" width="58.6" height="207.3" rx="29.3" ry="29.3"/><rect x="174.8" y="75.8" width="58.6" height="315.4" rx="29.3" ry="29.3"/><rect x="278.5" y="138.9" width="58.6" height="252.3" rx="29.3" ry="29.3"/><rect x="382.1" y="238" width="58.6" height="153.2" rx="29.3" ry="29.3"/></g></g>
+</svg>
