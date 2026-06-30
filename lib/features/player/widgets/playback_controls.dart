@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../app/colors.dart';
+import '../../../app/brand_theme.dart';
 import '../../../core/models/playback_state.dart';
 import '../../../core/models/repeat_mode.dart';
 import '../../../core/services/playback_controller.dart';
@@ -125,14 +125,22 @@ class _PlayPauseButton extends StatelessWidget {
   final PlaybackState state;
   final PlaybackController controller;
 
-  static const _gradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [AppColors.accentBright, AppColors.accentDeep],
-  );
-
   @override
   Widget build(BuildContext context) {
+    // The bold "this is the music" moment: the accent gradient + glow follow the
+    // selected branding theme (via the colour scheme + LinthraAccents), so the
+    // play button retints with everything else. The glyph rides on onSecondary
+    // for contrast on whatever accent is active.
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+    // The accent gradient ends ride on a theme extension; fall back to the plain
+    // accent if a theme without it is ever used (e.g. a bare test MaterialApp),
+    // so the play button always renders.
+    final LinthraAccents? accents = theme.extension<LinthraAccents>();
+    final Color gradientTop = accents?.accentBright ?? colorScheme.secondary;
+    final Color gradientBottom = accents?.accentDeep ?? colorScheme.secondary;
+    final Color onAccent = colorScheme.onSecondary;
+
     // Only the initial prepare shows the spinner-and-disabled state. A mid-stream
     // re-buffer keeps the (active) pause button so the user stays in control —
     // the calm "Buffering…" hint on Now Playing signals the wait instead.
@@ -148,10 +156,14 @@ class _PlayPauseButton extends StatelessWidget {
         height: 72,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: _gradient,
-          boxShadow: [
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[gradientTop, gradientBottom],
+          ),
+          boxShadow: <BoxShadow>[
             BoxShadow(
-              color: AppColors.accent.withValues(alpha: 0.45),
+              color: colorScheme.secondary.withValues(alpha: 0.45),
               blurRadius: 24,
               spreadRadius: -4,
               offset: const Offset(0, 8),
@@ -165,7 +177,9 @@ class _PlayPauseButton extends StatelessWidget {
           child: InkWell(
             onTap: onTap,
             child: Center(
-              child: loading ? _loadingIcon() : _playIcon(playing),
+              child: loading
+                  ? _loadingIcon(onAccent)
+                  : _playIcon(playing, onAccent),
             ),
           ),
         ),
@@ -173,21 +187,21 @@ class _PlayPauseButton extends StatelessWidget {
     );
   }
 
-  Widget _loadingIcon() {
-    return const SizedBox.square(
+  Widget _loadingIcon(Color color) {
+    return SizedBox.square(
       dimension: 26,
       child: CircularProgressIndicator(
         strokeWidth: 2.5,
-        valueColor: AlwaysStoppedAnimation<Color>(AppColors.onAccent),
+        valueColor: AlwaysStoppedAnimation<Color>(color),
       ),
     );
   }
 
-  Widget _playIcon(bool playing) {
+  Widget _playIcon(bool playing, Color color) {
     return Icon(
       playing ? Icons.pause : Icons.play_arrow,
       size: 40,
-      color: AppColors.onAccent,
+      color: color,
     );
   }
 }

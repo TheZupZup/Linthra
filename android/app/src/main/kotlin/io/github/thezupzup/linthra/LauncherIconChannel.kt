@@ -111,12 +111,9 @@ class LauncherIconChannel(private val context: Context) {
 
         private val ALIASES = listOf(
             "IconClassic",
-            "IconDark",
             "IconNeon",
-            "IconServer",
-            "IconWaveform",
-            "IconLonely",
             "IconGold",
+            "IconBlackWhite",
         )
     }
 }

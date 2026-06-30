@@ -69,12 +69,12 @@ void main() {
       expect(await store.read(), 'neon');
     });
 
-    testWidgets('the gold variant shows a "Preview" badge and is selectable',
+    testWidgets('the gold variant is selectable with no "Preview" badge',
         (tester) async {
       final ProviderContainer container = await pump(tester);
 
-      // The cosmetic supporter style is labelled a preview — not locked.
-      expect(find.text('Preview'), findsOneWidget);
+      // Gold is a free variant now — no Preview badge appears anywhere.
+      expect(find.text('Preview'), findsNothing);
 
       await tester.tap(find.text('Gold'));
       await tester.pumpAndSettle();

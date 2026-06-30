@@ -73,18 +73,17 @@ void main() {
 
       await container
           .read(appIconControllerProvider.notifier)
-          .select(AppIconVariants.waveform);
+          .select(AppIconVariants.neon);
       await tester.pumpAndSettle();
 
       expect(
         container.read(appIconControllerProvider),
-        AppIconVariants.waveform,
+        AppIconVariants.neon,
       );
-      expect(await store.read(), 'waveform');
+      expect(await store.read(), 'neon');
     });
 
-    testWidgets('the cosmetic supporter (gold) variant is selectable here',
-        (tester) async {
+    testWidgets('the gold variant is selectable here', (tester) async {
       final ProviderContainer container = await pump(tester);
 
       await container
@@ -92,8 +91,7 @@ void main() {
           .select(AppIconVariants.gold);
       await tester.pumpAndSettle();
 
-      // No gate in the default build: choosing the supporter-tier style works
-      // and persists exactly like any free one.
+      // No gate in the default build: every variant is free and selectable.
       expect(container.read(appIconControllerProvider), AppIconVariants.gold);
       expect(await store.read(), 'gold');
     });
@@ -104,11 +102,11 @@ void main() {
 
       await container
           .read(appIconControllerProvider.notifier)
-          .select(AppIconVariants.waveform);
+          .select(AppIconVariants.neon);
       await tester.pumpAndSettle();
 
       // The launcher icon was switched to the same variant that was selected.
-      expect(launcher.applied.last, 'waveform');
+      expect(launcher.applied.last, 'neon');
     });
 
     testWidgets('re-asserts the launcher icon for the stored choice on startup',

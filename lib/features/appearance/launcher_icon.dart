@@ -43,28 +43,21 @@ abstract final class LauncherIconAliases {
     aliasName: 'IconClassic',
     isDefault: true,
   );
-  static const LauncherIconAlias dark =
-      LauncherIconAlias(variantId: 'dark', aliasName: 'IconDark');
   static const LauncherIconAlias neon =
       LauncherIconAlias(variantId: 'neon', aliasName: 'IconNeon');
-  static const LauncherIconAlias server =
-      LauncherIconAlias(variantId: 'server', aliasName: 'IconServer');
-  static const LauncherIconAlias waveform =
-      LauncherIconAlias(variantId: 'waveform', aliasName: 'IconWaveform');
-  static const LauncherIconAlias lonely =
-      LauncherIconAlias(variantId: 'lonely', aliasName: 'IconLonely');
   static const LauncherIconAlias gold =
       LauncherIconAlias(variantId: 'gold', aliasName: 'IconGold');
+  static const LauncherIconAlias blackWhite = LauncherIconAlias(
+    variantId: 'blackwhite',
+    aliasName: 'IconBlackWhite',
+  );
 
   /// Every alias in display order; Classic (the default) first.
   static const List<LauncherIconAlias> all = <LauncherIconAlias>[
     classic,
-    dark,
     neon,
-    server,
-    waveform,
-    lonely,
     gold,
+    blackWhite,
   ];
 
   /// The alias shipped enabled in the manifest and used as the fallback.

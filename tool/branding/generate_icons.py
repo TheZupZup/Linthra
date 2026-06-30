@@ -72,13 +72,10 @@ BASELINE_FRACTION = 0.80
 # LauncherIconChannel.ALIASES (Kotlin), and the manifest's <activity-alias>
 # entries.
 VARIANTS = (
-    ("dark", (0x9C, 0x84, 0xFF), (0x5B, 0x3F, 0xD9), (0.46, 0.70, 0.56, 0.34)),
     ("neon", (0xB1, 0x4D, 0xFF), (0x22, 0xE0, 0xD6), (0.55, 0.85, 0.70, 0.45)),
-    ("server", (0x34, 0xD9, 0xC7), (0x7C, 0x5C, 0xFF), (0.42, 0.58, 0.74, 0.90)),
-    ("waveform", (0x9C, 0x84, 0xFF), (0xFF, 0x9F, 0x43),
-     (0.40, 0.70, 0.90, 0.70, 0.40)),
-    ("lonely", (0x8A, 0x7B, 0xC0), (0xC9, 0x8A, 0x52), (0.18, 0.86, 0.22, 0.16)),
     ("gold", (0xFF, 0xE0, 0x8A), (0xE6, 0xA2, 0x00), (0.46, 0.70, 0.56, 0.34)),
+    ("blackwhite", (0xFF, 0xFF, 0xFF), (0xFF, 0xFF, 0xFF),
+     (0.46, 0.70, 0.56, 0.34)),
 )
 
 # Every launcher-icon variant must share the *default Classic launcher icon's*
@@ -102,6 +99,18 @@ VARIANT_GROUP_FOOTPRINT = (
     4 * BAR_WIDTH_FRACTION + 3 * BAR_GAP_FRACTION
 )  # == 0.82, the classic four-bar group width
 VARIANT_GAP_TO_BAR = BAR_GAP_FRACTION / BAR_WIDTH_FRACTION  # == 0.10 / 0.13
+
+# Per-variant launcher-icon background overrides. Most variants render on the
+# shared violet squircle (_bg_row) and the shared adaptive background; the
+# strictly black-and-white ZupZup variant overrides both so the icon stays pure
+# black & white (a flat-black tile plus a flat-black adaptive background, with
+# pure-white bars) rather than carrying the violet brand backdrop. Each value is
+# a (flat tile-background rgb, adaptive-background drawable). Keep in step with
+# the matching BrandPalette entry and res/drawable/ic_launcher_background_bw.xml.
+DEFAULT_ADAPTIVE_BACKGROUND = "@drawable/ic_launcher_background"
+VARIANT_BACKGROUNDS = {
+    "blackwhite": ((0x00, 0x00, 0x00), "@drawable/ic_launcher_background_bw"),
+}
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RES_DIR = REPO_ROOT / "android/app/src/main/res"
@@ -256,7 +265,7 @@ def _grad_color(
 
 def _render_variant(
     width: int, height: int, ss: int, *, mode: str,
-    gradient_top, gradient_bottom, heights,
+    gradient_top, gradient_bottom, heights, tile_bg=None,
 ) -> bytearray:
     """Renders a variant launcher icon: the same dark squircle as the classic
     tile (mode "tile") or a transparent adaptive foreground (mode "foreground"),
@@ -297,7 +306,7 @@ def _render_variant(
 
     hi = bytearray(sw * sh * 4)
     for sy in range(sh):
-        bg = _bg_row(sy, sh)
+        bg = tile_bg if tile_bg is not None else _bg_row(sy, sh)
         bar = _grad_color(
             sy, bar_top, bar_bottom, gradient_top, gradient_bottom
         )
@@ -321,8 +330,10 @@ def _render_variant(
     return _box_downsample(hi, sw, sh, ss)
 
 
-def _write_adaptive_xml(variant_id: str) -> None:
-    """Writes the per-variant adaptive-icon XML (shared dark background + this
+def _write_adaptive_xml(
+    variant_id: str, background: str = DEFAULT_ADAPTIVE_BACKGROUND,
+) -> None:
+    """Writes the per-variant adaptive-icon XML (the [background] drawable + this
     variant's foreground) to mipmap-anydpi-v26/ic_launcher_<id>.xml."""
     path = RES_DIR / "mipmap-anydpi-v26" / f"ic_launcher_{variant_id}.xml"
     xml = (
@@ -334,7 +345,7 @@ def _write_adaptive_xml(variant_id: str) -> None:
         "     foreground. Selected at runtime via the matching <activity-alias>\n"
         "     in AndroidManifest.xml; see docs/app-icon-branding.md. -->\n"
         '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
-        '    <background android:drawable="@drawable/ic_launcher_background" />\n'
+        f'    <background android:drawable="{background}" />\n'
         f'    <foreground android:drawable="@mipmap/ic_launcher_{variant_id}_foreground" />\n'
         "</adaptive-icon>\n"
     )
@@ -493,11 +504,16 @@ def main() -> None:
     # is selected at runtime by its <activity-alias>. (classic is omitted on
     # purpose — it reuses the assets generated above so the default never drifts.)
     for variant_id, gradient_top, gradient_bottom, heights in VARIANTS:
+        bg_override = VARIANT_BACKGROUNDS.get(variant_id)
+        tile_bg = bg_override[0] if bg_override else None
+        adaptive_background = (
+            bg_override[1] if bg_override else DEFAULT_ADAPTIVE_BACKGROUND
+        )
         for density, size in LEGACY_SIZES.items():
             rgba = _render_variant(
                 size, size, ss=3, mode="tile",
                 gradient_top=gradient_top, gradient_bottom=gradient_bottom,
-                heights=heights,
+                heights=heights, tile_bg=tile_bg,
             )
             _write_png(
                 RES_DIR / f"mipmap-{density}/ic_launcher_{variant_id}.png",
@@ -514,7 +530,7 @@ def main() -> None:
                 / f"mipmap-{density}/ic_launcher_{variant_id}_foreground.png",
                 size, size, rgba,
             )
-        _write_adaptive_xml(variant_id)
+        _write_adaptive_xml(variant_id, background=adaptive_background)
 
 
 if __name__ == "__main__":

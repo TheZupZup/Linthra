@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../app/colors.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../core/models/playback_source.dart';
@@ -205,7 +204,7 @@ class _MiniProgressBar extends ConsumerWidget {
       value: value,
       minHeight: 2.5,
       backgroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.08),
-      color: AppColors.accent,
+      color: theme.colorScheme.secondary,
     );
   }
 }

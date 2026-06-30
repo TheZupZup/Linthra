@@ -73,8 +73,8 @@ void main() {
       expect(LauncherIconAliases.byVariantId('neon').aliasName, 'IconNeon');
       expect(LauncherIconAliases.byVariantId('gold').aliasName, 'IconGold');
       expect(
-        LauncherIconAliases.byVariantId('waveform').aliasName,
-        'IconWaveform',
+        LauncherIconAliases.byVariantId('blackwhite').aliasName,
+        'IconBlackWhite',
       );
     });
   });

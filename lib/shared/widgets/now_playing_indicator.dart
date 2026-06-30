@@ -2,8 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../app/colors.dart';
-
 /// A small, subtle "now playing" marker for track rows.
 ///
 /// While playback is playing it animates as an equalizer — a few accent-coloured
@@ -100,7 +98,7 @@ class _NowPlayingIndicatorState extends State<NowPlayingIndicator>
         painter: _EqualizerPainter(
           animation: _controller,
           animate: animate,
-          color: widget.color ?? AppColors.accent,
+          color: widget.color ?? Theme.of(context).colorScheme.secondary,
         ),
       ),
     );
