@@ -45,6 +45,8 @@ class AppearanceSettingsScreen extends ConsumerWidget {
               announceLauncherChange: launcherSwitchSupported,
             ),
           ),
+          const SizedBox(height: AppSpacing.lg),
+          const _SuggestionsNote(),
         ],
       ),
     );
@@ -71,6 +73,27 @@ class AppearanceSettingsScreen extends ConsumerWidget {
         ),
       );
     }
+  }
+}
+
+/// A friendly, low-key invitation under the picker — no upsell, just an open
+/// door for theme ideas.
+class _SuggestionsNote extends StatelessWidget {
+  const _SuggestionsNote();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      child: Text(
+        "Have an idea for another color theme? I'm open to suggestions.",
+        textAlign: TextAlign.center,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        ),
+      ),
+    );
   }
 }
 

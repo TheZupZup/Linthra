@@ -43,8 +43,6 @@ abstract final class LauncherIconAliases {
     aliasName: 'IconClassic',
     isDefault: true,
   );
-  static const LauncherIconAlias dark =
-      LauncherIconAlias(variantId: 'dark', aliasName: 'IconDark');
   static const LauncherIconAlias neon =
       LauncherIconAlias(variantId: 'neon', aliasName: 'IconNeon');
   static const LauncherIconAlias gold =
@@ -57,7 +55,6 @@ abstract final class LauncherIconAliases {
   /// Every alias in display order; Classic (the default) first.
   static const List<LauncherIconAlias> all = <LauncherIconAlias>[
     classic,
-    dark,
     neon,
     gold,
     blackWhite,

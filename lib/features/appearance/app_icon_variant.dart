@@ -85,16 +85,6 @@ abstract final class AppIconVariants {
     bars: <double>[0.46, 0.70, 0.56, 0.34],
   );
 
-  /// A stealthy single-violet take on the mark.
-  static const AppIconVariant dark = AppIconVariant(
-    id: 'dark',
-    label: 'Dark',
-    description: 'A stealthy single-violet take on the mark.',
-    tier: AppIconTier.free,
-    gradient: <Color>[AppColors.brandBright, AppColors.brandDeep],
-    bars: <double>[0.46, 0.70, 0.56, 0.34],
-  );
-
   /// High-energy violet into electric cyan.
   static const AppIconVariant neon = AppIconVariant(
     id: 'neon',
@@ -128,7 +118,6 @@ abstract final class AppIconVariants {
   /// Every variant in display order; Classic first.
   static const List<AppIconVariant> all = <AppIconVariant>[
     classic,
-    dark,
     neon,
     gold,
     blackWhite,

@@ -46,17 +46,30 @@ void main() {
       }
     });
 
-    test('Classic palette is exactly the existing AppColors values', () {
-      // The Classic palette still carries Linthra's exact brand colours; the
-      // black-first theme only changes how AppTheme maps them, not the values.
-      expect(BrandPalettes.classic.primary, AppColors.brand);
-      expect(BrandPalettes.classic.onPrimary, Colors.white);
-      expect(BrandPalettes.classic.primaryBright, AppColors.brandBright);
+    test('Classic is a black + orange palette built from AppColors', () {
+      // Classic uses Linthra's existing orange (AppColors.accent*) as its one
+      // accent: primary and accent are the same orange.
+      expect(BrandPalettes.classic.primary, AppColors.accent);
+      expect(BrandPalettes.classic.onPrimary, AppColors.onAccent);
+      expect(BrandPalettes.classic.primaryBright, AppColors.accentBright);
       expect(BrandPalettes.classic.accent, AppColors.accent);
       expect(BrandPalettes.classic.accentBright, AppColors.accentBright);
       expect(BrandPalettes.classic.accentDeep, AppColors.accentDeep);
       expect(BrandPalettes.classic.onAccent, AppColors.onAccent);
       expect(BrandPalettes.classic.accentContainer, AppColors.accentContainer);
+    });
+
+    test('every theme is a single accent (primary == accent)', () {
+      // No second hue: each variant's identity colour is its accent.
+      for (final BrandPalette p in BrandPalettes.all) {
+        expect(p.primary, p.accent, reason: '${p.id} primary == accent');
+        expect(
+          p.primaryBright,
+          p.accentBright,
+          reason: '${p.id} primaryBright == accentBright',
+        );
+        expect(p.onPrimary, p.onAccent, reason: '${p.id} onPrimary == onAccent');
+      }
     });
 
     test('every palette keeps a legible accent/onAccent contrast', () {

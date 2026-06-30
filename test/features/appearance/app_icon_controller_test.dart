@@ -73,14 +73,14 @@ void main() {
 
       await container
           .read(appIconControllerProvider.notifier)
-          .select(AppIconVariants.dark);
+          .select(AppIconVariants.neon);
       await tester.pumpAndSettle();
 
       expect(
         container.read(appIconControllerProvider),
-        AppIconVariants.dark,
+        AppIconVariants.neon,
       );
-      expect(await store.read(), 'dark');
+      expect(await store.read(), 'neon');
     });
 
     testWidgets('the gold variant is selectable here', (tester) async {
@@ -102,11 +102,11 @@ void main() {
 
       await container
           .read(appIconControllerProvider.notifier)
-          .select(AppIconVariants.dark);
+          .select(AppIconVariants.neon);
       await tester.pumpAndSettle();
 
       // The launcher icon was switched to the same variant that was selected.
-      expect(launcher.applied.last, 'dark');
+      expect(launcher.applied.last, 'neon');
     });
 
     testWidgets('re-asserts the launcher icon for the stored choice on startup',

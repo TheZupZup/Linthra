@@ -17,15 +17,15 @@ import 'colors.dart';
 /// whole registry ships in every build and is trivially unit-testable, mirroring
 /// the `AppIconVariant` catalog it parallels.
 ///
-/// Roles — black-first: surfaces stay dark, the identity colour carries
-/// structure, the accent carries energy:
-///  - [primary]/[primaryBright]/[onPrimary] → the identity colour (Linthra
-///    violet for Classic): brand, seed, text buttons, input focus, and the
-///    *selected/active* states (selected navigation and rows). [primaryBright]
-///    is the accessible-on-dark tone for those purple text/icons.
-///  - [accent]/[onAccent]        → the energy accent (warm orange for Classic):
-///    `colorScheme.secondary`/`onSecondary` — primary call-to-action buttons,
-///    progress, sliders, the play button, and small emphasis.
+/// Roles — black-first, one accent per theme: surfaces stay dark and a single
+/// accent colour carries everything coloured (Classic orange, Neon neon-blue,
+/// Gold gold, Black & White white):
+///  - [primary]/[primaryBright]/[onPrimary] → the colour-scheme seed and the
+///    accent's text/icon tone for selected navigation, text buttons, input
+///    focus, and selected rows. [primaryBright] is the accessible-on-dark tone.
+///  - [accent]/[onAccent]        → `colorScheme.secondary`/`onSecondary` — the
+///    same accent on filled call-to-action buttons, progress, sliders, the play
+///    button, and small emphasis. Equal to [primary] for these themes.
 ///  - [accentBright]             → `colorScheme.onSecondaryContainer` and the
 ///    play button's gradient top (via [LinthraAccents]).
 ///  - [accentDeep]               → the play button's gradient bottom (via
@@ -48,20 +48,20 @@ class BrandPalette {
   /// The matching [AppIconVariant.id]. Never shown to users.
   final String id;
 
-  /// Identity colour (Linthra violet for Classic): brand, the colour-scheme
-  /// seed, and the tint behind selected navigation and selected rows.
+  /// The theme's single accent (orange for Classic): the colour-scheme seed and
+  /// the tint behind selected navigation and selected rows. Equal to [accent].
   final Color primary;
 
   /// Text/icon colour on a [primary] fill (and the selected switch thumb).
   final Color onPrimary;
 
-  /// A brighter take on [primary] for purple text/icons/borders on the dark
-  /// surfaces — selected navigation, text buttons, selected rows, input focus —
-  /// where [primary] itself can fall short of the text-contrast bar.
+  /// A brighter take on [primary] for the accent's text/icons/borders on the
+  /// dark surfaces — selected navigation, text buttons, selected rows, input
+  /// focus — where [primary] itself can fall short of the text-contrast bar.
   final Color primaryBright;
 
-  /// The energy accent (warm orange for Classic): the primary call-to-action
-  /// button, progress, sliders, the play button, and small emphasis.
+  /// The accent (warm orange for Classic) on filled call-to-action buttons,
+  /// progress, sliders, the play button, and small emphasis. One per theme.
   final Color accent;
 
   /// Lighter accent for the play button's gradient top and tonal foregrounds.
@@ -121,21 +121,20 @@ class LinthraAccents extends ThemeExtension<LinthraAccents> {
 /// The built-in brand palettes, one per [AppIconVariant], and the resolver the
 /// theme reads them through.
 ///
-/// [classic]'s fields are exactly today's [AppColors] values, so the Classic
-/// theme is unchanged. [dark] and [neon] keep Linthra's violet [primary] and
-/// only swap the [accent] (to purple, and to neon cyan/blue); [gold] is a
-/// black-and-gold theme and [blackWhite] a pure black/white one, so both also
-/// retint [primary]. Accents are chosen to stay legible on the dark surfaces
-/// (the primary experience) with a contrasting [onAccent], matching Classic's
-/// accent-with-dark-glyph play button.
+/// Every theme is a single accent on the dark surfaces, with no second hue:
+/// [classic] is orange (reusing today's [AppColors] orange), [neon] neon
+/// cyan/blue, [gold] gold, and [blackWhite] pure black/white. Each sets
+/// [primary] equal to its [accent] so the whole UI reads as one accent on
+/// black; [primaryBright] is the accessible-on-dark tone for accent text/icons.
+/// Error/destructive colours are never themed.
 abstract final class BrandPalettes {
-  /// The default identity — today's violet brand + warm orange accent. Also the
-  /// fallback for an unknown/absent id (see [byId]).
+  /// The default — black + orange: a single warm orange accent on the dark
+  /// surfaces. Also the fallback for an unknown/absent id (see [byId]).
   static const BrandPalette classic = BrandPalette(
     id: 'classic',
-    primary: AppColors.brand,
-    onPrimary: Colors.white,
-    primaryBright: AppColors.brandBright,
+    primary: AppColors.accent,
+    onPrimary: AppColors.onAccent,
+    primaryBright: AppColors.accentBright,
     accent: AppColors.accent,
     accentBright: AppColors.accentBright,
     accentDeep: AppColors.accentDeep,
@@ -143,27 +142,12 @@ abstract final class BrandPalettes {
     accentContainer: AppColors.accentContainer,
   );
 
-  /// Black + purple: the violet brand with a lighter-violet highlight in place
-  /// of the orange accent. No orange, blue, or gold.
-  static const BrandPalette dark = BrandPalette(
-    id: 'dark',
-    primary: AppColors.brand,
-    onPrimary: Colors.white,
-    primaryBright: Color(0xFFB9A6FF),
-    accent: Color(0xFFC4A0FF),
-    accentBright: Color(0xFFDCC4FF),
-    accentDeep: Color(0xFFA982F0),
-    onAccent: Color(0xFF1C1140),
-    accentContainer: Color(0xFF241946),
-  );
-
-  /// Purple + neon: the violet brand with an electric cyan/blue neon highlight
-  /// in place of the orange accent. No orange.
+  /// Black + neon blue: a single electric cyan/blue accent. No purple.
   static const BrandPalette neon = BrandPalette(
     id: 'neon',
-    primary: AppColors.brand,
-    onPrimary: Colors.white,
-    primaryBright: Color(0xFFB9A6FF),
+    primary: Color(0xFF34C5FF),
+    onPrimary: Color(0xFF02161F),
+    primaryBright: Color(0xFF7ADBFF),
     accent: Color(0xFF34C5FF),
     accentBright: Color(0xFF7ADBFF),
     accentDeep: Color(0xFF1C9FE6),
@@ -175,9 +159,9 @@ abstract final class BrandPalettes {
   /// the whole theme reads black-and-gold (no violet, no orange/yellow mix).
   static const BrandPalette gold = BrandPalette(
     id: 'gold',
-    primary: Color(0xFFE0A82E),
-    onPrimary: Color(0xFF1A1300),
-    primaryBright: Color(0xFFF3C868),
+    primary: Color(0xFFF5C518),
+    onPrimary: Color(0xFF241C00),
+    primaryBright: Color(0xFFFFDD55),
     accent: Color(0xFFF5C518),
     accentBright: Color(0xFFFFDD55),
     accentDeep: Color(0xFFD9A400),
@@ -220,7 +204,6 @@ abstract final class BrandPalettes {
   /// Every palette in [AppIconVariants.all] order; Classic first.
   static const List<BrandPalette> all = <BrandPalette>[
     classic,
-    dark,
     neon,
     gold,
     blackWhite,

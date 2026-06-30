@@ -6,9 +6,9 @@ import 'package:linthra/app/theme.dart';
 
 void main() {
   group('AppTheme', () {
-    test('Classic dark theme keeps the existing brand + accent', () {
+    test('Classic dark theme is black + orange (one accent)', () {
       final ThemeData theme = AppTheme.dark(BrandPalettes.classic);
-      expect(theme.colorScheme.primary, AppColors.brand);
+      expect(theme.colorScheme.primary, AppColors.accent);
       expect(theme.colorScheme.secondary, AppColors.accent);
       expect(theme.colorScheme.onSecondary, AppColors.onAccent);
       expect(theme.colorScheme.error, AppColors.error);
@@ -23,15 +23,15 @@ void main() {
       expect(accents.accentDeep, AppColors.accentDeep);
     });
 
-    test('a violet-brand variant retints the accent but keeps brand + error',
-        () {
+    test('Neon is a single neon-blue theme (no violet, error unchanged)', () {
       final ThemeData neon = AppTheme.dark(
         BrandPalettes.byId('neon', brightness: Brightness.dark),
       );
+      // Primary and secondary are the same neon accent — no violet anywhere.
+      expect(neon.colorScheme.primary, BrandPalettes.neon.accent);
       expect(neon.colorScheme.secondary, BrandPalettes.neon.accent);
+      expect(neon.colorScheme.primary, isNot(AppColors.brand));
       expect(neon.colorScheme.secondary, isNot(AppColors.accent));
-      // Dark and Neon keep Linthra's violet brand — only the accent changes.
-      expect(neon.colorScheme.primary, AppColors.brand);
       // Destructive/error colour is never themed.
       expect(neon.colorScheme.error, AppColors.error);
     });
@@ -64,12 +64,12 @@ void main() {
       expect(cta, AppColors.accent);
     });
 
-    test('Classic selected navigation uses the bright purple identity', () {
-      // Selected/active states carry the (accessible) purple identity tone.
+    test('Classic selected navigation uses the bright orange accent', () {
+      // Selected/active states carry the (accessible) bright accent tone.
       final ThemeData theme = AppTheme.dark(BrandPalettes.classic);
       final IconThemeData? icon = theme.navigationBarTheme.iconTheme
           ?.resolve(<WidgetState>{WidgetState.selected});
-      expect(icon?.color, AppColors.brandBright);
+      expect(icon?.color, AppColors.accentBright);
     });
   });
 }
