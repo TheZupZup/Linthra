@@ -46,22 +46,27 @@ void main() {
       }
     });
 
-    test('Classic is a black + orange palette built from AppColors', () {
-      // Classic uses Linthra's existing orange (AppColors.accent*) as its one
-      // accent: primary and accent are the same orange.
-      expect(BrandPalettes.classic.primary, AppColors.accent);
-      expect(BrandPalettes.classic.onPrimary, AppColors.onAccent);
-      expect(BrandPalettes.classic.primaryBright, AppColors.accentBright);
+    test('Classic is a black + orange + purple palette built from AppColors',
+        () {
+      // Classic pairs a Linthra-purple identity (primary) with Linthra's warm
+      // orange energy accent — the two are deliberately different hues.
+      expect(BrandPalettes.classic.primary, AppColors.brand);
+      expect(BrandPalettes.classic.primaryBright, AppColors.brandBright);
       expect(BrandPalettes.classic.accent, AppColors.accent);
       expect(BrandPalettes.classic.accentBright, AppColors.accentBright);
       expect(BrandPalettes.classic.accentDeep, AppColors.accentDeep);
       expect(BrandPalettes.classic.onAccent, AppColors.onAccent);
       expect(BrandPalettes.classic.accentContainer, AppColors.accentContainer);
+      // Identity and accent are distinct hues, not the same colour.
+      expect(BrandPalettes.classic.primary, isNot(AppColors.accent));
     });
 
-    test('every theme is a single accent (primary == accent)', () {
-      // No second hue: each variant's identity colour is its accent.
-      for (final BrandPalette p in BrandPalettes.all) {
+    test('the neutral themes are a single accent (primary == accent)', () {
+      // No second hue for Neon/Gold/Black & White: each variant's identity
+      // colour is its accent. Classic is excluded — it pairs purple + orange.
+      final Iterable<BrandPalette> neutral =
+          BrandPalettes.all.where((BrandPalette p) => p.id != 'classic');
+      for (final BrandPalette p in neutral) {
         expect(p.primary, p.accent, reason: '${p.id} primary == accent');
         expect(
           p.primaryBright,
