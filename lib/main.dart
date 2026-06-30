@@ -27,6 +27,7 @@ import 'data/repositories/plex_sync_cache_store_provider.dart';
 import 'data/repositories/preferred_source_store_provider.dart';
 import 'data/repositories/remote_cache_index_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
+import 'data/repositories/share_service_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
 import 'features/downloads/download_providers.dart';
 import 'features/library/playback_candidates_provider.dart';
@@ -111,6 +112,9 @@ Future<void> main() async {
       // Switch the real Android launcher icon to match that choice (a no-op off
       // Android); toggles <activity-alias> entries, never touching playback.
       platformLauncherIconServiceOverride,
+      // Open the native Android share sheet for the "Share Linthra" action (a
+      // no-op off Android); fires a plain ACTION_SEND, no permission required.
+      platformShareServiceOverride,
       // Lyrics from whichever source owns the track: a signed-in Jellyfin or
       // Subsonic/Navidrome server, or a sidecar .lrc/.txt next to a local file.
       lyricsServiceOverride,
