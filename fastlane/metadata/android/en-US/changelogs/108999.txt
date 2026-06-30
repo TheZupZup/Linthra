@@ -1,6 +1,6 @@
 Linthra 0.1.8 — visual polish & Jellyfin stability.
 
-A polish and stability release. No new features.
+A polish and stability release, plus optional community links.
 
 Jellyfin:
 - Music sync is more tolerant and resilient, with fewer failures.
@@ -14,6 +14,12 @@ Appearance:
 - Classic theme restored to the Linthra identity: black surfaces, orange
   energy/actions, purple identity details.
 - Themes: Classic, Neon, Gold, Black & White.
+
+Community (optional):
+- New Community card in Settings: join r/Linthra, open GitHub, view the
+  latest release, and share Linthra via the system share sheet.
+- Optional and quiet: no ads, no tracking, no telemetry, no forced
+  account, no Reddit login, no locked features.
 
 Notes:
 - Linthra remains free and open source, and works on its own.
