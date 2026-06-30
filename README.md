@@ -38,7 +38,7 @@ give Linthra a try.
 [GitHub Releases](https://github.com/thezupzup/linthra/releases/latest) as signed
 APKs. You can connect a real server, sync your library, stream, cache, cast, and
 drive it from Android Auto on a real phone. It still has honest, documented rough
-edges (see [Roadmap](#-roadmap) and the per-feature docs), so it's a great time to
+edges (see [Roadmap](#roadmap) and the per-feature docs), so it's a great time to
 jump in — small contributions land fast and shape where it goes.
 
 > **On F-Droid:** not yet. The reproducible build is being prepared, and an
@@ -93,7 +93,7 @@ design — not mockups.
   [r/Linthra](https://reddit.com/r/Linthra), open GitHub or the latest release)
   and an Android share-sheet action. No account, login, or tracking.
 
-Each feature has a deep-dive in [the docs](#-documentation).
+Each feature has a deep-dive in [the docs](#documentation).
 
 ## Install
 
