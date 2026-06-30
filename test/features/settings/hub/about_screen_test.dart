@@ -86,6 +86,12 @@ void main() {
       expect(find.text(AppInfo.name), findsOneWidget);
       // The running version is shown verbatim.
       expect(find.text(AppInfo.version), findsOneWidget);
+      // The release channel is derived from the version: 0.1.8 is stable, so it
+      // must read "Stable" and never the old hardcoded "Alpha".
+      expect(find.text('Release channel'), findsOneWidget);
+      expect(find.text(AppInfo.releaseChannel), findsOneWidget);
+      expect(find.text('Stable'), findsOneWidget);
+      expect(find.text('Alpha'), findsNothing);
       expect(find.text('Source code'), findsOneWidget);
       expect(find.text('Releases'), findsOneWidget);
       expect(find.text('License (MPL-2.0)'), findsOneWidget);
