@@ -79,8 +79,6 @@ VARIANTS = (
      (0.40, 0.70, 0.90, 0.70, 0.40)),
     ("lonely", (0x8A, 0x7B, 0xC0), (0xC9, 0x8A, 0x52), (0.18, 0.86, 0.22, 0.16)),
     ("gold", (0xFF, 0xE0, 0x8A), (0xE6, 0xA2, 0x00), (0.46, 0.70, 0.56, 0.34)),
-    ("monochrome", (0xE6, 0xE6, 0xE6), (0x4A, 0x4A, 0x4A),
-     (0.46, 0.70, 0.56, 0.34)),
     ("blackwhite", (0xFF, 0xFF, 0xFF), (0xFF, 0xFF, 0xFF),
      (0.46, 0.70, 0.56, 0.34)),
 )
@@ -109,14 +107,13 @@ VARIANT_GAP_TO_BAR = BAR_GAP_FRACTION / BAR_WIDTH_FRACTION  # == 0.10 / 0.13
 
 # Per-variant launcher-icon background overrides. Most variants render on the
 # shared violet squircle (_bg_row) and the shared adaptive background; the
-# neutral ZupZup variants override both so the icon stays grayscale (Monochrome)
-# or strictly black-and-white (Black & White) rather than carrying the violet
-# brand backdrop. Each value is a (flat tile-background rgb, adaptive-background
-# drawable). Keep in step with the matching BrandPalette entries and the
-# res/drawable/ic_launcher_background_*.xml drawables.
+# strictly black-and-white ZupZup variant overrides both so the icon stays pure
+# black & white (a flat-black tile plus a flat-black adaptive background, with
+# pure-white bars) rather than carrying the violet brand backdrop. Each value is
+# a (flat tile-background rgb, adaptive-background drawable). Keep in step with
+# the matching BrandPalette entry and res/drawable/ic_launcher_background_bw.xml.
 DEFAULT_ADAPTIVE_BACKGROUND = "@drawable/ic_launcher_background"
 VARIANT_BACKGROUNDS = {
-    "monochrome": ((0x14, 0x14, 0x14), "@drawable/ic_launcher_background_mono"),
     "blackwhite": ((0x00, 0x00, 0x00), "@drawable/ic_launcher_background_bw"),
 }
 

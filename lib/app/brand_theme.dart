@@ -20,7 +20,7 @@ import 'colors.dart';
 /// The fields map onto the theme like this:
 ///  - [primary]/[onPrimary]      → `colorScheme.primary`/`onPrimary` (brand:
 ///    identity + primary buttons). Unchanged (Linthra violet) for every colour
-///    variant; only the neutral Monochrome/Black&White variants retint it.
+///    variant; only the neutral Black & White variant retints it.
 ///  - [accent]/[onAccent]        → `colorScheme.secondary`/`onSecondary` (the
 ///    "live/active/selected" highlight that replaces the orange accent).
 ///  - [accentBright]             → `colorScheme.onSecondaryContainer` and the
@@ -113,10 +113,10 @@ class LinthraAccents extends ThemeExtension<LinthraAccents> {
 ///
 /// [classic]'s fields are exactly today's [AppColors] values, so the Classic
 /// theme is unchanged. Every colour variant keeps Linthra's violet [primary]
-/// and only swaps the [accent]; the neutral [monochrome]/[blackWhite] variants
-/// also go neutral on [primary] so a "monochrome" theme never shows a violet
-/// button. Accents are chosen light enough to stay legible on the dark surfaces
-/// (the primary experience) with a dark [onAccent], matching Classic's
+/// and only swaps the [accent]; the neutral [blackWhite] variant also goes
+/// neutral on [primary] so a black-and-white theme never shows a violet button.
+/// Accents are chosen light enough to stay legible on the dark surfaces (the
+/// primary experience) with a dark [onAccent], matching Classic's
 /// orange-with-dark-glyph play button.
 abstract final class BrandPalettes {
   /// The default identity — today's violet brand + warm orange accent. Also the
@@ -204,19 +204,6 @@ abstract final class BrandPalettes {
     accentContainer: Color(0xFF332808),
   );
 
-  /// A neutral grayscale theme — black, white, and gray only. Both [primary]
-  /// and [accent] are gray (r == g == b) so the whole UI reads as monochrome.
-  static const BrandPalette monochrome = BrandPalette(
-    id: 'monochrome',
-    primary: Color(0xFFD0D0D0),
-    onPrimary: Color(0xFF141414),
-    accent: Color(0xFFC4C4C4),
-    accentBright: Color(0xFFE4E4E4),
-    accentDeep: Color(0xFF8C8C8C),
-    onAccent: Color(0xFF141414),
-    accentContainer: Color(0xFF2B2B2B),
-  );
-
   /// A strictly black-and-white theme for dark mode: pure white accents/brand on
   /// the dark surfaces, with pure-black glyphs. Every colour here is pure black
   /// or pure white — no gray, no tint. (Light mode flips to black-on-white; see
@@ -256,7 +243,6 @@ abstract final class BrandPalettes {
     waveform,
     lonely,
     gold,
-    monochrome,
     blackWhite,
   ];
 

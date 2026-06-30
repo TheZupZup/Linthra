@@ -8,9 +8,6 @@ import 'package:linthra/features/appearance/app_icon_variant.dart';
 /// 0..1 doubles).
 int _chan(double v) => (v * 255).round();
 
-bool _isGrayscale(Color c) =>
-    _chan(c.r) == _chan(c.g) && _chan(c.g) == _chan(c.b);
-
 bool _isPureBlackOrWhite(Color c) {
   for (final double v in <double>[c.r, c.g, c.b]) {
     final int channel = _chan(v);
@@ -72,23 +69,6 @@ void main() {
           greaterThan(0.3),
           reason: '${p.id}: accent vs onAccent must stay legible',
         );
-      }
-    });
-  });
-
-  group('Monochrome palette', () {
-    test('uses only grayscale colours (r == g == b)', () {
-      const BrandPalette m = BrandPalettes.monochrome;
-      for (final Color c in <Color>[
-        m.primary,
-        m.onPrimary,
-        m.accent,
-        m.accentBright,
-        m.accentDeep,
-        m.onAccent,
-        m.accentContainer,
-      ]) {
-        expect(_isGrayscale(c), isTrue, reason: '$c must be grayscale');
       }
     });
   });
