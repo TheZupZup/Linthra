@@ -181,7 +181,7 @@ Linthra is built to respect the people who use it:
 
 ## Roadmap
 
-The phased **[product roadmap](./docs/roadmap.md)** — v0.1.7 stabilization →
+The phased **[product roadmap](./docs/roadmap.md)** — v0.1.8 stabilization →
 Backup/Restore → optional Linthra Connect → Linthra Desktop — has the direction and
 its one guiding rule: **Linthra works on its own; Linthra Connect is optional** (no
 Docker, no account, no desktop dependency, no required pairing). The feature-level

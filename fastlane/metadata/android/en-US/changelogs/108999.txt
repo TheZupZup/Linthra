@@ -1,0 +1,23 @@
+Linthra 0.1.8 — visual polish & Jellyfin stability.
+
+A polish and stability release. No new features.
+
+Jellyfin:
+- Music sync is more tolerant and resilient, with fewer failures.
+- Your existing music stays visible if a Jellyfin sync fails for a
+  moment, instead of disappearing.
+- Jellyfin 12 compatibility preparation via modern "ApiKey" media URLs.
+
+Appearance:
+- The Android launcher icon now really switches from Appearance settings.
+- App icon & branding themes retint the in-app accent/theme.
+- Classic theme restored to the Linthra identity: black surfaces, orange
+  energy/actions, purple identity details.
+- Themes: Classic, Neon, Gold, Black & White.
+
+Notes:
+- Linthra remains free and open source, and works on its own.
+- The Support screen stays optional and cosmetic — no gating, no
+  telemetry, no billing SDK, no required account.
+
+No ads. No tracking. No locked features.
