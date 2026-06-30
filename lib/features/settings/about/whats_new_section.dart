@@ -20,12 +20,12 @@ class WhatsNewSection extends StatelessWidget {
   /// handful of concise bullets and updated when cutting a new build; exposed so
   /// the widget test can assert each line renders without duplicating the copy.
   static const List<String> releaseNotes = <String>[
-    'Plex tracks can now be downloaded for offline playback.',
-    'Cached tracks play from your device, and fall back to streaming if a '
-        'file is missing or unreadable.',
-    'Offline downloads are now written atomically, so an interrupted '
-        "download can't leave a broken file.",
-    'Reproducible per-ABI release builds for F-Droid.',
+    'Jellyfin sync is more tolerant and resilient.',
+    'Existing music stays visible if a Jellyfin sync fails temporarily.',
+    'Jellyfin 12 compatibility preparation.',
+    'Launcher icon switching now works from Appearance settings.',
+    'App themes now retint the in-app accent/theme.',
+    'Added optional Community links and Share Linthra in Settings.',
   ];
 
   @override

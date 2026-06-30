@@ -101,6 +101,31 @@ void main() {
     });
   });
 
+  group('AppInfo.releaseChannel', () {
+    test('a stable versionName (no suffix) reads "Stable"', () {
+      expect(AppInfo.channelForVersion('0.1.8'), 'Stable');
+      expect(AppInfo.channelForVersion('1.2.3'), 'Stable');
+    });
+
+    test('a pre-release versionName reads its tier', () {
+      expect(AppInfo.channelForVersion('0.1.8-alpha.2'), 'Alpha');
+      expect(AppInfo.channelForVersion('0.1.8-beta.1'), 'Beta');
+      expect(AppInfo.channelForVersion('0.1.8-rc.1'), 'Release candidate');
+    });
+
+    test('the shipped 0.1.8 build resolves to a stable channel', () {
+      // 0.1.8 is cut as a stable release, so Settings → About must read
+      // "Stable" — not the old hardcoded "Alpha". This is intentionally coupled
+      // to pubspec.yaml's version (like the drift tests above); cutting a
+      // pre-release here would flip it to that tier.
+      expect(AppInfo.releaseChannel, 'Stable');
+      expect(
+        AppInfo.releaseChannel,
+        AppInfo.channelForVersion(AppInfo.version),
+      );
+    });
+  });
+
   test('diagnostics report carries the effective app version', () {
     // Settings ▸ Diagnostics and "Report a bug" both render the version through
     // AppDiagnostics.report(appVersion: AppInfo.version); confirm the effective

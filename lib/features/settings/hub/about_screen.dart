@@ -177,10 +177,13 @@ class _BuildInfoCard extends StatelessWidget {
             value: AppInfo.version,
           ),
           const Divider(height: 0),
-          const _InfoRow(
+          // Derived from AppInfo.version (the single source of truth) rather
+          // than hardcoded, so the stable 0.1.8 build reads "Stable" and a
+          // future pre-release reads its tier — never a stale "Alpha".
+          _InfoRow(
             icon: Icons.flag_outlined,
             label: 'Release channel',
-            value: 'Alpha',
+            value: AppInfo.releaseChannel,
           ),
         ],
       ),

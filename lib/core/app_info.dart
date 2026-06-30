@@ -14,7 +14,7 @@ abstract final class AppInfo {
   /// the in-app version always matches the released APK/AAB without any
   /// build-time injection. `test/core/app_info_version_test.dart` fails CI if
   /// this constant ever drifts from `pubspec.yaml`, so bump both together.
-  static const String _devVersionName = '0.1.7';
+  static const String _devVersionName = '0.1.8';
 
   /// Optional build-time override for the in-app `versionName`, read from
   /// `--dart-define=LINTHRA_VERSION_NAME=...`. Normally **empty** — `pubspec.yaml`
@@ -38,4 +38,34 @@ abstract final class AppInfo {
   /// without recompiling the suite with a dart-define.
   static String resolveVersion(String defined, String devFallback) =>
       defined.isEmpty ? devFallback : defined;
+
+  /// The release channel shown in Settings → About, **derived from [version]**
+  /// so it always matches what shipped instead of a hand-maintained label. A
+  /// stable release (no pre-release suffix, e.g. `0.1.8`) reads `Stable`; a
+  /// pre-release reads its tier. This replaces the old hardcoded `Alpha`, so the
+  /// stable `0.1.8` build never presents itself as alpha.
+  static String get releaseChannel => channelForVersion(version);
+
+  /// Pure mapping from a [versionName] (e.g. `0.1.8` or `0.1.8-alpha.2`) to its
+  /// human-facing channel: `Stable` when there is no pre-release suffix, else
+  /// the tier (`Alpha` / `Beta` / `Release candidate`). The suffixes mirror the
+  /// release tags `tool/version_from_tag.dart` accepts. Exposed so the rule is
+  /// unit-testable without a build.
+  static String channelForVersion(String versionName) {
+    final int dash = versionName.indexOf('-');
+    if (dash == -1) {
+      return 'Stable';
+    }
+    final String suffix = versionName.substring(dash + 1);
+    if (suffix.startsWith('alpha')) {
+      return 'Alpha';
+    }
+    if (suffix.startsWith('beta')) {
+      return 'Beta';
+    }
+    if (suffix.startsWith('rc')) {
+      return 'Release candidate';
+    }
+    return 'Stable';
+  }
 }
