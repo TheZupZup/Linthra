@@ -251,13 +251,13 @@ h1, h2, h3 { line-height: 1.2; margin: 0; }
 }
 .chip-link:hover { border-color: var(--purple); text-decoration: none; color: var(--text); }
 
-.alpha-note {
+.release-note {
   margin-top: 28px;
   color: var(--muted);
   font-size: 0.92rem;
   max-width: 560px;
 }
-.badge-alpha {
+.badge-release {
   display: inline-block;
   margin-right: 8px;
   padding: 3px 10px;

@@ -3,8 +3,9 @@
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-brightgreen.svg)](./LICENSE)
 [![Platform: Android](https://img.shields.io/badge/platform-Android-3ddc84.svg)](#install)
 [![Built with Flutter](https://img.shields.io/badge/built%20with-Flutter-02569B.svg)](https://flutter.dev)
-[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#status)
+[![Latest release: v0.1.8](https://img.shields.io/badge/release-v0.1.8-7C5CFF.svg)](https://github.com/thezupzup/linthra/releases/latest)
 [![Releases](https://img.shields.io/badge/download-releases-blue.svg)](https://github.com/thezupzup/linthra/releases)
+[![Community: r/Linthra](https://img.shields.io/badge/community-r%2FLinthra-FF9F43.svg)](https://reddit.com/r/Linthra)
 
 [<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" height="75">](https://f-droid.org/packages/io.github.thezupzup.linthra/)
 
@@ -33,15 +34,17 @@ give Linthra a try.
 
 ## Status
 
-**Linthra is early alpha — but already usable for testing today.** You can
-connect a real server, sync your library, stream, cache, cast, and drive it from
-Android Auto on a real phone. It's not production-stable, it's **not on Google
-Play or F-Droid**, and it has honest, documented rough edges (see
-[Roadmap](#-roadmap) and the per-feature docs). That's exactly why it's a great
-time to jump in — small contributions land fast and shape where it goes.
+**Linthra 0.1.8 is the current stable release**, available from
+[GitHub Releases](https://github.com/thezupzup/linthra/releases/latest) as signed
+APKs. You can connect a real server, sync your library, stream, cache, cast, and
+drive it from Android Auto on a real phone. It still has honest, documented rough
+edges (see [Roadmap](#roadmap) and the per-feature docs), so it's a great time to
+jump in — small contributions land fast and shape where it goes.
 
-> **On F-Droid:** not yet. Preparation is underway, but Linthra hasn't been
-> submitted and isn't on F-Droid — see [docs/fdroid-readiness.md](./docs/fdroid-readiness.md).
+> **On F-Droid:** yes — Linthra is on
+> [F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/), though
+> F-Droid updates may arrive later than GitHub Releases while F-Droid processes
+> their build/review. Linthra is **not on Google Play** yet.
 
 ## 📸 Screenshots
 
@@ -64,6 +67,9 @@ design — not mockups.
 - **Self-hosted streaming** — connect your own **Jellyfin** or
   **Navidrome / Subsonic** server: test, sign in, sync, and stream. Works over
   HTTPS / Cloudflare-proxied domains.
+- **Plex** — connect your own **Plex Media Server**: browse, stream, and cache.
+  Plex support is available (one provider among several, not the default); some
+  server setups may still need testing.
 - **Smart offline cache** — tap to download the tracks you want offline; Wi-Fi
   only by default, with a size limit and "Keep offline" pinning.
 - **Cast / Chromecast** — hand a stream off to a speaker or TV, with device
@@ -81,14 +87,25 @@ design — not mockups.
   on-device signals that stay on the device ([docs](./docs/smart-mixes.md)).
 - **Background playback** — media notification with lock-screen, Bluetooth, and
   wired-headset controls, plus shuffle / repeat and synced lyrics.
+- **Appearance** — switch the real Android launcher icon and retint the app from
+  Appearance settings; themes **Classic / Neon / Gold / Black & White**.
+- **Optional community & sharing** — quiet links in **Settings → About** (join
+  [r/Linthra](https://reddit.com/r/Linthra), open GitHub or the latest release)
+  and an Android share-sheet action. No account, login, or tracking.
 
-Each feature has a deep-dive in [the docs](#-documentation).
+Each feature has a deep-dive in [the docs](#documentation).
 
 ## Install
 
-> Linthra is **not on Google Play or F-Droid**. It's distributed as a
-> sideloadable APK from **[GitHub Releases](https://github.com/thezupzup/linthra/releases)**.
-> Alpha releases are GitHub **pre-releases**.
+> **GitHub Releases is the source of truth for the latest Linthra builds** —
+> **[github.com/thezupzup/linthra/releases](https://github.com/thezupzup/linthra/releases)**.
+> Each release ships **signed** APKs; the current stable build is **v0.1.8**. PR
+> and debug APKs are for testing only — not official releases. Linthra is also on
+> [F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/), but
+> F-Droid updates may arrive later after their build/review process; Linthra isn't
+> on Google Play yet.
+> **Don't mix install sources:** GitHub APKs and F-Droid builds are signed with
+> different keys and can't update each other — pick one and stick with it.
 
 **Obtainium (recommended)** — [Obtainium](https://github.com/ImranR98/Obtainium)
 installs straight from GitHub Releases and keeps Linthra updated:
@@ -96,12 +113,12 @@ installs straight from GitHub Releases and keeps Linthra updated:
 1. Install Obtainium.
 2. Tap **Add App** and paste the source URL:
    `https://github.com/thezupzup/linthra`
-3. Enable **"Include prereleases"** — alpha builds are GitHub pre-releases.
-4. Install the latest release; Obtainium handles updates from then on.
+3. Install the latest release; Obtainium handles updates from then on. (Enable
+   **"Include prereleases"** only if you want to test pre-release builds.)
 
-**Manual APK** — download the `.apk` from the
-[latest release](https://github.com/thezupzup/linthra/releases), open it on your
-phone, and allow "install from unknown sources" if prompted.
+**Manual APK** — download the signed `.apk` from the
+[latest release](https://github.com/thezupzup/linthra/releases/latest), open it on
+your phone, and allow "install from unknown sources" if prompted.
 
 **Build it yourself** — `flutter pub get && flutter build apk --debug`. Full
 setup, CI builds, and release details are in
@@ -112,9 +129,6 @@ pinned Flutter toolchain and run the same checks as CI.
 > **Using Android Auto?** Sideloaded media apps only appear after you enable
 > Android Auto's developer **"Unknown sources"** toggle — a one-time step,
 > detailed in [docs/android-auto.md](./docs/android-auto.md).
->
-> **Heads up:** until release signing is provisioned, some alpha APKs may be
-> **debug-signed**; if a signature changes, you may need to reinstall.
 
 ## Ways to help
 
@@ -136,6 +150,9 @@ many don't need a single line of code:
 - **Improve accessibility** — better screen-reader labels and TalkBack support.
 - **Polish UI/UX** — small refinements add up.
 - **Help future providers** — WebDAV / NAS support behind the same interface.
+- **Join the community** — say hi or share your setup at
+  [r/Linthra](https://reddit.com/r/Linthra) (optional, quiet, and no account is
+  needed to read it).
 
 New here? [CONTRIBUTING.md](./CONTRIBUTING.md) walks through setup in two
 commands, and the [contributor roadmap](./docs/contributor-roadmap.md) shows
@@ -162,6 +179,7 @@ Sources sit behind one interface, so the app treats them uniformly:
 | **Local files** | ✅ Scan a folder, play directly (SAF, no broad permission) — [docs](./docs/local-music.md) |
 | **Jellyfin** | ✅ Stream, cache, cast, playlists & favourites — [docs](./docs/jellyfin.md) |
 | **Navidrome / Subsonic** | ✅ Stream, cache, cast (favourites & lyrics are follow-ups) — [docs](./docs/providers.md) |
+| **Plex** | ✅ Browse, stream & cache from your own Plex Media Server (some setups may still need testing) — [docs](./docs/plex.md) |
 | **WebDAV / NAS** | 🔜 Planned — same `MusicSource` seam |
 
 ## Privacy
