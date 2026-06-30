@@ -118,7 +118,7 @@ abstract final class AppIconVariants {
   /// Strictly black and white — no gray, no gradient. High-contrast minimalism.
   static const AppIconVariant blackWhite = AppIconVariant(
     id: 'blackwhite',
-    label: 'TheZupZup Black & White',
+    label: 'Black & White',
     description: 'Strictly black and white — pure, high-contrast, minimal.',
     tier: AppIconTier.free,
     gradient: <Color>[Colors.white, Colors.white],

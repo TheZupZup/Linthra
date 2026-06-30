@@ -34,7 +34,7 @@ The built-in set (see
 | `dark`     | Dark              | Black + purple (no orange)        |
 | `neon`     | Neon              | Purple + neon cyan/blue           |
 | `gold`     | Gold              | Black & gold                      |
-| `blackwhite` | TheZupZup Black & White | Strictly black and white (no gray) |
+| `blackwhite` | Black & White | Strictly black and white (no gray) |
 
 ## Architecture
 
