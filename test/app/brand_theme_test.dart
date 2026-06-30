@@ -68,7 +68,11 @@ void main() {
           p.accentBright,
           reason: '${p.id} primaryBright == accentBright',
         );
-        expect(p.onPrimary, p.onAccent, reason: '${p.id} onPrimary == onAccent');
+        expect(
+          p.onPrimary,
+          p.onAccent,
+          reason: '${p.id} onPrimary == onAccent',
+        );
       }
     });
 
