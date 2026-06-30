@@ -17,12 +17,15 @@ import 'colors.dart';
 /// whole registry ships in every build and is trivially unit-testable, mirroring
 /// the `AppIconVariant` catalog it parallels.
 ///
-/// The fields map onto the theme like this:
-///  - [primary]/[onPrimary]      → `colorScheme.primary`/`onPrimary` (brand:
-///    identity + primary buttons). Unchanged (Linthra violet) for every colour
-///    variant; only the neutral Black & White variant retints it.
-///  - [accent]/[onAccent]        → `colorScheme.secondary`/`onSecondary` (the
-///    "live/active/selected" highlight that replaces the orange accent).
+/// Roles — black-first: surfaces stay dark, the identity colour carries
+/// structure, the accent carries energy:
+///  - [primary]/[primaryBright]/[onPrimary] → the identity colour (Linthra
+///    violet for Classic): brand, seed, text buttons, input focus, and the
+///    *selected/active* states (selected navigation and rows). [primaryBright]
+///    is the accessible-on-dark tone for those purple text/icons.
+///  - [accent]/[onAccent]        → the energy accent (warm orange for Classic):
+///    `colorScheme.secondary`/`onSecondary` — primary call-to-action buttons,
+///    progress, sliders, the play button, and small emphasis.
 ///  - [accentBright]             → `colorScheme.onSecondaryContainer` and the
 ///    play button's gradient top (via [LinthraAccents]).
 ///  - [accentDeep]               → the play button's gradient bottom (via
@@ -34,6 +37,7 @@ class BrandPalette {
     required this.id,
     required this.primary,
     required this.onPrimary,
+    required this.primaryBright,
     required this.accent,
     required this.accentBright,
     required this.accentDeep,
@@ -44,14 +48,20 @@ class BrandPalette {
   /// The matching [AppIconVariant.id]. Never shown to users.
   final String id;
 
-  /// Brand colour: app identity, primary buttons, input focus, text buttons.
+  /// Identity colour (Linthra violet for Classic): brand, the colour-scheme
+  /// seed, and the tint behind selected navigation and selected rows.
   final Color primary;
 
-  /// Text/icon colour on a [primary] fill.
+  /// Text/icon colour on a [primary] fill (and the selected switch thumb).
   final Color onPrimary;
 
-  /// The live/active/selected highlight (what replaces Linthra's orange accent):
-  /// selected navigation, sliders, switches, active icons, links, progress.
+  /// A brighter take on [primary] for purple text/icons/borders on the dark
+  /// surfaces — selected navigation, text buttons, selected rows, input focus —
+  /// where [primary] itself can fall short of the text-contrast bar.
+  final Color primaryBright;
+
+  /// The energy accent (warm orange for Classic): the primary call-to-action
+  /// button, progress, sliders, the play button, and small emphasis.
   final Color accent;
 
   /// Lighter accent for the play button's gradient top and tonal foregrounds.
@@ -125,6 +135,7 @@ abstract final class BrandPalettes {
     id: 'classic',
     primary: AppColors.brand,
     onPrimary: Colors.white,
+    primaryBright: AppColors.brandBright,
     accent: AppColors.accent,
     accentBright: AppColors.accentBright,
     accentDeep: AppColors.accentDeep,
@@ -138,6 +149,7 @@ abstract final class BrandPalettes {
     id: 'dark',
     primary: AppColors.brand,
     onPrimary: Colors.white,
+    primaryBright: Color(0xFFB9A6FF),
     accent: Color(0xFFC4A0FF),
     accentBright: Color(0xFFDCC4FF),
     accentDeep: Color(0xFFA982F0),
@@ -151,6 +163,7 @@ abstract final class BrandPalettes {
     id: 'neon',
     primary: AppColors.brand,
     onPrimary: Colors.white,
+    primaryBright: Color(0xFFB9A6FF),
     accent: Color(0xFF34C5FF),
     accentBright: Color(0xFF7ADBFF),
     accentDeep: Color(0xFF1C9FE6),
@@ -164,6 +177,7 @@ abstract final class BrandPalettes {
     id: 'gold',
     primary: Color(0xFFE0A82E),
     onPrimary: Color(0xFF1A1300),
+    primaryBright: Color(0xFFF3C868),
     accent: Color(0xFFF5C518),
     accentBright: Color(0xFFFFDD55),
     accentDeep: Color(0xFFD9A400),
@@ -179,6 +193,7 @@ abstract final class BrandPalettes {
     id: 'blackwhite',
     primary: Color(0xFFFFFFFF),
     onPrimary: Color(0xFF000000),
+    primaryBright: Color(0xFFFFFFFF),
     accent: Color(0xFFFFFFFF),
     accentBright: Color(0xFFFFFFFF),
     accentDeep: Color(0xFFFFFFFF),
@@ -194,6 +209,7 @@ abstract final class BrandPalettes {
     id: 'blackwhite',
     primary: Color(0xFF000000),
     onPrimary: Color(0xFFFFFFFF),
+    primaryBright: Color(0xFF000000),
     accent: Color(0xFF000000),
     accentBright: Color(0xFF000000),
     accentDeep: Color(0xFF000000),

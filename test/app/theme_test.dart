@@ -55,5 +55,21 @@ void main() {
       expect(bw.colorScheme.secondary, const Color(0xFFFFFFFF));
       expect(bw.colorScheme.error, AppColors.error);
     });
+
+    test('Classic call-to-action button uses the orange accent (energy)', () {
+      // Black-first: the primary CTA is warm orange, not a large purple slab.
+      final ThemeData theme = AppTheme.dark(BrandPalettes.classic);
+      final Color? cta = theme.filledButtonTheme.style?.backgroundColor
+          ?.resolve(<WidgetState>{});
+      expect(cta, AppColors.accent);
+    });
+
+    test('Classic selected navigation uses the bright purple identity', () {
+      // Selected/active states carry the (accessible) purple identity tone.
+      final ThemeData theme = AppTheme.dark(BrandPalettes.classic);
+      final IconThemeData? icon = theme.navigationBarTheme.iconTheme
+          ?.resolve(<WidgetState>{WidgetState.selected});
+      expect(icon?.color, AppColors.brandBright);
+    });
   });
 }

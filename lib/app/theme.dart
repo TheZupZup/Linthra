@@ -4,13 +4,15 @@ import 'brand_theme.dart';
 import 'colors.dart';
 import 'dimens.dart';
 
-/// Builds the light and dark [ThemeData] for Linthra. Both share the same shape
-/// language and the two-colour identity (violet brand + warm orange accent) so
-/// the product feels cohesive across modes.
+/// Builds the light and dark [ThemeData] for Linthra. The look is black-first:
+/// dark surfaces carry the UI, the brand identity colour (violet for Classic)
+/// carries structure, and the warm accent (orange for Classic) carries energy.
 ///
 /// Token rule of thumb for call sites:
-///  - `colorScheme.primary`   → brand violet (identity, primary actions);
-///  - `colorScheme.secondary` → warm orange accent (live/active/selected);
+///  - `colorScheme.primary`   → brand identity: text buttons, input focus, and
+///    selected/active states (selected nav and rows use a brighter tone);
+///  - `colorScheme.secondary` → the energy accent: primary call-to-action
+///    buttons, progress, sliders, the play button, and small emphasis;
 ///  - `colorScheme.surface*`  → the dark elevation ramp.
 /// Reach for these instead of hard-coding colours, so retuning the brand stays
 /// a one-file change.
@@ -119,13 +121,13 @@ abstract final class AppTheme {
         backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        indicatorColor: palette.accent.withValues(alpha: 0.18),
+        indicatorColor: palette.primary.withValues(alpha: 0.18),
         indicatorShape: pillShape,
         iconTheme: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return IconThemeData(
             size: 24,
-            color: selected ? palette.accent : onSurfaceMuted,
+            color: selected ? palette.primaryBright : onSurfaceMuted,
           );
         }),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
@@ -134,14 +136,14 @@ abstract final class AppTheme {
             fontSize: 12,
             letterSpacing: 0.2,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-            color: selected ? palette.accent : onSurfaceMuted,
+            color: selected ? palette.primaryBright : onSurfaceMuted,
           );
         }),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: palette.primary,
-          foregroundColor: palette.onPrimary,
+          backgroundColor: palette.accent,
+          foregroundColor: palette.onAccent,
           textStyle: const TextStyle(
             fontWeight: FontWeight.w600,
             fontSize: 15,
@@ -167,7 +169,7 @@ abstract final class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: palette.primary,
+          foregroundColor: palette.primaryBright,
           textStyle: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
@@ -212,7 +214,7 @@ abstract final class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadii.sm),
-          borderSide: BorderSide(color: palette.primary, width: 1.5),
+          borderSide: BorderSide(color: palette.primaryBright, width: 1.5),
         ),
       ),
       chipTheme: ChipThemeData(
@@ -230,8 +232,8 @@ abstract final class AppTheme {
       ),
       listTileTheme: ListTileThemeData(
         iconColor: onSurfaceMuted,
-        selectedColor: palette.accent,
-        selectedTileColor: palette.accent.withValues(alpha: 0.10),
+        selectedColor: palette.primaryBright,
+        selectedTileColor: palette.primary.withValues(alpha: 0.10),
         shape: smallShape,
       ),
       popupMenuTheme: PopupMenuThemeData(

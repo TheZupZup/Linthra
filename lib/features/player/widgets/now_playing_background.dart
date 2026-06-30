@@ -83,7 +83,7 @@ class _Gradient extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             Color.alphaBlend(
-              theme.colorScheme.primary.withValues(alpha: 0.32),
+              theme.colorScheme.primary.withValues(alpha: 0.22),
               surface,
             ),
             surface,

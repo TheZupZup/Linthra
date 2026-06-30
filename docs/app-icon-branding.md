@@ -59,12 +59,17 @@ A small, data-driven feature that mirrors the Support module's per-build seam:
   "unknown → Classic" fallback. `AppTheme.dark`/`light` take a palette and thread
   it through the whole `ThemeData`; `LinthraApp` watches the controller and
   rebuilds the theme on every change, so the chosen accent restores on restart
-  for free. Classic's palette is exactly today's `AppColors`, so the default look
-  is unchanged. The two accent tones Material's `ColorScheme` has no slot for (the
-  play button's gradient ends) ride on a `LinthraAccents` `ThemeExtension`. Dark
-  and Neon keep Linthra's violet brand and only swap the accent; Gold is a
-  black-and-gold theme and Black & White a pure black/white one, so both also
-  retint the brand. Error / destructive colours are never themed.
+  for free. The two accent tones Material's `ColorScheme` has no slot for (the
+  play button's gradient ends) ride on a `LinthraAccents` `ThemeExtension`.
+  The roles are **black-first**: dark surfaces carry the UI; the **identity**
+  colour (`primary`/`primaryBright`) carries brand, text buttons, input focus,
+  and selected/active states (selected navigation and rows); the **accent**
+  carries energy — primary call-to-action buttons, progress, sliders, and the
+  play button. For Classic that reads "black UI, purple identity, orange energy."
+  Dark and Neon keep Linthra's violet identity and only swap the accent; Gold is
+  black-and-gold and Black & White pure black/white, so both also retint the
+  identity. Classic's palette *values* are still exactly today's `AppColors` —
+  only the role mapping changed. Error / destructive colours are never themed.
 - **Launcher icon (Android)** — the same selection also switches the real
   launcher icon via `LauncherIconService`. The controller calls it best-effort on
   every change *and* re-asserts it on startup, so the home-screen icon survives a
@@ -240,11 +245,17 @@ Run on a real device/emulator after changing launcher icons:
 
 ### Accent theme
 
-- [ ] Selecting each variant retints the accent (sliders, selected navigation,
-      active icons, the play button, switches) to match it.
-- [ ] **Classic** keeps the current violet brand + orange accent exactly.
-- [ ] **Neon** turns the orange highlights blue/neon; **Gold** turns them
-      yellow/gold; **Black & White** uses pure black/white accents (no gray).
+- [ ] Selecting each variant retints the theme: CTA buttons, progress, sliders,
+      and the play button take the accent; selected navigation/rows take the
+      identity colour.
+- [ ] **Classic** reads **black-first**: dark surfaces, purple identity (text
+      buttons, selected nav/rows, input focus, borders), orange for CTAs /
+      progress / the play button — *not* a purple app.
+- [ ] **Dark** is black + purple; **Neon** is purple + neon cyan/blue; **Gold**
+      reads black-and-gold; **Black & White** uses pure black/white (no gray).
+- [ ] CTA buttons are orange (Classic) — there's no large purple button slab.
+- [ ] Selected navigation labels/icons are a **readable** purple (not dim or
+      invisible); no black text on dark surfaces.
 - [ ] The selected theme **survives a restart** (restored from the persisted
       variant).
 - [ ] Text/glyphs on accent fills stay readable in dark mode.

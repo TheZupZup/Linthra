@@ -47,10 +47,11 @@ void main() {
     });
 
     test('Classic palette is exactly the existing AppColors values', () {
-      // Guards the "Classic stays unchanged" contract: if any of these drift the
-      // default theme would change colour.
+      // The Classic palette still carries Linthra's exact brand colours; the
+      // black-first theme only changes how AppTheme maps them, not the values.
       expect(BrandPalettes.classic.primary, AppColors.brand);
       expect(BrandPalettes.classic.onPrimary, Colors.white);
+      expect(BrandPalettes.classic.primaryBright, AppColors.brandBright);
       expect(BrandPalettes.classic.accent, AppColors.accent);
       expect(BrandPalettes.classic.accentBright, AppColors.accentBright);
       expect(BrandPalettes.classic.accentDeep, AppColors.accentDeep);
