@@ -1,5 +1,6 @@
 Categories:
-  - Multimedia
+  - Local Media Player
+  - Online Media Player
 License: MPL-2.0
 AuthorName: TheZupZup
 SourceCode: https://github.com/TheZupZup/Linthra
@@ -15,6 +16,321 @@ RepoType: git
 Repo: https://github.com/TheZupZup/Linthra.git
 
 Builds:
+  - versionName: 0.1.0-alpha.40
+    versionCode: 1000401
+    commit: dbbbe403d9d21d06f78114a018eb587b1e328c51
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-arm"
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-armeabi-v7a-release-signed.apk
+
+  - versionName: 0.1.0-alpha.40
+    versionCode: 1000402
+    commit: dbbbe403d9d21d06f78114a018eb587b1e328c51
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-arm64"
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-arm64-v8a-release-signed.apk
+
+  - versionName: 0.1.0-alpha.40
+    versionCode: 1000403
+    commit: dbbbe403d9d21d06f78114a018eb587b1e328c51
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-x86_64-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-x64"
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-x86_64-release-signed.apk
+
+  - versionName: 0.1.1
+    versionCode: 1019991
+    commit: 4d90d9d20f21c9c65982c1009111ebf26af4670d
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-arm"
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-armeabi-v7a-release-signed.apk
+
+  - versionName: 0.1.1
+    versionCode: 1019992
+    commit: 4d90d9d20f21c9c65982c1009111ebf26af4670d
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-arm64"
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-arm64-v8a-release-signed.apk
+
+  - versionName: 0.1.1
+    versionCode: 1019993
+    commit: 4d90d9d20f21c9c65982c1009111ebf26af4670d
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-x86_64-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-x64"
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-x86_64-release-signed.apk
+
+  - versionName: 0.1.5
+    versionCode: 1059991
+    commit: 337ea649f887b6c541f5ff437e96d905406e3bd9
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-arm"
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-armeabi-v7a-release-signed.apk
+
+  - versionName: 0.1.5
+    versionCode: 1059992
+    commit: 337ea649f887b6c541f5ff437e96d905406e3bd9
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-arm64"
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-arm64-v8a-release-signed.apk
+
+  - versionName: 0.1.5
+    versionCode: 1059993
+    commit: 337ea649f887b6c541f5ff437e96d905406e3bd9
+    sudo:
+      - mkdir -p /home/runner/work/Linthra
+      - chown -R vagrant /home/runner/work
+    output: build/app/outputs/flutter-apk/app-x86_64-release.apk
+    srclibs:
+      - flutter@stable
+    prebuild:
+      - flutterVersion=$(cat .flutter-version)
+      - '[[ $flutterVersion ]]'
+      - git -C $$flutter$$ checkout -f $flutterVersion
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    scandelete:
+      - .pub-cache
+    build:
+      - export repo=/home/runner/work/Linthra/Linthra
+      - cd ..
+      - mv io.github.thezupzup.linthra $repo
+      - pushd $repo
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-x64"
+      - popd
+      - mv $repo io.github.thezupzup.linthra
+    binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-x86_64-release-signed.apk
+
   - versionName: 0.1.8
     versionCode: 1089991
     commit: d8484f449ba4871ab206842b21b0c42ea4b63a8d
@@ -34,7 +350,7 @@ Builds:
       - pushd $repo
       - export PUB_CACHE=$(pwd)/.pub-cache
       - $$flutter$$/bin/flutter config --no-analytics
-      - $$flutter$$/bin/flutter pub get
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
       - popd
       - mv $repo io.github.thezupzup.linthra
     scandelete:
@@ -45,7 +361,7 @@ Builds:
       - mv io.github.thezupzup.linthra $repo
       - pushd $repo
       - export PUB_CACHE=$(pwd)/.pub-cache
-      - $$flutter$$/bin/flutter build apk --release --split-per-abi
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-arm"
       - popd
       - mv $repo io.github.thezupzup.linthra
     # Upstream-signed reference APK for this ABI on the matching GitHub Release.
@@ -77,7 +393,7 @@ Builds:
       - pushd $repo
       - export PUB_CACHE=$(pwd)/.pub-cache
       - $$flutter$$/bin/flutter config --no-analytics
-      - $$flutter$$/bin/flutter pub get
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
       - popd
       - mv $repo io.github.thezupzup.linthra
     scandelete:
@@ -88,7 +404,7 @@ Builds:
       - mv io.github.thezupzup.linthra $repo
       - pushd $repo
       - export PUB_CACHE=$(pwd)/.pub-cache
-      - $$flutter$$/bin/flutter build apk --release --split-per-abi
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-arm64"
       - popd
       - mv $repo io.github.thezupzup.linthra
     binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-arm64-v8a-release-signed.apk
@@ -112,7 +428,7 @@ Builds:
       - pushd $repo
       - export PUB_CACHE=$(pwd)/.pub-cache
       - $$flutter$$/bin/flutter config --no-analytics
-      - $$flutter$$/bin/flutter pub get
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
       - popd
       - mv $repo io.github.thezupzup.linthra
     scandelete:
@@ -123,7 +439,7 @@ Builds:
       - mv io.github.thezupzup.linthra $repo
       - pushd $repo
       - export PUB_CACHE=$(pwd)/.pub-cache
-      - $$flutter$$/bin/flutter build apk --release --split-per-abi
+      - $$flutter$$/bin/flutter build apk --release --split-per-abi --target-platform="android-x64"
       - popd
       - mv $repo io.github.thezupzup.linthra
     binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-x86_64-release-signed.apk
