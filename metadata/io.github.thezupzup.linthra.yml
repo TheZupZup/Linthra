@@ -15,9 +15,9 @@ RepoType: git
 Repo: https://github.com/TheZupZup/Linthra.git
 
 Builds:
-  - versionName: 0.1.0-alpha.39
-    versionCode: 1000391
-    commit: 0c7ca8d1fe55576e869e3ecc5c1d43f2dbeda871
+  - versionName: 0.1.8
+    versionCode: 1089991
+    commit: d8484f449ba4871ab206842b21b0c42ea4b63a8d
     sudo:
       - mkdir -p /home/runner/work/Linthra
       - chown -R vagrant /home/runner/work
@@ -49,7 +49,7 @@ Builds:
       - popd
       - mv $repo io.github.thezupzup.linthra
     # Upstream-signed reference APK for this ABI on the matching GitHub Release.
-    # %v expands to the build's versionName (e.g. 0.1.0-alpha.39); there is no
+    # %v expands to the build's versionName (e.g. 0.1.8); there is no
     # %a placeholder for ABI in F-Droid metadata, so the ABI slug is hardcoded
     # per Build entry. The Android Release Build workflow uploads the per-ABI
     # APK under exactly this name. (Per-Build `binary` overrides any top-level
@@ -58,9 +58,9 @@ Builds:
     # MR !39329 ("add binary to every version").
     binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-armeabi-v7a-release-signed.apk
 
-  - versionName: 0.1.0-alpha.39
-    versionCode: 1000392
-    commit: 0c7ca8d1fe55576e869e3ecc5c1d43f2dbeda871
+  - versionName: 0.1.8
+    versionCode: 1089992
+    commit: d8484f449ba4871ab206842b21b0c42ea4b63a8d
     sudo:
       - mkdir -p /home/runner/work/Linthra
       - chown -R vagrant /home/runner/work
@@ -93,9 +93,9 @@ Builds:
       - mv $repo io.github.thezupzup.linthra
     binary: https://github.com/TheZupZup/Linthra/releases/download/v%v/linthra-v%v-arm64-v8a-release-signed.apk
 
-  - versionName: 0.1.0-alpha.39
-    versionCode: 1000393
-    commit: 0c7ca8d1fe55576e869e3ecc5c1d43f2dbeda871
+  - versionName: 0.1.8
+    versionCode: 1089993
+    commit: d8484f449ba4871ab206842b21b0c42ea4b63a8d
     sudo:
       - mkdir -p /home/runner/work/Linthra
       - chown -R vagrant /home/runner/work
@@ -136,5 +136,5 @@ VercodeOperation:
   - "%c*10 + 3"
 UpdateCheckData: pubspec.yaml|version:\s*[^+]+\+(\d+)|.|version:\s*([^\+]+)\+
 
-CurrentVersion: 0.1.0-alpha.39
-CurrentVersionCode: 1000393
+CurrentVersion: 0.1.8
+CurrentVersionCode: 1089993
