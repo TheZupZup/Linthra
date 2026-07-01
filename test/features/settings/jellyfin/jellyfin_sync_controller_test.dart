@@ -10,15 +10,18 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/favorites_repository.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/repositories/playlist_repository.dart';
+import 'package:linthra/core/repositories/remote_sync_gateway.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_music_source.dart';
 import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_favorites_store.dart';
 import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
-import 'package:linthra/data/repositories/jellyfin_synced_favorites_repository.dart';
+import 'package:linthra/data/repositories/jellyfin_favorites_gateway.dart';
+import 'package:linthra/data/repositories/jellyfin_playlist_gateway.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/playlist_repository_provider.dart';
+import 'package:linthra/data/repositories/synced_favorites_repository.dart';
 import 'package:linthra/data/repositories/synced_playlist_repository.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_sync_controller.dart';
@@ -532,18 +535,20 @@ void main() {
     SyncedPlaylistRepository playlistRepo(FakeJellyfinClient client) {
       final repo = SyncedPlaylistRepository(
         store: InMemoryPlaylistStore(),
-        client: client,
-        session: () => _session,
+        gateways: <RemotePlaylistGateway>[
+          JellyfinPlaylistGateway(client: client, session: () => _session),
+        ],
       );
       addTearDown(repo.dispose);
       return repo;
     }
 
-    JellyfinSyncedFavoritesRepository favoritesRepo(FakeJellyfinClient client) {
-      final repo = JellyfinSyncedFavoritesRepository(
+    SyncedFavoritesRepository favoritesRepo(FakeJellyfinClient client) {
+      final repo = SyncedFavoritesRepository(
         store: InMemoryFavoritesStore(),
-        client: client,
-        session: () => _session,
+        gateways: <RemoteFavoritesGateway>[
+          JellyfinFavoritesGateway(client: client, session: () => _session),
+        ],
       );
       addTearDown(repo.dispose);
       return repo;

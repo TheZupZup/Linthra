@@ -560,4 +560,206 @@ void main() {
       );
     });
   });
+
+  group('favorites (star / unstar / getStarred2)', () {
+    test('getStarredSongIds reads the starred2.song list', () async {
+      final client = _client(MockClient((_) async {
+        return _ok(<String, dynamic>{
+          'starred2': <String, dynamic>{
+            'song': <Map<String, dynamic>>[
+              <String, dynamic>{'id': 'mf-1', 'title': 'One'},
+              <String, dynamic>{'id': 'mf-2', 'title': 'Two'},
+              // A malformed entry (no id) is skipped, not crashed.
+              <String, dynamic>{'title': 'No id'},
+            ],
+          },
+        });
+      }));
+
+      final ids = await client.getStarredSongIds(_session);
+      expect(ids, <String>{'mf-1', 'mf-2'});
+    });
+
+    test('getStarredSongIds returns empty when nothing is starred', () async {
+      final client = _client(MockClient((_) async => _ok(<String, dynamic>{})));
+      expect(await client.getStarredSongIds(_session), isEmpty);
+    });
+
+    test('star sends id to /rest/star.view', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client.star(_session, 'mf-9');
+      expect(captured!.url.path, '/rest/star.view');
+      expect(captured!.url.queryParameters['id'], 'mf-9');
+    });
+
+    test('unstar sends id to /rest/unstar.view', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client.unstar(_session, 'mf-9');
+      expect(captured!.url.path, '/rest/unstar.view');
+      expect(captured!.url.queryParameters['id'], 'mf-9');
+    });
+
+    test('a star failure surfaces as a typed, credential-free error', () async {
+      final client = _client(MockClient((_) async => throw http.ClientException(
+            'Connection failed: $_base/rest/star.view?t=tok1&s=salt1',
+          )));
+      await expectLater(
+        () => client.star(_session, 'mf-1'),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.message, 'message', isNot(contains('tok1')))
+            .having((e) => e.message, 'message', isNot(contains('salt1')))),
+      );
+    });
+  });
+
+  group('playlists', () {
+    test('getPlaylists reads the playlists.playlist list', () async {
+      final client = _client(MockClient((_) async {
+        return _ok(<String, dynamic>{
+          'playlists': <String, dynamic>{
+            'playlist': <Map<String, dynamic>>[
+              <String, dynamic>{'id': 'p-1', 'name': 'Road Trip'},
+              <String, dynamic>{'id': 'p-2', 'name': 'Chill'},
+            ],
+          },
+        });
+      }));
+
+      final playlists = await client.getPlaylists(_session);
+      expect(playlists.map((p) => p.id), <String>['p-1', 'p-2']);
+      expect(playlists.map((p) => p.name), <String>['Road Trip', 'Chill']);
+    });
+
+    test('getPlaylistSongIds reads the entry list in order', () async {
+      final client = _client(MockClient((http.Request request) async {
+        expect(request.url.path, '/rest/getPlaylist.view');
+        expect(request.url.queryParameters['id'], 'p-1');
+        return _ok(<String, dynamic>{
+          'playlist': <String, dynamic>{
+            'id': 'p-1',
+            'entry': <Map<String, dynamic>>[
+              <String, dynamic>{'id': 'mf-3', 'title': 'C'},
+              <String, dynamic>{'id': 'mf-1', 'title': 'A'},
+              <String, dynamic>{'id': 'mf-2', 'title': 'B'},
+            ],
+          },
+        });
+      }));
+
+      final ids = await client.getPlaylistSongIds(_session, 'p-1');
+      expect(ids, <String>['mf-3', 'mf-1', 'mf-2']);
+    });
+
+    test('createPlaylist sends name + songId list and returns the new id',
+        () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return _ok(<String, dynamic>{
+          'playlist': <String, dynamic>{'id': 'p-new', 'name': 'Fresh'},
+        });
+      }));
+
+      final id = await client.createPlaylist(
+        _session,
+        name: 'Fresh',
+        songIds: <String>['mf-1', 'mf-2'],
+      );
+      expect(id, 'p-new');
+      expect(captured!.url.path, '/rest/createPlaylist.view');
+      expect(captured!.url.queryParameters['name'], 'Fresh');
+      // The repeated songId key preserves order.
+      expect(
+          captured!.url.queryParametersAll['songId'], <String>['mf-1', 'mf-2']);
+    });
+
+    test('createPlaylist falls back to matching by name if none is returned',
+        () async {
+      int calls = 0;
+      final client = _client(MockClient((http.Request request) async {
+        calls++;
+        if (request.url.path == '/rest/createPlaylist.view') {
+          // A server that returns an empty ok (no playlist object).
+          return _ok(<String, dynamic>{});
+        }
+        // getPlaylists fallback.
+        return _ok(<String, dynamic>{
+          'playlists': <String, dynamic>{
+            'playlist': <Map<String, dynamic>>[
+              <String, dynamic>{'id': 'p-old', 'name': 'Other'},
+              <String, dynamic>{'id': 'p-fresh', 'name': 'Fresh'},
+            ],
+          },
+        });
+      }));
+
+      final id = await client.createPlaylist(_session, name: 'Fresh');
+      expect(id, 'p-fresh');
+      expect(calls, 2);
+    });
+
+    test('setPlaylistSongs replaces via createPlaylist with playlistId',
+        () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client
+          .setPlaylistSongs(_session, 'p-1', <String>['mf-2', 'mf-1', 'mf-3']);
+      expect(captured!.url.path, '/rest/createPlaylist.view');
+      expect(captured!.url.queryParameters['playlistId'], 'p-1');
+      expect(captured!.url.queryParametersAll['songId'],
+          <String>['mf-2', 'mf-1', 'mf-3']);
+    });
+
+    test('renamePlaylist updates the name via updatePlaylist', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client.renamePlaylist(_session, 'p-1', 'Renamed');
+      expect(captured!.url.path, '/rest/updatePlaylist.view');
+      expect(captured!.url.queryParameters['playlistId'], 'p-1');
+      expect(captured!.url.queryParameters['name'], 'Renamed');
+    });
+
+    test('deletePlaylist sends id to /rest/deletePlaylist.view', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client.deletePlaylist(_session, 'p-1');
+      expect(captured!.url.path, '/rest/deletePlaylist.view');
+      expect(captured!.url.queryParameters['id'], 'p-1');
+    });
+
+    test('a playlist write failure maps to a friendly, credential-free error',
+        () async {
+      final client = _client(MockClient((_) async => throw http.ClientException(
+            'Connection failed: $_base/rest/createPlaylist.view?t=tok1&s=salt1',
+          )));
+      await expectLater(
+        () => client.setPlaylistSongs(_session, 'p-1', <String>['mf-1']),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.message, 'message', isNot(contains('tok1')))
+            .having((e) => e.message, 'message', isNot(contains('salt1')))),
+      );
+    });
+  });
 }

@@ -2,12 +2,16 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/models/playlist.dart';
 import '../../../core/models/subsonic_session.dart';
 import '../../../core/services/remote_cache/remote_cache_key.dart';
 import '../../../core/sources/music_provider.dart';
 import '../../../core/sources/subsonic/subsonic_api.dart';
 import '../../../core/sources/subsonic/subsonic_exception.dart';
 import '../../../core/sources/subsonic/subsonic_music_source.dart';
+import '../../../core/sources/subsonic/subsonic_track_mapper.dart';
+import '../../../data/repositories/favorites_repository_provider.dart';
+import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../data/repositories/remote_cache_index_provider.dart';
 import '../../../data/repositories/subsonic_session_store_provider.dart';
 import '../../library/source_preference_controller.dart';
@@ -157,11 +161,28 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
 
   /// Clears the saved session and resets to the disconnected state, also
   /// resetting the now-stale "Synced N tracks" status so it can't linger into a
-  /// later sign-in. (Subsonic favourites are on-device only, so there are no
-  /// server-synced favourites to drop here.)
+  /// later sign-in.
+  ///
+  /// Drops this account's server-mirrored favourites and imported Navidrome
+  /// playlists (scoped to Subsonic, so a still-connected Jellyfin account keeps
+  /// its own); on-device favourites and local-only playlists are kept.
   Future<void> clear() async {
     await ref.read(subsonicSessionStoreProvider).clear();
     _session = null;
+    try {
+      await ref
+          .read(favoritesRepositoryProvider)
+          .clearRemote(providerScheme: SubsonicTrackMapper.uriScheme);
+    } catch (_) {
+      // A storage hiccup must not block sign-out; the session is already gone.
+    }
+    try {
+      await ref
+          .read(playlistRepositoryProvider)
+          .clearRemote(source: PlaylistSource.subsonic);
+    } catch (_) {
+      // Same: never let a playlist-store hiccup block sign-out.
+    }
     ref.invalidate(subsonicSyncControllerProvider);
     state = const SubsonicSettingsState(
       statusMessage: 'Signed out. Your Subsonic settings were cleared.',

@@ -2,11 +2,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/repositories/playlist_repository.dart';
 import '../../core/repositories/playlist_store.dart';
+import '../../core/repositories/remote_sync_gateway.dart';
 import '../../features/settings/jellyfin/jellyfin_settings_controller.dart';
 import '../../features/settings/jellyfin/jellyfin_settings_providers.dart';
+import '../../features/settings/subsonic/subsonic_settings_controller.dart';
+import '../../features/settings/subsonic/subsonic_settings_providers.dart';
 import 'in_memory_playlist_store.dart';
+import 'jellyfin_playlist_gateway.dart';
 import 'music_library_repository_provider.dart';
 import 'shared_preferences_playlist_store.dart';
+import 'subsonic_playlist_gateway.dart';
 import 'synced_playlist_repository.dart';
 
 /// Durable store of the user's playlists. Defaults to in-memory so tests and dev
@@ -17,9 +22,9 @@ final playlistStoreProvider = Provider<PlaylistStore>((ref) {
 });
 
 /// The app's [PlaylistRepository]. The data-layer default is local-only (no
-/// Jellyfin client or session) — exactly what tests and offline use need; the
-/// composition root overrides it to sync with the signed-in server (see
-/// [jellyfinPlaylistSyncOverride]). Disposed with the scope.
+/// remote gateways) — exactly what tests and offline use need; the composition
+/// root overrides it to sync with the signed-in servers (see
+/// [remotePlaylistSyncOverride]). Disposed with the scope.
 final playlistRepositoryProvider = Provider<PlaylistRepository>((ref) {
   final SyncedPlaylistRepository repository = SyncedPlaylistRepository(
     store: ref.watch(playlistStoreProvider),
@@ -39,17 +44,27 @@ final sharedPreferencesPlaylistStoreOverride =
   const SharedPreferencesPlaylistStore(),
 );
 
-/// Production binding: sync Jellyfin-source playlists with the signed-in server.
-/// Reads the live client + session lazily (mirroring favourites), so signing
-/// in/out is picked up without rebuilding the repository. Applied in `main`;
-/// tests keep the local-only default.
-final jellyfinPlaylistSyncOverride =
+/// Production binding: sync remote-source playlists with the signed-in servers
+/// (Jellyfin and Subsonic/Navidrome). Each provider's live client + session are
+/// read lazily (mirroring favourites), so signing in/out is picked up without
+/// rebuilding the repository. Applied in `main`; tests keep the local-only
+/// default.
+final remotePlaylistSyncOverride =
     playlistRepositoryProvider.overrideWith((ref) {
   final SyncedPlaylistRepository repository = SyncedPlaylistRepository(
     store: ref.watch(playlistStoreProvider),
-    client: ref.read(jellyfinClientProvider),
-    session: () =>
-        ref.read(jellyfinSettingsControllerProvider.notifier).session,
+    gateways: <RemotePlaylistGateway>[
+      JellyfinPlaylistGateway(
+        client: ref.read(jellyfinClientProvider),
+        session: () =>
+            ref.read(jellyfinSettingsControllerProvider.notifier).session,
+      ),
+      SubsonicPlaylistGateway(
+        client: ref.read(subsonicClientProvider),
+        session: () =>
+            ref.read(subsonicSettingsControllerProvider.notifier).session,
+      ),
+    ],
     catalogForMigration: () =>
         ref.read(musicLibraryRepositoryProvider).getAllTracks(),
   );

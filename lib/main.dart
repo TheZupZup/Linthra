@@ -100,9 +100,9 @@ Future<void> main() async {
       // SQLite). Non-secret (a one-way hash, scoped by server id).
       sharedPreferencesPlexSyncCacheStoreOverride,
       sharedPreferencesFavoritesStoreOverride,
-      jellyfinFavoritesOverride,
+      remoteFavoritesSyncOverride,
       sharedPreferencesPlaylistStoreOverride,
-      jellyfinPlaylistSyncOverride,
+      remotePlaylistSyncOverride,
       // Persist on-device play history (counts + last-played) for the
       // "Recently played" / "Most played" / "Never played" smart mixes.
       sharedPreferencesPlayHistoryStoreOverride,
@@ -265,13 +265,15 @@ Future<void> main() async {
     return null;
   });
 
-  // With the session loaded, pull the user's Jellyfin favourites so the heart
-  // reflects the server from the first frame. Best-effort and offline-tolerant:
-  // the repository swallows failures and keeps any locally stored favourites.
+  // With the sessions loaded, pull the user's server favourites (Jellyfin and
+  // Subsonic/Navidrome) so the heart reflects each server from the first frame.
+  // Best-effort and offline-tolerant: the repository swallows failures and keeps
+  // any locally stored favourites.
   unawaited(container.read(favoritesRepositoryProvider).refreshFromRemote());
 
-  // Likewise import the user's Jellyfin playlists so synced playlists appear on
-  // the Playlists tab from the first frame. Best-effort and offline-tolerant.
+  // Likewise import the user's server playlists (Jellyfin and Subsonic/Navidrome)
+  // so synced playlists appear on the Playlists tab from the first frame.
+  // Best-effort and offline-tolerant.
   unawaited(container.read(playlistRepositoryProvider).refreshFromRemote());
 
   runApp(

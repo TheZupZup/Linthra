@@ -30,6 +30,11 @@ abstract final class SubsonicEndpoints {
   static const String clientParam = 'c';
   static const String formatParam = 'f';
   static const String idParam = 'id';
+  static const String playlistIdParam = 'playlistId';
+  static const String nameParam = 'name';
+  static const String songIdParam = 'songId';
+  static const String songIdToAddParam = 'songIdToAdd';
+  static const String songIndexToRemoveParam = 'songIndexToRemove';
 
   /// `GET /rest/ping.view` — confirms the address is a reachable
   /// Subsonic-compatible server and that the credentials are accepted.
@@ -123,6 +128,113 @@ abstract final class SubsonicEndpoints {
         'submission': '$submission',
       });
 
+  /// `GET /rest/getStarred2.view` — the ID3 list of the signed-in user's
+  /// starred (favourited) songs, albums, and artists. Linthra reads the `song`
+  /// list to mirror server hearts onto tracks. In the Subsonic API since 1.8.0,
+  /// so Navidrome and generic servers answer it; the credential rides in the
+  /// query like every other call.
+  static Uri getStarred2(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+  }) =>
+      _build(baseUrl, 'getStarred2', username, credentials);
+
+  /// `GET /rest/star.view?id=…` — stars (favourites) the song [id] for the
+  /// signed-in user. The same endpoint stars albums/artists by id; Linthra only
+  /// stars songs, so [id] is always a song id.
+  static Uri star(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+    required String id,
+  }) =>
+      _build(baseUrl, 'star', username, credentials, extra: {idParam: id});
+
+  /// `GET /rest/unstar.view?id=…` — removes the star (favourite) from the song
+  /// [id] for the signed-in user.
+  static Uri unstar(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+    required String id,
+  }) =>
+      _build(baseUrl, 'unstar', username, credentials, extra: {idParam: id});
+
+  /// `GET /rest/getPlaylists.view` — the signed-in user's playlists (id + name,
+  /// no entries). Contents are fetched per-playlist with [getPlaylist].
+  static Uri getPlaylists(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+  }) =>
+      _build(baseUrl, 'getPlaylists', username, credentials);
+
+  /// `GET /rest/getPlaylist.view?id=…` — one playlist with its ordered
+  /// `entry` songs, so Linthra can import membership in server order.
+  static Uri getPlaylist(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+    required String playlistId,
+  }) =>
+      _build(baseUrl, 'getPlaylist', username, credentials,
+          extra: {idParam: playlistId});
+
+  /// `GET /rest/createPlaylist.view` — creates a new playlist (when [name] is
+  /// given) or **replaces the song list** of an existing one (when [playlistId]
+  /// is given), seeding it with [songIds] in order.
+  ///
+  /// The Subsonic API defines `createPlaylist` with a `playlistId` as a
+  /// full-membership replace, which is exactly how Linthra pushes a Navidrome
+  /// playlist's add/remove/reorder in one idempotent call. The response carries
+  /// the (new or existing) playlist so the caller can read its id.
+  static Uri createPlaylist(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+    String? name,
+    String? playlistId,
+    List<String> songIds = const <String>[],
+  }) =>
+      _buildMulti(baseUrl, 'createPlaylist', username, credentials, extra: {
+        if (name != null) nameParam: name,
+        if (playlistId != null) playlistIdParam: playlistId,
+        if (songIds.isNotEmpty) songIdParam: songIds,
+      });
+
+  /// `GET /rest/updatePlaylist.view` — updates an existing playlist's [name]
+  /// and/or applies incremental membership changes ([songIdsToAdd] appended,
+  /// [songIndexesToRemove] removed by position). Linthra uses it for the rename
+  /// push; membership changes go through [createPlaylist]'s replace form.
+  static Uri updatePlaylist(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+    required String playlistId,
+    String? name,
+    List<String> songIdsToAdd = const <String>[],
+    List<String> songIndexesToRemove = const <String>[],
+  }) =>
+      _buildMulti(baseUrl, 'updatePlaylist', username, credentials, extra: {
+        playlistIdParam: playlistId,
+        if (name != null) nameParam: name,
+        if (songIdsToAdd.isNotEmpty) songIdToAddParam: songIdsToAdd,
+        if (songIndexesToRemove.isNotEmpty)
+          songIndexToRemoveParam: songIndexesToRemove,
+      });
+
+  /// `GET /rest/deletePlaylist.view?id=…` — deletes the playlist [playlistId]
+  /// from the server. Only ever called behind an explicit user confirmation.
+  static Uri deletePlaylist(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+    required String playlistId,
+  }) =>
+      _build(baseUrl, 'deletePlaylist', username, credentials,
+          extra: {idParam: playlistId});
+
   /// The audio stream URL for a song: `/rest/stream.view?id=…` plus auth.
   ///
   /// The server serves a playable stream (transcoding to a broadly compatible
@@ -188,6 +300,31 @@ abstract final class SubsonicEndpoints {
   }) {
     return Uri.parse('$baseUrl/rest/$method.view').replace(
       queryParameters: <String, String>{
+        userParam: username,
+        tokenParam: credentials.token,
+        saltParam: credentials.salt,
+        versionParam: apiVersion,
+        clientParam: AppInfo.name,
+        formatParam: 'json',
+        ...extra,
+      },
+    );
+  }
+
+  /// Like [_build], but for endpoints that repeat a query key (e.g.
+  /// `songId=a&songId=b`). Each [extra] value is either a `String` or an
+  /// `Iterable<String>`; `Uri.replace` emits a repeated key for the iterable.
+  /// The auth+format params are always single-valued, woven in identically to
+  /// [_build] so the credential rule lives in one place.
+  static Uri _buildMulti(
+    String baseUrl,
+    String method,
+    String username,
+    SubsonicCredentials credentials, {
+    Map<String, dynamic> extra = const <String, dynamic>{},
+  }) {
+    return Uri.parse('$baseUrl/rest/$method.view').replace(
+      queryParameters: <String, dynamic>{
         userParam: username,
         tokenParam: credentials.token,
         saltParam: credentials.salt,

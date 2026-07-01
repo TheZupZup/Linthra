@@ -1,8 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/repositories/remote_sync_result.dart';
 import '../../../core/sources/subsonic/subsonic_exception.dart';
 import '../../../core/sources/subsonic/subsonic_music_source.dart';
+import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
+import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../library/library_controller.dart';
 import 'subsonic_settings_controller.dart';
 import 'subsonic_sync_state.dart';
@@ -13,7 +16,9 @@ import 'subsonic_sync_state.dart';
 /// to fetch the catalog, then hands the results to the `MusicLibraryRepository`
 /// under the stable `subsonic` source id — the same upsert path local scanning
 /// and Jellyfin use. The Library screen reads from that repository, so a refresh
-/// after the upsert makes the synced tracks appear.
+/// after the upsert makes the synced tracks appear. It then imports Navidrome
+/// **playlists** and adopts server **favourites** best-effort (mirroring the
+/// Jellyfin sync), so a failure there never aborts a successful track sync.
 ///
 /// Security: the source mints any authenticated stream/download URL lazily at
 /// use time, so nothing persisted here carries a credential. This controller
@@ -40,9 +45,22 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
       final artists = await source.fetchArtists();
 
       if (tracks.isEmpty) {
-        state = const SubsonicSyncState.success(
+        // Still reconcile server playlists/favourites — the library may be
+        // empty locally but the account can still have hearts/playlists.
+        final PlaylistSyncResult playlists = await _refreshPlaylists();
+        final FavoritesSyncResult favorites = await _refreshFavorites();
+        state = SubsonicSyncState.success(
           trackCount: 0,
-          message: 'Your library looks empty — nothing to sync yet.',
+          playlistCount: playlists.playlistCount,
+          favoriteCount: favorites.favoriteCount,
+          playlistsFailed: playlists.didFail,
+          favoritesFailed: favorites.didFail,
+          message: _composeMessage(
+            trackCount: 0,
+            playlists: playlists,
+            favorites: favorites,
+            empty: true,
+          ),
         );
         return;
       }
@@ -55,9 +73,22 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
           );
       await ref.read(libraryControllerProvider.notifier).refresh();
 
+      // Import Navidrome playlists and adopt server favourites best-effort; a
+      // failure here is reported calmly but never fails the track sync.
+      final PlaylistSyncResult playlists = await _refreshPlaylists();
+      final FavoritesSyncResult favorites = await _refreshFavorites();
+
       state = SubsonicSyncState.success(
         trackCount: tracks.length,
-        message: _successMessage(tracks.length),
+        playlistCount: playlists.playlistCount,
+        favoriteCount: favorites.favoriteCount,
+        playlistsFailed: playlists.didFail,
+        favoritesFailed: favorites.didFail,
+        message: _composeMessage(
+          trackCount: tracks.length,
+          playlists: playlists,
+          favorites: favorites,
+        ),
       );
     } on SubsonicException catch (error) {
       state = SubsonicSyncState.error(_friendlyMessage(error));
@@ -68,9 +99,73 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
     }
   }
 
-  String _successMessage(int trackCount) {
-    final String tracks = trackCount == 1 ? '1 track' : '$trackCount tracks';
-    return 'Synced $tracks from your library.';
+  /// Best-effort playlist refresh that never throws out of [sync]: a thrown
+  /// error (rather than the repository's own friendly result) is mapped to a
+  /// failed outcome so a single bad call can't abort a successful track sync.
+  Future<PlaylistSyncResult> _refreshPlaylists() async {
+    try {
+      return await ref.read(playlistRepositoryProvider).refreshFromRemote();
+    } catch (_) {
+      return const PlaylistSyncResult.failed();
+    }
+  }
+
+  /// Best-effort favourites refresh, mirroring [_refreshPlaylists].
+  Future<FavoritesSyncResult> _refreshFavorites() async {
+    try {
+      return await ref.read(favoritesRepositoryProvider).refreshFromRemote();
+    } catch (_) {
+      return const FavoritesSyncResult.failed();
+    }
+  }
+
+  /// Builds the friendly success line from what actually synced (tracks,
+  /// playlists, favourites) plus a calm note for any part that couldn't load, so
+  /// a partial outcome reads clearly rather than as a scary failure. Every value
+  /// is display-safe; no secret can reach here.
+  String _composeMessage({
+    required int trackCount,
+    required PlaylistSyncResult playlists,
+    required FavoritesSyncResult favorites,
+    bool empty = false,
+  }) {
+    final List<String> synced = <String>[];
+    if (trackCount > 0) {
+      synced.add(trackCount == 1 ? '1 track' : '$trackCount tracks');
+    }
+    if (playlists.didSync && playlists.playlistCount > 0) {
+      final int n = playlists.playlistCount;
+      synced.add(n == 1 ? '1 playlist' : '$n playlists');
+    }
+    if (favorites.didSync && favorites.favoriteCount > 0) {
+      final int n = favorites.favoriteCount;
+      synced.add(n == 1 ? '1 favorite' : '$n favorites');
+    }
+
+    final List<String> failures = <String>[];
+    if (playlists.didFail) failures.add('playlists could not be loaded');
+    if (favorites.didFail) failures.add('favorites could not be synced');
+
+    final StringBuffer message = StringBuffer();
+    if (synced.isEmpty) {
+      message.write(empty
+          ? 'Your library looks empty — nothing to sync yet.'
+          : 'Synced your library.');
+    } else {
+      message.write('Synced ${_join(synced)}.');
+    }
+    if (failures.isNotEmpty) {
+      message.write(' Some items could not be synced (${_join(failures)}).');
+    }
+    return message.toString();
+  }
+
+  /// Joins parts as "a", "a and b", or "a, b and c".
+  static String _join(List<String> parts) {
+    if (parts.length == 1) return parts.first;
+    if (parts.length == 2) return '${parts[0]} and ${parts[1]}';
+    return '${parts.sublist(0, parts.length - 1).join(', ')} '
+        'and ${parts.last}';
   }
 
   /// Turns a typed Subsonic failure into a friendly, actionable line. Branches

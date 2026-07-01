@@ -81,7 +81,9 @@ design — not mockups.
 - **Queue / Up Next** — play next, add to queue, reorder, remove, and save the
   queue as a playlist — without building a playlist first ([docs](./docs/queue.md)).
 - **Playlists & favourites** — create/edit/reorder/delete playlists; favourite
-  tracks. Both sync with Jellyfin where supported.
+  tracks. Both sync with **Jellyfin and Navidrome / Subsonic** where supported
+  (a server change shows up here, and your changes push back), while local-only
+  playlists and hearts work fully with no server at all.
 - **Smart mixes** — automatic, Made-by-Linthra collections (Recently added /
   played, Most played, Favorites, Downloaded, Random, Never played) built from
   on-device signals that stay on the device ([docs](./docs/smart-mixes.md)).
@@ -178,7 +180,7 @@ Sources sit behind one interface, so the app treats them uniformly:
 | --- | --- |
 | **Local files** | ✅ Scan a folder, play directly (SAF, no broad permission) — [docs](./docs/local-music.md) |
 | **Jellyfin** | ✅ Stream, cache, cast, playlists & favourites — [docs](./docs/jellyfin.md) |
-| **Navidrome / Subsonic** | ✅ Stream, cache, cast (favourites & lyrics are follow-ups) — [docs](./docs/providers.md) |
+| **Navidrome / Subsonic** | ✅ Stream, cache, cast, lyrics, playlists & favourites (two-way sync) — [docs](./docs/providers.md) |
 | **Plex** | ✅ Browse, stream & cache from your own Plex Media Server (some setups may still need testing) — [docs](./docs/plex.md) |
 | **WebDAV / NAS** | 🔜 Planned — same `MusicSource` seam |
 
@@ -205,10 +207,9 @@ its one guiding rule: **Linthra works on its own; Linthra Connect is optional** 
 Docker, no account, no desktop dependency, no required pairing). The feature-level
 view:
 
-**Next up:** local tag/metadata parsing + album artwork · Subsonic favourites,
-lyrics & cover art · full playlist sync · album/playlist "download all" +
-background download manager · real connectivity detection for the Wi-Fi gate ·
-WebDAV / NAS sources.
+**Next up:** local tag/metadata parsing + album artwork · album/playlist
+"download all" + background download manager · real connectivity detection for
+the Wi-Fi gate · WebDAV / NAS sources.
 
 **Later:** local-file lyrics (`.lrc`/tags), ReplayGain, MPRIS, Linux desktop,
 richer Android Auto and Cast.

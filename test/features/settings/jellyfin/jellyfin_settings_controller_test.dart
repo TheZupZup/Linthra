@@ -42,9 +42,13 @@ Future<void> _settle() => Future<void>.delayed(Duration.zero);
 /// down this account's server-synced favourites.
 class _SpyFavoritesRepository implements FavoritesRepository {
   int clearRemoteCalls = 0;
+  String? lastClearScheme;
 
   @override
-  Future<void> clearRemote() async => clearRemoteCalls++;
+  Future<void> clearRemote({String? providerScheme}) async {
+    clearRemoteCalls++;
+    lastClearScheme = providerScheme;
+  }
 
   @override
   Stream<Set<String>> get favoritesStream => const Stream<Set<String>>.empty();
@@ -64,9 +68,13 @@ class _SpyFavoritesRepository implements FavoritesRepository {
 /// drops this account's imported Jellyfin playlists.
 class _SpyPlaylistRepository implements PlaylistRepository {
   int clearRemoteCalls = 0;
+  PlaylistSource? lastClearSource;
 
   @override
-  Future<void> clearRemote() async => clearRemoteCalls++;
+  Future<void> clearRemote({PlaylistSource? source}) async {
+    clearRemoteCalls++;
+    lastClearSource = source;
+  }
 
   @override
   Stream<List<Playlist>> get playlistsStream =>

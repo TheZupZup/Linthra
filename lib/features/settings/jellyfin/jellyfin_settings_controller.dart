@@ -4,12 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/app_info.dart';
 import '../../../core/models/jellyfin_session.dart';
+import '../../../core/models/playlist.dart';
 import '../../../core/services/remote_cache/remote_cache_key.dart';
 import '../../../core/sources/jellyfin/jellyfin_api.dart';
 import '../../../core/sources/jellyfin/jellyfin_diagnostics.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../../core/sources/jellyfin/jellyfin_music_source.dart';
 import '../../../core/sources/jellyfin/jellyfin_server_capabilities.dart';
+import '../../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../../core/sources/music_provider.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/jellyfin_session_store_provider.dart';
@@ -185,12 +187,18 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
     await ref.read(jellyfinSessionStoreProvider).clear();
     _session = null;
     try {
-      await ref.read(favoritesRepositoryProvider).clearRemote();
+      // Scope the drop to Jellyfin so a still-connected Subsonic/Navidrome
+      // account keeps its server hearts and imported playlists.
+      await ref
+          .read(favoritesRepositoryProvider)
+          .clearRemote(providerScheme: JellyfinTrackMapper.uriScheme);
     } catch (_) {
       // A storage hiccup must not block sign-out; the session is already gone.
     }
     try {
-      await ref.read(playlistRepositoryProvider).clearRemote();
+      await ref
+          .read(playlistRepositoryProvider)
+          .clearRemote(source: PlaylistSource.jellyfin);
     } catch (_) {
       // Same: never let a playlist-store hiccup block sign-out.
     }

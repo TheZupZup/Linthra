@@ -226,9 +226,9 @@ abstract final class MusicProviders {
     ),
   );
 
-  /// Subsonic/Navidrome. Streaming, offline caching, casting, and lyrics are
-  /// implemented; favorites are a documented follow-up, so they are declared
-  /// unsupported here and their actions stay hidden/disabled.
+  /// Subsonic/Navidrome. Streaming, offline caching, casting, lyrics,
+  /// favourites (star/unstar/getStarred2), and playlist sync (getPlaylists /
+  /// createPlaylist / updatePlaylist / deletePlaylist) are all implemented.
   static const MusicProvider subsonic = MusicProvider(
     sourceId: 'subsonic',
     displayName: 'Navidrome / Subsonic',
@@ -236,11 +236,12 @@ abstract final class MusicProviders {
     capabilities: MusicProviderCapabilities(
       canStream: true,
       canCache: true,
-      // Subsonic favourites (star/unstar) aren't wired up yet, so the heart and
-      // favourite sync stay disabled and their actions hidden.
-      canFavoriteTracks: false,
-      canReadFavoriteState: false,
-      canSyncFavorites: false,
+      // Subsonic favourites map to star/unstar, read from getStarred2, and
+      // mirror two-way with the server — so the heart follows the user across
+      // clients, exactly like Jellyfin.
+      canFavoriteTracks: true,
+      canReadFavoriteState: true,
+      canSyncFavorites: true,
       // Lyrics via the OpenSubsonic getLyricsBySongId extension (Navidrome),
       // with a legacy getLyrics fallback.
       canLyrics: true,
@@ -249,13 +250,14 @@ abstract final class MusicProviders {
       canRemoveOfflineCopy: true,
       canDeleteLocalFile: false,
       canDeleteRemoteItem: false,
-      // Subsonic/Navidrome playlists aren't synced yet; its tracks can still be
-      // added to local Linthra playlists.
-      canListPlaylists: false,
-      canCreatePlaylist: false,
-      canEditPlaylist: false,
-      canDeletePlaylist: false,
-      canSyncPlaylists: false,
+      // Subsonic/Navidrome playlists are imported, created, edited, and (behind
+      // an explicit confirmation) deleted on the server via the Subsonic
+      // playlist API; its tracks can also be added to local Linthra playlists.
+      canListPlaylists: true,
+      canCreatePlaylist: true,
+      canEditPlaylist: true,
+      canDeletePlaylist: true,
+      canSyncPlaylists: true,
     ),
   );
 

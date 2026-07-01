@@ -1,10 +1,12 @@
 # Playlists & safe song removal
 
 This document describes how playlists work in Linthra, how (and how far) they
-sync with Jellyfin, and the deliberately-separated model for removing or
-deleting songs. The guiding principle throughout is safety: **"remove from
-Linthra" and "delete from your source/server/device" are different actions, and
-Linthra never silently destroys your real music files or server items.**
+sync with a server (Jellyfin or Subsonic/Navidrome), and the
+deliberately-separated model for removing or deleting songs. The guiding
+principle throughout is safety: **"remove from Linthra" and "delete from your
+source/server/device" are different actions, and Linthra never silently destroys
+your real music files or server items.** Linthra also works with **no server at
+all** — local-only playlists and favourites live entirely on-device.
 
 ## Playlists
 
@@ -79,19 +81,44 @@ server write never throws out of an edit — the local change stands and the
 playlist's sync state flips to `syncFailed` so you can see it didn't reach the
 server.
 
-Only Jellyfin tracks can be added to a Jellyfin playlist; adding a non-Jellyfin
-track is declined with a friendly message so a synced playlist stays consistent
-with the server. Local Linthra playlists can hold tracks from any source.
+Only same-provider tracks can be added to a synced playlist (a Jellyfin playlist
+holds only Jellyfin tracks, a Navidrome playlist only Navidrome tracks); adding a
+different-source track is declined with a friendly message so a synced playlist
+stays consistent with the server. Local Linthra playlists can hold tracks from
+any source.
+
+## Subsonic / Navidrome playlist sync
+
+Signing in to Navidrome (or another Subsonic-compatible server) works exactly
+like Jellyfin: your server playlists are imported on app launch and on every
+**Sync library** (shown with a subtle “· Navidrome” source tag), and you can
+create a playlist that mirrors to the server (toggle it in the create dialog when
+signed in). The Subsonic playlist API lets Navidrome do a little **more** than
+Jellyfin today:
+
+- **List / import** remote playlists and their tracks (remote ids preserved,
+  order preserved, no duplicates on repeated sync).
+- **Create** a Navidrome playlist from Linthra (`createPlaylist`).
+- **Add / remove / reorder** tracks in a synced playlist. Subsonic replaces the
+  full ordered song list in one idempotent `createPlaylist` call, so add, remove,
+  **and reorder** all reach the server.
+- **Rename** a synced playlist (`updatePlaylist`) — pushed to the server.
+- **Delete** a synced playlist from the server (`deletePlaylist`) — only behind
+  the same explicit delete confirmation as every other provider.
+
+Both providers run through the same provider-agnostic playlist repository, which
+dispatches each remote operation to the signed-in provider that owns the
+playlist — so a user connected to both keeps each server's playlists cleanly
+scoped (a Jellyfin sign-out never drops Navidrome playlists, and vice-versa).
 
 ### Write-sync limitations (documented on purpose)
 
-- **Rename** and **reorder** of a *synced* playlist are local-only for now; they
-  are not pushed to the server, and a refresh re-adopts the server's name/order.
+- **Rename** and **reorder** of a *synced Jellyfin* playlist are local-only for
+  now; they are not pushed to the server, and a refresh re-adopts the server's
+  name/order. (Navidrome pushes both, as noted above.)
 - Server membership is treated as the source of truth on refresh, so a change
   that failed to push (marked `syncFailed`) may be reconciled to the server
   state on the next refresh.
-- Subsonic/Navidrome playlist sync is not implemented yet (its tracks can still
-  be added to local Linthra playlists).
 
 ## Safe song removal / deletion
 
@@ -160,14 +187,14 @@ are shown:
 | `canRemoveOfflineCopy` | — (already local) | ✅ | ✅ |
 | `canDeleteLocalFile` | ❌ (not wired up) | ❌ | ❌ |
 | `canDeleteRemoteItem` | ❌ | ❌ (not enabled) | ❌ |
-| `canFavoriteTracks` | ✅ | ✅ | ❌ |
-| `canReadFavoriteState` | ✅ | ✅ | ❌ |
-| `canSyncFavorites` | ❌ (local-only) | ✅ | ❌ |
-| `canListPlaylists` | ❌ | ✅ | ❌ |
-| `canCreatePlaylist` | ✅ | ✅ | ❌ |
-| `canEditPlaylist` | ✅ | ✅ | ❌ |
-| `canDeletePlaylist` | ✅ | ✅ | ❌ |
-| `canSyncPlaylists` | ❌ | ✅ | ❌ |
+| `canFavoriteTracks` | ✅ | ✅ | ✅ |
+| `canReadFavoriteState` | ✅ | ✅ | ✅ |
+| `canSyncFavorites` | ❌ (local-only) | ✅ | ✅ |
+| `canListPlaylists` | ❌ | ✅ | ✅ |
+| `canCreatePlaylist` | ✅ | ✅ | ✅ |
+| `canEditPlaylist` | ✅ | ✅ | ✅ |
+| `canDeletePlaylist` | ✅ | ✅ | ✅ |
+| `canSyncPlaylists` | ❌ | ✅ | ✅ |
 
 ## Safety guarantees
 
@@ -184,8 +211,7 @@ are shown:
 
 ## Future work
 
-- Push rename/reorder of synced Jellyfin playlists to the server.
+- Push rename/reorder of synced Jellyfin playlists to the server (Navidrome
+  already does).
 - Safe, SAF-gated device-file deletion for local tracks.
-- Optional, clearly-confirmed Jellyfin server-item deletion for users with
-  permission.
-- Subsonic/Navidrome playlist sync.
+- Optional, clearly-confirmed server-item deletion for users with permission.

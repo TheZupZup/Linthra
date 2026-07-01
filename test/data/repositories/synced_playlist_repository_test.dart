@@ -1,14 +1,21 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/playlist.dart';
+import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/remote_sync_gateway.dart';
 import 'package:linthra/core/repositories/remote_sync_result.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_api.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_exception.dart';
 import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
+import 'package:linthra/data/repositories/jellyfin_playlist_gateway.dart';
+import 'package:linthra/data/repositories/subsonic_playlist_gateway.dart';
 import 'package:linthra/data/repositories/synced_playlist_repository.dart';
 
 import '../../core/sources/jellyfin/fake_jellyfin_client.dart';
+import '../../core/sources/subsonic/fake_subsonic_client.dart';
 
 const String _token = 'super-secret-token-1234567890';
 
@@ -17,6 +24,13 @@ const JellyfinSession _session = JellyfinSession(
   userId: 'user-1',
   accessToken: _token,
   deviceId: 'device-1',
+);
+
+const SubsonicSession _subsonicSession = SubsonicSession(
+  baseUrl: 'https://nav.example.com',
+  username: 'alice',
+  salt: 'salt1',
+  token: 'tok1',
 );
 
 void main() {
@@ -168,8 +182,12 @@ void main() {
       counter = 0;
       repository = SyncedPlaylistRepository(
         store: store,
-        client: client,
-        session: () => _session,
+        gateways: <RemotePlaylistGateway>[
+          JellyfinPlaylistGateway(
+            client: client,
+            session: () => _session,
+          ),
+        ],
         idGenerator: () => 'pl-${counter++}',
         now: () => DateTime(2024, 1, 1),
       );
@@ -477,6 +495,228 @@ void main() {
 
       final Playlist? migrated = await repository.getPlaylistById('p1');
       expect(migrated!.trackIds, <String>['101']); // preserved, not mis-keyed
+    });
+  });
+
+  group('SyncedPlaylistRepository (Subsonic sync)', () {
+    late InMemoryPlaylistStore store;
+    late FakeSubsonicClient client;
+    late SyncedPlaylistRepository repository;
+    late int counter;
+
+    setUp(() {
+      store = InMemoryPlaylistStore();
+      client = FakeSubsonicClient();
+      counter = 0;
+      repository = SyncedPlaylistRepository(
+        store: store,
+        gateways: <RemotePlaylistGateway>[
+          SubsonicPlaylistGateway(
+            client: client,
+            session: () => _subsonicSession,
+          ),
+        ],
+        idGenerator: () => 'pl-${counter++}',
+        now: () => DateTime(2024, 1, 1),
+      );
+    });
+
+    test('creates a Navidrome playlist and records the server id', () async {
+      client.createdPlaylistId = 'p-9';
+      final Playlist created = await repository.createPlaylist(
+        'Server Mix',
+        source: PlaylistSource.subsonic,
+      );
+      expect(client.createCalls.single.name, 'Server Mix');
+      expect(created.source, PlaylistSource.subsonic);
+      expect(created.remoteId, 'p-9');
+      expect(created.syncState, PlaylistSyncState.synced);
+    });
+
+    test('membership changes replace the full ordered song list', () async {
+      client.createdPlaylistId = 'p-1';
+      final Playlist created = await repository.createPlaylist(
+        'Mix',
+        source: PlaylistSource.subsonic,
+      );
+      await repository.addTracks(
+        created.id,
+        <String>['subsonic:a', 'subsonic:b'],
+      );
+      // The server received a full ordered replace (add covers reorder too).
+      expect(client.setSongsCalls.last.playlistId, 'p-1');
+      expect(client.setSongsCalls.last.songIds, <String>['a', 'b']);
+
+      await repository.removeTrack(created.id, 'subsonic:a');
+      expect(client.setSongsCalls.last.songIds, <String>['b']);
+    });
+
+    test('reordering pushes the new order to the server', () async {
+      client.createdPlaylistId = 'p-1';
+      final Playlist created = await repository.createPlaylist(
+        'Mix',
+        source: PlaylistSource.subsonic,
+      );
+      await repository.addTracks(
+        created.id,
+        <String>['subsonic:a', 'subsonic:b', 'subsonic:c'],
+      );
+      // Move 'a' (0) to the end.
+      await repository.reorderTracks(created.id, 0, 3);
+      expect(client.setSongsCalls.last.songIds, <String>['b', 'c', 'a']);
+    });
+
+    test('renaming a synced playlist pushes to the server', () async {
+      client.createdPlaylistId = 'p-1';
+      final Playlist created = await repository.createPlaylist(
+        'Old',
+        source: PlaylistSource.subsonic,
+      );
+      await repository.renamePlaylist(created.id, 'New');
+      expect(client.renameCalls.single, (playlistId: 'p-1', name: 'New'));
+      final Playlist? updated = await repository.getPlaylistById(created.id);
+      expect(updated!.name, 'New');
+      expect(updated.syncState, PlaylistSyncState.synced);
+    });
+
+    test('deleting a synced playlist deletes it on the server', () async {
+      client.createdPlaylistId = 'p-3';
+      final Playlist created = await repository.createPlaylist(
+        'Mix',
+        source: PlaylistSource.subsonic,
+      );
+      await repository.deletePlaylist(created.id);
+      expect(client.deletedPlaylistIds, <String>['p-3']);
+      expect(await repository.getAllPlaylists(), isEmpty);
+    });
+
+    test('deleting a local playlist never touches the server', () async {
+      // Non-destructive guarantee: a local-only playlist delete makes no remote
+      // call, so nothing can be removed from Navidrome by accident.
+      final Playlist local = await repository.createPlaylist('Local Mix');
+      await repository.deletePlaylist(local.id);
+      expect(client.deletedPlaylistIds, isEmpty);
+    });
+
+    test('imports Navidrome playlists on refresh, order preserved', () async {
+      client.playlists = <SubsonicPlaylistDto>[
+        const SubsonicPlaylistDto(id: 'p-77', name: 'From Server'),
+      ];
+      client.playlistSongIds = <String, List<String>>{
+        'p-77': <String>['c', 'a', 'b'],
+      };
+
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+
+      expect(result.didSync, isTrue);
+      expect(result.playlistCount, 1);
+      final List<Playlist> all = await repository.getAllPlaylists();
+      expect(all.single.name, 'From Server');
+      expect(all.single.remoteId, 'p-77');
+      expect(all.single.source, PlaylistSource.subsonic);
+      // Server song ids are namespaced to subsonic: uris, order preserved.
+      expect(all.single.trackIds,
+          <String>['subsonic:c', 'subsonic:a', 'subsonic:b']);
+    });
+
+    test('repeated refresh does not duplicate the imported playlist', () async {
+      client.playlists = <SubsonicPlaylistDto>[
+        const SubsonicPlaylistDto(id: 'p-1', name: 'Mix'),
+      ];
+      client.playlistSongIds = <String, List<String>>{
+        'p-1': <String>['a'],
+      };
+      await repository.refreshFromRemote();
+      await repository.refreshFromRemote();
+      final List<Playlist> all = await repository.getAllPlaylists();
+      expect(all.where((Playlist p) => p.remoteId == 'p-1'), hasLength(1));
+    });
+
+    test('a failed membership push flags syncFailed without throwing',
+        () async {
+      client.createdPlaylistId = 'p-2';
+      final Playlist created = await repository.createPlaylist(
+        'Mix',
+        source: PlaylistSource.subsonic,
+      );
+      client.playlistError = SubsonicException.notReachable();
+      await repository.addTrack(created.id, 'subsonic:a');
+      final Playlist? updated = await repository.getPlaylistById(created.id);
+      // The local add still stands, but the sync state is honest.
+      expect(updated!.trackIds, contains('subsonic:a'));
+      expect(updated.syncState, PlaylistSyncState.syncFailed);
+    });
+
+    test('a Subsonic playlist deleted on the server is dropped on refresh',
+        () async {
+      client.playlists = <SubsonicPlaylistDto>[
+        const SubsonicPlaylistDto(id: 'p-1', name: 'Mix'),
+      ];
+      client.playlistSongIds = <String, List<String>>{
+        'p-1': <String>['a'],
+      };
+      await repository.refreshFromRemote();
+      expect(await repository.getAllPlaylists(), hasLength(1));
+
+      client.playlists = <SubsonicPlaylistDto>[];
+      client.playlistSongIds = <String, List<String>>{};
+      await repository.refreshFromRemote();
+      expect(await repository.getAllPlaylists(), isEmpty);
+    });
+  });
+
+  group('SyncedPlaylistRepository (multi-provider refresh)', () {
+    test('refresh keeps each provider\'s playlists scoped to its own server',
+        () async {
+      final store = InMemoryPlaylistStore();
+      final jellyfin = FakeJellyfinClient();
+      final subsonic = FakeSubsonicClient();
+      int counter = 0;
+      final repository = SyncedPlaylistRepository(
+        store: store,
+        gateways: <RemotePlaylistGateway>[
+          JellyfinPlaylistGateway(client: jellyfin, session: () => _session),
+          SubsonicPlaylistGateway(
+            client: subsonic,
+            session: () => _subsonicSession,
+          ),
+        ],
+        idGenerator: () => 'pl-${counter++}',
+        now: () => DateTime(2024, 1, 1),
+      );
+
+      jellyfin.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'j-1', name: 'Jelly Mix'),
+      ];
+      jellyfin.playlistEntries['j-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+      ];
+      subsonic.playlists = <SubsonicPlaylistDto>[
+        const SubsonicPlaylistDto(id: 's-1', name: 'Nav Mix'),
+      ];
+      subsonic.playlistSongIds = <String, List<String>>{
+        's-1': <String>['x'],
+      };
+
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+
+      expect(result.didSync, isTrue);
+      expect(result.playlistCount, 2);
+      final List<Playlist> all = await repository.getAllPlaylists();
+      final Playlist jelly =
+          all.firstWhere((Playlist p) => p.source == PlaylistSource.jellyfin);
+      final Playlist nav =
+          all.firstWhere((Playlist p) => p.source == PlaylistSource.subsonic);
+      expect(jelly.trackIds, <String>['jellyfin:a']);
+      expect(nav.trackIds, <String>['subsonic:x']);
+
+      // The Subsonic server drops its playlist; the Jellyfin one must survive.
+      subsonic.playlists = <SubsonicPlaylistDto>[];
+      subsonic.playlistSongIds = <String, List<String>>{};
+      await repository.refreshFromRemote();
+      final List<Playlist> after = await repository.getAllPlaylists();
+      expect(after, hasLength(1));
+      expect(after.single.source, PlaylistSource.jellyfin);
     });
   });
 }
