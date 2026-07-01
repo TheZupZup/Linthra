@@ -242,6 +242,8 @@ class _CapabilityChips extends StatelessWidget {
       if (caps.canCast) (icon: Icons.cast, label: 'Cast'),
       if (caps.canFavoriteTracks)
         (icon: Icons.favorite_border, label: 'Favorites'),
+      if (caps.canListPlaylists)
+        (icon: Icons.queue_music_outlined, label: 'Playlists'),
       if (caps.canLyrics) (icon: Icons.lyrics_outlined, label: 'Lyrics'),
     ];
     return Wrap(

@@ -68,9 +68,12 @@ abstract interface class PlaylistRepository {
   /// action can report "synced N playlists" or "playlists could not be loaded".
   Future<PlaylistSyncResult> refreshFromRemote();
 
-  /// Drops the server-synced (remote-source) playlists, keeping local-only ones.
+  /// Drops server-synced (remote-source) playlists, keeping local-only ones.
   /// Called on sign-out so one account's imported playlists can't linger — or be
-  /// confused with a different account's — after disconnecting. A no-op when
-  /// there are none. Never throws.
-  Future<void> clearRemote();
+  /// confused with a different account's — after disconnecting.
+  ///
+  /// Pass [source] to drop only that provider's synced playlists, leaving
+  /// another still-connected provider's untouched; omit it to drop every
+  /// remote-source playlist. A no-op when there are none. Never throws.
+  Future<void> clearRemote({PlaylistSource? source});
 }

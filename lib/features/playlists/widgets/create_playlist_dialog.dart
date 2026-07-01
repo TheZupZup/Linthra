@@ -9,23 +9,26 @@ typedef PlaylistEdit = ({
   PlaylistSource source,
 });
 
+/// A server the new playlist can be synced to (a connected remote provider).
+typedef PlaylistSyncTarget = ({PlaylistSource source, String label});
+
 /// Shows the create-playlist dialog and resolves to the entered name (+ optional
 /// description and chosen [PlaylistSource]), or `null` if cancelled or the name
 /// was blank.
 ///
-/// When [canSyncToJellyfin] is true a "Sync with Jellyfin" switch is offered so
-/// the new playlist mirrors to the signed-in server; otherwise the playlist is
-/// local-only.
+/// [syncTargets] are the servers the new playlist can mirror to (one per
+/// connected remote provider). With none it is local-only; with any, the dialog
+/// offers a "sync to" choice defaulting to on-device.
 Future<PlaylistEdit?> showCreatePlaylistDialog(
   BuildContext context, {
-  bool canSyncToJellyfin = false,
+  List<PlaylistSyncTarget> syncTargets = const <PlaylistSyncTarget>[],
 }) {
   return showDialog<PlaylistEdit>(
     context: context,
     builder: (BuildContext context) => _PlaylistEditDialog(
       title: 'New playlist',
       confirmLabel: 'Create',
-      canSyncToJellyfin: canSyncToJellyfin,
+      syncTargets: syncTargets,
     ),
   );
 }
@@ -54,14 +57,14 @@ class _PlaylistEditDialog extends StatefulWidget {
     required this.confirmLabel,
     this.initialName,
     this.initialDescription,
-    this.canSyncToJellyfin = false,
+    this.syncTargets = const <PlaylistSyncTarget>[],
   });
 
   final String title;
   final String confirmLabel;
   final String? initialName;
   final String? initialDescription;
-  final bool canSyncToJellyfin;
+  final List<PlaylistSyncTarget> syncTargets;
 
   @override
   State<_PlaylistEditDialog> createState() => _PlaylistEditDialogState();
@@ -72,7 +75,10 @@ class _PlaylistEditDialogState extends State<_PlaylistEditDialog> {
       TextEditingController(text: widget.initialName ?? '');
   late final TextEditingController _description =
       TextEditingController(text: widget.initialDescription ?? '');
-  bool _syncToJellyfin = false;
+
+  /// The chosen destination: [PlaylistSource.local] (default) or a connected
+  /// remote provider's source.
+  PlaylistSource _target = PlaylistSource.local;
   bool _canSubmit = false;
 
   @override
@@ -105,8 +111,7 @@ class _PlaylistEditDialogState extends State<_PlaylistEditDialog> {
       (
         name: name,
         description: description.isEmpty ? null : description,
-        source:
-            _syncToJellyfin ? PlaylistSource.jellyfin : PlaylistSource.local,
+        source: _target,
       ),
     );
   }
@@ -136,17 +141,7 @@ class _PlaylistEditDialogState extends State<_PlaylistEditDialog> {
               labelText: 'Description (optional)',
             ),
           ),
-          if (widget.canSyncToJellyfin) ...<Widget>[
-            const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              value: _syncToJellyfin,
-              onChanged: (bool value) =>
-                  setState(() => _syncToJellyfin = value),
-              title: const Text('Sync with Jellyfin'),
-              subtitle: const Text('Create this playlist on your server too.'),
-            ),
-          ],
+          ..._syncTargetControls(),
         ],
       ),
       actions: <Widget>[
@@ -160,5 +155,57 @@ class _PlaylistEditDialogState extends State<_PlaylistEditDialog> {
         ),
       ],
     );
+  }
+
+  /// The "sync to server" controls: nothing for a local-only setup, a single
+  /// switch when one server is connected, or an on-device + per-server radio
+  /// group when more than one is.
+  List<Widget> _syncTargetControls() {
+    final List<PlaylistSyncTarget> targets = widget.syncTargets;
+    if (targets.isEmpty) return const <Widget>[];
+
+    if (targets.length == 1) {
+      final PlaylistSyncTarget target = targets.first;
+      return <Widget>[
+        const SizedBox(height: 8),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: _target == target.source,
+          onChanged: (bool value) => setState(
+            () => _target = value ? target.source : PlaylistSource.local,
+          ),
+          title: Text('Sync with ${target.label}'),
+          subtitle: const Text('Create this playlist on your server too.'),
+        ),
+      ];
+    }
+
+    return <Widget>[
+      const SizedBox(height: 8),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          'Sync to',
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
+      ),
+      RadioListTile<PlaylistSource>(
+        contentPadding: EdgeInsets.zero,
+        value: PlaylistSource.local,
+        groupValue: _target,
+        onChanged: (PlaylistSource? value) =>
+            setState(() => _target = value ?? PlaylistSource.local),
+        title: const Text('On this device only'),
+      ),
+      for (final PlaylistSyncTarget target in targets)
+        RadioListTile<PlaylistSource>(
+          contentPadding: EdgeInsets.zero,
+          value: target.source,
+          groupValue: _target,
+          onChanged: (PlaylistSource? value) =>
+              setState(() => _target = value ?? PlaylistSource.local),
+          title: Text(target.label),
+        ),
+    ];
   }
 }

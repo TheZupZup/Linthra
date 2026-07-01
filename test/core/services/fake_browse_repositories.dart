@@ -77,7 +77,8 @@ class FakePlaylistRepository implements PlaylistRepository {
   Future<PlaylistSyncResult> refreshFromRemote() => throw UnimplementedError();
 
   @override
-  Future<void> clearRemote() => throw UnimplementedError();
+  Future<void> clearRemote({PlaylistSource? source}) =>
+      throw UnimplementedError();
 }
 
 /// Minimal local-only [FavoritesRepository] for browse-tree tests: holds a fixed
@@ -111,7 +112,7 @@ class FakeFavoritesRepository implements FavoritesRepository {
       const FavoritesSyncResult.notConfigured();
 
   @override
-  Future<void> clearRemote() async {}
+  Future<void> clearRemote({String? providerScheme}) async {}
 }
 
 /// Minimal [DownloadRepository] for browse-tree tests: reports a fixed set of

@@ -1,63 +1,56 @@
 import 'dart:async';
 
-import '../../core/models/jellyfin_session.dart';
 import '../../core/models/playlist.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/playlist_repository.dart';
 import '../../core/repositories/playlist_store.dart';
+import '../../core/repositories/remote_sync_gateway.dart';
 import '../../core/repositories/remote_sync_result.dart';
-import '../../core/sources/jellyfin/jellyfin_api.dart';
-import '../../core/sources/jellyfin/jellyfin_client.dart';
-import '../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../core/sources/music_provider.dart';
+import '../../core/sources/subsonic/subsonic_track_mapper.dart';
 
 /// The app's [PlaylistRepository]: a local, persisted set of playlists with
-/// optional best-effort Jellyfin sync layered on top.
+/// optional best-effort server sync layered on top, across any number of
+/// providers.
 ///
 /// Local playlists never touch a server. A playlist whose [Playlist.source] is
-/// [PlaylistSource.jellyfin] is mirrored: create, membership changes (add /
-/// remove track), and delete are pushed to the signed-in server best-effort,
-/// and [refreshFromRemote] imports server playlists and adopts server
-/// membership for already-synced ones. A server failure never throws out of an
-/// editing method — the local change stands and the playlist's
-/// [Playlist.syncState] flips to [PlaylistSyncState.syncFailed] with a friendly,
-/// secret-free [Playlist.lastSyncError], so the UI shows an honest status rather
-/// than pretending the sync worked.
+/// a remote provider ([PlaylistSource.jellyfin], [PlaylistSource.subsonic]) is
+/// mirrored through that provider's [RemotePlaylistGateway]: create, membership
+/// changes (add / remove / reorder), rename, and delete are pushed best-effort —
+/// each provider using whatever its API supports — and [refreshFromRemote]
+/// imports server playlists and adopts server membership for already-synced
+/// ones. A server failure never throws out of an editing method: the local
+/// change stands and the playlist's [Playlist.syncState] flips to
+/// [PlaylistSyncState.syncFailed] with a friendly, secret-free
+/// [Playlist.lastSyncError], so the UI shows an honest status.
 ///
-/// Security: only non-secret metadata and track ids are stored or sent. The
-/// session (with its token) is read lazily through [_session] for the request —
-/// never logged or persisted here.
+/// Security: only non-secret metadata and track ids are stored or sent. Sessions
+/// (with their tokens) live behind the gateways — never logged or persisted here.
 class SyncedPlaylistRepository implements PlaylistRepository {
   SyncedPlaylistRepository({
     required PlaylistStore store,
-    JellyfinClient? client,
-    JellyfinSession? Function()? session,
+    List<RemotePlaylistGateway> gateways = const <RemotePlaylistGateway>[],
     String Function()? idGenerator,
     DateTime Function()? now,
     Future<List<Track>> Function()? catalogForMigration,
   })  : _store = store,
-        _client = client,
-        _session = session,
+        _gateways = gateways,
         _newId = idGenerator ?? _defaultIdGenerator(),
         _now = now ?? DateTime.now,
         _catalogForMigration = catalogForMigration;
 
   final PlaylistStore _store;
 
+  /// The per-provider server seams. Empty for local-only (tests, the data-layer
+  /// default); the composition root supplies one per remote provider.
+  final List<RemotePlaylistGateway> _gateways;
+
   /// Supplies the current catalog for the one-time bare-id → uri membership
   /// migration of *local* playlists, or null when none is needed (tests, the
-  /// data-layer default). A Jellyfin playlist needs no oracle — its bare ids are
-  /// unambiguously Jellyfin items.
+  /// data-layer default). A remote-synced playlist needs no oracle — its bare
+  /// ids are unambiguously that provider's items.
   final Future<List<Track>> Function()? _catalogForMigration;
-
-  /// The Jellyfin HTTP seam, or `null` when playlists are local-only (tests, the
-  /// data-layer default). Read lazily alongside [_session].
-  final JellyfinClient? _client;
-
-  /// Supplies the live signed-in session, or `null` when not connected. Read at
-  /// call time so signing in/out is picked up without rebuilding the repository.
-  final JellyfinSession? Function()? _session;
 
   final String Function() _newId;
   final DateTime Function() _now;
@@ -89,9 +82,14 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     await _migrateLegacyTrackIdsOnce();
   }
 
-  JellyfinSession? _liveSession() => _session?.call();
-
-  bool get _canSync => _client != null && _liveSession() != null;
+  /// The connected gateway that serves [source], or `null` when that provider is
+  /// local-only, not registered, or not signed in.
+  RemotePlaylistGateway? _gatewayForSource(PlaylistSource source) {
+    for (final RemotePlaylistGateway gateway in _gateways) {
+      if (gateway.source == source && gateway.isConnected) return gateway;
+    }
+    return null;
+  }
 
   @override
   Stream<List<Playlist>> get playlistsStream async* {
@@ -123,12 +121,14 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   }) async {
     await _ensureLoaded();
     final DateTime now = _now();
-    final bool remote = source == PlaylistSource.jellyfin && _canSync;
+    final RemotePlaylistGateway? gateway =
+        source == PlaylistSource.local ? null : _gatewayForSource(source);
+    final bool remote = gateway != null;
     Playlist playlist = Playlist(
       id: _newId(),
       name: name,
       description: description,
-      source: remote ? PlaylistSource.jellyfin : PlaylistSource.local,
+      source: remote ? source : PlaylistSource.local,
       createdAt: now,
       updatedAt: now,
       syncState: remote
@@ -138,7 +138,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     _playlists = <Playlist>[..._playlists, playlist];
     await _persistAndEmit();
     if (remote) {
-      playlist = await _pushCreate(playlist);
+      playlist = await _pushCreate(playlist, gateway);
     }
     return playlist;
   }
@@ -150,8 +150,6 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     String? description,
   }) async {
     await _ensureLoaded();
-    // Rename/description are local-only for now (not pushed to the server); see
-    // docs/playlists-and-delete.md for the documented sync limitations.
     await _mutate(
       id,
       (Playlist p) => p.copyWith(
@@ -160,6 +158,33 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         updatedAt: _now(),
       ),
     );
+    // Push the rename only for a synced playlist whose provider supports it
+    // (Subsonic does; Jellyfin rename stays local-only — a refresh re-adopts the
+    // server name). See docs/playlists-and-delete.md.
+    final Playlist? playlist = _byId(id);
+    if (playlist == null || !playlist.isRemote || playlist.remoteId == null) {
+      return;
+    }
+    final RemotePlaylistGateway? gateway = _gatewayForSource(playlist.source);
+    if (gateway == null || !gateway.pushesRename) return;
+    try {
+      await gateway.renameRemote(playlist.remoteId!, name);
+      await _mutate(
+        id,
+        (Playlist p) => p.copyWith(
+          syncState: PlaylistSyncState.synced,
+          lastSyncError: () => null,
+        ),
+      );
+    } on RemoteSyncException catch (error) {
+      await _mutate(
+        id,
+        (Playlist p) => p.copyWith(
+          syncState: PlaylistSyncState.syncFailed,
+          lastSyncError: () => error.message,
+        ),
+      );
+    }
   }
 
   @override
@@ -172,16 +197,18 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         if (p.id != id) p,
     ];
     await _persistAndEmit();
-    // Best-effort server delete for a synced playlist; a failure can't restore
-    // the local copy, so it is intentionally swallowed (the local delete stands).
-    if (playlist.isRemote && playlist.remoteId != null && _canSync) {
-      final JellyfinClient client = _client!;
-      final JellyfinSession session = _liveSession()!;
-      try {
-        await client.deletePlaylist(session, playlist.remoteId!);
-      } on JellyfinException catch (_) {
-        // Swallowed: the playlist is already gone locally. It may reappear on a
-        // later refresh if the server still has it (documented limitation).
+    // Best-effort server delete for a synced playlist (only ever reached after
+    // the UI's explicit delete confirmation). A failure can't restore the local
+    // copy, so it is intentionally swallowed — the local delete stands.
+    if (playlist.isRemote && playlist.remoteId != null) {
+      final RemotePlaylistGateway? gateway = _gatewayForSource(playlist.source);
+      if (gateway != null) {
+        try {
+          await gateway.deleteRemote(playlist.remoteId!);
+        } on RemoteSyncException catch (_) {
+          // Swallowed: the playlist is already gone locally. It may reappear on a
+          // later refresh if the server still has it (documented limitation).
+        }
       }
     }
   }
@@ -207,13 +234,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       playlistId,
       (Playlist p) => p.copyWith(trackIds: updated, updatedAt: _now()),
     );
-    await _pushMembership(
-      playlistId,
-      (JellyfinClient client, JellyfinSession session, String remoteId) =>
-          // The server speaks bare item ids; a synced playlist only holds
-          // jellyfin: uris, so map them back at the request boundary.
-          client.addItemsToPlaylist(session, remoteId, _jellyfinItemIds(added)),
-    );
+    await _pushMembership(playlistId, added: added, removed: const <String>[]);
   }
 
   @override
@@ -231,9 +252,8 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     );
     await _pushMembership(
       playlistId,
-      (JellyfinClient client, JellyfinSession session, String remoteId) =>
-          client.removeItemsFromPlaylist(
-              session, remoteId, _jellyfinItemIds(<String>[trackUri])),
+      added: const <String>[],
+      removed: <String>[trackUri],
     );
   }
 
@@ -256,11 +276,23 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     if (target == oldIndex) return;
     final String moved = ids.removeAt(oldIndex);
     ids.insert(target, moved);
-    // Reorder is local-only for now (Jellyfin item-move sync is a documented
-    // follow-up); a refresh of a synced playlist re-adopts the server order.
     await _mutate(
       playlistId,
       (Playlist p) => p.copyWith(trackIds: ids, updatedAt: _now()),
+    );
+    // Push reorder only for a provider that mirrors order (Subsonic replaces the
+    // full ordered list; Jellyfin reorder stays local-only, and a refresh
+    // re-adopts the server order).
+    final Playlist? current = _byId(playlistId);
+    if (current == null || !current.isRemote || current.remoteId == null) {
+      return;
+    }
+    final RemotePlaylistGateway? gateway = _gatewayForSource(current.source);
+    if (gateway == null || !gateway.pushesReorder) return;
+    await _pushMembership(
+      playlistId,
+      added: const <String>[],
+      removed: const <String>[],
     );
   }
 
@@ -283,77 +315,79 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   @override
   Future<PlaylistSyncResult> refreshFromRemote() async {
     await _ensureLoaded();
-    final JellyfinClient? client = _client;
-    final JellyfinSession? session = _liveSession();
-    if (client == null || session == null) {
+    final List<RemotePlaylistGateway> connected = <RemotePlaylistGateway>[
+      for (final RemotePlaylistGateway g in _gateways)
+        if (g.isConnected) g,
+    ];
+    if (connected.isEmpty) {
       return const PlaylistSyncResult.notConfigured();
     }
-    final List<JellyfinPlaylistDto> remote;
-    try {
-      remote = await client.fetchPlaylists(session);
-    } on JellyfinException catch (_) {
-      // Offline or transient: keep what we have and report a friendly failure.
-      return const PlaylistSyncResult.failed();
-    }
 
-    final Set<String> serverIds = <String>{
-      for (final JellyfinPlaylistDto dto in remote) dto.id,
-    };
-    final Map<String, Playlist> byRemoteId = <String, Playlist>{
-      for (final Playlist p in _playlists)
-        if (p.remoteId != null) p.remoteId!: p,
-    };
+    List<Playlist> next = <Playlist>[..._playlists];
+    bool changed = false;
+    int total = 0;
+    int successCount = 0;
 
-    // Start from the playlists we keep, dropping any synced Jellyfin playlist
-    // whose server copy is gone — it was deleted on the server, and the server
-    // is the source of truth for synced playlists. Local-only playlists and
-    // not-yet-created ones (no remoteId) are always kept.
-    final List<Playlist> next = <Playlist>[
-      for (final Playlist p in _playlists)
-        if (!_isStaleSyncedRemote(p, serverIds)) p,
-    ];
-    bool changed = next.length != _playlists.length;
-    for (final JellyfinPlaylistDto dto in remote) {
-      List<String> trackUris;
+    for (final RemotePlaylistGateway gateway in connected) {
+      final List<RemotePlaylistData> remote;
       try {
-        final List<JellyfinPlaylistEntry> entries =
-            await client.fetchPlaylistEntries(session, dto.id);
-        // The server returns bare item ids; namespace them to jellyfin: uris so
-        // imported membership keys the same way local edits and the catalog do.
-        trackUris = <String>[
-          for (final JellyfinPlaylistEntry e in entries) _jellyfinUri(e.itemId),
-        ];
-      } on JellyfinException catch (_) {
-        // Skip this playlist's membership refresh; keep the rest going.
+        remote = await gateway.fetchPlaylists();
+      } on RemoteSyncException {
+        // Offline or transient for this provider: keep its synced playlists and
+        // move on to the others.
         continue;
       }
+      successCount++;
+      total += remote.length;
 
-      final Playlist? existing = byRemoteId[dto.id];
-      if (existing == null) {
-        next.add(
-          Playlist(
-            id: _newId(),
-            name: dto.name,
-            source: PlaylistSource.jellyfin,
-            remoteId: dto.id,
-            trackIds: trackUris,
-            createdAt: _now(),
-            updatedAt: _now(),
-            syncState: PlaylistSyncState.synced,
-          ),
-        );
-        changed = true;
-      } else {
-        final int index = next.indexWhere((Playlist p) => p.id == existing.id);
-        if (index >= 0) {
-          next[index] = existing.copyWith(
-            name: dto.name,
-            trackIds: trackUris,
-            syncState: PlaylistSyncState.synced,
-            lastSyncError: () => null,
-            updatedAt: _now(),
-          );
+      final Set<String> serverIds = <String>{
+        for (final RemotePlaylistData dto in remote) dto.remoteId,
+      };
+      // Drop this provider's synced playlists whose server copy is gone (server
+      // is the source of truth for synced playlists). Local-only playlists and
+      // other providers' playlists are never touched.
+      final int before = next.length;
+      next = <Playlist>[
+        for (final Playlist p in next)
+          if (!_isStaleSyncedRemote(p, gateway.source, serverIds)) p,
+      ];
+      if (next.length != before) changed = true;
+
+      final Map<String, Playlist> byRemoteId = <String, Playlist>{
+        for (final Playlist p in next)
+          if (p.source == gateway.source && p.remoteId != null) p.remoteId!: p,
+      };
+
+      for (final RemotePlaylistData dto in remote) {
+        final Playlist? existing = byRemoteId[dto.remoteId];
+        if (existing == null) {
+          next = <Playlist>[
+            ...next,
+            Playlist(
+              id: _newId(),
+              name: dto.name,
+              source: gateway.source,
+              remoteId: dto.remoteId,
+              trackIds: dto.trackUris,
+              createdAt: _now(),
+              updatedAt: _now(),
+              syncState: PlaylistSyncState.synced,
+            ),
+          ];
           changed = true;
+        } else {
+          final int index =
+              next.indexWhere((Playlist p) => p.id == existing.id);
+          if (index >= 0) {
+            next[index] = existing.copyWith(
+              name: dto.name,
+              trackIds: dto.trackUris,
+              syncState: PlaylistSyncState.synced,
+              lastSyncError: () => null,
+              updatedAt: _now(),
+            );
+            changed = true;
+          }
         }
       }
     }
@@ -362,27 +396,34 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       _playlists = next;
       await _persistAndEmit();
     }
-    return PlaylistSyncResult.synced(remote.length);
+    if (successCount == 0) return const PlaylistSyncResult.failed();
+    return PlaylistSyncResult.synced(total);
   }
 
   @override
-  Future<void> clearRemote() async {
+  Future<void> clearRemote({PlaylistSource? source}) async {
     await _ensureLoaded();
     final int before = _playlists.length;
     _playlists = <Playlist>[
       for (final Playlist p in _playlists)
-        if (p.source != PlaylistSource.jellyfin) p,
+        if (p.source == PlaylistSource.local ||
+            (source != null && p.source != source))
+          p,
     ];
     if (_playlists.length != before) {
       await _persistAndEmit();
     }
   }
 
-  /// Whether [p] is a synced Jellyfin playlist (has a server [Playlist.remoteId])
-  /// that no longer exists in [serverIds] — i.e. it was deleted on the server, so
-  /// its local mirror should be dropped on the next refresh.
-  static bool _isStaleSyncedRemote(Playlist p, Set<String> serverIds) {
-    return p.source == PlaylistSource.jellyfin &&
+  /// Whether [p] is a synced playlist of [source] (has a server
+  /// [Playlist.remoteId]) that no longer exists in [serverIds] — i.e. it was
+  /// deleted on the server, so its local mirror should be dropped on refresh.
+  static bool _isStaleSyncedRemote(
+    Playlist p,
+    PlaylistSource source,
+    Set<String> serverIds,
+  ) {
+    return p.source == source &&
         p.remoteId != null &&
         !serverIds.contains(p.remoteId);
   }
@@ -392,13 +433,12 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// Re-keys a pre-uri store's bare-`id` membership onto the provider-namespaced
   /// [Track.uri], once, after the catalog is available.
   ///
-  /// A Jellyfin-synced playlist could only ever hold Jellyfin items, so each of
-  /// its bare ids is namespaced with the `jellyfin:` scheme unambiguously. A
-  /// local playlist's members are resolved against the catalog: a local path is
+  /// A remote-synced playlist could only ever hold its provider's items, so each
+  /// of its bare ids is namespaced with that scheme unambiguously. A local
+  /// playlist's members are resolved against the catalog: a local path is
   /// already its own uri; a bare remote id adopts its catalog owner's uri when a
   /// single provider exposes it, and is left untouched when more than one does —
-  /// or when the catalog doesn't have it — so a member is never mis-attributed
-  /// to the wrong provider. Persists locally only (never pushes to the server).
+  /// or when the catalog doesn't have it. Persists locally only (never pushes).
   Future<void> _migrateLegacyTrackIdsOnce() async {
     if (_migratedLegacyTrackIds) return;
     final bool anyMembers =
@@ -408,8 +448,6 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       return;
     }
 
-    // Resolve local-playlist members against the catalog. A Jellyfin playlist
-    // needs no oracle, so only fetch when a local playlist actually has members.
     Set<String> catalogUris = const <String>{};
     Map<String, String?> ownerByBareId = const <String, String?>{};
     final Future<List<Track>> Function()? oracle = _catalogForMigration;
@@ -456,8 +494,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
 
   /// The migrated membership for [playlist], or its existing list unchanged when
   /// nothing needed re-keying. Collapses any duplicate the re-key introduces
-  /// (preserving first-seen order), so a playlist can't end up with two entries
-  /// for the same track.
+  /// (preserving first-seen order).
   List<String> _migrateTrackIds(
     Playlist playlist,
     Set<String> catalogUris,
@@ -490,41 +527,30 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   ) {
     // Already provider-namespaced (jellyfin:/subsonic:/plex:): nothing to do.
     if (MusicProviders.bareRemoteIdForTrackUri(id) != null) return id;
-    // A synced playlist's bare ids are unambiguously Jellyfin item ids.
-    if (source == PlaylistSource.jellyfin) return _jellyfinUri(id);
+    // A synced playlist's bare ids are unambiguously that provider's items.
+    if (source == PlaylistSource.jellyfin) {
+      return '${JellyfinTrackMapper.uriScheme}$id';
+    }
+    if (source == PlaylistSource.subsonic) {
+      return '${SubsonicTrackMapper.uriScheme}$id';
+    }
     // Local playlist: a local path is already its own uri.
     if (catalogUris.contains(id)) return id;
     // A bare remote id adopts its unique catalog owner (ambiguous/unknown → as-is).
     return ownerByBareId[id] ?? id;
   }
 
-  /// The provider uri for a bare Jellyfin item id (`101` → `jellyfin:101`).
-  static String _jellyfinUri(String itemId) =>
-      '${JellyfinTrackMapper.uriScheme}$itemId';
-
-  /// The bare Jellyfin item ids for the `jellyfin:` uris in [uris], in order.
-  /// Non-Jellyfin uris are dropped: a Jellyfin server playlist can only hold
-  /// Jellyfin items, so this is what the server API is given.
-  static List<String> _jellyfinItemIds(List<String> uris) => <String>[
-        for (final String uri in uris)
-          if (uri.startsWith(JellyfinTrackMapper.uriScheme))
-            uri.substring(JellyfinTrackMapper.uriScheme.length),
-      ];
-
-  /// Pushes a freshly created playlist to the server, returning the updated
+  /// Pushes a freshly created playlist to its server, returning the updated
   /// playlist (with a [Playlist.remoteId] + [PlaylistSyncState.synced] on
   /// success, or [PlaylistSyncState.syncFailed] + a friendly error on failure).
-  Future<Playlist> _pushCreate(Playlist playlist) async {
-    final JellyfinClient? client = _client;
-    final JellyfinSession? session = _liveSession();
-    if (client == null || session == null) return playlist;
+  Future<Playlist> _pushCreate(
+    Playlist playlist,
+    RemotePlaylistGateway gateway,
+  ) async {
     try {
-      final String remoteId = await client.createPlaylist(
-        session,
-        name: playlist.name,
-        // Map the playlist's jellyfin: uris back to the bare item ids the
-        // server API expects (non-Jellyfin uris, if any, are dropped).
-        itemIds: _jellyfinItemIds(playlist.trackIds),
+      final String remoteId = await gateway.createRemotePlaylist(
+        playlist.name,
+        playlist.trackIds,
       );
       return await _mutate(
         playlist.id,
@@ -534,7 +560,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
           lastSyncError: () => null,
         ),
       );
-    } on JellyfinException catch (error) {
+    } on RemoteSyncException catch (error) {
       return _mutate(
         playlist.id,
         (Playlist p) => p.copyWith(
@@ -548,23 +574,28 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// Runs a best-effort membership change against the server for a synced
   /// playlist, flipping its sync state to synced or syncFailed accordingly. A
   /// local-only playlist (or one not yet created on the server) is left alone.
+  ///
+  /// [added]/[removed] are the delta; the current full ordered membership is
+  /// read fresh and passed too, so a full-replace provider (Subsonic) has the
+  /// exact list while an incremental one (Jellyfin) uses the delta.
   Future<void> _pushMembership(
-    String playlistId,
-    Future<void> Function(
-      JellyfinClient client,
-      JellyfinSession session,
-      String remoteId,
-    ) push,
-  ) async {
+    String playlistId, {
+    required List<String> added,
+    required List<String> removed,
+  }) async {
     final Playlist? playlist = _byId(playlistId);
     if (playlist == null || !playlist.isRemote || playlist.remoteId == null) {
       return;
     }
-    final JellyfinClient? client = _client;
-    final JellyfinSession? session = _liveSession();
-    if (client == null || session == null) return;
+    final RemotePlaylistGateway? gateway = _gatewayForSource(playlist.source);
+    if (gateway == null) return;
     try {
-      await push(client, session, playlist.remoteId!);
+      await gateway.syncMembership(
+        playlist.remoteId!,
+        orderedTrackUris: playlist.trackIds,
+        added: added,
+        removed: removed,
+      );
       await _mutate(
         playlistId,
         (Playlist p) => p.copyWith(
@@ -572,7 +603,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
           lastSyncError: () => null,
         ),
       );
-    } on JellyfinException catch (error) {
+    } on RemoteSyncException catch (error) {
       await _mutate(
         playlistId,
         (Playlist p) => p.copyWith(

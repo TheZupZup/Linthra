@@ -223,6 +223,178 @@ class HttpSubsonicClient implements SubsonicClient {
     await _get(uri);
   }
 
+  @override
+  Future<Set<String>> getStarredSongIds(SubsonicSession session) async {
+    final Uri uri = SubsonicEndpoints.getStarred2(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+    );
+    final SubsonicEnvelope envelope = await _get(uri);
+    // Shape: starred2.song[].id
+    final Object? root = envelope.data['starred2'];
+    final Object? songs = root is Map<String, dynamic> ? root['song'] : null;
+    if (songs is! List) return <String>{};
+    final Set<String> ids = <String>{};
+    for (final Object? entry in songs) {
+      if (entry is Map<String, dynamic>) {
+        final Object? id = entry['id'];
+        if (id is String && id.isNotEmpty) ids.add(id);
+      }
+    }
+    return ids;
+  }
+
+  @override
+  Future<void> star(SubsonicSession session, String songId) async {
+    await _get(SubsonicEndpoints.star(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+      id: songId,
+    ));
+  }
+
+  @override
+  Future<void> unstar(SubsonicSession session, String songId) async {
+    await _get(SubsonicEndpoints.unstar(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+      id: songId,
+    ));
+  }
+
+  @override
+  Future<List<SubsonicPlaylistDto>> getPlaylists(
+    SubsonicSession session,
+  ) async {
+    final Uri uri = SubsonicEndpoints.getPlaylists(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+    );
+    final SubsonicEnvelope envelope = await _get(uri);
+    // Shape: playlists.playlist[]
+    final Object? root = envelope.data['playlists'];
+    final Object? list = root is Map<String, dynamic> ? root['playlist'] : null;
+    if (list is! List) return const <SubsonicPlaylistDto>[];
+    final List<SubsonicPlaylistDto> playlists = <SubsonicPlaylistDto>[];
+    for (final Object? entry in list) {
+      if (entry is Map<String, dynamic>) {
+        final SubsonicPlaylistDto? dto = SubsonicPlaylistDto.fromJson(entry);
+        if (dto != null) playlists.add(dto);
+      }
+    }
+    return playlists;
+  }
+
+  @override
+  Future<List<String>> getPlaylistSongIds(
+    SubsonicSession session,
+    String playlistId,
+  ) async {
+    final Uri uri = SubsonicEndpoints.getPlaylist(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+      playlistId: playlistId,
+    );
+    final SubsonicEnvelope envelope = await _get(uri);
+    // Shape: playlist.entry[].id, in server order.
+    return _entrySongIds(envelope.data['playlist']);
+  }
+
+  @override
+  Future<String> createPlaylist(
+    SubsonicSession session, {
+    required String name,
+    List<String> songIds = const <String>[],
+  }) async {
+    final Uri uri = SubsonicEndpoints.createPlaylist(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+      name: name,
+      songIds: songIds,
+    );
+    final SubsonicEnvelope envelope = await _get(uri);
+    // Most servers (Navidrome) return the created playlist with its id.
+    final Object? root = envelope.data['playlist'];
+    if (root is Map<String, dynamic>) {
+      final Object? id = root['id'];
+      if (id is String && id.isNotEmpty) return id;
+    }
+    // Fallback for a server that returns an empty ok: find it by name (newest
+    // match wins, since a fresh create is appended). Never leaks a credential.
+    final List<SubsonicPlaylistDto> playlists = await getPlaylists(session);
+    for (final SubsonicPlaylistDto dto in playlists.reversed) {
+      if (dto.name == name) return dto.id;
+    }
+    throw SubsonicException.unsupportedResponse();
+  }
+
+  @override
+  Future<void> setPlaylistSongs(
+    SubsonicSession session,
+    String playlistId,
+    List<String> songIds,
+  ) async {
+    // The `createPlaylist`-with-`playlistId` replace form: one idempotent call
+    // that sets the exact membership and order, covering add/remove/reorder.
+    await _get(SubsonicEndpoints.createPlaylist(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+      playlistId: playlistId,
+      songIds: songIds,
+    ));
+  }
+
+  @override
+  Future<void> renamePlaylist(
+    SubsonicSession session,
+    String playlistId,
+    String name,
+  ) async {
+    await _get(SubsonicEndpoints.updatePlaylist(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+      playlistId: playlistId,
+      name: name,
+    ));
+  }
+
+  @override
+  Future<void> deletePlaylist(
+    SubsonicSession session,
+    String playlistId,
+  ) async {
+    await _get(SubsonicEndpoints.deletePlaylist(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+      playlistId: playlistId,
+    ));
+  }
+
+  /// The ordered song ids of a `playlist` object's `entry` list, skipping any
+  /// entry without a usable id.
+  static List<String> _entrySongIds(Object? playlist) {
+    final Object? entries =
+        playlist is Map<String, dynamic> ? playlist['entry'] : null;
+    if (entries is! List) return const <String>[];
+    final List<String> ids = <String>[];
+    for (final Object? entry in entries) {
+      if (entry is Map<String, dynamic>) {
+        final Object? id = entry['id'];
+        if (id is String && id.isNotEmpty) ids.add(id);
+      }
+    }
+    return ids;
+  }
+
   SubsonicCredentials _credentials(SubsonicSession session) =>
       SubsonicCredentials(salt: session.salt, token: session.token);
 

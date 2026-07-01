@@ -48,8 +48,9 @@ void main() {
     expect(find.text('Offline'), findsOneWidget);
     expect(find.text('Cast'), findsOneWidget);
     expect(find.text('Lyrics'), findsOneWidget);
-    // Not implemented for Subsonic yet → hidden (capability-based visibility).
-    expect(find.text('Favorites'), findsNothing);
+    // Favorites (star/unstar) and playlist sync are now implemented → shown.
+    expect(find.text('Favorites'), findsOneWidget);
+    expect(find.text('Playlists'), findsOneWidget);
   });
 
   testWidgets('Sign in is disabled until all three fields are filled',

@@ -10,8 +10,8 @@ import '../../core/repositories/play_history_store.dart';
 ///
 /// Loads the stored history lazily on first read, records a completed play by
 /// bumping that track's count and last-played time, then emits and persists.
-/// Mirrors `JellyfinSyncedFavoritesRepository`'s shape (load-once, emit,
-/// persist) minus any server sync — play history is on-device only.
+/// Mirrors `SyncedFavoritesRepository`'s shape (load-once, emit, persist) minus
+/// any server sync — play history is on-device only.
 ///
 /// Identity is the provider-namespaced [Track.uri], not the bare server-side
 /// id, so completing `jellyfin:101` never makes `subsonic:101` look played. A
