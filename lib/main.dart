@@ -28,6 +28,7 @@ import 'data/repositories/preferred_source_store_provider.dart';
 import 'data/repositories/remote_cache_index_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'data/repositories/share_service_provider.dart';
+import 'data/repositories/subsonic_auto_sync_store_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
 import 'features/downloads/download_providers.dart';
 import 'features/library/playback_candidates_provider.dart';
@@ -93,6 +94,8 @@ Future<void> main() async {
       // reconnect after a restart doesn't trigger an unsolicited full re-sync.
       sharedPreferencesJellyfinAutoSyncStoreOverride,
       secureSubsonicSessionStoreOverride,
+      // Same first-auto-sync memory for the Subsonic/Navidrome account.
+      sharedPreferencesSubsonicAutoSyncStoreOverride,
       securePlexSessionStoreOverride,
       // Persist the content signature of the last Plex sync, so a re-sync of an
       // unchanged library after a restart skips rebuilding the catalog and

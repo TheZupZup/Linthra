@@ -151,6 +151,16 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
         statusMessage:
             _connectedMessage(newSession.username, newSession.serverType),
       );
+      // Onboarding: start the first library sync for this connection so the
+      // library (tracks, playlists, favourites) fills in on its own, without
+      // the user hunting for "Sync Navidrome library". Fire-and-forget —
+      // sign-in returns now and the UI reflects the sync's progress/result
+      // through SubsonicSyncState — and it only actually syncs the first time
+      // for a given server/account (see autoSyncIfNeeded), so reconnecting the
+      // same account won't trigger an unsolicited resync. Mirrors Jellyfin.
+      unawaited(
+        ref.read(subsonicSyncControllerProvider.notifier).autoSyncIfNeeded(),
+      );
       return true;
     } on SubsonicException catch (error) {
       _setFailure(error.message,

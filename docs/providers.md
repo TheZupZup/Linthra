@@ -91,7 +91,13 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
   username, password. HTTPS reverse-proxy / self-hosted domains are supported;
   no personal domain is hardcoded.
 - **Test connection** and **sign in** — both verify the credentials against the
-  server's `ping` endpoint.
+  server's `ping` endpoint. A successful sign-in **starts the first sync
+  automatically** (tracks, playlists, and favourites), exactly like Jellyfin —
+  no extra "Sync" tap needed. It runs once per server/account: reconnecting the
+  same account later doesn't trigger an unsolicited full re-sync, and if the
+  first sync fails (server unreachable right after sign-in) the account stays
+  connected and the sync retries on the next fresh connection — with manual sync
+  always available.
 - **Sync library** (“Sync Navidrome library”): artists, albums, and tracks are
   fetched (walking the ID3 album lists) and upserted into the local catalog
   under the `subsonic` source id. The same sync also imports **playlists** and

@@ -1,11 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/repositories/remote_sync_result.dart';
+import '../../../core/repositories/subsonic_auto_sync_store.dart';
+import '../../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../../core/sources/subsonic/subsonic_exception.dart';
 import '../../../core/sources/subsonic/subsonic_music_source.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
+import '../../../data/repositories/subsonic_auto_sync_store_provider.dart';
 import '../../library/library_controller.dart';
 import 'subsonic_settings_controller.dart';
 import 'subsonic_sync_state.dart';
@@ -20,16 +23,74 @@ import 'subsonic_sync_state.dart';
 /// **playlists** and adopts server **favourites** best-effort (mirroring the
 /// Jellyfin sync), so a failure there never aborts a successful track sync.
 ///
+/// Onboarding: a fresh Subsonic/Navidrome connection triggers [autoSyncIfNeeded]
+/// once, so the library populates on its own without the user discovering the
+/// manual "Sync Navidrome library" button. It runs the exact same path as the
+/// manual [sync] and is gated by a persisted per-account fingerprint, so it
+/// fires for a new server/account but not on a reconnect, a rebuild, a reopened
+/// Settings screen, or an app restart of an already-synced account — mirroring
+/// the Jellyfin onboarding. The manual [sync] is always available.
+///
 /// Security: the source mints any authenticated stream/download URL lazily at
 /// use time, so nothing persisted here carries a credential. This controller
 /// never logs the session, and surfaces only friendly, secret-free messages.
 class SubsonicSyncController extends Notifier<SubsonicSyncState> {
+  /// Guards against overlapping syncs (an auto-sync racing a manual tap). Set
+  /// synchronously before any await so a second concurrent call simply bails,
+  /// satisfying "never run two syncs at once" without cancelling the first.
+  bool _syncing = false;
+
   @override
   SubsonicSyncState build() => const SubsonicSyncState();
 
-  /// Pulls artists/albums/tracks from the server and upserts them into the local
-  /// catalog. Reflects loading/success/error through [state]; never throws.
-  Future<void> sync() async {
+  /// The manual "Sync Navidrome library" action. Pulls artists/albums/tracks and
+  /// upserts them into the local catalog, then refreshes Navidrome playlists and
+  /// favourites. Reflects loading/success/error through [state]; never throws.
+  Future<void> sync() => _runSync();
+
+  /// Runs the **first** automatic sync for a freshly connected server/account.
+  ///
+  /// Idempotent by account: if this exact server+user has already been
+  /// auto-synced before, it does nothing — so a reconnect, a provider rebuild, a
+  /// reopened Settings screen, or an app restart never re-pulls the whole
+  /// library on its own. Changing the server URL or signing in as a different
+  /// user is a new account, and syncs again. The manual [sync] stays available
+  /// for an on-demand refresh. Never throws.
+  Future<void> autoSyncIfNeeded() async {
+    final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
+    if (source == null) {
+      // Not connected (shouldn't happen right after a sign-in) — nothing to do.
+      return;
+    }
+    final String fingerprint = subsonicAccountFingerprint(source.session);
+    final SubsonicAutoSyncStore store = ref.read(subsonicAutoSyncStoreProvider);
+    String? lastSynced;
+    try {
+      lastSynced = await store.read();
+    } catch (_) {
+      // A storage hiccup must never block onboarding; treat it as "not synced
+      // yet" and let the sync proceed — re-running it is safe and idempotent.
+      lastSynced = null;
+    }
+    if (lastSynced == fingerprint) {
+      // This account's first sync already happened; don't resync on its own.
+      return;
+    }
+    await _runSync(recordFingerprint: fingerprint);
+  }
+
+  /// The shared sync path behind both [sync] and [autoSyncIfNeeded].
+  ///
+  /// When [recordFingerprint] is non-null (an auto-sync), the account is
+  /// remembered **only after a successful sync**, so a sync that failed (e.g.
+  /// the server became unreachable right after sign-in) is retried
+  /// automatically on the next fresh connection rather than being silently
+  /// marked done — and the manual sync stays available meanwhile.
+  Future<void> _runSync({String? recordFingerprint}) async {
+    if (_syncing) {
+      // A sync is already in flight; never stack a second concurrent one.
+      return;
+    }
     final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
     if (source == null) {
       state = const SubsonicSyncState.error(
@@ -38,6 +99,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
       return;
     }
 
+    _syncing = true;
     state = const SubsonicSyncState.syncing();
     try {
       final tracks = await source.fetchTracks();
@@ -62,6 +124,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
             empty: true,
           ),
         );
+        await _recordAutoSynced(recordFingerprint);
         return;
       }
 
@@ -90,12 +153,27 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
           favorites: favorites,
         ),
       );
+      await _recordAutoSynced(recordFingerprint);
     } on SubsonicException catch (error) {
       state = SubsonicSyncState.error(_friendlyMessage(error));
     } catch (_) {
       state = const SubsonicSyncState.error(
         'Something went wrong saving your library. Please try again.',
       );
+    } finally {
+      _syncing = false;
+    }
+  }
+
+  /// Remembers a completed auto-sync's account [fingerprint], best-effort: a
+  /// no-op for a manual sync (null), and a storage hiccup only means the next
+  /// fresh connection re-runs the (idempotent) initial sync.
+  Future<void> _recordAutoSynced(String? fingerprint) async {
+    if (fingerprint == null) return;
+    try {
+      await ref.read(subsonicAutoSyncStoreProvider).write(fingerprint);
+    } catch (_) {
+      // Ignore: worst case the next connection auto-syncs again.
     }
   }
 
