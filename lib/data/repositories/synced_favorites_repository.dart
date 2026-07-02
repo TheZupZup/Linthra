@@ -16,9 +16,18 @@ import '../../core/sources/music_provider.dart';
 /// can't collide with `subsonic:101`. A toggle updates the right set
 /// immediately, emits, and persists; for a remote track whose provider is
 /// connected it then pushes to that server best-effort through the provider's
-/// [RemoteFavoritesGateway]. [refreshFromRemote] adopts each connected server's
-/// starred set as the truth for *its* scheme, leaving local-track favourites and
-/// other providers' hearts alone.
+/// [RemoteFavoritesGateway].
+///
+/// Reliability of the heart: a push that fails (offline, a transient server
+/// error, or the provider not connected yet) is **not** dropped — the intended
+/// state is recorded in [_pendingWrites] and re-attempted on the next
+/// [refreshFromRemote], and until it lands the local heart is preserved even
+/// though the server's starred list doesn't yet contain it. That closes the
+/// "heart it, then a refresh silently un-hearts it because the server never got
+/// the star" gap: the repository never pretends a failed write succeeded, and it
+/// never reverts an un-synced local intent. [refreshFromRemote] otherwise adopts
+/// each connected server's starred set as the truth for *its* scheme, leaving
+/// local-track favourites and other providers' hearts alone.
 ///
 /// Security: only non-secret track/item ids are stored or sent. Sessions (with
 /// their tokens) live behind the gateways and are never logged or persisted
@@ -39,8 +48,18 @@ class SyncedFavoritesRepository implements FavoritesRepository {
   final StreamController<Set<String>> _changes =
       StreamController<Set<String>>.broadcast();
 
+  /// Remote heart toggles whose server push hasn't landed yet (uri → desired
+  /// favourite state), so a failed/queued write is retried on the next refresh
+  /// and isn't reverted by the server's (stale) starred list in the meantime.
+  final Map<String, bool> _pendingWrites = <String, bool>{};
+
   FavoritesData _data = FavoritesData.empty;
   bool _loaded = false;
+
+  /// How many remote heart writes are still waiting to reach a server (failed or
+  /// queued while offline). Exposed for diagnostics/tests; a non-zero value means
+  /// the last toggle(s) are being retried, not silently lost.
+  int get pendingRemoteWriteCount => _pendingWrites.length;
 
   Future<void> _ensureLoaded() async {
     if (_loaded) return;
@@ -88,15 +107,22 @@ class SyncedFavoritesRepository implements FavoritesRepository {
     _emit();
     await _store.save(_data);
 
-    // Push to the owning provider's server best-effort; a failure keeps the
-    // optimistic local state, which the next refresh reconciles. Never throws.
+    // Push to the owning provider's server best-effort. A failure (or the
+    // provider not being connected yet) is recorded as a pending write and
+    // retried on the next refresh — the optimistic local state stands and is
+    // never silently lost or reverted. Never throws.
     if (remote) {
       final RemoteFavoritesGateway? gateway = _gatewayForUri(key);
-      if (gateway != null && gateway.isConnected) {
-        try {
-          await gateway.pushFavorite(key, favorite);
-        } catch (_) {
-          // Ignore: optimistic local state stands; refresh reconciles later.
+      if (gateway != null) {
+        if (gateway.isConnected) {
+          try {
+            await gateway.pushFavorite(key, favorite);
+            _pendingWrites.remove(key); // confirmed on the server
+          } catch (_) {
+            _pendingWrites[key] = favorite; // failed: retry on next refresh
+          }
+        } else {
+          _pendingWrites[key] = favorite; // queued until the provider connects
         }
       }
     }
@@ -117,6 +143,21 @@ class SyncedFavoritesRepository implements FavoritesRepository {
     int total = 0;
     int successCount = 0;
     for (final RemoteFavoritesGateway gateway in connected) {
+      final String scheme = gateway.uriScheme;
+
+      // 1) Re-attempt this provider's pending writes first, so a heart that
+      //    failed to push earlier lands before we adopt the server's list (and
+      //    isn't reverted by a list that predates it). A still-failing write
+      //    stays pending for the next refresh.
+      for (final String uri in _pendingForScheme(scheme)) {
+        try {
+          await gateway.pushFavorite(uri, _pendingWrites[uri]!);
+          _pendingWrites.remove(uri);
+        } on RemoteSyncException {
+          // Keep it pending; try again next refresh.
+        }
+      }
+
       final Set<String> serverUris;
       try {
         serverUris = await gateway.fetchFavoriteUris();
@@ -126,13 +167,22 @@ class SyncedFavoritesRepository implements FavoritesRepository {
       }
       successCount++;
       total += serverUris.length;
-      // Replace only this provider's scheme subset; leave the others alone.
-      final String scheme = gateway.uriScheme;
+      // Replace only this provider's scheme subset with the server truth…
       remoteIds = <String>{
         for (final String uri in remoteIds)
           if (!uri.startsWith(scheme)) uri,
         ...serverUris,
       };
+      // …then overlay any writes still pending for this scheme, so an un-landed
+      // local heart isn't dropped just because the server list doesn't have it
+      // yet (non-destructive: local intent wins until it's confirmed).
+      for (final String uri in _pendingForScheme(scheme)) {
+        if (_pendingWrites[uri]!) {
+          remoteIds.add(uri);
+        } else {
+          remoteIds.remove(uri);
+        }
+      }
     }
 
     // Skip the emit/save when nothing changed, to avoid churn — but still report
@@ -151,6 +201,10 @@ class SyncedFavoritesRepository implements FavoritesRepository {
   @override
   Future<void> clearRemote({String? providerScheme}) async {
     await _ensureLoaded();
+    // Drop this provider's queued writes too — its session is going away, so
+    // there is nothing left to reconcile them against.
+    _pendingWrites.removeWhere((String uri, bool _) =>
+        providerScheme == null || uri.startsWith(providerScheme));
     if (_data.remoteIds.isEmpty) return;
     final Set<String> next = providerScheme == null
         ? const <String>{}
@@ -167,6 +221,13 @@ class SyncedFavoritesRepository implements FavoritesRepository {
   void _emit() {
     if (!_changes.isClosed) _changes.add(_all);
   }
+
+  /// The pending-write uris that belong to [scheme], as a stable snapshot (so a
+  /// caller can safely remove entries from [_pendingWrites] while iterating).
+  List<String> _pendingForScheme(String scheme) => <String>[
+        for (final String uri in _pendingWrites.keys)
+          if (uri.startsWith(scheme)) uri,
+      ];
 
   /// Whether [trackUri] belongs to a remote provider (any known `scheme:` id) —
   /// so it lives in the server-owned set — rather than an on-device track.

@@ -7,17 +7,38 @@ import '../../core/models/playlist.dart';
 import '../../data/repositories/playlist_repository_provider.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../library/remote_library_refresher.dart';
 import 'playlist_providers.dart';
 import 'widgets/create_playlist_dialog.dart';
 
 /// The Playlists tab: the user's playlists, with the always-present Favorites
 /// collection pinned at the top. Playlists can be created here, and each one can
 /// be opened, renamed, or deleted (with confirmation).
-class PlaylistsScreen extends ConsumerWidget {
+///
+/// Opening the tab triggers a smart, throttled refresh so playlists (and
+/// favourites) changed on a connected server from another client show up without
+/// pressing "Sync".
+class PlaylistsScreen extends ConsumerStatefulWidget {
   const PlaylistsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PlaylistsScreen> createState() => _PlaylistsScreenState();
+}
+
+class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // After the first frame (so it can't touch provider state mid-build), pull
+    // any server-side playlist/favourite changes. Throttled + best-effort.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(remoteLibraryRefresherProvider).refresh();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final Color accent = theme.colorScheme.primary;
     final AsyncValue<List<Playlist>> playlists = ref.watch(playlistsProvider);

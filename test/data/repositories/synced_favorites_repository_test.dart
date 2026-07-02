@@ -397,4 +397,131 @@ void main() {
       expect(repo.isFavorite('file:///a.mp3'), isTrue);
     });
   });
+
+  // A controllable gateway that lets a test vary push-failure and the server's
+  // starred set independently — so the repository's retry/reconcile logic can be
+  // exercised precisely (the shared client fake ties star and getStarred2 to one
+  // error flag).
+  group('SyncedFavoritesRepository (failed-write retry / non-revert)', () {
+    late InMemoryFavoritesStore store;
+    late _FakeFavoritesGateway gateway;
+
+    setUp(() {
+      store = InMemoryFavoritesStore();
+      gateway = _FakeFavoritesGateway('subsonic:');
+    });
+
+    SyncedFavoritesRepository build() => SyncedFavoritesRepository(
+          store: store,
+          gateways: <RemoteFavoritesGateway>[gateway],
+        );
+
+    test('a failed star keeps the local heart and records a pending write',
+        () async {
+      gateway.pushFails = true;
+      final repo = build();
+
+      await repo.setFavorite(_subsonic('mf-1'), true);
+
+      // Optimistic local heart stands; the server never got it, but it's queued.
+      expect(repo.isFavorite('subsonic:mf-1'), isTrue);
+      expect(repo.pendingRemoteWriteCount, 1);
+      expect(gateway.serverUris, isEmpty);
+    });
+
+    test('a refresh never reverts an un-landed heart, and retries it',
+        () async {
+      gateway.pushFails = true;
+      final repo = build();
+      await repo.setFavorite(_subsonic('mf-1'), true);
+      // The server's starred list still doesn't contain it (push failed).
+      expect(gateway.serverUris, isEmpty);
+
+      // First refresh: retry still fails, server list is empty — but the heart
+      // must NOT be reverted (non-destructive: local intent wins until landed).
+      await repo.refreshFromRemote();
+      expect(repo.isFavorite('subsonic:mf-1'), isTrue);
+      expect(repo.pendingRemoteWriteCount, 1);
+
+      // The network recovers; the next refresh's retry lands the star, the
+      // server now reports it, and the pending write clears.
+      gateway.pushFails = false;
+      await repo.refreshFromRemote();
+      expect(gateway.serverUris, contains('subsonic:mf-1'));
+      expect(repo.isFavorite('subsonic:mf-1'), isTrue);
+      expect(repo.pendingRemoteWriteCount, 0);
+      // The retry pushed the queued star.
+      expect(
+        gateway.pushes.where((p) => p.uri == 'subsonic:mf-1' && p.favorite),
+        isNotEmpty,
+      );
+    });
+
+    test('a queued heart made while disconnected pushes once connected',
+        () async {
+      gateway.connected = false;
+      final repo = build();
+
+      await repo.setFavorite(_subsonic('mf-2'), true);
+      // Not connected: nothing pushed yet, but it's queued and kept locally.
+      expect(gateway.pushes, isEmpty);
+      expect(repo.isFavorite('subsonic:mf-2'), isTrue);
+      expect(repo.pendingRemoteWriteCount, 1);
+
+      gateway.connected = true;
+      await repo.refreshFromRemote();
+      expect(gateway.serverUris, contains('subsonic:mf-2'));
+      expect(repo.pendingRemoteWriteCount, 0);
+    });
+
+    test('a successful star clears the pending write immediately', () async {
+      final repo = build();
+      await repo.setFavorite(_subsonic('mf-1'), true);
+      expect(repo.pendingRemoteWriteCount, 0);
+      expect(gateway.serverUris, contains('subsonic:mf-1'));
+    });
+
+    test('clearRemote drops queued writes for that provider', () async {
+      gateway.pushFails = true;
+      final repo = build();
+      await repo.setFavorite(_subsonic('mf-1'), true);
+      expect(repo.pendingRemoteWriteCount, 1);
+
+      await repo.clearRemote(providerScheme: 'subsonic:');
+      expect(repo.pendingRemoteWriteCount, 0);
+    });
+  });
+}
+
+/// A minimal [RemoteFavoritesGateway] whose push-failure and server starred set
+/// are independently controllable, for the repository's retry/reconcile tests.
+class _FakeFavoritesGateway implements RemoteFavoritesGateway {
+  _FakeFavoritesGateway(this._scheme);
+
+  final String _scheme;
+  bool connected = true;
+  bool pushFails = false;
+  final Set<String> serverUris = <String>{};
+  final List<({String uri, bool favorite})> pushes =
+      <({String uri, bool favorite})>[];
+
+  @override
+  String get uriScheme => _scheme;
+
+  @override
+  bool get isConnected => connected;
+
+  @override
+  Future<Set<String>> fetchFavoriteUris() async => <String>{...serverUris};
+
+  @override
+  Future<void> pushFavorite(String trackUri, bool favorite) async {
+    pushes.add((uri: trackUri, favorite: favorite));
+    if (pushFails) throw const RemoteSyncException('unreachable');
+    if (favorite) {
+      serverUris.add(trackUri);
+    } else {
+      serverUris.remove(trackUri);
+    }
+  }
 }
