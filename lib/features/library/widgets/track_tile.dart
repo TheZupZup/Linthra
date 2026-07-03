@@ -7,7 +7,9 @@ import '../../../core/models/track.dart';
 import '../../../core/repositories/download_repository.dart';
 import '../../../core/repositories/download_store.dart';
 import '../../../data/repositories/download_repository_provider.dart';
+import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../downloads/download_providers.dart';
+import '../../player/favorites_providers.dart';
 import '../../player/now_playing.dart';
 import '../../player/player_providers.dart';
 import '../../player/widgets/track_artwork.dart';
@@ -18,6 +20,7 @@ import '../song_actions.dart';
 /// offered is context-aware: it depends on whether the track is remote and on
 /// its current [DownloadStatus] (see `_OverflowMenu._menuItems`).
 enum _TrackAction {
+  toggleFavorite,
   playNext,
   addToQueue,
   addToPlaylist,
@@ -235,19 +238,28 @@ class _OverflowMenu extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Keyed by the provider-namespaced uri, so local/Jellyfin/Subsonic copies
+    // each reflect their own heart. Watched here so the menu label/icon stay
+    // live if the favourite state changes while the row is on screen.
+    final bool isFavorite = ref.watch(isFavoriteProvider(track.uri));
     return PopupMenuButton<_TrackAction>(
       icon: const Icon(Icons.more_vert),
       tooltip: 'More actions',
       onSelected: (action) => _run(context, ref, action),
-      itemBuilder: (context) => _menuItems(),
+      itemBuilder: (context) => _menuItems(isFavorite),
     );
   }
 
   /// Context-aware action list. Offline actions are gated on [isRemote]; the
-  /// rest depend on the track's [DownloadStatus]. The queue, add-to-playlist,
-  /// and remove-from-Linthra actions are always available.
-  List<PopupMenuEntry<_TrackAction>> _menuItems() {
+  /// rest depend on the track's [DownloadStatus]. The favourite toggle, queue,
+  /// add-to-playlist, and remove-from-Linthra actions are always available.
+  List<PopupMenuEntry<_TrackAction>> _menuItems(bool isFavorite) {
     final items = <PopupMenuEntry<_TrackAction>>[
+      _item(
+        _TrackAction.toggleFavorite,
+        isFavorite ? Icons.favorite : Icons.favorite_border,
+        isFavorite ? 'Remove from favorites' : 'Add to favorites',
+      ),
       _item(_TrackAction.playNext, Icons.queue_music, 'Play next'),
       _item(_TrackAction.addToQueue, Icons.add_to_queue, 'Add to queue'),
       _item(_TrackAction.addToPlaylist, Icons.playlist_add, 'Add to playlist'),
@@ -295,6 +307,16 @@ class _OverflowMenu extends ConsumerWidget {
     _TrackAction action,
   ) async {
     switch (action) {
+      case _TrackAction.toggleFavorite:
+        // Like/unlike without touching playback or the queue. Re-read the
+        // current state so the toggle is correct even if the heart changed
+        // after the menu opened, and hand the real [Track] to the repository so
+        // its uri routes local/Jellyfin/Subsonic favourites (and the Subsonic
+        // sync push) correctly.
+        final bool isFavorite = ref.read(isFavoriteProvider(track.uri));
+        await ref
+            .read(favoritesRepositoryProvider)
+            .setFavorite(track, !isFavorite);
       case _TrackAction.playNext:
         ref.read(playbackControllerProvider).playNext(track);
       case _TrackAction.addToQueue:

@@ -4,15 +4,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/features/library/widgets/track_tile.dart';
+import 'package:linthra/features/player/player_providers.dart';
 
+import '../player/fake_playback_controller.dart';
 import 'fake_remote_track_downloader.dart';
 
-Future<void> _pump(WidgetTester tester, List<Track> tracks) async {
+Future<void> _pump(
+  WidgetTester tester,
+  List<Track> tracks, {
+  FakePlaybackController? controller,
+}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         remoteTrackDownloaderProvider
             .overrideWithValue(FakeRemoteTrackDownloader()),
+        if (controller != null)
+          playbackControllerProvider.overrideWithValue(controller),
       ],
       child: MaterialApp(
         home: Scaffold(
@@ -92,6 +100,49 @@ void main() {
 
       expect(find.text('Play next'), findsOneWidget);
       expect(find.text('Add to queue'), findsOneWidget);
+    });
+
+    testWidgets(
+        'overflow menu offers Add to favorites with an outline heart when not '
+        'favorited', (tester) async {
+      await _pump(tester, const <Track>[
+        Track(id: '1', title: 'Song One', uri: 'file:///s1.mp3'),
+      ]);
+
+      await tester.tap(find.byTooltip('More actions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add to favorites'), findsOneWidget);
+      expect(find.text('Remove from favorites'), findsNothing);
+      expect(find.byIcon(Icons.favorite_border), findsOneWidget);
+    });
+
+    testWidgets(
+        'choosing Add to favorites likes the track and flips to a filled-heart '
+        'Remove — without starting playback or changing the queue',
+        (tester) async {
+      final FakePlaybackController controller = FakePlaybackController();
+      await _pump(
+        tester,
+        const <Track>[Track(id: '1', title: 'Song One', uri: 'file:///s1.mp3')],
+        controller: controller,
+      );
+
+      await tester.tap(find.byTooltip('More actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add to favorites'));
+      await tester.pumpAndSettle();
+
+      // Favoriting is a pure like: no track played, no queue change.
+      expect(controller.playedTracks, isEmpty);
+      expect(controller.state.upNext, isEmpty);
+
+      // Reopening the menu now shows the filled-heart "Remove from favorites".
+      await tester.tap(find.byTooltip('More actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Remove from favorites'), findsOneWidget);
+      expect(find.text('Add to favorites'), findsNothing);
+      expect(find.byIcon(Icons.favorite), findsOneWidget);
     });
   });
 
