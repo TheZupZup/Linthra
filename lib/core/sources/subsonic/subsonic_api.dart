@@ -256,3 +256,29 @@ class SubsonicSongDto {
     );
   }
 }
+
+/// A playlist from `getPlaylists`/`getPlaylist`/`createPlaylist` — the server's
+/// stable [id] and its display [name].
+///
+/// Only the fields Linthra maps are kept. The ordered song entries of a playlist
+/// arrive as `SubsonicSongDto`s under `getPlaylist`'s `entry` list and are read
+/// separately; this DTO is just the playlist header.
+class SubsonicPlaylistDto {
+  const SubsonicPlaylistDto({required this.id, required this.name});
+
+  final String id;
+  final String name;
+
+  /// Parses a playlist header, or `null` when it has no usable id — so a
+  /// malformed entry is skipped rather than importing a nameless, unaddressable
+  /// playlist. A missing name falls back to the id so the row is never blank.
+  static SubsonicPlaylistDto? fromJson(Map<String, dynamic> json) {
+    final String? id = json['id'] as String?;
+    if (id == null || id.isEmpty) return null;
+    final String? name = json['name'] as String?;
+    return SubsonicPlaylistDto(
+      id: id,
+      name: name == null || name.isEmpty ? id : name,
+    );
+  }
+}

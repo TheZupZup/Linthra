@@ -2,13 +2,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
+import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/favorites_repository.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
+import 'package:linthra/core/repositories/playlist_repository.dart';
+import 'package:linthra/core/repositories/remote_sync_gateway.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_api.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_exception.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_music_source.dart';
+import 'package:linthra/data/repositories/favorites_repository_provider.dart';
+import 'package:linthra/data/repositories/in_memory_favorites_store.dart';
+import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/data/repositories/playlist_repository_provider.dart';
+import 'package:linthra/data/repositories/subsonic_favorites_gateway.dart';
+import 'package:linthra/data/repositories/subsonic_playlist_gateway.dart';
+import 'package:linthra/data/repositories/synced_favorites_repository.dart';
+import 'package:linthra/data/repositories/synced_playlist_repository.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_controller.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_sync_controller.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_sync_state.dart';
@@ -82,11 +94,17 @@ SubsonicMusicSource _source({
 ProviderContainer _container({
   required MusicLibraryRepository repository,
   SubsonicMusicSource? source,
+  PlaylistRepository? playlists,
+  FavoritesRepository? favorites,
 }) {
   final container = ProviderContainer(
     overrides: <Override>[
       musicLibraryRepositoryProvider.overrideWithValue(repository),
       subsonicMusicSourceProvider.overrideWithValue(source),
+      if (playlists != null)
+        playlistRepositoryProvider.overrideWithValue(playlists),
+      if (favorites != null)
+        favoritesRepositoryProvider.overrideWithValue(favorites),
     ],
   );
   addTearDown(container.dispose);
@@ -215,6 +233,99 @@ void main() {
         container.read(subsonicSyncControllerProvider).message,
         isNot(contains('secret-token')),
       );
+    });
+
+    test('imports Navidrome playlists and favourites and reports the counts',
+        () async {
+      // A shared fake client backs the playlist + favourites gateways: one
+      // server playlist and one starred song.
+      final syncClient = FakeSubsonicClient()
+        ..playlists = <SubsonicPlaylistDto>[
+          const SubsonicPlaylistDto(id: 'p-1', name: 'Road Trip'),
+        ]
+        ..playlistSongIds = <String, List<String>>{
+          'p-1': <String>['s1'],
+        }
+        ..starredSongIds = <String>{'s1'};
+
+      final playlistRepo = SyncedPlaylistRepository(
+        store: InMemoryPlaylistStore(),
+        gateways: <RemotePlaylistGateway>[
+          SubsonicPlaylistGateway(client: syncClient, session: () => _session),
+        ],
+      );
+      final favoritesRepo = SyncedFavoritesRepository(
+        store: InMemoryFavoritesStore(),
+        gateways: <RemoteFavoritesGateway>[
+          SubsonicFavoritesGateway(client: syncClient, session: () => _session),
+        ],
+      );
+
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _source(
+          albums: const <SubsonicAlbumDto>[
+            SubsonicAlbumDto(id: 'al', name: 'A')
+          ],
+          songsByAlbum: const <String, List<SubsonicSongDto>>{
+            'al': <SubsonicSongDto>[SubsonicSongDto(id: 's1', title: 'One')],
+          },
+        ),
+        playlists: playlistRepo,
+        favorites: favoritesRepo,
+      );
+
+      await container.read(subsonicSyncControllerProvider.notifier).sync();
+
+      final state = container.read(subsonicSyncControllerProvider);
+      expect(state.status, SubsonicSyncStatus.success);
+      expect(state.trackCount, 1);
+      expect(state.playlistCount, 1);
+      expect(state.favoriteCount, 1);
+      expect(state.playlistsFailed, isFalse);
+      expect(state.favoritesFailed, isFalse);
+      expect(state.message, contains('playlist'));
+      expect(state.message, contains('favorite'));
+
+      // The imported playlist landed with the Subsonic source + namespaced uris.
+      final imported = await playlistRepo.getAllPlaylists();
+      expect(imported.single.source, PlaylistSource.subsonic);
+      expect(imported.single.trackIds, <String>['subsonic:s1']);
+      expect(favoritesRepo.isFavorite('subsonic:s1'), isTrue);
+    });
+
+    test('reports a calm partial failure when favourites cannot load',
+        () async {
+      final syncClient = FakeSubsonicClient()
+        ..favoritesError = SubsonicException.notReachable();
+      final favoritesRepo = SyncedFavoritesRepository(
+        store: InMemoryFavoritesStore(),
+        gateways: <RemoteFavoritesGateway>[
+          SubsonicFavoritesGateway(client: syncClient, session: () => _session),
+        ],
+      );
+
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _source(
+          albums: const <SubsonicAlbumDto>[
+            SubsonicAlbumDto(id: 'al', name: 'A')
+          ],
+          songsByAlbum: const <String, List<SubsonicSongDto>>{
+            'al': <SubsonicSongDto>[SubsonicSongDto(id: 's1', title: 'One')],
+          },
+        ),
+        favorites: favoritesRepo,
+      );
+
+      await container.read(subsonicSyncControllerProvider.notifier).sync();
+
+      final state = container.read(subsonicSyncControllerProvider);
+      // The track sync still succeeds; the favourites failure is reported calmly.
+      expect(state.status, SubsonicSyncStatus.success);
+      expect(state.trackCount, 1);
+      expect(state.favoritesFailed, isTrue);
+      expect(state.message, contains('could not be synced'));
     });
 
     test('surfaces a generic error when the repository upsert fails', () async {

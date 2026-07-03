@@ -28,6 +28,7 @@ import 'data/repositories/preferred_source_store_provider.dart';
 import 'data/repositories/remote_cache_index_provider.dart';
 import 'data/repositories/selected_music_folder_repository_provider.dart';
 import 'data/repositories/share_service_provider.dart';
+import 'data/repositories/subsonic_auto_sync_store_provider.dart';
 import 'data/repositories/subsonic_session_store_provider.dart';
 import 'features/downloads/download_providers.dart';
 import 'features/library/playback_candidates_provider.dart';
@@ -93,6 +94,8 @@ Future<void> main() async {
       // reconnect after a restart doesn't trigger an unsolicited full re-sync.
       sharedPreferencesJellyfinAutoSyncStoreOverride,
       secureSubsonicSessionStoreOverride,
+      // Same first-auto-sync memory for the Subsonic/Navidrome account.
+      sharedPreferencesSubsonicAutoSyncStoreOverride,
       securePlexSessionStoreOverride,
       // Persist the content signature of the last Plex sync, so a re-sync of an
       // unchanged library after a restart skips rebuilding the catalog and
@@ -100,9 +103,9 @@ Future<void> main() async {
       // SQLite). Non-secret (a one-way hash, scoped by server id).
       sharedPreferencesPlexSyncCacheStoreOverride,
       sharedPreferencesFavoritesStoreOverride,
-      jellyfinFavoritesOverride,
+      remoteFavoritesSyncOverride,
       sharedPreferencesPlaylistStoreOverride,
-      jellyfinPlaylistSyncOverride,
+      remotePlaylistSyncOverride,
       // Persist on-device play history (counts + last-played) for the
       // "Recently played" / "Most played" / "Never played" smart mixes.
       sharedPreferencesPlayHistoryStoreOverride,
@@ -265,13 +268,15 @@ Future<void> main() async {
     return null;
   });
 
-  // With the session loaded, pull the user's Jellyfin favourites so the heart
-  // reflects the server from the first frame. Best-effort and offline-tolerant:
-  // the repository swallows failures and keeps any locally stored favourites.
+  // With the sessions loaded, pull the user's server favourites (Jellyfin and
+  // Subsonic/Navidrome) so the heart reflects each server from the first frame.
+  // Best-effort and offline-tolerant: the repository swallows failures and keeps
+  // any locally stored favourites.
   unawaited(container.read(favoritesRepositoryProvider).refreshFromRemote());
 
-  // Likewise import the user's Jellyfin playlists so synced playlists appear on
-  // the Playlists tab from the first frame. Best-effort and offline-tolerant.
+  // Likewise import the user's server playlists (Jellyfin and Subsonic/Navidrome)
+  // so synced playlists appear on the Playlists tab from the first frame.
+  // Best-effort and offline-tolerant.
   unawaited(container.read(playlistRepositoryProvider).refreshFromRemote());
 
   runApp(

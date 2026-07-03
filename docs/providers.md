@@ -33,7 +33,7 @@ so no secret reaches the persisted catalog.
 | --------------------- | ---------- | :----: | :---: | :-------: | :-------: | :----: | :--: |
 | Local music           | `local`    |   ✅   |  —    | ✅ local  | ✅ local  |   ✅   |  —   |
 | Jellyfin              | `jellyfin` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
-| Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  ✅  |
+| Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
 | Plex                  | `plex`     |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  🔜  |
 
 ✅ implemented · 🔜 planned follow-up · — not applicable. "local"
@@ -91,10 +91,30 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
   username, password. HTTPS reverse-proxy / self-hosted domains are supported;
   no personal domain is hardcoded.
 - **Test connection** and **sign in** — both verify the credentials against the
-  server's `ping` endpoint.
+  server's `ping` endpoint. A successful sign-in **starts the first sync
+  automatically** (tracks, playlists, and favourites), exactly like Jellyfin —
+  no extra "Sync" tap needed. It runs once per server/account: reconnecting the
+  same account later doesn't trigger an unsolicited full re-sync, and if the
+  first sync fails (server unreachable right after sign-in) the account stays
+  connected and the sync retries on the next fresh connection — with manual sync
+  always available.
 - **Sync library** (“Sync Navidrome library”): artists, albums, and tracks are
   fetched (walking the ID3 album lists) and upserted into the local catalog
-  under the `subsonic` source id.
+  under the `subsonic` source id. The same sync also imports **playlists** and
+  adopts server **favourites** (below), best-effort.
+- **Favourites / hearts**: the heart on a Subsonic track mirrors two-way with
+  the server. Hearting sends `star`, un-hearting sends `unstar`, and a **Sync
+  library** (or app launch) reads `getStarred2` to reflect stars set on another
+  client. A failed push keeps the local heart and reconciles on the next sync;
+  the local favourite state is never lost silently.
+- **Playlists**: your Navidrome playlists are imported and listed alongside
+  local ones (with a subtle “· Navidrome” source tag), preserving remote ids and
+  track order, and never duplicating on repeated sync. Creating a playlist for
+  Navidrome tracks can create it on the server; adding, removing, reordering, and
+  renaming a synced playlist update the server (Subsonic replaces the full
+  ordered song list in one idempotent `createPlaylist` call). Deleting a synced
+  playlist removes it from the server only behind the same explicit confirmation
+  as every delete — a local-only playlist delete never touches the server.
 - **Stream** a track: tapping an uncached Subsonic track streams it directly,
   resolving the URL at play time. A cached copy is preferred automatically.
 - **Offline cache**: a Subsonic track can be downloaded for offline use (the
@@ -175,8 +195,6 @@ Concretely, Linthra:
 These are declared **unsupported** in the capability model today, so their
 actions stay hidden/disabled rather than failing:
 
-- **Favorites** — Subsonic exposes `star`/`unstar`/`getStarred2`; wiring them
-  through Linthra's favorites repository is a follow-up.
 - **Synced lyrics from the legacy endpoint** — the OpenSubsonic
   `getLyricsBySongId` path returns synced lyrics today; the legacy `getLyrics`
   fallback is treated as plain text, so any LRC-style timestamps embedded in its

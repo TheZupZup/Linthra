@@ -7,24 +7,43 @@ import '../../core/models/playlist.dart';
 import '../../data/repositories/playlist_repository_provider.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../../shared/widgets/empty_state.dart';
-import '../settings/jellyfin/jellyfin_settings_controller.dart';
+import '../library/remote_library_refresher.dart';
 import 'playlist_providers.dart';
 import 'widgets/create_playlist_dialog.dart';
 
 /// The Playlists tab: the user's playlists, with the always-present Favorites
 /// collection pinned at the top. Playlists can be created here, and each one can
 /// be opened, renamed, or deleted (with confirmation).
-class PlaylistsScreen extends ConsumerWidget {
+///
+/// Opening the tab triggers a smart, throttled refresh so playlists (and
+/// favourites) changed on a connected server from another client show up without
+/// pressing "Sync".
+class PlaylistsScreen extends ConsumerStatefulWidget {
   const PlaylistsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PlaylistsScreen> createState() => _PlaylistsScreenState();
+}
+
+class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // After the first frame (so it can't touch provider state mid-build), pull
+    // any server-side playlist/favourite changes. Throttled + best-effort.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(remoteLibraryRefresherProvider).refresh();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final Color accent = theme.colorScheme.primary;
     final AsyncValue<List<Playlist>> playlists = ref.watch(playlistsProvider);
-    final bool jellyfinConnected = ref.watch(
-      jellyfinSettingsControllerProvider.select((s) => s.isConnected),
-    );
+    final bool serverConnected =
+        ref.watch(playlistSyncTargetsProvider).isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Playlists')),
@@ -62,7 +81,7 @@ class PlaylistsScreen extends ConsumerWidget {
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (_, __) => const _PlaylistsError(),
               data: (List<Playlist> items) => items.isEmpty
-                  ? _PlaylistsEmpty(jellyfinConnected: jellyfinConnected)
+                  ? _PlaylistsEmpty(serverConnected: serverConnected)
                   : ListView.builder(
                       padding: const EdgeInsets.only(bottom: 88),
                       itemCount: items.length,
@@ -77,12 +96,11 @@ class PlaylistsScreen extends ConsumerWidget {
   }
 
   Future<void> _create(BuildContext context, WidgetRef ref) async {
-    final bool connected = ref.read(
-      jellyfinSettingsControllerProvider.select((s) => s.isConnected),
-    );
+    final List<PlaylistSyncTarget> targets =
+        ref.read(playlistSyncTargetsProvider);
     final PlaylistEdit? edit = await showCreatePlaylistDialog(
       context,
-      canSyncToJellyfin: connected,
+      syncTargets: targets,
     );
     if (edit == null) return;
     await ref.read(playlistRepositoryProvider).createPlaylist(
@@ -143,16 +161,18 @@ class _PlaylistTile extends ConsumerWidget {
   }
 
   /// "{n} songs", with a subtle source/status suffix: "· Sync failed" when a
-  /// sync didn't land, otherwise "· Jellyfin" for a synced playlist so its
-  /// origin is clear without cluttering the row. Local playlists show no suffix.
+  /// sync didn't land, otherwise the server label ("· Jellyfin", "· Navidrome")
+  /// for a synced playlist so its origin is clear without cluttering the row.
+  /// Local playlists show no suffix.
   String _subtitle() {
     final String count = '${playlist.length} '
         '${playlist.length == 1 ? 'song' : 'songs'}';
     if (playlist.syncState == PlaylistSyncState.syncFailed) {
       return '$count · Sync failed';
     }
-    if (playlist.source == PlaylistSource.jellyfin) {
-      return '$count · Jellyfin';
+    final String? label = playlist.source.serverLabel;
+    if (label != null) {
+      return '$count · $label';
     }
     return count;
   }
@@ -200,24 +220,24 @@ class _PlaylistTile extends ConsumerWidget {
 
 enum _PlaylistMenuAction { rename, delete }
 
-/// The empty Playlists state, worded for the situation: signed in to Jellyfin
+/// The empty Playlists state, worded for the situation: signed in to a server
 /// (your server playlists land here after a sync) vs not (create one, or sign in
 /// to import). A failed *load* is a separate state — see [_PlaylistsError].
 class _PlaylistsEmpty extends StatelessWidget {
-  const _PlaylistsEmpty({required this.jellyfinConnected});
+  const _PlaylistsEmpty({required this.serverConnected});
 
-  final bool jellyfinConnected;
+  final bool serverConnected;
 
   @override
   Widget build(BuildContext context) {
     return EmptyState(
       icon: Icons.queue_music_outlined,
       title: 'No playlists yet',
-      message: jellyfinConnected
-          ? 'Tap “New playlist” to create one. Your Jellyfin playlists appear '
+      message: serverConnected
+          ? 'Tap “New playlist” to create one. Your server playlists appear '
               'here after you sync your library.'
-          : 'Tap “New playlist” to create one, or sign in to Jellyfin in '
-              'Settings to import your server playlists.',
+          : 'Tap “New playlist” to create one, or sign in to Jellyfin or '
+              'Navidrome in Settings to import your server playlists.',
     );
   }
 }

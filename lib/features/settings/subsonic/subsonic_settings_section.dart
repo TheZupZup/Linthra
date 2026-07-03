@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
 import '../../../core/sources/music_provider.dart';
+import '../../library/remote_library_refresher.dart';
 import 'subsonic_settings_controller.dart';
 import 'subsonic_settings_state.dart';
 import 'subsonic_sync_controller.dart';
@@ -38,6 +39,13 @@ class _SubsonicSettingsSectionState
     _urlController.addListener(_onFieldChanged);
     _usernameController.addListener(_onFieldChanged);
     _passwordController.addListener(_onFieldChanged);
+    // Opening the connection screen is a natural moment to reconcile server
+    // playlists/favourites (throttled, best-effort) so they're current without a
+    // manual sync.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(remoteLibraryRefresherProvider).refresh();
+    });
   }
 
   void _onFieldChanged() => setState(() {});
@@ -242,6 +250,8 @@ class _CapabilityChips extends StatelessWidget {
       if (caps.canCast) (icon: Icons.cast, label: 'Cast'),
       if (caps.canFavoriteTracks)
         (icon: Icons.favorite_border, label: 'Favorites'),
+      if (caps.canListPlaylists)
+        (icon: Icons.queue_music_outlined, label: 'Playlists'),
       if (caps.canLyrics) (icon: Icons.lyrics_outlined, label: 'Lyrics'),
     ];
     return Wrap(

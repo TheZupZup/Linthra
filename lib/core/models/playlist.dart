@@ -3,16 +3,32 @@ import 'package:flutter/foundation.dart';
 /// Which kind of backend a playlist belongs to.
 ///
 /// A playlist is either purely on-device ([local]) or mirrored to a server
-/// ([jellyfin]). The enum — rather than a free string — keeps the membership
-/// closed and the capability/sync logic exhaustive, while leaving room to add
-/// future providers (Subsonic playlists, WebDAV, …) by extending it here.
+/// ([jellyfin] or [subsonic]). The enum — rather than a free string — keeps the
+/// membership closed and the capability/sync logic exhaustive, while leaving
+/// room to add future providers (WebDAV, …) by extending it here.
 enum PlaylistSource {
   local,
-  jellyfin;
+  jellyfin,
+  subsonic;
 
   /// The provider id this source maps to, matching `MusicProviders.sourceId`
-  /// (`'local'`, `'jellyfin'`) so capability lookups and routing never disagree.
+  /// (`'local'`, `'jellyfin'`, `'subsonic'`) so capability lookups and routing
+  /// never disagree.
   String get providerId => name;
+
+  /// A short, friendly server label for a synced playlist's subtle source tag,
+  /// or `null` for a local-only playlist. Subsonic shows "Navidrome" — the
+  /// common product Linthra speaks the Subsonic API to.
+  String? get serverLabel {
+    switch (this) {
+      case PlaylistSource.local:
+        return null;
+      case PlaylistSource.jellyfin:
+        return 'Jellyfin';
+      case PlaylistSource.subsonic:
+        return 'Navidrome';
+    }
+  }
 
   /// Parses a stored [providerId] back to a source, defaulting to [local] for an
   /// unknown value so an old/forward record can never crash a load.

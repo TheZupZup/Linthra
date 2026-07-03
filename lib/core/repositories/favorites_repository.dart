@@ -34,9 +34,13 @@ abstract interface class FavoritesRepository {
   /// not be synced" instead of guessing.
   Future<FavoritesSyncResult> refreshFromRemote();
 
-  /// Drops the server-sourced favourites (the signed-in account's), keeping
-  /// on-device favourites. Called on sign-out so one account's hearts can't
-  /// linger — or be re-pushed to a different account — after disconnecting.
-  /// A no-op when there are none. Never throws.
-  Future<void> clearRemote();
+  /// Drops server-sourced favourites, keeping on-device favourites. Called on
+  /// sign-out so one account's hearts can't linger — or be re-pushed to a
+  /// different account — after disconnecting.
+  ///
+  /// Pass [providerScheme] (e.g. `'jellyfin:'`, `'subsonic:'`) to drop only that
+  /// provider's server favourites, leaving another still-connected provider's
+  /// hearts untouched; omit it to drop every provider's server favourites. A
+  /// no-op when there are none. Never throws.
+  Future<void> clearRemote({String? providerScheme});
 }

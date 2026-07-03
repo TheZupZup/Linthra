@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
 import '../../../core/sources/jellyfin/jellyfin_server_capabilities.dart';
+import '../../library/remote_library_refresher.dart';
 import 'jellyfin_settings_controller.dart';
 import 'jellyfin_settings_state.dart';
 import 'jellyfin_sync_controller.dart';
@@ -36,6 +37,13 @@ class _JellyfinSettingsSectionState
     // Rebuild as the user types so the Test/Sign-in buttons can enable/disable.
     _urlController.addListener(_onFieldChanged);
     _usernameController.addListener(_onFieldChanged);
+    // Opening the connection screen reconciles server playlists/favourites
+    // (throttled, best-effort, shared with the other providers) so they're
+    // current without a manual sync.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(remoteLibraryRefresherProvider).refresh();
+    });
   }
 
   void _onFieldChanged() => setState(() {});

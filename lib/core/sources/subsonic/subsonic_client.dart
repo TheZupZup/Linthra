@@ -83,4 +83,56 @@ abstract interface class SubsonicClient {
     String songId, {
     required bool submission,
   });
+
+  /// The song ids the signed-in user has starred (favourited), read from
+  /// `getStarred2` (the ID3 starred list). Only songs are returned — Linthra
+  /// mirrors track hearts, not album/artist stars.
+  Future<Set<String>> getStarredSongIds(SubsonicSession session);
+
+  /// Stars (favourites) the song [songId] for the signed-in user via `star`.
+  Future<void> star(SubsonicSession session, String songId);
+
+  /// Removes the star (favourite) from the song [songId] via `unstar`.
+  Future<void> unstar(SubsonicSession session, String songId);
+
+  /// The signed-in user's playlists — id + name only, without entries. Contents
+  /// are fetched per-playlist with [getPlaylistSongIds].
+  Future<List<SubsonicPlaylistDto>> getPlaylists(SubsonicSession session);
+
+  /// The ordered song ids of the playlist [playlistId] (its `getPlaylist`
+  /// `entry` list, in server order).
+  Future<List<String>> getPlaylistSongIds(
+    SubsonicSession session,
+    String playlistId,
+  );
+
+  /// Creates a playlist named [name] seeded with [songIds] (in order), and
+  /// returns the new server playlist id. Throws on failure.
+  Future<String> createPlaylist(
+    SubsonicSession session, {
+    required String name,
+    List<String> songIds = const <String>[],
+  });
+
+  /// Replaces the full ordered song list of the playlist [playlistId] with
+  /// [songIds] (the Subsonic `createPlaylist`-with-`playlistId` replace form),
+  /// so one call covers a Navidrome playlist's add, remove, and reorder. Throws
+  /// on failure.
+  Future<void> setPlaylistSongs(
+    SubsonicSession session,
+    String playlistId,
+    List<String> songIds,
+  );
+
+  /// Renames the playlist [playlistId] to [name] via `updatePlaylist`. Throws
+  /// on failure.
+  Future<void> renamePlaylist(
+    SubsonicSession session,
+    String playlistId,
+    String name,
+  );
+
+  /// Deletes the playlist [playlistId] from the server via `deletePlaylist`.
+  /// Only ever called behind an explicit user confirmation. Throws on failure.
+  Future<void> deletePlaylist(SubsonicSession session, String playlistId);
 }

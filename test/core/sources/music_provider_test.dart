@@ -30,8 +30,7 @@ void main() {
       expect(caps.canCast, isTrue);
     });
 
-    test('subsonic: stream/cache/cast/lyrics implemented; favorites are not',
-        () {
+    test('subsonic: stream/cache/cast/lyrics + favorites + playlist sync', () {
       final caps = MusicProviders.subsonic.capabilities;
       expect(caps.canStream, isTrue);
       expect(caps.canCache, isTrue);
@@ -39,11 +38,16 @@ void main() {
       // Lyrics arrive via the OpenSubsonic getLyricsBySongId extension
       // (Navidrome) with a legacy getLyrics fallback.
       expect(caps.canLyrics, isTrue);
-      // Declared unsupported so their actions stay hidden/disabled.
-      expect(caps.canFavoriteTracks, isFalse);
-      expect(caps.canReadFavoriteState, isFalse);
-      expect(caps.canSyncFavorites, isFalse);
-      expect(caps.canListPlaylists, isFalse);
+      // Favourites map to star/unstar/getStarred2 and mirror two-way.
+      expect(caps.canFavoriteTracks, isTrue);
+      expect(caps.canReadFavoriteState, isTrue);
+      expect(caps.canSyncFavorites, isTrue);
+      // Playlists are imported, created, edited, deleted, and synced.
+      expect(caps.canListPlaylists, isTrue);
+      expect(caps.canCreatePlaylist, isTrue);
+      expect(caps.canEditPlaylist, isTrue);
+      expect(caps.canDeletePlaylist, isTrue);
+      expect(caps.canSyncPlaylists, isTrue);
     });
 
     test('plex: stream + lyrics + caching in phase 1 (docs/plex.md matrix)',
@@ -119,13 +123,13 @@ void main() {
       expect(MusicProviders.jellyfin.capabilities.canDeletePlaylist, isTrue);
       expect(MusicProviders.jellyfin.capabilities.canSyncPlaylists, isTrue);
 
-      // Subsonic playlists aren't synced yet.
-      expect(MusicProviders.subsonic.capabilities.canSyncPlaylists, isFalse);
+      // Subsonic/Navidrome playlists now sync too.
+      expect(MusicProviders.subsonic.capabilities.canSyncPlaylists, isTrue);
     });
 
     test('favorite capabilities reflect provider support', () {
-      // Jellyfin reads, toggles, and two-way syncs favourites against the
-      // server; local toggles/reads on-device only; Subsonic does neither yet.
+      // Jellyfin and Subsonic both read, toggle, and two-way sync favourites
+      // against the server; local toggles/reads on-device only.
       final jelly = MusicProviders.jellyfin.capabilities;
       expect(jelly.canReadFavoriteState, isTrue);
       expect(jelly.canFavoriteTracks, isTrue);
@@ -135,7 +139,10 @@ void main() {
       expect(local.canFavoriteTracks, isTrue);
       expect(local.canSyncFavorites, isFalse);
 
-      expect(MusicProviders.subsonic.capabilities.canFavoriteTracks, isFalse);
+      final subsonic = MusicProviders.subsonic.capabilities;
+      expect(subsonic.canReadFavoriteState, isTrue);
+      expect(subsonic.canFavoriteTracks, isTrue);
+      expect(subsonic.canSyncFavorites, isTrue);
     });
 
     test('a future provider seam is data-driven via a fake provider', () {

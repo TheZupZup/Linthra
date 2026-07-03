@@ -6,6 +6,7 @@ import '../core/services/active_playback_controller.dart';
 import '../core/services/notification_permission.dart';
 import '../core/services/stability_diagnostics.dart';
 import '../features/appearance/app_icon_controller.dart';
+import '../features/library/remote_library_refresher.dart';
 import '../features/player/player_providers.dart';
 import 'brand_theme.dart';
 import 'router.dart';
@@ -84,6 +85,11 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       if (controller is ActivePlaybackController) {
         controller.onAppResumed();
       }
+      // Smart refresh: pick up playlist/favourite changes made on a connected
+      // server (Navidrome/Jellyfin) from another client while we were away, and
+      // retry any heart that hadn't reached the server yet. Throttled,
+      // best-effort, and offline-tolerant — never blocks the resume.
+      ref.read(remoteLibraryRefresherProvider).refresh();
     }
   }
 

@@ -5,9 +5,9 @@ import '../../../app/dimens.dart';
 import '../../../core/models/playlist.dart';
 import '../../../core/models/track.dart';
 import '../../../core/sources/jellyfin/jellyfin_track_mapper.dart';
+import '../../../core/sources/subsonic/subsonic_track_mapper.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../shared/widgets/empty_state.dart';
-import '../../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../playlist_providers.dart';
 import 'create_playlist_dialog.dart';
 
@@ -122,10 +122,11 @@ class _AddToPlaylistSheet extends ConsumerWidget {
     final List<Track> addable = _addableFor(playlist);
     if (addable.isEmpty) {
       navigator.pop();
+      final String label = playlist.source.serverLabel ?? 'this server';
       messenger.showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Only Jellyfin tracks can be added to a Jellyfin playlist.',
+            'Only $label tracks can be added to a $label playlist.',
           ),
         ),
       );
@@ -153,14 +154,13 @@ class _AddToPlaylistSheet extends ConsumerWidget {
   }
 
   Future<void> _createAndAdd(BuildContext context, WidgetRef ref) async {
-    final bool connected = ref.read(
-      jellyfinSettingsControllerProvider.select((s) => s.isConnected),
-    );
+    final List<PlaylistSyncTarget> targets =
+        ref.read(playlistSyncTargetsProvider);
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     final NavigatorState navigator = Navigator.of(context);
     final PlaylistEdit? edit = await showCreatePlaylistDialog(
       context,
-      canSyncToJellyfin: connected,
+      syncTargets: targets,
     );
     if (edit == null) return;
     final repository = ref.read(playlistRepositoryProvider);
@@ -178,7 +178,7 @@ class _AddToPlaylistSheet extends ConsumerWidget {
     }
     navigator.pop();
     // A freshly created playlist is empty, so every addable track is genuinely
-    // added; the skipped remainder (if any) was filtered as non-Jellyfin.
+    // added; the skipped remainder (if any) was filtered as a different source.
     messenger.showSnackBar(
       SnackBar(
         content: Text(
@@ -190,20 +190,36 @@ class _AddToPlaylistSheet extends ConsumerWidget {
   }
 
   /// The subset of [tracks] that can be added to [playlist]: every track for a
-  /// local playlist, only Jellyfin tracks for a Jellyfin playlist (so a synced
-  /// playlist stays consistent with the server).
+  /// local playlist, only same-provider tracks for a synced playlist (so it
+  /// stays consistent with the server — a Jellyfin playlist holds only
+  /// `jellyfin:` tracks, a Navidrome playlist only `subsonic:` tracks).
   List<Track> _addableFor(Playlist playlist) {
-    if (playlist.source != PlaylistSource.jellyfin) return tracks;
+    final String? scheme = _schemeFor(playlist.source);
+    if (scheme == null) return tracks;
     return <Track>[
       for (final Track track in tracks)
-        if (track.uri.startsWith(JellyfinTrackMapper.uriScheme)) track,
+        if (track.uri.startsWith(scheme)) track,
     ];
+  }
+
+  /// The track-uri scheme a synced playlist of [source] accepts, or `null` for a
+  /// local playlist (which accepts any source's tracks).
+  static String? _schemeFor(PlaylistSource source) {
+    switch (source) {
+      case PlaylistSource.local:
+        return null;
+      case PlaylistSource.jellyfin:
+        return JellyfinTrackMapper.uriScheme;
+      case PlaylistSource.subsonic:
+        return SubsonicTrackMapper.uriScheme;
+    }
   }
 
   /// A snackbar line reflecting what actually changed. [added] is the number of
   /// tracks genuinely appended (the repository skips ids already present, and
-  /// [addableCount] excludes tracks the playlist can't take — e.g. non-Jellyfin
-  /// tracks for a synced playlist), so this never claims more than was added.
+  /// [addableCount] excludes tracks the playlist can't take — e.g. a different
+  /// source's tracks for a synced playlist), so this never claims more than was
+  /// added.
   String _resultMessage(
     Playlist playlist, {
     required int addableCount,
@@ -212,8 +228,9 @@ class _AddToPlaylistSheet extends ConsumerWidget {
     if (added == 0) {
       // Nothing new landed. Either the whole selection was unsupported, or
       // every track was already in the playlist.
-      if (addableCount == 0 && playlist.source == PlaylistSource.jellyfin) {
-        return 'Only Jellyfin tracks can be added to ${playlist.name}.';
+      if (addableCount == 0 && playlist.source != PlaylistSource.local) {
+        final String label = playlist.source.serverLabel ?? 'this server';
+        return 'Only $label tracks can be added to ${playlist.name}.';
       }
       return tracks.length == 1
           ? "That song's already in ${playlist.name}."

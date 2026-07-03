@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
+import '../../../core/models/playback_state.dart';
 import '../../../core/models/track.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../favorites_providers.dart';
+import '../now_playing_favorite_target.dart';
+import '../player_providers.dart';
 import '../sleep_timer_controller.dart';
 import 'lyrics_view.dart';
 import 'queue_sheet.dart';
@@ -28,7 +31,22 @@ class NowPlayingActions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
-    final bool isFavorite = ref.watch(isFavoriteProvider(track.uri));
+    final playbackController = ref.watch(playbackControllerProvider);
+    // Watch only the track identity, not playback position ticks, so the action
+    // row still rebuilds only when the provider-specific current copy changes.
+    final Track? currentPlaybackTrack = ref.watch(
+          playbackStateProvider.select(
+            (async) => async.valueOrNull?.currentTrack,
+          ),
+        ) ??
+        playbackController.state.currentTrack;
+    final playbackState = PlaybackState(currentTrack: currentPlaybackTrack);
+    final Track favoriteTarget = resolveNowPlayingFavoriteTarget(
+      displayTrack: track,
+      playbackState: playbackState,
+      candidateSource: ref.watch(playbackCandidateSourceProvider),
+    );
+    final bool isFavorite = ref.watch(isFavoriteProvider(favoriteTarget.uri));
     final bool sleepTimerActive = ref.watch(
       sleepTimerControllerProvider.select((s) => s.isActive),
     );
@@ -44,7 +62,7 @@ class NowPlayingActions extends ConsumerWidget {
           iconSize: 22,
           onPressed: () => ref
               .read(favoritesRepositoryProvider)
-              .setFavorite(track, !isFavorite),
+              .setFavorite(favoriteTarget, !isFavorite),
           icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
           color: isFavorite ? theme.colorScheme.primary : muted,
           isSelected: isFavorite,
