@@ -78,7 +78,8 @@ void main() {
       expect(target, _local);
     });
 
-    test('falls back to current track when no better target can be resolved', () {
+    test('falls back to current track when no better target can be resolved',
+        () {
       final target = resolveNowPlayingFavoriteTarget(
         displayTrack: _jellyfin,
         playbackState: const PlaybackState(
@@ -114,7 +115,8 @@ void main() {
       },
     );
 
-    testWidgets('heart icon state uses resolved Subsonic target', (tester) async {
+    testWidgets('heart icon state uses resolved Subsonic target',
+        (tester) async {
       await _pumpActions(
         tester,
         displayTrack: _jellyfin,
