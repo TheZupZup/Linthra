@@ -7,10 +7,12 @@ import '../../app/routes.dart';
 import '../../core/models/playlist.dart';
 import '../../core/models/track.dart';
 import '../../core/services/bulk_track_actions.dart';
+import '../../data/repositories/favorites_repository_provider.dart';
 import '../../data/repositories/playlist_repository_provider.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../library/song_actions.dart';
+import '../player/favorites_providers.dart';
 import '../player/now_playing.dart';
 import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
@@ -235,6 +237,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     final Track track = tracks[index];
     final NowPlayingRowState? nowPlaying =
         ref.watch(nowPlayingProvider.select((n) => n.stateForRow(track)));
+    // Keyed by the provider-namespaced uri so each source's heart is its own.
+    final bool isFavorite = ref.watch(isFavoriteProvider(track.uri));
     return ListTile(
       key: ValueKey<String>(track.uri),
       leading: TrackArtwork(
@@ -251,8 +255,20 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
             icon: const Icon(Icons.more_vert),
             tooltip: 'Track actions',
             onSelected: (a) => _runRow(playlist, track, a),
-            itemBuilder: (context) => const <PopupMenuEntry<_RowAction>>[
+            itemBuilder: (context) => <PopupMenuEntry<_RowAction>>[
               PopupMenuItem<_RowAction>(
+                value: _RowAction.toggleFavorite,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    isFavorite ? Icons.favorite : Icons.favorite_border,
+                  ),
+                  title: Text(
+                    isFavorite ? 'Remove from favorites' : 'Add to favorites',
+                  ),
+                ),
+              ),
+              const PopupMenuItem<_RowAction>(
                 value: _RowAction.playNext,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -260,7 +276,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                   title: Text('Play next'),
                 ),
               ),
-              PopupMenuItem<_RowAction>(
+              const PopupMenuItem<_RowAction>(
                 value: _RowAction.addToQueue,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -268,7 +284,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                   title: Text('Add to queue'),
                 ),
               ),
-              PopupMenuItem<_RowAction>(
+              const PopupMenuItem<_RowAction>(
                 value: _RowAction.addToPlaylist,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -276,7 +292,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                   title: Text('Add to playlist'),
                 ),
               ),
-              PopupMenuItem<_RowAction>(
+              const PopupMenuItem<_RowAction>(
                 value: _RowAction.removeFromPlaylist,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -407,6 +423,15 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     _RowAction action,
   ) async {
     switch (action) {
+      case _RowAction.toggleFavorite:
+        // Like/unlike from the playlist row without touching playback or the
+        // queue. Re-read the current state so the toggle is correct even if the
+        // heart changed after the menu opened; the real [Track] uri routes the
+        // favourite to the right source (and its Subsonic sync push).
+        final bool isFavorite = ref.read(isFavoriteProvider(track.uri));
+        await ref
+            .read(favoritesRepositoryProvider)
+            .setFavorite(track, !isFavorite);
       case _RowAction.playNext:
         ref.read(playbackControllerProvider).playNext(track);
       case _RowAction.addToQueue:
@@ -527,7 +552,13 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
 enum _DetailMenuAction { rename, delete }
 
-enum _RowAction { playNext, addToQueue, addToPlaylist, removeFromPlaylist }
+enum _RowAction {
+  toggleFavorite,
+  playNext,
+  addToQueue,
+  addToPlaylist,
+  removeFromPlaylist,
+}
 
 class _Header extends StatelessWidget {
   const _Header({required this.onPlay, required this.onShuffle});

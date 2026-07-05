@@ -102,6 +102,29 @@ void main() {
     expect(find.text('player-screen'), findsOneWidget);
   });
 
+  testWidgets(
+      'track row menu toggles favorite without playing or changing the queue',
+      (tester) async {
+    final FakePlaybackController controller = FakePlaybackController();
+    await _pump(tester, store: await _seededStore(), controller: controller);
+
+    await tester.tap(find.byTooltip('Track actions').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Add to favorites'), findsOneWidget);
+
+    await tester.tap(find.text('Add to favorites'));
+    await tester.pumpAndSettle();
+
+    // Favoriting is a pure like: no playback, no queue change.
+    expect(controller.playedTracks, isEmpty);
+    expect(controller.state.upNext, isEmpty);
+
+    // Reopening the row's menu now offers the filled-heart remove action.
+    await tester.tap(find.byTooltip('Track actions').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Remove from favorites'), findsOneWidget);
+  });
+
   testWidgets('long-press enters selection mode and shows the count',
       (tester) async {
     await _pump(
