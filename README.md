@@ -20,23 +20,23 @@ tracking, no account.
 
 ## Features
 
-- **Local library** — pick a folder, scan it, browse Songs / Albums / Artists
-  with search. No broad storage permission.
-- **Self-hosted streaming** — connect your own Jellyfin, Navidrome / Subsonic,
-  or Plex server. Streaming is the default; nothing downloads unless you ask.
-- **Smart offline cache** — download the tracks you want offline; Wi-Fi only by
-  default, with a size limit and "Keep offline" pinning.
-- **Cast / Chromecast** — pure-Dart Cast, no Google Play Services.
-- **Android Auto** — browse your library and play from the car screen.
-- **Queue, playlists & favourites** — full queue control, and playlists /
-  favourites sync two-way with Jellyfin and Navidrome / Subsonic.
-- **Smart mixes** — automatic collections (Recently played, Most played,
-  Favorites, …) built from on-device signals that stay on the device.
-- **Background playback** — lock-screen, Bluetooth, and headset controls, plus
-  shuffle / repeat and synced lyrics.
-- **Themes & icons** — retint the app and switch the real launcher icon.
+- Plays music from a folder on your phone. Uses the Android folder picker, so
+  it never asks for a broad storage permission.
+- Streams from your own Jellyfin, Navidrome / Subsonic, or Plex server.
+  Streaming is the default and nothing downloads unless you ask.
+- Offline cache: download the tracks you want, Wi-Fi only by default, with a
+  size limit and "Keep offline" pinning.
+- Chromecast, implemented in pure Dart. No Google Play Services needed.
+- Android Auto.
+- Queue, playlists and favourites. Playlists and hearts sync both ways with
+  Jellyfin and Navidrome, and work fine with no server at all.
+- Smart mixes (recently played, most played, never played, and so on), built
+  from listening data that never leaves the device.
+- Background playback with lock-screen, Bluetooth and headset controls,
+  shuffle, repeat, and synced lyrics.
+- Themes, and you can switch the actual launcher icon from settings.
 
-Every feature has a deep-dive in [the docs](./docs/README.md).
+Each of these has its own page in [the docs](./docs/README.md).
 
 ## Screenshots
 
@@ -48,33 +48,34 @@ More in [`phoneScreenshots/`](fastlane/metadata/android/en-US/images/phoneScreen
 
 ## Install
 
-**[GitHub Releases](https://github.com/thezupzup/linthra/releases)** is the
-source of truth for the latest builds — each release ships signed APKs, and the
-current stable is **v0.1.8**. Linthra is also on
-**[F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/)**, though
-F-Droid updates may arrive later while their build/review runs. Not on Google
-Play yet.
+New versions land on
+[GitHub Releases](https://github.com/thezupzup/linthra/releases) first, as
+signed APKs. The current stable is v0.1.8. Linthra is also on
+[F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/), usually a
+bit behind while their build and review runs. Not on Google Play yet.
 
-> **Don't mix install sources:** GitHub APKs and F-Droid builds are signed with
-> different keys and can't update each other — pick one and stick with it.
+> **Don't mix install sources.** GitHub APKs and F-Droid builds are signed with
+> different keys and can't update each other. Pick one and stick with it.
 
-**Obtainium (recommended)** — [Obtainium](https://github.com/ImranR98/Obtainium)
-installs straight from GitHub Releases and keeps Linthra updated:
+The nicest way to install from GitHub is
+[Obtainium](https://github.com/ImranR98/Obtainium), which also keeps you
+updated:
 
 1. Install Obtainium.
 2. Tap **Add App** and paste the source URL:
    `https://github.com/thezupzup/linthra`
-3. Install the latest release; Obtainium handles updates from then on. (Enable
+3. Install the latest release. Obtainium handles updates from then on. (Enable
    **"Include prereleases"** only if you want to test pre-release builds.)
 
-Other options:
+Or just download the `.apk` from the
+[latest release](https://github.com/thezupzup/linthra/releases/latest) and open
+it on your phone.
 
-- **Manual APK** — download the signed `.apk` from the
-  [latest release](https://github.com/thezupzup/linthra/releases/latest) and
-  open it on your phone.
-- **Android Auto?** Sideloaded media apps only appear after a one-time
-  "Unknown sources" toggle — see [docs/android-auto.md](./docs/android-auto.md).
-- **Build it yourself** — setup, build, and CI details are in
+Two things worth knowing:
+
+- Android Auto only shows sideloaded media apps after a one-time developer
+  toggle. See [docs/android-auto.md](./docs/android-auto.md).
+- Building from source is two commands. See
   [docs/development.md](./docs/development.md).
 
 ## Supported sources
@@ -89,35 +90,35 @@ Other options:
 
 ## Privacy
 
-- **No telemetry, no analytics, no phoning home** — nothing leaves your device
-  unless **you** choose to.
-- **No surprise downloads** — streaming is the default; downloads are always
-  user-initiated.
-- **Minimal permissions** — playback and internet; no broad storage permission.
-- **Your secrets stay safe** — the server password is used once to get a token,
-  then discarded; the token is encrypted at rest and never logged.
+Nothing leaves your device unless you make it happen. There is no telemetry and
+no analytics; bug reports are built locally and only go anywhere if you open
+the prefilled issue yourself. Downloads are always something you started.
+Permissions are minimal: playback and internet, no storage permission. Your
+server password is used once to get a token and then discarded; the token is
+stored encrypted and never logged.
 
-Details in [PRIVACY.md](./PRIVACY.md) and each provider's doc.
+More in [PRIVACY.md](./PRIVACY.md) and the per-provider docs.
 
 ## Contributing
 
-Linthra is small and friendly — testing against your own server, capturing
-screenshots, and fixing docs are all real contributions, no Flutter expertise
-required. Start with [CONTRIBUTING.md](./CONTRIBUTING.md); the
-[contributor roadmap](./docs/contributor-roadmap.md) shows where help matters
-most right now, and optional ways to support development are in
+Testing against your own server, capturing screenshots, or fixing a confusing
+doc counts just as much as code. [CONTRIBUTING.md](./CONTRIBUTING.md) gets you
+set up in two commands, and the
+[contributor roadmap](./docs/contributor-roadmap.md) shows where help is most
+useful right now. If you'd like to support development, see
 [docs/SUPPORT.md](./docs/SUPPORT.md).
 
 ## Roadmap
 
-The phased product direction — and its one guiding rule, **Linthra works on its
-own; Linthra Connect is optional** — lives in
-[docs/roadmap.md](./docs/roadmap.md), along with the honest gaps.
+See [docs/roadmap.md](./docs/roadmap.md). The short version: stabilize 0.1.x,
+then backup/restore, then the optional Linthra Connect and a desktop app. One
+rule holds through all of it: Linthra works on its own. No Docker, no account,
+no required pairing.
 
 ## Documentation
 
-The full index — setup, architecture, and a deep-dive per feature — is in
-[docs/README.md](./docs/README.md).
+Everything is indexed in [docs/README.md](./docs/README.md): setup,
+architecture, and a page per feature.
 
 ## License
 
