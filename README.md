@@ -29,9 +29,9 @@ tracking, no account.
 - Chromecast, implemented in pure Dart. No Google Play Services needed.
 - Android Auto.
 - Queue, playlists and favorites. Playlists and hearts sync both ways with
-  Jellyfin and Navidrome, and work fine with no server at all.
-- Smart mixes (recently played, most played, never played, and so on), built
-  from listening data that never leaves the device.
+  Jellyfin and Navidrome, and also work without a server.
+- Smart mixes (recently played, most played, never played). Built from
+  listening data that stays on the device.
 - Background playback with lock-screen, Bluetooth and headset controls,
   shuffle, repeat, and synced lyrics.
 - Themes, and you can switch the actual launcher icon from settings.
@@ -42,7 +42,7 @@ Each of these has its own page in [the docs](./docs/README.md).
 
 | Now Playing | Library | Smart mixes |
 | --- | --- | --- |
-| ![Now Playing](fastlane/metadata/android/en-US/images/phoneScreenshots/01-now-playing-carefree.png) | ![Library — Albums](fastlane/metadata/android/en-US/images/phoneScreenshots/02-library-albums.png) | ![Smart mixes](fastlane/metadata/android/en-US/images/phoneScreenshots/04-smart-mixes.png) |
+| ![Now Playing](fastlane/metadata/android/en-US/images/phoneScreenshots/01-now-playing-carefree.png) | ![Library albums](fastlane/metadata/android/en-US/images/phoneScreenshots/02-library-albums.png) | ![Smart mixes](fastlane/metadata/android/en-US/images/phoneScreenshots/04-smart-mixes.png) |
 
 More in [`phoneScreenshots/`](fastlane/metadata/android/en-US/images/phoneScreenshots/).
 
@@ -58,9 +58,8 @@ Google Play yet.
 > **Don't mix install sources.** GitHub APKs and F-Droid builds are signed with
 > different keys and can't update each other. Pick one and stick with it.
 
-The nicest way to install from GitHub is
-[Obtainium](https://github.com/ImranR98/Obtainium), which also keeps you
-updated:
+To install from GitHub Releases and get updates, use
+[Obtainium](https://github.com/ImranR98/Obtainium):
 
 1. Install Obtainium.
 2. Tap **Add App** and paste the source URL:
@@ -68,11 +67,11 @@ updated:
 3. Install the latest release. Obtainium handles updates from then on. (Enable
    **"Include prereleases"** only if you want to test pre-release builds.)
 
-Or just download the `.apk` from the
+Or download the `.apk` from the
 [latest release](https://github.com/thezupzup/linthra/releases/latest) and open
 it on your phone.
 
-Two things worth knowing:
+Notes:
 
 - Android Auto only shows sideloaded media apps after a one-time developer
   toggle. See [docs/android-auto.md](./docs/android-auto.md).
@@ -83,41 +82,39 @@ Two things worth knowing:
 
 | Source | Status |
 | --- | --- |
-| **Local files** | ✅ Scan a folder, play directly (SAF, no broad permission) — [docs](./docs/local-music.md) |
-| **Jellyfin** | ✅ Stream, cache, cast, playlists & favorites — [docs](./docs/jellyfin.md) |
-| **Navidrome / Subsonic** | ✅ Stream, cache, cast, lyrics, playlists & favorites (two-way sync) — [docs](./docs/providers.md) |
-| **Plex** | ✅ Browse, stream & cache from your own Plex Media Server — [docs](./docs/plex.md) |
-| **WebDAV / NAS** | 🔜 Planned — same `MusicSource` seam |
+| **Local files** | ✅ Scan a folder, play directly (SAF, no broad permission) ([docs](./docs/local-music.md)) |
+| **Jellyfin** | ✅ Stream, cache, cast, playlists & favorites ([docs](./docs/jellyfin.md)) |
+| **Navidrome / Subsonic** | ✅ Stream, cache, cast, lyrics, playlists & favorites, two-way sync ([docs](./docs/providers.md)) |
+| **Plex** | ✅ Browse, stream & cache from your own Plex Media Server ([docs](./docs/plex.md)) |
+| **WebDAV / NAS** | 🔜 Planned, behind the same `MusicSource` interface |
 
 ## Privacy
 
-Nothing leaves your device unless you make it happen.
+Nothing leaves your device unless you send it yourself.
 
 - No telemetry, no analytics.
-- Bug reports are built locally and only go anywhere if you open the prefilled
-  issue yourself.
-- Downloads are always something you started.
+- Bug reports are built locally and only sent if you open the prefilled issue
+  yourself.
+- Downloads only happen when you start them.
 - Minimal permissions: playback and internet, no storage permission.
-- Your server password is used once to get a token and then discarded; the
-  token is stored encrypted and never logged.
+- The server password is used once to get a token, then discarded. The token
+  is stored encrypted and never logged.
 
-More in [PRIVACY.md](./PRIVACY.md) and the per-provider docs.
+Details are in [PRIVACY.md](./PRIVACY.md) and the provider docs.
 
 ## Contributing
 
-Testing against your own server, capturing screenshots, or fixing a confusing
-doc counts just as much as code. [CONTRIBUTING.md](./CONTRIBUTING.md) gets you
-set up in two commands, and the
-[contributor roadmap](./docs/contributor-roadmap.md) shows where help is most
-useful right now. If you'd like to support development, see
+Testing against your own server, screenshots, and doc fixes are useful
+contributions, not just code. [CONTRIBUTING.md](./CONTRIBUTING.md) covers
+setup. The [contributor roadmap](./docs/contributor-roadmap.md) lists where
+help is needed. To support development, see
 [docs/SUPPORT.md](./docs/SUPPORT.md).
 
 ## Roadmap
 
-See [docs/roadmap.md](./docs/roadmap.md). The short version: stabilize 0.1.x,
-then backup/restore, then the optional Linthra Connect and a desktop app. One
-rule holds through all of it: Linthra works on its own. No Docker, no account,
-no required pairing.
+See [docs/roadmap.md](./docs/roadmap.md). In short: stabilize 0.1.x, then
+backup/restore, then the optional Linthra Connect and a desktop app. Linthra
+always works on its own: no Docker, no account, no required pairing.
 
 ## Documentation
 
