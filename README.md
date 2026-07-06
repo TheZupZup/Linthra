@@ -23,7 +23,7 @@ tracking, no account.
 - Plays music from a folder on your phone. Uses the Android folder picker, so
   it never asks for a broad storage permission.
 - Streams from your own Jellyfin, Navidrome / Subsonic, or Plex server.
-  Streaming is the default and nothing downloads unless you ask.
+  Streaming is the default and nothing is downloaded automatically.
 - Offline cache: download the tracks you want, Wi-Fi only by default, with a
   size limit and "Keep offline" pinning.
 - Chromecast, implemented in pure Dart. No Google Play Services needed.
@@ -34,7 +34,7 @@ tracking, no account.
   listening data that stays on the device.
 - Background playback with lock-screen, Bluetooth and headset controls,
   shuffle, repeat, and synced lyrics.
-- Themes, and you can switch the actual launcher icon from settings.
+- Themes and launcher icon switching.
 
 Each of these has its own page in [the docs](./docs/README.md).
 
@@ -75,7 +75,7 @@ Notes:
 
 - Android Auto only shows sideloaded media apps after a one-time developer
   toggle. See [docs/android-auto.md](./docs/android-auto.md).
-- Building from source is two commands. See
+- To build from source, see
   [docs/development.md](./docs/development.md).
 
 ## Supported sources
@@ -90,9 +90,8 @@ Notes:
 
 ## Privacy
 
-Nothing leaves your device unless you send it yourself.
+Linthra does not send telemetry or analytics.
 
-- No telemetry, no analytics.
 - Bug reports are built locally and only sent if you open the prefilled issue
   yourself.
 - Downloads only happen when you start them.
