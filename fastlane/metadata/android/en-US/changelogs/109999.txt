@@ -20,5 +20,3 @@ Navidrome / Subsonic:
 Library:
 - Add or remove favorites straight from any track menu, without
   starting playback.
-
-No ads. No tracking. No locked features.
