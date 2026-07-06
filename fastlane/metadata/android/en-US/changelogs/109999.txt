@@ -1,0 +1,24 @@
+Linthra 0.1.9 — HTTPS trust fix & sync improvements.
+
+A small update for self-hosted HTTPS servers, Navidrome/Subsonic sync,
+and favorites.
+
+Connections:
+- HTTPS servers using a user-installed CA certificate now connect.
+  Install your private CA on the device and Jellyfin or Navidrome
+  servers behind it just work — certificate chains and hostnames are
+  still fully verified.
+
+Navidrome / Subsonic:
+- Playlists and favorites now sync two-way with the server.
+- Favorites are reliable: a failed or offline change is queued and
+  retried instead of being silently reverted.
+- Changes made on the server are picked up automatically — no manual
+  sync needed.
+- The first sync starts on its own after sign-in.
+
+Library:
+- Add or remove favorites straight from any track menu, without
+  starting playback.
+
+No ads. No tracking. No locked features.
