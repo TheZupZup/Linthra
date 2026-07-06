@@ -13,10 +13,21 @@
     is permitted app-wide here. This is a deliberate connectivity choice for a
     self-hosted app; it adds no tracking and sends nothing to any third party.
     HTTPS is always preferred and is recommended for any server reachable from
-    outside the local network. The default (system) certificate trust anchors
-    are kept, so self-signed certificates are still rejected (the app surfaces a
-    clear "couldn't verify your server's certificate" message instead).
+    outside the local network.
+
+    For HTTPS, Linthra trusts the system CAs plus user-installed CAs (the ones
+    added under Settings > Security > Encryption & credentials > User
+    credentials). Self-hosted servers often use a private CA or self-signed
+    certificate; installing that CA on the device lets Linthra connect without
+    weakening TLS — certificate chains and hostnames are still fully verified,
+    and a certificate not anchored in either store is still rejected (the app
+    surfaces a clear "couldn't verify your server's certificate" message).
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>
