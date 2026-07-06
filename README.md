@@ -34,7 +34,7 @@ tracking, no account.
   listening data that stays on the device.
 - Background playback with lock-screen, Bluetooth and headset controls,
   shuffle, repeat, and synced lyrics.
-- Themes, and you can switch the actual launcher icon from settings.
+- Themes and launcher icon switching.
 
 Each of these has its own page in [the docs](./docs/README.md).
 
@@ -90,9 +90,8 @@ Notes:
 
 ## Privacy
 
-Nothing leaves your device unless you send it yourself.
+Linthra does not send telemetry or analytics.
 
-- No telemetry, no analytics.
 - Bug reports are built locally and only sent if you open the prefilled issue
   yourself.
 - Downloads only happen when you start them.
