@@ -28,7 +28,7 @@ tracking, no account.
   size limit and "Keep offline" pinning.
 - Chromecast, implemented in pure Dart. No Google Play Services needed.
 - Android Auto.
-- Queue, playlists and favourites. Playlists and hearts sync both ways with
+- Queue, playlists and favorites. Playlists and hearts sync both ways with
   Jellyfin and Navidrome, and work fine with no server at all.
 - Smart mixes (recently played, most played, never played, and so on), built
   from listening data that never leaves the device.
@@ -51,8 +51,9 @@ More in [`phoneScreenshots/`](fastlane/metadata/android/en-US/images/phoneScreen
 New versions land on
 [GitHub Releases](https://github.com/thezupzup/linthra/releases) first, as
 signed APKs. The current stable is v0.1.8. Linthra is also on
-[F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/), usually a
-bit behind while their build and review runs. Not on Google Play yet.
+[F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/); F-Droid
+builds may arrive a bit later while their build and review process runs. Not on
+Google Play yet.
 
 > **Don't mix install sources.** GitHub APKs and F-Droid builds are signed with
 > different keys and can't update each other. Pick one and stick with it.
@@ -83,19 +84,22 @@ Two things worth knowing:
 | Source | Status |
 | --- | --- |
 | **Local files** | ✅ Scan a folder, play directly (SAF, no broad permission) — [docs](./docs/local-music.md) |
-| **Jellyfin** | ✅ Stream, cache, cast, playlists & favourites — [docs](./docs/jellyfin.md) |
-| **Navidrome / Subsonic** | ✅ Stream, cache, cast, lyrics, playlists & favourites (two-way sync) — [docs](./docs/providers.md) |
+| **Jellyfin** | ✅ Stream, cache, cast, playlists & favorites — [docs](./docs/jellyfin.md) |
+| **Navidrome / Subsonic** | ✅ Stream, cache, cast, lyrics, playlists & favorites (two-way sync) — [docs](./docs/providers.md) |
 | **Plex** | ✅ Browse, stream & cache from your own Plex Media Server — [docs](./docs/plex.md) |
 | **WebDAV / NAS** | 🔜 Planned — same `MusicSource` seam |
 
 ## Privacy
 
-Nothing leaves your device unless you make it happen. There is no telemetry and
-no analytics; bug reports are built locally and only go anywhere if you open
-the prefilled issue yourself. Downloads are always something you started.
-Permissions are minimal: playback and internet, no storage permission. Your
-server password is used once to get a token and then discarded; the token is
-stored encrypted and never logged.
+Nothing leaves your device unless you make it happen.
+
+- No telemetry, no analytics.
+- Bug reports are built locally and only go anywhere if you open the prefilled
+  issue yourself.
+- Downloads are always something you started.
+- Minimal permissions: playback and internet, no storage permission.
+- Your server password is used once to get a token and then discarded; the
+  token is stored encrypted and never logged.
 
 More in [PRIVACY.md](./PRIVACY.md) and the per-provider docs.
 
