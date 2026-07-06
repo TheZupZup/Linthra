@@ -58,9 +58,17 @@ Play yet.
 > **Don't mix install sources:** GitHub APKs and F-Droid builds are signed with
 > different keys and can't update each other — pick one and stick with it.
 
-- **Obtainium** — [Obtainium](https://github.com/ImranR98/Obtainium) installs
-  straight from GitHub Releases and keeps Linthra updated: add
-  `https://github.com/thezupzup/linthra` as the source URL.
+**Obtainium (recommended)** — [Obtainium](https://github.com/ImranR98/Obtainium)
+installs straight from GitHub Releases and keeps Linthra updated:
+
+1. Install Obtainium.
+2. Tap **Add App** and paste the source URL:
+   `https://github.com/thezupzup/linthra`
+3. Install the latest release; Obtainium handles updates from then on. (Enable
+   **"Include prereleases"** only if you want to test pre-release builds.)
+
+Other options:
+
 - **Manual APK** — download the signed `.apk` from the
   [latest release](https://github.com/thezupzup/linthra/releases/latest) and
   open it on your phone.
