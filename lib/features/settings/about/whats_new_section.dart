@@ -20,12 +20,10 @@ class WhatsNewSection extends StatelessWidget {
   /// handful of concise bullets and updated when cutting a new build; exposed so
   /// the widget test can assert each line renders without duplicating the copy.
   static const List<String> releaseNotes = <String>[
-    'Jellyfin sync is more tolerant and resilient.',
-    'Existing music stays visible if a Jellyfin sync fails temporarily.',
-    'Jellyfin 12 compatibility preparation.',
-    'Launcher icon switching now works from Appearance settings.',
-    'App themes now retint the in-app accent/theme.',
-    'Added optional Community links and Share Linthra in Settings.',
+    'User-installed CA certificates are now trusted for HTTPS servers.',
+    'Playlists and favorites now sync two-way with Navidrome/Subsonic.',
+    'Changes made on your server now show up on their own.',
+    'Add or remove favorites straight from any track menu.',
   ];
 
   @override
