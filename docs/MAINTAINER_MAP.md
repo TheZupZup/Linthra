@@ -4,9 +4,10 @@ This document helps me understand Linthra as the maintainer.
 
 ## App entry point
 - `lib/main.dart`: starts the app.
+
 ## Settings / About
 - `lib/features/settings/`: contains settings screens.
-- `lib/features/settings/about/`: contians the About screen and What's New section.
+- `lib/features/settings/about/`: contains the About screen and What's New section.
 
 ## Release files
 - `pubspec.yaml`: defines the app version and package metadata.
@@ -27,10 +28,9 @@ This document helps me understand Linthra as the maintainer.
 - Plex provider
 - Sync
 
-
 ## Maintainer notes
 
-These notes are intentionally short. They are here to help future maintainers avoid risky changes without understanding the project first. 
+These notes are intentionally short. They are here to help future maintainers avoid risky changes without understanding the project first.
 
 ### Main layers
 - `lib/app/`: startup, routing, and theme wiring.
@@ -39,7 +39,7 @@ These notes are intentionally short. They are here to help future maintainers av
 - `lib/features/`: user-facing screens and feature-specific UI.
 - `lib/shared/`: reusable widgets and shared UI helpers.
 
-### Storage Wiring
+### Storage wiring
 Some repository providers in `lib/data/repositories/` default to in-memory implementations
 and expose override constants for real storage. Examples:
 - `favorites_repository_provider.dart`: default `InMemoryFavoritesStore`,
