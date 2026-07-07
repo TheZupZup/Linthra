@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../shared/widgets/linthra_logo_mark.dart';
+import 'linthra_logo_mark.dart';
 import 'app_icon_controller.dart';
 import 'app_icon_variant.dart';
 

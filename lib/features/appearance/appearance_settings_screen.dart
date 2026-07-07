@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/colors.dart';
 import '../../app/dimens.dart';
 import '../../data/repositories/launcher_icon_service_provider.dart';
-import '../../shared/widgets/linthra_logo_mark.dart';
+import 'linthra_logo_mark.dart';
 import 'app_icon_controller.dart';
 import 'app_icon_variant.dart';
 

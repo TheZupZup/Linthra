@@ -7,7 +7,7 @@ import 'package:linthra/features/appearance/app_icon_controller.dart';
 import 'package:linthra/features/appearance/app_icon_variant.dart';
 import 'package:linthra/features/appearance/appearance_settings_screen.dart';
 import 'package:linthra/features/settings/hub/about_screen.dart';
-import 'package:linthra/shared/widgets/linthra_logo_mark.dart';
+import 'package:linthra/features/appearance/linthra_logo_mark.dart';
 
 void main() {
   group('AppearanceSettingsScreen', () {
