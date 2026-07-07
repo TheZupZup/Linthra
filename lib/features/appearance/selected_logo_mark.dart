@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'linthra_logo_mark.dart';
 import 'app_icon_controller.dart';
 import 'app_icon_variant.dart';
+import 'linthra_logo_mark.dart';
 
 /// The Linthra mark rendered in the user's currently selected branding variant.
 ///
