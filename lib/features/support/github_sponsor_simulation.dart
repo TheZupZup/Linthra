@@ -17,7 +17,8 @@ GitHubSponsorSimulation githubSponsorSimulationFor(String value) {
   };
 }
 
-final githubSponsorSimulationProvider = Provider<GitHubSponsorSimulation>((ref) {
+final githubSponsorSimulationProvider =
+    Provider<GitHubSponsorSimulation>((ref) {
   return githubSponsorSimulationFor(
     const String.fromEnvironment('LINTHRA_GITHUB_SPONSOR_SIMULATION'),
   );
