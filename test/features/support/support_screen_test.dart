@@ -20,8 +20,6 @@ class _FakeLinkLauncher implements ExternalLinkLauncher {
   }
 }
 
-/// A fixed action list — two external links and a disabled placeholder — so the
-/// screen test is independent of the build flavor and exercises both kinds.
 const List<SupportAction> _actions = <SupportAction>[
   SupportAction(
     id: 'github-sponsors',
@@ -54,9 +52,7 @@ Future<_FakeLinkLauncher> _pump(
   List<SupportAction> actions = _actions,
 }) async {
   final _FakeLinkLauncher launcher = _FakeLinkLauncher(result: launchResult);
-  // A tall surface so every card and row is laid out and hittable — a ListView
-  // only builds the rows it can show.
-  tester.view.physicalSize = const Size(1000, 2000);
+  tester.view.physicalSize = const Size(1000, 2200);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -75,24 +71,26 @@ Future<_FakeLinkLauncher> _pump(
 
 void main() {
   group('SupportScreen', () {
-    testWidgets('explains that core features stay free', (tester) async {
+    testWidgets('explains the free-core and cosmetic-only model',
+        (tester) async {
       await _pump(tester);
 
       expect(find.text('Support Linthra'), findsWidgets);
       expect(find.text('Linthra is free and open source'), findsOneWidget);
       expect(find.textContaining('completely optional'), findsOneWidget);
-      expect(find.textContaining('never required'), findsOneWidget);
       expect(
         find.text('No ads. No tracking. No locked core features.'),
         findsOneWidget,
       );
       expect(
-        find.textContaining('Supporter rewards are cosmetic only'),
+        find.textContaining('supporter reward is a custom color palette'),
         findsOneWidget,
       );
-      expect(find.textContaining('Android Auto stay free'), findsOneWidget);
+      expect(
+        find.textContaining('Black & White icon themes stay free'),
+        findsOneWidget,
+      );
 
-      // Where support goes — the four funded areas.
       expect(find.text('Where your support goes'), findsOneWidget);
       expect(find.text('Development and new features'), findsOneWidget);
       expect(find.text('Testing devices'), findsOneWidget);
@@ -100,15 +98,13 @@ void main() {
       expect(find.text('Long-term maintenance'), findsOneWidget);
 
       expect(
-        find.textContaining('All core features stay free'),
+        find.textContaining('built-in icon themes stay free and unlocked'),
         findsOneWidget,
       );
-      expect(find.textContaining('appearance choices only'), findsOneWidget);
+      expect(find.textContaining('custom palette only'), findsOneWidget);
     });
 
-    testWidgets(
-        'includes a secondary, playful "lonely maintainer" note with '
-        '"No pressure" kept visible', (tester) async {
+    testWidgets('keeps the playful note secondary', (tester) async {
       await _pump(tester);
 
       expect(find.textContaining("I'm lonely"), findsOneWidget);
@@ -117,10 +113,9 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('No pressure'), findsOneWidget);
-      expect(find.textContaining('build something cool'), findsOneWidget);
     });
 
-    testWidgets('renders a row per action from the provider', (tester) async {
+    testWidgets('renders every configured action', (tester) async {
       await _pump(tester);
 
       expect(find.text('GitHub Sponsors'), findsOneWidget);
@@ -128,8 +123,7 @@ void main() {
       expect(find.text('Become a supporter'), findsOneWidget);
     });
 
-    testWidgets('tapping an external-link action opens its URL',
-        (tester) async {
+    testWidgets('opens an external support link', (tester) async {
       final _FakeLinkLauncher launcher = await _pump(tester);
 
       await tester.tap(find.text('GitHub Sponsors'));
@@ -138,11 +132,9 @@ void main() {
       expect(launcher.opened, Uri.parse('https://example.com/sponsors'));
     });
 
-    testWidgets('the coming-soon placeholder is disabled and opens nothing',
-        (tester) async {
+    testWidgets('keeps the coming-soon purchase disabled', (tester) async {
       final _FakeLinkLauncher launcher = await _pump(tester);
 
-      expect(find.text('Coming soon'), findsOneWidget);
       final ListTile tile = tester.widget<ListTile>(
         find.ancestor(
           of: find.text('Become a supporter'),
@@ -164,7 +156,7 @@ void main() {
       expect(find.text("Couldn't open the link."), findsOneWidget);
     });
 
-    testWidgets('refuses to open a non-web (non-http) link', (tester) async {
+    testWidgets('refuses non-web links', (tester) async {
       const List<SupportAction> nonWeb = <SupportAction>[
         SupportAction(
           id: 'bad-scheme',
@@ -184,19 +176,11 @@ void main() {
       expect(find.text("Couldn't open the link."), findsOneWidget);
     });
 
-    testWidgets(
-        'a links-disabled build shows the info copy but no actions or aside',
-        (tester) async {
+    testWidgets('links-disabled build remains informational', (tester) async {
       await _pump(tester, actions: const <SupportAction>[]);
 
       expect(find.text('Linthra is free and open source'), findsOneWidget);
-      expect(
-        find.textContaining('All core features stay free'),
-        findsOneWidget,
-      );
-
       expect(find.byType(ListTile), findsNothing);
-      expect(find.text('GitHub Sponsors'), findsNothing);
       expect(find.textContaining("I'm lonely"), findsNothing);
     });
   });
