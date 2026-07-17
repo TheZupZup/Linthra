@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/features/support/github_sponsor_simulation.dart';
 import 'package:linthra/features/support/support_actions_provider.dart';
 import 'package:linthra/features/support/supporter_entitlement.dart';
 
@@ -50,6 +51,34 @@ void main() {
       expect(SupporterEntitlement.included.allowsCosmetics, isTrue);
       expect(SupporterEntitlement.unlocked.allowsCosmetics, isTrue);
       expect(SupporterEntitlement.locked.allowsCosmetics, isFalse);
+    });
+  });
+
+  group('githubSponsorSimulationFor', () {
+    test('defaults to real GitHub verification', () {
+      expect(
+        githubSponsorSimulationFor(''),
+        GitHubSponsorSimulation.real,
+      );
+      expect(
+        githubSponsorSimulationFor('real'),
+        GitHubSponsorSimulation.real,
+      );
+      expect(
+        githubSponsorSimulationFor('unexpected'),
+        GitHubSponsorSimulation.real,
+      );
+    });
+
+    test('parses locked and unlocked simulation APK states', () {
+      expect(
+        githubSponsorSimulationFor('locked'),
+        GitHubSponsorSimulation.locked,
+      );
+      expect(
+        githubSponsorSimulationFor('UNLOCKED'),
+        GitHubSponsorSimulation.unlocked,
+      );
     });
   });
 }
