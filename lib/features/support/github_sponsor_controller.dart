@@ -59,8 +59,7 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
     state = const AsyncData(GitHubSponsorStatus.checking);
     try {
       final GitHubSponsorClient client = ref.read(githubSponsorClientProvider);
-      final String accessToken =
-          await client.pollForAccessToken(authorization);
+      final String accessToken = await client.pollForAccessToken(authorization);
       await ref.read(githubSponsorTokenStoreProvider).write(accessToken);
       final GitHubSponsorStatus status = await _verify(accessToken);
       state = AsyncData(status);
