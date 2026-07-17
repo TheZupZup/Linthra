@@ -63,14 +63,11 @@ final supporterEntitlementProvider = Provider<SupporterEntitlement>((ref) {
             .valueOrNull
             ?.hasActiveMonthlySponsorship ==
         true;
-    return active
-        ? SupporterEntitlement.unlocked
-        : SupporterEntitlement.locked;
+    return active ? SupporterEntitlement.unlocked : SupporterEntitlement.locked;
   }
 
   return supporterEntitlementFor(
     distribution: distribution,
-    accessDefine:
-        const String.fromEnvironment('LINTHRA_SUPPORTER_COSMETICS'),
+    accessDefine: const String.fromEnvironment('LINTHRA_SUPPORTER_COSMETICS'),
   );
 });
