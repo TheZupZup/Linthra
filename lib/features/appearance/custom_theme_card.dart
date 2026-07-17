@@ -122,12 +122,12 @@ class _Header extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final String badge = switch (entitlement) {
       SupporterEntitlement.included => 'Included',
-      SupporterEntitlement.unlocked when
-        distribution == SupportDistribution.githubRelease =>
+      SupporterEntitlement.unlocked
+          when distribution == SupportDistribution.githubRelease =>
         'GitHub Sponsor',
       SupporterEntitlement.unlocked => 'Supporter',
-      SupporterEntitlement.locked when
-        distribution == SupportDistribution.githubRelease =>
+      SupporterEntitlement.locked
+          when distribution == SupportDistribution.githubRelease =>
         'Monthly sponsor',
       SupporterEntitlement.locked => 'Supporter',
     };
@@ -280,11 +280,9 @@ class _GitHubSponsorLockedContent extends ConsumerWidget {
       }
     } on Object {
       if (!context.mounted) return;
-      final String message = ref
-              .read(githubSponsorControllerProvider)
-              .valueOrNull
-              ?.message ??
-          'Could not start GitHub authorization.';
+      final String message =
+          ref.read(githubSponsorControllerProvider).valueOrNull?.message ??
+              'Could not start GitHub authorization.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
@@ -313,9 +311,8 @@ class _VerifiedGitHubSponsorRow extends ConsumerWidget {
             : 'Connected as @${status!.login}.',
       ),
       trailing: TextButton(
-        onPressed: () => ref
-            .read(githubSponsorControllerProvider.notifier)
-            .disconnect(),
+        onPressed: () =>
+            ref.read(githubSponsorControllerProvider.notifier).disconnect(),
         child: const Text('Disconnect'),
       ),
     );
