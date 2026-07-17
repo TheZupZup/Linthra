@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'support_action.dart';
 
 /// The distribution channel a build targets, used **only** to decide which
-/// support actions to offer.
+/// support actions and optional cosmetic rewards to offer.
 ///
 /// Read once from `--dart-define=LINTHRA_DISTRIBUTION=...` and defaulting to
 /// [fdroid]. The default is the safe one: an ordinary `flutter build` — local,
@@ -48,6 +48,12 @@ enum SupportDistribution {
     }
   }
 }
+
+/// The current distribution behind a provider so feature modules and tests can
+/// share one overridable build seam.
+final supportDistributionProvider = Provider<SupportDistribution>(
+  (ref) => SupportDistribution.current,
+);
 
 /// Whether this build offers any voluntary support links at all.
 ///
@@ -175,11 +181,12 @@ List<SupportAction> supportActionsFor(SupportDistribution distribution) {
 /// an empty list, so a build compiled with `LINTHRA_SUPPORT_LINKS=off` offers no
 /// support actions at all and the screen degrades to a purely informational
 /// page.
-final supportActionsProvider = Provider<List<SupportAction>>(
-  (ref) => supportLinksEnabled
-      ? supportActionsFor(SupportDistribution.current)
-      : const <SupportAction>[],
-);
+final supportActionsProvider = Provider<List<SupportAction>>((ref) {
+  if (!supportLinksEnabled) {
+    return const <SupportAction>[];
+  }
+  return supportActionsFor(ref.watch(supportDistributionProvider));
+});
 
 /// Whether the in-app "Support Linthra" entry point should be shown.
 ///
