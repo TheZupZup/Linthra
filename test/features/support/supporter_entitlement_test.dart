@@ -9,37 +9,40 @@ void main() {
         expect(
           supporterEntitlementFor(
             distribution: SupportDistribution.fdroid,
-            playAccessDefine: value,
+            accessDefine: value,
           ),
           SupporterEntitlement.included,
         );
       }
     });
 
+    test('GitHub Release defaults to locked', () {
+      expect(
+        supporterEntitlementFor(
+          distribution: SupportDistribution.githubRelease,
+          accessDefine: '',
+        ),
+        SupporterEntitlement.locked,
+      );
+    });
+
+    test('GitHub internal builds can force unlocked for testing', () {
+      expect(
+        supporterEntitlementFor(
+          distribution: SupportDistribution.githubRelease,
+          accessDefine: 'unlocked',
+        ),
+        SupporterEntitlement.unlocked,
+      );
+    });
+
     test('Play defaults to included until billing takes over', () {
       expect(
         supporterEntitlementFor(
           distribution: SupportDistribution.play,
-          playAccessDefine: '',
+          accessDefine: '',
         ),
         SupporterEntitlement.included,
-      );
-    });
-
-    test('Play internal builds can exercise locked and unlocked states', () {
-      expect(
-        supporterEntitlementFor(
-          distribution: SupportDistribution.play,
-          playAccessDefine: 'locked',
-        ),
-        SupporterEntitlement.locked,
-      );
-      expect(
-        supporterEntitlementFor(
-          distribution: SupportDistribution.play,
-          playAccessDefine: 'unlocked',
-        ),
-        SupporterEntitlement.unlocked,
       );
     });
 
