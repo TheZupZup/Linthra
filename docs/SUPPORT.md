@@ -4,9 +4,10 @@ Linthra is **free and open source, and stays that way.** Support is optional and
 helps fund development, testing devices, distribution costs, and long-term
 maintenance.
 
-> **Packager summary:** the shared/default build contains no billing SDK, ads,
-> tracking, or proprietary payment dependency. F-Droid includes the custom
-> palette. Google Play Billing belongs in a separate Play-only integration.
+> **Packager summary:** core music features and every built-in icon theme remain
+> free. F-Droid includes the custom palette. A separate APK attached to GitHub
+> Releases can require an active monthly GitHub sponsorship to unlock that one
+> cosmetic palette.
 
 ## Principles
 
@@ -15,32 +16,13 @@ maintenance.
   behaviour never depend on supporter status.
 - **Built-in appearance stays free.** Classic, Neon, Gold, and Black & White are
   available to everyone, including their in-app and Android launcher icons.
-- **Support is optional.** The app does not become slower, less reliable, or
-  less capable when someone does not contribute.
-- **The reward is cosmetic only.** A future Play supporter purchase may enable
-  a custom two-color palette. It does not change music data or playback.
+- **The paid reward is cosmetic only.** The GitHub Release APK may lock the custom
+  two-color palette until an active monthly GitHub sponsorship is verified.
 - **No ads or tracking.** Support does not introduce either.
-- **F-Droid remains complete.** The custom palette is included in F-Droid and
-  no proprietary billing dependency enters that build.
-
-## In-app support screen
-
-The screen is available at **Settings → About → Support Linthra** and the route
-`/settings/support` (`AppRoutes.settingsSupport`). It explains the model and
-renders actions supplied by `supportActionsProvider`. The screen does not own
-payment logic.
-
-The default F-Droid/dev/GitHub-Release action set contains external links:
-
-| Action | Purpose |
-| --- | --- |
-| GitHub Sponsors | Optional one-off or monthly support |
-| Funding & supporter model | Opens this document |
-| View source code | Opens the public repository |
-
-Links are opened only after an explicit tap through the shared
-`externalLinkLauncherProvider`. Only HTTP or HTTPS URLs are handed to the
-operating system.
+- **F-Droid remains complete.** F-Droid includes the custom palette and does not
+  require a GitHub account.
+- **The lock is not DRM.** Linthra is open source; this is a respectful supporter
+  benefit, not an attempt to prevent modified builds.
 
 ## Distribution seam
 
@@ -48,42 +30,82 @@ operating system.
 
 ```text
 --dart-define=LINTHRA_DISTRIBUTION=fdroid
+--dart-define=LINTHRA_DISTRIBUTION=github
 --dart-define=LINTHRA_DISTRIBUTION=play
 ```
 
-The default is `fdroid`. The support-link kill switch remains available:
+The default is `fdroid`.
+
+| Distribution | Custom palette |
+| --- | --- |
+| `fdroid` | Included |
+| `github` | Requires an active monthly GitHub sponsorship |
+| `play` | Included until a separate Play Billing integration exists |
+
+The support-link kill switch remains available:
 
 ```text
 --dart-define=LINTHRA_SUPPORT_LINKS=off
 ```
 
-When disabled, the About entry is hidden and the support screen becomes an
-informational page with no external actions.
+## GitHub Sponsor verification
 
-## Cosmetic entitlement
+The GitHub APK uses GitHub's OAuth device flow:
 
-`supporterEntitlementProvider` is the shared, billing-agnostic access seam:
+1. Linthra requests a temporary device and user code.
+2. The user opens `https://github.com/login/device` and authorizes Linthra.
+3. Linthra receives an OAuth token without embedding a client secret.
+4. The token is stored with `flutter_secure_storage`.
+5. Linthra queries GitHub GraphQL for
+   `sponsorshipForViewerAsSponsor(activeOnly: true)` on `TheZupZup`.
+6. The palette unlocks only when the sponsorship exists and
+   `isOneTimePayment` is `false`.
 
-- `included` — the custom palette is available. F-Droid always uses this state.
-- `locked` — a Play build previews the custom palette but cannot edit it.
-- `unlocked` — verified Play supporter access enables the custom palette.
+A one-time sponsorship does not unlock this recurring benefit. After starting a
+monthly sponsorship, the user can tap **Check again** without reconnecting.
 
-For internal Play UI testing only:
+The application requests only the `read:user` OAuth scope. It never receives or
+stores the user's GitHub password.
+
+## Required GitHub OAuth app setup
+
+Create a GitHub OAuth app owned by the maintainer account:
+
+1. Open GitHub **Settings → Developer settings → OAuth Apps**.
+2. Register a new OAuth app named `Linthra`.
+3. Use the Linthra repository or project page as the homepage and callback URL.
+4. Enable **Device Flow**.
+5. Copy the public OAuth client ID.
+6. Add it as the repository Actions variable
+   `LINTHRA_GITHUB_OAUTH_CLIENT_ID`.
+
+The client ID is public by design. Never add or compile an OAuth client secret
+into the APK; the device flow does not need one.
+
+The sponsorable login defaults to `TheZupZup`. A fork may override it with:
 
 ```text
---dart-define=LINTHRA_DISTRIBUTION=play \
---dart-define=LINTHRA_SUPPORTER_COSMETICS=locked
+--dart-define=LINTHRA_GITHUB_SPONSOR_LOGIN=another-account
 ```
 
-or:
+## GitHub Release APK
+
+The release workflow keeps the existing APKs unchanged because their per-ABI
+files are reproducible-build references for F-Droid. When
+`LINTHRA_GITHUB_OAUTH_CLIENT_ID` is configured, it additionally builds:
 
 ```text
---dart-define=LINTHRA_DISTRIBUTION=play \
---dart-define=LINTHRA_SUPPORTER_COSMETICS=unlocked
+linthra-<tag>-github-sponsor.apk
 ```
 
-An empty or unknown value defaults to `included`, preserving current behaviour
-until the real billing integration lands.
+That separate universal APK is compiled with:
+
+```text
+--dart-define=LINTHRA_DISTRIBUTION=github
+--dart-define=LINTHRA_GITHUB_OAUTH_CLIENT_ID=<public client id>
+```
+
+The existing canonical APK, AAB, and per-ABI APK names remain untouched.
 
 ## Custom palette architecture
 
@@ -98,42 +120,42 @@ The palette stores three non-secret preferences:
 
 `CustomThemeController` owns loading, editing, resetting, and persistence.
 `customBrandPalette` derives accessible foreground, bright, deep, and container
-tones from the two selected colors. `LinthraApp` applies the custom palette only
-when it is enabled and the entitlement allows cosmetics.
+tones from the two selected colors.
 
-The editor offers a curated set of colors so every selection remains predictable
-and testable. Resetting restores Linthra violet and orange and disables the
-custom override.
+`GitHubSponsorController` separately owns OAuth authorization, encrypted token
+storage, sponsorship verification, refresh, and disconnect. The theme controller
+never sees the OAuth token.
+
+## Internal testing
+
+The pure entitlement parser still supports a forced value for non-production UI
+tests:
+
+```text
+--dart-define=LINTHRA_DISTRIBUTION=github \
+--dart-define=LINTHRA_SUPPORTER_COSMETICS=unlocked
+```
+
+Runtime GitHub builds use the verified controller state instead of trusting this
+flag.
 
 ## Future Play Billing integration
 
-The Play purchase is not implemented in the shared build. A later integration
-must:
-
-1. live only in the Play distribution path;
-2. keep proprietary billing dependencies out of F-Droid builds;
-3. replace the disabled `play-supporter` action with a real one-time purchase;
-4. verify and restore the non-consumable purchase;
-5. override `supporterEntitlementProvider` with verified state;
-6. affect the custom palette only.
-
-Google Play policy can change. Confirm the current rules before shipping,
-especially around external donation links and digital purchases. The existing
-`LINTHRA_SUPPORT_LINKS` switch allows a Play build to remove external links if
-required.
+Google Play Billing is not implemented here. A later Play-only integration must
+remain separate from F-Droid and affect the custom palette only.
 
 ## Tests
 
 Relevant coverage lives in:
 
+- `test/data/services/http_github_sponsor_client_test.dart`
+- `test/features/support/github_sponsor_controller_test.dart`
 - `test/features/support/supporter_entitlement_test.dart`
 - `test/features/support/support_actions_provider_test.dart`
 - `test/features/support/support_screen_test.dart`
-- `test/features/appearance/app_icon_variant_test.dart`
-- `test/features/appearance/app_icon_controller_test.dart`
 - `test/features/appearance/appearance_settings_screen_test.dart`
 - `test/features/appearance/custom_theme_controller_test.dart`
 
-The central contract is enforced throughout: supporter state may change one
-optional color palette, but never restricts Linthra's music features or its
-built-in icon themes.
+The central contract is enforced throughout: sponsorship may unlock one optional
+color palette in the direct APK, but never restricts Linthra's music features or
+its built-in icon themes.
