@@ -12,6 +12,7 @@ import 'package:linthra/features/appearance/appearance_settings_screen.dart';
 import 'package:linthra/features/appearance/custom_theme_controller.dart';
 import 'package:linthra/features/appearance/linthra_logo_mark.dart';
 import 'package:linthra/features/settings/hub/about_screen.dart';
+import 'package:linthra/features/support/support_actions_provider.dart';
 import 'package:linthra/features/support/supporter_entitlement.dart';
 
 void main() {
@@ -23,10 +24,11 @@ void main() {
       WidgetTester tester, {
       String? initialIcon,
       SupporterEntitlement entitlement = SupporterEntitlement.included,
+      SupportDistribution distribution = SupportDistribution.fdroid,
     }) async {
       iconStore = InMemoryAppIconVariantStore(initialIcon);
       themeStore = InMemoryCustomThemeStore();
-      tester.view.physicalSize = const Size(1200, 3200);
+      tester.view.physicalSize = const Size(1200, 3600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -35,6 +37,7 @@ void main() {
           appIconVariantStoreProvider.overrideWithValue(iconStore),
           customThemeStoreProvider.overrideWithValue(themeStore),
           supporterEntitlementProvider.overrideWithValue(entitlement),
+          supportDistributionProvider.overrideWithValue(distribution),
         ],
       );
       addTearDown(container.dispose);
@@ -88,18 +91,18 @@ void main() {
       expect(await themeStore.read(), expected);
     });
 
-    testWidgets(
-        'locked Play build previews custom palette without locking icons',
-        (tester) async {
+    testWidgets('locked Play build keeps built-in icons free', (tester) async {
       final ProviderContainer container = await pump(
         tester,
         entitlement: SupporterEntitlement.locked,
+        distribution: SupportDistribution.play,
       );
 
       expect(find.byKey(const Key('custom-theme-enabled')), findsNothing);
-      expect(find.byKey(const Key('custom-theme-support-options')),
-          findsOneWidget);
-      expect(find.textContaining('Every built-in icon theme'), findsOneWidget);
+      expect(
+        find.byKey(const Key('custom-theme-support-options')),
+        findsOneWidget,
+      );
 
       await tester.tap(find.text('Black & White'));
       await tester.pumpAndSettle();
@@ -108,6 +111,26 @@ void main() {
         AppIconVariants.blackWhite,
       );
       expect(await iconStore.read(), 'blackwhite');
+    });
+
+    testWidgets('GitHub APK asks for a monthly sponsorship', (tester) async {
+      await pump(
+        tester,
+        entitlement: SupporterEntitlement.locked,
+        distribution: SupportDistribution.githubRelease,
+      );
+
+      expect(find.text('Monthly sponsor'), findsOneWidget);
+      expect(
+        find.byKey(const Key('custom-theme-github-sponsors')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('custom-theme-connect-github')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('active monthly GitHub Sponsors'), findsOneWidget);
+      expect(find.byKey(const Key('custom-theme-enabled')), findsNothing);
     });
   });
 
