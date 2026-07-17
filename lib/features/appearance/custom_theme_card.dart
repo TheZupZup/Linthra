@@ -5,6 +5,11 @@ import 'package:go_router/go_router.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../core/models/custom_theme_settings.dart';
+import '../../core/models/github_device_authorization.dart';
+import '../../core/models/github_sponsor_status.dart';
+import '../support/github_sponsor_controller.dart';
+import '../support/github_sponsor_unlock_dialog.dart';
+import '../support/support_actions_provider.dart';
 import '../support/supporter_entitlement.dart';
 import 'custom_theme_controller.dart';
 
@@ -18,6 +23,8 @@ class CustomThemeCard extends ConsumerWidget {
         ref.watch(customThemeControllerProvider);
     final SupporterEntitlement entitlement =
         ref.watch(supporterEntitlementProvider);
+    final SupportDistribution distribution =
+        ref.watch(supportDistributionProvider);
     final CustomThemeController controller =
         ref.read(customThemeControllerProvider.notifier);
     final bool canCustomize = entitlement.allowsCosmetics;
@@ -28,7 +35,10 @@ class CustomThemeCard extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            _Header(entitlement: entitlement),
+            _Header(
+              entitlement: entitlement,
+              distribution: distribution,
+            ),
             const SizedBox(height: AppSpacing.sm),
             Text(
               'Choose separate colors for Linthra’s identity and playback '
@@ -42,8 +52,10 @@ class CustomThemeCard extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.md),
             if (!canCustomize)
-              const _LockedContent()
+              _LockedContent(distribution: distribution)
             else ...<Widget>[
+              if (distribution == SupportDistribution.githubRelease)
+                const _VerifiedGitHubSponsorRow(),
               SwitchListTile(
                 key: const Key('custom-theme-enabled'),
                 contentPadding: EdgeInsets.zero,
@@ -97,13 +109,29 @@ class CustomThemeCard extends ConsumerWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.entitlement});
+  const _Header({
+    required this.entitlement,
+    required this.distribution,
+  });
 
   final SupporterEntitlement entitlement;
+  final SupportDistribution distribution;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final String badge = switch (entitlement) {
+      SupporterEntitlement.included => 'Included',
+      SupporterEntitlement.unlocked when
+        distribution == SupportDistribution.githubRelease =>
+        'GitHub Sponsor',
+      SupporterEntitlement.unlocked => 'Supporter',
+      SupporterEntitlement.locked when
+        distribution == SupportDistribution.githubRelease =>
+        'Monthly sponsor',
+      SupporterEntitlement.locked => 'Supporter',
+    };
+
     return Row(
       children: <Widget>[
         Icon(Icons.color_lens_outlined, color: theme.colorScheme.primary),
@@ -126,9 +154,7 @@ class _Header extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppRadii.pill),
           ),
           child: Text(
-            entitlement == SupporterEntitlement.included
-                ? 'Included'
-                : 'Supporter',
+            badge,
             style: theme.textTheme.labelSmall?.copyWith(
               color: theme.colorScheme.onSecondaryContainer,
               fontWeight: FontWeight.w600,
@@ -141,34 +167,175 @@ class _Header extends StatelessWidget {
 }
 
 class _LockedContent extends StatelessWidget {
-  const _LockedContent();
+  const _LockedContent({required this.distribution});
+
+  final SupportDistribution distribution;
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
+    if (distribution == SupportDistribution.githubRelease) {
+      return const _GitHubSponsorLockedContent();
+    }
+    return const _GenericLockedContent();
+  }
+}
+
+class _GitHubSponsorLockedContent extends ConsumerWidget {
+  const _GitHubSponsorLockedContent();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GitHubSponsorStatus? status =
+        ref.watch(githubSponsorControllerProvider).valueOrNull;
+    final bool checking = status?.access == GitHubSponsorAccess.checking;
+    final bool unavailable = status?.access == GitHubSponsorAccess.unavailable;
+    final String? message = status?.message;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         const _PalettePreview(),
         const SizedBox(height: AppSpacing.md),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Icon(
-              Icons.lock_outline,
-              size: 20,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+        const _LockExplanation(
+          text: 'The GitHub Release APK unlocks custom colors for active '
+              'monthly GitHub Sponsors. Every built-in icon theme and every '
+              'core music feature remain free.',
+        ),
+        if (message != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            message,
+            key: const Key('github-sponsor-status-message'),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        const SizedBox(height: AppSpacing.md),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            key: const Key('custom-theme-github-sponsors'),
+            onPressed: () => context.push(AppRoutes.settingsSupport),
+            icon: const Icon(Icons.favorite_outline),
+            label: const Text('Sponsor monthly on GitHub'),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            key: const Key('custom-theme-connect-github'),
+            onPressed: checking || unavailable
+                ? null
+                : () => _connectGitHub(context, ref),
+            icon: checking
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.login),
+            label: Text(checking ? 'Checking GitHub…' : 'Connect GitHub'),
+          ),
+        ),
+        if (status?.access == GitHubSponsorAccess.inactive ||
+            status?.access == GitHubSponsorAccess.error) ...<Widget>[
+          const SizedBox(height: AppSpacing.sm),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const Key('custom-theme-refresh-sponsorship'),
+              onPressed: checking
+                  ? null
+                  : () => ref
+                      .read(githubSponsorControllerProvider.notifier)
+                      .refresh(),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Check again'),
             ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Text(
-                'Custom palettes are an optional visual thank-you in the Play '
-                'edition. Every built-in icon theme and every core music '
-                'feature remain free.',
-                style: theme.textTheme.bodySmall,
-              ),
-            ),
-          ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _connectGitHub(BuildContext context, WidgetRef ref) async {
+    try {
+      final GitHubDeviceAuthorization authorization = await ref
+          .read(githubSponsorControllerProvider.notifier)
+          .beginAuthorization();
+      if (!context.mounted) return;
+
+      final bool? unlocked = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => GitHubSponsorUnlockDialog(
+          authorization: authorization,
+        ),
+      );
+      if (unlocked == true && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('GitHub Sponsor verified. Custom colors unlocked.'),
+          ),
+        );
+      }
+    } on Object {
+      if (!context.mounted) return;
+      final String message = ref
+              .read(githubSponsorControllerProvider)
+              .valueOrNull
+              ?.message ??
+          'Could not start GitHub authorization.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+}
+
+class _VerifiedGitHubSponsorRow extends ConsumerWidget {
+  const _VerifiedGitHubSponsorRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GitHubSponsorStatus? status =
+        ref.watch(githubSponsorControllerProvider).valueOrNull;
+    return ListTile(
+      key: const Key('github-sponsor-verified'),
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(
+        Icons.verified_outlined,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      title: const Text('GitHub Sponsor verified'),
+      subtitle: Text(
+        status?.login == null
+            ? 'Monthly sponsorship is active.'
+            : 'Connected as @${status!.login}.',
+      ),
+      trailing: TextButton(
+        onPressed: () => ref
+            .read(githubSponsorControllerProvider.notifier)
+            .disconnect(),
+        child: const Text('Disconnect'),
+      ),
+    );
+  }
+}
+
+class _GenericLockedContent extends StatelessWidget {
+  const _GenericLockedContent();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const _PalettePreview(),
+        const SizedBox(height: AppSpacing.md),
+        const _LockExplanation(
+          text: 'Custom palettes are an optional visual supporter reward. '
+              'Every built-in icon theme and every core music feature remain '
+              'free.',
         ),
         const SizedBox(height: AppSpacing.md),
         SizedBox(
@@ -179,6 +346,31 @@ class _LockedContent extends StatelessWidget {
             icon: const Icon(Icons.favorite_outline),
             label: const Text('View supporter options'),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LockExplanation extends StatelessWidget {
+  const _LockExplanation({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Icon(
+          Icons.lock_outline,
+          size: 20,
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(text, style: theme.textTheme.bodySmall),
         ),
       ],
     );
