@@ -1,0 +1,135 @@
+name: GitHub Sponsor APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build GitHub Sponsor APK
+    runs-on: ubuntu-latest
+    env:
+      LINTHRA_GITHUB_OAUTH_CLIENT_ID: ${{ vars.LINTHRA_GITHUB_OAUTH_CLIENT_ID }}
+      LINTHRA_KEYSTORE_PASSWORD: ${{ secrets.LINTHRA_KEYSTORE_PASSWORD }}
+      LINTHRA_KEY_ALIAS: ${{ secrets.LINTHRA_KEY_ALIAS }}
+      LINTHRA_KEY_PASSWORD: ${{ secrets.LINTHRA_KEY_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require GitHub OAuth client ID
+        run: |
+          if [ -z "$LINTHRA_GITHUB_OAUTH_CLIENT_ID" ]; then
+            echo "::error::Repository variable LINTHRA_GITHUB_OAUTH_CLIENT_ID is missing. Create the Linthra OAuth app, enable Device Flow, and add its public client ID under Settings > Secrets and variables > Actions > Variables."
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.27.4
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Determine signing mode
+        id: signing
+        env:
+          LINTHRA_KEYSTORE_BASE64: ${{ secrets.LINTHRA_KEYSTORE_BASE64 }}
+        run: |
+          have_secrets=true
+          for value in "$LINTHRA_KEYSTORE_BASE64" "$LINTHRA_KEYSTORE_PASSWORD" "$LINTHRA_KEY_ALIAS" "$LINTHRA_KEY_PASSWORD"; do
+            [ -z "$value" ] && have_secrets=false
+          done
+
+          if [ "$have_secrets" = "true" ]; then
+            echo "mode=release-signed" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            echo "::error::Tagged GitHub Sponsor APKs require the LINTHRA_* signing secrets."
+            exit 1
+          else
+            echo "mode=debug-signed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Decode release keystore
+        if: ${{ steps.signing.outputs.mode == 'release-signed' }}
+        env:
+          LINTHRA_KEYSTORE_BASE64: ${{ secrets.LINTHRA_KEYSTORE_BASE64 }}
+        run: |
+          keystore_path="$RUNNER_TEMP/linthra-release.keystore"
+          echo "$LINTHRA_KEYSTORE_BASE64" | base64 -d > "$keystore_path"
+          echo "LINTHRA_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
+
+      - name: Build GitHub Sponsor APK
+        run: |
+          flutter build apk --release \
+            --dart-define=LINTHRA_DISTRIBUTION=github \
+            --dart-define=LINTHRA_GITHUB_OAUTH_CLIENT_ID="$LINTHRA_GITHUB_OAUTH_CLIENT_ID"
+
+      - name: Stage APK
+        id: artifact
+        run: |
+          mkdir -p dist
+          if [ "${{ github.event_name }}" = "push" ]; then
+            filename="linthra-${{ github.ref_name }}-github-sponsor.apk"
+          else
+            filename="linthra-github-sponsor-${{ steps.signing.outputs.mode }}.apk"
+          fi
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/$filename"
+          echo "filename=$filename" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linthra-github-sponsor-apk
+          path: dist/${{ steps.artifact.outputs.filename }}
+          if-no-files-found: error
+
+  attach-release:
+    name: Attach GitHub Sponsor APK to release
+    needs: build
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: linthra-github-sponsor-apk
+          path: dist
+
+      - name: Wait for the release and attach APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 180); do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              apk="$(find dist -type f -name '*.apk' -print -quit)"
+              if [ -z "$apk" ]; then
+                echo "::error::GitHub Sponsor APK was not downloaded."
+                exit 1
+              fi
+              gh release upload "$TAG" "$apk" --clobber --repo "$GITHUB_REPOSITORY"
+              exit 0
+            fi
+            echo "Release $TAG is not available yet; waiting for the main release workflow."
+            sleep 10
+          done
+          echo "::error::Release $TAG was not created within 30 minutes."
+          exit 1
