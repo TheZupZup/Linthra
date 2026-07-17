@@ -34,10 +34,12 @@ void main() {
 
     test('gold ships in the catalog and is free', () {
       expect(AppIconVariants.gold.tier, AppIconTier.free);
+      // It ships in the catalog like any other variant — there is no gating
+      // field anywhere, so nothing can lock it.
       expect(AppIconVariants.all, contains(AppIconVariants.gold));
     });
 
-    test('every built-in variant is free', () {
+    test('every variant is free — no supporter-tier styles in this build', () {
       final List<AppIconVariant> supporters = AppIconVariants.all
           .where((AppIconVariant v) => v.tier == AppIconTier.supporter)
           .toList();
