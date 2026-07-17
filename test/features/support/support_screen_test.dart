@@ -52,7 +52,7 @@ Future<_FakeLinkLauncher> _pump(
   List<SupportAction> actions = _actions,
 }) async {
   final _FakeLinkLauncher launcher = _FakeLinkLauncher(result: launchResult);
-  tester.view.physicalSize = const Size(1000, 2200);
+  tester.view.physicalSize = const Size(1000, 2400);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -71,8 +71,7 @@ Future<_FakeLinkLauncher> _pump(
 
 void main() {
   group('SupportScreen', () {
-    testWidgets('explains the free-core and cosmetic-only model',
-        (tester) async {
+    testWidgets('explains the GitHub Sponsor cosmetic model', (tester) async {
       await _pump(tester);
 
       expect(find.text('Support Linthra'), findsWidgets);
@@ -83,25 +82,18 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.textContaining('supporter reward is a custom color palette'),
+        find.textContaining('active monthly GitHub sponsorship'),
         findsOneWidget,
       );
       expect(
-        find.textContaining('Black & White icon themes stay free'),
+        find.textContaining('F-Droid includes the custom palette'),
         findsOneWidget,
       );
-
-      expect(find.text('Where your support goes'), findsOneWidget);
-      expect(find.text('Development and new features'), findsOneWidget);
-      expect(find.text('Testing devices'), findsOneWidget);
-      expect(find.text('App store and distribution costs'), findsOneWidget);
-      expect(find.text('Long-term maintenance'), findsOneWidget);
-
       expect(
         find.textContaining('built-in icon themes stay free and unlocked'),
         findsOneWidget,
       );
-      expect(find.textContaining('custom palette only'), findsOneWidget);
+      expect(find.textContaining('direct APK only'), findsOneWidget);
     });
 
     testWidgets('keeps the playful note secondary', (tester) async {
