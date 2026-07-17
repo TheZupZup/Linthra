@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repositories/app_icon_variant_store_provider.dart';
 import '../../data/repositories/launcher_icon_service_provider.dart';
 import '../support/support_actions_provider.dart';
-import 'app_icon_access.dart';
 import 'app_icon_variant.dart';
 
 /// Holds the user's selected app-icon / branding variant, defaulting to
@@ -11,9 +10,9 @@ import 'app_icon_variant.dart';
 ///
 /// The choice is loaded from the [appIconVariantStoreProvider] store at startup
 /// and persisted on every change, so it survives a restart. Until the async
-/// load lands the controller serves Classic, and an unknown, absent, or
-/// unavailable stored id resolves to Classic — so the mark always has a valid
-/// look and a storage hiccup can never break the UI.
+/// load lands the controller serves Classic, and an unknown or absent stored id
+/// resolves to Classic too (via [AppIconVariants.byId]) — so the mark always has
+/// a valid look and a storage hiccup can never break the UI.
 class AppIconController extends Notifier<AppIconVariant> {
   bool _loadStarted = false;
 
@@ -30,13 +29,7 @@ class AppIconController extends Notifier<AppIconVariant> {
     AppIconVariant resolved = AppIconVariants.classic;
     try {
       final String? stored = await ref.read(appIconVariantStoreProvider).read();
-      final AppIconVariant storedVariant = AppIconVariants.byId(stored);
-      final AppIconAccess access = ref.read(appIconAccessProvider(storedVariant));
-      resolved = access.canSelect ? storedVariant : AppIconVariants.classic;
-
-      if (resolved.id != storedVariant.id) {
-        await ref.read(appIconVariantStoreProvider).write(resolved.id);
-      }
+      resolved = AppIconVariants.byId(stored);
       if (resolved.id != state.id) {
         state = resolved;
       }
@@ -51,16 +44,10 @@ class AppIconController extends Notifier<AppIconVariant> {
   }
 
   /// Selects [variant], persists it, and switches the real launcher icon to
-  /// match (Android only).
-  ///
-  /// Returns `false` when the style is an unavailable supporter cosmetic, and
-  /// `true` when the selection is already active or was applied successfully.
-  Future<bool> select(AppIconVariant variant) async {
-    if (!ref.read(appIconAccessProvider(variant)).canSelect) {
-      return false;
-    }
+  /// match (Android only). A no-op when nothing changes.
+  Future<void> select(AppIconVariant variant) async {
     if (variant.id == state.id) {
-      return true;
+      return;
     }
     state = variant;
     try {
@@ -69,7 +56,6 @@ class AppIconController extends Notifier<AppIconVariant> {
       // Best-effort persistence: the in-memory choice still applies this session.
     }
     await _applyLauncherIcon(variant.id);
-    return true;
   }
 
   /// Switches the device launcher icon to [variantId]'s alias, best-effort.
@@ -94,18 +80,23 @@ final appIconControllerProvider =
   AppIconController.new,
 );
 
-/// The branding variants displayed for [distribution].
+/// The branding variants offered for [distribution].
 ///
-/// Every channel receives the complete catalog so supporter styles can be
-/// previewed consistently. Selection access is enforced separately by
-/// [appIconAccessProvider]. F-Droid includes every style; a Play-only billing
-/// integration can lock only [AppIconTier.supporter] cosmetics.
+/// Foundation PR: every variant is offered and selectable on every channel,
+/// F-Droid included, so this returns the full catalog unchanged. The
+/// [AppIconVariant.tier] field together with [distribution] is the seam a
+/// future, Play-only PR uses to present supporter-tier styles as cosmetic
+/// rewards — purely cosmetic, never gating playback, cache, providers, Android
+/// Auto, or any core feature, and F-Droid always keeps every variant available.
 List<AppIconVariant> appIconVariantsFor(SupportDistribution distribution) {
   return AppIconVariants.all;
 }
 
-/// The branding variants displayed in this build, read by the Appearance
-/// screen. Access and selection are deliberately separate concerns.
+/// The branding variants offered in this build, read by the Appearance screen.
+///
+/// Declared as a provider so a future build can override the set without
+/// touching the screen, and so widget tests can inject a fixed list. Mirrors the
+/// `supportActionsProvider` seam from the Support feature.
 final availableAppIconVariantsProvider = Provider<List<AppIconVariant>>(
-  (ref) => appIconVariantsFor(ref.watch(supportDistributionProvider)),
+  (ref) => appIconVariantsFor(SupportDistribution.current),
 );
