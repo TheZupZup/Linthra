@@ -45,8 +45,5 @@ Color _containerFor(Color color, Brightness brightness) {
   final HSLColor hsl = HSLColor.fromColor(color);
   final double lightness = brightness == Brightness.dark ? 0.18 : 0.90;
   final double saturation = hsl.saturation.clamp(0.25, 0.75).toDouble();
-  return hsl
-      .withSaturation(saturation)
-      .withLightness(lightness)
-      .toColor();
+  return hsl.withSaturation(saturation).withLightness(lightness).toColor();
 }
