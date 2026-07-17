@@ -8,9 +8,9 @@ import 'support_actions_provider.dart';
 
 /// Voluntary support options for Linthra.
 ///
-/// Core music features remain free. A future Play edition may thank supporters
-/// with an optional custom color palette, but payment logic stays outside this
-/// screen and outside the F-Droid build.
+/// Core music features remain free. The APK distributed through GitHub Releases
+/// may thank active monthly GitHub Sponsors with an optional custom color
+/// palette; F-Droid includes that palette without requiring an account.
 class SupportScreen extends ConsumerWidget {
   const SupportScreen({super.key});
 
@@ -115,10 +115,11 @@ class _IntroCard extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'The supporter reward is a custom color palette in the Play '
-              'edition. Classic, Neon, Gold, and Black & White icon themes stay '
-              'free, alongside playback, offline listening, server connections, '
-              'and Android Auto.',
+              'In the GitHub Release APK, an active monthly GitHub sponsorship '
+              'unlocks the custom color palette. Classic, Neon, Gold, and Black '
+              '& White icon themes stay free, alongside playback, offline '
+              'listening, server connections, and Android Auto. F-Droid includes '
+              'the custom palette without requiring GitHub.',
               style: theme.textTheme.bodyMedium?.copyWith(color: muted),
             ),
             const SizedBox(height: AppSpacing.md),
@@ -255,8 +256,9 @@ class _CoreFeaturesNote extends StatelessWidget {
         Expanded(
           child: Text(
             'All core features and built-in icon themes stay free and unlocked. '
-            'Supporting Linthra may add an optional custom palette only — never '
-            'change how the app plays, syncs, caches, or connects to your music.',
+            'GitHub sponsorship may unlock the custom palette in the direct APK '
+            'only — never change how the app plays, syncs, caches, or connects '
+            'to your music.',
             style: theme.textTheme.bodySmall?.copyWith(color: muted),
           ),
         ),
