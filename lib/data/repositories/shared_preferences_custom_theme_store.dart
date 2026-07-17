@@ -13,8 +13,7 @@ class SharedPreferencesCustomThemeStore implements CustomThemeStore {
 
   @override
   Future<CustomThemeSettings?> read() async {
-    final SharedPreferences preferences =
-        await SharedPreferences.getInstance();
+    final SharedPreferences preferences = await SharedPreferences.getInstance();
     if (!preferences.containsKey(_enabledKey) &&
         !preferences.containsKey(_primaryKey) &&
         !preferences.containsKey(_accentKey)) {
@@ -32,8 +31,7 @@ class SharedPreferencesCustomThemeStore implements CustomThemeStore {
 
   @override
   Future<void> write(CustomThemeSettings? settings) async {
-    final SharedPreferences preferences =
-        await SharedPreferences.getInstance();
+    final SharedPreferences preferences = await SharedPreferences.getInstance();
     if (settings == null) {
       await Future.wait(<Future<bool>>[
         preferences.remove(_enabledKey),
