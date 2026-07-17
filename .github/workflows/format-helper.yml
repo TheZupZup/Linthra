@@ -1,9 +1,7 @@
 name: Format helper
 
 on:
-  push:
-    branches:
-      - agent/supporter-cosmetics-foundation
+  pull_request:
 
 permissions:
   contents: read
