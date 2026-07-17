@@ -31,8 +31,7 @@ class GitHubSponsorStatus {
   final String? login;
   final String? message;
 
-  bool get hasActiveMonthlySponsorship =>
-      access == GitHubSponsorAccess.active;
+  bool get hasActiveMonthlySponsorship => access == GitHubSponsorAccess.active;
 
   GitHubSponsorStatus copyWith({
     GitHubSponsorAccess? access,
