@@ -8,7 +8,6 @@ import 'package:linthra/data/repositories/launcher_icon_service_provider.dart';
 import 'package:linthra/features/appearance/app_icon_controller.dart';
 import 'package:linthra/features/appearance/app_icon_variant.dart';
 import 'package:linthra/features/support/support_actions_provider.dart';
-import 'package:linthra/features/support/supporter_entitlement.dart';
 
 void main() {
   group('AppIconController', () {
@@ -19,7 +18,6 @@ void main() {
       WidgetTester tester, {
       String? initial,
       bool launcherThrows = false,
-      SupporterEntitlement entitlement = SupporterEntitlement.included,
     }) async {
       store = InMemoryAppIconVariantStore(initial);
       launcher = FakeLauncherIconService(throws: launcherThrows);
@@ -27,11 +25,9 @@ void main() {
         overrides: <Override>[
           appIconVariantStoreProvider.overrideWithValue(store),
           launcherIconServiceProvider.overrideWithValue(launcher),
-          supporterEntitlementProvider.overrideWithValue(entitlement),
         ],
       );
       addTearDown(container.dispose);
-      // A trivial consumer instantiates the controller so its one-shot load runs.
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
@@ -74,12 +70,11 @@ void main() {
         (tester) async {
       final ProviderContainer container = await pump(tester);
 
-      final bool selected = await container
+      await container
           .read(appIconControllerProvider.notifier)
           .select(AppIconVariants.neon);
       await tester.pumpAndSettle();
 
-      expect(selected, isTrue);
       expect(
         container.read(appIconControllerProvider),
         AppIconVariants.neon,
@@ -87,56 +82,16 @@ void main() {
       expect(await store.read(), 'neon');
     });
 
-    testWidgets('supporter styles remain selectable when included',
-        (tester) async {
+    testWidgets('the gold variant is selectable here', (tester) async {
       final ProviderContainer container = await pump(tester);
 
-      final bool selected = await container
+      await container
           .read(appIconControllerProvider.notifier)
           .select(AppIconVariants.gold);
       await tester.pumpAndSettle();
 
-      expect(selected, isTrue);
       expect(container.read(appIconControllerProvider), AppIconVariants.gold);
       expect(await store.read(), 'gold');
-    });
-
-    testWidgets('locked supporter style is rejected without side effects',
-        (tester) async {
-      final ProviderContainer container = await pump(
-        tester,
-        entitlement: SupporterEntitlement.locked,
-      );
-
-      final bool selected = await container
-          .read(appIconControllerProvider.notifier)
-          .select(AppIconVariants.gold);
-      await tester.pumpAndSettle();
-
-      expect(selected, isFalse);
-      expect(
-        container.read(appIconControllerProvider),
-        AppIconVariants.classic,
-      );
-      expect(await store.read(), isNull);
-      expect(launcher.applied, isNot(contains('gold')));
-    });
-
-    testWidgets('locked persisted supporter style reconciles to Classic',
-        (tester) async {
-      final ProviderContainer container = await pump(
-        tester,
-        initial: 'gold',
-        entitlement: SupporterEntitlement.locked,
-      );
-
-      expect(
-        container.read(appIconControllerProvider),
-        AppIconVariants.classic,
-      );
-      expect(await store.read(), 'classic');
-      expect(launcher.applied, contains('classic'));
-      expect(launcher.applied, isNot(contains('gold')));
     });
 
     testWidgets('selecting a variant switches the real launcher icon',
@@ -148,14 +103,11 @@ void main() {
           .select(AppIconVariants.neon);
       await tester.pumpAndSettle();
 
-      // The launcher icon was switched to the same variant that was selected.
       expect(launcher.applied.last, 'neon');
     });
 
     testWidgets('re-asserts the launcher icon for the stored choice on startup',
         (tester) async {
-      // A cold start with a persisted choice must restore that launcher icon,
-      // not just the in-app mark.
       await pump(tester, initial: 'neon');
       expect(launcher.applied, contains('neon'));
     });
@@ -171,8 +123,6 @@ void main() {
       final ProviderContainer container =
           await pump(tester, launcherThrows: true);
 
-      // Even though every launcher call throws, selection still updates and
-      // persists — launcher switching is strictly best-effort.
       await container
           .read(appIconControllerProvider.notifier)
           .select(AppIconVariants.gold);
@@ -184,13 +134,13 @@ void main() {
   });
 
   group('appIconVariantsFor', () {
-    test('displays every variant on every channel — F-Droid included', () {
+    test('offers every variant on every channel — F-Droid included', () {
       for (final SupportDistribution distribution
           in SupportDistribution.values) {
         expect(
           appIconVariantsFor(distribution),
           AppIconVariants.all,
-          reason: 'all variants must be visible on $distribution',
+          reason: 'all variants must be available on $distribution',
         );
         expect(
           appIconVariantsFor(distribution),
@@ -201,9 +151,6 @@ void main() {
   });
 }
 
-/// Records the variant ids the controller asks to switch the launcher icon to,
-/// and can be made to fail to prove switching is best-effort. Stands in for the
-/// platform [LauncherIconService] so these tests stay free of method channels.
 class FakeLauncherIconService implements LauncherIconService {
   FakeLauncherIconService({this.throws = false});
 
