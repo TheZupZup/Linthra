@@ -129,7 +129,8 @@ void main() {
         find.byKey(const Key('custom-theme-connect-github')),
         findsOneWidget,
       );
-      expect(find.textContaining('active monthly GitHub Sponsors'), findsOneWidget);
+      expect(find.textContaining('active monthly GitHub Sponsors'),
+          findsOneWidget);
       expect(find.byKey(const Key('custom-theme-enabled')), findsNothing);
     });
   });

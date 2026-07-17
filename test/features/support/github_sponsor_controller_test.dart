@@ -129,9 +129,7 @@ void main() {
     addTearDown(container.dispose);
     await container.read(githubSponsorControllerProvider.future);
 
-    await container
-        .read(githubSponsorControllerProvider.notifier)
-        .disconnect();
+    await container.read(githubSponsorControllerProvider.notifier).disconnect();
 
     expect(await store.read(), isNull);
     expect(
