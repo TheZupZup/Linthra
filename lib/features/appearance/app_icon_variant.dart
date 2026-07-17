@@ -4,17 +4,20 @@ import '../../app/colors.dart';
 
 /// Which builds may offer an [AppIconVariant], and how.
 ///
-/// The tier is cosmetic metadata only. F-Droid includes every tier. A Play-only
-/// billing integration may use it to reserve optional visual rewards for
-/// supporters, but it must never affect playback, offline cache, providers,
-/// Android Auto, Cast, or any other core feature.
+/// This is a *data* seam, not a gate. In this build — and always in the F-Droid
+/// build — every tier is fully available and selectable; the field exists only
+/// so a future, Play-only PR can present [supporter] styles as cosmetic
+/// supporter rewards behind the Play flavor. Even then it must stay purely
+/// cosmetic: it can never affect playback, offline cache, providers, Android
+/// Auto, or any core feature, and the F-Droid build keeps every variant
+/// available.
 enum AppIconTier {
   /// Always offered everywhere, with no strings attached.
   free,
 
-  /// An optional cosmetic reward for supporters in the Play edition.
-  ///
-  /// F-Droid and ordinary development builds keep these styles available.
+  /// A cosmetic style earmarked for a possible future Play-only supporter
+  /// edition. Offered and selectable here too — shown only with a neutral
+  /// "Preview" badge — because this PR adds no gating or billing of any kind.
   supporter,
 }
 
@@ -47,8 +50,8 @@ class AppIconVariant {
   /// One line describing the look, surfaced as the tile's tooltip.
   final String description;
 
-  /// Whether this style is included everywhere or is an optional supporter
-  /// cosmetic in the Play edition.
+  /// Whether this is a free style or a cosmetic [AppIconTier.supporter] preview.
+  /// Never gates anything in this build (see [AppIconTier]).
   final AppIconTier tier;
 
   /// The mark's vertical gradient, top colour first. Fed straight to the logo
@@ -92,22 +95,22 @@ abstract final class AppIconVariants {
     bars: <double>[0.55, 0.85, 0.70, 0.45],
   );
 
-  /// A black-and-gold supporter treatment of the mark.
+  /// A black-and-gold treatment of the mark. Free, like every variant.
   static const AppIconVariant gold = AppIconVariant(
     id: 'gold',
     label: 'Gold',
-    description: 'A black-and-gold supporter treatment of the mark.',
-    tier: AppIconTier.supporter,
+    description: 'A black-and-gold treatment of the mark.',
+    tier: AppIconTier.free,
     gradient: <Color>[_goldBright, _goldDeep],
     bars: <double>[0.46, 0.70, 0.56, 0.34],
   );
 
-  /// Strictly black and white — a high-contrast supporter style.
+  /// Strictly black and white — no gray, no gradient. High-contrast minimalism.
   static const AppIconVariant blackWhite = AppIconVariant(
     id: 'blackwhite',
     label: 'Black & White',
-    description: 'A pure, high-contrast supporter style.',
-    tier: AppIconTier.supporter,
+    description: 'Strictly black and white — pure, high-contrast, minimal.',
+    tier: AppIconTier.free,
     gradient: <Color>[Colors.white, Colors.white],
     bars: <double>[0.46, 0.70, 0.56, 0.34],
   );
