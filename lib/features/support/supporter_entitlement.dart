@@ -1,39 +1,36 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'github_sponsor_controller.dart';
 import 'support_actions_provider.dart';
 
 /// Access state for optional cosmetic supporter rewards.
 ///
 /// Core playback, offline, provider, Cast, Android Auto, and storage features
-/// must never depend on this value. It exists only for visual rewards such as
-/// alternate themes and launcher icons.
+/// must never depend on this value. It exists only for the custom color palette.
 enum SupporterEntitlement {
-  /// The distribution includes every cosmetic style without a purchase.
+  /// The distribution includes the cosmetic without a purchase.
   included,
 
-  /// The Play edition can show supporter cosmetics, but they are not owned.
+  /// The cosmetic is visible but not owned.
   locked,
 
-  /// The Play edition has confirmed the supporter purchase.
+  /// The distribution has verified the required supporter access.
   unlocked;
 
   bool get allowsCosmetics => this != SupporterEntitlement.locked;
 }
 
-/// Parses the temporary build-time entitlement used by internal Play testing.
-///
-/// The default is [SupporterEntitlement.included] so existing builds preserve
-/// today's behaviour until Play Billing replaces this seam. F-Droid always
-/// returns [SupporterEntitlement.included], regardless of the define.
+/// Parses the build-time entitlement used by tests and non-GitHub channels.
 SupporterEntitlement supporterEntitlementFor({
   required SupportDistribution distribution,
-  required String playAccessDefine,
+  required String accessDefine,
 }) {
   if (distribution == SupportDistribution.fdroid) {
     return SupporterEntitlement.included;
   }
 
-  switch (playAccessDefine.trim().toLowerCase()) {
+  final String normalized = accessDefine.trim().toLowerCase();
+  switch (normalized) {
     case 'locked':
     case 'off':
     case 'false':
@@ -45,21 +42,35 @@ SupporterEntitlement supporterEntitlementFor({
     case '1':
       return SupporterEntitlement.unlocked;
     default:
-      return SupporterEntitlement.included;
+      return distribution == SupportDistribution.githubRelease
+          ? SupporterEntitlement.locked
+          : SupporterEntitlement.included;
   }
 }
 
 /// The cosmetic supporter entitlement for this build.
 ///
-/// A future Play-only billing integration should override this provider with
-/// verified purchase state. Keeping the provider in the shared app means the
-/// appearance feature remains billing-SDK agnostic and F-Droid-safe.
+/// GitHub Release APKs are locked by default and become unlocked only when the
+/// signed-in account has an active monthly sponsorship. F-Droid includes the
+/// palette. Play remains billing-SDK agnostic until a separate integration is
+/// implemented.
 final supporterEntitlementProvider = Provider<SupporterEntitlement>((ref) {
   final SupportDistribution distribution =
       ref.watch(supportDistributionProvider);
+  if (distribution == SupportDistribution.githubRelease) {
+    final bool active = ref
+            .watch(githubSponsorControllerProvider)
+            .valueOrNull
+            ?.hasActiveMonthlySponsorship ==
+        true;
+    return active
+        ? SupporterEntitlement.unlocked
+        : SupporterEntitlement.locked;
+  }
+
   return supporterEntitlementFor(
     distribution: distribution,
-    playAccessDefine:
+    accessDefine:
         const String.fromEnvironment('LINTHRA_SUPPORTER_COSMETICS'),
   );
 });
