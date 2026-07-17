@@ -32,18 +32,23 @@ void main() {
       }
     });
 
-    test('gold ships in the catalog and is free', () {
-      expect(AppIconVariants.gold.tier, AppIconTier.free);
-      // It ships in the catalog like any other variant — there is no gating
-      // field anywhere, so nothing can lock it.
-      expect(AppIconVariants.all, contains(AppIconVariants.gold));
+    test('Classic and Neon are always-free styles', () {
+      expect(AppIconVariants.classic.tier, AppIconTier.free);
+      expect(AppIconVariants.neon.tier, AppIconTier.free);
     });
 
-    test('every variant is free — no supporter-tier styles in this build', () {
+    test('Gold and Black & White are supporter cosmetics', () {
       final List<AppIconVariant> supporters = AppIconVariants.all
           .where((AppIconVariant v) => v.tier == AppIconTier.supporter)
           .toList();
-      expect(supporters, isEmpty);
+
+      expect(
+        supporters,
+        <AppIconVariant>[
+          AppIconVariants.gold,
+          AppIconVariants.blackWhite,
+        ],
+      );
     });
   });
 
