@@ -36,14 +36,15 @@ Color _foregroundFor(Color background) {
 
 Color _shiftLightness(Color color, double amount) {
   final HSLColor hsl = HSLColor.fromColor(color);
-  final double lightness = (hsl.lightness + amount).clamp(0.08, 0.92);
+  final double lightness =
+      (hsl.lightness + amount).clamp(0.08, 0.92).toDouble();
   return hsl.withLightness(lightness).toColor();
 }
 
 Color _containerFor(Color color, Brightness brightness) {
   final HSLColor hsl = HSLColor.fromColor(color);
   final double lightness = brightness == Brightness.dark ? 0.18 : 0.90;
-  final double saturation = hsl.saturation.clamp(0.25, 0.75);
+  final double saturation = hsl.saturation.clamp(0.25, 0.75).toDouble();
   return hsl
       .withSaturation(saturation)
       .withLightness(lightness)
