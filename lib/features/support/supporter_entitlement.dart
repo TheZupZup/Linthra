@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'github_sponsor_controller.dart';
+import 'github_sponsor_simulation.dart';
 import 'support_actions_provider.dart';
 
 /// Access state for optional cosmetic supporter rewards.
@@ -51,19 +52,30 @@ SupporterEntitlement supporterEntitlementFor({
 /// The cosmetic supporter entitlement for this build.
 ///
 /// GitHub Release APKs are locked by default and become unlocked only when the
-/// signed-in account has an active monthly sponsorship. F-Droid includes the
-/// palette. Play remains billing-SDK agnostic until a separate integration is
-/// implemented.
+/// signed-in account has an active monthly sponsorship at the required tier.
+/// Dedicated simulation APKs can force locked/unlocked without contacting
+/// GitHub. F-Droid always includes the palette and ignores that simulation.
 final supporterEntitlementProvider = Provider<SupporterEntitlement>((ref) {
   final SupportDistribution distribution =
       ref.watch(supportDistributionProvider);
   if (distribution == SupportDistribution.githubRelease) {
-    final bool active = ref
-            .watch(githubSponsorControllerProvider)
-            .valueOrNull
-            ?.hasActiveMonthlySponsorship ==
-        true;
-    return active ? SupporterEntitlement.unlocked : SupporterEntitlement.locked;
+    final GitHubSponsorSimulation simulation =
+        ref.watch(githubSponsorSimulationProvider);
+    switch (simulation) {
+      case GitHubSponsorSimulation.locked:
+        return SupporterEntitlement.locked;
+      case GitHubSponsorSimulation.unlocked:
+        return SupporterEntitlement.unlocked;
+      case GitHubSponsorSimulation.real:
+        final bool active = ref
+                .watch(githubSponsorControllerProvider)
+                .valueOrNull
+                ?.hasActiveMonthlySponsorship ==
+            true;
+        return active
+            ? SupporterEntitlement.unlocked
+            : SupporterEntitlement.locked;
+    }
   }
 
   return supporterEntitlementFor(
