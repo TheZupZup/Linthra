@@ -131,16 +131,31 @@ never sees the OAuth token.
 
 ## Internal testing
 
-The pure entitlement parser still supports a forced value for non-production UI
-tests:
+The separate **GitHub Sponsor Simulation APK** workflow automatically produces
+two clearly labelled debug artifacts:
+
+```text
+linthra-github-sponsor-simulated-locked-apk
+linthra-github-sponsor-simulated-unlocked-apk
+```
+
+They use the dedicated test-only define:
 
 ```text
 --dart-define=LINTHRA_DISTRIBUTION=github \
---dart-define=LINTHRA_SUPPORTER_COSMETICS=unlocked
+--dart-define=LINTHRA_GITHUB_SPONSOR_SIMULATION=locked
 ```
 
-Runtime GitHub builds use the verified controller state instead of trusting this
-flag.
+or:
+
+```text
+--dart-define=LINTHRA_DISTRIBUTION=github \
+--dart-define=LINTHRA_GITHUB_SPONSOR_SIMULATION=unlocked
+```
+
+These APKs do not contact GitHub Sponsors and need no OAuth client ID. The real
+GitHub Sponsor release workflow never passes this simulation define. F-Droid
+ignores it and continues to include the custom palette.
 
 ## Future Play Billing integration
 
