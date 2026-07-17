@@ -8,6 +8,7 @@ import 'package:linthra/features/appearance/app_icon_variant.dart';
 import 'package:linthra/features/appearance/appearance_settings_screen.dart';
 import 'package:linthra/features/appearance/linthra_logo_mark.dart';
 import 'package:linthra/features/settings/hub/about_screen.dart';
+import 'package:linthra/features/support/supporter_entitlement.dart';
 
 void main() {
   group('AppearanceSettingsScreen', () {
@@ -16,6 +17,7 @@ void main() {
     Future<ProviderContainer> pump(
       WidgetTester tester, {
       String? initial,
+      SupporterEntitlement entitlement = SupporterEntitlement.included,
     }) async {
       store = InMemoryAppIconVariantStore(initial);
       // A tall surface so the whole variant grid lays out and every tile is
@@ -27,6 +29,7 @@ void main() {
       final ProviderContainer container = ProviderContainer(
         overrides: <Override>[
           appIconVariantStoreProvider.overrideWithValue(store),
+          supporterEntitlementProvider.overrideWithValue(entitlement),
         ],
       );
       addTearDown(container.dispose);
@@ -59,7 +62,8 @@ void main() {
       );
     });
 
-    testWidgets('tapping a variant selects and persists it', (tester) async {
+    testWidgets('tapping a free variant selects and persists it',
+        (tester) async {
       final ProviderContainer container = await pump(tester);
 
       await tester.tap(find.text('Neon'));
@@ -69,12 +73,11 @@ void main() {
       expect(await store.read(), 'neon');
     });
 
-    testWidgets('the gold variant is selectable with no "Preview" badge',
+    testWidgets('supporter variants are labelled and included by default',
         (tester) async {
       final ProviderContainer container = await pump(tester);
 
-      // Gold is a free variant now — no Preview badge appears anywhere.
-      expect(find.text('Preview'), findsNothing);
+      expect(find.text('Supporter'), findsNWidgets(2));
 
       await tester.tap(find.text('Gold'));
       await tester.pumpAndSettle();
@@ -83,7 +86,29 @@ void main() {
       expect(await store.read(), 'gold');
     });
 
-    testWidgets('shows no premium / locking / purchase wording',
+    testWidgets('locked supporter variant opens explanation without selecting',
+        (tester) async {
+      final ProviderContainer container = await pump(
+        tester,
+        entitlement: SupporterEntitlement.locked,
+      );
+
+      await tester.tap(find.text('Gold'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Gold supporter style'),
+        findsOneWidget,
+      );
+      expect(find.text('View supporter options'), findsOneWidget);
+      expect(
+        container.read(appIconControllerProvider),
+        AppIconVariants.classic,
+      );
+      expect(await store.read(), isNull);
+    });
+
+    testWidgets('default build shows no aggressive purchase wording',
         (tester) async {
       await pump(tester);
 
@@ -92,10 +117,9 @@ void main() {
           .map((Text t) => (t.data ?? '').toLowerCase());
       const List<String> forbidden = <String>[
         'premium',
-        'locked',
-        'unlock',
-        'upgrade',
-        'buy',
+        'upgrade now',
+        'buy now',
+        'paywall',
         'supporter-only',
         'supporter only',
       ];
