@@ -61,8 +61,7 @@ class CustomThemeController extends Notifier<CustomThemeSettings> {
     return true;
   }
 
-  bool get _canEdit =>
-      ref.read(supporterEntitlementProvider).allowsCosmetics;
+  bool get _canEdit => ref.read(supporterEntitlementProvider).allowsCosmetics;
 
   Future<void> _setState(CustomThemeSettings next) async {
     if (next == state) {
