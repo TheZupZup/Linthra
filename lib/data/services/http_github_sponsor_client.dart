@@ -46,8 +46,7 @@ class HttpGitHubSponsorClient implements GitHubSponsorClient {
 
     final String deviceCode = _requiredString(payload, 'device_code');
     final String userCode = _requiredString(payload, 'user_code');
-    final String verificationUri =
-        _requiredString(payload, 'verification_uri');
+    final String verificationUri = _requiredString(payload, 'verification_uri');
     final int expiresIn = _requiredInt(payload, 'expires_in');
     final int interval = _requiredInt(payload, 'interval');
 
