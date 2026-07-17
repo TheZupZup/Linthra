@@ -9,7 +9,7 @@ import 'support_actions_provider.dart';
 /// Voluntary support options for Linthra.
 ///
 /// Core music features remain free. A future Play edition may thank supporters
-/// with optional appearance rewards, but payment logic stays outside this
+/// with an optional custom color palette, but payment logic stays outside this
 /// screen and outside the F-Droid build.
 class SupportScreen extends ConsumerWidget {
   const SupportScreen({super.key});
@@ -115,9 +115,10 @@ class _IntroCard extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Supporter rewards are cosmetic only, such as optional themes and '
-              'launcher icons in the Play edition. Playback, offline listening, '
-              'server connections, and Android Auto stay free.',
+              'The supporter reward is a custom color palette in the Play '
+              'edition. Classic, Neon, Gold, and Black & White icon themes stay '
+              'free, alongside playback, offline listening, server connections, '
+              'and Android Auto.',
               style: theme.textTheme.bodyMedium?.copyWith(color: muted),
             ),
             const SizedBox(height: AppSpacing.md),
@@ -253,9 +254,9 @@ class _CoreFeaturesNote extends StatelessWidget {
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Text(
-            'All core features stay free and unlocked. Supporting Linthra may '
-            'change optional appearance choices only — never how the app plays, '
-            'syncs, caches, or connects to your music.',
+            'All core features and built-in icon themes stay free and unlocked. '
+            'Supporting Linthra may add an optional custom palette only — never '
+            'change how the app plays, syncs, caches, or connects to your music.',
             style: theme.textTheme.bodySmall?.copyWith(color: muted),
           ),
         ),
