@@ -57,7 +57,8 @@ void main() {
       expect(find.text('Preview'), findsNothing);
     });
 
-    testWidgets('tapping Gold selects and persists it for free', (tester) async {
+    testWidgets('tapping Gold selects and persists it for free',
+        (tester) async {
       final ProviderContainer container = await pump(tester);
 
       await tester.tap(find.text('Gold'));
@@ -87,7 +88,8 @@ void main() {
       expect(await themeStore.read(), expected);
     });
 
-    testWidgets('locked Play build previews custom palette without locking icons',
+    testWidgets(
+        'locked Play build previews custom palette without locking icons',
         (tester) async {
       final ProviderContainer container = await pump(
         tester,
@@ -95,7 +97,8 @@ void main() {
       );
 
       expect(find.byKey(const Key('custom-theme-enabled')), findsNothing);
-      expect(find.byKey(const Key('custom-theme-support-options')), findsOneWidget);
+      expect(find.byKey(const Key('custom-theme-support-options')),
+          findsOneWidget);
       expect(find.textContaining('Every built-in icon theme'), findsOneWidget);
 
       await tester.tap(find.text('Black & White'));
