@@ -95,7 +95,8 @@ class _GitHubSponsorUnlockDialogState
       if (!mounted) return;
       setState(() {
         _checking = false;
-        _message = 'Could not open GitHub. Open github.com/login/device manually.';
+        _message =
+            'Could not open GitHub. Open github.com/login/device manually.';
       });
       return;
     }
