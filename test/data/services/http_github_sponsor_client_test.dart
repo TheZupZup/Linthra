@@ -77,7 +77,7 @@ void main() {
     expect(requests, 2);
   });
 
-  test('active monthly sponsorship unlocks access', () async {
+  test('monthly sponsorship at the three dollar tier unlocks access', () async {
     final MockClient httpClient = MockClient((http.Request request) async {
       final Map<String, dynamic> body =
           jsonDecode(request.body) as Map<String, dynamic>;
@@ -85,13 +85,15 @@ void main() {
         (body['variables'] as Map<String, dynamic>)['login'],
         'TheZupZup',
       );
+      expect(body['query'], contains('monthlyPriceInCents'));
       return http.Response(
         jsonEncode(<String, Object>{
           'data': <String, Object>{
             'viewer': <String, String>{'login': 'music-fan'},
             'user': <String, Object>{
-              'sponsorshipForViewerAsSponsor': <String, bool>{
+              'sponsorshipForViewerAsSponsor': <String, Object>{
                 'isOneTimePayment': false,
+                'tier': <String, int>{'monthlyPriceInCents': 300},
               },
             },
           },
@@ -110,6 +112,33 @@ void main() {
     expect(verification.hasActiveMonthlySponsorship, isTrue);
   });
 
+  test('monthly sponsorship below three dollars remains locked', () async {
+    final MockClient httpClient = MockClient((http.Request request) async {
+      return http.Response(
+        jsonEncode(<String, Object>{
+          'data': <String, Object>{
+            'viewer': <String, String>{'login': 'music-fan'},
+            'user': <String, Object>{
+              'sponsorshipForViewerAsSponsor': <String, Object>{
+                'isOneTimePayment': false,
+                'tier': <String, int>{'monthlyPriceInCents': 299},
+              },
+            },
+          },
+        }),
+        200,
+      );
+    });
+    final HttpGitHubSponsorClient client = HttpGitHubSponsorClient(
+      httpClient: httpClient,
+      config: config,
+    );
+
+    final verification = await client.verifySponsorship('token');
+
+    expect(verification.hasActiveMonthlySponsorship, isFalse);
+  });
+
   test('one-time sponsorship does not unlock monthly access', () async {
     final MockClient httpClient = MockClient((http.Request request) async {
       return http.Response(
@@ -117,8 +146,9 @@ void main() {
           'data': <String, Object>{
             'viewer': <String, String>{'login': 'music-fan'},
             'user': <String, Object>{
-              'sponsorshipForViewerAsSponsor': <String, bool>{
+              'sponsorshipForViewerAsSponsor': <String, Object>{
                 'isOneTimePayment': true,
+                'tier': <String, int>{'monthlyPriceInCents': 300},
               },
             },
           },

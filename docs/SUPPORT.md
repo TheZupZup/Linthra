@@ -6,8 +6,8 @@ maintenance.
 
 > **Packager summary:** core music features and every built-in icon theme remain
 > free. F-Droid includes the custom palette. A separate APK attached to GitHub
-> Releases can require an active monthly GitHub sponsorship to unlock that one
-> cosmetic palette.
+> Releases can require an active GitHub sponsorship of at least **$3 USD per
+> month** to unlock that one cosmetic palette.
 
 ## Principles
 
@@ -17,7 +17,8 @@ maintenance.
 - **Built-in appearance stays free.** Classic, Neon, Gold, and Black & White are
   available to everyone, including their in-app and Android launcher icons.
 - **The paid reward is cosmetic only.** The GitHub Release APK may lock the custom
-  two-color palette until an active monthly GitHub sponsorship is verified.
+  two-color palette until an active GitHub sponsorship of at least $3 USD per
+  month is verified.
 - **No ads or tracking.** Support does not introduce either.
 - **F-Droid remains complete.** F-Droid includes the custom palette and does not
   require a GitHub account.
@@ -39,7 +40,7 @@ The default is `fdroid`.
 | Distribution | Custom palette |
 | --- | --- |
 | `fdroid` | Included |
-| `github` | Requires an active monthly GitHub sponsorship |
+| `github` | Requires an active GitHub sponsorship of at least $3 USD/month |
 | `play` | Included until a separate Play Billing integration exists |
 
 The support-link kill switch remains available:
@@ -58,11 +59,13 @@ The GitHub APK uses GitHub's OAuth device flow:
 4. The token is stored with `flutter_secure_storage`.
 5. Linthra queries GitHub GraphQL for
    `sponsorshipForViewerAsSponsor(activeOnly: true)` on `TheZupZup`.
-6. The palette unlocks only when the sponsorship exists and
-   `isOneTimePayment` is `false`.
+6. The palette unlocks only when the sponsorship exists,
+   `isOneTimePayment` is `false`, and the selected tier reports
+   `monthlyPriceInCents >= 300`.
 
-A one-time sponsorship does not unlock this recurring benefit. After starting a
-monthly sponsorship, the user can tap **Check again** without reconnecting.
+A one-time sponsorship or a recurring sponsorship below $3 USD per month does
+not unlock this benefit. After starting or upgrading a monthly sponsorship, the
+user can tap **Check again** without reconnecting.
 
 The application requests only the `read:user` OAuth scope. It never receives or
 stores the user's GitHub password.

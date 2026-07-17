@@ -22,6 +22,8 @@ class HttpGitHubSponsorClient implements GitHubSponsorClient {
       Uri.parse('https://github.com/login/oauth/access_token');
   static final Uri _graphQlUri = Uri.parse('https://api.github.com/graphql');
 
+  static const int _minimumMonthlyPriceInCents = 300;
+
   final http.Client _httpClient;
   final GitHubSponsorConfig _config;
 
@@ -134,6 +136,9 @@ class HttpGitHubSponsorClient implements GitHubSponsorClient {
             user(login: $login) {
               sponsorshipForViewerAsSponsor(activeOnly: true) {
                 isOneTimePayment
+                tier {
+                  monthlyPriceInCents
+                }
               }
             }
           }
@@ -169,9 +174,15 @@ class HttpGitHubSponsorClient implements GitHubSponsorClient {
 
     final Object? sponsorship =
         sponsorableValue['sponsorshipForViewerAsSponsor'];
+    final Object? tier =
+        sponsorship is Map<String, dynamic> ? sponsorship['tier'] : null;
+    final Object? monthlyPriceInCents =
+        tier is Map<String, dynamic> ? tier['monthlyPriceInCents'] : null;
     final bool hasActiveMonthlySponsorship =
         sponsorship is Map<String, dynamic> &&
-            sponsorship['isOneTimePayment'] == false;
+            sponsorship['isOneTimePayment'] == false &&
+            monthlyPriceInCents is int &&
+            monthlyPriceInCents >= _minimumMonthlyPriceInCents;
 
     return GitHubSponsorVerification(
       login: login,
