@@ -8,6 +8,7 @@ import 'package:linthra/data/repositories/launcher_icon_service_provider.dart';
 import 'package:linthra/features/appearance/app_icon_controller.dart';
 import 'package:linthra/features/appearance/app_icon_variant.dart';
 import 'package:linthra/features/support/support_actions_provider.dart';
+import 'package:linthra/features/support/supporter_entitlement.dart';
 
 void main() {
   group('AppIconController', () {
@@ -18,6 +19,7 @@ void main() {
       WidgetTester tester, {
       String? initial,
       bool launcherThrows = false,
+      SupporterEntitlement entitlement = SupporterEntitlement.included,
     }) async {
       store = InMemoryAppIconVariantStore(initial);
       launcher = FakeLauncherIconService(throws: launcherThrows);
@@ -25,6 +27,7 @@ void main() {
         overrides: <Override>[
           appIconVariantStoreProvider.overrideWithValue(store),
           launcherIconServiceProvider.overrideWithValue(launcher),
+          supporterEntitlementProvider.overrideWithValue(entitlement),
         ],
       );
       addTearDown(container.dispose);
@@ -71,11 +74,12 @@ void main() {
         (tester) async {
       final ProviderContainer container = await pump(tester);
 
-      await container
+      final bool selected = await container
           .read(appIconControllerProvider.notifier)
           .select(AppIconVariants.neon);
       await tester.pumpAndSettle();
 
+      expect(selected, isTrue);
       expect(
         container.read(appIconControllerProvider),
         AppIconVariants.neon,
@@ -83,17 +87,56 @@ void main() {
       expect(await store.read(), 'neon');
     });
 
-    testWidgets('the gold variant is selectable here', (tester) async {
+    testWidgets('supporter styles remain selectable when included',
+        (tester) async {
       final ProviderContainer container = await pump(tester);
 
-      await container
+      final bool selected = await container
           .read(appIconControllerProvider.notifier)
           .select(AppIconVariants.gold);
       await tester.pumpAndSettle();
 
-      // No gate in the default build: every variant is free and selectable.
+      expect(selected, isTrue);
       expect(container.read(appIconControllerProvider), AppIconVariants.gold);
       expect(await store.read(), 'gold');
+    });
+
+    testWidgets('locked supporter style is rejected without side effects',
+        (tester) async {
+      final ProviderContainer container = await pump(
+        tester,
+        entitlement: SupporterEntitlement.locked,
+      );
+
+      final bool selected = await container
+          .read(appIconControllerProvider.notifier)
+          .select(AppIconVariants.gold);
+      await tester.pumpAndSettle();
+
+      expect(selected, isFalse);
+      expect(
+        container.read(appIconControllerProvider),
+        AppIconVariants.classic,
+      );
+      expect(await store.read(), isNull);
+      expect(launcher.applied, isNot(contains('gold')));
+    });
+
+    testWidgets('locked persisted supporter style reconciles to Classic',
+        (tester) async {
+      final ProviderContainer container = await pump(
+        tester,
+        initial: 'gold',
+        entitlement: SupporterEntitlement.locked,
+      );
+
+      expect(
+        container.read(appIconControllerProvider),
+        AppIconVariants.classic,
+      );
+      expect(await store.read(), 'classic');
+      expect(launcher.applied, contains('classic'));
+      expect(launcher.applied, isNot(contains('gold')));
     });
 
     testWidgets('selecting a variant switches the real launcher icon',
@@ -141,15 +184,14 @@ void main() {
   });
 
   group('appIconVariantsFor', () {
-    test('offers every variant on every channel — F-Droid included', () {
+    test('displays every variant on every channel — F-Droid included', () {
       for (final SupportDistribution distribution
           in SupportDistribution.values) {
         expect(
           appIconVariantsFor(distribution),
           AppIconVariants.all,
-          reason: 'all variants must be available on $distribution',
+          reason: 'all variants must be visible on $distribution',
         );
-        // The cosmetic supporter style is offered, never withheld.
         expect(
           appIconVariantsFor(distribution),
           contains(AppIconVariants.gold),
