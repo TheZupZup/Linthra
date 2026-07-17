@@ -1,8 +1,8 @@
 name: Android Debug APK
 
-# Builds an unsigned debug APK for manual on-device testing.
+# Builds a GitHub-Sponsor-locked debug APK for manual on-device testing.
 # This is for testing only: it does not sign release builds, create
-# GitHub releases, or publish anything.
+# GitHub releases, or publish anything. F-Droid builds are unaffected.
 on:
   workflow_dispatch:
   pull_request:
@@ -14,11 +14,22 @@ permissions:
 
 jobs:
   build-debug-apk:
-    name: Build debug APK
+    name: Build GitHub Sponsor debug APK
     runs-on: ubuntu-latest
+    env:
+      LINTHRA_GITHUB_OAUTH_CLIENT_ID: ${{ vars.LINTHRA_GITHUB_OAUTH_CLIENT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Never silently build the F-Droid/included entitlement when this artifact
+      # is intended to test GitHub Sponsor locking.
+      - name: Require GitHub OAuth client ID
+        run: |
+          if [ -z "$LINTHRA_GITHUB_OAUTH_CLIENT_ID" ]; then
+            echo "::error::Repository variable LINTHRA_GITHUB_OAUTH_CLIENT_ID is missing. Create the Linthra GitHub OAuth app, enable Device Flow, then add its public client ID under Settings > Secrets and variables > Actions > Variables."
+            exit 1
+          fi
 
       # Pin to Temurin JDK 17 — the version this Android toolchain
       # (AGP 8.2.1 / Gradle 8.7 / Kotlin 1.9.24) is built and tested against.
@@ -45,31 +56,37 @@ jobs:
       - name: Install dependencies
         run: flutter pub get --enforce-lockfile
 
-      - name: Build debug APK
-        run: flutter build apk --debug
+      - name: Build GitHub Sponsor debug APK
+        run: |
+          flutter build apk --debug \
+            --dart-define=LINTHRA_DISTRIBUTION=github \
+            --dart-define=LINTHRA_GITHUB_OAUTH_CLIENT_ID="$LINTHRA_GITHUB_OAUTH_CLIENT_ID"
 
       # Fail fast if the build produced no usable artifact. The upload step
       # below also guards with if-no-files-found: error, but checking here gives
       # a clearer "build produced nothing" signal independent of the uploader,
       # and rejects a truncated/empty APK a debug build should never emit.
-      - name: Verify build output exists
+      - name: Verify and stage build output
         run: |
           set -euo pipefail
-          apk="build/app/outputs/flutter-apk/app-debug.apk"
-          if [ ! -f "$apk" ]; then
-            echo "::error::Expected debug APK not found at $apk after the build."
+          source_apk="build/app/outputs/flutter-apk/app-debug.apk"
+          staged_apk="dist/linthra-github-sponsor-debug.apk"
+          if [ ! -f "$source_apk" ]; then
+            echo "::error::Expected debug APK not found at $source_apk after the build."
             exit 1
           fi
-          bytes=$(stat -c%s "$apk")
+          bytes=$(stat -c%s "$source_apk")
           if [ "$bytes" -lt 1000000 ]; then
-            echo "::error::Debug APK at $apk is only ${bytes} bytes (<1 MB); the build looks broken."
+            echo "::error::Debug APK at $source_apk is only ${bytes} bytes (<1 MB); the build looks broken."
             exit 1
           fi
-          echo "Debug APK present: $apk (${bytes} bytes)."
+          mkdir -p dist
+          cp "$source_apk" "$staged_apk"
+          echo "GitHub Sponsor debug APK present: $staged_apk (${bytes} bytes)."
 
-      - name: Upload debug APK
+      - name: Upload GitHub Sponsor debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: linthra-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: linthra-github-sponsor-debug-apk
+          path: dist/linthra-github-sponsor-debug.apk
           if-no-files-found: error
