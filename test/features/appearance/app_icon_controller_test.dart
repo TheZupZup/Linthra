@@ -28,6 +28,7 @@ void main() {
         ],
       );
       addTearDown(container.dispose);
+      // A trivial consumer instantiates the controller so its one-shot load runs.
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
@@ -90,6 +91,7 @@ void main() {
           .select(AppIconVariants.gold);
       await tester.pumpAndSettle();
 
+      // No gate in the default build: every variant is free and selectable.
       expect(container.read(appIconControllerProvider), AppIconVariants.gold);
       expect(await store.read(), 'gold');
     });
@@ -103,11 +105,14 @@ void main() {
           .select(AppIconVariants.neon);
       await tester.pumpAndSettle();
 
+      // The launcher icon was switched to the same variant that was selected.
       expect(launcher.applied.last, 'neon');
     });
 
     testWidgets('re-asserts the launcher icon for the stored choice on startup',
         (tester) async {
+      // A cold start with a persisted choice must restore that launcher icon,
+      // not just the in-app mark.
       await pump(tester, initial: 'neon');
       expect(launcher.applied, contains('neon'));
     });
@@ -123,6 +128,8 @@ void main() {
       final ProviderContainer container =
           await pump(tester, launcherThrows: true);
 
+      // Even though every launcher call throws, selection still updates and
+      // persists — launcher switching is strictly best-effort.
       await container
           .read(appIconControllerProvider.notifier)
           .select(AppIconVariants.gold);
@@ -142,6 +149,7 @@ void main() {
           AppIconVariants.all,
           reason: 'all variants must be available on $distribution',
         );
+        // The cosmetic supporter style is offered, never withheld.
         expect(
           appIconVariantsFor(distribution),
           contains(AppIconVariants.gold),
@@ -151,6 +159,9 @@ void main() {
   });
 }
 
+/// Records the variant ids the controller asks to switch the launcher icon to,
+/// and can be made to fail to prove switching is best-effort. Stands in for the
+/// platform [LauncherIconService] so these tests stay free of method channels.
 class FakeLauncherIconService implements LauncherIconService {
   FakeLauncherIconService({this.throws = false});
 
