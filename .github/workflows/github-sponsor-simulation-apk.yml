@@ -1,8 +1,7 @@
-name: GitHub Sponsor Simulation APK
+name: GitHub Sponsor Simulation Check
 
-# Produces two clearly-labelled test APKs without contacting GitHub Sponsors:
-# one locked and one unlocked. These artifacts are never attached to Releases
-# and never replace the ordinary/F-Droid-compatible APK.
+# Builds both simulated states only inside the ephemeral GitHub-hosted runner.
+# No APK is uploaded as an artifact or attached to a Release.
 on:
   workflow_dispatch:
   pull_request:
@@ -11,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  build-simulation:
-    name: Build simulated ${{ matrix.state }} APK
+  validate-simulation:
+    name: Validate simulated ${{ matrix.state }} state
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -41,27 +40,19 @@ jobs:
       - name: Install dependencies
         run: flutter pub get --enforce-lockfile
 
-      - name: Build simulated GitHub Sponsor APK
+      - name: Build simulated GitHub Sponsor state
         run: |
           flutter build apk --debug \
             --dart-define=LINTHRA_DISTRIBUTION=github \
             --dart-define=LINTHRA_GITHUB_SPONSOR_SIMULATION=${{ matrix.state }}
 
-      - name: Verify and stage APK
+      - name: Verify APK and remove it
         run: |
           set -euo pipefail
-          source_apk="build/app/outputs/flutter-apk/app-debug.apk"
-          staged_apk="dist/linthra-github-sponsor-simulated-${{ matrix.state }}.apk"
-          if [ ! -f "$source_apk" ]; then
-            echo "::error::Expected debug APK not found at $source_apk."
+          apk="build/app/outputs/flutter-apk/app-debug.apk"
+          if [ ! -f "$apk" ]; then
+            echo "::error::Expected debug APK not found at $apk."
             exit 1
           fi
-          mkdir -p dist
-          cp "$source_apk" "$staged_apk"
-
-      - name: Upload simulated APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: linthra-github-sponsor-simulated-${{ matrix.state }}-apk
-          path: dist/linthra-github-sponsor-simulated-${{ matrix.state }}.apk
-          if-no-files-found: error
+          rm -f "$apk"
+          test ! -f "$apk"
