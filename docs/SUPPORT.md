@@ -5,9 +5,10 @@ helps fund development, testing devices, distribution costs, and long-term
 maintenance.
 
 > **Packager summary:** core music features and every built-in icon theme remain
-> free. F-Droid includes the custom palette. A separate APK attached to GitHub
-> Releases can require an active GitHub sponsorship of at least **$3 USD per
-> month** to unlock that one cosmetic palette.
+> free. F-Droid and the canonical reproducible APKs do not expose the supporter
+> palette or GitHub sign-in. A separate APK attached to GitHub Releases can
+> require an active GitHub sponsorship of at least **$3 USD per month** to unlock
+> that one cosmetic palette.
 
 ## Principles
 
@@ -16,12 +17,13 @@ maintenance.
   behaviour never depend on supporter status.
 - **Built-in appearance stays free.** Classic, Neon, Gold, and Black & White are
   available to everyone, including their in-app and Android launcher icons.
-- **The paid reward is cosmetic only.** The GitHub Release APK may lock the custom
-  two-color palette until an active GitHub sponsorship of at least $3 USD per
-  month is verified.
+- **The paid reward is cosmetic only.** The dedicated GitHub Sponsor APK locks
+  the custom two-color palette until an active GitHub sponsorship of at least
+  $3 USD per month is verified.
 - **No ads or tracking.** Support does not introduce either.
-- **F-Droid remains complete.** F-Droid includes the custom palette and does not
-  require a GitHub account.
+- **F-Droid remains complete.** Every music feature and every built-in icon theme
+  remain available without a GitHub account. The optional supporter palette is
+  not part of that distribution.
 - **The lock is not DRM.** Linthra is open source; this is a respectful supporter
   benefit, not an attempt to prevent modified builds.
 
@@ -39,9 +41,9 @@ The default is `fdroid`.
 
 | Distribution | Custom palette |
 | --- | --- |
-| `fdroid` | Included |
+| `fdroid` | Not offered; no GitHub sign-in |
 | `github` | Requires an active GitHub sponsorship of at least $3 USD/month |
-| `play` | Included until a separate Play Billing integration exists |
+| `play` | Not offered until a separate Play Billing integration exists |
 
 The support-link kill switch remains available:
 
@@ -93,9 +95,11 @@ The sponsorable login defaults to `TheZupZup`. A fork may override it with:
 
 ## GitHub Release APK
 
-The release workflow keeps the existing APKs unchanged because their per-ABI
-files are reproducible-build references for F-Droid. When
-`LINTHRA_GITHUB_OAUTH_CLIENT_ID` is configured, it additionally builds:
+The release workflow keeps the existing canonical APKs unchanged because their
+per-ABI files are reproducible-build references for F-Droid. Those builds use the
+`fdroid` distribution behaviour: built-in themes only, no custom palette and no
+GitHub sign-in. When `LINTHRA_GITHUB_OAUTH_CLIENT_ID` is configured, a separate
+workflow additionally builds:
 
 ```text
 linthra-<tag>-github-sponsor.apk
@@ -112,8 +116,8 @@ The existing canonical APK, AAB, and per-ABI APK names remain untouched.
 
 ## Custom palette architecture
 
-The Appearance screen keeps the free icon-theme picker and adds a separate
-**Custom color palette** card.
+The Appearance screen always keeps the free icon-theme picker. It adds the
+**Custom color palette** card only when the build distribution is `github`.
 
 The palette stores three non-secret preferences:
 
@@ -129,33 +133,31 @@ tones from the two selected colors.
 storage, sponsorship verification, refresh, and disconnect. The theme controller
 never sees the OAuth token.
 
+The root application also checks the distribution and entitlement before
+applying persisted custom colors. A stale preference therefore cannot activate
+the supporter palette in F-Droid, canonical APKs, or Play builds.
+
 ## Internal testing
 
-The separate **GitHub Sponsor Simulation APK** workflow automatically produces
-two clearly labelled debug artifacts:
-
-```text
-linthra-github-sponsor-simulated-locked-apk
-linthra-github-sponsor-simulated-unlocked-apk
-```
-
-They use the dedicated test-only define:
+The separate **GitHub Sponsor Simulation Check** workflow builds two temporary
+debug APK states inside the GitHub Actions runner:
 
 ```text
 --dart-define=LINTHRA_DISTRIBUTION=github \
 --dart-define=LINTHRA_GITHUB_SPONSOR_SIMULATION=locked
 ```
 
-or:
+and:
 
 ```text
 --dart-define=LINTHRA_DISTRIBUTION=github \
 --dart-define=LINTHRA_GITHUB_SPONSOR_SIMULATION=unlocked
 ```
 
-These APKs do not contact GitHub Sponsors and need no OAuth client ID. The real
-GitHub Sponsor release workflow never passes this simulation define. F-Droid
-ignores it and continues to include the custom palette.
+These APKs do not contact GitHub Sponsors and need no OAuth client ID. The
+workflow verifies each APK exists, then deletes it without uploading an artifact.
+The real GitHub Sponsor release workflow never passes the simulation define.
+F-Droid ignores the simulation path and does not expose the custom palette.
 
 ## Future Play Billing integration
 
@@ -175,5 +177,5 @@ Relevant coverage lives in:
 - `test/features/appearance/custom_theme_controller_test.dart`
 
 The central contract is enforced throughout: sponsorship may unlock one optional
-color palette in the direct APK, but never restricts Linthra's music features or
-its built-in icon themes.
+color palette in the dedicated GitHub Sponsor APK, but never restricts Linthra's
+music features or its built-in icon themes.
