@@ -60,7 +60,8 @@ void main() {
       expect(find.text('Preview'), findsNothing);
     });
 
-    testWidgets('F-Droid does not render the supporter palette', (tester) async {
+    testWidgets('F-Droid does not render the supporter palette',
+        (tester) async {
       await pump(
         tester,
         entitlement: SupporterEntitlement.unlocked,
