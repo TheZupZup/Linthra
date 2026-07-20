@@ -38,8 +38,6 @@ enum SupportDistribution {
     switch (value.trim().toLowerCase()) {
       case 'github':
       case 'github-release':
-      case 'release':
-      case 'apk':
         return SupportDistribution.githubRelease;
       case 'play':
       case 'playstore':
