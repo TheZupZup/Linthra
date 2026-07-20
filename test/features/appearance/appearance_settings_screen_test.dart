@@ -23,7 +23,7 @@ void main() {
     Future<ProviderContainer> pump(
       WidgetTester tester, {
       String? initialIcon,
-      SupporterEntitlement entitlement = SupporterEntitlement.included,
+      SupporterEntitlement entitlement = SupporterEntitlement.locked,
       SupportDistribution distribution = SupportDistribution.fdroid,
     }) async {
       iconStore = InMemoryAppIconVariantStore(initialIcon);
@@ -60,6 +60,19 @@ void main() {
       expect(find.text('Preview'), findsNothing);
     });
 
+    testWidgets('F-Droid does not render the supporter palette',
+        (tester) async {
+      await pump(
+        tester,
+        entitlement: SupporterEntitlement.unlocked,
+        distribution: SupportDistribution.fdroid,
+      );
+
+      expect(find.text('Custom color palette'), findsNothing);
+      expect(find.byKey(const Key('custom-theme-enabled')), findsNothing);
+      expect(find.textContaining('optional custom palette'), findsNothing);
+    });
+
     testWidgets('tapping Gold selects and persists it for free',
         (tester) async {
       final ProviderContainer container = await pump(tester);
@@ -71,12 +84,16 @@ void main() {
       expect(await iconStore.read(), 'gold');
     });
 
-    testWidgets('included build can enable and recolor the custom palette',
+    testWidgets('unlocked GitHub build can enable and recolor the palette',
         (tester) async {
-      final ProviderContainer container = await pump(tester);
+      final ProviderContainer container = await pump(
+        tester,
+        entitlement: SupporterEntitlement.unlocked,
+        distribution: SupportDistribution.githubRelease,
+      );
 
       expect(find.text('Custom color palette'), findsOneWidget);
-      expect(find.text('Included'), findsOneWidget);
+      expect(find.text('GitHub Sponsor'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('custom-theme-primary-cyan')));
       await tester.tap(find.byKey(const Key('custom-theme-enabled')));
@@ -91,18 +108,15 @@ void main() {
       expect(await themeStore.read(), expected);
     });
 
-    testWidgets('locked Play build keeps built-in icons free', (tester) async {
+    testWidgets('Play hides the palette until billing exists', (tester) async {
       final ProviderContainer container = await pump(
         tester,
-        entitlement: SupporterEntitlement.locked,
+        entitlement: SupporterEntitlement.unlocked,
         distribution: SupportDistribution.play,
       );
 
+      expect(find.text('Custom color palette'), findsNothing);
       expect(find.byKey(const Key('custom-theme-enabled')), findsNothing);
-      expect(
-        find.byKey(const Key('custom-theme-support-options')),
-        findsOneWidget,
-      );
 
       await tester.tap(find.text('Black & White'));
       await tester.pumpAndSettle();

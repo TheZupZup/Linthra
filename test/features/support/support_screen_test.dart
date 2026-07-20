@@ -71,7 +71,8 @@ Future<_FakeLinkLauncher> _pump(
 
 void main() {
   group('SupportScreen', () {
-    testWidgets('explains the GitHub Sponsor cosmetic model', (tester) async {
+    testWidgets('explains the dedicated GitHub Sponsor cosmetic model',
+        (tester) async {
       await _pump(tester);
 
       expect(find.text('Support Linthra'), findsWidgets);
@@ -86,14 +87,14 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.textContaining('F-Droid includes the custom palette'),
+        find.textContaining('do not include the supporter palette'),
         findsOneWidget,
       );
       expect(
         find.textContaining('built-in icon themes stay free and unlocked'),
         findsOneWidget,
       );
-      expect(find.textContaining('direct APK only'), findsOneWidget);
+      expect(find.textContaining('GitHub Sponsor APK only'), findsOneWidget);
     });
 
     testWidgets('keeps the playful note secondary', (tester) async {

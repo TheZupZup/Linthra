@@ -10,6 +10,7 @@ import '../features/appearance/custom_brand_palette.dart';
 import '../features/appearance/custom_theme_controller.dart';
 import '../features/library/remote_library_refresher.dart';
 import '../features/player/player_providers.dart';
+import '../features/support/support_actions_provider.dart';
 import '../features/support/supporter_entitlement.dart';
 import 'brand_theme.dart';
 import 'router.dart';
@@ -101,10 +102,14 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
     final router = ref.watch(appRouterProvider);
     final variant = ref.watch(appIconControllerProvider);
     final customTheme = ref.watch(customThemeControllerProvider);
+    final distribution = ref.watch(supportDistributionProvider);
     final supporterEntitlement = ref.watch(supporterEntitlementProvider);
 
     BrandPalette paletteFor(Brightness brightness) {
-      if (supporterEntitlement.allowsCosmetics && customTheme.enabled) {
+      final bool mayApplyCustomPalette = distribution.offersCustomPalette &&
+          supporterEntitlement.allowsCosmetics &&
+          customTheme.enabled;
+      if (mayApplyCustomPalette) {
         return customBrandPalette(customTheme, brightness: brightness);
       }
       return BrandPalettes.byId(variant.id, brightness: brightness);

@@ -39,6 +39,26 @@ tracking, no account.
 
 Each of these has its own page in [the docs](./docs/README.md).
 
+## Two builds
+
+Linthra comes in two flavours. The F-Droid build is fully free and open: no
+account, no proprietary unlock code, all the music features, and the built-in
+themes (Classic, Neon, Gold, and Black & White). That's the complete player,
+and it stays free.
+
+The GitHub Sponsor build has everything the F-Droid one has, plus the custom
+colour palette for supporters. You get it from GitHub Releases, and it unlocks
+when you sponsor the project for at least $3 USD per month.
+
+**Why isn't the palette on F-Droid, even as a paid option?** Because I want the F-Droid build to stay fully libre: no paywalled features, no code that phones a proprietary service like GitHub. That's what an F-Droid build should be, and I'd rather keep it clean than bend it. So the F-Droid build gives you the complete player for free, and the custom palette lives in the GitHub build for supporters.
+
+And it's not DRM. Linthra is open source. If you really want the palette, you
+can clone the repo and build it yourself. The $3 isn't locking you out; it's a
+way to support the project and get the official supporter build without the
+hassle. If Linthra is useful to you, sponsoring genuinely helps: it tells me the
+work matters and keeps me building it. And if you just want a clean libre player
+with no account, the F-Droid build is yours, free, for good.
+
 ## Screenshots
 
 | Now Playing | Library | Smart mixes |
