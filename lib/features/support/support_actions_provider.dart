@@ -11,7 +11,8 @@ import 'support_action.dart';
 /// CI, and the F-Droid build server alike — gets external donation links only
 /// and never a proprietary billing path.
 enum SupportDistribution {
-  /// F-Droid and ordinary development builds. The custom palette is included.
+  /// F-Droid, ordinary development builds, and the canonical reproducible APKs.
+  /// The supporter-only custom palette is not offered in this distribution.
   fdroid,
 
   /// APK distributed directly through GitHub Releases. The custom palette is
@@ -20,8 +21,12 @@ enum SupportDistribution {
   githubRelease,
 
   /// A future Play-Store-only build. Google Play Billing remains a separate,
-  /// Play-only concern and is not implemented by the shared application.
+  /// Play-only concern and the custom palette stays unavailable until that
+  /// integration exists.
   play;
+
+  /// Whether this distribution may expose the supporter-only custom palette.
+  bool get offersCustomPalette => this == SupportDistribution.githubRelease;
 
   /// The channel this build was compiled for, from the dart-define (default
   /// [fdroid]).
