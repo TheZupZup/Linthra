@@ -50,13 +50,7 @@ The GitHub Sponsor build has everything the F-Droid one has, plus the custom
 colour palette for supporters. You get it from GitHub Releases, and it unlocks
 when you sponsor the project for at least $3 USD per month.
 
-**Why isn't the palette on F-Droid, even as a paid option?** The F-Droid edition
-is deliberately kept free of paywalled features and GitHub-dependent unlock
-code. F-Droid focuses on free and open-source software and may flag proprietary
-network-service dependencies as anti-features; non-compliant or undisclosed
-cases can be rejected or removed. Keeping the sponsor verification outside that
-build preserves a clean, fully libre F-Droid edition, while the palette lives in
-the separate GitHub Sponsor build.
+**Why isn't the palette on F-Droid, even as a paid option?** Because I want the F-Droid build to stay fully libre: no paywalled features, no code that phones a proprietary service like GitHub. That's what an F-Droid build should be, and I'd rather keep it clean than bend it. So the F-Droid build gives you the complete player for free, and the custom palette lives in the GitHub build for supporters.
 
 And it's not DRM. Linthra is open source. If you really want the palette, you
 can clone the repo and build it yourself. The $3 isn't locking you out; it's a
