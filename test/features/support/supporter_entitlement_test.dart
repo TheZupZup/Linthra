@@ -5,14 +5,14 @@ import 'package:linthra/features/support/supporter_entitlement.dart';
 
 void main() {
   group('supporterEntitlementFor', () {
-    test('F-Droid includes custom palette access for every define', () {
+    test('F-Droid rejects custom palette access for every define', () {
       for (final String value in <String>['', 'locked', 'unlocked', 'off']) {
         expect(
           supporterEntitlementFor(
             distribution: SupportDistribution.fdroid,
             accessDefine: value,
           ),
-          SupporterEntitlement.included,
+          SupporterEntitlement.locked,
         );
       }
     });
@@ -37,17 +37,17 @@ void main() {
       );
     });
 
-    test('Play defaults to included until billing takes over', () {
+    test('Play rejects custom palette access until billing exists', () {
       expect(
         supporterEntitlementFor(
           distribution: SupportDistribution.play,
-          accessDefine: '',
+          accessDefine: 'unlocked',
         ),
-        SupporterEntitlement.included,
+        SupporterEntitlement.locked,
       );
     });
 
-    test('only locked access disables cosmetics', () {
+    test('only available entitlement states allow cosmetics', () {
       expect(SupporterEntitlement.included.allowsCosmetics, isTrue);
       expect(SupporterEntitlement.unlocked.allowsCosmetics, isTrue);
       expect(SupporterEntitlement.locked.allowsCosmetics, isFalse);
