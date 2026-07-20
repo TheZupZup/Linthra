@@ -58,7 +58,7 @@ cases can be rejected or removed. Keeping the sponsor verification outside that
 build preserves a clean, fully libre F-Droid edition, while the palette lives in
 the separate GitHub Sponsor build.
 
-And it's not DRM. Linthra is open source — if you really want the palette, you
+And it's not DRM. Linthra is open source. If you really want the palette, you
 can clone the repo and build it yourself. The $3 isn't locking you out; it's a
 way to support the project and get the official supporter build without the
 hassle. If Linthra is useful to you, sponsoring genuinely helps: it tells me the
