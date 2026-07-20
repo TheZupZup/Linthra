@@ -12,16 +12,20 @@ void main() {
       );
     });
 
-    test('maps GitHub Release aliases', () {
-      for (final String value in <String>[
-        'github',
-        'GitHub-Release',
-        ' release ',
-        'apk',
-      ]) {
+    test('maps only explicit GitHub Release aliases', () {
+      for (final String value in <String>['github', 'GitHub-Release']) {
         expect(
           SupportDistribution.fromDefine(value),
           SupportDistribution.githubRelease,
+        );
+      }
+    });
+
+    test('keeps generic release labels on the safe fdroid distribution', () {
+      for (final String value in <String>[' release ', 'apk']) {
+        expect(
+          SupportDistribution.fromDefine(value),
+          SupportDistribution.fdroid,
         );
       }
     });
