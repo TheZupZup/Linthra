@@ -1,32 +1,43 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/custom_theme_settings.dart';
 import 'package:linthra/data/repositories/app_icon_variant_store_provider.dart';
+import 'package:linthra/data/repositories/custom_theme_store_provider.dart';
 import 'package:linthra/data/repositories/in_memory_app_icon_variant_store.dart';
+import 'package:linthra/data/repositories/in_memory_custom_theme_store.dart';
 import 'package:linthra/features/appearance/app_icon_controller.dart';
 import 'package:linthra/features/appearance/app_icon_variant.dart';
 import 'package:linthra/features/appearance/appearance_settings_screen.dart';
+import 'package:linthra/features/appearance/custom_theme_controller.dart';
 import 'package:linthra/features/appearance/linthra_logo_mark.dart';
 import 'package:linthra/features/settings/hub/about_screen.dart';
+import 'package:linthra/features/support/support_actions_provider.dart';
+import 'package:linthra/features/support/supporter_entitlement.dart';
 
 void main() {
   group('AppearanceSettingsScreen', () {
-    late InMemoryAppIconVariantStore store;
+    late InMemoryAppIconVariantStore iconStore;
+    late InMemoryCustomThemeStore themeStore;
 
     Future<ProviderContainer> pump(
       WidgetTester tester, {
-      String? initial,
+      String? initialIcon,
+      SupporterEntitlement entitlement = SupporterEntitlement.included,
+      SupportDistribution distribution = SupportDistribution.fdroid,
     }) async {
-      store = InMemoryAppIconVariantStore(initial);
-      // A tall surface so the whole variant grid lays out and every tile is
-      // hittable.
-      tester.view.physicalSize = const Size(1200, 2400);
+      iconStore = InMemoryAppIconVariantStore(initialIcon);
+      themeStore = InMemoryCustomThemeStore();
+      tester.view.physicalSize = const Size(1200, 3600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final ProviderContainer container = ProviderContainer(
         overrides: <Override>[
-          appIconVariantStoreProvider.overrideWithValue(store),
+          appIconVariantStoreProvider.overrideWithValue(iconStore),
+          customThemeStoreProvider.overrideWithValue(themeStore),
+          supporterEntitlementProvider.overrideWithValue(entitlement),
+          supportDistributionProvider.overrideWithValue(distribution),
         ],
       );
       addTearDown(container.dispose);
@@ -40,72 +51,87 @@ void main() {
       return container;
     }
 
-    testWidgets('lists every built-in variant', (tester) async {
+    testWidgets('lists every free built-in icon theme', (tester) async {
       await pump(tester);
+
       for (final AppIconVariant variant in AppIconVariants.all) {
-        expect(
-          find.text(variant.label),
-          findsOneWidget,
-          reason: '${variant.label} tile should render',
-        );
+        expect(find.text(variant.label), findsOneWidget);
       }
+      expect(find.text('Preview'), findsNothing);
     });
 
-    testWidgets('defaults to Classic', (tester) async {
-      final ProviderContainer container = await pump(tester);
-      expect(
-        container.read(appIconControllerProvider),
-        AppIconVariants.classic,
-      );
-    });
-
-    testWidgets('tapping a variant selects and persists it', (tester) async {
-      final ProviderContainer container = await pump(tester);
-
-      await tester.tap(find.text('Neon'));
-      await tester.pumpAndSettle();
-
-      expect(container.read(appIconControllerProvider), AppIconVariants.neon);
-      expect(await store.read(), 'neon');
-    });
-
-    testWidgets('the gold variant is selectable with no "Preview" badge',
+    testWidgets('tapping Gold selects and persists it for free',
         (tester) async {
       final ProviderContainer container = await pump(tester);
-
-      // Gold is a free variant now — no Preview badge appears anywhere.
-      expect(find.text('Preview'), findsNothing);
 
       await tester.tap(find.text('Gold'));
       await tester.pumpAndSettle();
 
       expect(container.read(appIconControllerProvider), AppIconVariants.gold);
-      expect(await store.read(), 'gold');
+      expect(await iconStore.read(), 'gold');
     });
 
-    testWidgets('shows no premium / locking / purchase wording',
+    testWidgets('included build can enable and recolor the custom palette',
         (tester) async {
-      await pump(tester);
+      final ProviderContainer container = await pump(tester);
 
-      final Iterable<String> texts = tester
-          .widgetList<Text>(find.byType(Text))
-          .map((Text t) => (t.data ?? '').toLowerCase());
-      const List<String> forbidden = <String>[
-        'premium',
-        'locked',
-        'unlock',
-        'upgrade',
-        'buy',
-        'supporter-only',
-        'supporter only',
-      ];
-      for (final String word in forbidden) {
-        expect(
-          texts.any((String s) => s.contains(word)),
-          isFalse,
-          reason: '"$word" must not appear in the default build',
-        );
-      }
+      expect(find.text('Custom color palette'), findsOneWidget);
+      expect(find.text('Included'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('custom-theme-primary-cyan')));
+      await tester.tap(find.byKey(const Key('custom-theme-enabled')));
+      await tester.pumpAndSettle();
+
+      const CustomThemeSettings expected = CustomThemeSettings(
+        enabled: true,
+        primaryColorValue: 0xFF34C5FF,
+        accentColorValue: CustomThemeSettings.defaultAccentColorValue,
+      );
+      expect(container.read(customThemeControllerProvider), expected);
+      expect(await themeStore.read(), expected);
+    });
+
+    testWidgets('locked Play build keeps built-in icons free', (tester) async {
+      final ProviderContainer container = await pump(
+        tester,
+        entitlement: SupporterEntitlement.locked,
+        distribution: SupportDistribution.play,
+      );
+
+      expect(find.byKey(const Key('custom-theme-enabled')), findsNothing);
+      expect(
+        find.byKey(const Key('custom-theme-support-options')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Black & White'));
+      await tester.pumpAndSettle();
+      expect(
+        container.read(appIconControllerProvider),
+        AppIconVariants.blackWhite,
+      );
+      expect(await iconStore.read(), 'blackwhite');
+    });
+
+    testWidgets('GitHub APK asks for a monthly sponsorship', (tester) async {
+      await pump(
+        tester,
+        entitlement: SupporterEntitlement.locked,
+        distribution: SupportDistribution.githubRelease,
+      );
+
+      expect(find.text('Monthly sponsor'), findsOneWidget);
+      expect(
+        find.byKey(const Key('custom-theme-github-sponsors')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('custom-theme-connect-github')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('active monthly GitHub Sponsors'),
+          findsOneWidget);
+      expect(find.byKey(const Key('custom-theme-enabled')), findsNothing);
     });
   });
 

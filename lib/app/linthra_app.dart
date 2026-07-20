@@ -6,8 +6,11 @@ import '../core/services/active_playback_controller.dart';
 import '../core/services/notification_permission.dart';
 import '../core/services/stability_diagnostics.dart';
 import '../features/appearance/app_icon_controller.dart';
+import '../features/appearance/custom_brand_palette.dart';
+import '../features/appearance/custom_theme_controller.dart';
 import '../features/library/remote_library_refresher.dart';
 import '../features/player/player_providers.dart';
+import '../features/support/supporter_entitlement.dart';
 import 'brand_theme.dart';
 import 'router.dart';
 import 'theme.dart';
@@ -96,20 +99,22 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
   @override
   Widget build(BuildContext context) {
     final router = ref.watch(appRouterProvider);
-    // Retheme the whole app from the selected branding variant: the picker is a
-    // complete visual theme selector, not only a launcher-icon picker. The
-    // controller already loads the persisted choice on startup and serves
-    // Classic until then, so the theme restores on restart for free.
     final variant = ref.watch(appIconControllerProvider);
+    final customTheme = ref.watch(customThemeControllerProvider);
+    final supporterEntitlement = ref.watch(supporterEntitlementProvider);
+
+    BrandPalette paletteFor(Brightness brightness) {
+      if (supporterEntitlement.allowsCosmetics && customTheme.enabled) {
+        return customBrandPalette(customTheme, brightness: brightness);
+      }
+      return BrandPalettes.byId(variant.id, brightness: brightness);
+    }
+
     return MaterialApp.router(
       title: AppInfo.name,
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(
-        BrandPalettes.byId(variant.id, brightness: Brightness.light),
-      ),
-      darkTheme: AppTheme.dark(
-        BrandPalettes.byId(variant.id, brightness: Brightness.dark),
-      ),
+      theme: AppTheme.light(paletteFor(Brightness.light)),
+      darkTheme: AppTheme.dark(paletteFor(Brightness.dark)),
       themeMode: ThemeMode.dark,
       routerConfig: router,
     );

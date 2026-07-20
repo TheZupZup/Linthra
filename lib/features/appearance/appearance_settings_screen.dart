@@ -6,15 +6,13 @@ import '../../app/dimens.dart';
 import '../../data/repositories/launcher_icon_service_provider.dart';
 import 'app_icon_controller.dart';
 import 'app_icon_variant.dart';
+import 'custom_theme_card.dart';
 import 'linthra_logo_mark.dart';
 
 /// "App icon & branding" — reached from Settings → Appearance.
 ///
-/// Lets the user pick how the Linthra mark looks across the app. It is purely
-/// cosmetic: every variant is free and available to everyone, the choice gates
-/// nothing, and it changes nothing about playback, sync, or storage. Selecting a
-/// variant persists it through [appIconControllerProvider] and is reflected
-/// immediately wherever the mark is shown (About, the Settings header).
+/// Every built-in icon theme remains free. The separate custom-palette card is
+/// the optional supporter cosmetic and never affects music functionality.
 class AppearanceSettingsScreen extends ConsumerWidget {
   const AppearanceSettingsScreen({super.key});
 
@@ -46,6 +44,8 @@ class AppearanceSettingsScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
+          const CustomThemeCard(),
+          const SizedBox(height: AppSpacing.lg),
           const _SuggestionsNote(),
         ],
       ),
@@ -76,8 +76,7 @@ class AppearanceSettingsScreen extends ConsumerWidget {
   }
 }
 
-/// A friendly, low-key invitation under the picker — no upsell, just an open
-/// door for theme ideas.
+/// A friendly, low-key invitation under the picker.
 class _SuggestionsNote extends StatelessWidget {
   const _SuggestionsNote();
 
@@ -97,7 +96,7 @@ class _SuggestionsNote extends StatelessWidget {
   }
 }
 
-/// The explanatory header: branding is cosmetic, free, and gates nothing.
+/// Explains the free built-in themes and the separate custom palette.
 class _IntroCard extends StatelessWidget {
   const _IntroCard();
 
@@ -127,11 +126,11 @@ class _IntroCard extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Choose how the Linthra mark looks across the app — in About, the '
-              'Settings header, and, on Android, as your home-screen and '
-              'app-drawer icon. Every variant is free and available to everyone, '
-              'and your choice is purely cosmetic: it changes nothing about how '
-              'Linthra plays, syncs, or stores your music.',
+              'Choose how the Linthra mark looks across the app and, on '
+              'Android, on your home screen. Classic, Neon, Gold, and Black & '
+              'White are free for everyone. The optional custom palette below '
+              'changes colors only — never how Linthra plays, syncs, or stores '
+              'your music.',
               style: theme.textTheme.bodyMedium?.copyWith(color: muted),
             ),
           ],
@@ -171,9 +170,7 @@ class _VariantGrid extends StatelessWidget {
   }
 }
 
-/// One variant: its mark on a dark squircle, a label, and a "Preview" badge for
-/// the cosmetic supporter tier. The selected tile gets a highlighted border and
-/// a check. Tapping anywhere on the tile selects it.
+/// One free built-in branding variant.
 class _VariantTile extends StatelessWidget {
   const _VariantTile({
     required this.variant,
@@ -229,7 +226,10 @@ class _VariantTile extends StatelessWidget {
                   ),
                   if (selected)
                     const Positioned(
-                        top: -6, right: -6, child: _SelectedBadge()),
+                      top: -6,
+                      right: -6,
+                      child: _SelectedBadge(),
+                    ),
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),
@@ -241,10 +241,6 @@ class _VariantTile extends StatelessWidget {
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 ),
               ),
-              if (variant.tier == AppIconTier.supporter) ...<Widget>[
-                const SizedBox(height: 2),
-                const _PreviewBadge(),
-              ],
             ],
           ),
         ),
@@ -268,33 +264,6 @@ class _SelectedBadge extends StatelessWidget {
         border: Border.all(color: theme.colorScheme.surface, width: 2),
       ),
       child: Icon(Icons.check, size: 14, color: theme.colorScheme.onPrimary),
-    );
-  }
-}
-
-/// A neutral "Preview" pill shown under cosmetic supporter-tier variants. It is
-/// a label only — never a lock, a price, or an upsell.
-class _PreviewBadge extends StatelessWidget {
-  const _PreviewBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.sm,
-        vertical: 2,
-      ),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-      ),
-      child: Text(
-        'Preview',
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: theme.colorScheme.onSecondaryContainer,
-        ),
-      ),
     );
   }
 }

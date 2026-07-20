@@ -1,181 +1,179 @@
 # Supporting Linthra
 
-Linthra is **free and open source, and stays that way.** This document explains
-the voluntary supporter model, the in-app "Support Linthra" screen, and the
-build-safe structure that lets a future Play Store build add supporter purchases
-**without** ever touching the F-Droid build.
+Linthra is **free and open source, and stays that way.** Support is optional and
+helps fund development, testing devices, distribution costs, and long-term
+maintenance.
 
-> **TL;DR for reviewers / packagers:** this is a screen with copy and a few
-> external links. There is **no billing SDK, no Google Play Billing, no ads, no
-> tracking, and no feature gating** in this code path. An ordinary
-> `flutter build` (CI and F-Droid alike) compiles the F-Droid action set only.
+> **Packager summary:** core music features and every built-in icon theme remain
+> free. F-Droid includes the custom palette. A separate APK attached to GitHub
+> Releases can require an active GitHub sponsorship of at least **$3 USD per
+> month** to unlock that one cosmetic palette.
 
-## 1. The supporter model
+## Principles
 
-- **Linthra is free.** Every feature is available to everyone at no cost.
-- **Support is optional.** Nothing in the app is locked, time-limited, or
-  degraded if you don't contribute. The Support screen is an invitation, not a
-  paywall.
-- **No ads, no tracking.** Supporting the project does not change that, and the
-  Support screen adds neither.
-- **Where support goes.** Voluntary contributions help fund development, testing
-  devices, app-store/distribution costs, and long-term maintenance.
-- **Core features stay free — always.** Support never gates a feature. If a
-  future build offers a "supporter" purchase, it buys goodwill (and a thank-you),
-  not functionality.
+- **Core features stay free.** Playback, offline listening, Jellyfin, Navidrome,
+  Plex, local files, Cast, Android Auto, downloads, backup/restore, and storage
+  behaviour never depend on supporter status.
+- **Built-in appearance stays free.** Classic, Neon, Gold, and Black & White are
+  available to everyone, including their in-app and Android launcher icons.
+- **The paid reward is cosmetic only.** The GitHub Release APK may lock the custom
+  two-color palette until an active GitHub sponsorship of at least $3 USD per
+  month is verified.
+- **No ads or tracking.** Support does not introduce either.
+- **F-Droid remains complete.** F-Droid includes the custom palette and does not
+  require a GitHub account.
+- **The lock is not DRM.** Linthra is open source; this is a respectful supporter
+  benefit, not an attempt to prevent modified builds.
 
-A small, deliberately **secondary and playful** "lonely maintainer" aside sits
-at the bottom of the screen. It is tone only: rendered inline (never a popup),
-below the serious explanation (never the headline), it keeps "No pressure"
-visible, blocks no navigation, and unlocks/changes nothing. It is not a paywall
-or upsell, and is F-Droid/Play-safe.
+## Distribution seam
 
-## 2. Reaching the screen
+`SupportDistribution.current` reads:
 
-In the app: **Settings → About → Support Linthra**.
+```text
+--dart-define=LINTHRA_DISTRIBUTION=fdroid
+--dart-define=LINTHRA_DISTRIBUTION=github
+--dart-define=LINTHRA_DISTRIBUTION=play
+```
 
-The About page carries a "Support Linthra" card (distinct from the existing
-"Support" help/contact card) that opens the screen at the route
-`/settings/support` (`AppRoutes.settingsSupport`). The screen states the model
-above and lists a few ways to help.
+The default is `fdroid`.
 
-## 3. What the screen offers today
+| Distribution | Custom palette |
+| --- | --- |
+| `fdroid` | Included |
+| `github` | Requires an active GitHub sponsorship of at least $3 USD/month |
+| `play` | Included until a separate Play Billing integration exists |
 
-The actions are **data**, assembled per build (see §4). The default
-(F-Droid / dev / GitHub-Release) set is external links only:
+The support-link kill switch remains available:
 
-| Action | Opens | Notes |
-| ------ | ----- | ----- |
-| **GitHub Sponsors** | `https://github.com/sponsors/thezupzup` | Placeholder handle — replace/confirm when Sponsors is enabled on the account. |
-| **Funding & supporter model** | this document on GitHub | The authoritative explanation of the model. |
-| **View source code** | the repository | Reading, building, starring, and contributing are always free. |
+```text
+--dart-define=LINTHRA_SUPPORT_LINKS=off
+```
 
-Links open through the shared `externalLinkLauncherProvider` — the same browser
-seam the About page and "Report a bug" flow use — so every launch is an explicit
-user tap, nothing opens on its own, and widget tests stay plugin-free.
+## GitHub Sponsor verification
 
-> **Placeholder URLs.** The donation handle above is a placeholder. The screen
-> and tests only assert each link is well-formed (`https`, non-empty host),
-> never that an account exists, so a maintainer can update
-> `SupportLinks` in
-> [`lib/features/support/support_actions_provider.dart`](../lib/features/support/support_actions_provider.dart)
-> in one place when the real accounts are live.
+The GitHub APK uses GitHub's OAuth device flow:
 
-## 4. Architecture — a small, extensible module
+1. Linthra requests a temporary device and user code.
+2. The user opens `https://github.com/login/device` and authorizes Linthra.
+3. Linthra receives an OAuth token without embedding a client secret.
+4. The token is stored with `flutter_secure_storage`.
+5. Linthra queries GitHub GraphQL for
+   `sponsorshipForViewerAsSponsor(activeOnly: true)` on `TheZupZup`.
+6. The palette unlocks only when the sponsorship exists,
+   `isOneTimePayment` is `false`, and the selected tier reports
+   `monthlyPriceInCents >= 300`.
 
-Everything lives under [`lib/features/support/`](../lib/features/support/):
+A one-time sponsorship or a recurring sponsorship below $3 USD per month does
+not unlock this benefit. After starting or upgrading a monthly sponsorship, the
+user can tap **Check again** without reconnecting.
 
-| File | Responsibility |
-| ---- | -------------- |
-| `support_action.dart` | `SupportAction` — one way to support, as plain data (id, title, description, icon, `kind`, optional `url`). `SupportActionKind` is a small closed set: `externalLink` or `comingSoon`. |
-| `support_actions_provider.dart` | The build seam: `SupportDistribution` (the channel), `supportActionsFor(distribution)` (a pure catalog), `SupportLinks` (the URLs in one place), `supportLinksEnabled` (the per-channel kill switch), and `supportActionsProvider` / `supportLinksEnabledProvider` (what the screen and About page read). |
-| `support_screen.dart` | `SupportScreen` — renders the copy and whatever actions the provider yields. It owns **no** donation or payment logic. |
+The application requests only the `read:user` OAuth scope. It never receives or
+stores the user's GitHub password.
 
-Two deliberate properties:
+## Required GitHub OAuth app setup
 
-1. **The screen never hard-codes platform-specific donation/payment behavior.**
-   It renders by the generic `SupportActionKind` only — an `externalLink` opens
-   through the shared launcher; a `comingSoon` row is shown disabled. Which
-   actions exist, and for which build, is decided by the provider, not the
-   screen.
+Create a GitHub OAuth app owned by the maintainer account:
 
-2. **The action set is chosen per build, behind one seam.**
-   `SupportDistribution.current` reads `--dart-define=LINTHRA_DISTRIBUTION=...`
-   and **defaults to `fdroid`** (mirroring how `AppInfo` reads its optional
-   `LINTHRA_VERSION_NAME` override). The default is the safe one: a plain
-   `flutter build` gets external links only.
+1. Open GitHub **Settings → Developer settings → OAuth Apps**.
+2. Register a new OAuth app named `Linthra`.
+3. Use the Linthra repository or project page as the homepage and callback URL.
+4. Enable **Device Flow**.
+5. Copy the public OAuth client ID.
+6. Add it as the repository Actions variable
+   `LINTHRA_GITHUB_OAUTH_CLIENT_ID`.
 
-3. **A per-channel kill switch can drop support entirely.**
-   `supportLinksEnabled` reads `--dart-define=LINTHRA_SUPPORT_LINKS=...` and
-   **defaults to enabled**. Build with `LINTHRA_SUPPORT_LINKS=off` (also
-   `false`, `0`, `no`, `disabled`) and the in-app entry point disappears (the
-   About page hides its "Support Linthra" card) and `supportActionsProvider`
-   yields an empty list, so the screen — if reached directly — degrades to a
-   purely informational "free & open source" page with no links. This is the
-   lever for a distribution channel whose policy forbids in-app donation links,
-   or a fork that wants none. Like the distribution flag it is **support-only**:
-   it never affects playback, caching, providers, Android Auto, Cast,
-   Backup/Restore, or any other app behavior.
+The client ID is public by design. Never add or compile an OAuth client secret
+into the APK; the device flow does not need one.
 
-The launcher path is also guarded: the screen only ever opens an `http`/`https`
-web link (`isLaunchableHttpUrl`). Every shipped link is an `https` constant, so
-this always passes today; the guard is defense in depth so a future mis-edited
-link with a non-web scheme (a `tel:`, `mailto:`, `file:`, or custom app intent)
-fails safe instead of being handed to the OS.
+The sponsorable login defaults to `TheZupZup`. A fork may override it with:
 
-## 5. F-Droid safety
+```text
+--dart-define=LINTHRA_GITHUB_SPONSOR_LOGIN=another-account
+```
 
-- The default `SupportDistribution` is `fdroid`, so an ordinary `flutter build`
-  — local, CI, and the F-Droid build server — compiles the **external-links-only**
-  set. No billing row is even listed.
-- **No dependency changes.** This feature adds no packages to `pubspec.yaml`; it
-  reuses the existing `url_launcher`-backed `externalLinkLauncher` seam. There is
-  no Google Play Billing dependency, no proprietary SDK, and no GMS anywhere in
-  the path.
-- **No permission, playback, cache, or provider changes.**
-- F-Droid builds **must remain free of any proprietary billing dependency.** The
-  Play supporter purchase (below) must therefore be added in a way that ships
-  **only** in the Play flavor — never as a shared/default dependency.
+## GitHub Release APK
 
-## 6. The future Play Store build (not in this PR)
+The release workflow keeps the existing APKs unchanged because their per-ABI
+files are reproducible-build references for F-Droid. When
+`LINTHRA_GITHUB_OAUTH_CLIENT_ID` is configured, it additionally builds:
 
-> **Store-policy note — external donation/payment links.** F-Droid and GitHub
-> builds may link out to donations freely. **A Play Store build may not.**
-> Google Play's payments policy can restrict apps from linking out to external
-> donations/payments unless the developer is a registered charity (and outright
-> requires Google Play Billing for in-app purchases of digital goods). So a Play
-> build may need to **change or remove** the external donation links — not just
-> add billing. Two levers already exist and need **no screen change**:
->
-> - `--dart-define=LINTHRA_DISTRIBUTION=play` — keep the links but adjust the set
->   per policy (e.g. swap GitHub Sponsors for a Play-Billing supporter action).
-> - `--dart-define=LINTHRA_SUPPORT_LINKS=off` — drop the external links and the
->   entry point entirely for a channel that forbids them.
->
-> Confirm the current Play policy before shipping a Play build; this is a policy
-> question, not a code one, and the levers above are how the code adapts to the
-> answer.
+```text
+linthra-<tag>-github-sponsor.apk
+```
 
-Play Store billing will be implemented **only in Play builds, later.** The
-structure is already in place:
+That separate universal APK is compiled with:
 
-- `SupportDistribution.play` exists, and `supportActionsFor` already appends a
-  single **disabled `comingSoon` placeholder** ("Become a supporter") for that
-  channel. The placeholder carries no `url` and no billing code, so even if it is
-  ever shown it does nothing.
-- That placeholder is the reserved seat for a Google Play Billing supporter
-  purchase.
+```text
+--dart-define=LINTHRA_DISTRIBUTION=github
+--dart-define=LINTHRA_GITHUB_OAUTH_CLIENT_ID=<public client id>
+```
 
-When the Play build is implemented in a separate, Play-only PR, the intended
-shape is:
+The existing canonical APK, AAB, and per-ABI APK names remain untouched.
 
-1. Add the billing dependency and the purchase code **behind the Play flavor
-   only** (e.g. a Play-only source set / conditional import / overridden
-   provider), so it never enters the F-Droid build or `pubspec.yaml`'s default
-   dependencies.
-2. Add a new `SupportActionKind` (e.g. `purchase`) or override
-   `supportActionsProvider` in the Play flavor to replace the `comingSoon`
-   placeholder with a real purchase action.
-3. Keep the supporter purchase **non-gating** — it must not unlock any feature.
+## Custom palette architecture
 
-Because the screen renders by `kind` and reads actions from the provider, adding
-the purchase action requires **no change to `SupportScreen`** and **no change to
-the F-Droid build.**
+The Appearance screen keeps the free icon-theme picker and adds a separate
+**Custom color palette** card.
 
-## 7. Tests
+The palette stores three non-secret preferences:
 
-- `test/features/support/support_action_test.dart` — the data model (URL
-  parsing, the `externalLink`-needs-a-`url` assertion) and the
-  `isLaunchableHttpUrl` launch guard (accepts http/https, rejects null, non-web
-  schemes, and host-less URLs).
-- `test/features/support/support_actions_provider_test.dart` — the distribution
-  parser, the `LINTHRA_SUPPORT_LINKS` kill-switch parser, and that F-Droid
-  offers links only while Play adds the disabled placeholder; every external
-  link is a well-formed `https` URL that passes the runtime launch guard.
-- `test/features/support/support_screen_test.dart` — the copy (including the
-  "donating does not unlock features" line), link taps (via a fake launcher),
-  the disabled placeholder, the snackbar fallback, refusal to open a non-web
-  link, and the links-disabled informational page (no actions card, no aside).
-- `test/features/settings/hub/about_screen_test.dart` — the About entry, that it
-  navigates to the support route, and that it hides when support links are
-  disabled (while the help/contact card stays).
+- whether the custom palette is enabled;
+- the identity color;
+- the playback-accent color.
+
+`CustomThemeController` owns loading, editing, resetting, and persistence.
+`customBrandPalette` derives accessible foreground, bright, deep, and container
+tones from the two selected colors.
+
+`GitHubSponsorController` separately owns OAuth authorization, encrypted token
+storage, sponsorship verification, refresh, and disconnect. The theme controller
+never sees the OAuth token.
+
+## Internal testing
+
+The separate **GitHub Sponsor Simulation APK** workflow automatically produces
+two clearly labelled debug artifacts:
+
+```text
+linthra-github-sponsor-simulated-locked-apk
+linthra-github-sponsor-simulated-unlocked-apk
+```
+
+They use the dedicated test-only define:
+
+```text
+--dart-define=LINTHRA_DISTRIBUTION=github \
+--dart-define=LINTHRA_GITHUB_SPONSOR_SIMULATION=locked
+```
+
+or:
+
+```text
+--dart-define=LINTHRA_DISTRIBUTION=github \
+--dart-define=LINTHRA_GITHUB_SPONSOR_SIMULATION=unlocked
+```
+
+These APKs do not contact GitHub Sponsors and need no OAuth client ID. The real
+GitHub Sponsor release workflow never passes this simulation define. F-Droid
+ignores it and continues to include the custom palette.
+
+## Future Play Billing integration
+
+Google Play Billing is not implemented here. A later Play-only integration must
+remain separate from F-Droid and affect the custom palette only.
+
+## Tests
+
+Relevant coverage lives in:
+
+- `test/data/services/http_github_sponsor_client_test.dart`
+- `test/features/support/github_sponsor_controller_test.dart`
+- `test/features/support/supporter_entitlement_test.dart`
+- `test/features/support/support_actions_provider_test.dart`
+- `test/features/support/support_screen_test.dart`
+- `test/features/appearance/appearance_settings_screen_test.dart`
+- `test/features/appearance/custom_theme_controller_test.dart`
+
+The central contract is enforced throughout: sponsorship may unlock one optional
+color palette in the direct APK, but never restricts Linthra's music features or
+its built-in icon themes.
