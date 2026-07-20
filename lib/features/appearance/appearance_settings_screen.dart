@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/colors.dart';
 import '../../app/dimens.dart';
 import '../../data/repositories/launcher_icon_service_provider.dart';
+import '../support/support_actions_provider.dart';
 import 'app_icon_controller.dart';
 import 'app_icon_variant.dart';
 import 'custom_theme_card.dart';
@@ -12,7 +13,8 @@ import 'linthra_logo_mark.dart';
 /// "App icon & branding" — reached from Settings → Appearance.
 ///
 /// Every built-in icon theme remains free. The separate custom-palette card is
-/// the optional supporter cosmetic and never affects music functionality.
+/// offered only by the dedicated GitHub Sponsor distribution and never affects
+/// music functionality.
 class AppearanceSettingsScreen extends ConsumerWidget {
   const AppearanceSettingsScreen({super.key});
 
@@ -21,6 +23,9 @@ class AppearanceSettingsScreen extends ConsumerWidget {
     final List<AppIconVariant> variants =
         ref.watch(availableAppIconVariantsProvider);
     final AppIconVariant selected = ref.watch(appIconControllerProvider);
+    final SupportDistribution distribution =
+        ref.watch(supportDistributionProvider);
+    final bool showCustomPalette = distribution.offersCustomPalette;
     // Only Android can switch the real launcher icon; elsewhere the picker
     // changes the in-app mark only, so we skip the home-screen hint there.
     final bool launcherSwitchSupported =
@@ -30,7 +35,7 @@ class AppearanceSettingsScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
         children: <Widget>[
-          const _IntroCard(),
+          _IntroCard(showCustomPalette: showCustomPalette),
           const SizedBox(height: AppSpacing.md),
           _VariantGrid(
             variants: variants,
@@ -43,8 +48,10 @@ class AppearanceSettingsScreen extends ConsumerWidget {
               announceLauncherChange: launcherSwitchSupported,
             ),
           ),
-          const SizedBox(height: AppSpacing.lg),
-          const CustomThemeCard(),
+          if (showCustomPalette) ...<Widget>[
+            const SizedBox(height: AppSpacing.lg),
+            const CustomThemeCard(),
+          ],
           const SizedBox(height: AppSpacing.lg),
           const _SuggestionsNote(),
         ],
@@ -96,9 +103,11 @@ class _SuggestionsNote extends StatelessWidget {
   }
 }
 
-/// Explains the free built-in themes and the separate custom palette.
+/// Explains the free built-in themes and, where available, the supporter palette.
 class _IntroCard extends StatelessWidget {
-  const _IntroCard();
+  const _IntroCard({required this.showCustomPalette});
+
+  final bool showCustomPalette;
 
   @override
   Widget build(BuildContext context) {
@@ -126,11 +135,15 @@ class _IntroCard extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Choose how the Linthra mark looks across the app and, on '
-              'Android, on your home screen. Classic, Neon, Gold, and Black & '
-              'White are free for everyone. The optional custom palette below '
-              'changes colors only — never how Linthra plays, syncs, or stores '
-              'your music.',
+              showCustomPalette
+                  ? 'Choose how the Linthra mark looks across the app and, on '
+                      'Android, on your home screen. Classic, Neon, Gold, and '
+                      'Black & White are free for everyone. The optional custom '
+                      'palette below changes colors only — never how Linthra '
+                      'plays, syncs, or stores your music.'
+                  : 'Choose how the Linthra mark looks across the app and, on '
+                      'Android, on your home screen. Classic, Neon, Gold, and '
+                      'Black & White are free for everyone.',
               style: theme.textTheme.bodyMedium?.copyWith(color: muted),
             ),
           ],
@@ -218,52 +231,53 @@ class _VariantTile extends StatelessWidget {
                         ),
                       ),
                       child: LinthraLogoMark(
-                        size: 44,
                         gradient: variant.gradient,
                         bars: variant.bars,
+                        size: 54,
                       ),
                     ),
                   ),
                   if (selected)
-                    const Positioned(
-                      top: -6,
-                      right: -6,
-                      child: _SelectedBadge(),
+                    Positioned(
+                      right: -4,
+                      top: -4,
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: theme.colorScheme.primary,
+                          border: Border.all(
+                            color: theme.colorScheme.surface,
+                            width: 2,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.check,
+                          size: 14,
+                          color: theme.colorScheme.onPrimary,
+                        ),
+                      ),
                     ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.sm),
+              const SizedBox(height: AppSpacing.xs),
               Text(
                 variant.label,
                 textAlign: TextAlign.center,
                 maxLines: 2,
-                style: theme.textTheme.bodySmall?.copyWith(
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelMedium?.copyWith(
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface,
                 ),
               ),
             ],
           ),
         ),
       ),
-    );
-  }
-}
-
-/// The check badge pinned to the corner of the selected tile.
-class _SelectedBadge extends StatelessWidget {
-  const _SelectedBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primary,
-        shape: BoxShape.circle,
-        border: Border.all(color: theme.colorScheme.surface, width: 2),
-      ),
-      child: Icon(Icons.check, size: 14, color: theme.colorScheme.onPrimary),
     );
   }
 }
