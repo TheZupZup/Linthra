@@ -181,7 +181,7 @@ void main() {
       expect(find.text('Daft Punk • 2 songs'), findsOneWidget);
     });
 
-    testWidgets('long-pressing an album adds all of its songs to a playlist',
+    testWidgets('long-pressing an album opens its bulk playlist sheet',
         (tester) async {
       await _pump(tester);
       await tester.tap(find.text('Albums'));
@@ -207,7 +207,7 @@ void main() {
       expect(find.text('1 album • 2 songs'), findsOneWidget);
     });
 
-    testWidgets('long-pressing an artist adds all of their songs to a playlist',
+    testWidgets('long-pressing an artist opens their bulk playlist sheet',
         (tester) async {
       await _pump(tester);
       await tester.tap(find.text('Artists'));
