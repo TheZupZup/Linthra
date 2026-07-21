@@ -152,9 +152,8 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
         IconButton(
           icon: const Icon(Icons.playlist_add),
           tooltip: 'Add to playlist',
-          onPressed: selected.isEmpty
-              ? null
-              : () => _addSelectedToPlaylist(selected),
+          onPressed:
+              selected.isEmpty ? null : () => _addSelectedToPlaylist(selected),
         ),
       ],
     );
