@@ -90,7 +90,6 @@ void main() {
       await _pump(tester);
       await _enter(tester, 'adele');
 
-      // Only Gamma is by Adele.
       expect(find.text('Gamma'), findsOneWidget);
       expect(find.text('Alpha'), findsNothing);
     });
@@ -99,7 +98,6 @@ void main() {
       await _pump(tester);
       await _enter(tester, 'discovery');
 
-      // Alpha and Beta are both on Discovery; Gamma (album "25") is hidden.
       expect(find.text('Alpha'), findsOneWidget);
       expect(find.text('Beta'), findsOneWidget);
       expect(find.text('Gamma'), findsNothing);
@@ -139,7 +137,6 @@ void main() {
 
       await _enter(tester, 'gamma');
 
-      // Filtering the list started nothing and changed nothing about playback.
       expect(controller.playedTracks, isEmpty);
       expect(controller.playCount, 0);
       expect(controller.state.currentTrack?.id, '1');
@@ -153,7 +150,6 @@ void main() {
 
       expect(find.textContaining('api_key'), findsNothing);
       expect(find.textContaining('AccessToken'), findsNothing);
-      // The row shows friendly metadata, not the opaque uri.
       expect(find.text('Daft Punk • Discovery'), findsOneWidget);
     });
   });
@@ -177,7 +173,6 @@ void main() {
       expect(find.byType(AlbumTile), findsNWidgets(2));
       expect(find.text('Discovery'), findsOneWidget);
       expect(find.text('25'), findsOneWidget);
-      // Album row subtitle: artist + track count.
       expect(find.text('Daft Punk • 2 songs'), findsOneWidget);
     });
 
@@ -203,7 +198,6 @@ void main() {
       expect(find.byType(ArtistTile), findsNWidgets(2));
       expect(find.text('Daft Punk'), findsOneWidget);
       expect(find.text('Adele'), findsOneWidget);
-      // Artist row subtitle: album + track count.
       expect(find.text('1 album • 2 songs'), findsOneWidget);
     });
 
@@ -225,13 +219,11 @@ void main() {
       await _enter(tester, 'alpha');
       expect(find.text('Beta'), findsNothing);
 
-      // Move to Albums (clears the query), then back to Songs.
       await tester.tap(find.text('Albums'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Songs'));
       await tester.pumpAndSettle();
 
-      // The full song list is back — the query did not survive the switch.
       expect(find.text('Alpha'), findsOneWidget);
       expect(find.text('Beta'), findsOneWidget);
       expect(find.text('Gamma'), findsOneWidget);
