@@ -34,8 +34,7 @@ class ArtistDetailScreen extends ConsumerStatefulWidget {
   final String artistId;
 
   @override
-  ConsumerState<ArtistDetailScreen> createState() =>
-      _ArtistDetailScreenState();
+  ConsumerState<ArtistDetailScreen> createState() => _ArtistDetailScreenState();
 }
 
 class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
