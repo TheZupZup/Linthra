@@ -9,13 +9,10 @@ import '../../player/widgets/album_artwork.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../unified_library_providers.dart';
 
-/// One row in the Albums list: cover (or the shared placeholder), album title,
-/// and an artist • track-count subtitle. Long titles/artists ellipsize so a row
-/// never overflows on a narrow phone.
+/// One row in the Albums list: cover, title, artist, and track count.
 ///
-/// A tap opens the album detail. A long-press opens the shared bulk playlist
-/// sheet with every track from this album, preserving album order and the
-/// existing duplicate/source safeguards in the playlist flow.
+/// A tap opens the album. A long-press sends every album track through the
+/// shared bulk playlist flow, preserving ordering and existing safeguards.
 class AlbumTile extends ConsumerWidget {
   const AlbumTile({required this.album, this.onTap, super.key});
 
