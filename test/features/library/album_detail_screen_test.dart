@@ -133,7 +133,7 @@ void main() {
       expect(controller.state.upNext, isEmpty);
     });
 
-    testWidgets('adds every album track through the bulk playlist sheet',
+    testWidgets('adds every album track through the visible bulk action',
         (tester) async {
       await _pump(tester);
       await _openAlbum(tester, 'Discovery');
