@@ -145,6 +145,26 @@ void main() {
       expect(find.text('New playlist'), findsOneWidget);
     });
 
+    testWidgets('long-press selects multiple album tracks for a playlist',
+        (tester) async {
+      await _pump(tester);
+      await _openAlbum(tester, 'Discovery');
+
+      await tester.longPress(find.text('Alpha'));
+      await tester.pumpAndSettle();
+      expect(find.text('1 selected'), findsOneWidget);
+
+      await tester.tap(find.text('Beta'));
+      await tester.pumpAndSettle();
+      expect(find.text('2 selected'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Add to playlist'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add 2 songs to playlist'), findsOneWidget);
+      expect(find.text('New playlist'), findsOneWidget);
+    });
+
     testWidgets('an album with missing metadata shows Unknown Album',
         (tester) async {
       await _pump(
