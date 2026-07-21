@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/data/repositories/playlist_repository_provider.dart';
 import 'package:linthra/features/library/library_screen.dart';
 import 'package:linthra/features/library/widgets/album_tile.dart';
 import 'package:linthra/features/library/widgets/artist_tile.dart';
@@ -49,6 +51,7 @@ Future<void> _pump(
         musicLibraryRepositoryProvider.overrideWithValue(
           FakeMusicLibraryRepository(tracks: tracks ?? _sampleTracks()),
         ),
+        playlistStoreProvider.overrideWithValue(InMemoryPlaylistStore()),
         if (playback != null)
           playbackControllerProvider.overrideWithValue(playback),
       ],
@@ -178,6 +181,19 @@ void main() {
       expect(find.text('Daft Punk • 2 songs'), findsOneWidget);
     });
 
+    testWidgets('long-pressing an album adds all of its songs to a playlist',
+        (tester) async {
+      await _pump(tester);
+      await tester.tap(find.text('Albums'));
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Discovery'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add 2 songs to playlist'), findsOneWidget);
+      expect(find.text('New playlist'), findsOneWidget);
+    });
+
     testWidgets('the Artists tab renders grouped artists with name/count',
         (tester) async {
       await _pump(tester);
@@ -189,6 +205,19 @@ void main() {
       expect(find.text('Adele'), findsOneWidget);
       // Artist row subtitle: album + track count.
       expect(find.text('1 album • 2 songs'), findsOneWidget);
+    });
+
+    testWidgets('long-pressing an artist adds all of their songs to a playlist',
+        (tester) async {
+      await _pump(tester);
+      await tester.tap(find.text('Artists'));
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Daft Punk'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add 2 songs to playlist'), findsOneWidget);
+      expect(find.text('New playlist'), findsOneWidget);
     });
 
     testWidgets('switching tabs clears the active search', (tester) async {
