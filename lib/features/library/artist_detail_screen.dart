@@ -25,7 +25,8 @@ import 'widgets/track_tile.dart';
 /// Reads the same derived grouping the Artists tab uses. Playing from here
 /// queues only this artist's tracks; tapping a single track queues the artist's
 /// tracks from that point. Reuses [TrackTile] and [AlbumTile] so rows match the
-/// rest of the library.
+/// rest of the library. Long-pressing one of the album rows opens the shared
+/// bulk playlist flow for that album.
 class ArtistDetailScreen extends ConsumerWidget {
   const ArtistDetailScreen({required this.artistId, super.key});
 
