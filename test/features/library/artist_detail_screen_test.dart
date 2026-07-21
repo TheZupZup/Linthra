@@ -139,6 +139,19 @@ void main() {
       expect(find.text('Beta'), findsNothing);
     });
 
+    testWidgets('long-pressing an artist album adds only that album songs',
+        (tester) async {
+      await _pump(tester);
+      await _openArtist(tester, 'Daft Punk');
+
+      await tester.longPress(find.text('Discovery'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add to playlist'), findsOneWidget);
+      expect(find.text('Add 2 songs to playlist'), findsNothing);
+      expect(find.text('New playlist'), findsOneWidget);
+    });
+
     testWidgets('adds every artist track through the bulk playlist sheet',
         (tester) async {
       await _pump(tester);
