@@ -32,8 +32,7 @@ class AlbumDetailScreen extends ConsumerStatefulWidget {
   final String albumId;
 
   @override
-  ConsumerState<AlbumDetailScreen> createState() =>
-      _AlbumDetailScreenState();
+  ConsumerState<AlbumDetailScreen> createState() => _AlbumDetailScreenState();
 }
 
 class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
