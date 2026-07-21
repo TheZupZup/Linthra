@@ -4,7 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:linthra/app/routes.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/data/repositories/playlist_repository_provider.dart';
 import 'package:linthra/features/library/album_detail_screen.dart';
 import 'package:linthra/features/library/artist_detail_screen.dart';
 import 'package:linthra/features/library/library_screen.dart';
@@ -75,6 +77,7 @@ Future<FakePlaybackController> _pump(
       overrides: <Override>[
         musicLibraryRepositoryProvider
             .overrideWithValue(FakeMusicLibraryRepository(tracks: tracks)),
+        playlistStoreProvider.overrideWithValue(InMemoryPlaylistStore()),
         playbackControllerProvider.overrideWithValue(controller),
       ],
       child: MaterialApp.router(routerConfig: _router()),
@@ -134,6 +137,18 @@ void main() {
       expect(find.text('Play'), findsOneWidget);
       expect(find.text('Alpha'), findsOneWidget);
       expect(find.text('Beta'), findsNothing);
+    });
+
+    testWidgets('adds every artist track through the bulk playlist sheet',
+        (tester) async {
+      await _pump(tester);
+      await _openArtist(tester, 'Daft Punk');
+
+      await tester.tap(find.byTooltip('Add all songs to playlist'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add 2 songs to playlist'), findsOneWidget);
+      expect(find.text('New playlist'), findsOneWidget);
     });
 
     testWidgets('an artist with missing metadata shows Unknown Artist',
