@@ -10,6 +10,7 @@ import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
+import '../playlists/widgets/add_to_playlist_sheet.dart';
 import 'library_browse_providers.dart';
 import 'library_controller.dart';
 import 'library_state.dart';
@@ -66,6 +67,13 @@ class AlbumDetailScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(album.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: <Widget>[
+          IconButton(
+            icon: const Icon(Icons.playlist_add),
+            tooltip: 'Add all songs to playlist',
+            onPressed: () => showAddToPlaylistSheet(context, tracks),
+          ),
+        ],
       ),
       body: CustomScrollView(
         slivers: <Widget>[
