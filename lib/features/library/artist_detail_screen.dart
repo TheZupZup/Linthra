@@ -11,6 +11,7 @@ import '../../core/models/track.dart';
 import '../../shared/widgets/artwork_image.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../player/player_providers.dart';
+import '../playlists/widgets/add_to_playlist_sheet.dart';
 import 'library_browse_providers.dart';
 import 'library_controller.dart';
 import 'library_state.dart';
@@ -70,6 +71,13 @@ class ArtistDetailScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(artist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: <Widget>[
+          IconButton(
+            icon: const Icon(Icons.playlist_add),
+            tooltip: 'Add all songs to playlist',
+            onPressed: () => showAddToPlaylistSheet(context, tracks),
+          ),
+        ],
       ),
       body: CustomScrollView(
         slivers: <Widget>[
