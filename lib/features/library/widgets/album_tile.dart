@@ -1,20 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
+import '../../../core/catalog/library_grouping.dart';
 import '../../../core/models/album.dart';
+import '../../../core/models/track.dart';
 import '../../player/widgets/album_artwork.dart';
+import '../../playlists/widgets/add_to_playlist_sheet.dart';
+import '../unified_library_providers.dart';
 
-/// One row in the Albums list: cover (or the shared placeholder), album title,
-/// and an artist • track-count subtitle. Long titles/artists ellipsize so a row
-/// never overflows on a narrow phone.
-class AlbumTile extends StatelessWidget {
+/// One row in the Albums list: cover, title, artist, and track count.
+///
+/// A tap opens the album. A long-press sends every album track through the
+/// shared bulk playlist flow, preserving ordering and existing safeguards.
+class AlbumTile extends ConsumerWidget {
   const AlbumTile({required this.album, this.onTap, super.key});
 
   final Album album;
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
     return ListTile(
       leading: SizedBox.square(
@@ -42,7 +48,18 @@ class AlbumTile extends StatelessWidget {
       ),
       trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
+      onLongPress: () => _addAllToPlaylist(context, ref),
     );
+  }
+
+  void _addAllToPlaylist(BuildContext context, WidgetRef ref) {
+    final List<Track> tracks = tracksForAlbum(
+      ref.read(libraryUnifiedTracksProvider),
+      album.id,
+    );
+    if (tracks.isNotEmpty) {
+      showAddToPlaylistSheet(context, tracks);
+    }
   }
 
   static String _subtitle(Album album) {

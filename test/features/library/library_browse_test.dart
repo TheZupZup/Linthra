@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/data/repositories/playlist_repository_provider.dart';
 import 'package:linthra/features/library/library_screen.dart';
 import 'package:linthra/features/library/widgets/album_tile.dart';
 import 'package:linthra/features/library/widgets/artist_tile.dart';
@@ -49,6 +51,7 @@ Future<void> _pump(
         musicLibraryRepositoryProvider.overrideWithValue(
           FakeMusicLibraryRepository(tracks: tracks ?? _sampleTracks()),
         ),
+        playlistStoreProvider.overrideWithValue(InMemoryPlaylistStore()),
         if (playback != null)
           playbackControllerProvider.overrideWithValue(playback),
       ],
@@ -87,7 +90,6 @@ void main() {
       await _pump(tester);
       await _enter(tester, 'adele');
 
-      // Only Gamma is by Adele.
       expect(find.text('Gamma'), findsOneWidget);
       expect(find.text('Alpha'), findsNothing);
     });
@@ -96,7 +98,6 @@ void main() {
       await _pump(tester);
       await _enter(tester, 'discovery');
 
-      // Alpha and Beta are both on Discovery; Gamma (album "25") is hidden.
       expect(find.text('Alpha'), findsOneWidget);
       expect(find.text('Beta'), findsOneWidget);
       expect(find.text('Gamma'), findsNothing);
@@ -136,7 +137,6 @@ void main() {
 
       await _enter(tester, 'gamma');
 
-      // Filtering the list started nothing and changed nothing about playback.
       expect(controller.playedTracks, isEmpty);
       expect(controller.playCount, 0);
       expect(controller.state.currentTrack?.id, '1');
@@ -150,7 +150,6 @@ void main() {
 
       expect(find.textContaining('api_key'), findsNothing);
       expect(find.textContaining('AccessToken'), findsNothing);
-      // The row shows friendly metadata, not the opaque uri.
       expect(find.text('Daft Punk • Discovery'), findsOneWidget);
     });
   });
@@ -174,8 +173,20 @@ void main() {
       expect(find.byType(AlbumTile), findsNWidgets(2));
       expect(find.text('Discovery'), findsOneWidget);
       expect(find.text('25'), findsOneWidget);
-      // Album row subtitle: artist + track count.
       expect(find.text('Daft Punk • 2 songs'), findsOneWidget);
+    });
+
+    testWidgets('long-pressing an album opens its bulk playlist sheet',
+        (tester) async {
+      await _pump(tester);
+      await tester.tap(find.text('Albums'));
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Discovery'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add 2 songs to playlist'), findsOneWidget);
+      expect(find.text('New playlist'), findsOneWidget);
     });
 
     testWidgets('the Artists tab renders grouped artists with name/count',
@@ -187,8 +198,20 @@ void main() {
       expect(find.byType(ArtistTile), findsNWidgets(2));
       expect(find.text('Daft Punk'), findsOneWidget);
       expect(find.text('Adele'), findsOneWidget);
-      // Artist row subtitle: album + track count.
       expect(find.text('1 album • 2 songs'), findsOneWidget);
+    });
+
+    testWidgets('long-pressing an artist opens their bulk playlist sheet',
+        (tester) async {
+      await _pump(tester);
+      await tester.tap(find.text('Artists'));
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Daft Punk'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add 2 songs to playlist'), findsOneWidget);
+      expect(find.text('New playlist'), findsOneWidget);
     });
 
     testWidgets('switching tabs clears the active search', (tester) async {
@@ -196,13 +219,11 @@ void main() {
       await _enter(tester, 'alpha');
       expect(find.text('Beta'), findsNothing);
 
-      // Move to Albums (clears the query), then back to Songs.
       await tester.tap(find.text('Albums'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Songs'));
       await tester.pumpAndSettle();
 
-      // The full song list is back — the query did not survive the switch.
       expect(find.text('Alpha'), findsOneWidget);
       expect(find.text('Beta'), findsOneWidget);
       expect(find.text('Gamma'), findsOneWidget);

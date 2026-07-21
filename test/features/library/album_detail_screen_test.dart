@@ -4,7 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:linthra/app/routes.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/data/repositories/playlist_repository_provider.dart';
 import 'package:linthra/features/library/album_detail_screen.dart';
 import 'package:linthra/features/library/artist_detail_screen.dart';
 import 'package:linthra/features/library/library_screen.dart';
@@ -74,6 +76,7 @@ Future<FakePlaybackController> _pump(
       overrides: <Override>[
         musicLibraryRepositoryProvider
             .overrideWithValue(FakeMusicLibraryRepository(tracks: tracks)),
+        playlistStoreProvider.overrideWithValue(InMemoryPlaylistStore()),
         playbackControllerProvider.overrideWithValue(controller),
       ],
       child: MaterialApp.router(routerConfig: _router()),
@@ -128,6 +131,38 @@ void main() {
       // Started at Beta; nothing after it on this album.
       expect(controller.state.currentTrack?.id, '2');
       expect(controller.state.upNext, isEmpty);
+    });
+
+    testWidgets('adds every album track through the visible bulk action',
+        (tester) async {
+      await _pump(tester);
+      await _openAlbum(tester, 'Discovery');
+
+      await tester.tap(find.byTooltip('Add all songs to playlist'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add 2 songs to playlist'), findsOneWidget);
+      expect(find.text('New playlist'), findsOneWidget);
+    });
+
+    testWidgets('long-press selects multiple album tracks for a playlist',
+        (tester) async {
+      await _pump(tester);
+      await _openAlbum(tester, 'Discovery');
+
+      await tester.longPress(find.text('Alpha'));
+      await tester.pumpAndSettle();
+      expect(find.text('1 selected'), findsOneWidget);
+
+      await tester.tap(find.text('Beta'));
+      await tester.pumpAndSettle();
+      expect(find.text('2 selected'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Add to playlist'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add 2 songs to playlist'), findsOneWidget);
+      expect(find.text('New playlist'), findsOneWidget);
     });
 
     testWidgets('an album with missing metadata shows Unknown Album',

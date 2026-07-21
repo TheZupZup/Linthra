@@ -1,19 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/catalog/library_grouping.dart';
 import '../../../core/models/artist.dart';
+import '../../../core/models/track.dart';
 import '../../../shared/widgets/artwork_image.dart';
+import '../../playlists/widgets/add_to_playlist_sheet.dart';
+import '../unified_library_providers.dart';
 
-/// One row in the Artists list: a circular avatar (artwork or a placeholder
-/// glyph), the artist name, and an album/track-count subtitle. Long names
-/// ellipsize so a row never overflows on a narrow phone.
-class ArtistTile extends StatelessWidget {
+/// One row in the Artists list: avatar, name, album count, and track count.
+///
+/// A tap opens the artist. A long-press sends every artist track through the
+/// shared bulk playlist flow and its existing duplicate/source safeguards.
+class ArtistTile extends ConsumerWidget {
   const ArtistTile({required this.artist, this.onTap, super.key});
 
   final Artist artist;
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
     return ListTile(
       leading: _ArtistAvatar(artworkUri: artist.artworkUri),
@@ -35,7 +41,18 @@ class ArtistTile extends StatelessWidget {
       ),
       trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
+      onLongPress: () => _addAllToPlaylist(context, ref),
     );
+  }
+
+  void _addAllToPlaylist(BuildContext context, WidgetRef ref) {
+    final List<Track> tracks = tracksForArtist(
+      ref.read(libraryUnifiedTracksProvider),
+      artist.id,
+    );
+    if (tracks.isNotEmpty) {
+      showAddToPlaylistSheet(context, tracks);
+    }
   }
 
   static String _subtitle(Artist artist) {
@@ -48,8 +65,7 @@ class ArtistTile extends StatelessWidget {
   }
 }
 
-/// A circular artist avatar: the artwork when present, otherwise a calm tinted
-/// circle with a person glyph (the "optional avatar placeholder").
+/// A circular artist avatar: artwork when present, otherwise a tinted glyph.
 class _ArtistAvatar extends StatelessWidget {
   const _ArtistAvatar({required this.artworkUri});
 
