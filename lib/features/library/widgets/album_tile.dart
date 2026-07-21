@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/dimens.dart';
 import '../../../core/catalog/library_grouping.dart';
 import '../../../core/models/album.dart';
+import '../../../core/models/track.dart';
 import '../../player/widgets/album_artwork.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../unified_library_providers.dart';
@@ -55,7 +56,7 @@ class AlbumTile extends ConsumerWidget {
   }
 
   void _addAllToPlaylist(BuildContext context, WidgetRef ref) {
-    final tracks = tracksForAlbum(
+    final List<Track> tracks = tracksForAlbum(
       ref.read(libraryUnifiedTracksProvider),
       album.id,
     );
