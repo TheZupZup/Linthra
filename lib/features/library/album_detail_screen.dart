@@ -22,7 +22,8 @@ import 'widgets/track_tile.dart';
 /// Reads the same derived grouping the Albums tab uses, so it stays in sync
 /// with the catalog: tapping a track plays it and queues the rest of *this
 /// album*, never the whole library. Reuses [TrackTile], so per-track actions
-/// and download state look identical to the main library.
+/// and download state look identical to the main library. The app-bar playlist
+/// action sends every album track through the shared bulk playlist flow.
 class AlbumDetailScreen extends ConsumerWidget {
   const AlbumDetailScreen({required this.albumId, super.key});
 
