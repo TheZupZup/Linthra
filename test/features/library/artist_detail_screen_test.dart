@@ -96,22 +96,24 @@ Future<void> _openArtist(WidgetTester tester, String name) async {
 
 void main() {
   group('ArtistDetailScreen', () {
-    testWidgets('tapping an artist opens detail listing albums and tracks',
-        (tester) async {
-      await _pump(tester);
-      await _openArtist(tester, 'Daft Punk');
+    testWidgets(
+      'tapping an artist opens detail listing albums and tracks',
+      (tester) async {
+        await _pump(tester);
+        await _openArtist(tester, 'Daft Punk');
 
-      expect(find.text('Play all'), findsOneWidget);
-      expect(find.text('Shuffle all'), findsOneWidget);
-      // Albums section (the artist has two albums) and songs section.
-      expect(find.text('Albums'), findsOneWidget);
-      expect(find.text('Songs'), findsOneWidget);
-      expect(find.byType(AlbumTile), findsNWidgets(2));
-      // This artist's tracks, not the other artist's.
-      expect(find.text('Alpha'), findsOneWidget);
-      expect(find.text('Beta'), findsOneWidget);
-      expect(find.text('Gamma'), findsNothing);
-    });
+        expect(find.text('Play all'), findsOneWidget);
+        expect(find.text('Shuffle all'), findsOneWidget);
+        // Albums section (the artist has two albums) and songs section.
+        expect(find.text('Albums'), findsOneWidget);
+        expect(find.text('Songs'), findsOneWidget);
+        expect(find.byType(AlbumTile), findsNWidgets(2));
+        // This artist's tracks, not the other artist's.
+        expect(find.text('Alpha'), findsOneWidget);
+        expect(find.text('Beta'), findsOneWidget);
+        expect(find.text('Gamma'), findsNothing);
+      },
+    );
 
     testWidgets('Play all queues the artist tracks', (tester) async {
       final FakePlaybackController controller = await _pump(tester);
@@ -125,44 +127,50 @@ void main() {
       expect(controller.state.upNext.map((Track t) => t.id), <String>['2']);
     });
 
-    testWidgets('tapping an album in the artist detail opens that album',
-        (tester) async {
-      await _pump(tester);
-      await _openArtist(tester, 'Daft Punk');
+    testWidgets(
+      'tapping an album in the artist detail opens that album',
+      (tester) async {
+        await _pump(tester);
+        await _openArtist(tester, 'Daft Punk');
 
-      await tester.tap(find.text('Discovery'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Discovery'));
+        await tester.pumpAndSettle();
 
-      // Now on the album detail: its Play action and only its track.
-      expect(find.text('Play'), findsOneWidget);
-      expect(find.text('Alpha'), findsOneWidget);
-      expect(find.text('Beta'), findsNothing);
-    });
+        // Now on the album detail: its Play action and only its track.
+        expect(find.text('Play'), findsOneWidget);
+        expect(find.text('Alpha'), findsOneWidget);
+        expect(find.text('Beta'), findsNothing);
+      },
+    );
 
-    testWidgets('long-pressing an artist album adds only that album songs',
-        (tester) async {
-      await _pump(tester);
-      await _openArtist(tester, 'Daft Punk');
+    testWidgets(
+      'long-pressing an artist album adds only that album songs',
+      (tester) async {
+        await _pump(tester);
+        await _openArtist(tester, 'Daft Punk');
 
-      await tester.longPress(find.text('Discovery'));
-      await tester.pumpAndSettle();
+        await tester.longPress(find.text('Discovery'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Add to playlist'), findsOneWidget);
-      expect(find.text('Add 2 songs to playlist'), findsNothing);
-      expect(find.text('New playlist'), findsOneWidget);
-    });
+        expect(find.text('Add to playlist'), findsOneWidget);
+        expect(find.text('Add 2 songs to playlist'), findsNothing);
+        expect(find.text('New playlist'), findsOneWidget);
+      },
+    );
 
-    testWidgets('adds every artist track through the bulk playlist sheet',
-        (tester) async {
-      await _pump(tester);
-      await _openArtist(tester, 'Daft Punk');
+    testWidgets(
+      'adds every artist track through the bulk playlist sheet',
+      (tester) async {
+        await _pump(tester);
+        await _openArtist(tester, 'Daft Punk');
 
-      await tester.tap(find.byTooltip('Add all songs to playlist'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Add all songs to playlist'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Add 2 songs to playlist'), findsOneWidget);
-      expect(find.text('New playlist'), findsOneWidget);
-    });
+        expect(find.text('Add 2 songs to playlist'), findsOneWidget);
+        expect(find.text('New playlist'), findsOneWidget);
+      },
+    );
 
     testWidgets('an artist with missing metadata shows Unknown Artist',
         (tester) async {
