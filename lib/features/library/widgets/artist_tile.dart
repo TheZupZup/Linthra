@@ -8,13 +8,10 @@ import '../../../shared/widgets/artwork_image.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../unified_library_providers.dart';
 
-/// One row in the Artists list: a circular avatar (artwork or a placeholder
-/// glyph), the artist name, and an album/track-count subtitle. Long names
-/// ellipsize so a row never overflows on a narrow phone.
+/// One row in the Artists list: avatar, name, album count, and track count.
 ///
-/// A tap opens the artist detail. A long-press opens the shared bulk playlist
-/// sheet with every track from this artist, preserving the existing
-/// duplicate/source safeguards in the playlist flow.
+/// A tap opens the artist. A long-press sends every artist track through the
+/// shared bulk playlist flow and its existing duplicate/source safeguards.
 class ArtistTile extends ConsumerWidget {
   const ArtistTile({required this.artist, this.onTap, super.key});
 
@@ -68,8 +65,7 @@ class ArtistTile extends ConsumerWidget {
   }
 }
 
-/// A circular artist avatar: the artwork when present, otherwise a calm tinted
-/// circle with a person glyph (the "optional avatar placeholder").
+/// A circular artist avatar: artwork when present, otherwise a tinted glyph.
 class _ArtistAvatar extends StatelessWidget {
   const _ArtistAvatar({required this.artworkUri});
 
