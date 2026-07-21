@@ -26,14 +26,25 @@ import 'widgets/track_tile.dart';
 /// queues only this artist's tracks; tapping a single track queues the artist's
 /// tracks from that point. Reuses [TrackTile] and [AlbumTile] so rows match the
 /// rest of the library. Long-pressing one of the album rows opens the shared
-/// bulk playlist flow for that album.
-class ArtistDetailScreen extends ConsumerWidget {
+/// bulk playlist flow for that album. Long-pressing a track starts multi-select
+/// so any subset of the artist's songs can be added together.
+class ArtistDetailScreen extends ConsumerStatefulWidget {
   const ArtistDetailScreen({required this.artistId, super.key});
 
   final String artistId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ArtistDetailScreen> createState() =>
+      _ArtistDetailScreenState();
+}
+
+class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
+  final Set<String> _selectedUris = <String>{};
+
+  bool get _selecting => _selectedUris.isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
     final LibraryState state = ref.watch(libraryControllerProvider);
 
     if (state.status == LibraryStatus.loading) {
@@ -49,13 +60,13 @@ class ArtistDetailScreen extends ConsumerWidget {
     // filters over the catalog, not another full grouping of it.
     Artist? artist;
     for (final Artist candidate in ref.watch(libraryArtistsProvider)) {
-      if (candidate.id == artistId) {
+      if (candidate.id == widget.artistId) {
         artist = candidate;
         break;
       }
     }
     final List<Track> songs = ref.watch(libraryUnifiedTracksProvider);
-    final List<Track> tracks = tracksForArtist(songs, artistId);
+    final List<Track> tracks = tracksForArtist(songs, widget.artistId);
     if (artist == null || tracks.isEmpty) {
       return Scaffold(
         appBar: AppBar(),
@@ -67,64 +78,140 @@ class ArtistDetailScreen extends ConsumerWidget {
       );
     }
 
-    final List<Album> albums = albumsForArtist(songs, artistId);
+    final List<Album> albums = albumsForArtist(songs, widget.artistId);
+    final List<Track> selected = <Track>[
+      for (final Track track in tracks)
+        if (_selectedUris.contains(track.uri)) track,
+    ];
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(artist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-        actions: <Widget>[
-          IconButton(
-            icon: const Icon(Icons.playlist_add),
-            tooltip: 'Add all songs to playlist',
-            onPressed: () => showAddToPlaylistSheet(context, tracks),
-          ),
-        ],
-      ),
+    final Widget scaffold = Scaffold(
+      appBar: _selecting
+          ? _selectionAppBar(selected)
+          : AppBar(
+              title: Text(
+                artist.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              actions: <Widget>[
+                IconButton(
+                  icon: const Icon(Icons.playlist_add),
+                  tooltip: 'Add all songs to playlist',
+                  onPressed: () => showAddToPlaylistSheet(context, tracks),
+                ),
+              ],
+            ),
       body: CustomScrollView(
         slivers: <Widget>[
-          SliverToBoxAdapter(
-            child: _ArtistHeader(
-              artist: artist,
-              albumCount: albums.length,
-              trackCount: tracks.length,
-              onPlay: () => _play(context, ref, tracks),
-              onShuffle: () => _shuffle(context, ref, tracks),
+          if (!_selecting) ...<Widget>[
+            SliverToBoxAdapter(
+              child: _ArtistHeader(
+                artist: artist,
+                albumCount: albums.length,
+                trackCount: tracks.length,
+                onPlay: () => _play(context, tracks),
+                onShuffle: () => _shuffle(context, tracks),
+              ),
             ),
-          ),
-          if (albums.length > 1) ...<Widget>[
-            const SliverToBoxAdapter(child: _SectionHeader(label: 'Albums')),
-            SliverList.builder(
-              itemCount: albums.length,
-              itemBuilder: (context, index) {
-                final Album album = albums[index];
-                return AlbumTile(
-                  album: album,
-                  onTap: () => _openAlbum(context, album.id),
-                );
-              },
-            ),
+            if (albums.length > 1) ...<Widget>[
+              const SliverToBoxAdapter(child: _SectionHeader(label: 'Albums')),
+              SliverList.builder(
+                itemCount: albums.length,
+                itemBuilder: (context, index) {
+                  final Album album = albums[index];
+                  return AlbumTile(
+                    album: album,
+                    onTap: () => _openAlbum(context, album.id),
+                  );
+                },
+              ),
+            ],
+            const SliverToBoxAdapter(child: _SectionHeader(label: 'Songs')),
           ],
-          const SliverToBoxAdapter(child: _SectionHeader(label: 'Songs')),
           SliverList.builder(
             itemCount: tracks.length,
-            itemBuilder: (context, index) =>
-                TrackTile(tracks: tracks, index: index),
+            itemBuilder: (context, index) {
+              final Track track = tracks[index];
+              return TrackTile(
+                tracks: tracks,
+                index: index,
+                selectable: true,
+                selectionActive: _selecting,
+                selected: _selectedUris.contains(track.uri),
+                onSelectStart: () => _enterSelection(track),
+                onSelectToggle: () => _toggle(track),
+              );
+            },
           ),
         ],
       ),
     );
+
+    if (!_selecting) return scaffold;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, _) {
+        if (!didPop) _exitSelection();
+      },
+      child: scaffold,
+    );
+  }
+
+  PreferredSizeWidget _selectionAppBar(List<Track> selected) {
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: 'Cancel selection',
+        onPressed: _exitSelection,
+      ),
+      title: Text('${selected.length} selected'),
+      actions: <Widget>[
+        IconButton(
+          icon: const Icon(Icons.playlist_add),
+          tooltip: 'Add to playlist',
+          onPressed: selected.isEmpty
+              ? null
+              : () => _addSelectedToPlaylist(selected),
+        ),
+      ],
+    );
+  }
+
+  void _enterSelection(Track track) {
+    setState(() {
+      _selectedUris
+        ..clear()
+        ..add(track.uri);
+    });
+  }
+
+  void _toggle(Track track) {
+    setState(() {
+      if (!_selectedUris.add(track.uri)) {
+        _selectedUris.remove(track.uri);
+      }
+    });
+  }
+
+  void _exitSelection() {
+    setState(_selectedUris.clear);
+  }
+
+  Future<void> _addSelectedToPlaylist(List<Track> selected) async {
+    await showAddToPlaylistSheet(context, selected);
+    if (mounted) _exitSelection();
   }
 
   void _openAlbum(BuildContext context, String albumId) {
     context.push(AppRoutes.albumDetailPath(albumId));
   }
 
-  void _play(BuildContext context, WidgetRef ref, List<Track> tracks) {
+  void _play(BuildContext context, List<Track> tracks) {
     ref.read(playbackControllerProvider).playTracks(tracks);
     context.push(AppRoutes.player);
   }
 
-  void _shuffle(BuildContext context, WidgetRef ref, List<Track> tracks) {
+  void _shuffle(BuildContext context, List<Track> tracks) {
     final controller = ref.read(playbackControllerProvider);
     controller.setShuffleEnabled(true);
     controller.playTracks(tracks);
