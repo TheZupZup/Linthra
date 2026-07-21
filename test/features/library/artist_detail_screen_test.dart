@@ -104,11 +104,9 @@ void main() {
 
         expect(find.text('Play all'), findsOneWidget);
         expect(find.text('Shuffle all'), findsOneWidget);
-        // Albums section (the artist has two albums) and songs section.
         expect(find.text('Albums'), findsOneWidget);
         expect(find.text('Songs'), findsOneWidget);
         expect(find.byType(AlbumTile), findsNWidgets(2));
-        // This artist's tracks, not the other artist's.
         expect(find.text('Alpha'), findsOneWidget);
         expect(find.text('Beta'), findsOneWidget);
         expect(find.text('Gamma'), findsNothing);
@@ -122,7 +120,6 @@ void main() {
       await tester.tap(find.text('Play all'));
       await tester.pumpAndSettle();
 
-      // Two tracks by Daft Punk; album order puts Discovery before Homework.
       expect(controller.state.currentTrack?.id, '1');
       expect(controller.state.upNext.map((Track t) => t.id), <String>['2']);
     });
@@ -136,7 +133,6 @@ void main() {
         await tester.tap(find.text('Discovery'));
         await tester.pumpAndSettle();
 
-        // Now on the album detail: its Play action and only its track.
         expect(find.text('Play'), findsOneWidget);
         expect(find.text('Alpha'), findsOneWidget);
         expect(find.text('Beta'), findsNothing);
