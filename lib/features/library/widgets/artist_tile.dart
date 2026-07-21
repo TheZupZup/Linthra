@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/catalog/library_grouping.dart';
 import '../../../core/models/artist.dart';
+import '../../../core/models/track.dart';
 import '../../../shared/widgets/artwork_image.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../unified_library_providers.dart';
@@ -48,7 +49,7 @@ class ArtistTile extends ConsumerWidget {
   }
 
   void _addAllToPlaylist(BuildContext context, WidgetRef ref) {
-    final tracks = tracksForArtist(
+    final List<Track> tracks = tracksForArtist(
       ref.read(libraryUnifiedTracksProvider),
       artist.id,
     );
