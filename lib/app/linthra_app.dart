@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,6 +17,7 @@ import '../features/onboarding/onboarding_controller.dart';
 import '../features/player/player_providers.dart';
 import '../features/support/support_actions_provider.dart';
 import '../features/support/supporter_entitlement.dart';
+import 'application_lifecycle.dart';
 import 'brand_theme.dart';
 import 'router.dart';
 import 'theme.dart';
@@ -50,7 +53,11 @@ final notificationPermissionProvider = Provider<NotificationPermission>((ref) {
 /// exercised by Linthra's widget tests — see docs/linux-desktop.md's
 /// "Light/Dark/System theme" row for what is and isn't verified.
 class LinthraApp extends ConsumerStatefulWidget {
-  const LinthraApp({super.key});
+  const LinthraApp({super.key, this.lifecycle});
+
+  /// Root lifecycle handle installed by `main`. When the embedder delivers
+  /// [AppLifecycleState.detached], this runs [ApplicationHandle.shutdown].
+  final ApplicationHandle? lifecycle;
 
   @override
   ConsumerState<LinthraApp> createState() => _LinthraAppState();
@@ -111,6 +118,9 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
         controller.onAppResumed();
       }
       ref.read(remoteLibraryRefresherProvider).refresh();
+    }
+    if (state == AppLifecycleState.detached) {
+      unawaited(widget.lifecycle?.shutdown());
     }
   }
 

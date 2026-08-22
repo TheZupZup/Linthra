@@ -108,6 +108,12 @@ dependencies:
   # explicit user tap. See docs/dependency-license-audit.md §"Reporting a bug".
   url_launcher: ^6.3.0
 
+dependency_overrides:
+  # Patched locally so headless Linux smoke tests can set libmpv `ao=alsa`
+  # via [JustAudioMediaKit.mpvProperties] without forking production playback.
+  just_audio_media_kit:
+    path: third_party/just_audio_media_kit
+
 dev_dependencies:
   flutter_lints: ^5.0.0
   flutter_test:

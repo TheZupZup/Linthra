@@ -299,6 +299,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// Coalesces concurrent lifecycle resumes so repeated suspend/wake cycles
   /// never stack overlapping reloads or re-subscribe anything.
   bool _suspendRecoveryInFlight = false;
+  bool _disposed = false;
 
   // Guards against overlapping playback transitions. Every action that changes
   // what's playing — skip to next/previous, jump within the queue or history,
@@ -1631,6 +1632,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   @override
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
     _resetPositionFlush();
     _cancelBufferingWatchdog();
     _cancelPendingFocusPause();

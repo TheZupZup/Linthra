@@ -64,6 +64,7 @@ class ActivePlaybackController implements PlaybackController {
   DateTime? _castAnchoredAt;
   Timer? _ticker;
   bool _castWasCompleted = false;
+  bool _disposed = false;
 
   late PlaybackState _lastEmitted;
 
@@ -284,6 +285,8 @@ class ActivePlaybackController implements PlaybackController {
 
   @override
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
     _ticker?.cancel();
     _ticker = null;
     await _localSub.cancel();

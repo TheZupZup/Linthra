@@ -139,6 +139,8 @@ jobs:
       #                                              plaintext credentials.
       #   libmpv-dev                                — media_kit audio backend;
       #                                              also supplies runtime libmpv
+      #   libasound2-plugins                        — ALSA null PCM for headless
+      #                                              native audio lifecycle smoke
       - name: Install Linux build dependencies
         run: |
           set -euo pipefail
@@ -153,6 +155,7 @@ jobs:
             libstdc++-12-dev \
             libsecret-1-dev \
             libmpv-dev \
+            libasound2-plugins \
             xauth \
             xvfb
 
@@ -192,17 +195,28 @@ jobs:
 
       # A normal Flutter widget test cannot load the Linux plugin bundle, so
       # this target runs in the real GTK runner and opens a silent local WAV
-      # through libmpv without starting playback. Two create/load/dispose cycles
-      # cover reinitialization.
+      # through libmpv without requiring audible output. Three load/play/stop/
+      # dispose cycles cover reinitialization.
       - name: Build native audio lifecycle smoke
         run: >-
           flutter build linux --release
           --target=tool/linux_audio_backend_smoke.dart
 
+      # libmpv autoselects PipeWire on ubuntu-latest, which has no audio device.
+      # The smoke target sets `ao=alsa`; route ALSA's default PCM to the null
+      # plugin for this step only — production builds keep the host's normal audio.
       - name: Run native audio lifecycle smoke
-        run: >-
-          xvfb-run --auto-servernum
-          build/linux/x64/release/bundle/linthra
+        run: |
+          set -euo pipefail
+          alsa_null_conf="$(mktemp)"
+          trap 'rm -f "$alsa_null_conf"' EXIT
+          printf '%s\n' \
+            'pcm.!default { type plug; slave.pcm "null" }' \
+            'pcm.null { type null }' \
+            'ctl.!default { type null }' \
+            > "$alsa_null_conf"
+          ALSA_CONFIG_PATH="$alsa_null_conf" xvfb-run --auto-servernum \
+            build/linux/x64/release/bundle/linthra
 
       # Release mode, because that is the build that has to work for packaging
       # and it exercises the AOT path a debug build skips.

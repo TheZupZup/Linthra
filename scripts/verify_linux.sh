@@ -106,10 +106,18 @@ missing_native_deps() {
 # developer's machine already has a real display CI doesn't.
 run_audio_smoke() {
   local binary="$REPO_ROOT/build/linux/x64/release/bundle/linthra"
+  local alsa_null_conf
+  alsa_null_conf="$(mktemp)"
+  trap 'rm -f "$alsa_null_conf"' RETURN
+  printf '%s\n' \
+    'pcm.!default { type plug; slave.pcm "null" }' \
+    'pcm.null { type null }' \
+    'ctl.!default { type null }' \
+    > "$alsa_null_conf"
   if command -v xvfb-run >/dev/null 2>&1; then
-    xvfb-run --auto-servernum "$binary"
+    ALSA_CONFIG_PATH="$alsa_null_conf" xvfb-run --auto-servernum "$binary"
   else
-    "$binary"
+    ALSA_CONFIG_PATH="$alsa_null_conf" "$binary"
   fi
 }
 
@@ -151,7 +159,7 @@ main() {
   if [ "${#missing[@]}" -eq 0 ]; then
     # A normal Flutter widget test cannot load the Linux plugin bundle, so
     # this target runs in the real GTK runner and opens a silent local WAV
-    # through libmpv without starting playback — the same smoke CI runs.
+    # through libmpv in three play → stop → dispose cycles — the same smoke CI runs.
     run_step "Build native audio lifecycle smoke" \
       "$FLUTTER" build linux --release \
       --target=tool/linux_audio_backend_smoke.dart
