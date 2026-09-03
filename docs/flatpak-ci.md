@@ -75,7 +75,10 @@ bash ../scripts/flatpak_launch_smoke.sh repo-ci
 ```
 
 The launch command requires `xvfb-run`, `xwininfo` and `dbus-run-session`, the
-same tools installed by the CI job.
+same tools installed by the CI job. It intentionally refuses to run if Linthra
+is already installed for the current user or system-wide, so a local smoke can
+never launch or remove a contributor's existing installation. Use a clean test
+user/environment for this final step when Linthra is already installed.
 
 The workflow does not replace the stricter offline-source smoke from #442 or the
 installed-Flatpak audio/library sandbox smokes tracked in #446 and #447. Its job
