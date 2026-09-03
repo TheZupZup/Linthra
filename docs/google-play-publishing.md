@@ -12,19 +12,28 @@ notice instead of breaking normal GitHub releases.
 
 ## What is already automated
 
-For a tag-triggered `Android Release Build` that completes successfully:
+For an `Android Release Build` that completes successfully for a release tag:
 
 1. GitHub checks whether Google Play publishing is configured.
 2. It looks for the `linthra-release-signed-aab` artifact from that exact run.
 3. Debug-signed prereleases are skipped automatically.
 4. The signed AAB is downloaded without rebuilding Linthra.
-5. The bundle is uploaded to the configured Google Play testing track with
+5. The bundle name is checked to confirm the build really was for a tag.
+6. The bundle is uploaded to the configured Google Play testing track with
    status `completed`.
 
-Manual `workflow_dispatch` release builds are never auto-published.
+Both release paths are covered: a directly pushed `v*` tag, and
+`/publish-stable`, which dispatches `Android Release Build` with a
+`release_tag` rather than pushing the tag itself. Ad-hoc manual
+`workflow_dispatch` builds are never auto-published. The two are told apart by
+the bundle name the build produces: a tag build writes
+`linthra-<tag>-release-signed.aab`, while a manual build writes
+`linthra-release-signed.aab`.
 
-The workflow explicitly rejects `production` as a track. Promotion to
-production stays a manual maintainer decision in Play Console.
+The workflow explicitly rejects `production` as a track, including as one entry
+of a multi-track value such as `internal,production`, since the upload action
+accepts a comma-separated list. Promotion to production stays a manual
+maintainer decision in Play Console.
 
 ## One-time Google Play setup
 
@@ -104,7 +113,7 @@ GOOGLE_PLAY_TRACK
 Set it to the closed testing track identifier from Play Console.
 
 Do **not** set it to `production`; the workflow fails deliberately if production
-is configured.
+is configured, including when it appears as one entry of a comma-separated list.
 
 ## Result
 
@@ -132,9 +141,9 @@ The publisher is intentionally conservative:
 
 - missing service-account secret → skip with a notice;
 - missing track variable → skip with a notice;
-- `production` track → fail;
+- `production` track, alone or inside a multi-track value → fail;
 - upstream Android release failed → publisher does not run;
-- manual Android release build → publisher does not run;
+- ad-hoc manual Android release build (no release tag) → skip with a notice;
 - no release-signed AAB (for example, a debug-signed prerelease) → skip with a
   notice;
 - multiple matching signed AAB artifacts → fail;

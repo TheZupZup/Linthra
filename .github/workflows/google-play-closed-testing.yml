@@ -8,10 +8,13 @@ name: Google Play Closed Testing
 # notice. See docs/google-play-publishing.md for the one-time setup.
 #
 # Safety rules:
-#   * only successful tag-triggered Android Release Build runs are considered;
+#   * only successful Android Release Build runs for a tagged release are
+#     considered, whether the tag was pushed directly or the stable-release
+#     workflow dispatched the build for it;
 #   * only the release-signed AAB artifact is accepted;
-#   * manual release builds are never auto-published;
-#   * the production track is explicitly rejected.
+#   * ad-hoc manual builds are never auto-published;
+#   * the production track is explicitly rejected, including as one entry of
+#     a multi-track value.
 
 on:
   workflow_run:
@@ -34,7 +37,8 @@ jobs:
     name: Publish signed AAB to Google Play testing
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push'
+      (github.event.workflow_run.event == 'push' ||
+      github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: ubuntu-latest
 
     steps:
@@ -52,9 +56,18 @@ jobs:
           if [ -z "$GOOGLE_PLAY_TRACK" ]; then
             echo "::notice::Google Play publishing is not connected yet: GOOGLE_PLAY_TRACK is missing."
             enabled=false
-          elif [ "$GOOGLE_PLAY_TRACK" = "production" ]; then
-            echo "::error::Automatic production publishing is intentionally disabled. Set GOOGLE_PLAY_TRACK to a testing track."
-            exit 1
+          else
+            # The upload action's `tracks` input is plural: a comma-separated
+            # list. Reject production as any entry, not just as the whole
+            # value, so "internal,production" cannot slip past the check.
+            IFS=',' read -ra requested_tracks <<< "$GOOGLE_PLAY_TRACK"
+            for requested in "${requested_tracks[@]}"; do
+              requested="$(printf '%s' "$requested" | tr -d '[:space:]')"
+              if [ "$requested" = "production" ]; then
+                echo "::error::Automatic production publishing is intentionally disabled. Set GOOGLE_PLAY_TRACK to a testing track."
+                exit 1
+              fi
+            done
           fi
 
           echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
@@ -116,12 +129,36 @@ jobs:
             exit 1
           fi
 
-          echo "path=${bundles[0]}" >> "$GITHUB_OUTPUT"
+          bundle="${bundles[0]}"
+          name="$(basename "$bundle")"
+
+          # Android Release Build names a tag build's asset
+          # `linthra-<tag>-release-signed.aab`, and an ad-hoc manual build's
+          # `linthra-release-signed.aab`. Both arrive here as the same artifact
+          # name, so the file name is what tells a real release apart from a
+          # maintainer's one-off signed build. Publishing only the tag form
+          # covers both release paths (a pushed `v*` tag, and the stable
+          # release workflow dispatching this build with `release_tag`) while
+          # still never auto-publishing a manual build.
+          case "$name" in
+            linthra-v*-release-signed.aab)
+              ;;
+            *)
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::'$name' is an ad-hoc manual build, not a tagged release. Google Play upload skipped."
+              echo "Google Play upload skipped because the source build was not a tagged release." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+              ;;
+          esac
+
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "path=$bundle" >> "$GITHUB_OUTPUT"
 
       - name: Upload to Google Play testing
         if: >-
           steps.config.outputs.enabled == 'true' &&
-          steps.artifact.outputs.available == 'true'
+          steps.artifact.outputs.available == 'true' &&
+          steps.bundle.outputs.publish == 'true'
         # v1.1.5 — pinned so a third-party action update cannot silently change
         # the release pipeline. Update the SHA deliberately with its guardrail test.
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
@@ -135,7 +172,8 @@ jobs:
       - name: Record publication summary
         if: >-
           steps.config.outputs.enabled == 'true' &&
-          steps.artifact.outputs.available == 'true'
+          steps.artifact.outputs.available == 'true' &&
+          steps.bundle.outputs.publish == 'true'
         shell: bash
         run: |
           {

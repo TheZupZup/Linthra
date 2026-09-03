@@ -23,12 +23,32 @@ void main() {
       expect(workflow, contains('linthra-release-signed-aab'));
     });
 
-    test('only considers successful tag-triggered upstream runs', () {
+    test('only considers successful upstream runs', () {
       expect(
         workflow,
         contains("github.event.workflow_run.conclusion == 'success'"),
       );
+    });
+
+    // The stable-release workflow starts the signed Android build with
+    // `gh workflow run`, so its upstream run reports `workflow_dispatch`.
+    // Accepting only `push` would skip every stable release.
+    test('accepts both pushed tags and dispatched release builds', () {
       expect(workflow, contains("github.event.workflow_run.event == 'push'"));
+      expect(
+        workflow,
+        contains("github.event.workflow_run.event == 'workflow_dispatch'"),
+      );
+    });
+
+    test('auto-publishes tagged releases only, never ad-hoc manual builds', () {
+      expect(workflow, contains('linthra-v*-release-signed.aab)'));
+      expect(workflow, contains('publish=false'));
+      expect(workflow, contains('publish=true'));
+      expect(
+        workflow,
+        contains("steps.bundle.outputs.publish == 'true'"),
+      );
     });
 
     test('keeps repository permissions read-only', () {
@@ -66,12 +86,26 @@ void main() {
 
   group('Google Play publisher safety', () {
     test('never accepts production as an automatic target', () {
-      expect(workflow, contains(r'[ "$GOOGLE_PLAY_TRACK" = "production" ]'));
+      expect(workflow, contains(r'[ "$requested" = "production" ]'));
       expect(
         workflow,
         contains('Automatic production publishing is intentionally disabled.'),
       );
       expect(documentation, contains('Do **not** set it to `production`'));
+    });
+
+    // The pinned action's `tracks` input is plural, so a value like
+    // "internal,production" must not slip past an exact-string comparison.
+    test('rejects production inside a multi-track value', () {
+      expect(workflow, contains("IFS=',' read -ra requested_tracks"));
+      expect(
+        workflow,
+        contains(r'for requested in "${requested_tracks[@]}"'),
+      );
+      expect(
+        workflow,
+        isNot(contains(r'[ "$GOOGLE_PLAY_TRACK" = "production" ]')),
+      );
     });
 
     test('requires the release-signed AAB artifact', () {
