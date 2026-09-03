@@ -10,10 +10,16 @@ void main() {
   });
 
   test('launch smoke installs only from the local CI repository', () {
-    expect(smoke, contains('REMOTE_NAME="linthra-ci-smoke"'));
+    expect(smoke, contains('REMOTE_NAME="linthra-ci-smoke-$$"'));
     expect(smoke, contains('--no-gpg-verify'));
     expect(smoke, contains('flatpak --user install -y'));
     expect(smoke, isNot(contains('https://')));
+  });
+
+  test('launch smoke preserves pre-existing Linthra installations', () {
+    expect(smoke, contains('flatpak --user info "$APP_ID"'));
+    expect(smoke, contains('flatpak --system info "$APP_ID"'));
+    expect(smoke, contains('$APP_ID is already installed'));
   });
 
   test('launch smoke starts the packaged app and waits for a real window', () {
