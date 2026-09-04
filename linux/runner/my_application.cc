@@ -47,6 +47,13 @@ static void my_application_activate(GApplication* application) {
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
+  // Set the icon on the concrete toplevel as well as keeping the application
+  // default below. The default is only a fallback; explicitly naming the icon
+  // here makes GTK materialize the window icon on X11 so _NET_WM_ICON is
+  // available to panels and task switchers, while Wayland continues to resolve
+  // the same icon from the application id.
+  gtk_window_set_icon_name(window, APPLICATION_ID);
+
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
   // desktop).
