@@ -85,7 +85,6 @@ Be upfront in the listing and/or release notes (keep consistent with the
   local files is not implemented yet.
 - For **Subsonic/Navidrome**, favourites, lyrics, cover art, and fuller playlist
   sync are still in progress.
-- No album/playlist **"download all"** yet.
 - Additional sources (WebDAV / NAS) are planned, behind the same interface.
 - Alpha overall — expect rough edges and changing behavior between versions.
 
