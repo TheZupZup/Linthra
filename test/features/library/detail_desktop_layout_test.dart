@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:linthra/app/routes.dart';
+import 'package:linthra/core/catalog/library_grouping.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
@@ -29,9 +30,9 @@ final List<Track> _tracks = <Track>[
     ),
 ];
 
-GoRouter _router() {
+GoRouter _router(String initialLocation) {
   return GoRouter(
-    initialLocation: AppRoutes.library,
+    initialLocation: initialLocation,
     routes: <RouteBase>[
       GoRoute(
         path: AppRoutes.library,
@@ -56,6 +57,7 @@ Future<void> _pumpLibrary(
   WidgetTester tester,
   Size size, {
   TextScaler textScaler = TextScaler.noScaling,
+  String initialLocation = AppRoutes.library,
 }) async {
   tester.view.devicePixelRatio = 1.0;
   tester.view.physicalSize = size;
@@ -75,23 +77,28 @@ Future<void> _pumpLibrary(
           data: MediaQuery.of(context).copyWith(textScaler: textScaler),
           child: child!,
         ),
-        routerConfig: _router(),
+        routerConfig: _router(initialLocation),
       ),
     ),
   );
   await tester.pumpAndSettle();
 }
 
+/// Opens the detail *screen*, which is what these tests are about — on its own
+/// route, the way Folders, search and a narrow window all reach it. A wide
+/// Library window opens the same screen as a pane beside the grid instead; that
+/// path has its own tests in `library_detail_pane_test.dart`.
 Future<void> _openAlbum(
   WidgetTester tester,
   Size size, {
   TextScaler textScaler = TextScaler.noScaling,
 }) async {
-  await _pumpLibrary(tester, size, textScaler: textScaler);
-  await tester.tap(find.text('Albums'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('Discovery').first);
-  await tester.pumpAndSettle();
+  await _pumpLibrary(
+    tester,
+    size,
+    textScaler: textScaler,
+    initialLocation: '/library/album/${albumIdForTrack(_tracks.first)}',
+  );
 }
 
 Future<void> _openArtist(
@@ -99,11 +106,12 @@ Future<void> _openArtist(
   Size size, {
   TextScaler textScaler = TextScaler.noScaling,
 }) async {
-  await _pumpLibrary(tester, size, textScaler: textScaler);
-  await tester.tap(find.text('Artists'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('Daft Punk').first);
-  await tester.pumpAndSettle();
+  await _pumpLibrary(
+    tester,
+    size,
+    textScaler: textScaler,
+    initialLocation: '/library/artist/${artistIdForTrack(_tracks.first)}',
+  );
 }
 
 Rect _headerRect(WidgetTester tester, String playLabel) =>

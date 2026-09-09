@@ -8,6 +8,7 @@ import '../../core/catalog/library_grouping.dart';
 import '../../core/models/album.dart';
 import '../../core/models/track.dart';
 import '../../shared/layout/adaptive_layout.dart';
+import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
@@ -35,11 +36,6 @@ class AlbumDetailScreen extends ConsumerStatefulWidget {
   @override
   ConsumerState<AlbumDetailScreen> createState() => _AlbumDetailScreenState();
 }
-
-/// Width of the album pane in the desktop two-pane layout: enough for a
-/// comfortable cover and both transport buttons, narrow enough to leave the
-/// track list the majority of the window.
-const double _detailPaneWidth = 320;
 
 class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
   final Set<String> _selectedUris = <String>{};
@@ -167,36 +163,23 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
   /// track list. Both read the same `tracks` list and the same selection set,
   /// so nothing here duplicates state — it is the single-column body, laid out.
   Widget _twoPaneBody(Album album, List<Track> tracks) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: maxPaneLayoutWidth),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            SizedBox(
-              width: _detailPaneWidth,
-              child: SingleChildScrollView(
-                child: _AlbumHeader(
-                  album: album,
-                  trackCount: tracks.length,
-                  stacked: true,
-                  onPlay: () => _play(context, tracks),
-                  onShuffle: () => _shuffle(context, tracks),
-                ),
-              ),
-            ),
-            const VerticalDivider(width: 1),
-            Expanded(
-              child: ListView.builder(
-                key: const Key('album_detail_tracks'),
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                itemCount: tracks.length,
-                itemBuilder: (BuildContext context, int index) =>
-                    _trackTile(tracks, index),
-              ),
-            ),
-          ],
+    return SplitPanes(
+      fixedWidth: sidePaneWidth,
+      fixed: SingleChildScrollView(
+        child: _AlbumHeader(
+          album: album,
+          trackCount: tracks.length,
+          stacked: true,
+          onPlay: () => _play(context, tracks),
+          onShuffle: () => _shuffle(context, tracks),
         ),
+      ),
+      flexible: ListView.builder(
+        key: const Key('album_detail_tracks'),
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+        itemCount: tracks.length,
+        itemBuilder: (BuildContext context, int index) =>
+            _trackTile(tracks, index),
       ),
     );
   }

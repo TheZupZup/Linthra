@@ -15,8 +15,11 @@ import '../../core/services/bulk_track_actions.dart';
 import '../../core/sources/local/folder_location.dart';
 import '../../data/repositories/library_tab_store_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
+import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
+import 'album_detail_screen.dart';
+import 'artist_detail_screen.dart';
 import 'folder_browser_providers.dart';
 import 'library_browse_providers.dart';
 import 'library_controller.dart';
@@ -60,6 +63,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   final Set<String> _selectedUris = <String>{};
   bool _selecting = false;
+
+  /// What the Albums / Artists detail pane is showing on a window wide enough
+  /// to have one. Held here rather than in the panes so it survives the pane
+  /// coming and going with the window width — and so a narrow window's pushed
+  /// route and a wide window's pane are the same screen, opened two ways.
+  String? _paneAlbumId;
+  String? _paneArtistId;
 
   late final TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
@@ -416,10 +426,30 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         message: 'You can still browse the connected server from Folders.',
       );
     }
-    return AlbumGrid(
-      albums: filtered,
-      onOpen: (Album album) =>
-          context.push(AppRoutes.albumDetailPath(album.id)),
+    return ListDetailPanes(
+      listBuilder: (BuildContext context, bool paneVisible) => AlbumGrid(
+        albums: filtered,
+        onOpen: (Album album) {
+          if (!paneVisible) {
+            context.push(AppRoutes.albumDetailPath(album.id));
+            return;
+          }
+          setState(() => _paneAlbumId = album.id);
+        },
+      ),
+      // A selection that is no longer in the filtered grid would leave the pane
+      // showing an album the list says isn't there, so the pane follows the
+      // search rather than outliving it.
+      detailBuilder: (BuildContext context) {
+        final String? id = _paneAlbumId;
+        if (id == null) return null;
+        if (!filtered.any((Album album) => album.id == id)) return null;
+        return AlbumDetailScreen(key: ValueKey<String>(id), albumId: id);
+      },
+      placeholderBuilder: (BuildContext context) => const DetailPanePlaceholder(
+        icon: Icons.album_outlined,
+        message: 'Pick an album to see its songs here.',
+      ),
     );
   }
 
@@ -435,10 +465,27 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         message: 'You can still browse the connected server from Folders.',
       );
     }
-    return ArtistGrid(
-      artists: filtered,
-      onOpen: (Artist artist) =>
-          context.push(AppRoutes.artistDetailPath(artist.id)),
+    return ListDetailPanes(
+      listBuilder: (BuildContext context, bool paneVisible) => ArtistGrid(
+        artists: filtered,
+        onOpen: (Artist artist) {
+          if (!paneVisible) {
+            context.push(AppRoutes.artistDetailPath(artist.id));
+            return;
+          }
+          setState(() => _paneArtistId = artist.id);
+        },
+      ),
+      detailBuilder: (BuildContext context) {
+        final String? id = _paneArtistId;
+        if (id == null) return null;
+        if (!filtered.any((Artist artist) => artist.id == id)) return null;
+        return ArtistDetailScreen(key: ValueKey<String>(id), artistId: id);
+      },
+      placeholderBuilder: (BuildContext context) => const DetailPanePlaceholder(
+        icon: Icons.person_outline,
+        message: 'Pick an artist to see their albums here.',
+      ),
     );
   }
 

@@ -9,6 +9,7 @@ import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
 import '../../shared/layout/adaptive_layout.dart';
+import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/artwork_image.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../player/player_providers.dart';
@@ -30,8 +31,6 @@ class ArtistDetailScreen extends ConsumerStatefulWidget {
   @override
   ConsumerState<ArtistDetailScreen> createState() => _ArtistDetailScreenState();
 }
-
-const double _detailPaneWidth = 320;
 
 class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
   final Set<String> _selectedUris = <String>{};
@@ -100,30 +99,19 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
           WindowSizeClass sizeClass,
         ) {
           if (!_selecting && sizeClass.isAtLeast(WindowSizeClass.expanded)) {
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: maxPaneLayoutWidth),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    SizedBox(
-                      width: _detailPaneWidth,
-                      child: SingleChildScrollView(
-                        child: _ArtistHeader(
-                          artist: resolved,
-                          albumCount: albums.length,
-                          trackCount: tracks.length,
-                          stacked: true,
-                          onPlay: () => _play(context, tracks),
-                          onShuffle: () => _shuffle(context, tracks),
-                        ),
-                      ),
-                    ),
-                    const VerticalDivider(width: 1),
-                    Expanded(child: _catalogList(albums, tracks)),
-                  ],
+            return SplitPanes(
+              fixedWidth: sidePaneWidth,
+              fixed: SingleChildScrollView(
+                child: _ArtistHeader(
+                  artist: resolved,
+                  albumCount: albums.length,
+                  trackCount: tracks.length,
+                  stacked: true,
+                  onPlay: () => _play(context, tracks),
+                  onShuffle: () => _shuffle(context, tracks),
                 ),
               ),
+              flexible: _catalogList(albums, tracks),
             );
           }
           return AdaptiveContentWidth(
