@@ -256,13 +256,21 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
     });
   }
 
+  /// Leaves the selection.
+  ///
+  /// The clear is not guarded by [mounted], only the rebuild is: a host-owned
+  /// selection outlives this screen on purpose (see [AlbumDetailScreen.selection]), so
+  /// an action that finishes after a resize took the pane away still has to end
+  /// the mode it belongs to. Otherwise widening the window brings back a
+  /// selection whose work is already done.
   void _exitSelection() {
-    setState(_selection.clear);
+    _selection.clear();
+    if (mounted) setState(() {});
   }
 
   Future<void> _addSelectedToPlaylist(List<Track> selected) async {
     await showAddToPlaylistSheet(context, selected);
-    if (mounted) _exitSelection();
+    _exitSelection();
   }
 
   void _play(BuildContext context, List<Track> tracks) {

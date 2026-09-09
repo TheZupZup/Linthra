@@ -244,6 +244,33 @@ void main() {
       expect(find.text('Song 1'), findsOneWidget);
     });
 
+    testWidgets('is ended by an action that finishes after the pane is gone',
+        (tester) async {
+      await _pumpLibrary(tester, _paneWindow);
+      await _openTab(tester, 'Albums');
+      await tester.tap(find.text('Discovery').first);
+      await tester.pumpAndSettle();
+
+      await ctrlClick(tester, 'Song 0');
+      expect(find.text('1 selected'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Add to playlist'));
+      await tester.pumpAndSettle();
+      expect(find.text('Add to playlist'), findsWidgets);
+
+      // The window narrows while the sheet is up: the detail screen goes, the
+      // sheet stays, and the selection it is acting on is the host's now.
+      await resizeTo(tester, _narrowWindow);
+      await tester.tapAt(const Offset(400, 20));
+      await tester.pumpAndSettle();
+
+      // Widening must not bring back a selection whose work is done.
+      await resizeTo(tester, _paneWindow);
+      expect(find.text('1 selected'), findsNothing);
+      expect(find.text('Song 0'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('artists keep their own, separate from the albums pane',
         (tester) async {
       await _pumpLibrary(tester, _paneWindow);

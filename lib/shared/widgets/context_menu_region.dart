@@ -98,6 +98,11 @@ class ContextMenuRegion<T> extends StatelessWidget {
       ),
       items: items,
     );
-    if (value != null) onSelected(value);
+    // The menu is a route and outlives the surface it came from: a resize that
+    // crosses a pane threshold takes this region away while the popup is still
+    // up. Whatever the action would reach for — the row's ref, an ancestor to
+    // hang a dialog on — is gone with it, so a pick that lands after that is
+    // dropped rather than dispatched into a dead tree.
+    if (value != null && context.mounted) onSelected(value);
   }
 }
