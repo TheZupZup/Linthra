@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sqlite3
 import statistics
 import time
@@ -26,7 +27,15 @@ class Query:
     name: str
     sql: str
     params: tuple[object, ...] = ()
+
+    #: The index the plan has to name, when the query is written for one.
     uses_index: str | None = None
+
+    #: Set instead of `uses_index` when any covering index will do. `COUNT(*)`
+    #: is the case: it has no semantic reason to prefer one covering index over
+    #: another, so the planner is free to switch to a newly added one — pinning
+    #: a name there would fail the run for a schema change that is healthy.
+    covering_index_only: bool = False
 
 
 QUERIES: tuple[Query, ...] = (
@@ -80,7 +89,7 @@ QUERIES: tuple[Query, ...] = (
         "track count",
         "SELECT COUNT(*) FROM tracks",
         (),
-        uses_index="idx_tracks_recent",
+        covering_index_only=True,
     ),
 )
 
@@ -99,6 +108,23 @@ INDEXED_ACCESS_MARKERS: tuple[str, ...] = (
     "USING ROWID SEARCH",
 )
 
+#: The index a plan row reaches rows through, e.g. "SEARCH tracks USING INDEX
+#: idx_tracks_album (normalized_album=?)". Names are captured whole: a plain
+#: substring test would let `idx_tracks_album_artist` satisfy an expectation of
+#: `idx_tracks_album`, which is a green run on the wrong index.
+INDEX_NAME_PATTERN = re.compile(r"USING (?:AUTOMATIC )?(?:COVERING )?INDEX (\w+)")
+
+#: The subset of the above that never touches the table at all.
+COVERING_INDEX_PATTERN = re.compile(r"USING (?:AUTOMATIC )?COVERING INDEX (\w+)")
+
+#: What a SCAN row is scanning. A table is a bare name (optionally followed by
+#: "AS alias"); a transient object is "(subquery-1)", "CONSTANT ROW", or a CTE's
+#: name.
+SCANNED_OBJECT_PATTERN = re.compile(r"^SCAN\s+(\S+)")
+
+#: The one table this sandbox has, and the only one the scan guard judges.
+TABLE = "tracks"
+
 
 @dataclass(frozen=True)
 class PlanRow:
@@ -111,24 +137,39 @@ class PlanRow:
         return f"{'  ' * self.depth}{self.detail}"
 
 
-def is_full_table_scan(detail: str) -> bool:
-    """Whether a plan row reads a whole table without an index.
+def is_full_table_scan(detail: str, table: str = TABLE) -> bool:
+    """Whether a plan row reads all of [table] without an index.
 
-    Deliberately narrow. It answers only the question #341 asks — "did this
-    quietly turn into a full table scan?" — and answers it per row, so a plan
-    whose *other* steps use an index cannot hide a scan inside it. A `SCAN`
-    that names an index (including a covering one) is a legitimate ordered or
-    covering read and is not flagged.
+    Deliberately narrow, in two directions. It is per row, so a plan whose
+    *other* steps use an index cannot hide a scan inside it. And it judges only
+    scans of [table]: SQLite emits `SCAN` rows for transient objects too —
+    `SCAN (subquery-1)`, `SCAN CONSTANT ROW`, `SCAN some_cte` — and flagging
+    those would reject a perfectly healthy plan that happens to materialize a
+    subquery, which is exactly what a contributor adding a CTE query would hit.
+
+    A `SCAN` of the table that names an index (including a covering one) is a
+    legitimate ordered or covering read and is not flagged.
     """
     stripped = detail.strip()
-    if not stripped.startswith("SCAN"):
+    match = SCANNED_OBJECT_PATTERN.match(stripped)
+    if match is None or match.group(1) != table:
         return False
     return not any(marker in stripped for marker in INDEXED_ACCESS_MARKERS)
 
 
+def plan_indexes(rows: Sequence[PlanRow]) -> set[str]:
+    """Every index named anywhere in [rows], as whole identifiers."""
+    return {name for row in rows for name in INDEX_NAME_PATTERN.findall(row.detail)}
+
+
 def plan_names_index(rows: Sequence[PlanRow], index: str) -> bool:
-    """Whether any plan row reaches rows through [index]."""
-    return any(index in row.detail for row in rows)
+    """Whether any plan row reaches rows through exactly [index]."""
+    return index in plan_indexes(rows)
+
+
+def plan_uses_covering_index(rows: Sequence[PlanRow]) -> bool:
+    """Whether any plan row reads through a covering index, whichever one."""
+    return any(COVERING_INDEX_PATTERN.search(row.detail) for row in rows)
 
 
 def query_plan(
@@ -247,6 +288,9 @@ def main() -> None:
             # a regression too, even when it found some other index to ride.
             if query.uses_index and not plan_names_index(plan, query.uses_index):
                 print(f"ERROR: {query.name} no longer uses {query.uses_index}")
+                failed = True
+            if query.covering_index_only and not plan_uses_covering_index(plan):
+                print(f"ERROR: {query.name} no longer reads through a covering index")
                 failed = True
             if average_ms > args.max_average_ms:
                 print(

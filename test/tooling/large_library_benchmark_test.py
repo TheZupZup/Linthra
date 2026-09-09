@@ -112,12 +112,24 @@ class SummaryLinesTest(unittest.TestCase):
 class FullTableScanTest(unittest.TestCase):
     """The check that decides whether a run passes (#341)."""
 
-    def scan(self, detail: str) -> bool:
-        return benchmark_sqlite.is_full_table_scan(detail)
+    def scan(self, detail: str, table: str = "tracks") -> bool:
+        return benchmark_sqlite.is_full_table_scan(detail, table)
 
     def test_a_bare_scan_is_the_regression_we_are_looking_for(self):
         self.assertTrue(self.scan("SCAN tracks"))
         self.assertTrue(self.scan("SCAN tracks AS t"))
+
+    def test_transient_scan_nodes_are_not_the_table(self):
+        # SQLite emits SCAN rows for materialized subqueries, CTEs and constant
+        # rows. None of them is a full table scan, and flagging them would
+        # reject a healthy plan from anyone adding a CTE query.
+        self.assertFalse(self.scan("SCAN (subquery-1)"))
+        self.assertFalse(self.scan("SCAN CONSTANT ROW"))
+        self.assertFalse(self.scan("SCAN recent_cte"))
+
+    def test_a_scan_of_some_other_table_is_not_this_guard_s_business(self):
+        self.assertFalse(self.scan("SCAN artists"))
+        self.assertTrue(self.scan("SCAN artists", table="artists"))
 
     def test_an_ordered_index_scan_is_healthy(self):
         # "recently added" reads the whole date_added index in order. It is a
@@ -165,8 +177,41 @@ class PlanIndexTest(unittest.TestCase):
 
     def test_a_scanning_plan_names_no_index(self):
         self.assertFalse(
-            benchmark_sqlite.plan_names_index(self.rows("SCAN tracks"), "idx_tracks_artist")
+            benchmark_sqlite.plan_names_index(
+                self.rows("SCAN tracks"), "idx_tracks_artist"
+            )
         )
+
+    def test_an_index_whose_name_merely_starts_the_same_does_not_count(self):
+        # idx_tracks_album is a prefix of idx_tracks_album_artist, so substring
+        # matching would report a green run on the wrong index — and the scan
+        # guard stays quiet, because the plan really is using *an* index.
+        plan = self.rows(
+            "SEARCH tracks USING INDEX idx_tracks_album_artist (normalized_album_artist=?)"
+        )
+        self.assertFalse(benchmark_sqlite.plan_names_index(plan, "idx_tracks_album"))
+        self.assertTrue(
+            benchmark_sqlite.plan_names_index(plan, "idx_tracks_album_artist")
+        )
+
+    def test_an_index_named_by_a_covering_scan_counts(self):
+        plan = self.rows("SCAN tracks USING COVERING INDEX idx_tracks_recent")
+        self.assertTrue(benchmark_sqlite.plan_names_index(plan, "idx_tracks_recent"))
+
+    def test_covering_access_is_recognised_whichever_index_it_is(self):
+        # COUNT(*) may ride any covering index, so this check asks about the
+        # access shape rather than a name.
+        for index in ("idx_tracks_recent", "idx_tracks_title", "idx_anything_else"):
+            with self.subTest(index=index):
+                plan = self.rows(f"SCAN tracks USING COVERING INDEX {index}")
+                self.assertTrue(benchmark_sqlite.plan_uses_covering_index(plan))
+
+    def test_a_non_covering_plan_is_not_covering_access(self):
+        plan = self.rows(
+            "SEARCH tracks USING INDEX idx_tracks_artist (normalized_artist=?)",
+            "SCAN tracks USING INDEX idx_tracks_recent",
+        )
+        self.assertFalse(benchmark_sqlite.plan_uses_covering_index(plan))
 
 
 class QueryPlanShapeTest(unittest.TestCase):
@@ -221,7 +266,19 @@ class QueryCatalogueTest(unittest.TestCase):
         defined = self.schema_indexes()
         for query in benchmark_sqlite.QUERIES:
             with self.subTest(query=query.name):
+                if query.uses_index is None:
+                    continue
                 self.assertIn(query.uses_index, defined)
+
+    def test_every_query_states_what_its_plan_has_to_do(self):
+        # Either it names an index, or it says any covering index will do.
+        # A query claiming neither would be timed and never plan-checked.
+        for query in benchmark_sqlite.QUERIES:
+            with self.subTest(query=query.name):
+                self.assertTrue(
+                    query.uses_index is not None or query.covering_index_only,
+                    f"{query.name} asserts nothing about its plan",
+                )
 
     def test_query_names_are_unique_and_short_enough_to_line_up(self):
         names = [query.name for query in benchmark_sqlite.QUERIES]
@@ -232,7 +289,11 @@ class QueryCatalogueTest(unittest.TestCase):
     def test_every_schema_index_is_exercised_by_some_query(self):
         # #341 is about showing the indexes are used. An index nothing
         # benchmarks is one nothing would notice losing.
-        exercised = {query.uses_index for query in benchmark_sqlite.QUERIES}
+        exercised = {
+            query.uses_index
+            for query in benchmark_sqlite.QUERIES
+            if query.uses_index is not None
+        }
         self.assertEqual(self.schema_indexes() - exercised, set())
 
 

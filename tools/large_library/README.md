@@ -66,17 +66,35 @@ only by the plan.
 | `SCAN tracks` | Reads every row of the table. | **No.** This is the regression the guard fails on. |
 
 The guard checks each plan row on its own, so a plan that uses an index in one
-step cannot hide a scan in another. `USING COVERING INDEX` is matched
-explicitly, because it does not contain the substring `USING INDEX` — a check
-written against that one string reads a healthy `COUNT(*)` as a full table scan.
+step cannot hide a scan in another. Three details keep it from crying wolf or
+staying quiet when it shouldn't:
+
+- `USING COVERING INDEX` is matched explicitly, because it does not contain the
+  substring `USING INDEX` — a check written against that one string reads a
+  healthy `COUNT(*)` as a full table scan.
+- Only scans of **`tracks`** count. SQLite emits `SCAN` rows for transient
+  objects too (`SCAN (subquery-1)`, `SCAN CONSTANT ROW`, `SCAN some_cte`), and
+  none of those is a full table scan — flagging them would reject the first
+  plan a contributor writes with a CTE.
+- Index names are matched as **whole identifiers**. `idx_tracks_album` is a
+  prefix of `idx_tracks_album_artist`, so a substring test would report a green
+  run on the wrong index, and the scan guard would stay quiet about it because
+  the plan really is using *an* index.
 
 ### Adding a query
 
-Add a `Query(...)` to `QUERIES` with the index it should use. Do not add an
-index to `schema.sql` just to make a plan look better: show the plan first, and
-say what access pattern it is for. The unit tests keep the two in step — every
-query has to name an index the schema defines, and every index in the schema
-has to be exercised by some query.
+Add a `Query(...)` to `QUERIES` and say what its plan has to do — either
+`uses_index="idx_..."` for a query written for one particular index, or
+`covering_index_only=True` when any covering index will do. `COUNT(*)` is the
+second kind: it has no reason to prefer one covering index over another, so
+pinning a name there would fail the run for a schema change that is perfectly
+healthy.
+
+Do not add an index to `schema.sql` just to make a plan look better: show the
+plan first, and say what access pattern it is for. The unit tests keep the two
+in step — every query has to assert *something* about its plan, every named
+index has to be one the schema defines, and every index in the schema has to be
+exercised by some query.
 
 The summary rendering and the plan checks have unit tests, and neither needs a
 database:
