@@ -380,7 +380,9 @@ undeclared network access to an isolated `flatpak-builder` build.
 | Chromecast | Android/iOS only | Already gated in `cast_providers.dart`; Linux keeps the honest "cast unavailable" service. |
 | Share sheet, launcher-icon switching | Android-only, by design | No desktop equivalent; the UI simply omits them. |
 | Volume control | Supported | A mute and a slider on Now Playing and the wide mini-player bar, plus MPRIS `Volume`, driven through `PlaybackController` and remembered across launches ([issue #394](https://github.com/TheZupZup/Linthra/issues/394)). See [Volume](#volume). |
-| Desktop layout | Supported | The shell swaps its bottom bar for a navigation rail at 900 px, and feature screens adapt on the width they are given — see [How the desktop layout adapts](#how-the-desktop-layout-adapts). |
+| Desktop layout | Supported | The shell swaps its bottom bar for a navigation rail at 900 px, and feature screens adapt on the width they are given — including a third pane for the Library grids and for Now Playing's queue. See [How the desktop layout adapts](#how-the-desktop-layout-adapts). |
+| Window geometry | Supported | Size and maximized state survive a restart; position too, on X11. A saved position is re-checked against the monitors attached now. See [Window state](#window-state). |
+| Pointer affordances | Supported | Compact content density, visible hover feedback, right-click context menus with a keyboard equivalent, and Ctrl/Shift multi-select in track lists — all keyed on the input rather than the window width. See [Pointer, not width](#pointer-not-width). |
 | Keyboard shortcuts | Partial | Quick search is bound to **Ctrl+K** / **Ctrl+F** ([issue #393](https://github.com/TheZupZup/Linthra/issues/393)) — see [Quick search](#quick-search-ctrlk). The volume control takes the wheel and arrow keys when focused; global transport and volume shortcuts are still later work in #376. |
 
 Nothing in that table is faked. Each one is an explicit implementation behind an
@@ -436,6 +438,14 @@ the phone layout rather than a cramped desktop one.
 | `AdaptiveLayoutBuilder` | resolves the class from the widget's own `BoxConstraints` — inside the desktop shell a screen is narrower than the window by the navigation rail, and a pane is narrower still |
 | `AdaptiveContentWidth` | caps and centres a single column (`maxContentWidth`, or `maxFormWidth` for settings), a no-op below the cap |
 
+`lib/shared/layout/pane_layout.dart` holds the compositions built out of those:
+
+| Piece | What it does |
+| --- | --- |
+| `SplitPanes` | two panes with a hairline between them, one at a fixed width and one taking the rest, capped and centred — the shape a header pane beside a scrolling list and a grid beside a detail both want, written once |
+| `ListDetailPanes` | a list or grid that gains a detail pane once its own box is wide enough, and tells the list which mode it is in so a tap can select into the pane or push a route |
+| `DetailPanePlaceholder` | the calm "nothing picked yet" state, so the pane holds its width instead of making the grid reflow on every click |
+
 What it buys, per surface:
 
 * **Album grid** — cards stay between 200 and 260 logical px and the grid adds
@@ -448,13 +458,74 @@ What it buys, per surface:
 * **Album and artist detail** — at `expanded` and up, a persistent left pane
   (cover/portrait, counts, Play and Shuffle) beside the scrolling track list.
   Selection mode falls back to the single column.
+* **Albums and Artists, three panes** — past `listDetailMinWidth` the grid keeps
+  its place and the album (or artist) opens *beside* it, so browsing a shelf is
+  a click each rather than a click and a trip back. With the shell's navigation
+  rail that is navigation · content · detail. Below the split width the same
+  screen is pushed as a route, exactly as before. The selection lives on the
+  Library screen rather than in the pane, so dragging a window across the
+  threshold moves the detail between a pane and a page without resetting it.
 * **Now Playing** — at `expanded` and up, the cover sits beside the metadata
   and transport, and lyrics open *next to* the cover instead of replacing it.
-  Same `_showLyrics` state and same playback state as the stacked layout.
+  Same `_showLyrics` state and same playback state as the stacked layout. Wider
+  still, the queue joins them as a third column instead of a sheet over the top,
+  so lyrics and up-next are readable at once; the action row's queue button
+  becomes the pane toggle, and narrower windows keep the sheet.
+* **The now-playing bar** — on a desktop host the progress line along its top
+  edge is a seek control, not a readout: the same `PlaybackProgressBar` the full
+  player uses, at its compact density and without the time caption. Width alone
+  does not promote it — a tablet in landscape is as wide as a desktop window and
+  still driven by a thumb.
 
 Both breakpoints in the app agree by construction: the shell swaps its bottom
 bar for the navigation rail at 900 px of window, and a feature screen inside it
 only reaches `expanded` once the space left over is 1000 px wide.
+
+### Pointer, not width
+
+Three things adapt on the **input** rather than on the window, because that is
+what they are actually about. A tablet in landscape is as wide as a desktop
+window and is still driven by a thumb.
+
+* **Content density** — the theme uses `VisualDensity.adaptivePlatformDensity`,
+  Material's own adaptive value: compact on Linux/macOS/Windows, standard
+  everywhere touch-first. The two places that sized rows with a hard-coded
+  number follow it rather than ignoring it — the songs list's fixed row extent
+  (which the A–Z index measures its scroll offsets in) and the artist grid's
+  cell floor — and both only give back padding, never room the words need.
+* **Hover** — `hoverColor` carries enough weight to be seen on a black-first
+  theme, and every ink surface picks it up at once: list rows, buttons, grid
+  cards, rail destinations, menu items. It is neutral rather than brand-tinted,
+  because the violet tint is what *selected* means.
+  `HoverHighlight`/`HoverArtworkVeil` in `shared/widgets` cover the one case ink
+  cannot: an album cover hides the overlay painted on the Material behind it.
+* **Right-click and modifier-click** — `ContextMenuRegion` opens a surface's
+  existing menu on secondary click and on the keyboard's menu key (or
+  Shift+F10), and `TrackSelection` reads Ctrl/Cmd and Shift off the hardware
+  keyboard at tap time. Nothing is gated on a platform, so a keyboard case on a
+  tablet gets both for free and a bare touch tap is unchanged.
+
+### Context menus and multi-select
+
+Right-clicking a row opens the list that surface already had, built at open time
+so it reflects the state as it is then. Track rows share one list and one
+dispatcher with their 3-dot button, so a right-click cannot offer an action a
+tap cannot; they also gain **Show album** and **Show artist**, routed through the
+same derived ids the grids use and offered only where the tags give somewhere to
+go. Albums and artists get **Play · Shuffle · Play next · Add to queue · Add to
+playlist**, each a command their detail pages already call. Playlists reuse
+their rename/delete pair.
+
+Multi-select follows the rules every desktop list has. Ctrl-click (Cmd on macOS)
+picks one row out and starts a selection when there is none; Shift-click takes
+everything between. `TrackSelection` (`lib/features/library/track_selection.dart`)
+owns both, keyed by the provider-namespaced uri so two providers' same-id copies
+can never be selected together, and it resolves a bulk action against the list
+*as shown* — so a row that a search or a removal has taken off screen can never
+be acted on. A range is computed over the list the clicked row is in, which for
+the songs tab is the A–Z view's own sorted order rather than whatever the screen
+handed it. Starting a selection hands the screen the keyboard, so Escape leaves
+it. Long-press still does what it always did, so nothing about a phone changes.
 
 ### Quick search (Ctrl+K)
 

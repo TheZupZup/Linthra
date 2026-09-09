@@ -16,6 +16,7 @@ import '../playlists/widgets/add_to_playlist_sheet.dart';
 import 'library_browse_providers.dart';
 import 'library_controller.dart';
 import 'library_state.dart';
+import 'track_selection.dart';
 import 'unified_library_providers.dart';
 import 'widgets/track_tile.dart';
 
@@ -38,9 +39,10 @@ class AlbumDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
-  final Set<String> _selectedUris = <String>{};
+  /// Which songs are picked, and where a Shift-click measures from (#387).
+  final TrackSelection _selection = TrackSelection();
 
-  bool get _selecting => _selectedUris.isNotEmpty;
+  bool get _selecting => _selection.isActive;
 
   @override
   Widget build(BuildContext context) {
@@ -83,10 +85,7 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
     // Bound after the null check so the layout closures below see a non-null
     // album; a promoted local can't be captured by one.
     final Album resolved = album;
-    final List<Track> selected = <Track>[
-      for (final Track track in tracks)
-        if (_selectedUris.contains(track.uri)) track,
-    ];
+    final List<Track> selected = _selection.resolve(tracks);
 
     final Widget scaffold = Scaffold(
       appBar: _selecting
@@ -191,9 +190,10 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
       index: index,
       selectable: true,
       selectionActive: _selecting,
-      selected: _selectedUris.contains(track.uri),
+      selected: _selection.contains(track.uri),
       onSelectStart: () => _enterSelection(track),
       onSelectToggle: () => _toggle(track),
+      onSelectRange: _extendSelection,
     );
   }
 
@@ -217,23 +217,23 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
   }
 
   void _enterSelection(Track track) {
-    setState(() {
-      _selectedUris
-        ..clear()
-        ..add(track.uri);
-    });
+    setState(() => _selection.start(track));
+  }
+
+  /// Shift-click: everything between the anchor and the clicked row, over the
+  /// list that row is actually in.
+  void _extendSelection(List<Track> tracks, int index) {
+    setState(() => _selection.extendTo(tracks, index));
   }
 
   void _toggle(Track track) {
     setState(() {
-      if (!_selectedUris.add(track.uri)) {
-        _selectedUris.remove(track.uri);
-      }
+      _selection.toggle(track);
     });
   }
 
   void _exitSelection() {
-    setState(_selectedUris.clear);
+    setState(_selection.clear);
   }
 
   Future<void> _addSelectedToPlaylist(List<Track> selected) async {

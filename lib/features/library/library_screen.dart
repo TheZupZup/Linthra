@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -28,6 +29,7 @@ import 'library_state.dart';
 import 'library_sync_activity.dart';
 import 'selected_folder_controller.dart';
 import 'song_actions.dart';
+import 'track_selection.dart';
 import 'unified_library_providers.dart';
 import 'widgets/album_grid.dart';
 import 'widgets/alphabet_track_list.dart';
@@ -61,8 +63,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   /// survives a tab being added or reordered later.
   static const List<String> _tabNames = <String>['songs', 'albums', 'artists'];
 
-  final Set<String> _selectedUris = <String>{};
+  /// Which songs are picked, and where a Shift-click measures from. Held here
+  /// rather than in the rows so it survives a catalog refresh or a rebuild.
+  final TrackSelection _selection = TrackSelection();
   bool _selecting = false;
+
+  /// Holds the keyboard while a selection is running, so Escape has somewhere
+  /// to land. Clicking a row does not move focus on its own.
+  final FocusNode _selectionFocus =
+      FocusNode(debugLabel: 'library selection', skipTraversal: true);
 
   /// What the Albums / Artists detail pane is showing on a window wide enough
   /// to have one. Held here rather than in the panes so it survives the pane
@@ -179,6 +188,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _searchController.dispose();
+    _selectionFocus.dispose();
     super.dispose();
   }
 
@@ -244,10 +254,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     // the count and actions stay accurate. Keyed by the provider-namespaced uri,
     // not the bare id, so two different-provider songs sharing an id can't be
     // selected (or bulk-acted on) together.
-    final List<Track> selected = <Track>[
-      for (final Track track in songs)
-        if (_selectedUris.contains(track.uri)) track,
-    ];
+    final List<Track> selected = _selection.resolve(songs);
 
     // A connected folder-capable server is browseable before (or even without)
     // a flat catalog sync, so it is enough to show the Library tabs on its own.
@@ -266,23 +273,43 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       onPopInvokedWithResult: (bool didPop, _) {
         if (!didPop && _selecting) _exitSelection();
       },
-      child: Scaffold(
-        appBar: _selecting
-            ? _selectionAppBar(selected)
-            : AppBar(
-                title: const Text('Library'),
-                actions: <Widget>[
-                  IconButton(
-                    icon: const Icon(Icons.create_new_folder_outlined),
-                    tooltip: 'Select music folder',
-                    onPressed: _pickAndScan,
-                  ),
-                ],
-                bottom: browsing ? _tabBar() : null,
-              ),
-        body: browsing
-            ? _browseBody(songs, syncingSources)
-            : _statusBody(state, selectedFolder.valueOrNull, syncingSources),
+      // Escape is the desktop's Back: a selection made with Ctrl and Shift has
+      // to be dismissable without reaching for the mouse again.
+      //
+      // Starting a selection hands this node the keyboard (see
+      // [_focusSelection]), because a selection is a mode and a mode with no
+      // focus has nowhere for a key to land. Kept out of the Tab order, so it
+      // is somewhere focus is *put* rather than a stop on the way through.
+      child: Focus(
+        focusNode: _selectionFocus,
+        skipTraversal: true,
+        onKeyEvent: (FocusNode node, KeyEvent event) {
+          if (!_selecting ||
+              event is! KeyDownEvent ||
+              event.logicalKey != LogicalKeyboardKey.escape) {
+            return KeyEventResult.ignored;
+          }
+          _exitSelection();
+          return KeyEventResult.handled;
+        },
+        child: Scaffold(
+          appBar: _selecting
+              ? _selectionAppBar(selected)
+              : AppBar(
+                  title: const Text('Library'),
+                  actions: <Widget>[
+                    IconButton(
+                      icon: const Icon(Icons.create_new_folder_outlined),
+                      tooltip: 'Select music folder',
+                      onPressed: _pickAndScan,
+                    ),
+                  ],
+                  bottom: browsing ? _tabBar() : null,
+                ),
+          body: browsing
+              ? _browseBody(songs, syncingSources)
+              : _statusBody(state, selectedFolder.valueOrNull, syncingSources),
+        ),
       ),
     );
   }
@@ -500,9 +527,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         tracks: tracks,
         selectable: true,
         selectionActive: _selecting,
-        selectedUris: _selectedUris,
+        selectedUris: _selection.uris,
         onSelectStart: _enterSelection,
         onSelectToggle: _toggle,
+        onSelectRange: _extendSelection,
       ),
     );
   }
@@ -546,10 +574,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   void _enterSelection(Track track) {
     setState(() {
       _selecting = true;
-      _selectedUris
-        ..clear()
-        ..add(track.uri);
+      _selection.start(track);
     });
+    _focusSelection();
     // Selection is only reachable from the songs list, so that is the list it
     // must show. Guarding the restore is not enough on its own: a long press
     // holds the pointer for half a second before firing, and a restore landing
@@ -565,17 +592,34 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   void _toggle(Track track) {
     setState(() {
-      if (!_selectedUris.add(track.uri)) {
-        _selectedUris.remove(track.uri);
-      }
-      if (_selectedUris.isEmpty) _selecting = false;
+      _selection.toggle(track);
+      if (!_selection.isActive) _selecting = false;
     });
+    _focusSelection();
+  }
+
+  /// Hands the screen the keyboard once something is picked, so Escape (and
+  /// anything else the mode binds later) reaches it. A no-op when the selection
+  /// just emptied out.
+  void _focusSelection() {
+    if (_selecting) _selectionFocus.requestFocus();
+  }
+
+  /// Shift-click: everything between the anchor and the clicked row, over the
+  /// list the A–Z view actually shows — so a search or a re-sort can never make
+  /// a range span rows that are not between its two ends on screen.
+  void _extendSelection(List<Track> tracks, int index) {
+    setState(() {
+      _selection.extendTo(tracks, index);
+      _selecting = _selection.isActive;
+    });
+    _focusSelection();
   }
 
   void _exitSelection() {
     setState(() {
       _selecting = false;
-      _selectedUris.clear();
+      _selection.clear();
     });
   }
 

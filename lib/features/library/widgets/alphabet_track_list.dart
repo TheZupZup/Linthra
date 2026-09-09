@@ -22,6 +22,7 @@ class AlphabetTrackList extends StatefulWidget {
     this.selectedUris = const <String>{},
     this.onSelectToggle,
     this.onSelectStart,
+    this.onSelectRange,
     super.key,
   });
 
@@ -41,8 +42,13 @@ class AlphabetTrackList extends StatefulWidget {
   /// Toggles a track's selection (tap while in selection mode).
   final void Function(Track track)? onSelectToggle;
 
-  /// Starts selection with a track (long-press).
+  /// Starts selection with a track (long-press, or a Ctrl-click from nothing).
   final void Function(Track track)? onSelectStart;
+
+  /// Shift-click: extend the selection to a row, over the list *as sorted
+  /// here*. This list sorts its own rows, so the host cannot compute a range
+  /// against the tracks it handed in.
+  final void Function(List<Track> tracks, int index)? onSelectRange;
 
   @override
   State<AlphabetTrackList> createState() => _AlphabetTrackListState();
@@ -220,6 +226,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
               onSelectStart: widget.onSelectStart == null
                   ? null
                   : () => widget.onSelectStart!(track),
+              onSelectRange: widget.onSelectRange,
             );
           },
         ),

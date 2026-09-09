@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -53,6 +54,13 @@ enum _TrackAction {
 /// [onSelectToggle] instead of playing. Hosts that don't pass these (e.g.
 /// Favorites) keep the plain tap-to-play behaviour.
 ///
+/// With a keyboard attached the modifiers a desktop list is expected to honour
+/// work too (#387), whether or not a selection is already running: Ctrl-click
+/// (Cmd on macOS) toggles this row alone, and Shift-click extends from the last
+/// row picked to this one through [onSelectRange]. They are read off the
+/// hardware keyboard at tap time rather than gated on a platform, so a keyboard
+/// case on a tablet gets them for free and a bare touch tap is unchanged.
+///
 /// Source-awareness: offline/download actions only appear for *remote* tracks
 /// (resolved through [remoteTrackDownloaderProvider], the same seam the
 /// download repository uses). On-device tracks are already local, so showing
@@ -67,6 +75,7 @@ class TrackTile extends ConsumerWidget {
     this.selected = false,
     this.onSelectToggle,
     this.onSelectStart,
+    this.onSelectRange,
     super.key,
   });
 
@@ -85,6 +94,13 @@ class TrackTile extends ConsumerWidget {
 
   final VoidCallback? onSelectToggle;
   final VoidCallback? onSelectStart;
+
+  /// Shift-click: select everything between the host's anchor and this row.
+  ///
+  /// Handed the exact list this row is in, already sorted and filtered as the
+  /// user sees it, so a range can never span rows that are not on screen
+  /// between its two ends.
+  final void Function(List<Track> tracks, int index)? onSelectRange;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -160,6 +176,22 @@ class TrackTile extends ConsumerWidget {
               ],
             ),
       onTap: () {
+        if (selectable && _extendsSelection) {
+          onSelectRange?.call(tracks, index);
+          return;
+        }
+        // Ctrl (or Cmd) picks this row out on its own, and starts a selection
+        // when there isn't one — the whole point of it on a desktop, where
+        // holding a row down for half a second to begin is not the gesture
+        // anybody reaches for.
+        if (selectable && _togglesSelection) {
+          if (selectionActive) {
+            onSelectToggle?.call();
+          } else {
+            onSelectStart?.call();
+          }
+          return;
+        }
         if (selectionActive) {
           onSelectToggle?.call();
           return;
@@ -189,6 +221,18 @@ class TrackTile extends ConsumerWidget {
       child: row,
     );
   }
+
+  /// Whether the modifiers held right now mean "toggle just this row".
+  ///
+  /// Cmd counts alongside Ctrl so the row behaves the way a macOS list does;
+  /// Shift wins when both are down, which is what every file manager does.
+  static bool get _togglesSelection {
+    final HardwareKeyboard keyboard = HardwareKeyboard.instance;
+    return !keyboard.isShiftPressed &&
+        (keyboard.isControlPressed || keyboard.isMetaPressed);
+  }
+
+  static bool get _extendsSelection => HardwareKeyboard.instance.isShiftPressed;
 
   /// Prefer human-readable artist/album metadata; fall back to the raw
   /// uri/path when a track has no tags yet.
