@@ -104,9 +104,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
       setState(() => _busySource = source);
       try {
         await ref.read(localMusicControllerProvider.notifier).pickFolder();
-        final String? folder =
-            ref.read(selectedFolderControllerProvider).valueOrNull;
-        if (folder != null && folder.isNotEmpty) {
+        final List<String> folders =
+            ref.read(selectedFolderControllerProvider).valueOrNull ??
+                <String>[];
+        if (folders.isNotEmpty) {
           await _finish();
         }
       } finally {

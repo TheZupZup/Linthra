@@ -13,6 +13,7 @@ import '../../core/models/track.dart';
 import '../../core/repositories/library_tab_store.dart';
 import '../../core/services/bulk_track_actions.dart';
 import '../../core/sources/local/folder_location.dart';
+import '../../data/repositories/host_platform_provider.dart';
 import '../../data/repositories/library_tab_store_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/layout/pane_layout.dart';
@@ -244,7 +245,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     final List<Track> songs = ref.watch(libraryUnifiedTracksProvider);
     final bool hasFolderSources =
         ref.watch(folderBrowsableSourcesProvider).isNotEmpty;
-    final AsyncValue<String?> selectedFolder =
+    final AsyncValue<List<String>> selectedFolder =
         ref.watch(selectedFolderControllerProvider);
     // While a first library sync is running, an empty catalog should read as
     // "filling up", not "nothing here" — so the library never looks broken
@@ -295,7 +296,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                 ),
           body: browsing
               ? _browseBody(songs, syncingSources)
-              : _statusBody(state, selectedFolder.valueOrNull, syncingSources),
+              : _statusBody(
+                  state,
+                  selectedFolder.valueOrNull ?? const <String>[],
+                  syncingSources,
+                ),
         ),
       ),
     );
@@ -335,7 +340,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   /// Loading / error / folder-pick states, shown full-body without tabs.
   Widget _statusBody(
     LibraryState state,
-    String? selectedFolder,
+    List<String> selectedFolders,
     List<String> syncingSources,
   ) {
     switch (state.status) {
@@ -356,10 +361,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           return _LibrarySyncing(headline: headline);
         }
         return _LibraryEmpty(
-          selectedFolder: selectedFolder,
+          selectedFolders: selectedFolders,
           onPick: _pickAndScan,
           onRescan:
-              selectedFolder == null ? null : () => _rescan(selectedFolder),
+              selectedFolders.isEmpty ? null : () => _rescan(selectedFolders),
         );
     }
   }
@@ -639,21 +644,28 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   // --- Scan -------------------------------------------------------------
 
-  /// Open the system folder picker, persist the choice, then scan it. A
-  /// cancelled pick leaves everything untouched. The UI only talks to the two
+  /// Open the system folder picker, persist the choice, then scan. A cancelled
+  /// pick leaves everything untouched. The UI only talks to the two
   /// controllers — never to a picker plugin or the file system directly.
+  ///
+  /// Desktop adds the folder to the ones already selected; Android replaces the
+  /// selection, because its local access is a single grant at a time.
   Future<void> _pickAndScan() async {
-    final String? path = await ref
-        .read(selectedFolderControllerProvider.notifier)
-        .pickAndPersist();
-    if (path != null) {
-      await ref.read(libraryControllerProvider.notifier).scanFolder(path);
-    }
+    final SelectedFolderController folders =
+        ref.read(selectedFolderControllerProvider.notifier);
+    final bool isAndroid = ref.read(hostPlatformProvider).isAndroid;
+    final String? path =
+        isAndroid ? await folders.pickAndPersist() : await folders.pickAndAdd();
+    if (path == null) return;
+    final List<String> selected =
+        ref.read(selectedFolderControllerProvider).valueOrNull ??
+            <String>[path];
+    await ref.read(libraryControllerProvider.notifier).scanFolders(selected);
   }
 
   /// Re-scan the folder the user already selected, without opening the picker.
-  Future<void> _rescan(String folder) {
-    return ref.read(libraryControllerProvider.notifier).scanFolder(folder);
+  Future<void> _rescan(List<String> folders) {
+    return ref.read(libraryControllerProvider.notifier).scanFolders(folders);
   }
 }
 
@@ -748,21 +760,21 @@ class _LibrarySyncing extends StatelessWidget {
 ///    reselect, so say the device reported no music and offer a rescan.
 class _LibraryEmpty extends StatelessWidget {
   const _LibraryEmpty({
-    required this.selectedFolder,
+    required this.selectedFolders,
     required this.onPick,
     this.onRescan,
   });
 
-  final String? selectedFolder;
+  final List<String> selectedFolders;
   final VoidCallback onPick;
   final VoidCallback? onRescan;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasFolder = selectedFolder != null;
+    final hasFolder = selectedFolders.isNotEmpty;
     final FolderLocation? location =
-        hasFolder ? FolderLocation.parse(selectedFolder!) : null;
+        hasFolder ? FolderLocation.parse(selectedFolders.first) : null;
     final bool isDeviceLibrary = location?.isAndroidMediaStore ?? false;
     // A folder selected as a plain filesystem path on Android is the legacy/
     // broken case: scoped storage won't let Linthra read it, so it turns up
@@ -793,10 +805,13 @@ class _LibraryEmpty extends StatelessWidget {
             Text(
               isDeviceLibrary
                   ? "Android's music library reported no audio on this device."
-                  : hasFolder
-                      ? 'Nothing playable turned up in:\n'
-                          '${location!.displayLabel}'
-                      : 'Choose a folder on your device to scan for music.',
+                  : selectedFolders.length > 1
+                      ? 'Nothing playable turned up in your '
+                          '${selectedFolders.length} music folders.'
+                      : hasFolder
+                          ? 'Nothing playable turned up in:\n'
+                              '${location!.displayLabel}'
+                          : 'Choose a folder on your device to scan for music.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
@@ -817,14 +832,22 @@ class _LibraryEmpty extends StatelessWidget {
               FilledButton.tonal(
                 onPressed: onRescan,
                 child: Text(
-                  isDeviceLibrary ? 'Rescan this device' : 'Rescan folder',
+                  isDeviceLibrary
+                      ? 'Rescan this device'
+                      : selectedFolders.length > 1
+                          ? 'Rescan folders'
+                          : 'Rescan folder',
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),
               TextButton(
                 onPressed: onPick,
                 child: Text(
-                  isDeviceLibrary ? 'Use a folder instead' : 'Change folder',
+                  isDeviceLibrary
+                      ? 'Use a folder instead'
+                      : selectedFolders.length > 1
+                          ? 'Add a folder'
+                          : 'Change folder',
                 ),
               ),
             ] else

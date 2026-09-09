@@ -5,6 +5,7 @@ import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/music_library_repository.dart';
+import '../../core/repositories/source_catalog_reader.dart';
 import '../database/linthra_database.dart';
 import '../mappers/track_mapper.dart';
 
@@ -18,7 +19,10 @@ import '../mappers/track_mapper.dart';
 /// Also implements [IncrementalCatalogWriter] so a large remote sync (Plex) can
 /// fill a source's slice batch by batch instead of one monolithic write.
 class DriftMusicLibraryRepository
-    implements MusicLibraryRepository, IncrementalCatalogWriter {
+    implements
+        MusicLibraryRepository,
+        IncrementalCatalogWriter,
+        SourceCatalogReader {
   DriftMusicLibraryRepository(this._db);
 
   final LinthraDatabase _db;
@@ -26,6 +30,15 @@ class DriftMusicLibraryRepository
   @override
   Future<List<Track>> getAllTracks() async {
     final List<TrackRow> rows = await _db.select(_db.tracks).get();
+    return rows.map(trackFromRow).toList();
+  }
+
+  /// The stored slice for one source, straight off the `source_id` index.
+  @override
+  Future<List<Track>> getTracksForSource(String sourceId) async {
+    final List<TrackRow> rows = await (_db.select(_db.tracks)
+          ..where((t) => t.sourceId.equals(sourceId)))
+        .get();
     return rows.map(trackFromRow).toList();
   }
 

@@ -117,8 +117,14 @@ ProviderContainer _container({
 /// What is actually on disk (well, in the in-memory repository) rather than the
 /// controller's in-flight state — the distinction the transactional switch is
 /// about.
-Future<String?> folderRepoValue(ProviderContainer container) =>
-    container.read(selectedMusicFolderRepositoryProvider).getSelectedFolder();
+Future<List<String>> folderRepoValues(ProviderContainer container) =>
+    container.read(selectedMusicFolderRepositoryProvider).getSelectedFolders();
+
+/// The single selected folder, for the cases that are about one selection.
+Future<String?> folderRepoValue(ProviderContainer container) async {
+  final List<String> folders = await folderRepoValues(container);
+  return folders.isEmpty ? null : folders.first;
+}
 
 void main() {
   setUp(LocalScanDiagnostics.reset);
@@ -150,7 +156,10 @@ void main() {
       addTearDown(container.dispose);
 
       await container.read(localMusicControllerProvider.notifier).pickFolder();
-      expect(await container.read(localFolderAccessProvider.future), isTrue);
+      expect(
+        await container.read(localFolderAccessProvider.future),
+        <String, bool>{'/music': true},
+      );
 
       // The folder goes away, then the user hits Rescan.
       readability.readable = false;
@@ -165,7 +174,10 @@ void main() {
       );
       // The card's lost-access line now shows, instead of the folder still
       // reading as healthy.
-      expect(await container.read(localFolderAccessProvider.future), isFalse);
+      expect(
+        await container.read(localFolderAccessProvider.future),
+        <String, bool>{'/music': false},
+      );
     });
 
     test('pickFolder scans the chosen folder and imports its audio', () async {
@@ -193,7 +205,7 @@ void main() {
       // The selection was persisted and the scan report recorded.
       expect(
         container.read(selectedFolderControllerProvider).valueOrNull,
-        '/music',
+        <String>['/music'],
       );
       expect(container.read(localScanReportProvider)?.importedTracks, 1);
     });
@@ -213,7 +225,7 @@ void main() {
       expect(state.message, isNull);
       expect(
         container.read(selectedFolderControllerProvider).valueOrNull,
-        isNull,
+        isEmpty,
       );
     });
 
@@ -317,7 +329,7 @@ void main() {
 
         expect(
           container.read(selectedFolderControllerProvider).valueOrNull,
-          FolderLocation.androidMediaStoreAudio,
+          <String>[FolderLocation.androidMediaStoreAudio],
         );
         expect(await folderRepoValue(container), 'mediastore://audio');
         expect(await libraryRepo.getAllTracks(), hasLength(1));
@@ -347,7 +359,7 @@ void main() {
 
         expect(
           container.read(selectedFolderControllerProvider).valueOrNull,
-          '/music',
+          <String>['/music'],
           reason: 'the folder must survive a failed switch',
         );
         expect(await folderRepoValue(container), '/music');
@@ -391,7 +403,7 @@ void main() {
         );
         expect(
           container.read(selectedFolderControllerProvider).valueOrNull,
-          '/music',
+          <String>['/music'],
         );
       });
 
@@ -412,7 +424,7 @@ void main() {
 
         expect(
           container.read(selectedFolderControllerProvider).valueOrNull,
-          FolderLocation.androidMediaStoreAudio,
+          <String>[FolderLocation.androidMediaStoreAudio],
         );
       });
 
@@ -435,7 +447,7 @@ void main() {
         expect(media.requestCount, 1);
         expect(
           container.read(selectedFolderControllerProvider).valueOrNull,
-          '/music',
+          <String>['/music'],
         );
         expect(await folderRepoValue(container), '/music');
         expect(
@@ -462,7 +474,7 @@ void main() {
 
       expect(
         container.read(selectedFolderControllerProvider).valueOrNull,
-        isNull,
+        isEmpty,
       );
       expect(await libraryRepo.getAllTracks(), isEmpty);
       expect(container.read(localScanReportProvider), isNull);
