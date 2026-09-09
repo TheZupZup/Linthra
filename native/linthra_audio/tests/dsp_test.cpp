@@ -1,39 +1,13 @@
 #include "linthra_audio/dsp.hpp"
 #include "linthra_audio/linthra_audio.h"
 
+#include "check.hpp"
+
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <iostream>
 
-namespace {
-
-int failures = 0;
-
-bool near(float left, float right, float tolerance = 1.0e-4F) {
-    return std::abs(left - right) <= tolerance;
-}
-
-// These tests used to use assert(), but CI builds this target in Release and
-// Release defines NDEBUG, which expands assert() to nothing. Every expectation
-// below was being compiled out, so the binary exited 0 without checking any DSP
-// behaviour at all.
-//
-// check() is ordinary code, so it runs in every build type. It records the
-// failure instead of aborting, which lets one run report every broken
-// expectation rather than only the first, and main() reports the count to CTest
-// through its exit status.
-void check(bool condition, const char* expression, const char* file, int line) {
-    if (condition) {
-        return;
-    }
-    std::cerr << file << ':' << line << ": CHECK failed: " << expression << '\n';
-    ++failures;
-}
-
-}  // namespace
-
-#define CHECK(condition) check((condition), #condition, __FILE__, __LINE__)
+using linthra::audio::test::near;
 
 int main() {
     using linthra::audio::DspChain;
@@ -88,13 +62,18 @@ int main() {
     impulse[0] = 0.5F;
     equalizer.process(impulse.data(), impulse.size(), 1);
     bool changed = false;
+    float energy = 0.0F;
     for (std::size_t index = 0; index < impulse.size(); ++index) {
         CHECK(std::isfinite(impulse[index]));
+        energy += impulse[index] * impulse[index];
         if (!near(impulse[index], index == 0 ? 0.5F : 0.0F)) {
             changed = true;
         }
     }
     CHECK(changed);
+    // "Changed" alone would accept a band that zeroed the response. A muted
+    // impulse differs from the input too. The response has to carry energy.
+    CHECK(energy > 0.1F * 0.5F * 0.5F);
 
     // Smoke-test the C ABI that a future JNI/FFI layer will call.
     LinthraAudioDsp* c_dsp = linthra_audio_create(48'000.0F);
@@ -115,9 +94,5 @@ int main() {
         linthra_audio_destroy(c_dsp);
     }
 
-    if (failures != 0) {
-        std::cerr << failures << " DSP check(s) failed\n";
-        return 1;
-    }
-    return 0;
+    return linthra::audio::test::report("DSP");
 }
