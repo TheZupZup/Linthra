@@ -7,6 +7,10 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod normalize;
+
+use normalize::normalized_tokens;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrackRecord {
     pub id: String,
@@ -237,17 +241,9 @@ fn index_field(
     }
 }
 
-fn normalized_tokens(value: &str) -> Vec<String> {
-    value
-        .split(|character: char| !character.is_alphanumeric())
-        .filter(|part| !part.is_empty())
-        .map(|part| part.to_lowercase())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{LibraryIndex, TrackRecord};
+    use super::{LibraryIndex, SearchHit, TrackRecord};
 
     fn fixture() -> LibraryIndex {
         LibraryIndex::build(vec![
@@ -307,6 +303,251 @@ mod tests {
         let hits = index.search("jellyfin battery", 10);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].track.id, "2");
+    }
+
+    /// A catalog whose metadata is deliberately awkward: accents, a ligature,
+    /// a sharp s, a decomposed name, and two non-Latin scripts.
+    fn accented_fixture() -> LibraryIndex {
+        LibraryIndex::build(vec![
+            TrackRecord::new("a1", "Jóga", "Björk", "Homogenic", None, "local"),
+            TrackRecord::new(
+                "a2",
+                "Ace of Spades",
+                "Motörhead",
+                "Ace of Spades",
+                None,
+                "local",
+            ),
+            TrackRecord::new(
+                "a3",
+                "Halo",
+                "Beyoncé",
+                "I Am… Sasha Fierce",
+                None,
+                "jellyfin",
+            ),
+            TrackRecord::new(
+                "a4",
+                "Straße der Ohren",
+                "Einstürzende Neubauten",
+                "Tabula Rasa",
+                None,
+                "local",
+            ),
+            // Written decomposed on purpose (o + U+0308), the way some servers
+            // and filesystems hand it over.
+            TrackRecord::new(
+                "a5",
+                "Kickstart My Heart",
+                "Mo\u{0308}tley Cru\u{0308}e",
+                "Dr. Feelgood",
+                None,
+                "local",
+            ),
+            TrackRecord::new("a6", "Группа крови", "Кино", "Группа крови", None, "local"),
+        ])
+    }
+
+    fn ids<'a>(hits: &'a [SearchHit<'a>]) -> Vec<&'a str> {
+        hits.iter().map(|hit| hit.track.id.as_str()).collect()
+    }
+
+    // --- #336: accented metadata ------------------------------------------
+
+    #[test]
+    fn an_accent_in_the_middle_of_a_name_is_searchable_without_it() {
+        // The case a byte-prefix match could never reach: "bjork" is not a
+        // prefix of "björk", because the accent comes before the k.
+        let index = accented_fixture();
+        assert_eq!(ids(&index.search("bjork", 10)), ["a1"]);
+        assert_eq!(ids(&index.search("motorhead", 10)), ["a2"]);
+    }
+
+    #[test]
+    fn typing_the_accent_finds_the_same_track() {
+        // Folding both sides is what makes this symmetric: the listener who
+        // knows the spelling is not punished for it.
+        let index = accented_fixture();
+        assert_eq!(index.search("björk", 10), index.search("bjork", 10));
+        assert_eq!(
+            index.search("beyoncé halo", 10),
+            index.search("beyonce halo", 10)
+        );
+    }
+
+    #[test]
+    fn a_sharp_s_is_findable_spelled_out() {
+        let index = accented_fixture();
+        assert_eq!(ids(&index.search("strasse", 10)), ["a4"]);
+        assert_eq!(ids(&index.search("straße", 10)), ["a4"]);
+        assert_eq!(ids(&index.search("einsturzende", 10)), ["a4"]);
+    }
+
+    #[test]
+    fn decomposed_metadata_is_findable_as_one_word() {
+        // Before the combining-mark rule this artist indexed as "mo", "tley",
+        // "cru" and "e", so the obvious query found nothing.
+        let index = accented_fixture();
+        assert_eq!(ids(&index.search("motley", 10)), ["a5"]);
+        assert_eq!(ids(&index.search("motley crue", 10)), ["a5"]);
+        assert_eq!(ids(&index.search("mötley crüe", 10)), ["a5"]);
+        assert!(index.search("tley", 10).is_empty());
+    }
+
+    #[test]
+    fn a_folded_query_still_earns_the_exact_match_bonus() {
+        // "bjork" is now the token, not merely a prefix of it, so the artist
+        // hit scores as an exact match rather than as a partial one.
+        let index = accented_fixture();
+        let exact = index.search("bjork", 10);
+        let prefix = index.search("bjor", 10);
+        assert_eq!(ids(&exact), ["a1"]);
+        assert_eq!(ids(&prefix), ["a1"]);
+        assert!(exact[0].score > prefix[0].score);
+    }
+
+    #[test]
+    fn unfolded_scripts_are_still_searchable() {
+        let index = accented_fixture();
+        assert_eq!(ids(&index.search("кино", 10)), ["a6"]);
+        assert_eq!(ids(&index.search("Кино", 10)), ["a6"]);
+    }
+
+    #[test]
+    fn folding_does_not_merge_two_different_artists() {
+        // Folding is not fuzzy matching: it removes accents, it does not make
+        // near-misses match.
+        let index = accented_fixture();
+        assert!(index.search("bjor k", 10).is_empty());
+        assert!(index.search("motorhed", 10).is_empty());
+    }
+
+    // --- #343: search edge cases -------------------------------------------
+
+    #[test]
+    fn a_query_with_no_tokens_returns_nothing() {
+        let index = fixture();
+        assert!(index.search("", 10).is_empty());
+        assert!(index.search("   ", 10).is_empty());
+        assert!(index.search("!!! --- ???", 10).is_empty());
+        assert!(index.search("\u{0301}", 10).is_empty());
+    }
+
+    #[test]
+    fn a_zero_limit_returns_nothing_without_doing_the_work() {
+        let index = fixture();
+        assert!(index.search("metallica", 0).is_empty());
+    }
+
+    #[test]
+    fn a_limit_larger_than_the_result_set_returns_everything_it_has() {
+        let index = fixture();
+        let hits = index.search("metallica", usize::MAX);
+        assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn a_limit_smaller_than_the_result_set_keeps_the_best_ranked() {
+        let index = fixture();
+        let all = index.search("metallica", 10);
+        let capped = index.search("metallica", 1);
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0].track.id, all[0].track.id);
+    }
+
+    #[test]
+    fn searching_an_empty_index_returns_nothing() {
+        let index = LibraryIndex::build(Vec::new());
+        assert!(index.is_empty());
+        assert_eq!(index.len(), 0);
+        assert!(index.search("anything", 10).is_empty());
+    }
+
+    #[test]
+    fn one_unmatched_term_eliminates_the_whole_query() {
+        // AND semantics: a term nothing matches is not silently dropped.
+        let index = fixture();
+        assert!(!index.search("metallica", 10).is_empty());
+        assert!(index.search("metallica zzzzz", 10).is_empty());
+        assert!(index.search("zzzzz metallica", 10).is_empty());
+    }
+
+    #[test]
+    fn a_term_longer_than_any_token_matches_nothing() {
+        let index = fixture();
+        assert!(index.search("metallicaaaaaaaa", 10).is_empty());
+    }
+
+    #[test]
+    fn surrounding_and_repeated_whitespace_does_not_change_the_result() {
+        let index = fixture();
+        let plain = index.search("metallica master", 10);
+        assert_eq!(index.search("  metallica   master  ", 10), plain);
+        assert_eq!(index.search("\tmetallica\nmaster\r\n", 10), plain);
+    }
+
+    #[test]
+    fn punctuation_inside_a_query_only_separates_terms() {
+        let index = fixture();
+        let plain = index.search("metallica master", 10);
+        assert_eq!(index.search("metallica, master!", 10), plain);
+        assert_eq!(index.search("metallica/master", 10), plain);
+    }
+
+    #[test]
+    fn repeating_a_term_does_not_reorder_the_results() {
+        // The repeat adds the same weight to every candidate, so the ranking
+        // has to come out identical even though the scores are larger.
+        let index = fixture();
+        let once = index.search("master", 10);
+        let twice = index.search("master master", 10);
+        assert_eq!(ids(&once), ids(&twice));
+        assert!(twice[0].score > once[0].score);
+    }
+
+    #[test]
+    fn a_term_that_is_a_prefix_of_another_term_still_ands() {
+        let index = fixture();
+        let hits = index.search("mast master", 10);
+        assert_eq!(ids(&hits), ids(&index.search("master", 10)));
+    }
+
+    #[test]
+    fn an_absurdly_long_query_is_handled_without_panicking() {
+        let index = fixture();
+        let long_term = "a".repeat(100_000);
+        assert!(index.search(&long_term, 10).is_empty());
+        let many_terms = vec!["master"; 5_000].join(" ");
+        assert_eq!(
+            ids(&index.search(&many_terms, 10)),
+            ids(&index.search("master", 10))
+        );
+    }
+
+    #[test]
+    fn blank_metadata_indexes_and_searches_without_panicking() {
+        let index = LibraryIndex::build(vec![
+            TrackRecord::new("", "", "", "", None, ""),
+            TrackRecord::new("b", "Real Title", "", "", Some(String::new()), "local"),
+        ]);
+        assert_eq!(index.len(), 2);
+        assert!(index.search("", 10).is_empty());
+        assert_eq!(ids(&index.search("real", 10)), ["b"]);
+    }
+
+    #[test]
+    fn emoji_and_symbols_in_metadata_do_not_break_the_index() {
+        let index = LibraryIndex::build(vec![TrackRecord::new(
+            "e1",
+            "🎵 Sunrise 🎵",
+            "The ✨ Band",
+            "Vol. 1",
+            None,
+            "local",
+        )]);
+        assert_eq!(ids(&index.search("sunrise", 10)), ["e1"]);
+        assert_eq!(ids(&index.search("band", 10)), ["e1"]);
+        assert!(index.search("🎵", 10).is_empty());
     }
 
     #[test]

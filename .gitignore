@@ -25,6 +25,11 @@ build/
 /flatpak/repo/
 /flatpak/flatpak-builder-build/
 
+# Cargo's build directory for the Rust core. native/linthra_core/README.md tells
+# contributors to run `cargo test` and the 200k benchmark here, and both write
+# hundreds of megabytes of build output that CI regenerates from scratch.
+native/linthra_core/target/
+
 # IDE
 .idea/
 .vscode/
