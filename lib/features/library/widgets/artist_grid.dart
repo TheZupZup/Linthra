@@ -62,7 +62,13 @@ class ArtistGrid extends StatelessWidget {
     final double subtitle =
         scaler.scale(theme.textTheme.bodyMedium?.fontSize ?? 14) * _lineHeight;
     final double text = title + subtitle + AppSpacing.md;
-    return text > _defaultRowExtent ? text : _defaultRowExtent;
+    // The floor follows the theme's density (#384) so a compact desktop row
+    // actually gets shorter instead of sitting in a cell sized for a touch one.
+    // The text-driven part above is untouched: density buys padding back, never
+    // room the words need.
+    final double floor = _defaultRowExtent +
+        theme.visualDensity.baseSizeAdjustment.dy.clamp(-8.0, 0.0);
+    return text > floor ? text : floor;
   }
 
   static const double _lineHeight = 1.35;

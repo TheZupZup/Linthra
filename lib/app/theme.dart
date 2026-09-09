@@ -96,6 +96,16 @@ abstract final class AppTheme {
       useMaterial3: true,
       brightness: brightness,
       colorScheme: colorScheme,
+      // Desktop content density (#384). Material's own adaptive value: compact
+      // on Linux/macOS/Windows, standard everywhere touch-first, so a Linux
+      // window fits materially more of a library per screen while a phone's
+      // rows and tap targets do not move a pixel.
+      //
+      // It reads `defaultTargetPlatform`, the same signal the shell's
+      // navigation rail keys off, rather than shrinking on width: density is
+      // about what is pointing at the row, and an Android tablet in landscape
+      // is as wide as a desktop window and still driven by a thumb.
+      visualDensity: VisualDensity.adaptivePlatformDensity,
       extensions: <ThemeExtension<dynamic>>[
         LinthraAccents(
           accentBright: palette.accentBright,
