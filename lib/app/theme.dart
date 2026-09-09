@@ -106,6 +106,16 @@ abstract final class AppTheme {
       // about what is pointing at the row, and an Android tablet in landscape
       // is as wide as a desktop window and still driven by a thumb.
       visualDensity: VisualDensity.adaptivePlatformDensity,
+      // Hover feedback (#385). Material's default is a 4% white/black veil,
+      // which on a black-first theme is close to invisible — so a mouse user
+      // could not tell a row apart from the page it sits on.
+      //
+      // Deliberately neutral rather than brand-tinted: the violet tint is what
+      // *selected* means (see listTileTheme below), and hover has to stay
+      // distinct from selection, from focus and from pressed. One value here
+      // reaches every ink surface at once: list rows, buttons, grid cards, the
+      // navigation rail's destinations and popup-menu items.
+      hoverColor: onSurface.withValues(alpha: 0.07),
       extensions: <ThemeExtension<dynamic>>[
         LinthraAccents(
           accentBright: palette.accentBright,
