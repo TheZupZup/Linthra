@@ -306,6 +306,8 @@ Additional cast checks:
   with the same friendly "limited to Wi-Fi" message.
 - ☐ With a small cache limit, the batch stops with the "not enough cache space"
   message instead of evicting pinned tracks.
+- ☐ In a playlist mixing server and on-device songs, only the server ones are
+  counted in the confirmation and only they appear in Downloads.
 - ☐ Starting a second "Download all" while one runs is refused with a message.
 
 ## 7. Smart pre-cache

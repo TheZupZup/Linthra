@@ -192,11 +192,11 @@ extension BulkDownloadSummaryMessage on BulkDownloadSummary {
     // Held back before anything downloaded: lead with the reason, which is the
     // only thing the user can act on.
     if (downloaded == 0 && failed == 0 && waitingForNetwork > 0) {
-      final String reason = waitingReason?.blockedMessage ?? '';
       final String queued = waitingForNetwork == 1
           ? '1 song from “$label” is queued.'
           : '$waitingForNetwork songs from “$label” are queued.';
-      return reason.isEmpty ? queued : '$queued $reason';
+      final String advice = _waitingAdvice();
+      return advice.isEmpty ? queued : '$queued $advice';
     }
     if (outOfSpace) {
       return '${_progressSentence()} There is not enough cache space for the '
@@ -234,6 +234,29 @@ extension BulkDownloadSummaryMessage on BulkDownloadSummary {
 
   String _progressSentence() =>
       'Downloaded $offlineNow of $total songs from “$label”.';
+
+  /// What the user can do about a batch the network policy held back.
+  ///
+  /// The Wi-Fi case reuses the repository's own wording, which points at the
+  /// setting that unblocks it. The offline case deliberately does not: the
+  /// single-track message promises the download will start by itself when the
+  /// connection returns, and for a batch nothing does that. The tracks are left
+  /// queued for an explicit retry, so that is what this says.
+  String _waitingAdvice() {
+    switch (waitingReason) {
+      case null:
+      case DownloadRequestOutcome.started:
+        return '';
+      case DownloadRequestOutcome.waitingForWifi:
+        return DownloadRequestOutcome.waitingForWifi.blockedMessage ?? '';
+      case DownloadRequestOutcome.waitingForConnection:
+        return waitingForNetwork == 1
+            ? "You're offline. Start it again from Downloads once you're back "
+                'online.'
+            : "You're offline. Start them again from Downloads once you're "
+                'back online.';
+    }
+  }
 
   /// Names the tracks that simply would not fit, so "downloaded 9 of 10" does
   /// not read as an unexplained failure.

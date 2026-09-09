@@ -9,6 +9,7 @@ import 'package:linthra/core/models/bulk_download_summary.dart';
 import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_repository.dart';
+import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/bulk_downloader.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
@@ -175,7 +176,8 @@ void main() {
 
       // The count is named, so a bulk download is never a surprise.
       expect(
-        find.textContaining('Download all 2 songs from “Discovery”'),
+        find.textContaining('Make all 2 songs from “Discovery” available '
+            'offline?'),
         findsOneWidget,
       );
 
@@ -242,7 +244,8 @@ void main() {
       await tester.tap(find.byTooltip('Download all songs'));
       await tester.pumpAndSettle();
       expect(
-        find.textContaining('Download all 2 songs from “Discovery”'),
+        find.textContaining('Make all 2 songs from “Discovery” available '
+            'offline?'),
         findsOneWidget,
       );
     });
@@ -278,7 +281,8 @@ void main() {
       await tester.tap(find.text('Download all'));
       await tester.pumpAndSettle();
       expect(
-        find.textContaining('Download all 2 songs from “Road Trip”'),
+        find.textContaining('Make all 2 songs from “Road Trip” available '
+            'offline?'),
         findsOneWidget,
       );
 
@@ -320,7 +324,8 @@ void main() {
       // Two, not three: the number confirmed is the number that gets requested,
       // so the closing line cannot disagree with it.
       expect(
-        find.textContaining('Download all 2 songs from “Road Trip”'),
+        find.textContaining('Make all 2 songs from “Road Trip” available '
+            'offline?'),
         findsOneWidget,
       );
 
@@ -330,6 +335,62 @@ void main() {
       expect(repository.requested, <String>['jellyfin:1', 'jellyfin:2']);
       expect(
         find.text('All 2 songs from “Road Trip” are available offline.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a mixed collection downloads only what streams',
+        (tester) async {
+      final FakeDownloadRepository repository = FakeDownloadRepository();
+      await _pumpPlaylist(
+        tester,
+        repository,
+        tracks: <Track>[_remoteAlbum[0], ..._localAlbum],
+      );
+
+      await tester.tap(find.text('Download all'));
+      await tester.pumpAndSettle();
+
+      // The on-device file is not part of the batch, so it is not counted.
+      expect(
+        find.textContaining('Make 1 song from “Road Trip” available offline?'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Download'));
+      await tester.pumpAndSettle();
+
+      // Its bytes are already on disk, and its row deliberately offers no
+      // offline action, so it never becomes a download.
+      expect(repository.requested, <String>['jellyfin:1']);
+    });
+
+    testWidgets('songs already offline are not announced as downloads',
+        (tester) async {
+      final FakeDownloadRepository repository = FakeDownloadRepository(
+        alreadyDownloaded: <String>{
+          CachedTrack.cacheKeyForTrack(_remoteAlbum[0]),
+        },
+      );
+      await _pumpAlbum(tester, repository);
+
+      await tester.tap(find.byTooltip('Download all songs'));
+      await tester.pumpAndSettle();
+
+      // The collection is 2 songs and the wording is about making it available,
+      // not about downloading 2, because only 1 will actually be fetched.
+      expect(
+        find.textContaining('Make all 2 songs from “Discovery” available '
+            'offline?'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Download'));
+      await tester.pumpAndSettle();
+
+      expect(repository.requested, <String>['jellyfin:2']);
+      expect(
+        find.text('All 2 songs from “Discovery” are available offline.'),
         findsOneWidget,
       );
     });

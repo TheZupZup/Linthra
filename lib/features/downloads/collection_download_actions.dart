@@ -6,6 +6,8 @@ import '../../app/routes.dart';
 import '../../core/models/bulk_download_summary.dart';
 import '../../core/models/track.dart';
 import '../../core/services/bulk_downloader.dart';
+import '../../core/services/remote_track_downloader.dart';
+import '../../data/repositories/download_repository_provider.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import 'bulk_download_controller.dart';
 
@@ -39,10 +41,18 @@ abstract final class CollectionDownloadActions {
     required String label,
     required List<Track> tracks,
   }) async {
-    // Count what will actually be requested, not the raw list: a playlist can
-    // hold the same song twice, and the batch downloads it once. Confirming "3
-    // songs" and then reporting on 2 would read as something having gone wrong.
-    final List<Track> unique = BulkDownloader.uniqueTracks(tracks);
+    // Only the songs that actually stream from a server, deduplicated. A
+    // playlist can hold the same song twice, and a mixed collection can hold
+    // on-device files, whose rows deliberately offer no offline action: sending
+    // those to the batch would list them as downloads for bytes already on
+    // disk. Filtering here also means the number the user is shown is the
+    // number the batch works on.
+    final RemoteTrackDownloader downloader =
+        ref.read(remoteTrackDownloaderProvider);
+    final List<Track> unique = BulkDownloader.uniqueTracks(<Track>[
+      for (final Track track in tracks)
+        if (downloader.isRemote(track)) track,
+    ]);
     if (unique.isEmpty) return false;
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     // Only to offer "View" on the started snackbar; a host without a router
@@ -76,11 +86,10 @@ abstract final class CollectionDownloadActions {
 
     messenger.showSnackBar(
       SnackBar(
-        content: Text(
-          unique.length == 1
-              ? 'Downloading 1 song from “$label”.'
-              : 'Downloading ${unique.length} songs from “$label”.',
-        ),
+        // Deliberately without a number: some of the collection may already be
+        // offline, so the batch works on fewer songs than the collection holds,
+        // and a count here would disagree with the one on the Downloads screen.
+        content: Text('Downloading “$label”.'),
         action: router == null
             ? null
             : SnackBarAction(
@@ -96,7 +105,7 @@ abstract final class CollectionDownloadActions {
     BulkDownloadSummary? summary;
     String message;
     try {
-      summary = await controller.start(label: label, tracks: tracks);
+      summary = await controller.start(label: label, tracks: unique);
       message = summary?.completionMessage ?? _busyMessage;
     } catch (_) {
       // Individual track failures are already handled inside the batch, so
@@ -118,14 +127,15 @@ abstract final class CollectionDownloadActions {
       'the Downloads screen.';
 
   static String _confirmMessage(String label, int count) {
+    // "Make available offline" rather than "download all N", because songs you
+    // already have offline are skipped: promising N downloads and then working
+    // on fewer would read as something having gone wrong.
     final String opening = count == 1
-        ? 'Download 1 song from “$label” for offline listening?'
-        : 'Download all $count songs from “$label” for offline listening?';
-    final String policy = count == 1
-        ? ' It downloads over Wi-Fi (or mobile data if you have allowed it) '
-            'and counts towards your cache limit.'
-        : ' They download over Wi-Fi (or mobile data if you have allowed it) '
-            'and count towards your cache limit.';
+        ? 'Make 1 song from “$label” available offline?'
+        : 'Make all $count songs from “$label” available offline?';
+    const String policy = ' Anything not already downloaded is fetched over '
+        'Wi-Fi (or mobile data if you have allowed it) and counts towards your '
+        'cache limit.';
     final String size = count >= kLargeBulkDownloadCount
         ? ' That is a lot of songs, so it may take a while and use a lot of '
             'storage.'

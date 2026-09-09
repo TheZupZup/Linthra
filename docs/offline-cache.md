@@ -99,6 +99,11 @@ everything above still holds:
 - Songs you **already** have offline are skipped, not re-downloaded, so asking
   for an album again costs nothing and cannot disturb the copies you have.
 - A song listed twice in a playlist is downloaded once.
+- **On-device songs are left alone.** In a mixed playlist, files already on your
+  device are not part of the batch: their bytes are already there, and their
+  rows offer no offline action for the same reason.
+- If you are **offline**, the songs are queued and you start them again from the
+  **Downloads** screen once you are back online. Nothing retries on its own.
 
 While a batch runs, the **Downloads** screen shows which album or playlist it is
 and how far along it is, with a **Stop** button. Stopping is safe: nothing is

@@ -5,6 +5,7 @@ import 'package:linthra/core/models/download_progress.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/download_preferences.dart';
 import 'package:linthra/core/repositories/download_repository.dart';
 import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/repositories/offline_file_store.dart';
@@ -91,6 +92,63 @@ class _FakeRemoteDownloader implements RemoteTrackDownloader {
       activeNow--;
     }
   }
+}
+
+/// Wraps [InMemoryDownloadPreferences] and can hold [maxCacheBytes] open.
+///
+/// That call is the first await inside a cache commit, so gating it parks a
+/// commit *before* it evicts anything, which is the window a request queued
+/// behind it has to survive.
+class _GatedPreferences implements DownloadPreferences {
+  _GatedPreferences(this._inner);
+
+  final InMemoryDownloadPreferences _inner;
+
+  /// When set, [maxCacheBytes] awaits it before answering.
+  Completer<void>? gate;
+
+  /// Completes once [maxCacheBytes] has actually been reached and parked, so a
+  /// test never races the commit it means to hold.
+  final Completer<void> reachedGate = Completer<void>();
+
+  @override
+  Future<int> maxCacheBytes() async {
+    final Completer<void>? pending = gate;
+    if (pending != null) {
+      if (!reachedGate.isCompleted) reachedGate.complete();
+      await pending.future;
+    }
+    return _inner.maxCacheBytes();
+  }
+
+  @override
+  Future<void> setMaxCacheBytes(int bytes) => _inner.setMaxCacheBytes(bytes);
+
+  @override
+  Future<bool> allowMobileData() => _inner.allowMobileData();
+
+  @override
+  Future<void> setAllowMobileData(bool value) =>
+      _inner.setAllowMobileData(value);
+
+  @override
+  Future<MobileDataProfile> mobileDataProfile() => _inner.mobileDataProfile();
+
+  @override
+  Future<void> setMobileDataProfile(MobileDataProfile profile) =>
+      _inner.setMobileDataProfile(profile);
+
+  @override
+  Future<bool> preloadEnabled() => _inner.preloadEnabled();
+
+  @override
+  Future<void> setPreloadEnabled(bool value) => _inner.setPreloadEnabled(value);
+
+  @override
+  Future<int> precacheCount() => _inner.precacheCount();
+
+  @override
+  Future<void> setPrecacheCount(int value) => _inner.setPrecacheCount(value);
 }
 
 /// Wraps an in-memory file store and records every delete, so a test can prove
@@ -935,6 +993,54 @@ void main() {
         expect(saved.preloaded, isTrue);
         expect(saved.fileName, isNotNull);
         expect((await repository.cacheSnapshot()).usedBytes, 4);
+      });
+
+      test(
+          'a preloaded copy evicted while its promotion waits is downloaded '
+          'for real, not restored as a stale record', () async {
+        // Room for exactly one 4-byte track, so caching the second costs the
+        // first its place.
+        final _GatedPreferences gated =
+            _GatedPreferences(InMemoryDownloadPreferences(maxCacheBytes: 5));
+        final repository = CacheDownloadRepository(
+          store: store,
+          files: files,
+          downloader: downloader,
+          connectivity: connectivity,
+          preferences: gated,
+        );
+
+        // j1 is pre-cached ahead of play: a managed, preloaded copy.
+        await repository.prefetch(_jellyfin('j1'));
+        expect((await store.loadDownloads()).single.preloaded, isTrue);
+        expect(downloader.fetchCount, 1);
+
+        // Park j2's commit before it evicts anything, with j1 still in place.
+        gated.gate = Completer<void>();
+        final Future<DownloadRequestOutcome> second =
+            repository.requestDownload(_jellyfin('j2'));
+        await gated.reachedGate.future;
+
+        // Now ask for j1. It sees the preloaded copy, so it takes the promotion
+        // path and queues behind j2's commit, which is about to delete it.
+        final Future<DownloadRequestOutcome> first =
+            repository.requestDownload(_jellyfin('j1'));
+        await _settle();
+
+        gated.gate!.complete();
+        await second;
+        await first;
+
+        // j1 came back by being fetched again, not by resurrecting a record
+        // whose file j2's commit had already deleted.
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+        final CachedTrack restored = (await store.loadDownloads())
+            .firstWhere((CachedTrack c) => c.trackId == 'j1');
+        expect(restored.preloaded, isFalse);
+        // The record points at bytes that are really on disk.
+        expect(files.bytesFor(restored.fileName!), isNotNull);
+        expect(downloader.fetched.map((Track t) => t.id), contains('j1'));
+        expect(downloader.fetchCount, greaterThan(2));
       });
 
       test('skips a local track (already on disk)', () async {

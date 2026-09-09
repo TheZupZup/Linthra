@@ -221,6 +221,33 @@ void main() {
       );
     });
 
+    test('being offline does not promise the batch will resume by itself',
+        () async {
+      final FakeDownloadRepository repository = FakeDownloadRepository(
+        outcomes: <String, DownloadRequestOutcome>{
+          'jellyfin:1': DownloadRequestOutcome.waitingForConnection,
+          'jellyfin:2': DownloadRequestOutcome.waitingForConnection,
+        },
+      );
+
+      final BulkDownloadSummary summary = await const BulkDownloader().run(
+        repository: repository,
+        label: 'Album',
+        tracks: <Track>[_remote('1'), _remote('2')],
+      );
+
+      expect(
+        summary.completionMessage,
+        '2 songs from “Album” are queued. You\'re offline. Start them again '
+        'from Downloads once you\'re back online.',
+      );
+      // Nothing here retries on a reconnect, so the batch must not say it will.
+      expect(
+        summary.completionMessage,
+        isNot(contains('automatically')),
+      );
+    });
+
     test('a mid-batch network change queues the rest instead of failing it',
         () async {
       final FakeDownloadRepository repository = FakeDownloadRepository(

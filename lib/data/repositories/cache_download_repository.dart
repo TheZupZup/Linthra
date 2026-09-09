@@ -334,21 +334,33 @@ class CacheDownloadRepository
 
     // A track preloaded ahead of play is already cached: promote it to a user
     // download in place, without re-fetching its bytes.
-    final CachedTrack? preloadedEntry = _downloads[key];
-    if (preloadedEntry != null &&
-        preloadedEntry.preloaded &&
-        preloadedEntry.isManaged) {
+    final CachedTrack? maybePreloaded = _downloads[key];
+    if (maybePreloaded != null &&
+        maybePreloaded.preloaded &&
+        maybePreloaded.isManaged) {
       // Serialized with every other metadata write for the same reason as the
       // on-device path above: an unordered save can be overwritten by an older
       // snapshot still in flight.
-      await _commit(() async {
-        _downloads[key] = preloadedEntry.copyWith(preloaded: false);
+      //
+      // The entry is read again *inside* the commit, because waiting for the
+      // chain is exactly when a commit queued ahead can evict this preloaded
+      // copy to make room for its own. Promoting the copy read before the wait
+      // would persist a `downloaded` record pointing at a file that commit just
+      // deleted. When it is gone, this returns false and the request falls
+      // through to a real download below.
+      final bool promoted = await _commit(() async {
+        final CachedTrack? current = _downloads[key];
+        if (current == null || !current.preloaded || !current.isManaged) {
+          return false;
+        }
+        _downloads[key] = current.copyWith(preloaded: false);
         await _save();
         _statuses[key] = DownloadStatus.downloaded;
         _emitStatus();
         _emitCache();
+        return true;
       });
-      return DownloadRequestOutcome.started;
+      if (promoted) return DownloadRequestOutcome.started;
     }
 
     // The network gate only matters here, where there are bytes to pull over the
