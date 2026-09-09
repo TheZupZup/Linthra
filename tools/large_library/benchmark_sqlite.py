@@ -9,14 +9,14 @@ import sqlite3
 import statistics
 import time
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 #: A seek: the plan jumps straight to the matching rows.
 SEEK = "SEARCH"
 
-#: An ordered read of a whole index — what `ORDER BY ... LIMIT` wants, and a
+#: An ordered read of a whole index: what `ORDER BY ... LIMIT` wants, and a
 #: regression anywhere it was not asked for.
 INDEX_SCAN = "SCAN"
 
@@ -28,7 +28,7 @@ class Query:
     `uses_index` is the point of #341: timing alone cannot tell "used the index"
     apart from "scanned a table small enough, or a machine fast enough, to get
     away with it". Naming the expected index turns the query plan into an
-    assertion — dropping the index, or rewriting the query so the planner
+    assertion (dropping the index, or rewriting the query so the planner
     cannot use it, fails here even when the wall clock does not notice.
     """
 
@@ -42,14 +42,14 @@ class Query:
     #: How that index has to be reached. Naming it is not enough: a predicate
     #: that stops being sargable while its columns stay covered turns
     #: `SEARCH ... USING COVERING INDEX idx` into `SCAN ... USING COVERING
-    #: INDEX idx` — same index, same green scan guard, and the whole index read
+    #: INDEX idx`: same index, same green scan guard, and the whole index read
     #: instead of a seek. On the 200k fixture that is 0.06 ms becoming 11 ms,
     #: still inside the budget.
     access: str = SEEK
 
     #: Set instead of `uses_index` when any covering index will do. `COUNT(*)`
     #: is the case: it has no semantic reason to prefer one covering index over
-    #: another, so the planner is free to switch to a newly added one — pinning
+    #: another, so the planner is free to switch to a newly added one, so pinning
     #: a name there would fail the run for a schema change that is healthy.
     covering_index_only: bool = False
 
@@ -57,7 +57,7 @@ class Query:
     #:
     #: SQLite prints the alias in the scan row (`SCAN p`) but declares only the
     #: CTE's own name (`MATERIALIZE picked`), and nothing in the plan links the
-    #: two — a *table* aliased `p` produces the identical row. Guessing from the
+    #: two, and a *table* aliased `p` produces the identical row. Guessing from the
     #: SQL would mean parsing it, and a wrong guess excuses a real full scan,
     #: which is the failure that matters. So the query says so instead: one
     #: reviewable line, written by whoever knows the alias is a CTE.
@@ -151,13 +151,19 @@ INDEX_NAME_PATTERN = re.compile(r"USING (?:AUTOMATIC )?(?:COVERING )?INDEX (\w+)
 COVERING_INDEX_PATTERN = re.compile(r"USING (?:AUTOMATIC )?COVERING INDEX (\w+)")
 
 #: What a SCAN row is scanning. SQLite prints the *alias* when a query has one,
-#: so an aliased table reads as "SCAN u", not "SCAN tracks AS u" — which is why
+#: so an aliased table reads as "SCAN u", not "SCAN tracks AS u", which is why
 #: the guard below cannot simply compare against the table name.
 SCANNED_OBJECT_PATTERN = re.compile(r"^SCAN\s+(\S+)")
 
+#: A scan of a literal row set rather than of any named object. SQLite writes
+#: one row as `SCAN CONSTANT ROW` and several as `SCAN 2 CONSTANT ROWS`, so the
+#: token after SCAN is a count, not a name. Reading it as one made an inline
+#: `VALUES (1), (2)` look like a table nobody had indexed.
+CONSTANT_ROWS_PATTERN = re.compile(r"^SCAN\s+(?:\d+\s+)?CONSTANT\s+ROWS?\b")
+
 #: Rows that declare a transient object by name. SQLite materializes a CTE or a
 #: subquery and then scans the result, and that scan row says only "SCAN recent"
-#: — indistinguishable by name from a full scan of a table aliased `recent`.
+#: indistinguishable by name from a full scan of a table aliased `recent`.
 #: The declaration is the thing that tells them apart.
 TRANSIENT_DECLARATION_PATTERN = re.compile(r"^(?:MATERIALIZE|CO-ROUTINE)\s+(\S+)")
 
@@ -173,28 +179,60 @@ class PlanRow:
         return f"{'  ' * self.depth}{self.detail}"
 
 
+def scan_target(detail: str) -> str | None:
+    """The object a scan row reads, or `None` when there is no name to read.
+
+    `None` covers three things: a row that is not a scan at all, a scan of a
+    subquery result (`SCAN (subquery-1)`), and a scan of a literal row set
+    (`SCAN CONSTANT ROW`, `SCAN 2 CONSTANT ROWS`). The last two are transient by
+    shape whatever else the plan says, so they never need vouching for and never
+    count toward a name being ambiguous.
+
+    One function so the guard and the ambiguity count can never disagree about
+    what a row is reading.
+    """
+    stripped = detail.strip()
+    if CONSTANT_ROWS_PATTERN.match(stripped):
+        return None
+    match = SCANNED_OBJECT_PATTERN.match(stripped)
+    if match is None:
+        return None
+    scanned = match.group(1)
+    return None if scanned.startswith("(") else scanned
+
+
 def scanned_objects(rows: Sequence[PlanRow]) -> Counter:
-    """How many times each object is scanned in this plan."""
+    """How many times each named object is scanned in this plan."""
     counts: Counter = Counter()
     for row in rows:
-        match = SCANNED_OBJECT_PATTERN.match(row.detail.strip())
-        if match is not None:
-            counts[match.group(1)] += 1
+        target = scan_target(row.detail)
+        if target is not None:
+            counts[target] += 1
     return counts
 
 
-def ambiguous_aliases(rows: Sequence[PlanRow], declared: Sequence[str]) -> set[str]:
-    """Declared aliases the plan scans more than once.
+def ambiguous_names(rows: Sequence[PlanRow], vouched: Iterable[str]) -> set[str]:
+    """Vouched-for names the plan scans more than once.
 
-    A `transient_aliases` entry is the query vouching that one scan row reads a
-    CTE. SQLite prints the same `SCAN p` for a CTE read as `p` and for a table
+    Something vouching for a name says one scan row reads a transient object.
+    SQLite prints the same `SCAN p` for a CTE read as `p` and for a table
     aliased `p` in a nested scope, so a plan doing both would have its real
-    table scan suppressed by that one declaration. The vouching does not stretch
-    that far: an ambiguous name is not honoured at all, and both rows stay
-    flagged.
+    table scan suppressed. The vouching does not stretch that far: an ambiguous
+    name is not honoured at all, and every scan of it stays flagged.
+
+    This applies to what the *plan* declares (`MATERIALIZE p`) exactly as it
+    does to what a *query* declares (`transient_aliases`). A plan declaring a
+    CTE named `p` while also aliasing `tracks` to `p` deeper down produces two
+    `SCAN p` rows, and honouring the declaration plan-wide waved the real one
+    through.
+
+    The cost is a plan that genuinely scans one CTE twice, which a `UNION ALL`
+    over a CTE does. That is flagged too, because nothing in the plan tells the
+    two cases apart, and this guard's whole job is to fail loudly rather than
+    guess quietly. See the README.
     """
     counts = scanned_objects(rows)
-    return {alias for alias in declared if counts[alias] > 1}
+    return {name for name in vouched if counts[name] > 1}
 
 
 def transient_objects(rows: Sequence[PlanRow]) -> set[str]:
@@ -215,34 +253,29 @@ def full_table_scans(
     table scan or a read of a materialized CTE is only answerable from the
     `MATERIALIZE recent` row elsewhere in the same plan.
 
-    Two shapes are transient whatever else the plan says: `SCAN (subquery-1)`
-    and `SCAN CONSTANT ROW`. Everything else that scans without naming an index
-    is flagged, including an aliased table — SQLite prints `SCAN u` for
-    `FROM tracks AS u`, so a guard that compared against the table name would
-    wave a real full scan through, and in a self-join the *other* branch's
-    index would keep the rest of the run green.
+    Two shapes are transient whatever else the plan says, and are recognised by
+    [scan_target]: a subquery result, and a literal row set. Everything else
+    that scans without naming an index is flagged, including an aliased table:
+    SQLite prints `SCAN u` for `FROM tracks AS u`, so a guard that compared
+    against the table name would wave a real full scan through, and in a
+    self-join the *other* branch's index would keep the rest of the run green.
 
     [extra_transient] names anything the plan cannot: an alias a CTE is read
-    under, which SQLite prints without saying what it refers to. A declaration
-    is honoured only when the plan scans that name exactly once — see
-    [ambiguous_aliases].
+    under, which SQLite prints without saying what it refers to. Every vouched
+    name, the plan's own `MATERIALIZE` declarations included, is honoured only
+    when the plan scans it exactly once. See [ambiguous_names].
 
     Where it has to guess, it guesses toward flagging: a spurious error is loud
     and one line to fix, a missed scan silently retires the check.
     """
-    transient = transient_objects(rows) | (
-        set(extra_transient) - ambiguous_aliases(rows, extra_transient)
-    )
+    vouched = transient_objects(rows) | set(extra_transient)
+    transient = vouched - ambiguous_names(rows, vouched)
     scans: list[PlanRow] = []
     for row in rows:
-        stripped = row.detail.strip()
-        match = SCANNED_OBJECT_PATTERN.match(stripped)
-        if match is None:
+        target = scan_target(row.detail)
+        if target is None or target in transient:
             continue
-        scanned = match.group(1)
-        if scanned in transient or scanned.startswith("(") or scanned == "CONSTANT":
-            continue
-        if any(marker in stripped for marker in INDEXED_ACCESS_MARKERS):
+        if any(marker in row.detail for marker in INDEXED_ACCESS_MARKERS):
             continue
         scans.append(row)
     return scans
@@ -263,7 +296,7 @@ def index_access(rows: Sequence[PlanRow], index: str) -> set[str]:
 
     The distinction the index name alone cannot make. A seek and a full read of
     the same index look identical to a name check, and the scan guard waves the
-    second through because it does name an index — so a query that quietly
+    second through because it does name an index, so a query that quietly
     stopped seeking stays green while reading every entry.
     """
     verbs: set[str] = set()
@@ -273,6 +306,23 @@ def index_access(rows: Sequence[PlanRow], index: str) -> set[str]:
         if match is not None and index in INDEX_NAME_PATTERN.findall(stripped):
             verbs.add(match.group(1))
     return verbs
+
+
+def unexpected_index_access(
+    rows: Sequence[PlanRow], index: str, expected: str
+) -> set[str]:
+    """The ways this plan reaches [index] that [expected] does not allow.
+
+    Empty when every access is the expected one. Asking which verbs are *wrong*
+    rather than whether the right one appears is the whole point: a plan that
+    seeks in one branch and reads the entire index in another reaches it with
+    both, and accepting that on the strength of the seek is the same "reads
+    everything" miss the seek/scan split exists to catch, one level down.
+
+    Says nothing about an index the plan never reaches; that is a separate
+    error, with a separate message.
+    """
+    return index_access(rows, index) - {expected}
 
 
 def plan_uses_covering_index(rows: Sequence[PlanRow]) -> bool:
@@ -397,11 +447,15 @@ def main() -> None:
                     "the query's transient_aliases)"
                 )
                 failed = True
-            for alias in sorted(ambiguous_aliases(plan, query.transient_aliases)):
-                print(
-                    f"ERROR: {query.name} declares transient_aliases "
-                    f"{alias!r}, but the plan scans that name more than once"
+            declared = set(query.transient_aliases)
+            vouched = transient_objects(plan) | declared
+            for name in sorted(ambiguous_names(plan, vouched)):
+                source = (
+                    f"{query.name} declares transient_aliases {name!r}"
+                    if name in declared
+                    else f"the plan for {query.name} materializes {name!r}"
                 )
+                print(f"ERROR: {source}, but it scans that name more than once")
                 print(
                     "       (one declaration cannot vouch for two objects; "
                     "give them distinct aliases)"
@@ -414,10 +468,13 @@ def main() -> None:
                 if not verbs:
                     print(f"ERROR: {query.name} no longer uses {query.uses_index}")
                     failed = True
-                elif query.access not in verbs:
+                elif unexpected := unexpected_index_access(
+                    plan, query.uses_index, query.access
+                ):
                     print(
                         f"ERROR: {query.name} reads {query.uses_index} with "
-                        f"{'/'.join(sorted(verbs))}, expected {query.access}"
+                        f"{'/'.join(sorted(unexpected))}, expected "
+                        f"{query.access}"
                     )
                     print(
                         "       (a SCAN of the index reads every entry; a "

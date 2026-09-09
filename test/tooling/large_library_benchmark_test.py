@@ -23,6 +23,7 @@ import re
 import sqlite3
 import sys
 import unittest
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -225,7 +226,7 @@ class FullTableScanTest(unittest.TestCase):
             "SCAN p",
         )
         self.assertEqual(
-            benchmark_sqlite.ambiguous_aliases(plan, ("p",)), {"p"}
+            benchmark_sqlite.ambiguous_names(plan, ("p",)), {"p"}
         )
         self.assertEqual(
             [row.detail for row in benchmark_sqlite.full_table_scans(plan, ("p",))],
@@ -234,8 +235,51 @@ class FullTableScanTest(unittest.TestCase):
 
     def test_an_unambiguous_alias_declaration_still_works(self):
         plan = self.rows("MATERIALIZE picked", "SCAN p")
-        self.assertEqual(benchmark_sqlite.ambiguous_aliases(plan, ("p",)), set())
+        self.assertEqual(benchmark_sqlite.ambiguous_names(plan, ("p",)), set())
         self.assertEqual(benchmark_sqlite.full_table_scans(plan, ("p",)), [])
+
+    def test_a_plan_declared_name_is_ambiguous_on_the_same_terms(self):
+        # The hole the alias rule left open one level over: `MATERIALIZE p`
+        # vouches for p plan-wide, so a table aliased p deeper down had its
+        # real scan suppressed by the CTE's declaration.
+        plan = self.rows(
+            "MATERIALIZE p",
+            "SEARCH tracks USING INDEX idx_tracks_artist (normalized_artist=?)",
+            "SCAN p",
+            "LIST SUBQUERY 2",
+            "SCAN p",
+        )
+        self.assertEqual(
+            benchmark_sqlite.ambiguous_names(plan, benchmark_sqlite.transient_objects(plan)),
+            {"p"},
+        )
+        self.assertEqual(
+            [row.detail for row in benchmark_sqlite.full_table_scans(plan)],
+            ["SCAN p", "SCAN p"],
+        )
+
+    def test_a_plan_declared_name_scanned_once_is_still_transient(self):
+        plan = self.rows("MATERIALIZE picked", "SCAN picked")
+        self.assertEqual(benchmark_sqlite.full_table_scans(plan), [])
+
+    def test_a_multi_row_constant_scan_is_transient(self):
+        # SQLite writes several literal rows as "SCAN 2 CONSTANT ROWS", so the
+        # token after SCAN is a count. Read as a name, an inline VALUES list
+        # looked like a table nobody had indexed.
+        self.assertEqual(self.scanned("SCAN 2 CONSTANT ROWS"), [])
+        self.assertEqual(self.scanned("SCAN 17 CONSTANT ROWS"), [])
+
+    def test_constant_rows_never_make_a_name_ambiguous(self):
+        # Two constant-row scans are not two scans of anything named, so they
+        # must not push a real declaration over the ambiguity threshold.
+        plan = self.rows(
+            "MATERIALIZE picked",
+            "SCAN 2 CONSTANT ROWS",
+            "SCAN 3 CONSTANT ROWS",
+            "SCAN picked",
+        )
+        self.assertEqual(benchmark_sqlite.scanned_objects(plan), Counter({"picked": 1}))
+        self.assertEqual(benchmark_sqlite.full_table_scans(plan), [])
 
     def test_a_scan_inside_a_subquery_still_counts(self):
         # The subquery's *result* is transient; the table it reads is not.
@@ -269,7 +313,7 @@ class PlanIndexTest(unittest.TestCase):
     def test_a_seek_and_a_full_index_read_are_told_apart(self):
         # The regression a name check cannot see: same index, same green scan
         # guard, and the whole index read instead of a seek. On the 200k
-        # fixture that is 0.06 ms becoming 11 ms — inside the budget.
+        # fixture that is 0.06 ms becoming 11 ms, inside the budget.
         seek = self.rows(
             "SEARCH tracks USING COVERING INDEX idx_tracks_artist (normalized_artist=?)"
         )
@@ -281,6 +325,64 @@ class PlanIndexTest(unittest.TestCase):
         )
         self.assertEqual(
             benchmark_sqlite.index_access(scan, "idx_tracks_artist"), {"SCAN"}
+        )
+
+    def test_a_mixed_access_to_the_expected_index_is_rejected(self):
+        # The seek/scan split asked whether the expected verb appears. It does
+        # here, alongside a full read of the same index in another branch,
+        # which is exactly the "reads everything" failure one level down from a
+        # table scan. The scan guard cannot help: the row names an index.
+        plan = self.rows(
+            "SEARCH tracks USING COVERING INDEX idx_tracks_artist (normalized_artist=?)",
+            "LIST SUBQUERY 1",
+            "SCAN tracks USING COVERING INDEX idx_tracks_artist",
+        )
+        self.assertEqual(
+            benchmark_sqlite.index_access(plan, "idx_tracks_artist"),
+            {"SEARCH", "SCAN"},
+        )
+        self.assertEqual(
+            benchmark_sqlite.unexpected_index_access(
+                plan, "idx_tracks_artist", benchmark_sqlite.SEEK
+            ),
+            {"SCAN"},
+        )
+        self.assertEqual(benchmark_sqlite.full_table_scans(plan), [])
+
+    def test_an_access_that_is_only_the_expected_verb_is_accepted(self):
+        plan = self.rows(
+            "SEARCH tracks USING INDEX idx_tracks_artist (normalized_artist=?)",
+            "SEARCH tracks USING INDEX idx_tracks_artist (normalized_artist=?)",
+        )
+        self.assertEqual(
+            benchmark_sqlite.unexpected_index_access(
+                plan, "idx_tracks_artist", benchmark_sqlite.SEEK
+            ),
+            set(),
+        )
+
+    def test_a_query_that_expects_a_scan_rejects_a_stray_seek_too(self):
+        # Symmetric: the two queries allowed an index scan read one end to end
+        # on purpose, and a plan that also seeks is a different plan.
+        plan = self.rows(
+            "SCAN tracks USING COVERING INDEX idx_tracks_recent",
+            "SEARCH tracks USING COVERING INDEX idx_tracks_recent (added_at=?)",
+        )
+        self.assertEqual(
+            benchmark_sqlite.unexpected_index_access(
+                plan, "idx_tracks_recent", benchmark_sqlite.INDEX_SCAN
+            ),
+            {"SEARCH"},
+        )
+
+    def test_an_index_the_plan_never_reaches_says_nothing_about_verbs(self):
+        # A separate error with a separate message; this helper stays quiet.
+        plan = self.rows("SCAN tracks")
+        self.assertEqual(
+            benchmark_sqlite.unexpected_index_access(
+                plan, "idx_tracks_artist", benchmark_sqlite.SEEK
+            ),
+            set(),
         )
 
     def test_an_index_the_plan_never_reaches_has_no_access(self):
@@ -308,7 +410,7 @@ class PlanIndexTest(unittest.TestCase):
 
     def test_an_index_whose_name_merely_starts_the_same_does_not_count(self):
         # idx_tracks_album is a prefix of idx_tracks_album_artist, so substring
-        # matching would report a green run on the wrong index — and the scan
+        # matching would report a green run on the wrong index, and the scan
         # guard stays quiet, because the plan really is using *an* index.
         plan = self.rows(
             "SEARCH tracks USING INDEX idx_tracks_album_artist (normalized_album_artist=?)"
@@ -355,6 +457,30 @@ class QueryPlanShapeTest(unittest.TestCase):
     def plan(self, sql: str, params: tuple[object, ...] = ()):
         return benchmark_sqlite.query_plan(self.connection, sql, params)
 
+    def wider_plan(self, sql: str, params: tuple[object, ...] = ()):
+        """A plan from a table with enough shape for the planner to have a
+        choice: a second column, a composite index, and rows enough that a
+        covering read beats a table scan. The 2-row fixture above cannot show
+        the multi-branch plans some of these guards exist for.
+        """
+        connection = sqlite3.connect(":memory:")
+        self.addCleanup(connection.close)
+        connection.executescript(
+            """
+            CREATE TABLE tracks (
+                id INTEGER PRIMARY KEY,
+                normalized_artist TEXT NOT NULL,
+                title TEXT NOT NULL
+            );
+            CREATE INDEX idx_tracks_artist ON tracks(normalized_artist, id);
+            """
+        )
+        connection.executemany(
+            "INSERT INTO tracks (normalized_artist, title) VALUES (?, ?)",
+            [(f"a{i % 50}", f"t{i}") for i in range(500)],
+        )
+        return benchmark_sqlite.query_plan(connection, sql, params)
+
     def test_a_flat_plan_is_all_at_depth_zero(self):
         plan = self.plan("SELECT id FROM tracks WHERE normalized_artist = ?", ("a",))
         self.assertTrue(plan)
@@ -378,7 +504,7 @@ class QueryPlanShapeTest(unittest.TestCase):
         self.assertTrue(benchmark_sqlite.full_table_scans(plan))
 
     def test_a_real_aliased_scan_is_reported(self):
-        # Against a real database, so the plan string is SQLite's, not mine —
+        # Against a real database, so the plan string is SQLite's, not mine:
         # this is the shape my first attempt at the guard invented wrongly.
         plan = self.plan("SELECT id FROM tracks AS u WHERE u.normalized_artist LIKE ?", ("%a%",))
         self.assertEqual([row.detail for row in plan], ["SCAN u"])
@@ -394,6 +520,58 @@ class QueryPlanShapeTest(unittest.TestCase):
         self.assertIn("SCAN p", [row.detail for row in plan])
         self.assertTrue(benchmark_sqlite.full_table_scans(plan))
         self.assertEqual(benchmark_sqlite.full_table_scans(plan, ("p",)), [])
+
+    def test_a_real_multi_row_constant_scan_is_not_reported(self):
+        plan = self.plan("SELECT * FROM (VALUES (1), (2))")
+        self.assertIn("SCAN 2 CONSTANT ROWS", [row.detail for row in plan])
+        self.assertEqual(benchmark_sqlite.full_table_scans(plan), [])
+
+    def test_a_real_cte_name_reused_by_a_table_alias_is_flagged(self):
+        # Both rows read as "SCAN p"; one of them is a full scan of tracks.
+        # Honouring the MATERIALIZE declaration plan-wide waved it through.
+        plan = self.wider_plan(
+            "WITH p AS MATERIALIZED "
+            "(SELECT id, title FROM tracks WHERE normalized_artist = ?) "
+            "SELECT p.id FROM p WHERE p.title IN "
+            "(SELECT p.title FROM tracks AS p)",
+            ("a1",),
+        )
+        self.assertEqual(
+            [row.detail for row in plan].count("SCAN p"), 2, msg=str(plan)
+        )
+        self.assertEqual(
+            [row.detail for row in benchmark_sqlite.full_table_scans(plan)],
+            ["SCAN p", "SCAN p"],
+        )
+
+    def test_a_real_cte_scanned_twice_is_flagged_too_and_that_is_the_cost(self):
+        # A UNION ALL over one CTE scans it twice under its own name, and
+        # nothing in the plan tells that apart from the case above. It is
+        # flagged, deliberately: this guard fails loudly rather than guessing
+        # quietly, and the previous rounds were all about the quiet direction.
+        plan = self.plan(
+            "WITH picked AS MATERIALIZED "
+            "(SELECT id FROM tracks WHERE normalized_artist = ?) "
+            "SELECT id FROM picked UNION ALL SELECT id FROM picked",
+            ("a",),
+        )
+        self.assertEqual([row.detail for row in plan].count("SCAN picked"), 2)
+        self.assertTrue(benchmark_sqlite.full_table_scans(plan))
+
+    def test_a_real_mixed_access_to_one_index_reports_both_verbs(self):
+        # A seek in one branch and a full read of the same index in another.
+        # The index name is identical, so only the verbs tell them apart.
+        plan = self.wider_plan(
+            "SELECT id FROM tracks WHERE normalized_artist = ? "
+            "AND id IN (SELECT id FROM tracks WHERE lower(normalized_artist) = ?)",
+            ("a1", "a1"),
+        )
+        self.assertEqual(
+            benchmark_sqlite.index_access(plan, "idx_tracks_artist"),
+            {"SEARCH", "SCAN"},
+        )
+        # The scan guard cannot help here: the row does name an index.
+        self.assertEqual(benchmark_sqlite.full_table_scans(plan), [])
 
     def test_a_real_materialized_cte_is_not_reported(self):
         plan = self.plan(
