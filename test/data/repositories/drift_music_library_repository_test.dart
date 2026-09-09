@@ -271,6 +271,35 @@ void main() {
       final List<Track> all = await repository.getAllTracks();
       expect(all.map((Track t) => t.uri), <String>['subsonic:101']);
     });
+
+    test('reads back the tracks stored for one source', () async {
+      // What the local library needs to keep an offline folder's music when
+      // the folders that *are* readable get refreshed.
+      await repository.upsertCatalog(
+        sourceId: 'local',
+        tracks: <Track>[_track('1'), _track('2')],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+      await repository.upsertCatalog(
+        sourceId: 'jellyfin',
+        tracks: <Track>[_providerTrack('jellyfin:9', id: '9')],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+
+      final List<Track> local = await repository.getTracksForSource('local');
+
+      expect(local.map((Track t) => t.uri), hasLength(2));
+      expect(
+        local.map((Track t) => t.uri),
+        isNot(contains('jellyfin:9')),
+      );
+    });
+
+    test('a source with nothing stored reads as empty', () async {
+      expect(await repository.getTracksForSource('local'), isEmpty);
+    });
   });
 
   group('LinthraDatabase v1 -> v2 migration (tracks re-keyed id -> uri)', () {

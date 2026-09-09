@@ -33,7 +33,21 @@ void main() {
       final value =
           await container.read(selectedFolderControllerProvider.future);
 
-      expect(value, '/music');
+      expect(value, <String>['/music']);
+    });
+
+    test('loads every persisted folder on build', () async {
+      final container = _container(
+        picker: FakeFolderPickerService(),
+        repository: InMemorySelectedMusicFolderRepository(
+          initialFolders: <String>['/music', '/media/usb'],
+        ),
+      );
+
+      final value =
+          await container.read(selectedFolderControllerProvider.future);
+
+      expect(value, <String>['/music', '/media/usb']);
     });
 
     test('starts with no folder when none is persisted', () async {
@@ -45,7 +59,7 @@ void main() {
       final value =
           await container.read(selectedFolderControllerProvider.future);
 
-      expect(value, isNull);
+      expect(value, isEmpty);
     });
 
     test('pickAndPersist stores the chosen folder and updates state', () async {
@@ -63,9 +77,86 @@ void main() {
       expect(picked, '/new/music');
       expect(
         container.read(selectedFolderControllerProvider).value,
-        '/new/music',
+        <String>['/new/music'],
       );
-      expect(await repository.getSelectedFolder(), '/new/music');
+      expect(await repository.getSelectedFolders(), <String>['/new/music']);
+    });
+
+    test('pickAndPersist replaces the whole selection', () async {
+      final repository = InMemorySelectedMusicFolderRepository(
+        initialFolders: <String>['/music', '/media/usb'],
+      );
+      final container = _container(
+        picker: FakeFolderPickerService(folder: '/new/music'),
+        repository: repository,
+      );
+      await container.read(selectedFolderControllerProvider.future);
+
+      await container
+          .read(selectedFolderControllerProvider.notifier)
+          .pickAndPersist();
+
+      expect(await repository.getSelectedFolders(), <String>['/new/music']);
+    });
+
+    test('pickAndAdd keeps the folders already selected', () async {
+      final repository =
+          InMemorySelectedMusicFolderRepository(initialFolder: '/music');
+      final container = _container(
+        picker: FakeFolderPickerService(folder: '/media/usb'),
+        repository: repository,
+      );
+      await container.read(selectedFolderControllerProvider.future);
+
+      final picked = await container
+          .read(selectedFolderControllerProvider.notifier)
+          .pickAndAdd();
+
+      expect(picked, '/media/usb');
+      expect(
+        container.read(selectedFolderControllerProvider).value,
+        <String>['/music', '/media/usb'],
+      );
+      expect(
+        await repository.getSelectedFolders(),
+        <String>['/music', '/media/usb'],
+      );
+    });
+
+    test('adding a folder inside a selected one changes nothing', () async {
+      final repository =
+          InMemorySelectedMusicFolderRepository(initialFolder: '/music');
+      final container = _container(
+        picker: FakeFolderPickerService(folder: '/music/live sets'),
+        repository: repository,
+      );
+      await container.read(selectedFolderControllerProvider.future);
+
+      await container
+          .read(selectedFolderControllerProvider.notifier)
+          .pickAndAdd();
+
+      expect(await repository.getSelectedFolders(), <String>['/music']);
+    });
+
+    test('adding a folder that contains a selected one replaces it', () async {
+      final repository = InMemorySelectedMusicFolderRepository(
+        initialFolders: <String>['/music/live sets', '/media/usb'],
+      );
+      final container = _container(
+        picker: FakeFolderPickerService(folder: '/music'),
+        repository: repository,
+      );
+      await container.read(selectedFolderControllerProvider.future);
+
+      await container
+          .read(selectedFolderControllerProvider.notifier)
+          .pickAndAdd();
+
+      expect(
+        await repository.getSelectedFolders(),
+        <String>['/media/usb', '/music'],
+      );
     });
 
     test('pickAndPersist leaves state unchanged when cancelled', () async {
@@ -82,11 +173,35 @@ void main() {
           .pickAndPersist();
 
       expect(picked, isNull);
-      expect(container.read(selectedFolderControllerProvider).value, '/music');
-      expect(await repository.getSelectedFolder(), '/music');
+      expect(
+        container.read(selectedFolderControllerProvider).value,
+        <String>['/music'],
+      );
+      expect(await repository.getSelectedFolders(), <String>['/music']);
     });
 
-    test('clear forgets the selection', () async {
+    test('removeAndPersist drops one folder and keeps the rest', () async {
+      final repository = InMemorySelectedMusicFolderRepository(
+        initialFolders: <String>['/music', '/media/usb'],
+      );
+      final container = _container(
+        picker: FakeFolderPickerService(),
+        repository: repository,
+      );
+      await container.read(selectedFolderControllerProvider.future);
+
+      await container
+          .read(selectedFolderControllerProvider.notifier)
+          .removeAndPersist('/media/usb');
+
+      expect(
+        container.read(selectedFolderControllerProvider).value,
+        <String>['/music'],
+      );
+      expect(await repository.getSelectedFolders(), <String>['/music']);
+    });
+
+    test('removeAndPersist ignores a folder that is not selected', () async {
       final repository =
           InMemorySelectedMusicFolderRepository(initialFolder: '/music');
       final container = _container(
@@ -95,10 +210,27 @@ void main() {
       );
       await container.read(selectedFolderControllerProvider.future);
 
+      await container
+          .read(selectedFolderControllerProvider.notifier)
+          .removeAndPersist('/media/usb');
+
+      expect(await repository.getSelectedFolders(), <String>['/music']);
+    });
+
+    test('clear forgets every folder', () async {
+      final repository = InMemorySelectedMusicFolderRepository(
+        initialFolders: <String>['/music', '/media/usb'],
+      );
+      final container = _container(
+        picker: FakeFolderPickerService(),
+        repository: repository,
+      );
+      await container.read(selectedFolderControllerProvider.future);
+
       await container.read(selectedFolderControllerProvider.notifier).clear();
 
-      expect(container.read(selectedFolderControllerProvider).value, isNull);
-      expect(await repository.getSelectedFolder(), isNull);
+      expect(container.read(selectedFolderControllerProvider).value, isEmpty);
+      expect(await repository.getSelectedFolders(), isEmpty);
     });
   });
 }

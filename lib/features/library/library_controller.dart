@@ -3,8 +3,12 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/catalog/library_grouping.dart';
+import '../../core/models/track.dart';
+import '../../core/repositories/music_library_repository.dart';
+import '../../core/repositories/source_catalog_reader.dart';
 import '../../core/sources/local/folder_location.dart';
-import '../../core/sources/local/folder_scan_exception.dart';
+import '../../core/sources/local/local_library_scanner.dart';
+import '../../core/sources/local/local_music_roots.dart';
 import '../../core/sources/local/local_music_source.dart';
 import '../../core/sources/local/local_scan_report.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
@@ -76,7 +80,7 @@ class LibraryController extends Notifier<LibraryState> {
     invalidatePendingScans();
     return _serializeLocalMutation(() async {
       await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
-        sourceId: const LocalMusicSource(folderPath: null).id,
+        sourceId: _localSourceId,
         tracks: const [],
         albums: const [],
         artists: const [],
@@ -95,7 +99,29 @@ class LibraryController extends Notifier<LibraryState> {
 
   /// Returns this operation's report, or null if it was superseded. Callers
   /// must not infer success from the last globally recorded scan report.
-  Future<LocalScanReport?> scanFolderWithReport(String folderPath) async {
+  Future<LocalScanReport?> scanFolderWithReport(String folderPath) {
+    return scanFoldersWithReport(<String>[folderPath]);
+  }
+
+  /// Scans every selected local folder and replaces the local catalog with what
+  /// they hold together.
+  Future<void> scanFolders(List<String> folderPaths) async {
+    await scanFoldersWithReport(folderPaths);
+  }
+
+  /// Scans [folderPaths] as one library and returns the merged report, or null
+  /// if the scan was superseded.
+  ///
+  /// Folders are scanned independently and merged, which is what makes several
+  /// music folders behave like one library: overlapping folders import a file
+  /// once, and a folder that is offline right now keeps the tracks it already
+  /// contributed instead of having them deleted along with the refresh of the
+  /// folders that *are* readable. A scan that could read nothing at all — or
+  /// that could not read back what an offline folder had indexed — writes
+  /// nothing, exactly as a failed single-folder scan always has.
+  Future<LocalScanReport?> scanFoldersWithReport(
+    List<String> folderPaths,
+  ) async {
     // Through invalidatePendingScans, so starting a scan also stops the native
     // walk it replaces. A SAF-to-SAF switch would supersede on its own (the
     // next listAudioDocuments trips the old flag), but switching to the
@@ -104,24 +130,46 @@ class LibraryController extends Notifier<LibraryState> {
     invalidatePendingScans();
     final int generation = _scanGeneration;
     state = const LibraryState.loading();
-    final FolderLocation location = FolderLocation.parse(folderPath);
+    final List<String> roots = LocalMusicRoots.normalize(folderPaths);
     try {
-      final source = LocalMusicSource(
-        folderPath: folderPath,
-        scanner: ref.read(audioFileScannerProvider),
-        safDocumentLister: ref.read(safDocumentListerProvider),
-        androidMediaLibrary: ref.read(androidMediaLibraryProvider),
-        metadataReader: ref.read(localMetadataReaderProvider),
-      );
-      final LocalScan scan = await source.scanTracks();
+      // Only a multi-folder library can retain anything: with one folder, a
+      // failure means nothing was read and the catalog is left untouched
+      // anyway. Skipping the query keeps Android and single-folder desktop
+      // scans exactly as cheap as before.
+      final List<Track>? previousTracks =
+          roots.length > 1 ? await _localCatalogSnapshot() : null;
       if (generation != _scanGeneration) return null;
+
+      final scanner = LocalLibraryScanner((String root) {
+        return LocalMusicSource(
+          folderPath: root,
+          scanner: ref.read(audioFileScannerProvider),
+          safDocumentLister: ref.read(safDocumentListerProvider),
+          androidMediaLibrary: ref.read(androidMediaLibraryProvider),
+          metadataReader: ref.read(localMetadataReaderProvider),
+        ).scanTracks();
+      });
+      final LocalLibraryScan scan = await scanner.scan(
+        roots: roots,
+        previousTracks: previousTracks,
+      );
+      if (generation != _scanGeneration) return null;
+
+      if (!scan.isWritable) {
+        ref.read(localScanReportProvider.notifier).record(scan.report);
+        _loadGeneration++;
+        state = LibraryState.error(
+          scan.firstFailureMessage ?? _scanFailedMessage,
+        );
+        return scan.report;
+      }
 
       return await _serializeLocalMutation<LocalScanReport?>(() async {
         // Check at commit time, not merely when the filesystem walk finishes.
         if (generation != _scanGeneration) return null;
         final repository = ref.read(musicLibraryRepositoryProvider);
         await repository.upsertCatalog(
-          sourceId: source.id,
+          sourceId: _localSourceId,
           tracks: scan.tracks,
           albums: groupAlbums(scan.tracks),
           artists: groupArtists(scan.tracks),
@@ -133,31 +181,21 @@ class LibraryController extends Notifier<LibraryState> {
         await _load();
         return generation == _scanGeneration ? scan.report : null;
       });
-    } on FolderScanException catch (error) {
-      if (generation != _scanGeneration) return null;
-      final report = LocalScanReport.failure(
-        folderSelected: folderPath.isNotEmpty,
-        isContentUri: location.isContentUri,
-        isDeviceLibrary: location.isAndroidMediaStore,
-        error: location.isAndroidMediaStore
-            ? error.code == 'permission_denied'
-                ? LocalScanError.mediaPermission
-                : LocalScanError.unexpected
-            : location.isContentUri
-                ? LocalScanError.safTraversal
-                : LocalScanError.folderUnavailable,
-      );
-      ref.read(localScanReportProvider.notifier).record(report);
-      _loadGeneration++;
-      state = LibraryState.error(error.message);
-      return report;
     } catch (_) {
+      // Whatever failed here is outside the per-folder scan (the catalog write,
+      // most likely): every folder failure is already classified and merged by
+      // the scanner. A single selection still reports its kind, so the recovery
+      // advice keeps pointing at the right place.
       if (generation != _scanGeneration) return null;
+      final FolderLocation? only =
+          roots.length == 1 ? FolderLocation.parse(roots.single) : null;
       final report = LocalScanReport.failure(
-        folderSelected: folderPath.isNotEmpty,
-        isContentUri: location.isContentUri,
-        isDeviceLibrary: location.isAndroidMediaStore,
+        folderSelected: roots.isNotEmpty,
+        isContentUri: only?.isContentUri ?? false,
+        isDeviceLibrary: only?.isAndroidMediaStore ?? false,
         error: LocalScanError.unexpected,
+        rootsScanned: roots.length,
+        rootsUnavailable: roots.length,
       );
       ref.read(localScanReportProvider.notifier).record(report);
       _loadGeneration++;
@@ -165,6 +203,24 @@ class LibraryController extends Notifier<LibraryState> {
       return report;
     }
   }
+
+  /// The local slice of the catalog as it stands, or null when this repository
+  /// cannot read a source's slice. Null means "unknown", never "empty": the
+  /// scan uses it to decide whether it may overwrite the local slice, and
+  /// mistaking one for the other would delete an offline folder's music.
+  Future<List<Track>?> _localCatalogSnapshot() async {
+    final MusicLibraryRepository repository =
+        ref.read(musicLibraryRepositoryProvider);
+    if (repository is! SourceCatalogReader) return null;
+    try {
+      return await (repository as SourceCatalogReader)
+          .getTracksForSource(_localSourceId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static const String _localSourceId = 'local';
 
   static const String _scanFailedMessage =
       "Couldn't scan that folder. Try selecting it again, or pick a different "

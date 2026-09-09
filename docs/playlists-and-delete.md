@@ -26,9 +26,36 @@ What you can do:
   Playing actions, or via multi-select.
 - **Remove tracks** from a playlist (per-row, with an Undo snackbar, or via
   multi-select).
-- **Reorder tracks** by dragging the handle on a row.
+- **Reorder tracks** by dragging the handle on a row — see
+  [Reordering a playlist](#reordering-a-playlist).
 - **Play** the playlist, or **Shuffle** it, from the detail screen. Tapping any
   track plays from there and queues the rest of the playlist behind it.
+
+### Reordering a playlist
+
+Drag a track by the handle on its row to move it. On desktop the handle behaves
+the way a desktop control should: the pointer turns into a grab cursor over it,
+hovering shows what it does, and the row lifts onto a shadow while it is being
+dragged so you can see what you picked up.
+
+**Without a pointer.** Tab to a row's handle and press **Ctrl + ↑ / ↓** (Cmd on
+macOS) to move that row one position. Focus follows the track, so holding the
+chord walks it up or down the playlist (the list scrolls along to keep the track
+you are moving in view). The same two moves are exposed to screen readers as the
+row's **Move up** / **Move down** actions, and a row at either end only offers
+the move that goes somewhere.
+
+Drag, keyboard and screen reader all run through the same
+`PlaylistRepository.reorderTracks` call, so nothing behaves differently
+depending on how you reached it. The new order is written locally first; a
+server that refuses it leaves the local order applied and the playlist marked
+`syncFailed` rather than losing the edit (see [Sync state](#sync-state)).
+
+Reordering is offered only when every stored track resolved to something in your
+library. If some entries are missing (the "N songs are no longer in your
+library" note), the list is not reorderable at all — the visible rows no longer
+line up 1:1 with the stored order, so a drag could scramble entries you cannot
+see.
 
 Playlists persist locally via `shared_preferences` (the same lightweight,
 plugin-only storage used for favourites and the offline-download set) — no

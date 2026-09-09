@@ -76,6 +76,7 @@ class LocalMusicSource implements MusicSource {
           audioCandidates: 0,
           skippedUnsupported: 0,
           readFailures: 0,
+          rootsScanned: 0,
         ),
       );
     }
