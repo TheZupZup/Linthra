@@ -146,6 +146,20 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           set -euo pipefail
+          # The runner image ships third-party apt sources (Google Chrome,
+          # Microsoft) that none of the packages below come from. When one of
+          # them serves an index that disagrees with its own Release file,
+          # `apt-get update` exits 100 and `set -e` takes the whole build with
+          # it, minutes before anything of ours has run. Dropping the lists we
+          # do not need turns somebody else's mirror hiccup back into a
+          # non-event.
+          #
+          # Deliberately a targeted removal rather than
+          # `-o Dir::Etc::sourceparts=/dev/null`: on noble the Ubuntu sources
+          # themselves live in sources.list.d/ubuntu.sources, so ignoring that
+          # directory wholesale would drop the sources we actually install from.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang \
