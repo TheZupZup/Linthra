@@ -3,15 +3,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/cast_state.dart';
 import 'package:linthra/core/services/cast/cast_containment.dart';
+import 'package:linthra/core/services/cast/cast_receiver_pinning.dart';
+import 'package:linthra/data/repositories/cast_receiver_pin_store_provider.dart';
 import 'package:linthra/features/player/cast/cast_devices_sheet.dart';
 import 'package:linthra/features/player/cast/cast_providers.dart';
 
 import 'fake_cast_service.dart';
 
-Future<void> _pumpSheet(WidgetTester tester, FakeCastService service) async {
+Future<void> _pumpSheet(
+  WidgetTester tester,
+  FakeCastService service, {
+  CastReceiverPinStore? pins,
+}) async {
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [castServiceProvider.overrideWithValue(service)],
+      overrides: [
+        castServiceProvider.overrideWithValue(service),
+        if (pins != null) castReceiverPinStoreProvider.overrideWithValue(pins),
+      ],
       child: const MaterialApp(home: Scaffold(body: CastDevicesSheet())),
     ),
   );
@@ -292,4 +301,181 @@ void main() {
       expect(tester.widget<Slider>(find.byType(Slider)).value, 0.0);
     });
   });
+
+  /// Layer 3 of docs/cast-hardened-design.md reaches the user here. A receiver
+  /// that authenticated but is not the one this device was pinned to gets
+  /// refused with [CastTrustFailureKind.changedReceiver], whose message tells
+  /// the user to forget the device "in the cast list". These tests are about
+  /// that sentence being true: the list has to still be on screen, and it has
+  /// to carry the action.
+  group('CastDevicesSheet forgetting a receiver', () {
+    const String changedReceiver =
+        "This isn't the same device Linthra cast to before, so it stopped. If "
+        'you replaced it, forget it in the cast list and try again.';
+
+    CastState refused() => const CastState(
+          availability: CastAvailability.error,
+          devices: <CastDevice>[_device],
+          message: changedReceiver,
+        );
+
+    Future<CastReceiverPinStore> pinned() async {
+      final InMemoryCastReceiverPinStore pins = InMemoryCastReceiverPinStore();
+      await pins.remember(_device.id, 'sha256aabb');
+      return pins;
+    }
+
+    testWidgets('a refusal keeps the device list it points the user at',
+        (tester) async {
+      await _pumpSheet(
+        tester,
+        FakeCastService(initial: refused()),
+        pins: await pinned(),
+      );
+
+      expect(find.text(changedReceiver), findsOneWidget);
+      expect(find.text('Living Room'), findsOneWidget);
+      // The empty state would have replaced the one place the message names.
+      expect(find.text('No cast devices'), findsNothing);
+    });
+
+    testWidgets('the device can still be retried from the refusal',
+        (tester) async {
+      final service = FakeCastService(initial: refused());
+      await _pumpSheet(tester, service, pins: await pinned());
+
+      await tester.tap(find.text('Living Room'));
+      await tester.pump();
+
+      expect(service.connectRequests, <CastDevice>[_device]);
+    });
+
+    testWidgets('offers nothing to forget for a device with no pin',
+        (tester) async {
+      await _pumpSheet(
+        tester,
+        FakeCastService(initial: refused()),
+        pins: InMemoryCastReceiverPinStore(),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.more_vert), findsNothing);
+    });
+
+    testWidgets('forgetting is confirmed before the pin is dropped',
+        (tester) async {
+      final InMemoryCastReceiverPinStore pins =
+          await pinned() as InMemoryCastReceiverPinStore;
+      await _pumpSheet(tester, FakeCastService(initial: refused()), pins: pins);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Forget this device'));
+      await tester.pumpAndSettle();
+
+      // The dialog is up and nothing has happened yet: dropping a pin weakens
+      // a check the user cannot see, so a stray tap must not be enough.
+      expect(find.text('Forget this device?'), findsOneWidget);
+      expect(pins.pins[_device.id], 'sha256aabb');
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(pins.pins[_device.id], 'sha256aabb');
+    });
+
+    testWidgets('confirming drops the pin and says so', (tester) async {
+      final InMemoryCastReceiverPinStore pins =
+          await pinned() as InMemoryCastReceiverPinStore;
+      await _pumpSheet(tester, FakeCastService(initial: refused()), pins: pins);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Forget this device'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Forget'));
+      await tester.pumpAndSettle();
+
+      expect(pins.pins, isEmpty);
+      expect(
+        find.textContaining('will check Living Room again'),
+        findsOneWidget,
+      );
+      // The action is gone with the pin it cleared.
+      expect(find.byIcon(Icons.more_vert), findsNothing);
+    });
+
+    testWidgets('a store that cannot answer still offers the way out',
+        (tester) async {
+      // Refusing to draw the recovery because the store is unhappy would
+      // strand a user whose only way forward is to clear a pin.
+      await _pumpSheet(
+        tester,
+        FakeCastService(initial: refused()),
+        pins: _BrokenPinStore(),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+    });
+
+    testWidgets('a forget that fails says so instead of claiming success',
+        (tester) async {
+      await _pumpSheet(
+        tester,
+        FakeCastService(initial: refused()),
+        pins: _BrokenPinStore(),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Forget this device'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Forget'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.textContaining("couldn't forget Living Room"), findsOneWidget);
+    });
+
+    testWidgets('the connected device is not offered a forget', (tester) async {
+      // The live session already proved itself, so dropping its pin would
+      // change nothing now and read as if it had.
+      final InMemoryCastReceiverPinStore pins =
+          await pinned() as InMemoryCastReceiverPinStore;
+      await _pumpSheet(
+        tester,
+        FakeCastService(
+          initial: const CastState(
+            availability: CastAvailability.connected,
+            devices: <CastDevice>[_device],
+            connectedDevice: _device,
+          ),
+        ),
+        pins: pins,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Disconnect'), findsOneWidget);
+      expect(find.byIcon(Icons.more_vert), findsNothing);
+    });
+  });
+}
+
+/// A pin store that fails at everything, standing in for storage the app cannot
+/// reach. The sheet must neither hide the recovery nor pretend it worked.
+class _BrokenPinStore implements CastReceiverPinStore {
+  @override
+  Future<String?> pinFor(String deviceId) async =>
+      throw StateError('unavailable');
+
+  @override
+  Future<void> remember(String deviceId, String fingerprint) async =>
+      throw StateError('unavailable');
+
+  @override
+  Future<void> forget(String deviceId) async => throw StateError('unavailable');
 }
