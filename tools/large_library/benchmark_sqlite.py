@@ -117,13 +117,16 @@ INDEX_NAME_PATTERN = re.compile(r"USING (?:AUTOMATIC )?(?:COVERING )?INDEX (\w+)
 #: The subset of the above that never touches the table at all.
 COVERING_INDEX_PATTERN = re.compile(r"USING (?:AUTOMATIC )?COVERING INDEX (\w+)")
 
-#: What a SCAN row is scanning. A table is a bare name (optionally followed by
-#: "AS alias"); a transient object is "(subquery-1)", "CONSTANT ROW", or a CTE's
-#: name.
+#: What a SCAN row is scanning. SQLite prints the *alias* when a query has one,
+#: so an aliased table reads as "SCAN u", not "SCAN tracks AS u" — which is why
+#: the guard below cannot simply compare against the table name.
 SCANNED_OBJECT_PATTERN = re.compile(r"^SCAN\s+(\S+)")
 
-#: The one table this sandbox has, and the only one the scan guard judges.
-TABLE = "tracks"
+#: Rows that declare a transient object by name. SQLite materializes a CTE or a
+#: subquery and then scans the result, and that scan row says only "SCAN recent"
+#: — indistinguishable by name from a full scan of a table aliased `recent`.
+#: The declaration is the thing that tells them apart.
+TRANSIENT_DECLARATION_PATTERN = re.compile(r"^(?:MATERIALIZE|CO-ROUTINE)\s+(\S+)")
 
 
 @dataclass(frozen=True)
@@ -137,24 +140,46 @@ class PlanRow:
         return f"{'  ' * self.depth}{self.detail}"
 
 
-def is_full_table_scan(detail: str, table: str = TABLE) -> bool:
-    """Whether a plan row reads all of [table] without an index.
+def transient_objects(rows: Sequence[PlanRow]) -> set[str]:
+    """The names this plan materializes rather than reads from disk."""
+    return {
+        match.group(1)
+        for row in rows
+        if (match := TRANSIENT_DECLARATION_PATTERN.match(row.detail.strip()))
+    }
 
-    Deliberately narrow, in two directions. It is per row, so a plan whose
-    *other* steps use an index cannot hide a scan inside it. And it judges only
-    scans of [table]: SQLite emits `SCAN` rows for transient objects too —
-    `SCAN (subquery-1)`, `SCAN CONSTANT ROW`, `SCAN some_cte` — and flagging
-    those would reject a perfectly healthy plan that happens to materialize a
-    subquery, which is exactly what a contributor adding a CTE query would hit.
 
-    A `SCAN` of the table that names an index (including a covering one) is a
-    legitimate ordered or covering read and is not flagged.
+def full_table_scans(rows: Sequence[PlanRow]) -> list[PlanRow]:
+    """The rows of [rows] that read something end to end without an index.
+
+    Takes the whole plan rather than one row, because whether `SCAN recent` is a
+    table scan or a read of a materialized CTE is only answerable from the
+    `MATERIALIZE recent` row elsewhere in the same plan.
+
+    Two shapes are transient whatever else the plan says: `SCAN (subquery-1)`
+    and `SCAN CONSTANT ROW`. Everything else that scans without naming an index
+    is flagged, including an aliased table — SQLite prints `SCAN u` for
+    `FROM tracks AS u`, so a guard that compared against the table name would
+    wave a real full scan through, and in a self-join the *other* branch's
+    index would keep the rest of the run green.
+
+    Where it has to guess, it guesses toward flagging: a spurious error is loud
+    and one line to fix, a missed scan silently retires the check.
     """
-    stripped = detail.strip()
-    match = SCANNED_OBJECT_PATTERN.match(stripped)
-    if match is None or match.group(1) != table:
-        return False
-    return not any(marker in stripped for marker in INDEXED_ACCESS_MARKERS)
+    transient = transient_objects(rows)
+    scans: list[PlanRow] = []
+    for row in rows:
+        stripped = row.detail.strip()
+        match = SCANNED_OBJECT_PATTERN.match(stripped)
+        if match is None:
+            continue
+        scanned = match.group(1)
+        if scanned in transient or scanned.startswith("(") or scanned == "CONSTANT":
+            continue
+        if any(marker in stripped for marker in INDEXED_ACCESS_MARKERS):
+            continue
+        scans.append(row)
+    return scans
 
 
 def plan_indexes(rows: Sequence[PlanRow]) -> set[str]:
@@ -279,11 +304,10 @@ def main() -> None:
             # Every benchmark query has a matching index in schema.sql. A full
             # table scan is therefore a schema/query regression, even if a fast
             # CI machine happens to hide it in wall-clock timing.
-            for row in plan:
-                if is_full_table_scan(row.detail):
-                    print(f"ERROR: {query.name} reads the table without an index")
-                    print(f"       {row.detail}")
-                    failed = True
+            for row in full_table_scans(plan):
+                print(f"ERROR: {query.name} reads a table without an index")
+                print(f"       {row.detail}")
+                failed = True
             # ...and a query that stopped using the index it was written for is
             # a regression too, even when it found some other index to ride.
             if query.uses_index and not plan_names_index(plan, query.uses_index):

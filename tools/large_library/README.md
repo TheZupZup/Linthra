@@ -72,10 +72,15 @@ staying quiet when it shouldn't:
 - `USING COVERING INDEX` is matched explicitly, because it does not contain the
   substring `USING INDEX` — a check written against that one string reads a
   healthy `COUNT(*)` as a full table scan.
-- Only scans of **`tracks`** count. SQLite emits `SCAN` rows for transient
-  objects too (`SCAN (subquery-1)`, `SCAN CONSTANT ROW`, `SCAN some_cte`), and
-  none of those is a full table scan — flagging them would reject the first
-  plan a contributor writes with a CTE.
+- Transient objects are excluded, but by what the plan *declares*, not by
+  name. SQLite prints the **alias**, so `FROM tracks AS u` scans as `SCAN u` —
+  a guard comparing against the table name would wave a real full scan
+  through, and in a self-join the other branch's index would keep the run
+  green. `SCAN (subquery-1)` and `SCAN CONSTANT ROW` are transient by shape; a
+  materialized CTE is transient because a `MATERIALIZE recent` row says so.
+  Anything else that scans without naming an index is flagged. Where the guard
+  has to guess it guesses toward flagging: a spurious error is loud and one
+  line to fix, a missed scan silently retires the check.
 - Index names are matched as **whole identifiers**. `idx_tracks_album` is a
   prefix of `idx_tracks_album_artist`, so a substring test would report a green
   run on the wrong index, and the scan guard would stay quiet about it because

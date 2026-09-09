@@ -110,52 +110,98 @@ class SummaryLinesTest(unittest.TestCase):
 
 
 class FullTableScanTest(unittest.TestCase):
-    """The check that decides whether a run passes (#341)."""
+    """The check that decides whether a run passes (#341).
 
-    def scan(self, detail: str, table: str = "tracks") -> bool:
-        return benchmark_sqlite.is_full_table_scan(detail, table)
+    It takes the whole plan, not one row: whether `SCAN recent` reads a table
+    or a materialized CTE is only answerable from the rest of the plan.
+    """
+
+    def rows(self, *details: str):
+        return [benchmark_sqlite.PlanRow(0, detail) for detail in details]
+
+    def scanned(self, *details: str) -> list[str]:
+        return [
+            row.detail for row in benchmark_sqlite.full_table_scans(self.rows(*details))
+        ]
 
     def test_a_bare_scan_is_the_regression_we_are_looking_for(self):
-        self.assertTrue(self.scan("SCAN tracks"))
-        self.assertTrue(self.scan("SCAN tracks AS t"))
+        self.assertEqual(self.scanned("SCAN tracks"), ["SCAN tracks"])
 
-    def test_transient_scan_nodes_are_not_the_table(self):
-        # SQLite emits SCAN rows for materialized subqueries, CTEs and constant
-        # rows. None of them is a full table scan, and flagging them would
-        # reject a healthy plan from anyone adding a CTE query.
-        self.assertFalse(self.scan("SCAN (subquery-1)"))
-        self.assertFalse(self.scan("SCAN CONSTANT ROW"))
-        self.assertFalse(self.scan("SCAN recent_cte"))
-
-    def test_a_scan_of_some_other_table_is_not_this_guard_s_business(self):
-        self.assertFalse(self.scan("SCAN artists"))
-        self.assertTrue(self.scan("SCAN artists", table="artists"))
+    def test_an_aliased_table_scan_is_caught(self):
+        # SQLite prints the alias, not the table: `FROM tracks AS u` scans as
+        # "SCAN u". A guard comparing against the table name would wave this
+        # through, and in a self-join the other branch's index would keep the
+        # rest of the run green.
+        self.assertEqual(self.scanned("SCAN u"), ["SCAN u"])
+        self.assertEqual(
+            self.scanned(
+                "SEARCH a USING INDEX idx_tracks_artist (normalized_artist=?)",
+                "SCAN b",
+            ),
+            ["SCAN b"],
+        )
 
     def test_an_ordered_index_scan_is_healthy(self):
         # "recently added" reads the whole date_added index in order. It is a
         # SCAN, and it is exactly what the index is for.
-        self.assertFalse(self.scan("SCAN tracks USING INDEX idx_tracks_recent"))
+        self.assertEqual(self.scanned("SCAN tracks USING INDEX idx_tracks_recent"), [])
 
     def test_a_covering_index_scan_is_healthy(self):
         # The false positive this check was written to avoid: "USING COVERING
         # INDEX" does not contain the substring "USING INDEX", so a check
         # written against that one string reads COUNT(*) as a full table scan.
-        self.assertFalse(
-            self.scan("SCAN tracks USING COVERING INDEX idx_tracks_recent")
+        self.assertEqual(
+            self.scanned("SCAN tracks USING COVERING INDEX idx_tracks_recent"), []
         )
 
     def test_a_rowid_or_primary_key_read_is_healthy(self):
-        self.assertFalse(self.scan("SCAN tracks USING INTEGER PRIMARY KEY (rowid=?)"))
-        self.assertFalse(self.scan("SCAN tracks USING PRIMARY KEY"))
+        self.assertEqual(
+            self.scanned("SCAN tracks USING INTEGER PRIMARY KEY (rowid=?)"), []
+        )
+        self.assertEqual(self.scanned("SCAN tracks USING PRIMARY KEY"), [])
 
     def test_a_search_is_never_a_full_scan(self):
-        self.assertFalse(
-            self.scan("SEARCH tracks USING INDEX idx_tracks_artist (normalized_artist=?)")
+        self.assertEqual(
+            self.scanned(
+                "SEARCH tracks USING INDEX idx_tracks_artist (normalized_artist=?)"
+            ),
+            [],
         )
 
     def test_non_access_plan_rows_are_ignored(self):
-        self.assertFalse(self.scan("USE TEMP B-TREE FOR ORDER BY"))
-        self.assertFalse(self.scan("CO-ROUTINE (subquery-1)"))
+        self.assertEqual(self.scanned("USE TEMP B-TREE FOR ORDER BY"), [])
+        self.assertEqual(self.scanned("CO-ROUTINE (subquery-1)"), [])
+
+    def test_subquery_and_constant_rows_are_transient_by_shape(self):
+        self.assertEqual(self.scanned("SCAN (subquery-1)"), [])
+        self.assertEqual(self.scanned("SCAN CONSTANT ROW"), [])
+
+    def test_a_materialized_cte_is_transient_because_the_plan_says_so(self):
+        # The declaration is what distinguishes reading a materialized CTE from
+        # a full scan of a table that happens to be aliased the same way.
+        self.assertEqual(
+            self.scanned(
+                "MATERIALIZE recent",
+                "SCAN tracks USING INDEX idx_tracks_recent",
+                "SCAN recent",
+            ),
+            [],
+        )
+
+    def test_the_same_name_without_a_declaration_is_a_table_scan(self):
+        # Same row, no MATERIALIZE: now it is a table aliased `recent`.
+        self.assertEqual(self.scanned("SCAN recent"), ["SCAN recent"])
+
+    def test_a_scan_inside_a_subquery_still_counts(self):
+        # The subquery's *result* is transient; the table it reads is not.
+        self.assertEqual(
+            self.scanned(
+                "SEARCH tracks USING COVERING INDEX idx_tracks_artist (normalized_artist=?)",
+                "LIST SUBQUERY 1",
+                "SCAN tracks",
+            ),
+            ["SCAN tracks"],
+        )
 
 
 class PlanIndexTest(unittest.TestCase):
@@ -248,10 +294,27 @@ class QueryPlanShapeTest(unittest.TestCase):
         self.assertTrue(all(row.rendered().startswith("  ") for row in deeper))
 
     def test_an_unindexed_predicate_is_reported_as_a_full_scan(self):
-        plan = self.plan("SELECT id FROM tracks WHERE normalized_artist LIKE ?", ("%a%",))
-        self.assertTrue(
-            any(benchmark_sqlite.is_full_table_scan(row.detail) for row in plan)
+        plan = self.plan(
+            "SELECT id FROM tracks WHERE normalized_artist LIKE ?", ("%a%",)
         )
+        self.assertTrue(benchmark_sqlite.full_table_scans(plan))
+
+    def test_a_real_aliased_scan_is_reported(self):
+        # Against a real database, so the plan string is SQLite's, not mine —
+        # this is the shape my first attempt at the guard invented wrongly.
+        plan = self.plan("SELECT id FROM tracks AS u WHERE u.normalized_artist LIKE ?", ("%a%",))
+        self.assertEqual([row.detail for row in plan], ["SCAN u"])
+        self.assertTrue(benchmark_sqlite.full_table_scans(plan))
+
+    def test_a_real_materialized_cte_is_not_reported(self):
+        plan = self.plan(
+            "WITH picked AS MATERIALIZED "
+            "(SELECT id FROM tracks WHERE normalized_artist = ?) "
+            "SELECT id FROM picked",
+            ("a",),
+        )
+        self.assertTrue(any("MATERIALIZE" in row.detail for row in plan))
+        self.assertEqual(benchmark_sqlite.full_table_scans(plan), [])
 
 
 class QueryCatalogueTest(unittest.TestCase):
