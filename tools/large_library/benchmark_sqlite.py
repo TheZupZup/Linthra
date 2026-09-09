@@ -37,6 +37,16 @@ class Query:
     #: a name there would fail the run for a schema change that is healthy.
     covering_index_only: bool = False
 
+    #: Aliases this query reads a CTE or subquery under.
+    #:
+    #: SQLite prints the alias in the scan row (`SCAN p`) but declares only the
+    #: CTE's own name (`MATERIALIZE picked`), and nothing in the plan links the
+    #: two — a *table* aliased `p` produces the identical row. Guessing from the
+    #: SQL would mean parsing it, and a wrong guess excuses a real full scan,
+    #: which is the failure that matters. So the query says so instead: one
+    #: reviewable line, written by whoever knows the alias is a CTE.
+    transient_aliases: tuple[str, ...] = ()
+
 
 QUERIES: tuple[Query, ...] = (
     Query(
@@ -149,7 +159,9 @@ def transient_objects(rows: Sequence[PlanRow]) -> set[str]:
     }
 
 
-def full_table_scans(rows: Sequence[PlanRow]) -> list[PlanRow]:
+def full_table_scans(
+    rows: Sequence[PlanRow], extra_transient: Sequence[str] = ()
+) -> list[PlanRow]:
     """The rows of [rows] that read something end to end without an index.
 
     Takes the whole plan rather than one row, because whether `SCAN recent` is a
@@ -163,10 +175,13 @@ def full_table_scans(rows: Sequence[PlanRow]) -> list[PlanRow]:
     wave a real full scan through, and in a self-join the *other* branch's
     index would keep the rest of the run green.
 
+    [extra_transient] names anything the plan cannot: an alias a CTE is read
+    under, which SQLite prints without saying what it refers to.
+
     Where it has to guess, it guesses toward flagging: a spurious error is loud
     and one line to fix, a missed scan silently retires the check.
     """
-    transient = transient_objects(rows)
+    transient = transient_objects(rows) | set(extra_transient)
     scans: list[PlanRow] = []
     for row in rows:
         stripped = row.detail.strip()
@@ -304,9 +319,15 @@ def main() -> None:
             # Every benchmark query has a matching index in schema.sql. A full
             # table scan is therefore a schema/query regression, even if a fast
             # CI machine happens to hide it in wall-clock timing.
-            for row in full_table_scans(plan):
+            for row in full_table_scans(plan, query.transient_aliases):
                 print(f"ERROR: {query.name} reads a table without an index")
                 print(f"       {row.detail}")
+                # The one shape this cannot tell apart on its own, named here
+                # so a contributor is not left guessing at a spurious error.
+                print(
+                    "       (if that is a CTE read under an alias, add it to "
+                    "the query's transient_aliases)"
+                )
                 failed = True
             # ...and a query that stopped using the index it was written for is
             # a regression too, even when it found some other index to ride.

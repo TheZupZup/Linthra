@@ -81,6 +81,13 @@ staying quiet when it shouldn't:
   Anything else that scans without naming an index is flagged. Where the guard
   has to guess it guesses toward flagging: a spurious error is loud and one
   line to fix, a missed scan silently retires the check.
+
+There is one shape the plan cannot resolve on its own. A CTE read under an
+alias scans as `SCAN p` while the declaration says `MATERIALIZE picked`, and
+nothing links the two — a *table* aliased `p` produces the identical row.
+Guessing would mean parsing the SQL, and a wrong guess excuses a real full
+scan, so the query declares it instead: `transient_aliases=("p",)`. The error
+message says so when it fires, and no query needs it today.
 - Index names are matched as **whole identifiers**. `idx_tracks_album` is a
   prefix of `idx_tracks_album_artist`, so a substring test would report a green
   run on the wrong index, and the scan guard would stay quiet about it because

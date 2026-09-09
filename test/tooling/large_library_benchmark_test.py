@@ -192,6 +192,28 @@ class FullTableScanTest(unittest.TestCase):
         # Same row, no MATERIALIZE: now it is a table aliased `recent`.
         self.assertEqual(self.scanned("SCAN recent"), ["SCAN recent"])
 
+    def test_a_cte_read_under_an_alias_needs_declaring(self):
+        # SQLite prints "SCAN p" and declares only "MATERIALIZE picked";
+        # nothing in the plan links them, and a *table* aliased p looks the
+        # same. Flagged by default, cleared by the query saying so.
+        plan = self.rows(
+            "MATERIALIZE picked",
+            "SEARCH tracks USING COVERING INDEX idx_tracks_artist (normalized_artist=?)",
+            "SCAN p",
+        )
+        self.assertEqual(
+            [row.detail for row in benchmark_sqlite.full_table_scans(plan)],
+            ["SCAN p"],
+        )
+        self.assertEqual(benchmark_sqlite.full_table_scans(plan, ("p",)), [])
+
+    def test_declaring_an_alias_does_not_excuse_other_scans(self):
+        plan = self.rows("MATERIALIZE picked", "SCAN p", "SCAN tracks")
+        self.assertEqual(
+            [row.detail for row in benchmark_sqlite.full_table_scans(plan, ("p",))],
+            ["SCAN tracks"],
+        )
+
     def test_a_scan_inside_a_subquery_still_counts(self):
         # The subquery's *result* is transient; the table it reads is not.
         self.assertEqual(
@@ -305,6 +327,17 @@ class QueryPlanShapeTest(unittest.TestCase):
         plan = self.plan("SELECT id FROM tracks AS u WHERE u.normalized_artist LIKE ?", ("%a%",))
         self.assertEqual([row.detail for row in plan], ["SCAN u"])
         self.assertTrue(benchmark_sqlite.full_table_scans(plan))
+
+    def test_a_real_aliased_cte_is_reported_until_declared(self):
+        plan = self.plan(
+            "WITH picked AS MATERIALIZED "
+            "(SELECT id FROM tracks WHERE normalized_artist = ?) "
+            "SELECT id FROM picked AS p",
+            ("a",),
+        )
+        self.assertIn("SCAN p", [row.detail for row in plan])
+        self.assertTrue(benchmark_sqlite.full_table_scans(plan))
+        self.assertEqual(benchmark_sqlite.full_table_scans(plan, ("p",)), [])
 
     def test_a_real_materialized_cte_is_not_reported(self):
         plan = self.plan(
