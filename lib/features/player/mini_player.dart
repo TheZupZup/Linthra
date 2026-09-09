@@ -17,8 +17,10 @@ import 'cast/cast_providers.dart';
 import 'favorites_providers.dart';
 import 'player_providers.dart';
 import 'widgets/album_artwork.dart';
+import 'widgets/playback_progress_bar.dart';
 import 'widgets/queue_sheet.dart';
 import 'widgets/volume_controls.dart';
+import 'widgets/wavy_seek_bar.dart';
 
 /// A compact, persistent now-playing bar shown above the bottom navigation on
 /// every main screen (Library / Folders / Playlists / Downloads / Settings).
@@ -36,6 +38,13 @@ import 'widgets/volume_controls.dart';
 /// the full row — favorite · previous · play/pause · next — centred between the
 /// metadata and the queue button, so skipping a track or liking one never means
 /// opening the full player first.
+///
+/// On a desktop host the progress line along the top edge is a seek control
+/// rather than a readout: a pointer is precise enough to aim at a slim line, and
+/// jumping 30 seconds back is the one thing a listener does often enough that
+/// opening the full player for it grates. On a touch host it stays exactly the
+/// decorative line it has always been — a 14 px strip is not a touch target, and
+/// it sits right where a thumb reaches for the bar itself.
 class MiniPlayer extends ConsumerWidget {
   const MiniPlayer({super.key});
 
@@ -104,7 +113,7 @@ class MiniPlayer extends ConsumerWidget {
           height: miniPlayerHeight,
           child: Column(
             children: [
-              const _MiniProgressBar(),
+              _MiniProgressBar(seekable: isDesktop),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
@@ -339,17 +348,26 @@ class _MiniSubtitle extends StatelessWidget {
 /// surfaces read as one design. Sits at 0 (an empty track) when the duration is
 /// still unknown, so it never animates indeterminately or jumps.
 ///
-/// Deliberately marker-less, and pinned at the full wave rather than following
-/// the play/pause swell the full player uses: at this size the wave is texture
-/// rather than a control, and this bar is on screen on every main tab — so it
-/// stays a plain repaint per position tick and adds no animation frames
-/// anywhere in the app. Tapping the mini-player opens the full player; it is
-/// not a seek surface, so it carries no slider semantics of its own.
+/// Where a pointer is the input — [seekable], set on desktop hosts — it is the
+/// same [PlaybackProgressBar] the full player uses, at its compact density and
+/// without the elapsed/total caption there is no room for. That buys the drag
+/// preview, the optimistic hold until playback acknowledges a seek, the slider
+/// semantics and the arrow-key handling for free, and keeps the two surfaces
+/// seeking identically rather than approximately.
+///
+/// On a touch host it stays what it always was: marker-less, pinned at the full
+/// wave rather than following the play/pause swell the full player uses. At that
+/// size the wave is texture rather than a control, and this bar is on screen on
+/// every main tab — so it stays a plain repaint per position tick and adds no
+/// animation frames anywhere in the app.
 ///
 /// It watches the position/duration itself, so a position tick rebuilds only
 /// this thin line — not the artwork and text above it.
 class _MiniProgressBar extends ConsumerWidget {
-  const _MiniProgressBar();
+  const _MiniProgressBar({required this.seekable});
+
+  /// Whether the line takes clicks, drags and arrow keys as seeks.
+  final bool seekable;
 
   /// Enough room for the wave's peaks and stroke without meaningfully eating
   /// into the 64dp bar's content row.
@@ -360,6 +378,22 @@ class _MiniProgressBar extends ConsumerWidget {
     final controller = ref.watch(playbackControllerProvider);
     final state =
         ref.watch(playbackStateProvider).valueOrNull ?? controller.state;
+
+    if (seekable) {
+      return PlaybackProgressBar(
+        // Same reasoning as the full player's bar: identity is the track, so a
+        // track change disposes an optimistically held seek instead of carrying
+        // it onto the next song.
+        key: ValueKey<String?>(state.currentTrack?.uri),
+        position: state.position,
+        duration: state.duration,
+        playing: state.isPlaying,
+        density: WavySeekBarDensity.compact,
+        showTimeLabels: false,
+        onSeek: controller.seek,
+      );
+    }
+
     final theme = Theme.of(context);
     final int total = state.duration.inMilliseconds;
     final double value = total > 0

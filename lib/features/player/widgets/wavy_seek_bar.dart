@@ -4,6 +4,52 @@ import 'package:flutter/services.dart';
 import '../../../app/dimens.dart';
 import '../../../shared/widgets/wavy_progress_indicator.dart';
 
+/// How much room a [WavySeekBar] is drawn to take.
+///
+/// The wave is the same shape in both; what changes is how loud it is drawn and
+/// how tall a target it offers. Grouping the five metrics behind one value keeps
+/// the call sites honest — a bar is either a screen's main control or a slim
+/// line on a bar, never an arbitrary mix of the two.
+enum WavySeekBarDensity {
+  /// The now-playing screen's bar: a comfortable, WCAG-sized target with a
+  /// visible marker.
+  standard(
+    hitHeight: 44,
+    amplitude: 3,
+    wavelength: 28,
+    strokeWidth: 3,
+    thumbRadius: 6,
+  ),
+
+  /// The now-playing *bar's* top edge: a slim line that still takes a click and
+  /// a drag. Marker-less, because at this size a marker reads as grit rather
+  /// than as a handle, and the line already sits under the pointer.
+  compact(
+    hitHeight: 14,
+    amplitude: 1.4,
+    wavelength: 26,
+    strokeWidth: 2,
+    thumbRadius: 0,
+  );
+
+  const WavySeekBarDensity({
+    required this.hitHeight,
+    required this.amplitude,
+    required this.wavelength,
+    required this.strokeWidth,
+    required this.thumbRadius,
+  });
+
+  /// Height of the hit target. The painted line is much thinner.
+  final double hitHeight;
+  final double amplitude;
+  final double wavelength;
+  final double strokeWidth;
+
+  /// Radius of the drag marker; zero draws none.
+  final double thumbRadius;
+}
+
 /// A seekable playback position control drawn as a gentle wave.
 ///
 /// The API deliberately mirrors [Slider] — [value], [max], [onChanged],
@@ -30,6 +76,7 @@ class WavySeekBar extends StatelessWidget {
     required this.onChangeEnd,
     required this.semanticFormatter,
     this.playing = false,
+    this.density = WavySeekBarDensity.standard,
     super.key,
   });
 
@@ -55,17 +102,9 @@ class WavySeekBar extends StatelessWidget {
   /// while it is, and eases down to a calmer, shallower wave when paused.
   final bool playing;
 
-  /// Height of the touch target. The painted line is much thinner; the box is
-  /// sized for a comfortable, WCAG-sized target instead.
-  static const double _hitHeight = 44.0;
-
-  static const double _amplitude = 3.0;
-
-  /// Long enough that the line reads as a slow wave rather than a tight
-  /// squiggle at phone widths (roughly a dozen crests across a full track).
-  static const double _wavelength = 28.0;
-  static const double _strokeWidth = 3.0;
-  static const double _thumbRadius = 6.0;
+  /// How tall and how loud the bar is drawn. Only the metrics change; the
+  /// gestures, the keyboard handling and the semantics are the same in both.
+  final WavySeekBarDensity density;
 
   /// One increase/decrease action moves this much of the track…
   static const double _semanticStepFraction = 0.05;
@@ -138,8 +177,8 @@ class WavySeekBar extends StatelessWidget {
         /// touches is the point the marker lands on.
         double positionAt(double dx) {
           final double inset = WavyProgressIndicator.trackInset(
-            thumbRadius: _thumbRadius,
-            strokeWidth: _strokeWidth,
+            thumbRadius: density.thumbRadius,
+            strokeWidth: density.strokeWidth,
           );
           final double trackWidth = width - inset * 2;
           if (trackWidth <= 0) return 0;
@@ -176,7 +215,7 @@ class WavySeekBar extends StatelessWidget {
           onHorizontalDragEnd:
               _enabled ? (details) => onChangeEnd?.call(value) : null,
           child: Container(
-            height: _hitHeight,
+            height: density.hitHeight,
             width: double.infinity,
             // A visible focus ring is the keyboard's equivalent of the pointer's
             // marker: without it, Tab moves through the transport with nothing
@@ -195,12 +234,12 @@ class WavySeekBar extends StatelessWidget {
               activeColor: theme.colorScheme.secondary,
               inactiveColor:
                   theme.colorScheme.onSurface.withValues(alpha: 0.15),
-              amplitude: _amplitude,
-              wavelength: _wavelength,
-              strokeWidth: _strokeWidth,
+              amplitude: density.amplitude,
+              wavelength: density.wavelength,
+              strokeWidth: density.strokeWidth,
               // With no duration there is nothing to point at, so the marker is
               // withheld rather than parked misleadingly at the start.
-              thumbRadius: max > 0 ? _thumbRadius : 0.0,
+              thumbRadius: max > 0 ? density.thumbRadius : 0.0,
               active: playing,
             ),
           ),

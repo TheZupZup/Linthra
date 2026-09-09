@@ -46,6 +46,8 @@ class PlaybackProgressBar extends StatefulWidget {
     required this.onSeek,
     this.playing = false,
     this.style = defaultPlaybackProgressStyle,
+    this.density = WavySeekBarDensity.standard,
+    this.showTimeLabels = true,
     super.key,
   });
 
@@ -62,6 +64,14 @@ class PlaybackProgressBar extends StatefulWidget {
 
   /// Which renderer to use. Defaults to [defaultPlaybackProgressStyle].
   final PlaybackProgressStyle style;
+
+  /// How much room the wave renderer takes. The slider renderer has one size.
+  final WavySeekBarDensity density;
+
+  /// Whether the elapsed/total caption is drawn under the bar. The now-playing
+  /// *bar* turns it off: it has no room for it, and the full player one tap
+  /// away shows both times.
+  final bool showTimeLabels;
 
   /// How close [position] has to land to a released seek target before the bar
   /// hands the display back to it.
@@ -189,6 +199,7 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
               onChangeEnd: canSeek ? _onChangeEnd : null,
               semanticFormatter: _formatMs,
               playing: widget.playing,
+              density: widget.density,
             ),
           PlaybackProgressStyle.slider => SliderTheme(
               data: SliderTheme.of(context).copyWith(
@@ -216,19 +227,20 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
         },
         // Snug under the track and aligned to its ends, so the times read as a
         // caption for the bar rather than a separate, floating row.
-        Padding(
-          padding: const EdgeInsets.only(top: AppSpacing.xs),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(_formatMs(barValue), style: labelStyle),
-              Text(
-                hasDuration ? _format(widget.duration) : '--:--',
-                style: labelStyle,
-              ),
-            ],
+        if (widget.showTimeLabels)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(_formatMs(barValue), style: labelStyle),
+                Text(
+                  hasDuration ? _format(widget.duration) : '--:--',
+                  style: labelStyle,
+                ),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
