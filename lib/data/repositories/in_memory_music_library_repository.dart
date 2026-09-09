@@ -3,6 +3,7 @@ import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/music_library_repository.dart';
+import '../../core/repositories/source_catalog_reader.dart';
 
 /// An in-memory [MusicLibraryRepository] for development and tests.
 ///
@@ -16,7 +17,10 @@ import '../../core/repositories/music_library_repository.dart';
 /// The `getAll*` methods flatten across sources, preserving the order that
 /// sources were first seen and the item order within each source.
 class InMemoryMusicLibraryRepository
-    implements MusicLibraryRepository, IncrementalCatalogWriter {
+    implements
+        MusicLibraryRepository,
+        IncrementalCatalogWriter,
+        SourceCatalogReader {
   // Per-source catalogs. Keyed by sourceId so a re-scan of one source can
   // replace just its slice without disturbing the others. `upsertCatalog` is
   // the only writer, which keeps the three maps in sync.
@@ -49,6 +53,11 @@ class InMemoryMusicLibraryRepository
       all.addAll(artists);
     }
     return all;
+  }
+
+  @override
+  Future<List<Track>> getTracksForSource(String sourceId) async {
+    return List<Track>.of(_tracksBySource[sourceId] ?? const <Track>[]);
   }
 
   @override

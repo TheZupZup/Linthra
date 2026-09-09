@@ -45,6 +45,8 @@ abstract final class LocalScanDiagnostics {
     return <String>[
       'folder=${report.folderSelected ? 'selected' : 'none'}',
       if (report.folderSelected) 'kind=${_kind(report)}',
+      if (report.rootsScanned > 1) 'roots=${report.rootsScanned}',
+      if (report.rootsUnavailable > 0) 'unavailable=${report.rootsUnavailable}',
       'visited=${report.filesVisited}',
       'folders=${report.foldersVisited}',
       'audio=${report.audioCandidates}',

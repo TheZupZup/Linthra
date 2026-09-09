@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_library_added_store.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/recording_music_library_repository.dart';
@@ -166,5 +167,60 @@ void main() {
       expect(added['plex:101'], DateTime(2024, 6, 10));
       expect(added.containsKey('101'), isFalse);
     });
+
+    test('a source slice read passes through to the wrapped repository',
+        () async {
+      // Production wraps the Drift repository, and the local library asks the
+      // wrapper for its slice when a music folder is offline.
+      final repo = build();
+      await sync(repo, <Track>[_t('1')], sourceId: 'local');
+
+      expect(
+        (await repo.getTracksForSource('local')).map((Track t) => t.uri),
+        <String>['jellyfin:1'],
+      );
+    });
+
+    test('a delegate that cannot read a slice fails loudly', () async {
+      // Never an empty list: the caller uses this to decide whether it may
+      // overwrite a catalog slice, and a silent "nothing stored" would delete
+      // an offline folder's music.
+      final repo = RecordingMusicLibraryRepository(
+        delegate: _SliceBlindRepository(),
+        addedStore: addedStore,
+      );
+
+      expect(
+        () => repo.getTracksForSource('local'),
+        throwsUnsupportedError,
+      );
+    });
   });
+}
+
+/// A repository with no source-slice read, standing in for a fake or a future
+/// implementation that does not implement [SourceCatalogReader].
+class _SliceBlindRepository implements MusicLibraryRepository {
+  @override
+  Future<List<Track>> getAllTracks() async => const <Track>[];
+
+  @override
+  Future<List<Album>> getAllAlbums() async => const <Album>[];
+
+  @override
+  Future<List<Artist>> getAllArtists() async => const <Artist>[];
+
+  @override
+  Future<Track?> getTrackByUri(String uri) async => null;
+
+  @override
+  Future<void> upsertCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+    required List<Album> albums,
+    required List<Artist> artists,
+  }) async {}
+
+  @override
+  Future<void> removeTracks(List<String> trackUris) async {}
 }

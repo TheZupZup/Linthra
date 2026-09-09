@@ -24,6 +24,17 @@ class _FixedReadability implements DirectoryReadability {
   Future<bool> canList(String path) async => readable;
 }
 
+/// Reports only the named folders as gone, so a test can unplug one drive and
+/// leave the rest of the library readable.
+class _MissingFolders implements DirectoryReadability {
+  const _MissingFolders(this.missing);
+
+  final Set<String> missing;
+
+  @override
+  Future<bool> canList(String path) async => !missing.contains(path);
+}
+
 const String _safFolder =
     'content://com.android.externalstorage.documents/tree/primary%3AMusic';
 
@@ -38,6 +49,7 @@ Iterable<String> _renderedText(WidgetTester tester) => tester
 Future<void> _pump(
   WidgetTester tester, {
   String? initialFolder,
+  List<String>? initialFolders,
   LocalScanReport? report,
   HostPlatform? host,
   DirectoryReadability? readability,
@@ -52,7 +64,10 @@ Future<void> _pump(
     ProviderScope(
       overrides: <Override>[
         selectedMusicFolderRepositoryProvider.overrideWithValue(
-          InMemorySelectedMusicFolderRepository(initialFolder: initialFolder),
+          InMemorySelectedMusicFolderRepository(
+            initialFolder: initialFolder,
+            initialFolders: initialFolders,
+          ),
         ),
         if (host != null) hostPlatformProvider.overrideWithValue(host),
         if (readability != null)
@@ -98,7 +113,8 @@ void main() {
       );
       // Recoverable, not destructive: reselecting is the fix, and the actions
       // to do it are still on the card.
-      expect(find.text('Change'), findsOneWidget);
+      expect(find.text('Add a folder'), findsOneWidget);
+      expect(find.byTooltip('Remove this folder'), findsOneWidget);
       expect(find.text('Forget local music'), findsOneWidget);
     });
 
@@ -158,7 +174,7 @@ void main() {
       // The opaque content:// URI is reduced to a recognizable folder label.
       expect(find.text('primary:Music/musi5'), findsOneWidget);
       expect(find.text('Rescan'), findsOneWidget);
-      expect(find.text('Change'), findsOneWidget);
+      expect(find.text('Add a folder'), findsOneWidget);
       expect(find.text('Forget local music'), findsOneWidget);
     });
 
@@ -506,6 +522,85 @@ void main() {
         expect(text, isNot(contains('folder chooser')));
         expect(text, isNot(contains('Select it again')));
       }
+    });
+
+    testWidgets('lists every selected folder with its own remove action',
+        (tester) async {
+      await _pump(
+        tester,
+        initialFolders: <String>['/home/me/Music', '/media/usb'],
+        host: HostPlatform.linux,
+        readability: const _FixedReadability(true),
+      );
+
+      expect(find.text('2 folders'), findsOneWidget);
+      expect(find.text('/home/me/Music'), findsOneWidget);
+      expect(find.text('/media/usb'), findsOneWidget);
+      expect(find.byTooltip('Remove this folder'), findsNWidgets(2));
+      expect(find.text('Add a folder'), findsOneWidget);
+    });
+
+    testWidgets('flags only the folder that is offline', (tester) async {
+      await _pump(
+        tester,
+        initialFolders: <String>['/home/me/Music', '/media/usb'],
+        host: HostPlatform.linux,
+        readability: const _MissingFolders(<String>{'/media/usb'}),
+      );
+
+      // One message, attached to the folder it is about — the rest of the
+      // library is fine.
+      expect(
+        find.textContaining('Linthra can no longer reach this folder'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a partial scan says the offline folder kept its music',
+        (tester) async {
+      await _pump(
+        tester,
+        initialFolders: <String>['/home/me/Music', '/media/usb'],
+        host: HostPlatform.linux,
+        readability: const _FixedReadability(true),
+        report: const LocalScanReport(
+          folderSelected: true,
+          isContentUri: false,
+          filesVisited: 4,
+          foldersVisited: 2,
+          audioCandidates: 3,
+          importedTracks: 3,
+          skippedUnsupported: 1,
+          readFailures: 0,
+          rootsScanned: 2,
+          rootsUnavailable: 1,
+        ),
+      );
+
+      expect(find.textContaining('1/2 folders read'), findsOneWidget);
+      expect(
+        find.textContaining("1 of 2 folders couldn't be read"),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Their music stays in your library'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('on Android the folder list has no remove action',
+        (tester) async {
+      // Android holds one local grant at a time; "Forget local music" is the
+      // way out, and a per-folder remove would imply a list it cannot have.
+      await _pump(
+        tester,
+        initialFolder: _safFolder,
+        host: HostPlatform.android,
+      );
+
+      expect(find.byTooltip('Remove this folder'), findsNothing);
+      expect(find.text('Add a folder'), findsNothing);
+      expect(find.text('Use a folder'), findsOneWidget);
     });
   });
 }

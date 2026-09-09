@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/sources/local/android_media_library.dart';
 import '../../../core/sources/local/folder_location.dart';
+import '../../../core/sources/local/local_music_roots.dart';
 import '../../../core/sources/local/local_scan_report.dart';
 import '../../../data/repositories/host_platform_provider.dart';
 import '../../library/library_controller.dart';
@@ -24,7 +25,10 @@ class LocalMusicActionState {
 
 /// Drives the Settings ▸ Local music source card.
 ///
-/// Android exposes two deliberate choices:
+/// Desktop treats local music as a set of folders: they are added and removed
+/// one at a time and scanned together as a single library.
+///
+/// Android exposes two deliberate choices instead, and exactly one at a time:
 ///  - a targeted SAF folder grant; or
 ///  - device-wide MediaStore access, backed by READ_MEDIA_AUDIO on Android 13+
 ///    and the legacy shared-storage read permission on older Android releases.
@@ -33,6 +37,8 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   @override
   LocalMusicActionState build() => const LocalMusicActionState();
 
+  /// Picks a folder and makes it the only local source. This is the Android
+  /// path (one SAF grant at a time) and the first-run/empty-library prompt.
   Future<void> pickFolder() async {
     state = const LocalMusicActionState(busy: true);
     final String? picked = await ref
@@ -42,7 +48,58 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
       state = const LocalMusicActionState();
       return;
     }
-    await _scan(picked);
+    await _scan(<String>[picked]);
+  }
+
+  /// Picks another folder and adds it to the library, keeping the folders
+  /// already selected. Desktop only: Android's local access is a single grant.
+  Future<void> addFolder() async {
+    if (ref.read(hostPlatformProvider).isAndroid) {
+      await pickFolder();
+      return;
+    }
+    final List<String> before = _selectedFolders();
+    state = const LocalMusicActionState(busy: true);
+    final String? picked =
+        await ref.read(selectedFolderControllerProvider.notifier).pickAndAdd();
+    if (picked == null || picked.isEmpty) {
+      state = const LocalMusicActionState();
+      return;
+    }
+    if (LocalMusicRoots.isCoveredBy(picked, before)) {
+      // Adding a folder already covered by another one would scan the same
+      // files twice, so the selection was left alone. Say so, rather than
+      // looking like nothing happened.
+      state = const LocalMusicActionState(
+        message: 'That folder is already part of your library.',
+      );
+      return;
+    }
+    await _scan(_selectedFolders());
+  }
+
+  /// Removes one folder from the library and rescans what is left, so only that
+  /// folder's tracks go away.
+  Future<void> removeFolder(String folder) async {
+    state = const LocalMusicActionState(busy: true);
+    await ref
+        .read(selectedFolderControllerProvider.notifier)
+        .removeAndPersist(folder);
+    final List<String> remaining = _selectedFolders();
+    if (remaining.isEmpty) {
+      await ref.read(libraryControllerProvider.notifier).clearLocalCatalog();
+      state = const LocalMusicActionState(
+        message: 'Folder removed. Your files were not deleted.',
+      );
+      return;
+    }
+    final LocalScanReport? report = await _scan(remaining);
+    // Keep the scan's own message when it has something to warn about; the
+    // removal succeeded either way.
+    if (report == null || report.hadError || report.isPartial) return;
+    state = const LocalMusicActionState(
+      message: 'Folder removed. Your files were not deleted.',
+    );
   }
 
   /// Opts into Android's device-wide shared music library.
@@ -69,12 +126,12 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
       return;
     }
 
-    // Scan before persisting. `scanFolder` takes the location explicitly, so
+    // Scan before persisting. The scan takes the location explicitly, so
     // nothing has to be saved first, and a failure leaves the stored selection
     // untouched: no restore step, and no window where a crash could strand a
     // half-applied switch.
     final LocalScanReport? report =
-        await _scan(FolderLocation.androidMediaStoreAudio);
+        await _scan(<String>[FolderLocation.androidMediaStoreAudio]);
     if (report == null || report.hadError) {
       return;
     }
@@ -94,13 +151,12 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   }
 
   Future<void> rescan() async {
-    final String? folder =
-        ref.read(selectedFolderControllerProvider).valueOrNull;
-    if (folder == null || folder.isEmpty) {
+    final List<String> folders = _selectedFolders();
+    if (folders.isEmpty) {
       return;
     }
     state = const LocalMusicActionState(busy: true);
-    await _scan(folder);
+    await _scan(folders);
   }
 
   Future<void> forget() async {
@@ -117,27 +173,34 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     );
   }
 
-  /// Scans [folder], turns the resulting report into the card's status line,
-  /// and hands the report back so a caller can act on the outcome.
-  Future<LocalScanReport?> _scan(String folder) async {
+  List<String> _selectedFolders() =>
+      ref.read(selectedFolderControllerProvider).valueOrNull ?? <String>[];
+
+  /// Scans [folders] as one library, turns the resulting report into the card's
+  /// status line, and hands the report back so a caller can act on the outcome.
+  Future<LocalScanReport?> _scan(List<String> folders) async {
     // Use this operation's result, never the last globally recorded report:
     // a superseded scan must not look successful or persist a source switch.
     final report = await ref
         .read(libraryControllerProvider.notifier)
-        .scanFolderWithReport(folder);
-    final FolderLocation location = FolderLocation.parse(folder);
+        .scanFoldersWithReport(folders);
     if (report == null) {
       state = const LocalMusicActionState();
       return null;
     }
+    final bool isDeviceLibrary = folders.length == 1 &&
+        FolderLocation.parse(folders.first).isAndroidMediaStore;
     if (report.hadError) {
       final String message;
-      if (location.isAndroidMediaStore) {
+      if (isDeviceLibrary) {
         message = report.error == LocalScanError.mediaPermission
             ? 'Could not scan the device music library. Check device music '
                 'access in Android settings, or choose a folder instead.'
             : "Couldn't read Android's shared music library. Try again, or "
                 'choose a folder instead.';
+      } else if (report.rootsScanned > 1) {
+        message = "Couldn't read any of your music folders. Check that the "
+            'drives are connected, or select them again.';
       } else {
         message = "Couldn't scan that folder. Try selecting it again.";
       }
@@ -145,25 +208,49 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
       return report;
     }
     if (report.importedTracks > 0) {
+      final String source = isDeviceLibrary
+          ? 'this device'
+          : report.rootsScanned > 1
+              ? '${report.rootsAvailable} '
+                  '${report.rootsAvailable == 1 ? 'folder' : 'folders'}'
+              : 'this folder';
+      final String tracks = '${report.importedTracks} '
+          '${report.importedTracks == 1 ? 'track' : 'tracks'}';
       state = LocalMusicActionState(
-        message: 'Added ${report.importedTracks} '
-            '${report.importedTracks == 1 ? 'track' : 'tracks'} from '
-            '${location.isAndroidMediaStore ? 'this device' : 'this folder'}.',
+        message: report.isPartial
+            ? 'Added $tracks from $source. '
+                '${_unavailableSuffix(report.rootsUnavailable)}'
+            : 'Added $tracks from $source.',
+        isError: report.isPartial,
       );
       return report;
     }
+    final bool isContentUri =
+        folders.length == 1 && FolderLocation.parse(folders.first).isContentUri;
     final bool looksBlocked = report.readFailures > 0 ||
-        (location.isContentUri && report.filesVisited == 0);
+        report.isPartial ||
+        (isContentUri && report.filesVisited == 0);
     state = LocalMusicActionState(
-      message: location.isAndroidMediaStore
+      message: isDeviceLibrary
           ? 'No music was found in Android MediaStore.'
-          : looksBlocked
-              ? 'No music found. Linthra may not have access to that folder — '
-                  'try selecting it again.'
-              : 'No playable audio found in that folder.',
+          : report.isPartial
+              ? 'No music found in the folders Linthra could read. '
+                  '${_unavailableSuffix(report.rootsUnavailable)}'
+              : looksBlocked
+                  ? 'No music found. Linthra may not have access to that '
+                      'folder — try selecting it again.'
+                  : report.rootsScanned > 1
+                      ? 'No playable audio found in those folders.'
+                      : 'No playable audio found in that folder.',
       isError: looksBlocked,
     );
     return report;
+  }
+
+  static String _unavailableSuffix(int unavailable) {
+    final String folders = unavailable == 1 ? 'folder' : 'folders';
+    return '$unavailable $folders could not be read, so their music was kept '
+        'as it was.';
   }
 }
 
@@ -172,26 +259,49 @@ final localMusicControllerProvider =
   LocalMusicController.new,
 );
 
-/// Whether Linthra can still reach the currently selected local-music source.
-final localFolderAccessProvider = FutureProvider<bool?>((ref) async {
-  final String? folder =
-      ref.watch(selectedFolderControllerProvider).valueOrNull;
+/// Which of the selected local-music folders Linthra can still reach.
+///
+/// Keyed by folder, so the Settings list can flag exactly the one whose drive
+/// is unplugged instead of declaring the whole library broken. A folder Linthra
+/// cannot answer for on this platform is left out of the map rather than
+/// reported as unreachable.
+final localFolderAccessProvider =
+    FutureProvider<Map<String, bool>>((ref) async {
+  final List<String> folders =
+      ref.watch(selectedFolderControllerProvider).valueOrNull ?? <String>[];
   ref.watch(localScanReportProvider);
-  if (folder == null || folder.isEmpty) {
-    return null;
+  final Map<String, bool> access = <String, bool>{};
+  for (final String folder in folders) {
+    if (folder.isEmpty) continue;
+    final FolderLocation location = FolderLocation.parse(folder);
+    if (location.isAndroidMediaStore) {
+      final AndroidMusicPermissionStatus status =
+          await ref.read(androidMediaLibraryProvider).permissionStatus();
+      access[folder] = status == AndroidMusicPermissionStatus.allowed;
+      continue;
+    }
+    if (location.isContentUri) {
+      // Null means the probe can't answer here (off Android). Leave the folder
+      // out rather than calling a grant Linthra cannot see "lost".
+      final bool? granted = await ref
+          .read(safPermissionProbeProvider)
+          .hasPersistedPermission(folder);
+      if (granted != null) access[folder] = granted;
+      continue;
+    }
+    if (!ref.watch(hostPlatformProvider).isDesktop) continue;
+    access[folder] = await ref.read(directoryReadabilityProvider).canList(
+          folder,
+        );
   }
+  return access;
+});
 
-  final FolderLocation location = FolderLocation.parse(folder);
-  if (location.isAndroidMediaStore) {
-    final AndroidMusicPermissionStatus status =
-        await ref.read(androidMediaLibraryProvider).permissionStatus();
-    return status == AndroidMusicPermissionStatus.allowed;
-  }
-  if (location.isContentUri) {
-    return ref.read(safPermissionProbeProvider).hasPersistedPermission(folder);
-  }
-  if (!ref.watch(hostPlatformProvider).isDesktop) {
-    return null;
-  }
-  return ref.read(directoryReadabilityProvider).canList(folder);
+/// Whether any selected folder is currently unreachable — the one-line answer
+/// the compact source card needs.
+final localFolderAccessLostProvider = Provider<bool>((ref) {
+  final Map<String, bool>? access =
+      ref.watch(localFolderAccessProvider).valueOrNull;
+  if (access == null) return false;
+  return access.values.any((bool reachable) => !reachable);
 });
