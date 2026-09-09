@@ -2,6 +2,7 @@ import 'package:linthra/core/repositories/download_repository.dart';
 import 'package:linthra/core/repositories/favorites_repository.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/repositories/playlist_repository.dart';
+import 'package:linthra/core/services/desktop_application_actions.dart';
 import 'package:linthra/core/services/media_artwork_source.dart';
 import 'package:linthra/core/services/media_session_binding.dart';
 import 'package:linthra/core/services/playback_controller.dart';
@@ -37,6 +38,7 @@ class RecordingMediaSessionBinding implements MediaSessionBinding {
     FavoritesRepository? favorites,
     DownloadRepository? downloads,
     MediaArtworkSource? artwork,
+    DesktopApplicationActions? application,
   }) async {
     attachCount++;
     return session;

@@ -10,6 +10,7 @@ add_executable(${BINARY_NAME}
   "main.cc"
   "my_application.cc"
   "folder_picker_channel.cc"
+  "window_lifecycle_channel.cc"
   "window_state_store.cc"
   # The pure half of the window-state policy (#383). Compiled straight into the
   # runner rather than linked as a library so the Flutter build stays one

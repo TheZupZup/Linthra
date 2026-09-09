@@ -91,6 +91,7 @@ MY_APPLICATION = """\
 #include "my_application.h"
 
 #include "folder_picker_channel.h"
+#include "window_lifecycle_channel.h"
 
 static constexpr const char* kApplicationName = "{display_name}";
 static constexpr int kDefaultWindowWidth = 1180;
@@ -99,7 +100,11 @@ static constexpr int kMinimumWindowWidth = 420;
 static constexpr int kMinimumWindowHeight = 600;
 
 static void activate() {{
+  if (window_lifecycle_channel_present(self->window_lifecycle)) {{
+    return;
+  }}
   self->folder_picker = folder_picker_channel_new(view, window);
+  self->window_lifecycle = window_lifecycle_channel_new(view, window);
   self->window_state =
       window_state_store_new(window, kMinimumWindowWidth, kMinimumWindowHeight,
                              kDefaultWindowWidth, kDefaultWindowHeight);
@@ -121,7 +126,9 @@ MyApplication* my_application_new() {{
   g_set_prgname(APPLICATION_ID);
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
-                                     "application-id", APPLICATION_ID, nullptr));
+                                     "application-id", APPLICATION_ID, "flags",
+                                     static_cast<GApplicationFlags>(0),
+                                     nullptr));
 }}
 """
 
@@ -132,6 +139,7 @@ add_executable(${{BINARY_NAME}}
   "main.cc"
   "my_application.cc"
   "folder_picker_channel.cc"
+  "window_lifecycle_channel.cc"
   "window_state_store.cc"
   "${{CMAKE_SOURCE_DIR}}/../native/linthra_desktop/src/window_state.cpp"
 )
@@ -159,6 +167,37 @@ class MethodChannelLinuxFolderPicker implements FolderPickerService {{
 
 FOLDER_PICKER_CHANNEL_NAME = f"{APP_ID}/linux_folder_picker"
 FOLDER_PICKER_METHOD_NAME = "pickFolder"
+
+# The two halves of the window-lifecycle channel (#401). Drift here is quieter
+# than the folder picker's: the app still runs, every close still destroys the
+# window, and the close-behaviour preference in Settings simply stops meaning
+# anything.
+WINDOW_LIFECYCLE_CHANNEL = """\
+static constexpr const char* kChannelName =
+    "{channel}";
+static constexpr const char* kSetHideOnCloseMethod = "{set_hide_on_close}";
+static constexpr const char* kShowWindowMethod = "showWindow";
+static constexpr const char* kQuitMethod = "quit";
+static constexpr const char* kWindowHiddenMethod = "windowHidden";
+static constexpr const char* kWindowShownMethod = "windowShown";
+static constexpr const char* kHideOnCloseArgument = "hideOnClose";
+"""
+
+WINDOW_LIFECYCLE_DART = """\
+class MethodChannelLinuxWindow implements DesktopWindowController {{
+  static const String channelName =
+      '{channel}';
+  static const String setHideOnCloseMethod = '{set_hide_on_close}';
+  static const String showWindowMethod = 'showWindow';
+  static const String quitMethod = 'quit';
+  static const String windowHiddenMethod = 'windowHidden';
+  static const String windowShownMethod = 'windowShown';
+  static const String hideOnCloseArgument = 'hideOnClose';
+}}
+"""
+
+WINDOW_LIFECYCLE_CHANNEL_NAME = f"{APP_ID}/linux_window_lifecycle"
+WINDOW_LIFECYCLE_SET_METHOD = "setHideOnClose"
 
 BUILD_GRADLE = """\
 android {{
@@ -304,6 +343,8 @@ def build_checkout(
     runner_cmakelists: str | None = None,
     folder_picker_channel: str | None = None,
     folder_picker_dart: str | None = None,
+    window_lifecycle_channel: str | None = None,
+    window_lifecycle_dart: str | None = None,
 ) -> Path:
     """Write a minimal, internally consistent checkout the checker can read."""
     (directory / "linux" / "runner").mkdir(parents=True, exist_ok=True)
@@ -350,6 +391,26 @@ def build_checkout(
         if folder_picker_dart is not None
         else FOLDER_PICKER_DART.format(
             channel=FOLDER_PICKER_CHANNEL_NAME, method=FOLDER_PICKER_METHOD_NAME
+        ),
+        encoding="utf-8",
+    )
+    (runner / "window_lifecycle_channel.cc").write_text(
+        window_lifecycle_channel
+        if window_lifecycle_channel is not None
+        else WINDOW_LIFECYCLE_CHANNEL.format(
+            channel=WINDOW_LIFECYCLE_CHANNEL_NAME,
+            set_hide_on_close=WINDOW_LIFECYCLE_SET_METHOD,
+        ),
+        encoding="utf-8",
+    )
+    (
+        directory / "lib" / "core" / "services" / "method_channel_linux_window.dart"
+    ).write_text(
+        window_lifecycle_dart
+        if window_lifecycle_dart is not None
+        else WINDOW_LIFECYCLE_DART.format(
+            channel=WINDOW_LIFECYCLE_CHANNEL_NAME,
+            set_hide_on_close=WINDOW_LIFECYCLE_SET_METHOD,
         ),
         encoding="utf-8",
     )
@@ -1303,6 +1364,102 @@ class FolderPickerChannelTest(CheckoutCase):
         problems = checker.check(self.root)
         self.assertEqual(len(problems), 1)
         self.assertIn("folder_picker_channel_new", problems[0])
+
+
+class WindowLifecycleChannelTest(CheckoutCase):
+    """The runner<->Dart close-behaviour contract (#401).
+
+    The close behaviour is decided in Dart and applied in the runner, so the
+    two halves only meet as strings. When they stop matching, nothing fails:
+    the runner never hears what to do, every close destroys the window as it
+    did before the preference existed, and Settings keeps offering a choice
+    that no longer changes anything.
+    """
+
+    def test_a_renamed_channel_on_the_dart_side_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            window_lifecycle_dart=WINDOW_LIFECYCLE_DART.format(
+                channel="io.example.app/renamed",
+                set_hide_on_close=WINDOW_LIFECYCLE_SET_METHOD,
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("channel name", problems[0])
+        self.assertIn("io.example.app/renamed", problems[0])
+
+    def test_a_renamed_method_on_the_native_side_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            window_lifecycle_channel=WINDOW_LIFECYCLE_CHANNEL.format(
+                channel=WINDOW_LIFECYCLE_CHANNEL_NAME,
+                set_hide_on_close="setCloseBehaviour",
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("setHideOnClose method", problems[0])
+        self.assertIn("setCloseBehaviour", problems[0])
+
+    def test_dropping_the_source_from_the_runner_build_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            runner_cmakelists=RUNNER_CMAKELISTS.replace(
+                '  "window_lifecycle_channel.cc"\n', ""
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("window_lifecycle_channel.cc", problems[0])
+
+    def test_never_registering_the_channel_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                "  self->window_lifecycle = window_lifecycle_channel_new(view, window);\n",
+                "",
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("window_lifecycle_channel_new", problems[0])
+
+    def test_never_presenting_the_existing_window_is_caught(self) -> None:
+        # Without this, activating a running Linthra builds a second window on
+        # top of the one it already has instead of showing it.
+        runner = MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+            """  if (window_lifecycle_channel_present(self->window_lifecycle)) {
+    return;
+  }
+""",
+            "",
+        )
+        build_checkout(self.root, my_application=runner)
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("window_lifecycle_channel_present", problems[0])
+
+    def test_a_non_unique_application_is_caught(self) -> None:
+        # What a `flutter create` regeneration restores. A second launch would
+        # then start a second process, with a second audio engine and a second
+        # connection to the same catalog, instead of showing the hidden window.
+        runner = MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+            "static_cast<GApplicationFlags>(0)", "G_APPLICATION_NON_UNIQUE"
+        )
+        build_checkout(self.root, my_application=runner)
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("G_APPLICATION_NON_UNIQUE", problems[0])
+
+    def test_the_flag_named_only_in_a_comment_does_not_count(self) -> None:
+        runner = MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+            "  g_set_prgname(APPLICATION_ID);",
+            "  // Deliberately not G_APPLICATION_NON_UNIQUE.\n"
+            "  g_set_prgname(APPLICATION_ID);",
+        )
+        build_checkout(self.root, my_application=runner)
+        self.assertEqual(checker.check(self.root), [])
 
 
 class OfflineBuildSeamTest(CheckoutCase):

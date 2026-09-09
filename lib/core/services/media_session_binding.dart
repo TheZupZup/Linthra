@@ -3,6 +3,7 @@ import '../repositories/download_repository.dart';
 import '../repositories/favorites_repository.dart';
 import '../repositories/music_library_repository.dart';
 import '../repositories/playlist_repository.dart';
+import 'desktop_application_actions.dart';
 import 'linthra_audio_handler.dart';
 import 'media_artwork_source.dart';
 import 'mpris/mpris_media_session.dart';
@@ -34,6 +35,11 @@ abstract interface class MediaSessionBinding {
   /// test host with no bindings) returns null and the app carries on. The
   /// repositories are what Android Auto browses; they are ignored where there
   /// is no session.
+  ///
+  /// [application] is what the session's own Raise/Quit go to. MPRIS offers
+  /// both to the desktop shell (#401), which is how a listener with no window
+  /// on screen still has a visible way to bring Linthra back or shut it down.
+  /// Passing nothing means the session advertises neither.
   Future<MediaSession?> attach(
     PlaybackController controller,
     MusicLibraryRepository library, {
@@ -41,6 +47,7 @@ abstract interface class MediaSessionBinding {
     FavoritesRepository? favorites,
     DownloadRepository? downloads,
     MediaArtworkSource? artwork,
+    DesktopApplicationActions? application,
   });
 }
 
@@ -83,6 +90,7 @@ class AudioServiceMediaSessionBinding implements MediaSessionBinding {
     FavoritesRepository? favorites,
     DownloadRepository? downloads,
     MediaArtworkSource? artwork,
+    DesktopApplicationActions? application,
   }) async {
     final LinthraAudioHandler? handler = await connectMediaSession(
       controller,
@@ -121,6 +129,7 @@ class UnsupportedMediaSessionBinding implements MediaSessionBinding {
     FavoritesRepository? favorites,
     DownloadRepository? downloads,
     MediaArtworkSource? artwork,
+    DesktopApplicationActions? application,
   }) async =>
       null;
 }
@@ -179,6 +188,7 @@ class PlatformMediaSessionBinding implements MediaSessionBinding {
     FavoritesRepository? favorites,
     DownloadRepository? downloads,
     MediaArtworkSource? artwork,
+    DesktopApplicationActions? application,
   }) =>
       _delegate.attach(
         controller,
@@ -187,5 +197,6 @@ class PlatformMediaSessionBinding implements MediaSessionBinding {
         favorites: favorites,
         downloads: downloads,
         artwork: artwork,
+        application: application,
       );
 }

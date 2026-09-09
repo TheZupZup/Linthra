@@ -19,6 +19,7 @@ import '../features/appearance/theme_mode_controller.dart';
 import '../features/library/remote_library_refresher.dart';
 import '../features/onboarding/onboarding_controller.dart';
 import '../features/player/player_providers.dart';
+import '../features/settings/desktop/desktop_window_providers.dart';
 import '../features/settings/jellyfin/jellyfin_availability_controller.dart';
 import '../features/support/support_actions_provider.dart';
 import '../features/support/supporter_entitlement.dart';
@@ -119,8 +120,14 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
           controller.state.status.name);
       // Arm suspend recovery only on a true pause (system sleep / window
       // background). Brief `inactive` (dialogs, focus blips) must not reload.
+      //
+      // A desktop window hidden by a close (#401) is the one pause that must
+      // not arm it: playback never stopped, the audio device was never taken
+      // away, and reloading the track when the window comes back would be an
+      // audible skip in music the listener kept playing on purpose.
       if (state == AppLifecycleState.paused &&
-          controller is ActivePlaybackController) {
+          controller is ActivePlaybackController &&
+          !ref.read(desktopWindowLifecycleServiceProvider).isWindowHidden) {
         controller.onAppBackgrounded();
       }
     }

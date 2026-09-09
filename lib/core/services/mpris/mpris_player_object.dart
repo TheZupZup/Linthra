@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:dbus/dbus.dart';
 
 import '../../app_info.dart';
 import '../../models/playback_state.dart';
 import '../../models/repeat_mode.dart';
 import '../../models/track.dart';
+import '../desktop_application_actions.dart';
 import '../media_artwork_source.dart';
 import '../playback_controller.dart';
 
@@ -31,7 +34,9 @@ class MprisPlayerObject extends DBusObject {
   MprisPlayerObject(
     this._controller, {
     MediaArtworkSource? artwork,
+    DesktopApplicationActions? application,
   })  : _artwork = artwork,
+        _application = application,
         super(DBusObjectPath('/org/mpris/MediaPlayer2'));
 
   static const String rootInterface = 'org.mpris.MediaPlayer2';
@@ -44,6 +49,12 @@ class MprisPlayerObject extends DBusObject {
 
   final PlaybackController _controller;
   final MediaArtworkSource? _artwork;
+
+  /// The window and the process behind it, when this build has one it can act
+  /// on (#401). Null on a host that cannot raise or quit itself, and then
+  /// `CanRaise`/`CanQuit` are false and both methods do nothing, which is what
+  /// the spec asks of a player that cannot perform them.
+  final DesktopApplicationActions? _application;
 
   /// A counter behind `mpris:trackid`.
   ///
@@ -136,6 +147,17 @@ class MprisPlayerObject extends DBusObject {
     ];
   }
 
+  /// Runs one of the root interface's application actions without waiting for
+  /// it. Nothing on this object may block a D-Bus reply, least of all Quit,
+  /// whose whole job is to take the connection away.
+  void _startApplicationAction(
+    Future<void> Function(DesktopApplicationActions actions) action,
+  ) {
+    final DesktopApplicationActions? actions = _application;
+    if (actions == null) return;
+    unawaited(action(actions));
+  }
+
   static DBusIntrospectProperty _readable(String name, String signature) =>
       DBusIntrospectProperty(name, DBusSignature(signature),
           access: DBusPropertyAccess.read);
@@ -146,11 +168,20 @@ class MprisPlayerObject extends DBusObject {
   Future<DBusMethodResponse> handleMethodCall(DBusMethodCall methodCall) async {
     if (methodCall.interface == rootInterface) {
       switch (methodCall.name) {
-        // Linthra advertises CanRaise/CanQuit false, so both are accepted and
-        // ignored rather than erroring: the spec says a player that cannot do
-        // them should simply do nothing.
+        // Both are accepted whether or not this build can act on them: the
+        // spec says a player that cannot perform one should simply do
+        // nothing, which is what a null [_application] means here.
         case 'Raise':
+          // Bring the window back. In background mode (#401) this is a
+          // listener's way home from the shell's media widget when Linthra has
+          // no window on screen at all.
+          _startApplicationAction((actions) => actions.raise());
+          return DBusMethodSuccessResponse();
         case 'Quit':
+          // Not awaited on purpose: quitting releases the bus connection this
+          // very call came in on, so the reply has to be sent first. The
+          // shutdown it starts is the same one an in-app Quit runs.
+          _startApplicationAction((actions) => actions.quit());
           return DBusMethodSuccessResponse();
         default:
           return DBusMethodErrorResponse.unknownMethod();
@@ -401,8 +432,10 @@ class MprisPlayerObject extends DBusObject {
   Map<String, DBusValue> properties(String interface) {
     if (interface == rootInterface) {
       return <String, DBusValue>{
-        'CanQuit': const DBusBoolean(false),
-        'CanRaise': const DBusBoolean(false),
+        // True exactly when there is a window/process seam to act on, so a
+        // shell only offers Quit and Raise where they do something (#401).
+        'CanQuit': DBusBoolean(_application != null),
+        'CanRaise': DBusBoolean(_application != null),
         'HasTrackList': const DBusBoolean(false),
         'Identity': const DBusString(AppInfo.name),
         'DesktopEntry': const DBusString(desktopEntry),

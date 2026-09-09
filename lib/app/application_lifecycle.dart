@@ -4,9 +4,11 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/lifecycle/async_disposal_registry.dart';
+import '../core/models/desktop_close_behavior.dart';
 import '../core/models/plex_session.dart';
 import '../core/models/subsonic_session.dart';
 import '../core/services/artwork_disk_cache.dart';
+import '../core/services/desktop_window_lifecycle_service.dart';
 import '../core/services/media_session_binding.dart';
 import '../core/services/playback_session_persistence.dart';
 import '../core/services/playback_volume_persistence.dart';
@@ -22,6 +24,8 @@ import '../data/repositories/remote_cache_index_provider.dart';
 import '../features/player/media_artwork_providers.dart';
 import '../features/player/player_providers.dart';
 import '../features/settings/audiobookshelf/audiobookshelf_settings_controller.dart';
+import '../features/settings/desktop/close_behavior_controller.dart';
+import '../features/settings/desktop/desktop_window_providers.dart';
 import '../features/settings/jellyfin/jellyfin_settings_controller.dart';
 import '../features/settings/playback/audio_output_controller.dart';
 import '../features/settings/playback/normalize_volume_controller.dart';
@@ -186,6 +190,35 @@ Future<ApplicationHandle> bootstrapApplication(
 }) async {
   final ApplicationHandle handle = ApplicationHandle(container: container);
   try {
+    // The desktop window lifecycle (#401): what a window close does, and the
+    // explicit quit. Started before the media session so MPRIS can offer the
+    // same Raise/Quit the window itself does, and handed the graceful shutdown
+    // so an explicit quit releases audio, the bus name and the database before
+    // the process ends rather than racing the engine on the way down.
+    //
+    // Inert off the desktop: the window controller is then the no-op one, so
+    // nothing is pushed anywhere and nothing is ever hidden.
+    final DesktopWindowLifecycleService desktopWindow =
+        container.read(desktopWindowLifecycleServiceProvider);
+    desktopWindow.installShutdown(handle.shutdown);
+    desktopWindow.start();
+
+    // Mirror the user's close-behaviour choice onto the runner, seeding the
+    // persisted value now and pushing every later change. The runner has to
+    // answer a GTK delete-event synchronously, so it is told the answer ahead
+    // of time rather than asked for one.
+    handle.ownSubscription(
+      container.listen<AsyncValue<DesktopCloseBehavior>>(
+        desktopCloseBehaviorControllerProvider,
+        (_, AsyncValue<DesktopCloseBehavior> next) {
+          desktopWindow.setCloseBehavior(
+            next.valueOrNull ?? DesktopCloseBehavior.defaultBehavior,
+          );
+        },
+        fireImmediately: true,
+      ),
+    );
+
     // Attaching the session is best-effort and platform-routed: Android gets
     // the real `audio_service` session, Linux gets MPRIS, and every other
     // platform gets the inert binding so `audio_service` is never initialised
@@ -204,6 +237,9 @@ Future<ApplicationHandle> bootstrapApplication(
       favorites: container.read(favoritesRepositoryProvider),
       downloads: container.read(downloadRepositoryProvider),
       artwork: container.read(mediaArtworkCacheProvider),
+      // Raise and Quit for the desktop session. Off the desktop this is still
+      // the inert service, and the Android session ignores it entirely.
+      application: desktopWindow,
     );
     // Owned so shutdown gives the session back. On Android that is a no-op (the
     // session belongs to the foreground service), but on Linux it releases the

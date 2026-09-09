@@ -9,6 +9,7 @@ import '../../repositories/download_repository.dart';
 import '../../repositories/favorites_repository.dart';
 import '../../repositories/music_library_repository.dart';
 import '../../repositories/playlist_repository.dart';
+import '../desktop_application_actions.dart';
 import '../media_artwork_source.dart';
 import '../media_session_binding.dart';
 import '../playback_controller.dart';
@@ -56,6 +57,7 @@ class MprisMediaSession implements MediaSession {
     MediaArtworkSource? artwork,
     DBusClientFactory clientFactory = DBusClient.session,
     int? processId,
+    DesktopApplicationActions? application,
   }) async {
     DBusClient? client;
     try {
@@ -67,8 +69,11 @@ class MprisMediaSession implements MediaSession {
       // where /org/mpris/MediaPlayer2 does not exist yet, so that introspect
       // answers UnknownObject and a shell that does not retry discovery just
       // never shows Linthra.
-      final MprisPlayerObject object =
-          MprisPlayerObject(controller, artwork: artwork);
+      final MprisPlayerObject object = MprisPlayerObject(
+        controller,
+        artwork: artwork,
+        application: application,
+      );
       await client.registerObject(object);
 
       final String? name = await _claimName(client, processId ?? pid);
@@ -112,9 +117,11 @@ class MprisMediaSession implements MediaSession {
   /// The pid is tried first because it is the spec's suggestion and it makes
   /// the name legible in `playerctl -l`, but it cannot be trusted to be unique:
   /// each Flatpak instance has its own pid namespace, so two sandboxed windows
-  /// can genuinely both be pid 2, and the runner allows several instances
-  /// (G_APPLICATION_NON_UNIQUE). Random suffixes follow, so a collision costs a
-  /// less readable name rather than a window with no media controls at all.
+  /// can genuinely both be pid 2. The runner is single-instance since #401, so
+  /// a second Linthra is rare rather than routine (a second Flatpak instance,
+  /// or a machine with no session bus to register on), but a collision must
+  /// still cost a less readable name rather than a window with no media
+  /// controls at all, which is what the random suffixes that follow are for.
   static Future<String?> _claimName(DBusClient client, int processId) async {
     final Random random = Random();
     for (final String candidate in <String>[
@@ -242,6 +249,7 @@ class MprisMediaSessionBinding implements MediaSessionBinding {
     FavoritesRepository? favorites,
     DownloadRepository? downloads,
     MediaArtworkSource? artwork,
+    DesktopApplicationActions? application,
   }) {
     // The repositories are Android Auto's browse tree. MPRIS has no browsing —
     // `HasTrackList` is false — so they are deliberately unused here.
@@ -249,6 +257,7 @@ class MprisMediaSessionBinding implements MediaSessionBinding {
       controller,
       artwork: artwork,
       clientFactory: _clientFactory,
+      application: application,
     );
   }
 }

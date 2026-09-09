@@ -3,10 +3,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/desktop_application_actions.dart';
 import 'package:linthra/core/services/media_artwork_source.dart';
 import 'package:linthra/core/services/mpris/mpris_player_object.dart';
 
 import '../../../features/player/fake_playback_controller.dart';
+
+/// The window and process behind the root interface's Raise and Quit (#401).
+class _RecordingApplication implements DesktopApplicationActions {
+  int raiseCount = 0;
+  int quitCount = 0;
+
+  @override
+  Future<void> raise() async => raiseCount++;
+
+  @override
+  Future<void> quit() async => quitCount++;
+}
 
 /// A cache that has exactly one cover ready, for the artwork-filter tests.
 class _Artwork implements MediaArtworkSource {
@@ -103,7 +116,16 @@ void main() {
       );
     });
 
-    test('Raise and Quit are accepted and do nothing', () async {
+    test('Raise and Quit are accepted and do nothing without a window',
+        () async {
+      // No application seam (Android, or a desktop whose runner cannot do
+      // this): the spec says a player that cannot perform them should simply
+      // do nothing, and say so through CanRaise/CanQuit.
+      final Map<String, DBusValue> root =
+          object.properties(MprisPlayerObject.rootInterface);
+      expect(root['CanQuit'], const DBusBoolean(false));
+      expect(root['CanRaise'], const DBusBoolean(false));
+
       expect(
         await call('Raise', interface: MprisPlayerObject.rootInterface),
         isA<DBusMethodSuccessResponse>(),
@@ -113,6 +135,41 @@ void main() {
         isA<DBusMethodSuccessResponse>(),
       );
       expect(controller.stopCount, 0);
+    });
+
+    test('offers Raise and Quit to the shell when there is a window (#401)',
+        () async {
+      final _RecordingApplication application = _RecordingApplication();
+      final MprisPlayerObject windowed =
+          MprisPlayerObject(controller, application: application);
+
+      final Map<String, DBusValue> root =
+          windowed.properties(MprisPlayerObject.rootInterface);
+      expect(root['CanQuit'], const DBusBoolean(true));
+      expect(root['CanRaise'], const DBusBoolean(true));
+
+      // Both answer immediately: Quit takes away the very connection the call
+      // arrived on, so the reply cannot wait for it.
+      expect(
+        await windowed.handleMethodCall(const DBusMethodCall(
+          sender: ':1.42',
+          interface: MprisPlayerObject.rootInterface,
+          name: 'Raise',
+        )),
+        isA<DBusMethodSuccessResponse>(),
+      );
+      expect(
+        await windowed.handleMethodCall(const DBusMethodCall(
+          sender: ':1.42',
+          interface: MprisPlayerObject.rootInterface,
+          name: 'Quit',
+        )),
+        isA<DBusMethodSuccessResponse>(),
+      );
+      await pumpEventQueue();
+
+      expect(application.raiseCount, 1);
+      expect(application.quitCount, 1);
     });
   });
 

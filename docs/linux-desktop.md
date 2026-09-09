@@ -367,7 +367,8 @@ undeclared network access to an isolated `flatpak-builder` build.
 | **Audio playback** | Supported | media_kit/libmpv through `LinuxPlaybackController`; local files and resolved Jellyfin, Navidrome/Subsonic, and Plex HTTP(S) streams share one backend. |
 | **Suspend / resume** | Supported (app side); real device/sink timing varies | Lifecycle `paused`→`resumed` arms a bounded Linux-only reload of an actively playing track after a short backoff ([issue #466](https://github.com/TheZupZup/Linthra/issues/466)). See [Suspend / resume (manual matrix)](#suspend--resume-manual-matrix). |
 | **Light/Dark/System theme** | Supported (app side); the native brightness bridge itself is Flutter's, not independently verified here | Settings → Appearance's System/Light/Dark choice ([issue #459](https://github.com/TheZupZup/Linthra/issues/459)) is the same shared `ThemeModePreference`/`ThemeModeController` Android uses, mapped onto `MaterialApp`'s own `themeMode` — no `gsettings`/D-Bus/GNOME/KDE-specific code in Linthra itself, and no separate Linux theme path (`test/app/theme_mode_test.dart` proves that). *Supplying* System's brightness on Linux is Flutter's GTK embedder (via the XDG desktop portal or a GNOME GSettings fallback); that native bridge is outside Linthra's code and isn't exercised by `flutter test`, which runs on the Dart VM and injects brightness straight into Flutter's test `PlatformDispatcher`. Reproducing the real bridge deterministically in CI would need a running portal daemon or GNOME schemas — exactly the DE-specific setup this app avoids adding — so it stays untested here and is a known gap, not a claimed guarantee. |
-| Media session / MPRIS | Supported | `PlatformMediaSessionBinding` routes Linux to `MprisMediaSessionBinding`, which exports `/org/mpris/MediaPlayer2` and owns `org.mpris.MediaPlayer2.linthra` ([issue #397](https://github.com/TheZupZup/Linthra/issues/397)). Shells get PlaybackStatus, Metadata, Position and the transport methods; media keys work through the same interface. `Volume` is read/write, so a shell's own volume slider drives Linthra's level (and reads zero while muted); `Rate` stays honestly read-only. `audio_service` is still never initialised on Linux — it stays the Android delegate. A machine with no session bus simply gets no desktop controls. |
+| Media session / MPRIS | Supported | `PlatformMediaSessionBinding` routes Linux to `MprisMediaSessionBinding`, which exports `/org/mpris/MediaPlayer2` and owns `org.mpris.MediaPlayer2.linthra` ([issue #397](https://github.com/TheZupZup/Linthra/issues/397)). Shells get PlaybackStatus, Metadata, Position and the transport methods; media keys work through the same interface. `Volume` is read/write, so a shell's own volume slider drives Linthra's level (and reads zero while muted); `Rate` stays honestly read-only. `Raise` and `Quit` are answered too, so a listener whose window is hidden by background mode can bring Linthra back or shut it down from the shell's media widget (#401). `audio_service` is still never initialised on Linux — it stays the Android delegate. A machine with no session bus simply gets no desktop controls. |
+| Close-window behaviour | Supported | Settings → Music & playback → Desktop window chooses between quitting and keeping playback running ([issue #401](https://github.com/TheZupZup/Linthra/issues/401)). The runner answers the close, Dart decides what the answer should be, and background mode only ever starts while audio is actually playing. See [Closing the window](#closing-the-window). |
 | Android Auto | Android-only, by design | It is an Android platform integration, not a Linthra feature. |
 | Media notification + `POST_NOTIFICATIONS` | Android-only, by design | There is no equivalent gate on Linux; desktop controls come from MPRIS instead. Standalone track-change notifications are [issue #400](https://github.com/TheZupZup/Linthra/issues/400). |
 | Android audio focus | Android-only, by design | `JustAudioPlaybackController` already scopes its focus handling to Android/iOS. |
@@ -586,14 +587,22 @@ display server or a second monitor to unplug, in
 A damaged or missing file is never fatal: it falls back to the 1180×780 default,
 clamped to the 420×600 minimum. Deleting the file resets the window.
 
+It composes with [background mode](#closing-the-window): closing a window that
+keeps playing *hides* it rather than destroying it, so the geometry stays
+tracked and a launcher click gets the same window back at the same size. The
+file is written when the application actually shuts down, whichever way it got
+there.
+
 ## Guardrails
 
 * `scripts/check_linux_runner.py` — the committed runner still matches the app's
   identity (`APPLICATION_ID` = Android's `applicationId`, `BINARY_NAME` =
   the package name, window title = `AppInfo.name`), it still makes the four
   desktop-identity calls below in the places where GTK honours them, the window
-  metrics are sane, the offline SQLite seam is wired, and nothing under `linux/`
-  hardcodes an absolute host path.
+  metrics are sane, the offline SQLite seam is wired, the folder-picker and
+  window-lifecycle channels still agree with their Dart halves, the application
+  is still registered single-instance, and nothing under `linux/` hardcodes an
+  absolute host path.
   Tests: `test/tooling/check_linux_runner_test.py`.
 * `scripts/flatpak_launch_smoke.sh` — launches the packaged Flatpak twice and
   reads `WM_CLASS` and `_NET_WM_ICON` back off the real window each time, so a
@@ -672,6 +681,77 @@ before a Linux milestone release:
 | Sleep with **network** offline | Playing remote | Bounded recovery; Retry works when connectivity returns |
 | Minimize only (no sleep) | Playing | App stays responsive; no crash; ideally continues without a full reload |
 | Repeat sleep/wake **3×** | Playing | Still one coherent queue/position; no growing listener/service leak; UI stays usable |
+
+## Closing the window
+
+By default, closing the window quits Linthra, which is what it has always done.
+Settings → Music & playback → **Desktop window** offers the other choice:
+keep playing in the background, where a close hides the window and leaves
+playback and the desktop media controls running.
+
+The decision is split across the two halves on purpose:
+
+* **Dart decides.** `DesktopClosePolicy` combines the stored preference with
+  the live playback state, and `DesktopWindowLifecycleService` pushes the one
+  resulting boolean to the runner whenever either changes.
+* **The runner applies.** A GTK `delete-event` has to be answered
+  synchronously, so `linux/runner/window_lifecycle_channel.cc` cannot ask
+  anything: it already holds the answer, and either hides the window or lets
+  GTK destroy it.
+
+What that buys, in the order the requirements ask for it:
+
+* **No hidden zombie process.** Background mode only takes effect while audio
+  is playing (or loading, buffering, reconnecting). Close it while paused,
+  stopped or idle and Linthra quits, whatever the preference says.
+* **Nothing extra is started for it.** Hiding the window starts no background
+  service and no second process: it is the same running app with its window
+  away, so the audio engine, the queue and the MPRIS export carry on and the
+  window simply stops drawing. Linux has no foreground-service concept to hold
+  the way Android does.
+* **A hidden Linthra ends itself.** When the queue runs out, the app quits on
+  its own rather than sitting invisibly in the process list. A *pause* keeps it
+  alive, because with no window on screen a shell's media widget is the only
+  way back to playing.
+* **A clear way to fully quit.** "Quit Linthra now" sits in the same settings
+  card, and MPRIS `Quit` does the same thing from the desktop's media controls.
+  Both run the app's graceful shutdown (stop playback, release the audio
+  engine, give back the MPRIS bus name, close the database) *before* the
+  process ends, rather than leaving it to whatever time the engine gets on the
+  way down.
+* **No duplicate instance.** The runner is single-instance, so launching
+  Linthra while it is already running (from the launcher, a terminal, or a
+  desktop file) reaches the running process as an activation and presents the
+  window it already has, hidden or not. Two processes would mean two audio
+  engines, two MPRIS names and two connections to the same SQLite catalog.
+  `scripts/check_linux_runner.py` fails if the runner goes back to
+  `G_APPLICATION_NON_UNIQUE`.
+
+One deliberate interaction with [suspend / resume](#suspend--resume-manual-matrix):
+while the window is hidden, Linthra does **not** arm the post-suspend reload.
+A hide looks exactly like a system suspend from the lifecycle observer's side,
+and reloading a track the listener never stopped would be an audible skip. The
+trade is that a real machine suspend taken while the window is hidden is not
+recovered from either; it is recovered the next time the window comes back.
+
+Automated coverage: `test/core/lifecycle/desktop_close_policy_test.dart`,
+`test/core/services/desktop_window_lifecycle_service_test.dart`,
+`test/core/services/method_channel_linux_window_test.dart`,
+`test/features/settings/desktop/desktop_window_section_test.dart`, and the
+runner contract in `test/tooling/check_linux_runner_test.py`. What only a real
+desktop can answer, to re-check before a Linux milestone release:
+
+| Scenario | Setting | Expect |
+| --- | --- | --- |
+| Close the window while a track plays | Keep playing | Window disappears, audio continues, media controls still work |
+| Click the launcher again while hidden | Keep playing | The same window comes back; one process, one entry in the media controls |
+| Raise from the shell's media widget | Keep playing | Same as above |
+| Let the queue finish while hidden | Keep playing | Linthra exits on its own; the MPRIS entry disappears from the shell |
+| Pause from the media widget while hidden, then play | Keep playing | Still there, resumes the same track |
+| Close the window while paused | Keep playing | Linthra quits; nothing is left running |
+| Close the window while a track plays | Quit | Linthra quits, audio stops |
+| Quit from the media widget, or "Quit Linthra now" | Either | Playback stops, the window goes, the MPRIS name is released |
+| Reopen after any quit | Either | Normal cold start; the crash-safe session restores paused, as it always did |
 
 ## Crash-safe playback restore
 

@@ -106,6 +106,12 @@ WINDOW_STATE_POLICY_SOURCE = (
 FOLDER_PICKER_DART = (
     Path("lib") / "core" / "services" / "method_channel_linux_folder_picker.dart"
 )
+WINDOW_LIFECYCLE_CHANNEL_SOURCE = (
+    Path("linux") / "runner" / "window_lifecycle_channel.cc"
+)
+WINDOW_LIFECYCLE_DART = (
+    Path("lib") / "core" / "services" / "method_channel_linux_window.dart"
+)
 PUBSPEC = Path("pubspec.yaml")
 APP_INFO = Path("lib") / "core" / "app_info.dart"
 BUILD_GRADLE = Path("android") / "app" / "build.gradle"
@@ -222,6 +228,30 @@ FOLDER_PICKER_NATIVE_CHANNEL = r'kChannelName\s*=\s*\n?\s*"([^"]+)"'
 FOLDER_PICKER_NATIVE_METHOD = r'kPickFolderMethod\s*=\s*"([^"]+)"'
 FOLDER_PICKER_DART_CHANNEL = r"String channelName\s*=\s*\n?\s*'([^']+)'"
 FOLDER_PICKER_DART_METHOD = r"String pickFolderMethod\s*=\s*'([^']+)'"
+
+# The window-lifecycle channel (#401), checked the same way and for the same
+# reason. This one is worse when it drifts than the folder picker: nothing
+# fails, no dialog is missing, the app simply goes back to quitting on every
+# close while Settings still offers a choice that no longer does anything. Each
+# name below is one string on each side of the same wire.
+WINDOW_LIFECYCLE_NAMES = (
+    ("channel name", "kChannelName", "channelName"),
+    ("setHideOnClose method", "kSetHideOnCloseMethod", "setHideOnCloseMethod"),
+    ("showWindow method", "kShowWindowMethod", "showWindowMethod"),
+    ("quit method", "kQuitMethod", "quitMethod"),
+    ("windowHidden method", "kWindowHiddenMethod", "windowHiddenMethod"),
+    ("windowShown method", "kWindowShownMethod", "windowShownMethod"),
+    ("hideOnClose argument", "kHideOnCloseArgument", "hideOnCloseArgument"),
+)
+
+# GApplication's uniqueness, which the close behaviour depends on (#401). The
+# Flutter template runner is NON_UNIQUE, so a `flutter create` regeneration
+# would restore it, and the failure would be silent in the worst way: launching
+# Linthra while it is playing in the background with a hidden window would
+# start a *second* process, with a second audio engine, a second MPRIS name and
+# a second connection to the same SQLite catalog, instead of showing the window
+# that already exists.
+NON_UNIQUE_FLAG = "G_APPLICATION_NON_UNIQUE"
 
 # === Window identity (#554) ===
 #
@@ -765,6 +795,72 @@ def folder_picker_problems(root: Path) -> list[str]:
     return problems
 
 
+def window_lifecycle_problems(root: Path) -> list[str]:
+    """Disagreements between the runner's window-lifecycle channel and Dart's.
+
+    The channel is how the configurable close behaviour (#401) reaches the one
+    place that can act on it: a GTK `delete-event` has to be answered
+    synchronously, so Dart pushes the answer ahead of time and the runner
+    applies it. A mismatched name still compiles and still runs; the runner
+    just never hears what to do, every close destroys the window as before, and
+    the preference in Settings quietly stops meaning anything.
+    """
+    problems: list[str] = []
+
+    runner_cmakelists = _read(root, RUNNER_CMAKELISTS)
+    if WINDOW_LIFECYCLE_CHANNEL_SOURCE.name not in runner_cmakelists:
+        problems.append(
+            f"{RUNNER_CMAKELISTS} does not compile "
+            f"{WINDOW_LIFECYCLE_CHANNEL_SOURCE.name}, so the runner registers "
+            "no window-lifecycle channel"
+        )
+
+    native = _read(root, WINDOW_LIFECYCLE_CHANNEL_SOURCE)
+    dart = _read(root, WINDOW_LIFECYCLE_DART)
+    for what, native_constant, dart_constant in WINDOW_LIFECYCLE_NAMES:
+        native_value = _extract(
+            native,
+            rf'{native_constant}\s*=\s*\n?\s*"([^"]+)"',
+            f"the window lifecycle {what}",
+            WINDOW_LIFECYCLE_CHANNEL_SOURCE,
+        )
+        dart_value = _extract(
+            dart,
+            rf"String {dart_constant}\s*=\s*\n?\s*'([^']+)'",
+            f"the window lifecycle {what}",
+            WINDOW_LIFECYCLE_DART,
+        )
+        if native_value != dart_value:
+            problems.append(
+                f"window lifecycle {what} is {native_value!r} in "
+                f"{WINDOW_LIFECYCLE_CHANNEL_SOURCE} but {dart_value!r} in "
+                f"{WINDOW_LIFECYCLE_DART}"
+            )
+
+    my_application = _read(root, MY_APPLICATION)
+    if "window_lifecycle_channel_new" not in my_application:
+        problems.append(
+            f"{MY_APPLICATION} never calls window_lifecycle_channel_new(), so "
+            "the window-lifecycle channel is never registered on the engine"
+        )
+    # Presenting the existing window is what makes a second launch reach the
+    # first instance instead of building another window on top of it.
+    if "window_lifecycle_channel_present" not in my_application:
+        problems.append(
+            f"{MY_APPLICATION} never calls window_lifecycle_channel_present(), "
+            "so activating a running Linthra builds a second window instead of "
+            "showing the one it already has"
+        )
+    if NON_UNIQUE_FLAG in _blank(my_application):
+        problems.append(
+            f"{MY_APPLICATION} registers the application as "
+            f"{NON_UNIQUE_FLAG}, so launching Linthra while it is already "
+            "running starts a duplicate process instead of presenting the "
+            "window it already has (see #401)"
+        )
+    return problems
+
+
 def _blank(source: str, *, comments: bool = True, strings: bool = False) -> str:
     """Return `source` with comments and/or string literals replaced by spaces.
 
@@ -1006,6 +1102,10 @@ def check(root: Path) -> list[str]:
     # The folder-picker channel (#438): two strings that have to agree, and a
     # source file that has to be compiled and registered.
     problems.extend(folder_picker_problems(root))
+
+    # The window-lifecycle channel (#401): the same shape of contract, plus the
+    # single-instance registration the close behaviour depends on.
+    problems.extend(window_lifecycle_problems(root))
 
     # The window identity (#554): the GTK/GDK calls that make the *running*
     # window answer to the same id as everything installed above, in the places

@@ -6,6 +6,8 @@ import '../data/repositories/app_icon_variant_store_provider.dart';
 import '../data/repositories/audio_output_device_service_provider.dart';
 import '../data/repositories/audiobookshelf_session_store_provider.dart';
 import '../data/repositories/default_provider_store_provider.dart';
+import '../data/repositories/desktop_window_controller_provider.dart';
+import '../data/repositories/desktop_window_preferences_provider.dart';
 import '../data/repositories/download_repository_provider.dart';
 import '../data/repositories/favorites_repository_provider.dart';
 import '../data/repositories/jellyfin_auto_sync_store_provider.dart';
@@ -57,8 +59,15 @@ List<Override> productionApplicationOverrides({
     sharedPreferencesDownloadStoreOverride,
     sharedPreferencesDownloadPreferencesOverride,
     sharedPreferencesPlaybackPreferencesOverride,
-    if (resolvedHost == HostPlatform.linux)
+    sharedPreferencesDesktopWindowPreferencesOverride,
+    if (resolvedHost == HostPlatform.linux) ...<Override>[
       sharedPreferencesPlaybackSessionStoreOverride,
+      // The window-lifecycle channel is Linthra's own GTK runner (#401), so
+      // only the Linux build ever opens it. Everywhere else the app keeps the
+      // no-op window controller and closing a window means whatever the host
+      // already made it mean.
+      linuxDesktopWindowControllerOverride,
+    ],
     fileSystemOfflineFileStoreOverride,
     remoteTrackDownloaderOverride,
     playbackCandidateSourceOverride,
