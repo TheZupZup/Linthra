@@ -88,15 +88,36 @@ nothing links the two — a *table* aliased `p` produces the identical row.
 Guessing would mean parsing the SQL, and a wrong guess excuses a real full
 scan, so the query declares it instead: `transient_aliases=("p",)`. The error
 message says so when it fires, and no query needs it today.
+
+A declaration vouches for exactly one scan row. If the plan scans that name
+more than once — a CTE read as `p` *and* a table aliased `p` in a nested scope
+both print `SCAN p` — the declaration is not honoured at all and both rows stay
+flagged, because one "trust me" cannot cover two objects.
 - Index names are matched as **whole identifiers**. `idx_tracks_album` is a
   prefix of `idx_tracks_album_artist`, so a substring test would report a green
   run on the wrong index, and the scan guard would stay quiet about it because
   the plan really is using *an* index.
 
+### Naming the index is not enough
+
+A query that stops being sargable while its columns stay covered keeps the same
+index and changes only the verb:
+
+```
+SEARCH tracks USING COVERING INDEX idx_tracks_artist (normalized_artist=?)   0.06 ms
+SCAN   tracks USING COVERING INDEX idx_tracks_artist                        11.16 ms
+```
+
+Same index name, and the scan guard is happy either way because the plan does
+use an index. So each query also records **how** it reaches its index —
+`access=SEEK` (the default) or `access=INDEX_SCAN` — and only `recently added`
+and `track count` are allowed to read one end to end.
+
 ### Adding a query
 
 Add a `Query(...)` to `QUERIES` and say what its plan has to do — either
-`uses_index="idx_..."` for a query written for one particular index, or
+`uses_index="idx_..."` (plus `access=` if it is meant to read the index in
+order rather than seek) for a query written for one particular index, or
 `covering_index_only=True` when any covering index will do. `COUNT(*)` is the
 second kind: it has no reason to prefer one covering index over another, so
 pinning a name there would fail the run for a schema change that is perfectly

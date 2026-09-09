@@ -8,9 +8,17 @@ import re
 import sqlite3
 import statistics
 import time
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+#: A seek: the plan jumps straight to the matching rows.
+SEEK = "SEARCH"
+
+#: An ordered read of a whole index — what `ORDER BY ... LIMIT` wants, and a
+#: regression anywhere it was not asked for.
+INDEX_SCAN = "SCAN"
 
 
 @dataclass(frozen=True)
@@ -30,6 +38,14 @@ class Query:
 
     #: The index the plan has to name, when the query is written for one.
     uses_index: str | None = None
+
+    #: How that index has to be reached. Naming it is not enough: a predicate
+    #: that stops being sargable while its columns stay covered turns
+    #: `SEARCH ... USING COVERING INDEX idx` into `SCAN ... USING COVERING
+    #: INDEX idx` — same index, same green scan guard, and the whole index read
+    #: instead of a seek. On the 200k fixture that is 0.06 ms becoming 11 ms,
+    #: still inside the budget.
+    access: str = SEEK
 
     #: Set instead of `uses_index` when any covering index will do. `COUNT(*)`
     #: is the case: it has no semantic reason to prefer one covering index over
@@ -91,6 +107,9 @@ QUERIES: tuple[Query, ...] = (
         "SELECT id, title FROM tracks ORDER BY date_added DESC LIMIT 50",
         (),
         uses_index="idx_tracks_recent",
+        # Reading the index in order is the whole point here: it is what lets
+        # the query skip a sort.
+        access=INDEX_SCAN,
     ),
     # A covering-index scan: SQLite reads the whole index but never touches the
     # table. It is a SCAN and it is fine, which is exactly the case the scan
@@ -100,6 +119,10 @@ QUERIES: tuple[Query, ...] = (
         "SELECT COUNT(*) FROM tracks",
         (),
         covering_index_only=True,
+        # Recorded rather than checked (there is no index name to check it
+        # against), but COUNT(*) can only read an index end to end, and a
+        # field left at its default would say the opposite.
+        access=INDEX_SCAN,
     ),
 )
 
@@ -150,6 +173,30 @@ class PlanRow:
         return f"{'  ' * self.depth}{self.detail}"
 
 
+def scanned_objects(rows: Sequence[PlanRow]) -> Counter:
+    """How many times each object is scanned in this plan."""
+    counts: Counter = Counter()
+    for row in rows:
+        match = SCANNED_OBJECT_PATTERN.match(row.detail.strip())
+        if match is not None:
+            counts[match.group(1)] += 1
+    return counts
+
+
+def ambiguous_aliases(rows: Sequence[PlanRow], declared: Sequence[str]) -> set[str]:
+    """Declared aliases the plan scans more than once.
+
+    A `transient_aliases` entry is the query vouching that one scan row reads a
+    CTE. SQLite prints the same `SCAN p` for a CTE read as `p` and for a table
+    aliased `p` in a nested scope, so a plan doing both would have its real
+    table scan suppressed by that one declaration. The vouching does not stretch
+    that far: an ambiguous name is not honoured at all, and both rows stay
+    flagged.
+    """
+    counts = scanned_objects(rows)
+    return {alias for alias in declared if counts[alias] > 1}
+
+
 def transient_objects(rows: Sequence[PlanRow]) -> set[str]:
     """The names this plan materializes rather than reads from disk."""
     return {
@@ -176,12 +223,16 @@ def full_table_scans(
     index would keep the rest of the run green.
 
     [extra_transient] names anything the plan cannot: an alias a CTE is read
-    under, which SQLite prints without saying what it refers to.
+    under, which SQLite prints without saying what it refers to. A declaration
+    is honoured only when the plan scans that name exactly once — see
+    [ambiguous_aliases].
 
     Where it has to guess, it guesses toward flagging: a spurious error is loud
     and one line to fix, a missed scan silently retires the check.
     """
-    transient = transient_objects(rows) | set(extra_transient)
+    transient = transient_objects(rows) | (
+        set(extra_transient) - ambiguous_aliases(rows, extra_transient)
+    )
     scans: list[PlanRow] = []
     for row in rows:
         stripped = row.detail.strip()
@@ -205,6 +256,23 @@ def plan_indexes(rows: Sequence[PlanRow]) -> set[str]:
 def plan_names_index(rows: Sequence[PlanRow], index: str) -> bool:
     """Whether any plan row reaches rows through exactly [index]."""
     return index in plan_indexes(rows)
+
+
+def index_access(rows: Sequence[PlanRow], index: str) -> set[str]:
+    """How [index] is reached in this plan: `SEARCH`, `SCAN`, or neither.
+
+    The distinction the index name alone cannot make. A seek and a full read of
+    the same index look identical to a name check, and the scan guard waves the
+    second through because it does name an index — so a query that quietly
+    stopped seeking stays green while reading every entry.
+    """
+    verbs: set[str] = set()
+    for row in rows:
+        stripped = row.detail.strip()
+        match = re.match(r"^(SEARCH|SCAN)\b", stripped)
+        if match is not None and index in INDEX_NAME_PATTERN.findall(stripped):
+            verbs.add(match.group(1))
+    return verbs
 
 
 def plan_uses_covering_index(rows: Sequence[PlanRow]) -> bool:
@@ -329,11 +397,33 @@ def main() -> None:
                     "the query's transient_aliases)"
                 )
                 failed = True
+            for alias in sorted(ambiguous_aliases(plan, query.transient_aliases)):
+                print(
+                    f"ERROR: {query.name} declares transient_aliases "
+                    f"{alias!r}, but the plan scans that name more than once"
+                )
+                print(
+                    "       (one declaration cannot vouch for two objects; "
+                    "give them distinct aliases)"
+                )
+                failed = True
             # ...and a query that stopped using the index it was written for is
             # a regression too, even when it found some other index to ride.
-            if query.uses_index and not plan_names_index(plan, query.uses_index):
-                print(f"ERROR: {query.name} no longer uses {query.uses_index}")
-                failed = True
+            if query.uses_index:
+                verbs = index_access(plan, query.uses_index)
+                if not verbs:
+                    print(f"ERROR: {query.name} no longer uses {query.uses_index}")
+                    failed = True
+                elif query.access not in verbs:
+                    print(
+                        f"ERROR: {query.name} reads {query.uses_index} with "
+                        f"{'/'.join(sorted(verbs))}, expected {query.access}"
+                    )
+                    print(
+                        "       (a SCAN of the index reads every entry; a "
+                        "SEARCH seeks to the matching ones)"
+                    )
+                    failed = True
             if query.covering_index_only and not plan_uses_covering_index(plan):
                 print(f"ERROR: {query.name} no longer reads through a covering index")
                 failed = True

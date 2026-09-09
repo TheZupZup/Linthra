@@ -214,6 +214,29 @@ class FullTableScanTest(unittest.TestCase):
             ["SCAN tracks"],
         )
 
+    def test_an_ambiguous_alias_declaration_is_not_honoured(self):
+        # SQLite prints the same "SCAN p" for a CTE read as p and for a table
+        # aliased p in a nested scope. One declaration cannot vouch for both,
+        # so it vouches for neither.
+        plan = self.rows(
+            "MATERIALIZE picked",
+            "SEARCH tracks USING INDEX idx_tracks_artist (normalized_artist=?)",
+            "SCAN p",
+            "SCAN p",
+        )
+        self.assertEqual(
+            benchmark_sqlite.ambiguous_aliases(plan, ("p",)), {"p"}
+        )
+        self.assertEqual(
+            [row.detail for row in benchmark_sqlite.full_table_scans(plan, ("p",))],
+            ["SCAN p", "SCAN p"],
+        )
+
+    def test_an_unambiguous_alias_declaration_still_works(self):
+        plan = self.rows("MATERIALIZE picked", "SCAN p")
+        self.assertEqual(benchmark_sqlite.ambiguous_aliases(plan, ("p",)), set())
+        self.assertEqual(benchmark_sqlite.full_table_scans(plan, ("p",)), [])
+
     def test_a_scan_inside_a_subquery_still_counts(self):
         # The subquery's *result* is transient; the table it reads is not.
         self.assertEqual(
@@ -242,6 +265,39 @@ class PlanIndexTest(unittest.TestCase):
         # just no longer riding the index it was written for.
         plan = self.rows("SEARCH tracks USING INDEX idx_tracks_title (normalized_title=?)")
         self.assertFalse(benchmark_sqlite.plan_names_index(plan, "idx_tracks_artist"))
+
+    def test_a_seek_and_a_full_index_read_are_told_apart(self):
+        # The regression a name check cannot see: same index, same green scan
+        # guard, and the whole index read instead of a seek. On the 200k
+        # fixture that is 0.06 ms becoming 11 ms — inside the budget.
+        seek = self.rows(
+            "SEARCH tracks USING COVERING INDEX idx_tracks_artist (normalized_artist=?)"
+        )
+        scan = self.rows("SCAN tracks USING COVERING INDEX idx_tracks_artist")
+        self.assertTrue(benchmark_sqlite.plan_names_index(seek, "idx_tracks_artist"))
+        self.assertTrue(benchmark_sqlite.plan_names_index(scan, "idx_tracks_artist"))
+        self.assertEqual(
+            benchmark_sqlite.index_access(seek, "idx_tracks_artist"), {"SEARCH"}
+        )
+        self.assertEqual(
+            benchmark_sqlite.index_access(scan, "idx_tracks_artist"), {"SCAN"}
+        )
+
+    def test_an_index_the_plan_never_reaches_has_no_access(self):
+        plan = self.rows("SCAN tracks")
+        self.assertEqual(benchmark_sqlite.index_access(plan, "idx_tracks_artist"), set())
+
+    def test_access_is_reported_per_index(self):
+        plan = self.rows(
+            "SEARCH tracks USING INDEX idx_tracks_album (normalized_album=?)",
+            "SCAN tracks USING INDEX idx_tracks_recent",
+        )
+        self.assertEqual(
+            benchmark_sqlite.index_access(plan, "idx_tracks_album"), {"SEARCH"}
+        )
+        self.assertEqual(
+            benchmark_sqlite.index_access(plan, "idx_tracks_recent"), {"SCAN"}
+        )
 
     def test_a_scanning_plan_names_no_index(self):
         self.assertFalse(
@@ -375,6 +431,25 @@ class QueryCatalogueTest(unittest.TestCase):
                     query.uses_index is not None or query.covering_index_only,
                     f"{query.name} asserts nothing about its plan",
                 )
+
+    def test_every_indexed_query_says_how_it_reaches_its_index(self):
+        for query in benchmark_sqlite.QUERIES:
+            with self.subTest(query=query.name):
+                self.assertIn(
+                    query.access,
+                    (benchmark_sqlite.SEEK, benchmark_sqlite.INDEX_SCAN),
+                )
+
+    def test_only_the_ordered_reads_expect_a_scan(self):
+        # A seek is the default because it is what almost every access pattern
+        # here wants; the exceptions are named so a new SCAN cannot slip in as
+        # the status quo.
+        scanning = {
+            query.name
+            for query in benchmark_sqlite.QUERIES
+            if query.access == benchmark_sqlite.INDEX_SCAN
+        }
+        self.assertEqual(scanning, {"recently added", "track count"})
 
     def test_query_names_are_unique_and_short_enough_to_line_up(self):
         names = [query.name for query in benchmark_sqlite.QUERIES]
