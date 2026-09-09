@@ -65,7 +65,9 @@ class PlaybackProgressBar extends StatefulWidget {
   /// Which renderer to use. Defaults to [defaultPlaybackProgressStyle].
   final PlaybackProgressStyle style;
 
-  /// How much room the wave renderer takes. The slider renderer has one size.
+  /// How much room the bar takes. Both renderers honour it: the mini-player
+  /// gives its 64dp bar a compact one and needs that to hold whichever
+  /// renderer [defaultPlaybackProgressStyle] currently selects.
   final WavySeekBarDensity density;
 
   /// Whether the elapsed/total caption is drawn under the bar. The now-playing
@@ -182,6 +184,11 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
         _pendingSeekMs?.clamp(0, totalMs.toDouble()) ??
         posMs.toDouble();
 
+    // Both renderers answer to the density: a call site that has only a few
+    // pixels (the mini player) must not sprout a full-size control if
+    // [defaultPlaybackProgressStyle] is ever flipped back to the slider.
+    final bool compact = widget.density == WavySeekBarDensity.compact;
+
     final muted = theme.colorScheme.onSurfaceVariant;
     final labelStyle = theme.textTheme.labelSmall?.copyWith(
       color: muted,
@@ -203,9 +210,15 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
             ),
           PlaybackProgressStyle.slider => SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                trackHeight: 4,
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                trackHeight: compact ? 2 : 4,
+                // The slider's height is its overlay's, so shrinking that is
+                // what keeps the fallback inside a bar sized for the wave.
+                overlayShape: RoundSliderOverlayShape(
+                  overlayRadius: compact ? 6 : 12,
+                ),
+                thumbShape: RoundSliderThumbShape(
+                  enabledThumbRadius: compact ? 3 : 6,
+                ),
                 inactiveTrackColor:
                     theme.colorScheme.onSurface.withValues(alpha: 0.15),
               ),

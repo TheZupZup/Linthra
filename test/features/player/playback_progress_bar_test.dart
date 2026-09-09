@@ -22,6 +22,7 @@ Future<List<Duration>> _pumpBar(
   bool seekable = true,
   bool playing = false,
   PlaybackProgressStyle style = PlaybackProgressStyle.wave,
+  WavySeekBarDensity density = WavySeekBarDensity.standard,
   List<Duration>? seeks,
 }) async {
   seeks ??= <Duration>[];
@@ -36,6 +37,7 @@ Future<List<Duration>> _pumpBar(
               duration: duration,
               playing: playing,
               style: style,
+              density: density,
               onSeek: seekable ? seeks.add : null,
               // Keyed so a re-pump with a new position updates this bar rather
               // than replacing it — the state under test has to survive.
@@ -417,6 +419,68 @@ void main() {
       expect(slider.label, 'Playback position');
       expect(slider.value, 'Unknown');
       handle.dispose();
+    });
+
+    // Flipping defaultPlaybackProgressStyle back to the slider is meant to be a
+    // one-constant change. The mini player asks for a compact bar and keeps 64dp
+    // for the whole thing, so a fallback that ignored the density would take the
+    // room its transport row needs.
+    //
+    // Both densities are pumped in one tree: the Material slider only repaints
+    // when its theme changes, so measuring one after the other in the same
+    // element would read the first one's size twice.
+    testWidgets('a compact slider still fits the mini player', (tester) async {
+      final List<Duration> seeks = <Duration>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Row(
+              children: <Widget>[
+                for (final WavySeekBarDensity density
+                    in WavySeekBarDensity.values)
+                  SizedBox(
+                    width: _barWidth,
+                    child: PlaybackProgressBar(
+                      key: ValueKey<WavySeekBarDensity>(density),
+                      position: Duration.zero,
+                      duration: _total,
+                      style: PlaybackProgressStyle.slider,
+                      density: density,
+                      onSeek: seeks.add,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      double heightOf(WavySeekBarDensity density) => tester
+          .getSize(
+            find.descendant(
+              of: find.byKey(ValueKey<WavySeekBarDensity>(density)),
+              matching: find.byType(Slider),
+            ),
+          )
+          .height;
+
+      final double compact = heightOf(WavySeekBarDensity.compact);
+      expect(compact, lessThan(heightOf(WavySeekBarDensity.standard)));
+      // 64dp bar, 48dp of transport buttons under it.
+      expect(compact, lessThanOrEqualTo(16));
+
+      // Still a seek bar, not just a thinner drawing of one.
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(
+            const ValueKey<WavySeekBarDensity>(WavySeekBarDensity.compact),
+          ),
+          matching: find.byType(Slider),
+        ),
+      );
+      await tester.pump();
+      expect(seeks, hasLength(1));
     });
   });
 }

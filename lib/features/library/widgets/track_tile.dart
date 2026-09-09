@@ -19,6 +19,7 @@ import '../../player/now_playing.dart';
 import '../../player/player_providers.dart';
 import '../../player/widgets/track_artwork.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
+import '../library_browse_providers.dart';
 import '../song_actions.dart';
 
 /// The actions reachable from a track row's overflow menu. Which subset is
@@ -215,6 +216,8 @@ class TrackTile extends ConsumerWidget {
         isFavorite: ref.read(isFavoriteProvider(track.uri)),
         isRemote: isRemote,
         status: status,
+        hasAlbumPage: _hasAlbumPage(ref, track),
+        hasArtistPage: _hasArtistPage(ref, track),
       ),
       onSelected: (_TrackAction action) =>
           _runTrackAction(context, ref, track, action),
@@ -324,19 +327,24 @@ class _OverflowMenu extends ConsumerWidget {
       icon: const Icon(Icons.more_vert),
       tooltip: 'More actions',
       onSelected: (action) => _run(context, ref, action),
-      itemBuilder: (context) => _menuItems(isFavorite),
+      itemBuilder: (context) => _menuItems(ref, isFavorite),
     );
   }
 
   /// Context-aware action list. Offline actions are gated on [isRemote]; the
   /// rest depend on the track's [DownloadStatus]. The favourite toggle, queue,
   /// add-to-playlist, and remove-from-Linthra actions are always available.
-  List<PopupMenuEntry<_TrackAction>> _menuItems(bool isFavorite) {
+  List<PopupMenuEntry<_TrackAction>> _menuItems(
+    WidgetRef ref,
+    bool isFavorite,
+  ) {
     return _trackMenuItems(
       track: track,
       isFavorite: isFavorite,
       isRemote: isRemote,
       status: status,
+      hasAlbumPage: _hasAlbumPage(ref, track),
+      hasArtistPage: _hasArtistPage(ref, track),
     );
   }
 
@@ -347,6 +355,24 @@ class _OverflowMenu extends ConsumerWidget {
   ) =>
       _runTrackAction(context, ref, track, action);
 }
+
+/// Whether this track's album has a page to open.
+///
+/// A row is not proof the catalog knows the album: the folder browser lists a
+/// server's tree on demand, so it shows tracks that were never synced into the
+/// flat catalog. `AlbumDetailScreen` resolves ids against that catalog alone,
+/// so offering "Show album" for one of those rows lands the user on "Album not
+/// found" right after they picked a song that plays fine.
+///
+/// Read, not watched: the menu is built when it opens, so this is the answer at
+/// that moment. Both detail screens derive their ids the same way, so a hit
+/// here is the page the Albums tab would have opened.
+bool _hasAlbumPage(WidgetRef ref, Track track) =>
+    ref.read(libraryAlbumIdsProvider).contains(albumIdForTrack(track));
+
+/// Whether this track's artist has a page to open. See [_hasAlbumPage].
+bool _hasArtistPage(WidgetRef ref, Track track) =>
+    ref.read(libraryArtistIdsProvider).contains(artistIdForTrack(track));
 
 /// The row's action list, built fresh so it always reflects the current
 /// favourite and download state.
@@ -359,6 +385,8 @@ List<PopupMenuEntry<_TrackAction>> _trackMenuItems({
   required bool isFavorite,
   required bool isRemote,
   required DownloadStatus status,
+  required bool hasAlbumPage,
+  required bool hasArtistPage,
 }) {
   final items = <PopupMenuEntry<_TrackAction>>[
     _item(
@@ -391,9 +419,11 @@ List<PopupMenuEntry<_TrackAction>> _trackMenuItems({
   // rest: "where does this song live" is a different question from "do
   // something to it". Offered only where there is somewhere to go — a track
   // with no album tags has no album page to open.
-  final bool hasAlbum = (track.albumName ?? '').trim().isNotEmpty ||
-      (track.albumId ?? '').trim().isNotEmpty;
-  final bool hasArtist = (track.artistName ?? '').trim().isNotEmpty;
+  final bool hasAlbum = hasAlbumPage &&
+      ((track.albumName ?? '').trim().isNotEmpty ||
+          (track.albumId ?? '').trim().isNotEmpty);
+  final bool hasArtist =
+      hasArtistPage && (track.artistName ?? '').trim().isNotEmpty;
   if (hasAlbum || hasArtist) {
     items.add(const PopupMenuDivider());
     if (hasAlbum) {
