@@ -7,11 +7,13 @@ enforces: no verified identity, no session, no media. This page is the answer to
 the next question, the one that decides whether the feature ever comes back:
 what would a receiver check have to be, concretely, for it to be worth trusting?
 
-It is a design, not a plan of record. Nothing here is wired into production,
+It is a design, not a plan of record. None of the protocol work exists yet,
 nothing here changes the containment, and the restoration remains one reviewed
-change ([#575](https://github.com/TheZupZup/Linthra/issues/575)). The report
-itself and the assessment of any specific implementation stay in the private
-advisory.
+change ([#575](https://github.com/TheZupZup/Linthra/issues/575)). The two
+app-side layers (3 and 5) are built, and the app does carry the pin store they
+need, which is a preference rather than a path to a receiver: no shipped build
+opens a cast socket. The report itself and the assessment of any specific
+implementation stay in the private advisory.
 
 ## The short version
 
@@ -21,7 +23,7 @@ Five layers, each doing one job, and none of them a substitute for another:
 | --- | --- | --- |
 | 1. Transport | Is the channel private? | TLS exists today, and proves nothing about who is on the far end |
 | 2. Device authentication | Is this a genuine Cast receiver? | Not implemented anywhere in the tree, and the package we depend on cannot express the modern challenge |
-| 3. Device pinning | Is it *your* receiver, the same one as last time? | Built and tested (`cast_receiver_pinning.dart`) |
+| 3. Device pinning | Is it *your* receiver, the same one as last time? | Built and tested (`cast_receiver_pinning.dart`), persistent in production, with the sheet's forget action |
 | 4. Least privilege | If it is, how little can it be handed? | Modelled and documented ([cast-media-access.md](cast-media-access.md)) |
 | 5. Fail-closed boundary | Does any doubt end in silence? | Built and tested (`trust_gated_cast_transport.dart`) |
 
@@ -241,10 +243,37 @@ The user-facing half is a distinct failure kind
 every other refusal this one has an action attached: if you really did replace
 the speaker, forget it and connect again.
 
-Two follow-ons for the restoration: the store has to be persistent (the shipped
-default is in-memory, chosen so that a missing store shortens the memory rather
-than removing the check), and the cast sheet needs the "forget this device"
-affordance the message points at.
+Both follow-ons this layer needed have landed, ahead of the protocol work and
+without touching the containment.
+
+The store is persistent in production
+(`lib/data/repositories/shared_preferences_cast_receiver_pin_store.dart`). An
+in-memory store makes every launch a first use, so a swapped receiver is noticed
+for one session and forgotten by the next; pins now outlive the app. It is
+deliberately the one `shared_preferences` store in the repository that throws
+rather than degrading to a default. Everywhere else, unreadable storage costing
+the user a default tab or a default theme is the right trade; here "I can't read
+the pin" resolving to "this device has no pin" would re-pin whichever receiver
+answered, which is the erase-the-check path the rules above exist to close. One
+key per device, keyed by a digest of the device id (for shape, not secrecy:
+discovery returns whatever a receiver advertises, and nothing about a device id
+should decide what a preference key looks like).
+
+The sheet carries the affordance the `changedReceiver` message points at, and
+getting there needed one more fix than expected: the sheet used to replace its
+device list with an empty state whenever the service reported an error, so a
+user told to "forget it in the cast list and try again" was looking at a screen
+with no cast list on it. A refusal now keeps the list it was caused from, which
+is both the retry and the recovery. "Forget this device" sits behind a
+confirmation that says what it costs, is offered only where there is a pin to
+drop, and is not offered for the connected device (that session already proved
+itself, so dropping its pin would change nothing now and read as if it had). A
+pin store that cannot answer still gets the menu item: whether the recovery is
+drawn is a UI question, not a trust one, and `TrustGatedCastTransport` refuses on
+that same throw regardless.
+
+What is left for the restoration is to hand the same store to
+`TrustGatedCastTransport`, which is step 7 below.
 
 ## Layer 4: hand over as little as possible
 
@@ -298,7 +327,8 @@ Staged, so that each step is reviewable and none of them relaxes the containment
    into production.
 4. **The authenticator** implementing `CastReceiverAuthenticator` on top of 2 and
    3, plugged into the existing gate. Still not wired into production.
-5. **A persistent pin store and the sheet's forget affordance.**
+5. ~~**A persistent pin store and the sheet's forget affordance.**~~ Done, see
+   layer 3.
 6. **Device matrix by hand**, results to the advisory.
 7. **The restoration itself**, per the checklist in
    [cast-receiver-trust.md](cast-receiver-trust.md#restoration-checklist): the
@@ -315,8 +345,12 @@ device testing has already been reviewed on its own terms.
 
 The app-side boundary is covered today
 (`test/core/services/cast/trust_gated_cast_transport_test.dart`), including the
-pinning cases above. The protocol side arrives with the implementation and owes,
-at minimum:
+pinning cases above, along with the persistent store's own rules
+(`test/data/repositories/shared_preferences_cast_receiver_pin_store_test.dart`:
+a pin survives a new instance, `remember` never replaces one, an unreadable
+entry throws rather than reading as a first use) and the sheet's recovery
+(`test/features/player/cast/cast_devices_sheet_test.dart`). The protocol side
+arrives with the implementation and owes, at minimum:
 
 - a response with a missing, empty, or altered `sender_nonce`;
 - a valid response replayed from another connection or another challenge;
