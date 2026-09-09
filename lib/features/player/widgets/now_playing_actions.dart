@@ -20,12 +20,20 @@ import 'sleep_timer_sheet.dart';
 /// ones), queue opens the up-next list, lyrics switches the screen into its
 /// lyrics-focused mode, and the sleep timer (a moon that lights up while a
 /// countdown is running) opens the delay picker.
+///
+/// Queue is the one action whose *shape* depends on the host surface. A window
+/// wide enough to hold a queue beside the cover passes [onToggleQueue], and the
+/// button becomes a pane toggle that reads like the lyrics one next to it.
+/// Everywhere else it stays what it has always been: a modal sheet over the
+/// screen.
 class NowPlayingActions extends ConsumerWidget {
   const NowPlayingActions({
     super.key,
     required this.track,
     this.lyricsVisible = false,
     this.onToggleLyrics,
+    this.queueVisible = false,
+    this.onToggleQueue,
   });
 
   final Track track;
@@ -38,6 +46,15 @@ class NowPlayingActions extends ConsumerWidget {
   /// the action row without a lyrics area, which leaves the button inert rather
   /// than opening something the caller didn't ask for.
   final VoidCallback? onToggleLyrics;
+
+  /// Whether a hosted queue pane is currently open, so the button can read as
+  /// the toggle it becomes. Meaningless without [onToggleQueue].
+  final bool queueVisible;
+
+  /// Opens and closes a queue pane the host lays out itself. Null — the default
+  /// — keeps the queue a modal sheet, which is the right shape on every surface
+  /// without the width for a pane.
+  final VoidCallback? onToggleQueue;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -88,10 +105,17 @@ class NowPlayingActions extends ConsumerWidget {
         ),
         IconButton(
           iconSize: 22,
-          onPressed: () => _openQueue(context),
-          icon: const Icon(Icons.queue_music_outlined),
-          color: muted,
-          tooltip: 'Queue',
+          onPressed: onToggleQueue ?? () => _openQueue(context),
+          icon: Icon(
+            queueVisible ? Icons.queue_music : Icons.queue_music_outlined,
+          ),
+          color: queueVisible ? theme.colorScheme.primary : muted,
+          isSelected: onToggleQueue == null ? null : queueVisible,
+          tooltip: switch ((onToggleQueue != null, queueVisible)) {
+            (true, true) => 'Hide queue',
+            (true, false) => 'Show queue',
+            _ => 'Queue',
+          },
         ),
         IconButton(
           iconSize: 22,

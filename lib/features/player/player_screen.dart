@@ -19,6 +19,7 @@ import 'widgets/now_playing_actions.dart';
 import 'widgets/now_playing_background.dart';
 import 'widgets/playback_controls.dart';
 import 'widgets/playback_progress_bar.dart';
+import 'widgets/queue_sheet.dart';
 import 'widgets/track_metadata.dart';
 import 'widgets/volume_controls.dart';
 
@@ -132,6 +133,17 @@ class _NowPlaying extends StatefulWidget {
 }
 
 class _NowPlayingState extends State<_NowPlaying> {
+  /// How wide a queue pane is drawn. Wide enough for a title, a duration and a
+  /// drag handle without the title truncating on most songs.
+  static const double _queuePaneWidth = 340;
+
+  /// The narrowest the screen may be and still host the queue as a third
+  /// column: the pane's own width, plus enough left over that the cover and the
+  /// controls beside it are no tighter than they are at the bottom of the
+  /// two-column layout.
+  static const double _queuePaneMinWidth =
+      expandedWindowWidth + _queuePaneWidth + AppSpacing.lg;
+
   /// Whether the stage is showing lyrics instead of the cover.
   ///
   /// Deliberately kept across track changes: someone reading along wants the
@@ -139,6 +151,13 @@ class _NowPlayingState extends State<_NowPlaying> {
   /// than a gesture, so it can't collide with the existing swipe-to-dismiss or
   /// with dragging the seek bar.
   bool _showLyrics = false;
+
+  /// Whether the queue is open as a pane beside the cover.
+  ///
+  /// Remembered even while the window is too narrow to draw it, so dragging a
+  /// window down to a phone width and back finds the queue where it was left
+  /// rather than closed.
+  bool _showQueue = false;
 
   @override
   Widget build(BuildContext context) {
@@ -153,6 +172,12 @@ class _NowPlayingState extends State<_NowPlaying> {
         // the two vertically, since the cover shrinks beside the controls
         // instead of stacking on top of them.
         final bool wide = sizeClass.isAtLeast(WindowSizeClass.expanded);
+        // A third column has to earn its place: at the low end of `expanded`
+        // the cover and the controls are already using the width, and a queue
+        // squeezed in beside them would shrink both to make room for a list
+        // that is one tap away as a sheet.
+        final bool canHostQueue =
+            wide && constraints.maxWidth >= _queuePaneMinWidth;
         return Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.md,
@@ -160,7 +185,8 @@ class _NowPlayingState extends State<_NowPlaying> {
             AppSpacing.md,
             AppSpacing.lg,
           ),
-          child: wide ? _wideLayout() : _stackedLayout(),
+          child:
+              wide ? _wideLayout(canHostQueue: canHostQueue) : _stackedLayout(),
         );
       },
     );
@@ -171,11 +197,18 @@ class _NowPlayingState extends State<_NowPlaying> {
   /// cover instead of replacing it, which is the whole point of the extra
   /// width. Same widgets, same `_showLyrics`, same playback state as the
   /// stacked layout; only the arrangement differs.
-  Widget _wideLayout() {
+  ///
+  /// Wider still ([canHostQueue]) the queue joins them as a third column rather
+  /// than as a sheet over the top, so lyrics and up-next are readable at the
+  /// same time — which is the other thing the width is for. It is the same
+  /// [QueueSheet] the sheet shows, so a reorder or a jump behaves identically
+  /// whichever shape it is wearing.
+  Widget _wideLayout({required bool canHostQueue}) {
     final Track track = widget.track;
+    final bool queueOpen = canHostQueue && _showQueue;
     return Center(
       child: ConstrainedBox(
-        // Ultrawide windows stop stretching the two columns apart here.
+        // Ultrawide windows stop stretching the columns apart here.
         constraints: const BoxConstraints(maxWidth: maxPaneLayoutWidth),
         child: Row(
           children: <Widget>[
@@ -207,10 +240,25 @@ class _NowPlayingState extends State<_NowPlaying> {
                     track: track,
                     lyricsVisible: _showLyrics,
                     onToggleLyrics: _toggleLyrics,
+                    // Below the pane width the button keeps opening the sheet,
+                    // so the queue is never unreachable at any window size.
+                    queueVisible: queueOpen,
+                    onToggleQueue: canHostQueue ? _toggleQueue : null,
                   ),
                 ],
               ),
             ),
+            if (queueOpen) ...<Widget>[
+              const SizedBox(width: AppSpacing.lg),
+              // A fixed width, not a flex share: the queue is a list of song
+              // rows, and rows have a width that reads well. Letting it grow
+              // with the window would only pull each title away from its
+              // handle, and would take the space from the cover.
+              const SizedBox(
+                width: _queuePaneWidth,
+                child: QueueSheet(embedded: true),
+              ),
+            ],
           ],
         ),
       ),
@@ -218,6 +266,8 @@ class _NowPlayingState extends State<_NowPlaying> {
   }
 
   void _toggleLyrics() => setState(() => _showLyrics = !_showLyrics);
+
+  void _toggleQueue() => setState(() => _showQueue = !_showQueue);
 
   /// Phones, and any window without the width (or height) for two columns.
   ///
@@ -287,11 +337,19 @@ class _ActionsBar extends ConsumerWidget {
     required this.track,
     required this.lyricsVisible,
     required this.onToggleLyrics,
+    this.queueVisible = false,
+    this.onToggleQueue,
   });
 
   final Track track;
   final bool lyricsVisible;
   final VoidCallback onToggleLyrics;
+
+  /// Whether the screen is hosting the queue as a pane, and how to toggle it.
+  /// Null on the layouts that have no room for one, which leaves the queue
+  /// button opening its sheet.
+  final bool queueVisible;
+  final VoidCallback? onToggleQueue;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -299,6 +357,8 @@ class _ActionsBar extends ConsumerWidget {
       track: track,
       lyricsVisible: lyricsVisible,
       onToggleLyrics: onToggleLyrics,
+      queueVisible: queueVisible,
+      onToggleQueue: onToggleQueue,
     );
     // Falls back to the service's own state until the first stream event, the
     // same way the source/casting line does.
