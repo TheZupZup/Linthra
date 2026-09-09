@@ -72,13 +72,21 @@ void the_ceiling_holds_across_a_sustained_signal() {
     // fails here even though a single-frame test would pass.
     DspChain chain = armed();
     const float ceiling = threshold_linear(-0.3F);
-    std::vector<float> buffer = sine(static_cast<std::size_t>(kSampleRate), 2.0F);
+    const std::vector<float> input = sine(static_cast<std::size_t>(kSampleRate), 2.0F);
+    std::vector<float> buffer = input;
     chain.process(buffer.data(), buffer.size() / 2, 2);
 
     float peak = 0.0F;
-    for (const float sample : buffer) {
+    for (std::size_t index = 0; index < buffer.size(); ++index) {
+        const float sample = buffer[index];
         CHECK(std::isfinite(sample));
         peak = std::max(peak, std::abs(sample));
+        // Gain is a scalar, so the waveform keeps its shape. Every check above
+        // reads magnitudes, and a limiter that rectified the negative half
+        // would satisfy all of them while wrecking the signal.
+        if (sample != 0.0F && input[index] != 0.0F) {
+            CHECK(std::signbit(sample) == std::signbit(input[index]));
+        }
     }
     CHECK(peak <= ceiling + 1.0e-4F);
     // ...and it is limiting, not muting: the signal still reaches the ceiling.
@@ -219,11 +227,16 @@ void mono_is_limited_too() {
         const float time = static_cast<float>(frame) / kSampleRate;
         buffer[frame] = 2.0F * std::sin(2.0F * kPi * 1'000.0F * time);
     }
+    const std::vector<float> input = buffer;
     chain.process(buffer.data(), buffer.size(), 1);
     float peak = 0.0F;
-    for (const float sample : buffer) {
+    for (std::size_t index = 0; index < buffer.size(); ++index) {
+        const float sample = buffer[index];
         CHECK(std::abs(sample) <= ceiling + 1.0e-4F);
         peak = std::max(peak, std::abs(sample));
+        if (sample != 0.0F && input[index] != 0.0F) {
+            CHECK(std::signbit(sample) == std::signbit(input[index]));
+        }
     }
     // ...and limited, not muted. Without this a mono-only regression that
     // zeroed every sample would satisfy the ceiling and pass, the way the
@@ -245,10 +258,16 @@ void an_equalizer_boost_cannot_push_past_the_ceiling() {
     std::vector<float> buffer = sine(4'800, 0.9F);
     chain.process(buffer.data(), buffer.size() / 2, 2);
     const float ceiling = threshold_linear(-0.3F);
+    float peak = 0.0F;
     for (const float sample : buffer) {
         CHECK(std::isfinite(sample));
         CHECK(std::abs(sample) <= ceiling + 1.0e-4F);
+        peak = std::max(peak, std::abs(sample));
     }
+    // ...and there is still music coming out. Every check above is an upper
+    // bound, which a band that returned zero would satisfy perfectly — so the
+    // suite could otherwise certify an EQ that silences playback.
+    CHECK(peak > 0.5F);
 }
 
 void reset_drops_the_ducking() {

@@ -34,7 +34,7 @@ performance of the build users actually get.
 | `linthra_audio_tests` | The chain end to end: bypass, preamp, one limited frame, an EQ impulse response, and the C ABI. |
 | `linthra_audio_limiter` | Limiter response (#337) — see below. |
 | `linthra_audio_bypass` | Bypass transparency (#342) — see below. |
-| `linthra_audio_allocation` | Replaces global `operator new` and proves `process()` and `reset()` allocate nothing. |
+| `linthra_audio_allocation` | Replaces global `operator new` **and interposes the C allocator** (`malloc`, `calloc`, `realloc`, `aligned_alloc`, `posix_memalign`), proving `process()` and `reset()` allocate nothing by either route. |
 | `linthra_audio_realtime_budget` | 60 s of 48 kHz stereo has to process well inside realtime. |
 
 **Limiter response.** The ceiling holds across a full second of signal 6 dB over
@@ -46,6 +46,20 @@ that goes over is already back under; release is a one-pole recovery with
 stereo-linked, so the L/R ratio survives limiting; mono is limited too; an EQ
 boost cannot push past the ceiling; and both `reset()` and `configure()` drop
 the ducking so one stream cannot inherit another's.
+
+Every ceiling check is an upper bound, and silence satisfies an upper bound
+perfectly — so the suite also requires a signal to still be *there*: the limited
+peak has to reach the ceiling (stereo and mono), a boosted EQ band has to leave
+energy in the output, and the impulse response has to carry energy rather than
+merely differ from its input. Gain is a scalar, so the waveform keeps its shape:
+limited samples are checked to keep the sign of the samples they came from,
+which a rectifying regression would break while satisfying every magnitude
+check in the file.
+
+The C interposition uses `--wrap`, a GNU ld / lld feature, so it is applied
+only there (see `CMakeLists.txt`). On another linker the binary still runs and
+still checks the `operator new` paths, and prints which half it measured rather
+than implying it measured both.
 
 **Bypass transparency.** "Transparent" means **bit-exact**: the samples are
 compared by their object representation, not with `==`, which would call `-0.0F`

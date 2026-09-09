@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <iostream>
 #include <new>
 #include <vector>
 
@@ -27,10 +28,72 @@ namespace {
 std::atomic<long> allocations{0};
 }  // namespace
 
+#if LINTHRA_WRAP_C_ALLOCATOR
+// The C half. `operator new` is only one of the ways the realtime path could
+// allocate: std::malloc and friends go straight past it, so a scratch buffer
+// taken that way would leave every count at zero and the test would certify a
+// contract it had not checked. The linker redirects these five at link time
+// (see CMakeLists.txt), across the static library as well as this file.
+extern "C" {
+void* __real_malloc(std::size_t size);
+void* __real_calloc(std::size_t count, std::size_t size);
+void* __real_realloc(void* memory, std::size_t size);
+void* __real_aligned_alloc(std::size_t alignment, std::size_t size);
+int __real_posix_memalign(void** memory, std::size_t alignment, std::size_t size);
+
+void* __wrap_malloc(std::size_t size) {
+    allocations.fetch_add(1, std::memory_order_relaxed);
+    return __real_malloc(size);
+}
+
+void* __wrap_calloc(std::size_t count, std::size_t size) {
+    allocations.fetch_add(1, std::memory_order_relaxed);
+    return __real_calloc(count, size);
+}
+
+void* __wrap_realloc(void* memory, std::size_t size) {
+    allocations.fetch_add(1, std::memory_order_relaxed);
+    return __real_realloc(memory, size);
+}
+
+void* __wrap_aligned_alloc(std::size_t alignment, std::size_t size) {
+    allocations.fetch_add(1, std::memory_order_relaxed);
+    return __real_aligned_alloc(alignment, size);
+}
+
+int __wrap_posix_memalign(void** memory, std::size_t alignment, std::size_t size) {
+    allocations.fetch_add(1, std::memory_order_relaxed);
+    return __real_posix_memalign(memory, alignment, size);
+}
+}  // extern "C"
+
+namespace {
+/// Raw memory for the operator new replacements, taken *below* the wrappers so
+/// a single `new` counts once rather than twice.
+void* raw_allocate(std::size_t size) {
+    return __real_malloc(size);
+}
+
+void* raw_allocate_aligned(std::size_t alignment, std::size_t size) {
+    return __real_aligned_alloc(alignment, size);
+}
+}  // namespace
+#else
+namespace {
+void* raw_allocate(std::size_t size) {
+    return std::malloc(size);
+}
+
+void* raw_allocate_aligned(std::size_t alignment, std::size_t size) {
+    return std::aligned_alloc(alignment, size);
+}
+}  // namespace
+#endif
+
 void* operator new(std::size_t size) {
     allocations.fetch_add(1, std::memory_order_relaxed);
     // Never return nullptr from the throwing form.
-    void* memory = std::malloc(size == 0 ? 1 : size);
+    void* memory = raw_allocate(size == 0 ? 1 : size);
     if (memory == nullptr) {
         throw std::bad_alloc();
     }
@@ -62,7 +125,7 @@ void* operator new(std::size_t size, std::align_val_t alignment) {
     const std::size_t align = static_cast<std::size_t>(alignment);
     // aligned_alloc wants a size that is a multiple of the alignment.
     const std::size_t rounded = ((size == 0 ? 1 : size) + align - 1) / align * align;
-    void* memory = std::aligned_alloc(align, rounded);
+    void* memory = raw_allocate_aligned(align, rounded);
     if (memory == nullptr) {
         throw std::bad_alloc();
     }
@@ -194,6 +257,27 @@ int main() {
         CHECK(wide[0].samples[0] == 1.0F);
     });
     CHECK(during_aligned_allocation > 0);
+
+#if LINTHRA_WRAP_C_ALLOCATOR
+    // ...and for the C entry points, which no operator new replacement sees.
+    const long during_c_allocation = allocations_during([] {
+        void* raw = std::malloc(512);
+        CHECK(raw != nullptr);
+        void* grown = std::realloc(raw, 1'024);
+        CHECK(grown != nullptr);
+        std::free(grown);
+        void* zeroed = std::calloc(16, sizeof(float));
+        CHECK(zeroed != nullptr);
+        std::free(zeroed);
+    });
+    CHECK(during_c_allocation >= 3);
+    std::cout << "counting C++ and C allocations\n";
+#else
+    // Say which half was measured rather than implying both. --wrap is a GNU
+    // ld / lld feature; elsewhere a std::malloc in the realtime path would go
+    // unnoticed by this binary.
+    std::cout << "counting C++ allocations only (no --wrap on this linker)\n";
+#endif
 
     return linthra::audio::test::report("realtime allocation");
 }

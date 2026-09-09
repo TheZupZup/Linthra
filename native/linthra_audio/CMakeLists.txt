@@ -35,6 +35,27 @@ target_link_libraries(linthra_audio_bypass_tests PRIVATE linthra_audio)
 add_executable(linthra_audio_allocation_tests tests/realtime_allocation_test.cpp)
 target_link_libraries(linthra_audio_allocation_tests PRIVATE linthra_audio)
 
+# Replacing operator new only covers the C++ half of "allocation-free": a
+# scratch buffer taken with std::malloc would go unseen, and the test would
+# certify a contract it had not checked. --wrap redirects the C entry points at
+# link time and reaches into the static library, so it covers linthra_audio
+# itself rather than only the test translation unit.
+#
+# GNU ld and lld only. Elsewhere the test still runs and still checks the C++
+# paths; it reports which half it covered rather than claiming both.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND UNIX AND NOT APPLE)
+    target_link_options(linthra_audio_allocation_tests PRIVATE
+        -Wl,--wrap=malloc
+        -Wl,--wrap=calloc
+        -Wl,--wrap=realloc
+        -Wl,--wrap=aligned_alloc
+        -Wl,--wrap=posix_memalign
+    )
+    target_compile_definitions(linthra_audio_allocation_tests
+        PRIVATE LINTHRA_WRAP_C_ALLOCATOR=1
+    )
+endif()
+
 add_executable(linthra_audio_benchmark tests/realtime_benchmark.cpp)
 target_link_libraries(linthra_audio_benchmark PRIVATE linthra_audio)
 

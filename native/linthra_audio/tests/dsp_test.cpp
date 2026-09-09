@@ -62,13 +62,18 @@ int main() {
     impulse[0] = 0.5F;
     equalizer.process(impulse.data(), impulse.size(), 1);
     bool changed = false;
+    float energy = 0.0F;
     for (std::size_t index = 0; index < impulse.size(); ++index) {
         CHECK(std::isfinite(impulse[index]));
+        energy += impulse[index] * impulse[index];
         if (!near(impulse[index], index == 0 ? 0.5F : 0.0F)) {
             changed = true;
         }
     }
     CHECK(changed);
+    // "Changed" alone would accept a band that zeroed the response — a muted
+    // impulse differs from the input too. The response has to carry energy.
+    CHECK(energy > 0.1F * 0.5F * 0.5F);
 
     // Smoke-test the C ABI that a future JNI/FFI layer will call.
     LinthraAudioDsp* c_dsp = linthra_audio_create(48'000.0F);
