@@ -47,19 +47,26 @@ stereo-linked, so the L/R ratio survives limiting; mono is limited too; an EQ
 boost cannot push past the ceiling; and both `reset()` and `configure()` drop
 the ducking so one stream cannot inherit another's.
 
-**Bypass transparency.** "Transparent" means **bit-exact**, compared with `==`
-rather than a tolerance, and the tests state why that is honest: every stage
-that is off multiplies by exactly `1.0F`. That holds for mono and stereo, for
-silence in both signs, for a flat or disabled EQ band, and — the case that
-actually ships — while the limiter is armed but the signal stays under the
-ceiling, including a sample sitting exactly *on* it. Unsupported channel counts,
-zero frames and a null buffer leave the caller's memory alone.
+**Bypass transparency.** "Transparent" means **bit-exact**: the samples are
+compared by their object representation, not with `==`, which would call `-0.0F`
+and `0.0F` equal and let a lost sign of zero through a suite that feeds both on
+purpose. The tests state why bit-exactness is honest here: every stage that is
+off multiplies by exactly `1.0F`. That holds for mono and stereo, for silence in
+both signs, for a flat or disabled EQ band, and — the case that actually ships —
+while the limiter is armed but the signal stays under the ceiling, including a
+sample sitting exactly *on* it. Unsupported channel counts, zero frames and a
+null buffer leave the caller's memory alone.
 
-The one place exactness is not claimed is right after the limiter has engaged:
-its release is smooth, so a quiet passage following a loud one is still being
-attenuated on the way back to unity. That is tested as the limit of the
-guarantee rather than hidden behind a tolerance, together with `reset()`
-restoring exactness immediately.
+**Once the limiter has engaged, transparency does not come back on its own.**
+The release is `gain += (1 - gain) * step`, and once `(1 - gain) * step` falls
+below half an ULP of a float near 1.0, the addition rounds to nothing and the
+gain stalls short of unity. With the default 80 ms release at 48 kHz that floor
+is ~0.99989 — reached in well under a second, and unmoved by another minute of
+silence. It is about -0.001 dB, so nobody will hear it, but it does mean
+"transparent again after the limiter releases" is not a promise this chain
+keeps. `reset()`, which a host calls between streams, is what actually restores
+exactness. Both halves of that are pinned by tests rather than papered over
+with a tolerance.
 
 ## Important boundary
 

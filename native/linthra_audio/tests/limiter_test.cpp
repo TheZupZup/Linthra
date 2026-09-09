@@ -2,6 +2,7 @@
 
 #include "check.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -219,9 +220,15 @@ void mono_is_limited_too() {
         buffer[frame] = 2.0F * std::sin(2.0F * kPi * 1'000.0F * time);
     }
     chain.process(buffer.data(), buffer.size(), 1);
+    float peak = 0.0F;
     for (const float sample : buffer) {
         CHECK(std::abs(sample) <= ceiling + 1.0e-4F);
+        peak = std::max(peak, std::abs(sample));
     }
+    // ...and limited, not muted. Without this a mono-only regression that
+    // zeroed every sample would satisfy the ceiling and pass, the way the
+    // sustained stereo test already guards against.
+    CHECK(peak > ceiling * 0.9F);
 }
 
 void an_equalizer_boost_cannot_push_past_the_ceiling() {

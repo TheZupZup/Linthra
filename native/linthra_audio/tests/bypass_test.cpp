@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
+#include <cstring>
 #include <vector>
 
 // Bypass transparency (#342).
@@ -33,6 +35,20 @@ namespace {
 using linthra::audio::DspChain;
 using linthra::audio::DspConfig;
 
+/// Whether two floats have the same object representation.
+///
+/// `==` is not strong enough for a bit-exactness claim: it reports `-0.0F` and
+/// `0.0F` as equal, so a chain that quietly lost the sign of zero would sail
+/// through a suite that deliberately feeds both signs. Comparing the bits says
+/// what the tests below actually mean.
+bool bits_equal(float left, float right) {
+    std::uint32_t left_bits = 0;
+    std::uint32_t right_bits = 0;
+    std::memcpy(&left_bits, &left, sizeof(float));
+    std::memcpy(&right_bits, &right, sizeof(float));
+    return left_bits == right_bits;
+}
+
 /// The ceiling the limiter is configured with, computed exactly the way
 /// DspChain::configure does, so "just under the threshold" means the same
 /// number on both sides of the test.
@@ -55,7 +71,7 @@ void expect_exact(DspChain& chain, const std::vector<float>& samples, std::uint3
     std::vector<float> buffer = samples;
     chain.process(buffer.data(), buffer.size() / channels, channels);
     for (std::size_t index = 0; index < buffer.size(); ++index) {
-        CHECK(buffer[index] == samples[index]);
+        CHECK(bits_equal(buffer[index], samples[index]));
     }
 }
 
@@ -117,7 +133,7 @@ void silence_stays_silence() {
             std::vector<float> buffer(64, 0.0F);
             chain.process(buffer.data(), buffer.size() / channels, channels);
             for (const float sample : buffer) {
-                CHECK(sample == 0.0F);
+                CHECK(bits_equal(sample, 0.0F));
             }
         }
     }
@@ -168,7 +184,7 @@ void an_unsupported_call_leaves_the_buffer_alone() {
         const std::vector<float> original = buffer;
         chain.process(buffer.data(), 2, channels);
         for (std::size_t index = 0; index < buffer.size(); ++index) {
-            CHECK(buffer[index] == original[index]);
+            CHECK(bits_equal(buffer[index], original[index]));
         }
     }
 
@@ -176,16 +192,45 @@ void an_unsupported_call_leaves_the_buffer_alone() {
     const std::vector<float> original = buffer;
     chain.process(buffer.data(), 0, 2);
     for (std::size_t index = 0; index < buffer.size(); ++index) {
-        CHECK(buffer[index] == original[index]);
+        CHECK(bits_equal(buffer[index], original[index]));
     }
     chain.process(nullptr, 4, 2);
 }
 
-void transparency_resumes_only_once_the_limiter_has_released() {
-    // The honest edge of the guarantee. One loud frame pulls the gain down;
-    // the quiet frames that follow are still being attenuated on the way back
-    // to unity, so they are *not* bit-exact, and claiming otherwise would be a
-    // test that lies about the DSP.
+/// Runs [seconds] of quiet stereo through [chain] in blocks and returns the
+/// gain it is applying at the end, measured from what came back out.
+float gain_after_quiet_seconds(DspChain& chain, int seconds) {
+    constexpr float probe = 0.1F;
+    constexpr std::size_t block_frames = 480;
+    std::vector<float> block(block_frames * 2, probe);
+    const int blocks = seconds * 48'000 / static_cast<int>(block_frames);
+    for (int index = 0; index < blocks; ++index) {
+        std::fill(block.begin(), block.end(), probe);
+        chain.process(block.data(), block_frames, 2);
+    }
+    return block[0] / probe;
+}
+
+void the_limiter_never_releases_all_the_way_back_to_transparency() {
+    // The honest edge of the guarantee, and the one place a tolerance would be
+    // hiding something real.
+    //
+    // One loud frame pulls the gain down, and the quiet frames that follow are
+    // still attenuated on the way back to unity — so they are not bit-exact.
+    // The part worth pinning is that they never become bit-exact either. The
+    // release is
+    //
+    //     gain += (1 - gain) * step
+    //
+    // and once `(1 - gain) * step` falls below half an ULP of a float near 1.0
+    // the addition rounds to nothing and the gain stalls short of unity. With
+    // the default 80 ms release at 48 kHz that floor is ~0.99989, reached in
+    // well under a second and unmoved by another minute of silence.
+    //
+    // About -0.001 dB, so nobody will hear it — but it does mean "transparent
+    // again once the limiter releases" is not a promise this chain keeps.
+    // `reset()`, which a host calls between streams, is what actually restores
+    // exactness, and that is the guarantee the suite claims.
     DspChain chain(48'000.0F);
     chain.configure(DspConfig{});
 
@@ -194,12 +239,25 @@ void transparency_resumes_only_once_the_limiter_has_released() {
 
     std::array<float, 2> quiet{0.5F, 0.5F};
     chain.process(quiet.data(), 1, 2);
-    CHECK(quiet[0] != 0.5F);
+    CHECK(!bits_equal(quiet[0], 0.5F));
     CHECK(quiet[0] < 0.5F);
     CHECK(quiet[0] > 0.0F);
 
-    // reset() is the seam a host uses between streams, and it puts the chain
-    // back to exactly transparent right away.
+    // Close to unity after a second, and no closer after five: stalled, not
+    // still converging.
+    const float after_one = gain_after_quiet_seconds(chain, 1);
+    const float after_five = gain_after_quiet_seconds(chain, 5);
+    CHECK(after_one > 0.999F);
+    CHECK(after_one < 1.0F);
+    CHECK(bits_equal(after_five, after_one));
+    CHECK(!bits_equal(after_five, 1.0F));
+
+    // So a quiet buffer is still not bit-exact, however long the wait.
+    std::array<float, 2> late{0.5F, -0.25F};
+    chain.process(late.data(), 1, 2);
+    CHECK(!bits_equal(late[0], 0.5F));
+
+    // reset() is the seam that does restore it, immediately.
     chain.reset();
     expect_exact(chain, quiet_buffer(), 2);
 }
@@ -214,6 +272,6 @@ int main() {
     a_flat_equalizer_band_is_bypassed();
     a_disabled_band_is_bypassed_even_with_gain();
     an_unsupported_call_leaves_the_buffer_alone();
-    transparency_resumes_only_once_the_limiter_has_released();
+    the_limiter_never_releases_all_the_way_back_to_transparency();
     return linthra::audio::test::report("bypass");
 }
