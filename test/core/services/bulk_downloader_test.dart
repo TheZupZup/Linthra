@@ -127,14 +127,42 @@ void main() {
       );
     });
 
-    test('stops as soon as the cache limit refuses a track', () async {
+    test('a track too large for the cache does not stop the rest', () async {
       final FakeDownloadRepository repository = FakeDownloadRepository(
-        // Two fit; the third is refused because nothing is safe to evict.
-        outOfSpaceAfter: 2,
+        // One oversized track: the repository refuses it, but the smaller ones
+        // after it still fit.
+        tooLargeUris: <String>{'jellyfin:1'},
       );
 
       final BulkDownloadSummary summary = await const BulkDownloader(
-        // One at a time, so "stopped at the third" is exact rather than racy.
+        maxOutstanding: 1,
+      ).run(
+        repository: repository,
+        label: 'Album',
+        tracks: <Track>[_remote('1'), _remote('2'), _remote('3')],
+      );
+
+      // Every track was still offered, and the two that fit are offline.
+      expect(repository.requested,
+          <String>['jellyfin:1', 'jellyfin:2', 'jellyfin:3']);
+      expect(summary.downloaded, 2);
+      expect(summary.cacheRefused, 1);
+      expect(summary.outOfSpace, isFalse);
+      expect(summary.failed, 0);
+      expect(
+        summary.completionMessage,
+        'Downloaded 2 of 3 songs from “Album”. 1 was too large for the cache '
+        'limit.',
+      );
+    });
+
+    test('gives up once the cache refuses several tracks in a row', () async {
+      final FakeDownloadRepository repository = FakeDownloadRepository(
+        // Nothing fits from the second track on: a genuinely full cache.
+        outOfSpaceAfter: 1,
+      );
+
+      final BulkDownloadSummary summary = await const BulkDownloader(
         maxOutstanding: 1,
       ).run(
         repository: repository,
@@ -144,19 +172,22 @@ void main() {
           _remote('2'),
           _remote('3'),
           _remote('4'),
+          _remote('5'),
+          _remote('6'),
         ],
       );
 
       expect(summary.outOfSpace, isTrue);
-      expect(summary.downloaded, 2);
-      // The tracks after the refusal are never asked for.
-      expect(repository.requested,
-          <String>['jellyfin:1', 'jellyfin:2', 'jellyfin:3']);
-      // The refused track and the one after it: neither ended up downloaded.
-      expect(summary.notAttempted, 2);
+      expect(summary.downloaded, 1);
+      // One that fit, then the refusals it takes to be sure, and no more: the
+      // rest are never fetched only to be thrown away.
+      expect(
+        repository.requested,
+        <String>['jellyfin:1', 'jellyfin:2', 'jellyfin:3', 'jellyfin:4'],
+      );
       expect(
         summary.completionMessage,
-        'Downloaded 2 of 4 songs from “Album”. There is not enough cache space '
+        'Downloaded 1 of 6 songs from “Album”. There is not enough cache space '
         'for the rest. Free up space or raise the cache limit in Settings.',
       );
     });
@@ -301,6 +332,57 @@ void main() {
         'All 2 songs from “Album” are available offline. 1 earlier download was '
         'removed to stay under the cache limit.',
       );
+    });
+
+    test('does not count an evicted collection track as still offline',
+        () async {
+      final Track cached = _remote('1');
+      final FakeDownloadRepository repository = FakeDownloadRepository(
+        alreadyDownloaded: <String>{CachedTrack.cacheKeyForTrack(cached)},
+        // Room for exactly one song, so downloading the second costs the first
+        // its place even though both are in this collection.
+        maxCachedTracks: 1,
+      );
+
+      final BulkDownloadSummary summary = await const BulkDownloader(
+        maxOutstanding: 1,
+      ).run(
+        repository: repository,
+        label: 'Album',
+        tracks: <Track>[cached, _remote('2')],
+      );
+
+      // One song is offline, not two: the summary reads the repository rather
+      // than adding "was already there" to "just downloaded".
+      expect(summary.offlineNow, 1);
+      expect(summary.downloaded, 1);
+      expect(summary.evictedExisting, 1);
+      expect(
+        summary.completionMessage,
+        'Downloaded 1 of 2 songs from “Album”. 1 earlier download was removed '
+        'to stay under the cache limit.',
+      );
+    });
+
+    test('a track already downloading elsewhere is not called failed',
+        () async {
+      final FakeDownloadRepository repository = FakeDownloadRepository(
+        // Started from the per-track action moments earlier: the repository
+        // returns at once and the fetch is still running.
+        inFlightElsewhereUris: <String>{'jellyfin:2'},
+      );
+
+      final BulkDownloadSummary summary = await const BulkDownloader().run(
+        repository: repository,
+        label: 'Album',
+        tracks: <Track>[_remote('1'), _remote('2')],
+      );
+
+      expect(summary.downloaded, 1);
+      // Still downloading is not failed; the Downloads screen shows it live.
+      expect(summary.failed, 0);
+      expect(
+          summary.completionMessage, 'Downloaded 1 of 2 songs from “Album”.');
     });
 
     test('an empty collection is a no-op', () async {

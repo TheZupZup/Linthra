@@ -23,10 +23,12 @@ class BulkDownloadSummary {
     required this.total,
     this.alreadyOffline = 0,
     this.completed = 0,
+    this.offlineNow = 0,
     this.downloaded = 0,
     this.waitingForNetwork = 0,
     this.waitingReason,
     this.failed = 0,
+    this.cacheRefused = 0,
     this.evictedExisting = 0,
     this.running = false,
     this.canceled = false,
@@ -47,6 +49,12 @@ class BulkDownloadSummary {
   /// How many of the [requested] tracks the repository has finished with, in any
   /// way. The live "12 of 30" number.
   final int completed;
+
+  /// How many of the batch's tracks have an offline copy when it ends, read
+  /// from the repository rather than added up from the requests: a track that
+  /// was already offline but got evicted to make room for another is no longer
+  /// counted here. Final summary only.
+  final int offlineNow;
 
   /// Tracks this batch newly made available offline. Final summary only.
   final int downloaded;
@@ -72,19 +80,22 @@ class BulkDownloadSummary {
   /// user about, since they asked for one thing and lost another.
   final int evictedExisting;
 
+  /// Tracks the cache could not fit even after evicting everything safe to
+  /// remove, usually because the track is larger than the whole free-able
+  /// cache. Counted apart from [failed]: nothing went wrong fetching them,
+  /// there is simply no room to keep them. Final summary only.
+  final int cacheRefused;
+
   /// True while the batch is still working through its tracks.
   final bool running;
 
   /// True when the batch was stopped before it reached the end.
   final bool canceled;
 
-  /// True when the cache limit stopped the batch: the cache was full with
-  /// nothing safe to evict, so the remaining tracks were never requested.
+  /// True when the cache limit stopped the batch early: several tracks in a row
+  /// would not fit, so the remaining ones were never requested rather than
+  /// downloaded and thrown away.
   final bool outOfSpace;
-
-  /// How many of the batch's tracks are available offline now: the ones that
-  /// already were, plus the ones this batch downloaded.
-  int get offlineNow => alreadyOffline + downloaded;
 
   /// How many tracks the batch actually asks the repository for.
   int get requested => total - alreadyOffline;
@@ -97,10 +108,12 @@ class BulkDownloadSummary {
   BulkDownloadSummary copyWith({
     int? alreadyOffline,
     int? completed,
+    int? offlineNow,
     int? downloaded,
     int? waitingForNetwork,
     DownloadRequestOutcome? waitingReason,
     int? failed,
+    int? cacheRefused,
     int? evictedExisting,
     bool? running,
     bool? canceled,
@@ -111,10 +124,12 @@ class BulkDownloadSummary {
       total: total,
       alreadyOffline: alreadyOffline ?? this.alreadyOffline,
       completed: completed ?? this.completed,
+      offlineNow: offlineNow ?? this.offlineNow,
       downloaded: downloaded ?? this.downloaded,
       waitingForNetwork: waitingForNetwork ?? this.waitingForNetwork,
       waitingReason: waitingReason ?? this.waitingReason,
       failed: failed ?? this.failed,
+      cacheRefused: cacheRefused ?? this.cacheRefused,
       evictedExisting: evictedExisting ?? this.evictedExisting,
       running: running ?? this.running,
       canceled: canceled ?? this.canceled,
@@ -130,10 +145,12 @@ class BulkDownloadSummary {
           other.total == total &&
           other.alreadyOffline == alreadyOffline &&
           other.completed == completed &&
+          other.offlineNow == offlineNow &&
           other.downloaded == downloaded &&
           other.waitingForNetwork == waitingForNetwork &&
           other.waitingReason == waitingReason &&
           other.failed == failed &&
+          other.cacheRefused == cacheRefused &&
           other.evictedExisting == evictedExisting &&
           other.running == running &&
           other.canceled == canceled &&
@@ -145,10 +162,12 @@ class BulkDownloadSummary {
         total,
         alreadyOffline,
         completed,
+        offlineNow,
         downloaded,
         waitingForNetwork,
         waitingReason,
         failed,
+        cacheRefused,
         evictedExisting,
         running,
         canceled,
@@ -181,9 +200,12 @@ extension BulkDownloadSummaryMessage on BulkDownloadSummary {
     }
     if (outOfSpace) {
       return '${_progressSentence()} There is not enough cache space for the '
-          'rest. Free up space or raise the cache limit in Settings.';
+          'rest. Free up space or raise the cache limit in Settings.'
+          '${_evictionNote()}';
     }
-    if (canceled) return 'Stopped. ${_progressSentence()}${_evictionNote()}';
+    if (canceled) {
+      return 'Stopped. ${_progressSentence()}${_evictionNote()}';
+    }
     if (offlineNow == total) {
       final String done = total == 1
           ? '“$label” is available offline.'
@@ -205,12 +227,22 @@ extension BulkDownloadSummaryMessage on BulkDownloadSummary {
             : ' $failed failed. Retry them from Downloads.',
       );
     }
+    buffer.write(_cacheRefusedNote());
     buffer.write(_evictionNote());
     return buffer.toString();
   }
 
   String _progressSentence() =>
       'Downloaded $offlineNow of $total songs from “$label”.';
+
+  /// Names the tracks that simply would not fit, so "downloaded 9 of 10" does
+  /// not read as an unexplained failure.
+  String _cacheRefusedNote() {
+    if (cacheRefused <= 0) return '';
+    return cacheRefused == 1
+        ? ' 1 was too large for the cache limit.'
+        : ' $cacheRefused were too large for the cache limit.';
+  }
 
   /// Says so when the cache limit had to evict earlier downloads to fit this
   /// batch, rather than letting the user discover it themselves.

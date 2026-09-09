@@ -45,6 +45,29 @@ class BulkDownloader {
   /// effect within a track or two.
   static const int defaultMaxOutstanding = 3;
 
+  /// How many cache refusals in a row end the batch.
+  ///
+  /// One refusal proves nothing about the rest: the repository also refuses a
+  /// single track that is larger than the whole free-able cache, and a smaller
+  /// track after it may still fit. Several in a row is the honest signal that
+  /// the cache really has no room, and continuing would spend time and mobile
+  /// data fetching bytes that are thrown away at commit.
+  static const int maxConsecutiveCacheRefusals = 3;
+
+  /// [tracks] with duplicates collapsed, keeping first appearance order.
+  ///
+  /// Keyed by the provider-aware cache key, so the same song listed twice in a
+  /// playlist becomes one entry while two providers' same-id copies stay
+  /// distinct. Public so the UI can count and confirm exactly the set that will
+  /// be requested, instead of a number the batch then quietly disagrees with.
+  static List<Track> uniqueTracks(List<Track> tracks) {
+    final Map<String, Track> unique = <String, Track>{};
+    for (final Track track in tracks) {
+      unique.putIfAbsent(CachedTrack.cacheKeyForTrack(track), () => track);
+    }
+    return unique.values.toList(growable: false);
+  }
+
   /// How many tracks may be outstanding with the repository at once.
   final int maxOutstanding;
 
@@ -62,18 +85,18 @@ class BulkDownloader {
   }) async {
     // Collapse duplicates (the same song twice in a playlist) to one request
     // each, provider-aware so a Plex and a Subsonic copy of one id both get one.
-    final Map<String, Track> unique = <String, Track>{};
-    for (final Track track in tracks) {
-      unique.putIfAbsent(CachedTrack.cacheKeyForTrack(track), () => track);
-    }
+    final List<Track> unique = uniqueTracks(tracks);
+    final List<String> uniqueKeys = <String>[
+      for (final Track track in unique) CachedTrack.cacheKeyForTrack(track),
+    ];
 
     // What is already offline is never requested again, so an existing download
     // is left exactly as it is.
     final Set<String> offlineBefore =
         (await repository.downloadedTrackKeys()).toSet();
-    final List<MapEntry<String, Track>> pending = <MapEntry<String, Track>>[
-      for (final MapEntry<String, Track> entry in unique.entries)
-        if (!offlineBefore.contains(entry.key)) entry,
+    final List<Track> pending = <Track>[
+      for (final Track track in unique)
+        if (!offlineBefore.contains(CachedTrack.cacheKeyForTrack(track))) track,
     ];
 
     BulkDownloadSummary summary = BulkDownloadSummary(
@@ -83,10 +106,16 @@ class BulkDownloader {
       running: true,
     );
     onProgress?.call(summary);
-    if (pending.isEmpty) return summary.copyWith(running: false);
+    if (pending.isEmpty) {
+      return summary.copyWith(
+        offlineNow: summary.alreadyOffline,
+        running: false,
+      );
+    }
 
     int next = 0;
     bool stopped = false;
+    int consecutiveRefusals = 0;
 
     Future<void> worker() async {
       while (!stopped && next < pending.length) {
@@ -95,7 +124,7 @@ class BulkDownloader {
           stopped = true;
           return;
         }
-        final Track track = pending[next++].value;
+        final Track track = pending[next++];
         try {
           final DownloadRequestOutcome outcome =
               await repository.requestDownload(track);
@@ -107,18 +136,31 @@ class BulkDownloader {
               waitingReason: summary.waitingReason ?? outcome,
             );
           }
+          consecutiveRefusals = 0;
         } on CacheStorageException {
-          // The cache is full with nothing safe to evict, so every remaining
-          // track would fail the same way. Stop, rather than spend time and
-          // data on requests that cannot fit.
-          summary = summary.copyWith(outOfSpace: true);
-          stopped = true;
-          return;
+          // This track did not fit. That alone does not condemn the rest: it may
+          // simply be larger than the free-able cache while a smaller track
+          // after it still fits. So carry on, and give up only once several in
+          // a row have been refused.
+          summary = summary.copyWith(
+            cacheRefused: summary.cacheRefused + 1,
+          );
+          consecutiveRefusals++;
+          if (consecutiveRefusals >= maxConsecutiveCacheRefusals) {
+            summary = summary.copyWith(
+              completed: summary.completed + 1,
+              outOfSpace: true,
+            );
+            onProgress?.call(summary);
+            stopped = true;
+            return;
+          }
         } catch (_) {
           // One track failing is not the batch failing: the repository has
           // already marked it failed (the Downloads screen offers it a retry),
           // so carry on with the rest. The count comes from the repository's own
           // record below, not from here.
+          consecutiveRefusals = 0;
         }
         summary = summary.copyWith(completed: summary.completed + 1);
         onProgress?.call(summary);
@@ -129,24 +171,42 @@ class BulkDownloader {
       for (int i = 0; i < maxOutstanding; i++) worker(),
     ]);
 
-    // Count what actually landed from the repository's own record rather than
-    // from the request calls: a request can report "started" and still fail
-    // mid-fetch, and only the repository knows which tracks ended up with an
-    // offline copy.
-    final Set<String> offlineAfter =
-        (await repository.downloadedTrackKeys()).toSet();
+    // Read the outcome from the repository's own per-track status rather than
+    // inferring it from the request calls. A request can report "started" and
+    // still fail mid-fetch; a request for a track another surface is already
+    // downloading returns at once while that fetch is still running; and a track
+    // that was already offline can be evicted to make room for another in the
+    // same batch. Only the repository knows where each one actually landed.
+    final Map<String, DownloadStatus> statuses =
+        await repository.statusStream.first;
+    bool isOffline(String key) => statuses[key] == DownloadStatus.downloaded;
+
+    int offlineNow = 0;
+    for (final String key in uniqueKeys) {
+      if (isOffline(key)) offlineNow++;
+    }
     int downloaded = 0;
-    for (final MapEntry<String, Track> entry in pending) {
-      if (offlineAfter.contains(entry.key)) downloaded++;
+    int failed = 0;
+    for (final Track track in pending) {
+      final String key = CachedTrack.cacheKeyForTrack(track);
+      if (isOffline(key)) {
+        downloaded++;
+      } else if (statuses[key] == DownloadStatus.failed) {
+        failed++;
+      }
+      // Anything else (queued for the network, or still downloading from an
+      // earlier per-track request) is neither done nor failed, so it is counted
+      // as neither. The Downloads screen shows it live.
     }
     return summary.copyWith(
+      offlineNow: offlineNow,
       downloaded: downloaded,
-      failed: (summary.completed - downloaded - summary.waitingForNetwork)
-          .clamp(0, summary.completed),
+      failed: failed,
       // Downloads that were offline before and are not now: the cache limit
       // evicted them (unpinned, least recently played) to fit this batch. The
       // user asked for one thing and lost another, so the summary says so.
-      evictedExisting: offlineBefore.difference(offlineAfter).length,
+      evictedExisting:
+          offlineBefore.where((String key) => !isOffline(key)).length,
       running: false,
     );
   }

@@ -26,6 +26,14 @@ class BulkDownloadController extends Notifier<BulkDownloadSummary?> {
   bool _canceled = false;
   bool _disposed = false;
 
+  /// Reserved synchronously by [start], before it awaits anything.
+  ///
+  /// The published state only turns "running" once the downloader has read the
+  /// repository, which is an await away; two taps landing in that window would
+  /// both pass a guard that only looked at the state, and run two batches over
+  /// one banner and one stop flag.
+  bool _starting = false;
+
   @override
   BulkDownloadSummary? build() {
     // A batch can outlive the widget that started it (the user navigates away
@@ -37,7 +45,7 @@ class BulkDownloadController extends Notifier<BulkDownloadSummary?> {
   }
 
   /// Whether a batch is working through its tracks right now.
-  bool get isRunning => state?.running ?? false;
+  bool get isRunning => _starting || (state?.running ?? false);
 
   /// Starts a batch for [tracks], labelled with the collection's name.
   ///
@@ -49,6 +57,9 @@ class BulkDownloadController extends Notifier<BulkDownloadSummary?> {
     required List<Track> tracks,
   }) async {
     if (isRunning || tracks.isEmpty) return null;
+    // Claim the slot before the first await, so a second call in the same turn
+    // is refused rather than racing this one.
+    _starting = true;
     _canceled = false;
     try {
       final BulkDownloadSummary summary =
@@ -70,6 +81,8 @@ class BulkDownloadController extends Notifier<BulkDownloadSummary?> {
         _publish(current.copyWith(running: false));
       }
       rethrow;
+    } finally {
+      _starting = false;
     }
   }
 

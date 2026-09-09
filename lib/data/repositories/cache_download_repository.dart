@@ -301,15 +301,23 @@ class CacheDownloadRepository
     await _ensureLoaded();
     final String key = _keyForTrack(track);
     if (_statuses[key] == DownloadStatus.downloaded) return;
-    _downloads[key] = CachedTrack(
-      trackId: track.id,
-      sourceType: _sourceTypeOf(track),
-      cachedAt: _now(),
-    );
-    await _save();
-    _statuses[key] = DownloadStatus.downloaded;
-    _emitStatus();
-    _emitCache();
+    // Through the same commit lock the remote path writes under. [_save] hands
+    // the store a snapshot taken now and finishes asynchronously, so two
+    // unserialized saves can land out of order and the older snapshot can
+    // overwrite the newer one, losing a record. Requests arrive concurrently
+    // (several rows at once, or a "Download all"), so this has to be ordered
+    // even though there are no bytes to fetch.
+    await _commit(() async {
+      _downloads[key] = CachedTrack(
+        trackId: track.id,
+        sourceType: _sourceTypeOf(track),
+        cachedAt: _now(),
+      );
+      await _save();
+      _statuses[key] = DownloadStatus.downloaded;
+      _emitStatus();
+      _emitCache();
+    });
   }
 
   /// Drives one remote download: skip if already cached, promote a preloaded
@@ -330,11 +338,16 @@ class CacheDownloadRepository
     if (preloadedEntry != null &&
         preloadedEntry.preloaded &&
         preloadedEntry.isManaged) {
-      _downloads[key] = preloadedEntry.copyWith(preloaded: false);
-      await _save();
-      _statuses[key] = DownloadStatus.downloaded;
-      _emitStatus();
-      _emitCache();
+      // Serialized with every other metadata write for the same reason as the
+      // on-device path above: an unordered save can be overwritten by an older
+      // snapshot still in flight.
+      await _commit(() async {
+        _downloads[key] = preloadedEntry.copyWith(preloaded: false);
+        await _save();
+        _statuses[key] = DownloadStatus.downloaded;
+        _emitStatus();
+        _emitCache();
+      });
       return DownloadRequestOutcome.started;
     }
 

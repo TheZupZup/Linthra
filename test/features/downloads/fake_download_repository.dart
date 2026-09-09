@@ -18,10 +18,18 @@ class FakeDownloadRepository implements DownloadRepository {
     this.failingUris = const <String>{},
     this.outcomes = const <String, DownloadRequestOutcome>{},
     this.outOfSpaceAfter,
+    this.tooLargeUris = const <String>{},
+    this.inFlightElsewhereUris = const <String>{},
     this.maxCachedTracks,
     this.hold,
     this.failDownloadedKeys = false,
-  }) : _downloaded = <String>{...alreadyDownloaded};
+  })  : _downloaded = <String>{...alreadyDownloaded},
+        // The real repository seeds a `downloaded` status for every cached
+        // entry when it loads, and the status map is what callers read back.
+        _statuses = <String, DownloadStatus>{
+          for (final String key in alreadyDownloaded)
+            key: DownloadStatus.downloaded,
+        };
 
   /// Tracks whose fetch blows up mid-download. The repository swallows the error
   /// (the row shows `failed` with a retry), so the call still returns `started`.
@@ -34,6 +42,17 @@ class FakeDownloadRepository implements DownloadRepository {
   /// [CacheStorageException], since the cache is full with nothing safe to
   /// evict.
   final int? outOfSpaceAfter;
+
+  /// Tracks the cache refuses on their own size: the repository throws the same
+  /// [CacheStorageException] for a track larger than the whole free-able cache
+  /// as it does for a cache with nothing left to evict, and a smaller track
+  /// after one of these can still fit.
+  final Set<String> tooLargeUris;
+
+  /// Tracks another surface is already downloading. The real repository sees its
+  /// own in-flight reservation and returns "started" at once, leaving the track
+  /// `downloading` rather than finished.
+  final Set<String> inFlightElsewhereUris;
 
   /// A crude stand-in for the cache size limit: once this many tracks are
   /// cached, caching another evicts the least-recently added one, exactly as the
@@ -59,7 +78,7 @@ class FakeDownloadRepository implements DownloadRepository {
   int _outstanding = 0;
 
   final Set<String> _downloaded;
-  final Map<String, DownloadStatus> _statuses = <String, DownloadStatus>{};
+  final Map<String, DownloadStatus> _statuses;
   final StreamController<Map<String, DownloadStatus>> _changes =
       StreamController<Map<String, DownloadStatus>>.broadcast();
 
@@ -95,6 +114,14 @@ class FakeDownloadRepository implements DownloadRepository {
       if (_downloaded.contains(key)) return DownloadRequestOutcome.started;
       if (outOfSpaceAfter != null && requested.length > outOfSpaceAfter!) {
         throw const CacheStorageException();
+      }
+      if (tooLargeUris.contains(track.uri)) {
+        _set(key, DownloadStatus.notDownloaded);
+        throw const CacheStorageException();
+      }
+      if (inFlightElsewhereUris.contains(track.uri)) {
+        _set(key, DownloadStatus.downloading);
+        return DownloadRequestOutcome.started;
       }
       final DownloadRequestOutcome outcome =
           outcomes[track.uri] ?? DownloadRequestOutcome.started;

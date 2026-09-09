@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/routes.dart';
 import '../../core/models/bulk_download_summary.dart';
 import '../../core/models/track.dart';
+import '../../core/services/bulk_downloader.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import 'bulk_download_controller.dart';
 
@@ -38,7 +39,11 @@ abstract final class CollectionDownloadActions {
     required String label,
     required List<Track> tracks,
   }) async {
-    if (tracks.isEmpty) return false;
+    // Count what will actually be requested, not the raw list: a playlist can
+    // hold the same song twice, and the batch downloads it once. Confirming "3
+    // songs" and then reporting on 2 would read as something having gone wrong.
+    final List<Track> unique = BulkDownloader.uniqueTracks(tracks);
+    if (unique.isEmpty) return false;
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     // Only to offer "View" on the started snackbar; a host without a router
     // (a test harness, or a screen shown outside the app shell) simply gets the
@@ -61,7 +66,7 @@ abstract final class CollectionDownloadActions {
     final bool confirmed = await showConfirmDialog(
       context,
       title: 'Download all',
-      message: _confirmMessage(label, tracks.length),
+      message: _confirmMessage(label, unique.length),
       confirmLabel: 'Download',
       // Nothing is destroyed by downloading, so the safe default focus is the
       // action rather than Cancel.
@@ -72,9 +77,9 @@ abstract final class CollectionDownloadActions {
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          tracks.length == 1
+          unique.length == 1
               ? 'Downloading 1 song from “$label”.'
-              : 'Downloading ${tracks.length} songs from “$label”.',
+              : 'Downloading ${unique.length} songs from “$label”.',
         ),
         action: router == null
             ? null

@@ -202,7 +202,8 @@ void main() {
       );
     });
 
-    testWidgets('a full cache is reported, not swallowed', (tester) async {
+    testWidgets('a cache that cannot fit the album says so, not nothing',
+        (tester) async {
       final FakeDownloadRepository repository =
           FakeDownloadRepository(outOfSpaceAfter: 0);
       await _pumpAlbum(tester, repository);
@@ -212,8 +213,10 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Download'));
       await tester.pumpAndSettle();
 
+      // Refused by the cache, and named as such rather than left to look like
+      // an unexplained failure.
       expect(
-        find.textContaining('not enough cache space'),
+        find.textContaining('too large for the cache limit'),
         findsOneWidget,
       );
     });
@@ -297,6 +300,62 @@ void main() {
       // The rest of the playlist menu is untouched.
       expect(find.text('Rename'), findsOneWidget);
       expect(find.text('Delete playlist'), findsOneWidget);
+    });
+  });
+
+  group('Counting what the user is shown', () {
+    testWidgets('a duplicated song is confirmed and reported once',
+        (tester) async {
+      final FakeDownloadRepository repository = FakeDownloadRepository();
+      await _pumpPlaylist(
+        tester,
+        repository,
+        // The same song twice, as a hand-built playlist can easily hold.
+        tracks: <Track>[_remoteAlbum[0], _remoteAlbum[1], _remoteAlbum[0]],
+      );
+
+      await tester.tap(find.text('Download all'));
+      await tester.pumpAndSettle();
+
+      // Two, not three: the number confirmed is the number that gets requested,
+      // so the closing line cannot disagree with it.
+      expect(
+        find.textContaining('Download all 2 songs from “Road Trip”'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Download'));
+      await tester.pumpAndSettle();
+
+      expect(repository.requested, <String>['jellyfin:1', 'jellyfin:2']);
+      expect(
+        find.text('All 2 songs from “Road Trip” are available offline.'),
+        findsOneWidget,
+      );
+    });
+
+    test('two starts in the same turn run one batch', () async {
+      final FakeDownloadRepository repository = FakeDownloadRepository();
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          downloadRepositoryProvider.overrideWithValue(repository),
+        ],
+      );
+      addTearDown(container.dispose);
+      final BulkDownloadController controller =
+          container.read(bulkDownloadControllerProvider.notifier);
+
+      // Both calls are made before either has published "running", which is the
+      // window a state-only guard would let a second batch through.
+      final Future<BulkDownloadSummary?> first =
+          controller.start(label: 'Discovery', tracks: _remoteAlbum);
+      final Future<BulkDownloadSummary?> second =
+          controller.start(label: 'Discovery', tracks: _remoteAlbum);
+
+      expect(await first, isNotNull);
+      expect(await second, isNull);
+      // Requested once each, not twice.
+      expect(repository.requested, <String>['jellyfin:1', 'jellyfin:2']);
     });
   });
 

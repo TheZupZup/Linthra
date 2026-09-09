@@ -89,8 +89,11 @@ everything above still holds:
 - The **Wi-Fi / mobile-data policy** applies per track. On a Wi-Fi-only device
   the songs are queued, and you get the same friendly explanation a single
   queued track gives.
-- The **cache size limit** applies. If the cache fills with nothing safe to
-  evict, the batch stops there and says so, instead of quietly evicting more.
+- The **cache size limit** applies. A song the cache cannot fit is skipped and
+  named in the summary, and the batch carries on (one oversized track should not
+  cost you the rest of the album). If several in a row will not fit, the cache
+  really is out of room, so the batch stops there and says so rather than
+  downloading more songs it would have to throw away.
 - **Pinned ("Keep offline") tracks are never evicted** to make room, exactly as
   before.
 - Songs you **already** have offline are skipped, not re-downloaded, so asking
