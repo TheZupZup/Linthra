@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for the benchmark summary block (#338).
+"""Unit tests for the benchmark summary block (#338) and query plans (#341).
 
     python3 test/tooling/large_library_benchmark_test.py
 
@@ -7,24 +7,37 @@
 per-query lines, and that block is what a contributor (or a CI log reader)
 actually looks at. These tests pin the two things that make it useful: the
 numbers are the ones the labels claim, and the block stays aligned and
-deterministic. `summary_lines` takes plain timings, so none of this needs a
-200k-track fixture or a database.
+deterministic.
+
+The plan checks are here for the same reason: they are the part of the
+benchmark that decides pass or fail, and getting them wrong is either a green
+run hiding a full table scan or a red run over a perfectly healthy covering
+index. Everything below runs on plain strings and an in-memory database, so
+none of it needs the 200k fixture.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import re
+import sqlite3
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BENCHMARK = ROOT / "tools" / "large_library" / "benchmark_sqlite.py"
+SCHEMA = ROOT / "tools" / "large_library" / "schema.sql"
 
 
 def _load():
     spec = importlib.util.spec_from_file_location("benchmark_sqlite", BENCHMARK)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    # Registered before it executes: @dataclass resolves annotations through
+    # sys.modules[cls.__module__], and a module loaded straight from a path is
+    # not there yet.
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -94,6 +107,133 @@ class SummaryLinesTest(unittest.TestCase):
         self.assertIn("sum of query averages:", joined)
         self.assertIn("1.000 ms", joined)
         self.assertIn("1.500 ms (title prefix)", joined)
+
+
+class FullTableScanTest(unittest.TestCase):
+    """The check that decides whether a run passes (#341)."""
+
+    def scan(self, detail: str) -> bool:
+        return benchmark_sqlite.is_full_table_scan(detail)
+
+    def test_a_bare_scan_is_the_regression_we_are_looking_for(self):
+        self.assertTrue(self.scan("SCAN tracks"))
+        self.assertTrue(self.scan("SCAN tracks AS t"))
+
+    def test_an_ordered_index_scan_is_healthy(self):
+        # "recently added" reads the whole date_added index in order. It is a
+        # SCAN, and it is exactly what the index is for.
+        self.assertFalse(self.scan("SCAN tracks USING INDEX idx_tracks_recent"))
+
+    def test_a_covering_index_scan_is_healthy(self):
+        # The false positive this check was written to avoid: "USING COVERING
+        # INDEX" does not contain the substring "USING INDEX", so a check
+        # written against that one string reads COUNT(*) as a full table scan.
+        self.assertFalse(
+            self.scan("SCAN tracks USING COVERING INDEX idx_tracks_recent")
+        )
+
+    def test_a_rowid_or_primary_key_read_is_healthy(self):
+        self.assertFalse(self.scan("SCAN tracks USING INTEGER PRIMARY KEY (rowid=?)"))
+        self.assertFalse(self.scan("SCAN tracks USING PRIMARY KEY"))
+
+    def test_a_search_is_never_a_full_scan(self):
+        self.assertFalse(
+            self.scan("SEARCH tracks USING INDEX idx_tracks_artist (normalized_artist=?)")
+        )
+
+    def test_non_access_plan_rows_are_ignored(self):
+        self.assertFalse(self.scan("USE TEMP B-TREE FOR ORDER BY"))
+        self.assertFalse(self.scan("CO-ROUTINE (subquery-1)"))
+
+
+class PlanIndexTest(unittest.TestCase):
+    def rows(self, *details: str):
+        return [benchmark_sqlite.PlanRow(0, detail) for detail in details]
+
+    def test_an_index_named_anywhere_in_the_plan_counts(self):
+        plan = self.rows(
+            "SEARCH tracks USING INDEX idx_tracks_album (normalized_album=?)",
+            "USE TEMP B-TREE FOR ORDER BY",
+        )
+        self.assertTrue(benchmark_sqlite.plan_names_index(plan, "idx_tracks_album"))
+
+    def test_a_plan_that_found_some_other_index_still_fails(self):
+        # Timing alone would not catch this: the query is still fast, it is
+        # just no longer riding the index it was written for.
+        plan = self.rows("SEARCH tracks USING INDEX idx_tracks_title (normalized_title=?)")
+        self.assertFalse(benchmark_sqlite.plan_names_index(plan, "idx_tracks_artist"))
+
+    def test_a_scanning_plan_names_no_index(self):
+        self.assertFalse(
+            benchmark_sqlite.plan_names_index(self.rows("SCAN tracks"), "idx_tracks_artist")
+        )
+
+
+class QueryPlanShapeTest(unittest.TestCase):
+    """`query_plan` against a real (tiny) database, so the row shape is real."""
+
+    def setUp(self):
+        self.connection = sqlite3.connect(":memory:")
+        self.connection.executescript(
+            """
+            CREATE TABLE tracks (id INTEGER PRIMARY KEY, normalized_artist TEXT NOT NULL);
+            CREATE INDEX idx_tracks_artist ON tracks(normalized_artist);
+            INSERT INTO tracks (normalized_artist) VALUES ('a'), ('b');
+            """
+        )
+        self.addCleanup(self.connection.close)
+
+    def plan(self, sql: str, params: tuple[object, ...] = ()):
+        return benchmark_sqlite.query_plan(self.connection, sql, params)
+
+    def test_a_flat_plan_is_all_at_depth_zero(self):
+        plan = self.plan("SELECT id FROM tracks WHERE normalized_artist = ?", ("a",))
+        self.assertTrue(plan)
+        self.assertEqual({row.depth for row in plan}, {0})
+        self.assertTrue(any("idx_tracks_artist" in row.detail for row in plan))
+
+    def test_a_nested_plan_indents_its_children(self):
+        plan = self.plan(
+            "SELECT id FROM tracks WHERE id IN "
+            "(SELECT id FROM tracks WHERE normalized_artist = ?)",
+            ("a",),
+        )
+        self.assertGreater(max(row.depth for row in plan), 0)
+        deeper = [row for row in plan if row.depth > 0]
+        self.assertTrue(all(row.rendered().startswith("  ") for row in deeper))
+
+    def test_an_unindexed_predicate_is_reported_as_a_full_scan(self):
+        plan = self.plan("SELECT id FROM tracks WHERE normalized_artist LIKE ?", ("%a%",))
+        self.assertTrue(
+            any(benchmark_sqlite.is_full_table_scan(row.detail) for row in plan)
+        )
+
+
+class QueryCatalogueTest(unittest.TestCase):
+    """The queries themselves, checked without building a 200k fixture."""
+
+    def schema_indexes(self) -> set[str]:
+        return set(re.findall(r"CREATE (?:UNIQUE )?INDEX IF NOT EXISTS (\w+)", SCHEMA.read_text()))
+
+    def test_every_query_expects_an_index_that_schema_sql_defines(self):
+        # A typo in `uses_index` would otherwise fail every run for the wrong
+        # reason, and look like a planner regression.
+        defined = self.schema_indexes()
+        for query in benchmark_sqlite.QUERIES:
+            with self.subTest(query=query.name):
+                self.assertIn(query.uses_index, defined)
+
+    def test_query_names_are_unique_and_short_enough_to_line_up(self):
+        names = [query.name for query in benchmark_sqlite.QUERIES]
+        self.assertEqual(len(names), len(set(names)))
+        for name in names:
+            self.assertLessEqual(len(name), 18, name)
+
+    def test_every_schema_index_is_exercised_by_some_query(self):
+        # #341 is about showing the indexes are used. An index nothing
+        # benchmarks is one nothing would notice losing.
+        exercised = {query.uses_index for query in benchmark_sqlite.QUERIES}
+        self.assertEqual(self.schema_indexes() - exercised, set())
 
 
 if __name__ == "__main__":

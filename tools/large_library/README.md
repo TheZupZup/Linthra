@@ -17,16 +17,26 @@ python3 tools/large_library/benchmark_sqlite.py \
   --database /tmp/linthra-200k.sqlite
 ```
 
-Each query prints its own line, then a summary block:
+Each query prints its timings, then its query plan indented underneath:
+
+```
+title prefix       avg=   0.051 ms  p95=   0.102 ms
+    SEARCH tracks USING INDEX idx_tracks_title (normalized_title>? AND normalized_title<?)
+album exact        avg=   0.113 ms  p95=   0.177 ms
+    SEARCH tracks USING INDEX idx_tracks_album (normalized_album=?)
+    USE TEMP B-TREE FOR ORDER BY
+```
+
+then a summary block:
 
 ```
 benchmark summary
   tracks:                   200,000
-  queries:                        4
+  queries:                        8
   iterations per query:         200
-  sum of query averages:      4.250 ms
-  average per query:          1.062 ms
-  slowest single run:         9.500 ms (provider album)
+  sum of query averages:      2.166 ms
+  average per query:          0.271 ms
+  slowest single run:         2.845 ms (track count)
 ```
 
 Every query is timed the same number of times and reported as a mean, so
@@ -34,7 +44,42 @@ Every query is timed the same number of times and reported as a mean, so
 wall-clock time the run spent querying, and `slowest single run` is the single
 slowest timed iteration, not the slowest query on average.
 
-The summary rendering has unit tests:
+## Query plans (#341)
+
+Timing alone cannot tell "used the index" apart from "scanned a table small
+enough, or ran on a machine fast enough, to get away with it". So every query
+in `benchmark_sqlite.py` carries the index it is meant to ride, and the run
+fails if the plan disagrees — even when the wall clock does not notice. Dropping
+`idx_tracks_artist` from the 200k fixture, for instance, takes `artist exact`
+from 0.10 ms to 23 ms: still comfortably inside the 50 ms budget, and caught
+only by the plan.
+
+### What a healthy plan looks like
+
+| Plan row | Meaning | Healthy? |
+| --- | --- | --- |
+| `SEARCH tracks USING INDEX idx_… (col=?)` | Seeks straight to the matching rows. | Yes — the normal shape for a `WHERE` on an indexed column. |
+| `SEARCH tracks USING INDEX idx_… (col>? AND col<?)` | A range seek. This is what a prefix `LIKE 'foo%'` compiles to. | Yes. |
+| `SCAN tracks USING INDEX idx_tracks_recent` | Reads the whole index **in order**, which is how `ORDER BY date_added DESC LIMIT 50` avoids sorting. | Yes — a `SCAN` that names an index is not a table scan. |
+| `SCAN tracks USING COVERING INDEX idx_…` | Reads the index and never touches the table, because the index already has every column the query asked for. `COUNT(*)` does this. | Yes. |
+| `USE TEMP B-TREE FOR ORDER BY` | The index found the rows but cannot supply the ordering, so SQLite sorts them. | Acceptable at this scale — `album exact` does it after a `LIMIT 100`. Worth a look if it ever appears on an unbounded result. |
+| `SCAN tracks` | Reads every row of the table. | **No.** This is the regression the guard fails on. |
+
+The guard checks each plan row on its own, so a plan that uses an index in one
+step cannot hide a scan in another. `USING COVERING INDEX` is matched
+explicitly, because it does not contain the substring `USING INDEX` — a check
+written against that one string reads a healthy `COUNT(*)` as a full table scan.
+
+### Adding a query
+
+Add a `Query(...)` to `QUERIES` with the index it should use. Do not add an
+index to `schema.sql` just to make a plan look better: show the plan first, and
+say what access pattern it is for. The unit tests keep the two in step — every
+query has to name an index the schema defines, and every index in the schema
+has to be exercised by some query.
+
+The summary rendering and the plan checks have unit tests, and neither needs a
+database:
 
 ```bash
 python3 test/tooling/large_library_benchmark_test.py
