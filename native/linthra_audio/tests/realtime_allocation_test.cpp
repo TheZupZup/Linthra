@@ -1,4 +1,5 @@
 #include "linthra_audio/dsp.hpp"
+#include "linthra_audio/linthra_audio.h"
 
 #include "check.hpp"
 
@@ -233,6 +234,36 @@ int main() {
         chain.process(block.data(), 0, 2);
     });
     CHECK(during_other_shapes == 0);
+
+    // The C ABI is the path the future JNI / Dart FFI binding will call on the
+    // audio callback, and everything measured above went straight to DspChain.
+    // A wrapper that took a temporary buffer, or logged, before delegating
+    // would be just as fatal there and completely invisible here.
+    //
+    // create() and configure() allocate and belong outside the measured
+    // region; the first process() through the ABI is inside it, so first-use
+    // work is covered on this path too.
+    LinthraAudioDsp* abi = linthra_audio_create(kSampleRate);
+    CHECK(abi != nullptr);
+    if (abi != nullptr) {
+        LinthraAudioConfig c_config{};
+        c_config.preamp_db = -3.0F;
+        c_config.limiter_enabled = 1;
+        c_config.limiter_threshold_db = -0.3F;
+        c_config.limiter_release_ms = 80.0F;
+        linthra_audio_configure(abi, &c_config);
+
+        const long during_abi = allocations_during([&] {
+            for (std::size_t index = 0; index < blocks; ++index) {
+                linthra_audio_process(abi, block.data(), block_frames, 2);
+            }
+            linthra_audio_reset(abi);
+            linthra_audio_process(abi, block.data(), block_frames * 2, 1);
+        });
+        CHECK(during_abi == 0);
+
+        linthra_audio_destroy(abi);
+    }
 
     // Sanity: the counter is actually wired up. Without this, a build where the
     // replacement never took effect would report a comfortable zero.

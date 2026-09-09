@@ -34,7 +34,7 @@ performance of the build users actually get.
 | `linthra_audio_tests` | The chain end to end: bypass, preamp, one limited frame, an EQ impulse response, and the C ABI. |
 | `linthra_audio_limiter` | Limiter response (#337) — see below. |
 | `linthra_audio_bypass` | Bypass transparency (#342) — see below. |
-| `linthra_audio_allocation` | Replaces global `operator new` **and interposes the C allocator** (`malloc`, `calloc`, `realloc`, `aligned_alloc`, `posix_memalign`), proving `process()` and `reset()` allocate nothing by either route. |
+| `linthra_audio_allocation` | Replaces global `operator new` **and interposes the C allocator** (`malloc`, `calloc`, `realloc`, `aligned_alloc`, `posix_memalign`), proving `process()` and `reset()` allocate nothing by either route — through `DspChain` directly and through the public C ABI the mobile binding will call. |
 | `linthra_audio_realtime_budget` | 60 s of 48 kHz stereo has to process well inside realtime. |
 
 **Limiter response.** The ceiling holds across a full second of signal 6 dB over
@@ -47,11 +47,16 @@ stereo-linked, so the L/R ratio survives limiting; mono is limited too; an EQ
 boost cannot push past the ceiling; and both `reset()` and `configure()` drop
 the ducking so one stream cannot inherit another's.
 
-Every ceiling check is an upper bound, and silence satisfies an upper bound
-perfectly — so the suite also requires a signal to still be *there*: the limited
-peak has to reach the ceiling (stereo and mono), a boosted EQ band has to leave
-energy in the output, and the impulse response has to carry energy rather than
-merely differ from its input. Gain is a scalar, so the waveform keeps its shape:
+Every ceiling check is an upper bound, and an upper bound is satisfied by
+silence, by a lower ceiling, and by no limiter at all — so each one has a floor
+beside it. The limited peak has to reach the ceiling (stereo and mono); a
+boosted EQ band has to leave energy in the output; the impulse response has to
+carry energy rather than merely differ from its input; each threshold has to
+reach *its own* ceiling and the ceilings have to come down in order, so one
+setting cannot stand in for all three; and after `reset()` or `configure()` a
+hot frame has to still be limited, at the threshold now in force, since unity
+gain on a quiet probe is also what a `reset()` that discarded the configuration
+would produce. Gain is a scalar, so the waveform keeps its shape:
 limited samples are checked to keep the sign of the samples they came from,
 which a rectifying regression would break while satisfying every magnitude
 check in the file.

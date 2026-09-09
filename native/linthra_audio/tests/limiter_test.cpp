@@ -114,6 +114,11 @@ void a_louder_signal_does_not_get_louder_output() {
 }
 
 void a_lower_threshold_lowers_the_ceiling() {
+    // Upper bounds alone would let every setting collapse to the lowest one:
+    // an implementation that limited everything to -12 dB satisfies "<= -0.3"
+    // and "<= -6" too. Each peak has to reach its *own* ceiling, and the
+    // ceilings have to come down in order — that is the contract being named.
+    float previous_peak = 0.0F;
     for (const float threshold_db : {-0.3F, -6.0F, -12.0F}) {
         DspChain chain = armed(threshold_db);
         std::vector<float> buffer = sine(4'800, 2.0F);
@@ -122,7 +127,13 @@ void a_lower_threshold_lowers_the_ceiling() {
         for (const float sample : buffer) {
             peak = std::max(peak, std::abs(sample));
         }
-        CHECK(peak <= threshold_linear(threshold_db) + 1.0e-4F);
+        const float ceiling = threshold_linear(threshold_db);
+        CHECK(peak <= ceiling + 1.0e-4F);
+        CHECK(peak > ceiling * 0.9F);
+        if (previous_peak > 0.0F) {
+            CHECK(peak < previous_peak);
+        }
+        previous_peak = peak;
     }
 }
 
@@ -278,6 +289,14 @@ void reset_drops_the_ducking() {
 
     chain.reset();
     CHECK(measure_gain(chain) == 1.0F);
+
+    // ...and the limiter is still armed. Unity gain on a quiet probe is also
+    // what a reset() that threw the configuration away would produce, and the
+    // next loud stream would then run straight past the ceiling — which is
+    // exactly what a host calls reset() between streams to avoid.
+    std::array<float, 2> after{4.0F, 4.0F};
+    chain.process(after.data(), 1, 2);
+    CHECK(std::abs(after[0]) <= threshold_linear(-0.3F) + 1.0e-4F);
 }
 
 void configure_drops_the_ducking() {
@@ -292,6 +311,12 @@ void configure_drops_the_ducking() {
     config.limiter_threshold_db = -6.0F;
     chain.configure(config);
     CHECK(measure_gain(chain) == 1.0F);
+
+    // ...and the new threshold is the one in force, not merely "some limiter".
+    std::array<float, 2> after{4.0F, 4.0F};
+    chain.process(after.data(), 1, 2);
+    CHECK(std::abs(after[0]) <= threshold_linear(-6.0F) + 1.0e-4F);
+    CHECK(std::abs(after[0]) > threshold_linear(-6.0F) * 0.9F);
 }
 
 void a_disabled_limiter_never_touches_the_gain() {
