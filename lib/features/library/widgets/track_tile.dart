@@ -18,6 +18,7 @@ import '../../player/favorites_providers.dart';
 import '../../player/now_playing.dart';
 import '../../player/player_providers.dart';
 import '../../player/widgets/track_artwork.dart';
+import '../../playlists/playlist_drag.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../library_browse_providers.dart';
 import '../song_actions.dart';
@@ -62,6 +63,13 @@ enum _TrackAction {
 /// hardware keyboard at tap time rather than gated on a platform, so a keyboard
 /// case on a tablet gets them for free and a bare touch tap is unchanged.
 ///
+/// On desktop the row is also a drag source for playlists (#389): pulling it
+/// sideways picks up this track, or the whole selection when this row is part
+/// of one, and dropping it on a playlist adds it. A vertical drag still
+/// scrolls the list, and nothing about this exists on mobile. The keyboard and
+/// menu route to the same operation, "Add to playlist", is unchanged and stays
+/// the accessible path.
+///
 /// Source-awareness: offline/download actions only appear for *remote* tracks
 /// (resolved through [remoteTrackDownloaderProvider], the same seam the
 /// download repository uses). On-device tracks are already local, so showing
@@ -77,6 +85,7 @@ class TrackTile extends ConsumerWidget {
     this.onSelectToggle,
     this.onSelectStart,
     this.onSelectRange,
+    this.dragSelection,
     super.key,
   });
 
@@ -102,6 +111,14 @@ class TrackTile extends ConsumerWidget {
   /// user sees it, so a range can never span rows that are not on screen
   /// between its two ends.
   final void Function(List<Track> tracks, int index)? onSelectRange;
+
+  /// The host's current selection, for a drag that starts on a selected row.
+  ///
+  /// A callback rather than a list because it is only ever called if a drag
+  /// actually starts: resolving the selection eagerly would be an O(n) walk
+  /// per row on every rebuild, which a 200k-track library cannot afford.
+  /// Hosts without selection leave it null and a drag carries this row alone.
+  final List<Track> Function()? dragSelection;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -209,7 +226,7 @@ class TrackTile extends ConsumerWidget {
     // favourite and download state as it is then rather than as it was when the
     // row was laid out. Withheld while selecting: the app bar is acting on the
     // whole selection there, and a per-row menu would be acting on one row.
-    return ContextMenuRegion<_TrackAction>(
+    final Widget menu = ContextMenuRegion<_TrackAction>(
       enabled: !selectionActive,
       itemBuilder: (BuildContext context) => _trackMenuItems(
         track: track,
@@ -222,6 +239,16 @@ class TrackTile extends ConsumerWidget {
       onSelected: (_TrackAction action) =>
           _runTrackAction(context, ref, track, action),
       child: row,
+    );
+
+    return PlaylistTrackDraggable(
+      tracks: () => dragPayloadFor(
+        track: track,
+        selectionActive: selectionActive,
+        selected: selected,
+        selection: dragSelection,
+      ),
+      child: menu,
     );
   }
 

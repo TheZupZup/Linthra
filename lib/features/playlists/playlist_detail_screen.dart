@@ -21,6 +21,8 @@ import '../player/now_playing.dart';
 import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
 import '../player/widgets/track_artwork.dart';
+import 'playlist_add.dart';
+import 'playlist_drag.dart';
 import 'playlist_providers.dart';
 import 'widgets/add_to_playlist_sheet.dart';
 import 'widgets/create_playlist_dialog.dart';
@@ -126,21 +128,55 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                   ),
                 ],
               ),
-        body: tracksAsync.when(
-          // Every edit — a reorder, a removal — re-runs the uri-to-Track
-          // resolution, and a spinner over the list on each one would both
-          // flash and tear down the reorder list's focus nodes mid-keyboard
-          // walk. Only the genuine first load shows the spinner.
-          skipLoadingOnReload: true,
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (_, __) => const EmptyState(
-            icon: Icons.error_outline,
-            title: "Couldn't load this playlist",
-            message: 'Try again in a moment.',
-          ),
-          data: (PlaylistTracks data) => _content(playlist, data),
+        // The whole page takes a dropped track (#389), not just the list: the
+        // rail's spring can land a drag here rather than on the Playlists tab
+        // when this playlist was already open, and an empty playlist is
+        // exactly the one somebody wants to drag songs into.
+        body: PlaylistDropRegion(
+          playlist: playlist,
+          onDrop: (List<Track> tracks) => _addDropped(playlist, tracks),
+          onRefused: _say,
+          builder: (BuildContext context, PlaylistDropState state) {
+            return PlaylistDropHighlight(
+              state: state,
+              child: tracksAsync.when(
+                // Every edit — a reorder, a removal — re-runs the uri-to-Track
+                // resolution, and a spinner over the list on each one would
+                // both flash and tear down the reorder list's focus nodes
+                // mid-keyboard walk. Only the genuine first load shows the
+                // spinner.
+                skipLoadingOnReload: true,
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (_, __) => const EmptyState(
+                  icon: Icons.error_outline,
+                  title: "Couldn't load this playlist",
+                  message: 'Try again in a moment.',
+                ),
+                data: (PlaylistTracks data) => _content(playlist, data),
+              ),
+            );
+          },
         ),
       ),
+    );
+  }
+
+  /// Adds dropped tracks to the open playlist, through the same plan the
+  /// "Add to playlist" sheet and the Playlists tab both use.
+  Future<void> _addDropped(Playlist playlist, List<Track> tracks) async {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final PlaylistAddPlan plan = await addTracksToPlaylist(
+      repository: ref.read(playlistRepositoryProvider),
+      playlist: playlist,
+      tracks: tracks,
+    );
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
+  }
+
+  void _say(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 

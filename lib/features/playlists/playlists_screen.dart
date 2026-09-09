@@ -4,12 +4,15 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/routes.dart';
 import '../../core/models/playlist.dart';
+import '../../core/models/track.dart';
 import '../../data/repositories/playlist_repository_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../../shared/widgets/context_menu_region.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../library/remote_library_refresher.dart';
+import 'playlist_add.dart';
+import 'playlist_drag.dart';
 import 'playlist_providers.dart';
 import 'widgets/create_playlist_dialog.dart';
 
@@ -128,7 +131,7 @@ class _PlaylistTile extends ConsumerWidget {
     // The same two actions the trailing button offers, on right-click and on
     // the keyboard's menu key (#386). Rename and delete are all the domain
     // layer supports for a playlist from here, so that is all the menu claims.
-    return ContextMenuRegion<_PlaylistMenuAction>(
+    final Widget row = ContextMenuRegion<_PlaylistMenuAction>(
       itemBuilder: (BuildContext context) => _menuItems(),
       onSelected: (action) => _run(context, ref, action),
       child: ListTile(
@@ -153,6 +156,38 @@ class _PlaylistTile extends ConsumerWidget {
         ),
         onTap: () => context.push(AppRoutes.playlistDetailPath(playlist.id)),
       ),
+    );
+    // Dropping tracks here adds them (#389). The row is the clear target the
+    // issue asks for: it is the playlist, named, with its song count.
+    return PlaylistDropRegion(
+      playlist: playlist,
+      onDrop: (List<Track> tracks) => _addDropped(context, ref, tracks),
+      onRefused: (String message) => _say(context, message),
+      builder: (BuildContext context, PlaylistDropState state) =>
+          PlaylistDropHighlight(state: state, child: row),
+    );
+  }
+
+  /// Adds dropped tracks through the same plan the "Add to playlist" sheet
+  /// uses, so a drop can never put a track in a playlist the sheet would have
+  /// refused, and reports what actually landed.
+  Future<void> _addDropped(
+    BuildContext context,
+    WidgetRef ref,
+    List<Track> tracks,
+  ) async {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final PlaylistAddPlan plan = await addTracksToPlaylist(
+      repository: ref.read(playlistRepositoryProvider),
+      playlist: playlist,
+      tracks: tracks,
+    );
+    messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
+  }
+
+  void _say(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 

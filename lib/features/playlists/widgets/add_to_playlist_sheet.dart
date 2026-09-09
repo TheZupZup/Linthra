@@ -4,10 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/dimens.dart';
 import '../../../core/models/playlist.dart';
 import '../../../core/models/track.dart';
-import '../../../core/sources/jellyfin/jellyfin_track_mapper.dart';
-import '../../../core/sources/subsonic/subsonic_track_mapper.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../shared/widgets/empty_state.dart';
+import '../playlist_add.dart';
 import '../playlist_providers.dart';
 import 'create_playlist_dialog.dart';
 
@@ -119,38 +118,13 @@ class _AddToPlaylistSheet extends ConsumerWidget {
   ) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     final NavigatorState navigator = Navigator.of(context);
-    final List<Track> addable = _addableFor(playlist);
-    if (addable.isEmpty) {
-      navigator.pop();
-      final String label = playlist.source.serverLabel ?? 'this server';
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            'Only $label tracks can be added to a $label playlist.',
-          ),
-        ),
-      );
-      return;
-    }
-    // The repository skips uris already in the playlist, so the count the user
-    // sees must be the genuinely-new ones — not the whole addable list. Keyed by
-    // the provider-namespaced uri, so adding `subsonic:101` to a playlist that
-    // holds `jellyfin:101` is a real add, not a no-op "already there".
-    final Set<String> existing = playlist.trackIds.toSet();
-    final int added =
-        addable.where((Track t) => !existing.contains(t.uri)).length;
-    await ref.read(playlistRepositoryProvider).addTracks(
-      playlist.id,
-      <String>[for (final Track track in addable) track.uri],
+    final PlaylistAddPlan plan = await addTracksToPlaylist(
+      repository: ref.read(playlistRepositoryProvider),
+      playlist: playlist,
+      tracks: tracks,
     );
     navigator.pop();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          _resultMessage(playlist, addableCount: addable.length, added: added),
-        ),
-      ),
-    );
+    messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
   }
 
   Future<void> _createAndAdd(BuildContext context, WidgetRef ref) async {
@@ -169,80 +143,14 @@ class _AddToPlaylistSheet extends ConsumerWidget {
       description: edit.description,
       source: edit.source,
     );
-    final List<Track> addable = _addableFor(created);
-    if (addable.isNotEmpty) {
-      await repository.addTracks(
-        created.id,
-        <String>[for (final Track track in addable) track.uri],
-      );
-    }
-    navigator.pop();
     // A freshly created playlist is empty, so every addable track is genuinely
     // added; the skipped remainder (if any) was filtered as a different source.
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          _resultMessage(created,
-              addableCount: addable.length, added: addable.length),
-        ),
-      ),
+    final PlaylistAddPlan plan = await addTracksToPlaylist(
+      repository: repository,
+      playlist: created,
+      tracks: tracks,
     );
-  }
-
-  /// The subset of [tracks] that can be added to [playlist]: every track for a
-  /// local playlist, only same-provider tracks for a synced playlist (so it
-  /// stays consistent with the server — a Jellyfin playlist holds only
-  /// `jellyfin:` tracks, a Navidrome playlist only `subsonic:` tracks).
-  List<Track> _addableFor(Playlist playlist) {
-    final String? scheme = _schemeFor(playlist.source);
-    if (scheme == null) return tracks;
-    return <Track>[
-      for (final Track track in tracks)
-        if (track.uri.startsWith(scheme)) track,
-    ];
-  }
-
-  /// The track-uri scheme a synced playlist of [source] accepts, or `null` for a
-  /// local playlist (which accepts any source's tracks).
-  static String? _schemeFor(PlaylistSource source) {
-    switch (source) {
-      case PlaylistSource.local:
-        return null;
-      case PlaylistSource.jellyfin:
-        return JellyfinTrackMapper.uriScheme;
-      case PlaylistSource.subsonic:
-        return SubsonicTrackMapper.uriScheme;
-    }
-  }
-
-  /// A snackbar line reflecting what actually changed. [added] is the number of
-  /// tracks genuinely appended (the repository skips ids already present, and
-  /// [addableCount] excludes tracks the playlist can't take — e.g. a different
-  /// source's tracks for a synced playlist), so this never claims more than was
-  /// added.
-  String _resultMessage(
-    Playlist playlist, {
-    required int addableCount,
-    required int added,
-  }) {
-    if (added == 0) {
-      // Nothing new landed. Either the whole selection was unsupported, or
-      // every track was already in the playlist.
-      if (addableCount == 0 && playlist.source != PlaylistSource.local) {
-        final String label = playlist.source.serverLabel ?? 'this server';
-        return 'Only $label tracks can be added to ${playlist.name}.';
-      }
-      return tracks.length == 1
-          ? "That song's already in ${playlist.name}."
-          : 'Those songs are already in ${playlist.name}.';
-    }
-    final int skipped = tracks.length - added;
-    final String base = added == 1
-        ? 'Added to ${playlist.name}.'
-        : 'Added $added songs to ${playlist.name}.';
-    if (skipped > 0) {
-      return '$base $skipped skipped (already added or not supported).';
-    }
-    return base;
+    navigator.pop();
+    messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
   }
 }

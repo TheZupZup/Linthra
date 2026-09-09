@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../player/mini_player.dart';
+import 'playlist_drag_spring.dart';
 
 /// The persistent app frame: hosts the active tab and the app's primary
 /// navigation. Tab state is owned by go_router's [StatefulNavigationShell], so
@@ -23,6 +24,19 @@ class HomeShell extends StatelessWidget {
   /// gives the shell one reusable presentation seam instead of scattering
   /// platform checks through feature screens.
   static const double desktopNavigationBreakpoint = 900;
+
+  /// Which branch the Playlists tab is, so the drag spring and the destination
+  /// list can never disagree about it. A const constructor cannot assert
+  /// against a destination's label, so a test pins the two together instead;
+  /// [destinationLabels] is what it reads.
+  static const int playlistsBranchIndex = 2;
+
+  /// The destination labels, in branch order, for tests that need to know
+  /// which index is which without reaching into private state.
+  static List<String> get destinationLabels => <String>[
+        for (final NavigationDestination destination in _destinations)
+          destination.label,
+      ];
 
   static const _destinations = <NavigationDestination>[
     NavigationDestination(
@@ -83,28 +97,60 @@ class HomeShell extends StatelessWidget {
         constraints.maxWidth >= desktopNavigationBreakpoint;
   }
 
+  /// The rail, wrapped in the drag spring so a track dragged out of the
+  /// library can reach the Playlists tab (#389). The spring is off while
+  /// Playlists is already showing, since there is nowhere to go.
   Widget _buildNavigationRail() {
     return FocusTraversalOrder(
       order: const NumericFocusOrder(2),
       child: FocusTraversalGroup(
         child: SafeArea(
           right: false,
-          child: NavigationRail(
-            selectedIndex: navigationShell.currentIndex,
-            onDestinationSelected: _onDestinationSelected,
-            labelType: NavigationRailLabelType.all,
-            groupAlignment: -1,
-            destinations: [
-              for (final NavigationDestination destination in _destinations)
-                NavigationRailDestination(
-                  icon: destination.icon,
-                  selectedIcon: destination.selectedIcon,
-                  label: Text(destination.label),
-                ),
-            ],
+          child: PlaylistDragSpring(
+            enabled: navigationShell.currentIndex != playlistsBranchIndex,
+            onSpring: () => _onDestinationSelected(playlistsBranchIndex),
+            builder: (BuildContext context, bool dragHovering) {
+              return NavigationRail(
+                selectedIndex: navigationShell.currentIndex,
+                onDestinationSelected: _onDestinationSelected,
+                labelType: NavigationRailLabelType.all,
+                groupAlignment: -1,
+                destinations: <NavigationRailDestination>[
+                  for (int i = 0; i < _destinations.length; i++)
+                    _railDestination(context, i, dragHovering: dragHovering),
+                ],
+              );
+            },
           ),
         ),
       ),
+    );
+  }
+
+  /// One rail destination. While a track drag is over the rail, Playlists
+  /// swaps to an "add to playlist" glyph in the accent colour, so the tab the
+  /// spring is about to open announces itself instead of the page simply
+  /// changing under the drag.
+  NavigationRailDestination _railDestination(
+    BuildContext context,
+    int index, {
+    required bool dragHovering,
+  }) {
+    final NavigationDestination destination = _destinations[index];
+    final bool marked = dragHovering && index == playlistsBranchIndex;
+    if (!marked) {
+      return NavigationRailDestination(
+        icon: destination.icon,
+        selectedIcon: destination.selectedIcon,
+        label: Text(destination.label),
+      );
+    }
+    final Color accent = Theme.of(context).colorScheme.primary;
+    final Icon marker = Icon(Icons.playlist_add, color: accent);
+    return NavigationRailDestination(
+      icon: marker,
+      selectedIcon: marker,
+      label: Text(destination.label, style: TextStyle(color: accent)),
     );
   }
 

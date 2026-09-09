@@ -23,7 +23,8 @@ What you can do:
   detail screen).
 - **Delete** a playlist (always behind a confirmation).
 - **Add tracks** from a track's overflow menu ("Add to playlist"), from the Now
-  Playing actions, or via multi-select.
+  Playing actions, via multi-select, or, on desktop, by dragging tracks onto a
+  playlist row (see [Dragging tracks into a playlist](#dragging-tracks-into-a-playlist)).
 - **Remove tracks** from a playlist (per-row, with an Undo snackbar, or via
   multi-select).
 - **Reorder tracks** by dragging the handle on a row — see
@@ -60,6 +61,36 @@ see.
 Playlists persist locally via `shared_preferences` (the same lightweight,
 plugin-only storage used for favourites and the offline-download set) — no
 secrets are ever written to playlist metadata.
+
+### Dragging tracks into a playlist
+
+On desktop, pull a track row sideways to pick it up and drop it on a playlist in
+the Playlists tab. Dragging a row that is part of a multi-selection carries the
+whole selection; dragging any other row carries just that row, which is what a
+desktop list is expected to do.
+
+The library and the playlist list are different tabs, so the navigation rail is
+**spring-loaded**: rest a drag on it for a moment and it opens Playlists, with
+the Playlists destination highlighted so you can see where the drag is heading.
+The rail never takes the drop itself, it only gets you to the rows. Crossing it
+quickly on the way somewhere else does nothing.
+
+Only sideways drags pick a row up, so a vertical drag still scrolls the list.
+None of this exists on mobile, where a long press already starts multi-select.
+
+A drop goes through exactly the same rules as the "Add to playlist" sheet
+(`PlaylistAddPlan`), so it can never put a track somewhere the sheet would have
+refused:
+
+- a synced playlist takes only its own server's tracks, and a drop of a mixed
+  selection adds the supported half and says how many it skipped
+- a drop a playlist cannot take at all writes nothing and explains why, rather
+  than silently bouncing back
+- tracks already in the playlist are skipped, and the confirmation counts only
+  what genuinely landed
+
+Drag-and-drop is an addition, never the only way in. Every playlist edit is
+still reachable from the keyboard and the row menus.
 
 ### Sync state
 

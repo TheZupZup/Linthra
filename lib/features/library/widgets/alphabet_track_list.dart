@@ -227,6 +227,13 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
                   ? null
                   : () => widget.onSelectStart!(track),
               onSelectRange: widget.onSelectRange,
+              // Resolved from the sorted list the rows are drawn from, so a
+              // drag carries the selection in the order the user sees it.
+              // Only runs when a drag actually starts.
+              dragSelection: () => <Track>[
+                for (final Track candidate in _sorted)
+                  if (widget.selectedUris.contains(candidate.uri)) candidate,
+              ],
             );
           },
         ),

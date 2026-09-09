@@ -236,6 +236,7 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
       onSelectStart: () => _enterSelection(track),
       onSelectToggle: () => _toggle(track),
       onSelectRange: _extendSelection,
+      dragSelection: () => _selection.resolve(tracks),
     );
   }
 
