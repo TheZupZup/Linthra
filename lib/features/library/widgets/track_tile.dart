@@ -1,13 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/routes.dart';
+import '../../../core/catalog/library_grouping.dart';
 import '../../../core/models/track.dart';
 import '../../../core/repositories/download_repository.dart';
 import '../../../core/repositories/download_store.dart';
 import '../../../data/repositories/download_repository_provider.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
+import '../../../shared/widgets/context_menu_region.dart';
 import '../../downloads/download_providers.dart';
 import '../../player/favorites_providers.dart';
 import '../../player/now_playing.dart';
@@ -28,6 +32,8 @@ enum _TrackAction {
   removeOffline,
   retryDownload,
   cancel,
+  showAlbum,
+  showArtist,
   removeFromLibrary,
 }
 
@@ -104,7 +110,7 @@ class TrackTile extends ConsumerWidget {
             ?.fraction
         : null;
 
-    return ListTile(
+    final Widget row = ListTile(
       selected: selectionActive && selected,
       leading: TrackArtwork(
         artworkUri: track.artworkUri,
@@ -163,6 +169,24 @@ class TrackTile extends ConsumerWidget {
         context.push(AppRoutes.player);
       },
       onLongPress: (selectable && !selectionActive) ? onSelectStart : null,
+    );
+
+    // The same menu the 3-dot button opens, on right-click and on the
+    // keyboard's menu key (#386). Built at open time, so it reflects the
+    // favourite and download state as it is then rather than as it was when the
+    // row was laid out. Withheld while selecting: the app bar is acting on the
+    // whole selection there, and a per-row menu would be acting on one row.
+    return ContextMenuRegion<_TrackAction>(
+      enabled: !selectionActive,
+      itemBuilder: (BuildContext context) => _trackMenuItems(
+        track: track,
+        isFavorite: ref.read(isFavoriteProvider(track.uri)),
+        isRemote: isRemote,
+        status: status,
+      ),
+      onSelected: (_TrackAction action) =>
+          _runTrackAction(context, ref, track, action),
+      child: row,
     );
   }
 
@@ -264,50 +288,11 @@ class _OverflowMenu extends ConsumerWidget {
   /// rest depend on the track's [DownloadStatus]. The favourite toggle, queue,
   /// add-to-playlist, and remove-from-Linthra actions are always available.
   List<PopupMenuEntry<_TrackAction>> _menuItems(bool isFavorite) {
-    final items = <PopupMenuEntry<_TrackAction>>[
-      _item(
-        _TrackAction.toggleFavorite,
-        isFavorite ? Icons.favorite : Icons.favorite_border,
-        isFavorite ? 'Remove from favorites' : 'Add to favorites',
-      ),
-      _item(_TrackAction.playNext, Icons.queue_music, 'Play next'),
-      _item(_TrackAction.addToQueue, Icons.add_to_queue, 'Add to queue'),
-      _item(_TrackAction.addToPlaylist, Icons.playlist_add, 'Add to playlist'),
-    ];
-    if (isRemote) {
-      switch (status) {
-        case DownloadStatus.notDownloaded:
-          items.add(_item(_TrackAction.download, Icons.download_outlined,
-              'Download for offline'));
-        case DownloadStatus.queued:
-        case DownloadStatus.downloading:
-          items.add(_item(_TrackAction.cancel, Icons.close, 'Cancel download'));
-        case DownloadStatus.downloaded:
-          items.add(_item(_TrackAction.removeOffline, Icons.delete_outline,
-              'Remove offline copy'));
-        case DownloadStatus.failed:
-          items.add(_item(
-              _TrackAction.retryDownload, Icons.refresh, 'Retry download'));
-          items.add(_item(_TrackAction.cancel, Icons.close, 'Cancel download'));
-      }
-    }
-    items.add(_item(_TrackAction.removeFromLibrary, Icons.remove_circle_outline,
-        'Remove from Linthra'));
-    return items;
-  }
-
-  PopupMenuItem<_TrackAction> _item(
-    _TrackAction action,
-    IconData icon,
-    String label,
-  ) {
-    return PopupMenuItem<_TrackAction>(
-      value: action,
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: Icon(icon),
-        title: Text(label),
-      ),
+    return _trackMenuItems(
+      track: track,
+      isFavorite: isFavorite,
+      isRemote: isRemote,
+      status: status,
     );
   }
 
@@ -315,58 +300,161 @@ class _OverflowMenu extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     _TrackAction action,
-  ) async {
-    switch (action) {
-      case _TrackAction.toggleFavorite:
-        // Like/unlike without touching playback or the queue. Re-read the
-        // current state so the toggle is correct even if the heart changed
-        // after the menu opened, and hand the real [Track] to the repository so
-        // its uri routes local/Jellyfin/Subsonic favourites (and the Subsonic
-        // sync push) correctly.
-        final bool isFavorite = ref.read(isFavoriteProvider(track.uri));
-        await ref
-            .read(favoritesRepositoryProvider)
-            .setFavorite(track, !isFavorite);
-      case _TrackAction.playNext:
-        ref.read(playbackControllerProvider).playNext(track);
-      case _TrackAction.addToQueue:
-        ref.read(playbackControllerProvider).addToQueue(track);
-      case _TrackAction.addToPlaylist:
-        await showAddToPlaylistSheet(context, <Track>[track]);
-      case _TrackAction.download:
-      case _TrackAction.retryDownload:
-        await _download(context, ref);
-      case _TrackAction.cancel:
-        // Cancelling an in-flight/queued download is not destructive to a saved
-        // copy, so it needs no confirmation.
-        await ref.read(downloadRepositoryProvider).removeDownload(track);
-      case _TrackAction.removeOffline:
-        await SongActions.removeOfflineCopies(context, ref, <Track>[track]);
-      case _TrackAction.removeFromLibrary:
-        await SongActions.removeFromLibrary(
-          context,
-          ref,
-          <Track>[track],
-          expandLogicalSources: true,
-        );
+  ) =>
+      _runTrackAction(context, ref, track, action);
+}
+
+/// The row's action list, built fresh so it always reflects the current
+/// favourite and download state.
+///
+/// Shared by the trailing 3-dot button and the row's right-click menu (#386):
+/// one list, one dispatcher, so a right-click can never offer an action a tap
+/// cannot — or run it differently.
+List<PopupMenuEntry<_TrackAction>> _trackMenuItems({
+  required Track track,
+  required bool isFavorite,
+  required bool isRemote,
+  required DownloadStatus status,
+}) {
+  final items = <PopupMenuEntry<_TrackAction>>[
+    _item(
+      _TrackAction.toggleFavorite,
+      isFavorite ? Icons.favorite : Icons.favorite_border,
+      isFavorite ? 'Remove from favorites' : 'Add to favorites',
+    ),
+    _item(_TrackAction.playNext, Icons.queue_music, 'Play next'),
+    _item(_TrackAction.addToQueue, Icons.add_to_queue, 'Add to queue'),
+    _item(_TrackAction.addToPlaylist, Icons.playlist_add, 'Add to playlist'),
+  ];
+  if (isRemote) {
+    switch (status) {
+      case DownloadStatus.notDownloaded:
+        items.add(_item(_TrackAction.download, Icons.download_outlined,
+            'Download for offline'));
+      case DownloadStatus.queued:
+      case DownloadStatus.downloading:
+        items.add(_item(_TrackAction.cancel, Icons.close, 'Cancel download'));
+      case DownloadStatus.downloaded:
+        items.add(_item(_TrackAction.removeOffline, Icons.delete_outline,
+            'Remove offline copy'));
+      case DownloadStatus.failed:
+        items.add(
+            _item(_TrackAction.retryDownload, Icons.refresh, 'Retry download'));
+        items.add(_item(_TrackAction.cancel, Icons.close, 'Cancel download'));
     }
   }
-
-  /// Starts the download, surfacing the friendly, secret-free reasons it might
-  /// not start: a full cache with nothing safe to evict, or the network policy
-  /// queueing it (mobile data not allowed, or offline). Other errors fall
-  /// through to the row's "failed" indicator (with a retry action).
-  Future<void> _download(BuildContext context, WidgetRef ref) async {
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-    try {
-      final DownloadRequestOutcome outcome =
-          await ref.read(downloadRepositoryProvider).requestDownload(track);
-      final String? message = outcome.blockedMessage;
-      if (message != null) {
-        messenger.showSnackBar(SnackBar(content: Text(message)));
-      }
-    } on CacheStorageException catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+  // Navigation, last before the destructive action and separated from the
+  // rest: "where does this song live" is a different question from "do
+  // something to it". Offered only where there is somewhere to go — a track
+  // with no album tags has no album page to open.
+  final bool hasAlbum = (track.albumName ?? '').trim().isNotEmpty ||
+      (track.albumId ?? '').trim().isNotEmpty;
+  final bool hasArtist = (track.artistName ?? '').trim().isNotEmpty;
+  if (hasAlbum || hasArtist) {
+    items.add(const PopupMenuDivider());
+    if (hasAlbum) {
+      items.add(
+          _item(_TrackAction.showAlbum, Icons.album_outlined, 'Show album'));
     }
+    if (hasArtist) {
+      items.add(
+          _item(_TrackAction.showArtist, Icons.person_outline, 'Show artist'));
+    }
+    items.add(const PopupMenuDivider());
+  }
+  items.add(_item(_TrackAction.removeFromLibrary, Icons.remove_circle_outline,
+      'Remove from Linthra'));
+  return items;
+}
+
+PopupMenuItem<_TrackAction> _item(
+  _TrackAction action,
+  IconData icon,
+  String label,
+) {
+  return PopupMenuItem<_TrackAction>(
+    value: action,
+    child: ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon),
+      title: Text(label),
+    ),
+  );
+}
+
+/// Runs one action against the shared commands — the playback controller, the
+/// favourites and download repositories, the safe remove actions — so the menu
+/// owns no business logic of its own.
+Future<void> _runTrackAction(
+  BuildContext context,
+  WidgetRef ref,
+  Track track,
+  _TrackAction action,
+) async {
+  switch (action) {
+    case _TrackAction.toggleFavorite:
+      // Like/unlike without touching playback or the queue. Re-read the
+      // current state so the toggle is correct even if the heart changed
+      // after the menu opened, and hand the real [Track] to the repository so
+      // its uri routes local/Jellyfin/Subsonic favourites (and the Subsonic
+      // sync push) correctly.
+      final bool isFavorite = ref.read(isFavoriteProvider(track.uri));
+      await ref
+          .read(favoritesRepositoryProvider)
+          .setFavorite(track, !isFavorite);
+    case _TrackAction.playNext:
+      ref.read(playbackControllerProvider).playNext(track);
+    case _TrackAction.addToQueue:
+      ref.read(playbackControllerProvider).addToQueue(track);
+    case _TrackAction.addToPlaylist:
+      await showAddToPlaylistSheet(context, <Track>[track]);
+    case _TrackAction.download:
+    case _TrackAction.retryDownload:
+      await _download(context, ref, track);
+    case _TrackAction.cancel:
+      // Cancelling an in-flight/queued download is not destructive to a saved
+      // copy, so it needs no confirmation.
+      await ref.read(downloadRepositoryProvider).removeDownload(track);
+    case _TrackAction.removeOffline:
+      await SongActions.removeOfflineCopies(context, ref, <Track>[track]);
+    case _TrackAction.showAlbum:
+      // The same derived ids the Albums and Artists grids route with, so the
+      // menu lands on exactly the page those tabs would have opened.
+      unawaited(
+        context.push(AppRoutes.albumDetailPath(albumIdForTrack(track))),
+      );
+    case _TrackAction.showArtist:
+      unawaited(
+        context.push(AppRoutes.artistDetailPath(artistIdForTrack(track))),
+      );
+    case _TrackAction.removeFromLibrary:
+      await SongActions.removeFromLibrary(
+        context,
+        ref,
+        <Track>[track],
+        expandLogicalSources: true,
+      );
+  }
+}
+
+/// Starts the download, surfacing the friendly, secret-free reasons it might
+/// not start: a full cache with nothing safe to evict, or the network policy
+/// queueing it (mobile data not allowed, or offline). Other errors fall
+/// through to the row's "failed" indicator (with a retry action).
+Future<void> _download(
+  BuildContext context,
+  WidgetRef ref,
+  Track track,
+) async {
+  final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+  try {
+    final DownloadRequestOutcome outcome =
+        await ref.read(downloadRepositoryProvider).requestDownload(track);
+    final String? message = outcome.blockedMessage;
+    if (message != null) {
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    }
+  } on CacheStorageException catch (error) {
+    messenger.showSnackBar(SnackBar(content: Text(error.message)));
   }
 }

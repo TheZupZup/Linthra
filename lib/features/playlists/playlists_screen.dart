@@ -7,6 +7,7 @@ import '../../core/models/playlist.dart';
 import '../../data/repositories/playlist_repository_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/widgets/confirm_dialog.dart';
+import '../../shared/widgets/context_menu_region.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../library/remote_library_refresher.dart';
 import 'playlist_providers.dart';
@@ -124,45 +125,58 @@ class _PlaylistTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
-        child: Icon(
-          playlist.isRemote ? Icons.cloud_outlined : Icons.queue_music,
-          color: theme.colorScheme.primary,
+    // The same two actions the trailing button offers, on right-click and on
+    // the keyboard's menu key (#386). Rename and delete are all the domain
+    // layer supports for a playlist from here, so that is all the menu claims.
+    return ContextMenuRegion<_PlaylistMenuAction>(
+      itemBuilder: (BuildContext context) => _menuItems(),
+      onSelected: (action) => _run(context, ref, action),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
+          child: Icon(
+            playlist.isRemote ? Icons.cloud_outlined : Icons.queue_music,
+            color: theme.colorScheme.primary,
+          ),
+        ),
+        title: Text(
+          playlist.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(_subtitle()),
+        trailing: PopupMenuButton<_PlaylistMenuAction>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: 'Playlist actions',
+          onSelected: (action) => _run(context, ref, action),
+          itemBuilder: (context) => _menuItems(),
+        ),
+        onTap: () => context.push(AppRoutes.playlistDetailPath(playlist.id)),
+      ),
+    );
+  }
+
+  /// One list for both the button and the right-click menu, so they can never
+  /// offer different things.
+  List<PopupMenuEntry<_PlaylistMenuAction>> _menuItems() {
+    return const <PopupMenuEntry<_PlaylistMenuAction>>[
+      PopupMenuItem<_PlaylistMenuAction>(
+        value: _PlaylistMenuAction.rename,
+        child: ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.edit_outlined),
+          title: Text('Rename'),
         ),
       ),
-      title: Text(
-        playlist.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      PopupMenuItem<_PlaylistMenuAction>(
+        value: _PlaylistMenuAction.delete,
+        child: ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.delete_outline),
+          title: Text('Delete'),
+        ),
       ),
-      subtitle: Text(_subtitle()),
-      trailing: PopupMenuButton<_PlaylistMenuAction>(
-        icon: const Icon(Icons.more_vert),
-        tooltip: 'Playlist actions',
-        onSelected: (action) => _run(context, ref, action),
-        itemBuilder: (context) => const <PopupMenuEntry<_PlaylistMenuAction>>[
-          PopupMenuItem<_PlaylistMenuAction>(
-            value: _PlaylistMenuAction.rename,
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.edit_outlined),
-              title: Text('Rename'),
-            ),
-          ),
-          PopupMenuItem<_PlaylistMenuAction>(
-            value: _PlaylistMenuAction.delete,
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.delete_outline),
-              title: Text('Delete'),
-            ),
-          ),
-        ],
-      ),
-      onTap: () => context.push(AppRoutes.playlistDetailPath(playlist.id)),
-    );
+    ];
   }
 
   /// "{n} songs", with a subtle source/status suffix: "· Sync failed" when a

@@ -5,9 +5,11 @@ import '../../../app/dimens.dart';
 import '../../../core/catalog/library_grouping.dart';
 import '../../../core/models/album.dart';
 import '../../../core/models/track.dart';
+import '../../../shared/widgets/context_menu_region.dart';
 import '../../player/widgets/album_artwork.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../unified_library_providers.dart';
+import 'collection_menu.dart';
 
 /// One row in the Albums list: cover, title, artist, and track count.
 ///
@@ -22,35 +24,43 @@ class AlbumTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
-    return ListTile(
-      leading: SizedBox.square(
-        dimension: 48,
-        child: AlbumArtwork(
-          artworkUri: album.artworkUri,
-          borderRadius: const BorderRadius.all(Radius.circular(AppRadii.sm)),
+    return ContextMenuRegion<CollectionAction>(
+      itemBuilder: (BuildContext context) => collectionMenuItems(),
+      onSelected: (CollectionAction action) =>
+          runCollectionAction(context, ref, action, _tracks(ref)),
+      child: ListTile(
+        leading: SizedBox.square(
+          dimension: 48,
+          child: AlbumArtwork(
+            artworkUri: album.artworkUri,
+            borderRadius: const BorderRadius.all(Radius.circular(AppRadii.sm)),
+          ),
         ),
-      ),
-      title: Text(
-        album.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w600,
+        title: Text(
+          album.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
-      ),
-      subtitle: Text(
-        _subtitle(album),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        subtitle: Text(
+          _subtitle(album),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
         ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+        onLongPress: () => _addAllToPlaylist(context, ref),
       ),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: onTap,
-      onLongPress: () => _addAllToPlaylist(context, ref),
     );
   }
+
+  List<Track> _tracks(WidgetRef ref) =>
+      tracksForAlbum(ref.read(libraryUnifiedTracksProvider), album.id);
 
   void _addAllToPlaylist(BuildContext context, WidgetRef ref) {
     final List<Track> tracks = tracksForAlbum(
