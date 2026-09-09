@@ -218,7 +218,7 @@ void main() {
     expect(await scan, isNull);
     expect(await library.getAllTracks(), isEmpty);
     expect(container.read(localScanReportProvider), isNull);
-    expect(await selected.getSelectedFolder(), isNull);
+    expect(await selected.getSelectedFolders(), isEmpty);
   });
 
   test('forget waits for a started write and clears it without resurrection',
@@ -247,7 +247,7 @@ void main() {
 
     expect(await library.getAllTracks(), isEmpty);
     expect(container.read(localScanReportProvider), isNull);
-    expect(await selected.getSelectedFolder(), isNull);
+    expect(await selected.getSelectedFolders(), isEmpty);
   });
 
   test('a source change waits for an already-started local write', () async {
@@ -268,11 +268,11 @@ void main() {
         .read(selectedFolderControllerProvider.notifier)
         .setAndPersist('/new');
     await Future<void>.delayed(Duration.zero);
-    expect(await selected.getSelectedFolder(), '/old');
+    expect(await selected.getSelectedFolders(), <String>['/old']);
     library.releaseWrite.complete();
     expect(await scan, isNull);
     await change;
-    expect(await selected.getSelectedFolder(), '/new');
+    expect(await selected.getSelectedFolders(), <String>['/new']);
   });
 
   test('a canceled MediaStore switch cannot reuse an old report', () async {
@@ -310,7 +310,7 @@ void main() {
     ));
     await switching;
 
-    expect(await selected.getSelectedFolder(), isNull);
+    expect(await selected.getSelectedFolders(), isEmpty);
     expect(await library.getAllTracks(), isEmpty);
     expect(container.read(localScanReportProvider), isNull);
   });

@@ -62,9 +62,13 @@ protocol rather than about the app's plumbing:
   the handshake honestly. So the fingerprint a device first proved itself with is
   recorded and required to match afterwards, a store that cannot answer refuses
   rather than re-pins, a mismatch never overwrites, and replacing a pin is an
-  explicit `forget()` by the user. The shipped default keeps pins in memory,
-  chosen so a missing store shortens the memory rather than removing the check;
-  a restoration supplies a persistent one.
+  explicit `forget()` by the user. Production stores pins in
+  `shared_preferences` (`SharedPreferencesCastReceiverPinStore`), so a swapped
+  receiver is caught across restarts rather than within one session, and that
+  store throws instead of degrading: unreadable storage must not read as "this
+  device has no pin". The in-memory default remains what an unconfigured app
+  gets, chosen so a missing store shortens the memory rather than removing the
+  check.
 - **`TrustGatedCastTransport`** (`lib/core/services/cast/trust_gated_cast_transport.dart`)
   — the readiness boundary. It wraps a `CastTransport`: a session is only handed
   out after the receiver authenticated *and* the identity matches both the
@@ -152,9 +156,11 @@ Restoring casting is one reviewed change, not a revert. It has to:
       handshake, reviewed in the advisory;
 - [ ] put the trust gate in front of the live transport in the production
       wiring, with no path around it and no runtime flag that skips it;
-- [ ] ship a persistent `CastReceiverPinStore` and the cast sheet's "forget this
+- [x] ship a persistent `CastReceiverPinStore` and the cast sheet's "forget this
       device" action, so pinning survives a restart and a genuinely replaced
-      receiver has a way back that is not a bypass;
+      receiver has a way back that is not a bypass. Landed ahead of the
+      restoration: the pins a restored feature checks have to predate the
+      release that restores it;
 - [ ] flip `CastContainment.isActive` and update the production wiring, the
       transport guards, `scripts/check_cast_containment.py` and
       `scripts/verify_release_containment.py` together — the containment

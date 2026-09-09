@@ -4,11 +4,13 @@ import '../../../core/lifecycle/async_disposal_registry.dart';
 import '../../../core/models/cast_state.dart';
 import '../../../core/services/cast/cast_containment.dart';
 import '../../../core/services/cast/cast_media_resolver.dart';
+import '../../../core/services/cast/cast_receiver_pinning.dart';
 import '../../../core/services/cast/cast_service.dart';
 import '../../../core/services/cast/routing_cast_media_resolver.dart';
 import '../../../core/services/cast/unavailable_cast_service.dart';
 import '../../../core/sources/jellyfin/jellyfin_cast_media_resolver.dart';
 import '../../../core/sources/subsonic/subsonic_cast_media_resolver.dart';
+import '../../../data/repositories/cast_receiver_pin_store_provider.dart';
 import '../../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../../settings/subsonic/subsonic_settings_controller.dart';
 
@@ -67,4 +69,28 @@ final containedCastServiceOverride = castServiceProvider.overrideWith((ref) {
   );
   ref.onDisposeAsync(service.dispose);
   return service;
+});
+
+/// Whether Linthra already remembers which receiver a cast device is, so the
+/// sheet only offers "forget this device" where there is something to forget.
+///
+/// Auto-disposing and per-device: the sheet is opened, used and closed, and a
+/// pin read on one visit says nothing about the next. Invalidate it after a
+/// [CastReceiverPinStore.forget] so the row stops offering an action that has
+/// already been taken.
+///
+/// A store that throws answers *true* here. This provider decides whether a
+/// menu item is drawn, not whether a receiver is trusted. That is
+/// [TrustGatedCastTransport]'s job, and it refuses on the same throw. Hiding
+/// the recovery because the store is unhappy would strand a user whose only way
+/// forward is to clear a pin, and forgetting a device that has none does
+/// nothing.
+final castDeviceIsPinnedProvider = FutureProvider.autoDispose
+    .family<bool, String>((ref, String deviceId) async {
+  final CastReceiverPinStore store = ref.watch(castReceiverPinStoreProvider);
+  try {
+    return await store.pinFor(deviceId) != null;
+  } catch (_) {
+    return true;
+  }
 });

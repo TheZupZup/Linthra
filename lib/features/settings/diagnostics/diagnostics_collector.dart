@@ -61,11 +61,15 @@ class DiagnosticsCollector {
     // Local-folder scan diagnostics: whether a folder is selected, whether a
     // persisted SAF grant is still held for it (the removable-SD-card signal),
     // and the counts from the last scan. All secret-free — never the path/URI.
-    final String? selectedFolder = await _selectedFolder();
-    final bool folderSelected =
-        selectedFolder != null && selectedFolder.isNotEmpty;
+    // Only the first folder is probed for a SAF grant: content URIs are the
+    // Android case, and Android holds exactly one local selection. How many
+    // folders a desktop library spans is carried by the scan report's own
+    // counts, never as paths.
+    final List<String> selectedFolders = await _selectedFolders();
+    final String? selectedFolder =
+        selectedFolders.isEmpty ? null : selectedFolders.first;
+    final bool folderSelected = selectedFolders.isNotEmpty;
     final bool isContentFolder = selectedFolder != null &&
-        selectedFolder.isNotEmpty &&
         FolderLocation.parse(selectedFolder).isContentUri;
     final bool? persistedPermission =
         await _persistedPermission(selectedFolder, isContentFolder);
@@ -204,16 +208,16 @@ class DiagnosticsCollector {
     }
   }
 
-  /// The selected music folder path/URI, read best-effort. Used only to derive
-  /// the secret-free "selected / not selected" and persisted-permission flags —
-  /// the value itself never reaches the report.
-  Future<String?> _selectedFolder() async {
+  /// The selected music folder paths/URIs, read best-effort. Used only to
+  /// derive the secret-free "selected / not selected" and persisted-permission
+  /// flags — the values themselves never reach the report.
+  Future<List<String>> _selectedFolders() async {
     try {
       return await _ref
           .read(selectedMusicFolderRepositoryProvider)
-          .getSelectedFolder();
+          .getSelectedFolders();
     } catch (_) {
-      return null;
+      return <String>[];
     }
   }
 

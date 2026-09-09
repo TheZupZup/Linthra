@@ -146,7 +146,26 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           set -euo pipefail
-          sudo apt-get update
+          # `apt-get update` exits 100 if *any* configured source fails, and the
+          # runner image ships third-party ones (Google Chrome, Microsoft) that
+          # none of the packages below come from. When one of those serves an
+          # index that disagrees with its own Release file, the whole job dies
+          # seconds in, having fetched every Ubuntu index perfectly well:
+          #
+          #   E: Failed to fetch .../chrome-stable/.../Packages.gz
+          #      Hash Sum mismatch
+          #
+          # So a partial update is tolerated and `apt-get install` below stays
+          # strict. That is the step whose success actually matters: if an index
+          # we really need is missing, the install fails on the package it
+          # cannot find, which is both louder and more honest than guessing here
+          # which sources were the important ones.
+          #
+          # Deliberately not deleting the offending source lists instead. Their
+          # names and format are the image's business (noble moved several to
+          # deb822 `.sources`), so matching on them is a check that silently
+          # stops working the next time the image is rebuilt.
+          sudo apt-get update || echo 'apt-get update was incomplete; the install below decides'
           sudo apt-get install -y --no-install-recommends \
             clang \
             cmake \

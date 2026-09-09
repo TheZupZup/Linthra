@@ -8,21 +8,29 @@ import '../../core/repositories/selected_music_folder_repository.dart';
 /// `shared_preferences` implementation so the choice survives restarts.
 class InMemorySelectedMusicFolderRepository
     implements SelectedMusicFolderRepository {
-  InMemorySelectedMusicFolderRepository({String? initialFolder})
-      : _folder = initialFolder;
+  InMemorySelectedMusicFolderRepository({
+    String? initialFolder,
+    List<String>? initialFolders,
+  }) : _folders = <String>[
+          if (initialFolder != null && initialFolder.isNotEmpty) initialFolder,
+          ...?initialFolders,
+        ];
 
-  String? _folder;
+  List<String> _folders;
 
   @override
-  Future<String?> getSelectedFolder() async => _folder;
+  Future<List<String>> getSelectedFolders() async => List<String>.of(_folders);
 
   @override
-  Future<void> setSelectedFolder(String pathOrUri) async {
-    _folder = pathOrUri;
+  Future<void> setSelectedFolders(List<String> pathsOrUris) async {
+    _folders = <String>[
+      for (final String folder in pathsOrUris)
+        if (folder.isNotEmpty) folder,
+    ];
   }
 
   @override
-  Future<void> clearSelectedFolder() async {
-    _folder = null;
+  Future<void> clearSelectedFolders() async {
+    _folders = <String>[];
   }
 }

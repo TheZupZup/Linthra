@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
@@ -10,6 +8,8 @@ import '../../../core/models/track.dart';
 import '../../../core/repositories/playlist_repository.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../shared/widgets/now_playing_indicator.dart';
+import '../../../shared/widgets/reorder_focus_walk.dart';
+import '../../../shared/widgets/reorder_handle.dart';
 import '../../playlists/widgets/create_playlist_dialog.dart';
 import '../now_playing.dart';
 import '../player_providers.dart';
@@ -332,50 +332,21 @@ class _UpNextList extends ConsumerStatefulWidget {
 }
 
 class _UpNextListState extends ConsumerState<_UpNextList> {
-  final List<FocusNode> _handleFocusNodes = <FocusNode>[];
-
-  /// Where a keyboard walk started from and where it has actually put the
-  /// track, while the list catches up.
-  ///
-  /// The queue reaches this sheet through a stream, so a move is applied to the
-  /// queue before any frame rebuilds the rows with it. A held chord repeats
-  /// faster than that: the second press is fired by a handle still carrying the
-  /// pre-move index, and taking it at face value would move the track back
-  /// where it came from. [_walkOrigin] is that stale index, [_walkLanded] is
-  /// where the track really is, and both are dropped the moment the rebuild
-  /// makes the widgets truthful again.
-  int? _walkOrigin;
-  int? _walkLanded;
+  final ReorderFocusWalk _walk =
+      ReorderFocusWalk(debugLabelPrefix: 'queue-handle');
 
   @override
   void didUpdateWidget(_UpNextList oldWidget) {
     super.didUpdateWidget(oldWidget);
     // A reorder always produces a new list, so a changed identity means the
     // rows now carry post-move indices and the walk state has served its turn.
-    if (!identical(widget.tracks, oldWidget.tracks)) {
-      _walkOrigin = null;
-      _walkLanded = null;
-    }
+    if (!identical(widget.tracks, oldWidget.tracks)) _walk.reset();
   }
 
   @override
   void dispose() {
-    for (final FocusNode node in _handleFocusNodes) {
-      node.dispose();
-    }
+    _walk.dispose();
     super.dispose();
-  }
-
-  /// The handle focus node for row [index], grown on demand. The list only ever
-  /// grows within one sheet: a shrinking queue leaves spare nodes parked, which
-  /// costs nothing and keeps the indices stable.
-  FocusNode _focusNodeAt(int index) {
-    while (_handleFocusNodes.length <= index) {
-      _handleFocusNodes.add(
-        FocusNode(debugLabel: 'queue-handle-${_handleFocusNodes.length}'),
-      );
-    }
-    return _handleFocusNodes[index];
   }
 
   /// Moves the up-next track at [from] to [to] (both 0-based into up-next,
@@ -395,20 +366,12 @@ class _UpNextListState extends ConsumerState<_UpNextList> {
 
   /// Moves the track the handle on row [rowIndex] belongs to by [delta]
   /// positions — the keyboard and screen-reader route.
-  ///
-  /// [rowIndex] is only a starting point: while a walk is in flight the rows
-  /// still report their pre-move indices, so the real source comes from
-  /// [_walkLanded]. The substitution is guarded on [_walkOrigin] so a press on
-  /// some *other* row inside that same window is still taken at face value.
   void _moveBy(int rowIndex, int delta) {
-    final int from = _walkLanded != null && rowIndex == _walkOrigin
-        ? _walkLanded!
-        : rowIndex;
+    final int from = _walk.sourceFor(rowIndex);
     final int to = from + delta;
     if (!_move(from, to)) return;
-    _walkOrigin = rowIndex;
-    _walkLanded = to;
-    _followWalkTo(to, delta);
+    _walk.recordMove(rowIndex: rowIndex, to: to);
+    _walk.followTo(to, delta);
   }
 
   /// Applies a pointer drop, carrying keyboard focus along with the row that
@@ -423,48 +386,13 @@ class _UpNextListState extends ConsumerState<_UpNextList> {
   /// Nothing happens when no handle has focus, so a plain mouse drag never
   /// pulls focus into the list.
   void _moveByPointer(int from, int to) {
-    final int focused =
-        _handleFocusNodes.indexWhere((FocusNode node) => node.hasFocus);
+    final int focused = _walk.focusedIndex;
     if (!_move(from, to)) return;
     if (focused < 0) return;
-    _followWalkTo(_positionAfterMove(focused, from: from, to: to), to - from);
-  }
-
-  /// Where row [index] ends up once the row at [from] is moved to [to].
-  static int _positionAfterMove(
-    int index, {
-    required int from,
-    required int to,
-  }) {
-    if (index == from) return to;
-    if (from < index && index <= to) return index - 1;
-    if (to <= index && index < from) return index + 1;
-    return index;
-  }
-
-  /// Scrolls the moved track's handle into view and gives it focus, so a held
-  /// chord keeps walking the same track.
-  ///
-  /// The scroll is the part that makes this hold up on a long queue. Focus can
-  /// only land on a row the sliver has actually built, and a walk that never
-  /// scrolls eventually pushes the track past the built range: focus would stay
-  /// behind on the row a *different* track just slid into, and the next press
-  /// would move that one instead. Keeping the walking row on screen keeps its
-  /// destination within the built range, one row at a time.
-  void _followWalkTo(int index, int delta) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || index >= _handleFocusNodes.length) return;
-      final FocusNode node = _handleFocusNodes[index];
-      final BuildContext? handle = node.context;
-      if (handle == null) return;
-      Scrollable.ensureVisible(
-        handle,
-        alignmentPolicy: delta > 0
-            ? ScrollPositionAlignmentPolicy.keepVisibleAtEnd
-            : ScrollPositionAlignmentPolicy.keepVisibleAtStart,
-      );
-      node.requestFocus();
-    });
+    _walk.followTo(
+      ReorderFocusWalk.positionAfterMove(focused, from: from, to: to),
+      to - from,
+    );
   }
 
   @override
@@ -473,7 +401,7 @@ class _UpNextListState extends ConsumerState<_UpNextList> {
     return SliverReorderableList(
       itemCount: tracks.length,
       onReorderItem: _moveByPointer,
-      proxyDecorator: _liftedRow,
+      proxyDecorator: liftedReorderProxy,
       itemBuilder: (context, index) => _UpNextTile(
         // Index-qualified so the same track queued twice never produces a
         // duplicate key (which would crash the reorderable list).
@@ -481,7 +409,7 @@ class _UpNextListState extends ConsumerState<_UpNextList> {
         track: tracks[index],
         index: index,
         count: tracks.length,
-        handleFocusNode: _focusNodeAt(index),
+        handleFocusNode: _walk.nodeAt(index),
         onPlay: () => ref.read(playbackControllerProvider).playFromQueue(index),
         onRemove: () =>
             ref.read(playbackControllerProvider).removeFromQueue(index),
@@ -489,28 +417,6 @@ class _UpNextListState extends ConsumerState<_UpNextList> {
       ),
     );
   }
-}
-
-/// The row being dragged: lifted off the list on a shadow so it reads as picked
-/// up rather than merely highlighted. Desktop pointers have no haptics and no
-/// long-press wind-up, so this elevation is the only feedback that the drag
-/// actually took.
-Widget _liftedRow(Widget child, int index, Animation<double> animation) {
-  return AnimatedBuilder(
-    animation: animation,
-    builder: (BuildContext context, Widget? child) {
-      final ColorScheme scheme = Theme.of(context).colorScheme;
-      final double t = Curves.easeInOut.transform(animation.value);
-      return Material(
-        elevation: t * 6,
-        color: Color.lerp(scheme.surface, scheme.surfaceContainerHighest, t),
-        shadowColor: scheme.shadow,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-        child: child,
-      );
-    },
-    child: child,
-  );
 }
 
 /// An upcoming track: tap to play now, an X to remove it from the queue, and a
@@ -564,145 +470,13 @@ class _UpNextTile extends StatelessWidget {
               tooltip: 'Remove from queue',
               onPressed: onRemove,
             ),
-            _ReorderHandle(
+            ReorderHandle(
               index: index,
               count: count,
               focusNode: handleFocusNode,
               onMoveBy: onMoveBy,
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The modifier the move chord is spelled with on [platform].
-///
-/// Both modifiers stay registered everywhere — an unused activator costs
-/// nothing — but the hint has to name the one that actually works here. On
-/// macOS Ctrl+Arrow belongs to Mission Control and never reaches the app, so a
-/// hint saying Ctrl there would point people at a chord the OS eats.
-String _moveModifierLabel(TargetPlatform platform) =>
-    platform == TargetPlatform.macOS ? 'Cmd' : 'Ctrl';
-
-/// Asks for the focused queue row to move [delta] positions (-1 up, +1 down).
-class _MoveQueueItemIntent extends Intent {
-  const _MoveQueueItemIntent(this.delta);
-
-  final int delta;
-}
-
-/// The reorder affordance on an up-next row: a pointer drag target that is also
-/// a real focusable control.
-///
-/// Dragging is the fast path and stays exactly what it was. The rest is what a
-/// drag alone cannot serve: **Ctrl + ↑ / ↓** (Cmd on macOS) moves the focused
-/// row without a pointer, and the same two moves are offered as custom
-/// semantics actions so a screen reader can reorder the queue too. Both routes
-/// run through the same controller call the drag does, so there is one reorder
-/// path, not a keyboard copy of one.
-///
-/// The chord takes a modifier on purpose: a bare arrow inside a scrolling sheet
-/// belongs to focus traversal and scrolling, and stealing it would trade one
-/// accessible behaviour for another.
-class _ReorderHandle extends StatelessWidget {
-  const _ReorderHandle({
-    required this.index,
-    required this.count,
-    required this.focusNode,
-    required this.onMoveBy,
-  });
-
-  final int index;
-  final int count;
-  final FocusNode focusNode;
-  final ValueChanged<int> onMoveBy;
-
-  /// Shortcuts sit *above* the focus node, not inside it: a key event travels
-  /// up from the focused node, so a [Shortcuts] below it would never see one.
-  static const Map<ShortcutActivator, Intent> _shortcuts =
-      <ShortcutActivator, Intent>{
-    SingleActivator(LogicalKeyboardKey.arrowUp, control: true):
-        _MoveQueueItemIntent(-1),
-    SingleActivator(LogicalKeyboardKey.arrowDown, control: true):
-        _MoveQueueItemIntent(1),
-    SingleActivator(LogicalKeyboardKey.arrowUp, meta: true):
-        _MoveQueueItemIntent(-1),
-    SingleActivator(LogicalKeyboardKey.arrowDown, meta: true):
-        _MoveQueueItemIntent(1),
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final bool canMoveUp = index > 0;
-    final bool canMoveDown = index < count - 1;
-    return Shortcuts(
-      shortcuts: _shortcuts,
-      child: Actions(
-        actions: <Type, Action<Intent>>{
-          _MoveQueueItemIntent: CallbackAction<_MoveQueueItemIntent>(
-            onInvoke: (_MoveQueueItemIntent intent) {
-              onMoveBy(intent.delta);
-              return null;
-            },
-          ),
-        },
-        // Not a semantics container: the actions merge up into the row's own
-        // node, so a screen reader reads one row that happens to be movable
-        // rather than a stray control beside it. The ends of the list offer
-        // only the move that exists.
-        child: Semantics(
-          customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
-            if (canMoveUp)
-              const CustomSemanticsAction(label: 'Move up'): () => onMoveBy(-1),
-            if (canMoveDown)
-              const CustomSemanticsAction(label: 'Move down'): () =>
-                  onMoveBy(1),
-          },
-          child: Focus(
-            focusNode: focusNode,
-            child: Builder(
-              builder: (BuildContext context) {
-                final bool focused = Focus.of(context).hasFocus;
-                return MouseRegion(
-                  cursor: SystemMouseCursors.grab,
-                  child: ReorderableDragStartListener(
-                    index: index,
-                    child: Tooltip(
-                      message: 'Reorder (drag, or '
-                          '${_moveModifierLabel(theme.platform)} + ↑ / ↓)',
-                      // Hover only. The default long-press trigger puts a
-                      // long-press recognizer in the arena next to the drag
-                      // listener, and on a handle the press *is* the drag: the
-                      // tooltip wins and the row never lifts. Hover is the
-                      // desktop trigger anyway, and the handle is still named
-                      // for screen readers either way.
-                      triggerMode: TooltipTriggerMode.manual,
-                      child: Container(
-                        margin: const EdgeInsets.only(left: AppSpacing.xs),
-                        padding: const EdgeInsets.all(AppSpacing.xs),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(AppRadii.sm),
-                          border: Border.all(
-                            width: 2,
-                            color: focused
-                                ? theme.colorScheme.primary
-                                : Colors.transparent,
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.drag_handle,
-                          semanticLabel: 'Reorder',
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
         ),
       ),
     );
