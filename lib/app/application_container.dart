@@ -5,6 +5,7 @@ import '../core/platform/host_platform.dart';
 import '../data/repositories/app_icon_variant_store_provider.dart';
 import '../data/repositories/audio_output_device_service_provider.dart';
 import '../data/repositories/audiobookshelf_session_store_provider.dart';
+import '../data/repositories/cast_receiver_pin_store_provider.dart';
 import '../data/repositories/default_provider_store_provider.dart';
 import '../data/repositories/desktop_window_controller_provider.dart';
 import '../data/repositories/desktop_window_preferences_provider.dart';
@@ -98,5 +99,10 @@ List<Override> productionApplicationOverrides({
     // Casting is withheld from production builds by the security
     // containment; see [CastContainment].
     containedCastServiceOverride,
+    // Which receiver each cast device is, remembered across restarts. Wired
+    // while casting is contained on purpose: the pins a restored cast feature
+    // will check have to outlive the release that restores it, and the cast
+    // sheet already reads this store to offer "forget this device".
+    sharedPreferencesCastReceiverPinStoreOverride,
   ];
 }
