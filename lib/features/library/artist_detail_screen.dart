@@ -20,6 +20,7 @@ import 'library_state.dart';
 import 'track_selection.dart';
 import 'unified_library_providers.dart';
 import 'widgets/album_tile.dart';
+import 'widgets/selection_escape_scope.dart';
 import 'widgets/track_tile.dart';
 
 /// One artist's catalog: their albums (each opening its album detail) and all
@@ -121,12 +122,18 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
     );
 
     if (!_selecting) return scaffold;
+    // Back leaves the selection on a phone; Escape is the desktop's Back, and
+    // the rows here take Ctrl and Shift clicks just like the songs list does.
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (bool didPop, _) {
         if (!didPop) _exitSelection();
       },
-      child: scaffold,
+      child: SelectionEscapeScope(
+        selecting: _selecting,
+        onEscape: _exitSelection,
+        child: scaffold,
+      ),
     );
   }
 

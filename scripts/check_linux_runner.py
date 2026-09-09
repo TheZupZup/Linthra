@@ -281,6 +281,7 @@ NON_UNIQUE_FLAG = "G_APPLICATION_NON_UNIQUE"
 # than being pasted into the runner as a second copy.
 RUNNER_IDENTITY_NEW_FUNCTION = "MyApplication* my_application_new()"
 RUNNER_IDENTITY_STARTUP_FUNCTION = "static void my_application_startup("
+RUNNER_SHUTDOWN_FUNCTION = "static void my_application_shutdown("
 RUNNER_STARTUP_CHAIN_UP = (
     "G_APPLICATION_CLASS(my_application_parent_class)->startup(application)"
 )
@@ -955,16 +956,26 @@ def window_state_problems(root: Path) -> list[str]:
             f"{WINDOW_STATE_POLICY_SOURCE.name} policy needs"
         )
 
-    my_application = _read(root, MY_APPLICATION)
+    my_application = _blank(_read(root, MY_APPLICATION))
     if "window_state_store_new" not in my_application:
         problems.append(
             f"{MY_APPLICATION} never calls window_state_store_new(), so the "
             "saved window geometry is never restored"
         )
-    if "window_state_store_save" not in my_application:
+
+    # Specifically inside my_application_shutdown(), not just somewhere in the
+    # file. There is a second save on the window-recreation path in activate(),
+    # so a plain substring search would keep passing while the one that runs on
+    # every ordinary exit — the only one that persists the geometry a session
+    # ends with — had been dropped by a merge or a regeneration.
+    shutdown_start, shutdown_end = _function_body(
+        my_application, RUNNER_SHUTDOWN_FUNCTION, MY_APPLICATION
+    )
+    if "window_state_store_save" not in my_application[shutdown_start:shutdown_end]:
         problems.append(
-            f"{MY_APPLICATION} never calls window_state_store_save(), so the "
-            "window geometry is never written and every launch is a first one"
+            f"{MY_APPLICATION}: my_application_shutdown() never calls "
+            "window_state_store_save(), so an ordinary exit never writes the "
+            "window geometry and every launch is a first one"
         )
 
     return problems

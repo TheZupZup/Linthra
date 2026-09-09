@@ -35,6 +35,7 @@ struct _WindowStateStore {
 
     gulong configure_handler;
     gulong state_handler;
+    gulong destroy_handler;
 };
 
 namespace {
@@ -169,7 +170,8 @@ WindowStateStore* window_state_store_new(GtkWindow* window, int min_width,
         window, "configure-event", G_CALLBACK(OnConfigure), self);
     self->state_handler = g_signal_connect(
         window, "window-state-event", G_CALLBACK(OnWindowState), self);
-    g_signal_connect(window, "destroy", G_CALLBACK(OnDestroy), self);
+    self->destroy_handler =
+        g_signal_connect(window, "destroy", G_CALLBACK(OnDestroy), self);
     return self;
 }
 
@@ -204,12 +206,19 @@ void window_state_store_free(WindowStateStore* self) {
     }
     // Only where the window is still alive: a destroyed one dropped its
     // handlers with itself, and OnDestroy has already cleared the pointer.
+    //
+    // The destroy handler goes with the other two rather than being left
+    // behind. Freeing the store while its window is still alive is the unusual
+    // order — a disposal, or a startup unwound before GTK destroys anything —
+    // and leaving that one handler registered would hand OnDestroy this freed
+    // struct the moment the window did go away.
     if (self->window != nullptr) {
-        if (self->configure_handler != 0) {
-            g_signal_handler_disconnect(self->window, self->configure_handler);
-        }
-        if (self->state_handler != 0) {
-            g_signal_handler_disconnect(self->window, self->state_handler);
+        for (const gulong handler : {self->configure_handler,
+                                     self->state_handler,
+                                     self->destroy_handler}) {
+            if (handler != 0) {
+                g_signal_handler_disconnect(self->window, handler);
+            }
         }
     }
     g_free(self);

@@ -105,6 +105,9 @@ static void activate() {{
   }}
   self->folder_picker = folder_picker_channel_new(view, window);
   self->window_lifecycle = window_lifecycle_channel_new(view, window);
+  if (self->window_state != nullptr) {{
+    window_state_store_save(self->window_state);
+  }}
   self->window_state =
       window_state_store_new(window, kMinimumWindowWidth, kMinimumWindowHeight,
                              kDefaultWindowWidth, kDefaultWindowHeight);
@@ -1638,12 +1641,52 @@ class WindowStateWiringTest(CheckoutCase):
         build_checkout(
             self.root,
             my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
-                "  window_state_store_save(self->window_state);\n", ""
+                "window_state_store_save", "no_save_here"
             ),
         )
         problems = checker.check(self.root)
         self.assertEqual(len(problems), 1)
         self.assertIn("window_state_store_save", problems[0])
+
+    def test_dropping_only_the_shutdown_save_is_caught(self) -> None:
+        # The one that matters: the runner keeps a save on the rare
+        # window-recreation path in activate(), so a checker that only searched
+        # the file would keep passing while every ordinary exit stopped
+        # persisting anything.
+        my_application = MY_APPLICATION.format(display_name=DISPLAY_NAME)
+        shutdown = my_application.index("static void my_application_shutdown(")
+        build_checkout(
+            self.root,
+            my_application=(
+                my_application[:shutdown]
+                + my_application[shutdown:].replace(
+                    "  window_state_store_save(self->window_state);\n", "", 1
+                )
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("my_application_shutdown()", problems[0])
+
+    def test_a_save_only_in_a_comment_does_not_count(self) -> None:
+        # Blanked comments are what stop a call that is merely *described* from
+        # standing in for one that runs.
+        my_application = MY_APPLICATION.format(display_name=DISPLAY_NAME)
+        shutdown = my_application.index("static void my_application_shutdown(")
+        build_checkout(
+            self.root,
+            my_application=(
+                my_application[:shutdown]
+                + my_application[shutdown:].replace(
+                    "  window_state_store_save(self->window_state);\n",
+                    "  // window_state_store_save(self->window_state);\n",
+                    1,
+                )
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("my_application_shutdown()", problems[0])
 
 
 class RealRepositoryTest(unittest.TestCase):

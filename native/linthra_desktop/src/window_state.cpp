@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -51,14 +52,28 @@ void ReadBool(std::string_view value, bool* out) {
 
 // The overlap between two rectangles, in pixels. Zero on either axis means they
 // do not meet.
+//
+// Widened to 64 bits on purpose. A hand-edited or truncated state file can hold
+// a coordinate near INT_MAX that parses perfectly well, and adding a width to it
+// in `int` is signed overflow — undefined behaviour, which an optimising build
+// is free to turn into a crash or into a nonsense answer, before the caller ever
+// gets to reject the position. In 64 bits every value this parser can produce
+// adds and subtracts exactly, so the rejection happens on the numbers rather
+// than on the compiler's mood. The result is clamped back to an int, which it
+// always fits: an overlap is never wider than the work area.
 void Intersection(const WindowGeometry& window, const WorkArea& area,
                   int* overlap_width, int* overlap_height) {
-    const int left = std::max(window.x, area.x);
-    const int right = std::min(window.x + window.width, area.x + area.width);
-    const int top = std::max(window.y, area.y);
-    const int bottom = std::min(window.y + window.height, area.y + area.height);
-    *overlap_width = std::max(0, right - left);
-    *overlap_height = std::max(0, bottom - top);
+    const std::int64_t left =
+        std::max<std::int64_t>(window.x, area.x);
+    const std::int64_t right = std::min<std::int64_t>(
+        static_cast<std::int64_t>(window.x) + window.width,
+        static_cast<std::int64_t>(area.x) + area.width);
+    const std::int64_t top = std::max<std::int64_t>(window.y, area.y);
+    const std::int64_t bottom = std::min<std::int64_t>(
+        static_cast<std::int64_t>(window.y) + window.height,
+        static_cast<std::int64_t>(area.y) + area.height);
+    *overlap_width = static_cast<int>(std::max<std::int64_t>(0, right - left));
+    *overlap_height = static_cast<int>(std::max<std::int64_t>(0, bottom - top));
 }
 
 }  // namespace
@@ -164,9 +179,18 @@ WindowGeometry ResolveWindowState(const WindowGeometry& saved,
     resolved.width = std::max(resolved.width, limits.min_width);
     resolved.height = std::max(resolved.height, limits.min_height);
 
-    if (IsPositionUsable(saved, work_areas)) {
-        resolved.x = saved.x;
-        resolved.y = saved.y;
+    // Checked against the geometry the window will actually open with, not the
+    // one the file claimed. A saved 1x1 window at the very corner of a monitor
+    // is "visible" as a 1x1 rectangle and completely unreachable once the
+    // minimum size has been applied to it, so validating the saved size would
+    // accept a position that strands the real window off the screen.
+    WindowGeometry candidate = resolved;
+    candidate.x = saved.x;
+    candidate.y = saved.y;
+    candidate.has_position = saved.has_position;
+    if (IsPositionUsable(candidate, work_areas)) {
+        resolved.x = candidate.x;
+        resolved.y = candidate.y;
         resolved.has_position = true;
     }
     return resolved;

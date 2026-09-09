@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -35,6 +34,7 @@ import 'widgets/album_grid.dart';
 import 'widgets/alphabet_track_list.dart';
 import 'widgets/artist_grid.dart';
 import 'widgets/library_search_field.dart';
+import 'widgets/selection_escape_scope.dart';
 
 /// Browse the de-duplicated catalog across Songs, Albums and Artists.
 ///
@@ -67,11 +67,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   /// rather than in the rows so it survives a catalog refresh or a rebuild.
   final TrackSelection _selection = TrackSelection();
   bool _selecting = false;
-
-  /// Holds the keyboard while a selection is running, so Escape has somewhere
-  /// to land. Clicking a row does not move focus on its own.
-  final FocusNode _selectionFocus =
-      FocusNode(debugLabel: 'library selection', skipTraversal: true);
 
   /// What the Albums / Artists detail pane is showing on a window wide enough
   /// to have one. Held here rather than in the panes so it survives the pane
@@ -188,7 +183,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _searchController.dispose();
-    _selectionFocus.dispose();
     super.dispose();
   }
 
@@ -273,25 +267,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       onPopInvokedWithResult: (bool didPop, _) {
         if (!didPop && _selecting) _exitSelection();
       },
-      // Escape is the desktop's Back: a selection made with Ctrl and Shift has
-      // to be dismissable without reaching for the mouse again.
-      //
-      // Starting a selection hands this node the keyboard (see
-      // [_focusSelection]), because a selection is a mode and a mode with no
-      // focus has nowhere for a key to land. Kept out of the Tab order, so it
-      // is somewhere focus is *put* rather than a stop on the way through.
-      child: Focus(
-        focusNode: _selectionFocus,
-        skipTraversal: true,
-        onKeyEvent: (FocusNode node, KeyEvent event) {
-          if (!_selecting ||
-              event is! KeyDownEvent ||
-              event.logicalKey != LogicalKeyboardKey.escape) {
-            return KeyEventResult.ignored;
-          }
-          _exitSelection();
-          return KeyEventResult.handled;
-        },
+      child: SelectionEscapeScope(
+        selecting: _selecting,
+        onEscape: _exitSelection,
         child: Scaffold(
           appBar: _selecting
               ? _selectionAppBar(selected)
@@ -576,7 +554,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _selecting = true;
       _selection.start(track);
     });
-    _focusSelection();
     // Selection is only reachable from the songs list, so that is the list it
     // must show. Guarding the restore is not enough on its own: a long press
     // holds the pointer for half a second before firing, and a restore landing
@@ -595,14 +572,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _selection.toggle(track);
       if (!_selection.isActive) _selecting = false;
     });
-    _focusSelection();
-  }
-
-  /// Hands the screen the keyboard once something is picked, so Escape (and
-  /// anything else the mode binds later) reaches it. A no-op when the selection
-  /// just emptied out.
-  void _focusSelection() {
-    if (_selecting) _selectionFocus.requestFocus();
   }
 
   /// Shift-click: everything between the anchor and the clicked row, over the
@@ -613,7 +582,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _selection.extendTo(tracks, index);
       _selecting = _selection.isActive;
     });
-    _focusSelection();
   }
 
   void _exitSelection() {

@@ -182,6 +182,23 @@ int main() {
     }
 
     {
+        // A coordinate near the end of the int range parses fine and must be
+        // rejected on the numbers, not by overflowing the rectangle arithmetic
+        // on the way there. Built through the parser, since that is where such
+        // a value comes from.
+        const WindowGeometry parsed = ParseWindowState(
+            "width=1200\nheight=800\nx=2147483647\ny=2147483647\n");
+        CHECK(parsed.has_position);
+        CHECK(!IsPositionUsable(parsed, single_monitor));
+        CHECK(!ResolveWindowState(parsed, limits, single_monitor).has_position);
+
+        const WindowGeometry negative = ParseWindowState(
+            "width=1200\nheight=800\nx=-2147483648\ny=-2147483648\n");
+        CHECK(negative.has_position);
+        CHECK(!IsPositionUsable(negative, single_monitor));
+    }
+
+    {
         // No monitors reported at all (a session still coming up): place
         // nothing rather than guessing.
         WindowGeometry saved;
@@ -242,6 +259,28 @@ int main() {
             single_monitor);
         CHECK(!resolved.maximized);
         CHECK(resolved.width == limits.default_width);
+    }
+
+    {
+        // A saved size below the floor is clamped up, so the position has to be
+        // judged on the clamped rectangle. A 1x1 window in the very corner is
+        // "visible" as one pixel and completely unreachable at 420x600.
+        const WindowGeometry resolved = ResolveWindowState(
+            ParseWindowState("width=1\nheight=1\nx=1919\ny=1049\n"), limits,
+            single_monitor);
+        CHECK(resolved.width == limits.min_width);
+        CHECK(resolved.height == limits.min_height);
+        CHECK(!resolved.has_position);
+    }
+
+    {
+        // The same position with a real size is still fine: the rule is about
+        // what actually opens, not about distrusting corners.
+        const WindowGeometry resolved = ResolveWindowState(
+            ParseWindowState("width=800\nheight=600\nx=1200\ny=400\n"),
+            limits, single_monitor);
+        CHECK(resolved.has_position);
+        CHECK(resolved.x == 1200);
     }
 
     {
