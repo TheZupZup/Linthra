@@ -10,7 +10,8 @@ There are two equivalent entry points; both end up at the same place:
 
 - **Settings ▸ Local music** — the primary home, grouped with the other music
   sources (Jellyfin, Navidrome / Subsonic). Choose a folder, **Rescan** it after
-  you add files, **Change** it, or **Forget** it.
+  you add files, **Add a folder** (desktop) or **Change** it (Android), remove a
+  single folder with the ✕ beside it, or **Forget** the whole local source.
 - **Library ▸ (empty state) ▸ Select / Change folder** — the same pick-and-scan
   flow, offered where you first notice an empty library.
 
@@ -19,6 +20,32 @@ phone, the desktop's on Linux. Linthra keeps **only** the access you grant for
 that one folder; it never asks for a broad "all files" or media permission, and
 on Linux it needs no host filesystem permission at all (see
 [On Linux](#on-linux-including-the-flatpak)).
+
+## Several folders (desktop)
+
+On Linux a library is often spread around — an internal music folder, an
+external drive, a NAS mount — so **Settings ▸ Local music** takes as many folders
+as you like and scans them as one library. Android keeps a single selection: its
+local access is one Storage Access Framework grant (or the device-wide MediaStore
+mode) at a time.
+
+What that means in practice:
+
+- **Overlapping folders import a file once.** Selecting `~/Music` and then
+  `~/Music/Live sets` is not an error and does not duplicate anything: the inner
+  folder is already covered, so only `~/Music` is walked. Adding a folder that
+  contains ones you already selected replaces them, again keeping one walk.
+- **An offline folder doesn't take the rest down.** If a drive is unplugged
+  when you rescan, the folders Linthra *can* read are refreshed and the offline
+  one keeps the tracks it already contributed. The card says how many folders
+  couldn't be read, and the library is not silently shortened. If **no** folder
+  can be read, nothing is written at all — the catalog stays exactly as it was.
+- **Removing a folder removes only its music.** The ✕ beside a folder drops it
+  and rescans the rest, so the other folders' tracks stay indexed. Removing the
+  last folder is the same as Forget: the local index is emptied, and nothing on
+  disk is touched.
+- **The selection survives restarts**, and an existing single-folder library is
+  carried over untouched — it simply becomes the first folder in the list.
 
 ## What's supported
 
@@ -110,10 +137,11 @@ is an ordinary `dart:io` walk. What differs is where the path comes from:
    stays readable after a restart. Nothing else on the host becomes visible, and
    Linthra ships no `--filesystem=host` or `--filesystem=home` permission — see
    [`flatpak/README.md`](../flatpak/README.md#local-music-folders).
-3. If the folder later stops resolving — an unplugged drive, a folder you moved
-   or deleted, or a portal grant you revoked — Linthra says so and asks you to
-   select it again. It does **not** treat that as "this folder is empty now", so
-   your indexed library stays as it is until you choose.
+3. If a folder later stops resolving — an unplugged drive, a folder you moved
+   or deleted, or a portal grant you revoked — Linthra says so, on that folder's
+   own row, and asks you to select it again. It does **not** treat that as "this
+   folder is empty now", so its music stays indexed until you choose, and the
+   other folders keep scanning normally.
 4. **Tags are read from the files themselves**, not guessed from their names:
    title, artist, album artist, album, track number and duration, from ID3
    (MP3), Vorbis comments (FLAC, OGG, Opus), MP4 atoms (M4A), APEv2 and RIFF
@@ -151,12 +179,14 @@ folder brings them back.
 Settings ▸ Diagnostics (and the "Report a bug" flow) include **secret-free** scan
 counters — counts only, never a path, file name, or URI:
 
-- **Local folder**: selected / not selected
+- **Local folder**: selected / not selected (how many folders is reported by the
+  scan line below, never which ones)
 - **Local folder access**: persisted / not persisted (on Android the SAF grant —
   the removable-SD-card-after-reboot signal; on Linux whether the chosen folder
   can still be listed at all)
 - **Local scan**: files visited, folders visited, audio candidates, imported,
-  skipped (unsupported), read failures
+  skipped (unsupported), read failures, and — for a multi-folder library — how
+  many selected folders were scanned and how many were unreachable
 - **Local scan recursive**: yes / no
 - **Local supported types**: the extensions Linthra accepts
 - **Local scan status**: ok, or the failure kind

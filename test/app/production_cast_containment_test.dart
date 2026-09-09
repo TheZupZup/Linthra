@@ -5,9 +5,12 @@ import 'package:linthra/core/models/cast_state.dart';
 import 'package:linthra/core/models/theme_mode_preference.dart';
 import 'package:linthra/core/platform/host_platform.dart';
 import 'package:linthra/core/services/cast/cast_containment.dart';
+import 'package:linthra/core/services/cast/cast_receiver_pinning.dart';
 import 'package:linthra/core/services/cast/cast_service.dart';
 import 'package:linthra/core/services/cast/default_cast_service.dart';
 import 'package:linthra/core/services/cast/unavailable_cast_service.dart';
+import 'package:linthra/data/repositories/cast_receiver_pin_store_provider.dart';
+import 'package:linthra/data/repositories/shared_preferences_cast_receiver_pin_store.dart';
 import 'package:linthra/features/player/cast/cast_providers.dart';
 
 /// What a *shipped* build gets for casting, walked through the real production
@@ -97,6 +100,19 @@ void main() {
         expect(service.playbackStatus.status.name, 'idle');
       });
 
+      test('remembers receivers in a store that outlives the app', () {
+        // Pinning is only worth having if it survives a restart: an in-memory
+        // store makes every launch a first use, so a swapped receiver is
+        // caught for one session and then forgotten. Wired while casting is
+        // contained on purpose, because the pins a restored cast feature will
+        // check have to predate the release that restores it.
+        final CastReceiverPinStore pins =
+            productionContainer(host).read(castReceiverPinStoreProvider);
+
+        expect(pins, isA<SharedPreferencesCastReceiverPinStore>());
+        expect(pins, isNot(isA<InMemoryCastReceiverPinStore>()));
+      });
+
       test('repeated startup and disposal stay contained', () async {
         for (int run = 0; run < 3; run++) {
           final ProviderContainer container = ProviderContainer(
@@ -123,6 +139,7 @@ void main() {
     );
 
     expect(overrides, contains(containedCastServiceOverride));
+    expect(overrides, contains(sharedPreferencesCastReceiverPinStoreOverride));
   });
 
   test('an unavailable service without a message keeps the platform wording',

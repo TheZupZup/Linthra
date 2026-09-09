@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/dimens.dart';
 import '../../../core/models/cast_state.dart';
 import '../../../core/services/cast/cast_service.dart';
+import '../../../data/repositories/cast_receiver_pin_store_provider.dart';
 import '../../../shared/widgets/empty_state.dart';
 import 'cast_providers.dart';
 
@@ -121,7 +122,17 @@ class _Body extends ConsumerWidget {
     }
 
     if (state.hasError) {
-      final service = ref.read(castServiceProvider);
+      // A failed connection keeps the list the device was picked from, because
+      // the list is where the user acts next. It is the retry, and for
+      // [CastTrustFailureKind.changedReceiver] it is also the recovery: that
+      // refusal tells the user to forget the device "in the cast list", so
+      // replacing the list with an empty state would take away the one place
+      // the message points at. Discovery failing with nothing found still lands
+      // on the empty state below.
+      if (state.devices.isNotEmpty) {
+        return const _DeviceList();
+      }
+      final CastService service = ref.read(castServiceProvider);
       return Padding(
         padding: _pad,
         child: Column(
@@ -190,45 +201,162 @@ class _Body extends ConsumerWidget {
       );
     }
 
-    final service = ref.read(castServiceProvider);
+    return const _DeviceList();
+  }
+}
+
+/// The discovered devices, plus whatever note the current state carries.
+///
+/// Shared by the ordinary listing and by the error state, which keeps its list
+/// (see [_Body]) so a refusal can be acted on where it was caused.
+class _DeviceList extends ConsumerWidget {
+  const _DeviceList();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final CastService service = ref.watch(castServiceProvider);
+    final CastState state =
+        ref.watch(castStateProvider).valueOrNull ?? service.state;
+
     return ListView(
       shrinkWrap: true,
       children: [
-        // A non-fatal notice while connected (e.g. the current track is a local
-        // file that can't be cast).
-        if (state.isConnected && state.message != null)
-          _Notice(message: state.message!),
-        // Cast device volume — only while connected, since it controls the
+        // Whatever the state has to say, above the list it is about: a
+        // non-fatal notice while connected (the current track is a local file
+        // that can't be cast), or the reason the last connection was refused.
+        if (state.message != null) _Notice(message: state.message!),
+        // Cast device volume, only while connected, since it controls the
         // receiver's own volume (not the phone's).
         if (state.isConnected)
           CastVolumeControls(state: state, service: service),
-        for (final device in devices)
-          Builder(
-            builder: (BuildContext context) {
-              final bool isConnected = state.connectedDevice == device;
-              return ListTile(
-                // The connected row is deliberately not tappable (there is
-                // nothing to connect to twice). Marking it selected is what
-                // makes that read as "this is the one you're on" rather than
-                // as an inert row, and the glyph says the same thing for
-                // anyone who only hears the leading icon.
-                selected: isConnected,
-                leading: Icon(
-                  isConnected ? Icons.cast_connected : Icons.cast,
-                  semanticLabel: isConnected ? 'Connected' : null,
-                ),
-                title: Text(device.name),
-                trailing: isConnected
-                    ? TextButton(
-                        onPressed: service.disconnect,
-                        child: const Text('Disconnect'),
-                      )
-                    : null,
-                onTap: isConnected ? null : () => service.connect(device),
-              );
-            },
+        for (final CastDevice device in state.devices)
+          _DeviceTile(
+            device: device,
+            isConnected: state.connectedDevice == device,
+            service: service,
           ),
       ],
+    );
+  }
+}
+
+/// One discovered device, and the two things that can be done to it: connect or
+/// disconnect, and forget which receiver it is.
+///
+/// Stateful so the forget flow can check [mounted] after its confirmation
+/// dialog and its store write, rather than touching a context or a ref that may
+/// have gone away while the sheet was dismissed.
+class _DeviceTile extends ConsumerStatefulWidget {
+  const _DeviceTile({
+    required this.device,
+    required this.isConnected,
+    required this.service,
+  });
+
+  final CastDevice device;
+  final bool isConnected;
+  final CastService service;
+
+  @override
+  ConsumerState<_DeviceTile> createState() => _DeviceTileState();
+}
+
+class _DeviceTileState extends ConsumerState<_DeviceTile> {
+  /// Clears what Linthra remembers about which receiver this device is.
+  ///
+  /// This is the only path that may drop a pin. It weakens a check the user
+  /// cannot see (the next connection trusts whichever receiver answers, exactly
+  /// as a first use does), so it is confirmed rather than done on a tap, and
+  /// the dialog says what it costs. Nothing in the trust path calls this: see
+  /// [CastReceiverPinStore.forget] and docs/cast-hardened-design.md.
+  Future<void> _forget() async {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final String name = widget.device.name;
+
+    final bool confirmed = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) => AlertDialog(
+            title: const Text('Forget this device?'),
+            content: Text(
+              "Linthra will stop checking that $name is the same device it "
+              'cast to before, and will trust whichever device answers to that '
+              'name next time. Do this if you replaced it.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Forget'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+
+    try {
+      await ref.read(castReceiverPinStoreProvider).forget(widget.device.id);
+    } catch (_) {
+      // A store that could not drop the pin has not dropped it, and the user
+      // would otherwise reconnect into the same refusal with no idea why.
+      messenger.showSnackBar(
+        SnackBar(content: Text("Linthra couldn't forget $name.")),
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    ref.invalidate(castDeviceIsPinnedProvider(widget.device.id));
+    messenger.showSnackBar(
+      SnackBar(
+          content: Text('Linthra will check $name again when it connects.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Only offered where there is something to forget, and only while
+    // disconnected: dropping the pin for the receiver currently playing would
+    // do nothing to the live session, which already proved itself, and would
+    // read as if it had.
+    final bool canForget = !widget.isConnected &&
+        (ref.watch(castDeviceIsPinnedProvider(widget.device.id)).valueOrNull ??
+            false);
+
+    return ListTile(
+      // The connected row is deliberately not tappable (there is nothing to
+      // connect to twice). Marking it selected is what makes that read as
+      // "this is the one you're on" rather than as an inert row, and the glyph
+      // says the same thing for anyone who only hears the leading icon.
+      selected: widget.isConnected,
+      leading: Icon(
+        widget.isConnected ? Icons.cast_connected : Icons.cast,
+        semanticLabel: widget.isConnected ? 'Connected' : null,
+      ),
+      title: Text(widget.device.name),
+      trailing: widget.isConnected
+          ? TextButton(
+              onPressed: widget.service.disconnect,
+              child: const Text('Disconnect'),
+            )
+          : canForget
+              ? PopupMenuButton<void>(
+                  icon: const Icon(Icons.more_vert),
+                  tooltip: 'More options for ${widget.device.name}',
+                  itemBuilder: (BuildContext context) => [
+                    PopupMenuItem<void>(
+                      onTap: () => unawaited(_forget()),
+                      child: const Text('Forget this device'),
+                    ),
+                  ],
+                )
+              : null,
+      onTap: widget.isConnected
+          ? null
+          : () => widget.service.connect(widget.device),
     );
   }
 }

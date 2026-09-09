@@ -26,16 +26,17 @@ class LocalMusicSettingsSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
     final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
-    final String? folder =
-        ref.watch(selectedFolderControllerProvider).valueOrNull;
+    final List<String> folders =
+        ref.watch(selectedFolderControllerProvider).valueOrNull ?? <String>[];
     final LocalScanReport? report = ref.watch(localScanReportProvider);
     final LocalMusicActionState action =
         ref.watch(localMusicControllerProvider);
-    final bool? persisted = ref.watch(localFolderAccessProvider).valueOrNull;
-    final bool hasFolder = folder != null && folder.isNotEmpty;
+    final Map<String, bool> access =
+        ref.watch(localFolderAccessProvider).valueOrNull ?? <String, bool>{};
+    final bool hasFolder = folders.isNotEmpty;
     final HostPlatform host = ref.watch(hostPlatformProvider);
     final FolderLocation? location =
-        hasFolder ? FolderLocation.parse(folder) : null;
+        hasFolder ? FolderLocation.parse(folders.first) : null;
     final AndroidMusicPermissionStatus? musicPermission = host.isAndroid
         ? ref.watch(androidMusicPermissionStatusProvider).valueOrNull
         : null;
@@ -74,12 +75,14 @@ class LocalMusicSettingsSection extends ConsumerWidget {
             ],
             const SizedBox(height: AppSpacing.md),
             if (hasFolder)
-              _SelectedFolderView(
-                folderLabel: location!.displayLabel,
-                persisted: persisted,
+              _SelectedFoldersView(
+                folders: folders,
+                access: access,
                 report: report,
                 host: host,
-                isDeviceLibrary: location.isAndroidMediaStore,
+                // Removing a folder is a desktop affordance: Android holds a
+                // single grant at a time, which "Forget local music" covers.
+                onRemove: host.isAndroid ? null : controller.removeFolder,
               )
             else
               Text(
@@ -101,6 +104,7 @@ class LocalMusicSettingsSection extends ConsumerWidget {
               _FolderActions(
                 onRescan: controller.rescan,
                 onChange: controller.pickFolder,
+                onAdd: host.isAndroid ? null : controller.addFolder,
                 onForget: controller.forget,
                 onUseAllDeviceMusic:
                     host.isAndroid && !location!.isAndroidMediaStore
@@ -150,10 +154,11 @@ String _blurbFor(HostPlatform host) {
         'legacy shared-storage read permission. Linthra never requests All '
         'files access.';
   }
-  return 'Play music from a folder on this computer or an external drive. '
-      'Linthra reads only the folder you choose in the system file chooser — '
-      'it needs no broad filesystem permission, and your files are never '
-      'moved or copied.';
+  return 'Play music from folders on this computer or on external drives. Add '
+      'as many as you like — they are scanned together as one library. Linthra '
+      'reads only the folders you choose in the system file chooser: it needs '
+      'no broad filesystem permission, and your files are never moved or '
+      'copied.';
 }
 
 class _AndroidPrivacyStatus extends StatelessWidget {
@@ -245,25 +250,70 @@ class _AndroidPrivacyStatus extends StatelessWidget {
   }
 }
 
-class _SelectedFolderView extends StatelessWidget {
-  const _SelectedFolderView({
-    required this.folderLabel,
-    required this.persisted,
+/// The folders the user has selected, one row each, with the access problems
+/// attached to the folder they belong to rather than to the library as a whole.
+class _SelectedFoldersView extends StatelessWidget {
+  const _SelectedFoldersView({
+    required this.folders,
+    required this.access,
     required this.report,
     required this.host,
-    required this.isDeviceLibrary,
+    this.onRemove,
   });
 
-  final String folderLabel;
-  final bool? persisted;
+  final List<String> folders;
+  final Map<String, bool> access;
   final LocalScanReport? report;
   final HostPlatform host;
-  final bool isDeviceLibrary;
+  final void Function(String folder)? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (folders.length > 1) ...[
+          Text(
+            '${folders.length} folders',
+            style: theme.textTheme.titleSmall,
+          ),
+          const SizedBox(height: AppSpacing.xs),
+        ],
+        for (final String folder in folders)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+            child: _SelectedFolderRow(
+              location: FolderLocation.parse(folder),
+              reachable: access[folder],
+              onRemove: onRemove == null ? null : () => onRemove!(folder),
+            ),
+          ),
+        if (report != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          _ScanSummary(report: report!, host: host),
+        ],
+      ],
+    );
+  }
+}
+
+class _SelectedFolderRow extends StatelessWidget {
+  const _SelectedFolderRow({
+    required this.location,
+    required this.reachable,
+    this.onRemove,
+  });
+
+  final FolderLocation location;
+  final bool? reachable;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final bool isDeviceLibrary = location.isAndroidMediaStore;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -280,29 +330,31 @@ class _SelectedFolderView extends StatelessWidget {
             const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Text(
-                folderLabel,
+                location.displayLabel,
                 style: theme.textTheme.bodyMedium,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (onRemove != null)
+              IconButton(
+                onPressed: onRemove,
+                icon: const Icon(Icons.close, size: 18),
+                tooltip: 'Remove this folder',
+              ),
           ],
         ),
-        if (persisted == false) ...[
+        if (reachable == false) ...[
           const SizedBox(height: AppSpacing.xs),
           Text(
             isDeviceLibrary
                 ? 'Device music access is currently off. Your indexed library '
                     'stays in Linthra; re-enable access to rescan.'
-                : 'Linthra can no longer reach this folder. Select it again to '
-                    'restore access — your library stays as it is until you do.',
+                : 'Linthra can no longer reach this folder. Its music stays in '
+                    'your library; select the folder again to restore access.',
             style: theme.textTheme.bodySmall
                 ?.copyWith(color: theme.colorScheme.error),
           ),
-        ],
-        if (report != null) ...[
-          const SizedBox(height: AppSpacing.sm),
-          _ScanSummary(report: report!, host: host),
         ],
       ],
     );
@@ -365,6 +417,8 @@ class _ScanSummary extends StatelessWidget {
 
   static String _counts(LocalScanReport report) {
     final List<String> parts = <String>[
+      if (report.rootsScanned > 1)
+        '${report.rootsAvailable}/${report.rootsScanned} folders read',
       if (report.foldersVisited > 0)
         '${report.foldersVisited} '
             '${report.foldersVisited == 1 ? 'folder' : 'folders'}',
@@ -385,6 +439,17 @@ class _ScanSummary extends StatelessWidget {
     HostPlatform host,
     bool isDeviceLibrary,
   ) {
+    // A partial scan is the multi-folder case worth explaining first: some
+    // folders were refreshed, one was not, and the music of the one that was
+    // not is still there. Said before the "no tracks" advice below, because it
+    // is the reason the counts look short.
+    if (report.isPartial) {
+      // A partial scan always has at least two folders: one folder failing on
+      // its own is a plain error, so the plural here is always right.
+      return '${report.rootsUnavailable} of ${report.rootsScanned} folders '
+          "couldn't be read. Their music stays in your library — reconnect the "
+          'drive or select the folder again, then rescan.';
+    }
     if (report.importedTracks > 0) return null;
     // A revoked Music and audio permission is recovered in Android's app
     // settings, whichever source is selected.
@@ -451,12 +516,17 @@ class _FolderActions extends StatelessWidget {
     required this.onChange,
     required this.onForget,
     required this.host,
+    this.onAdd,
     this.onUseAllDeviceMusic,
   });
 
   final VoidCallback onRescan;
   final VoidCallback onChange;
   final VoidCallback onForget;
+
+  /// Adds another folder to the library. Null on Android, which holds a single
+  /// local grant at a time.
+  final VoidCallback? onAdd;
   final VoidCallback? onUseAllDeviceMusic;
   final HostPlatform host;
 
@@ -485,9 +555,19 @@ class _FolderActions extends StatelessWidget {
             const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: onChange,
-                icon: const Icon(Icons.folder_open_outlined),
-                label: Text(host.isAndroid ? 'Use a folder' : 'Change'),
+                onPressed: onAdd ?? onChange,
+                icon: Icon(
+                  onAdd != null
+                      ? Icons.create_new_folder_outlined
+                      : Icons.folder_open_outlined,
+                ),
+                label: Text(
+                  onAdd != null
+                      ? 'Add a folder'
+                      : host.isAndroid
+                          ? 'Use a folder'
+                          : 'Change',
+                ),
               ),
             ),
           ],
