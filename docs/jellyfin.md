@@ -96,7 +96,6 @@ This integration is built so secrets don't leak:
 
 ## Known limitations
 
-- **Track-level downloads only** — album/playlist "download all" is deferred.
 - **Single server only** — one session at a time; no multi-server support.
 - **Direct play only** — no server-side transcoding fallback for exotic formats.
 - **No two-way conflict resolution** — for a synced playlist the server is the

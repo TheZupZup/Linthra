@@ -200,6 +200,14 @@ and *what* gets evicted.
   fetch). Bytes land in an app-private directory via
   `file_system_offline_file_store.dart`; the track↔file mapping persists in
   shared preferences. The UI for this is `lib/features/downloads/`.
+- **"Download all" for an album or playlist.**
+  `lib/core/services/bulk_downloader.dart` turns a collection into per-track
+  `requestDownload` calls. It is not a second downloader and owns no network,
+  cache, or file logic. It skips what is already offline, collapses duplicates,
+  keeps only a few requests outstanding so a batch can be stopped, and stops on
+  a full cache. `features/downloads/bulk_download_controller.dart` holds the one
+  running batch, and `features/downloads/collection_download_actions.dart` is
+  the confirm-then-start action the album and playlist screens call.
 - **Smart pre-cache.** `lib/core/services/smart_precache_service.dart` watches
   playback and quietly warms the next few upcoming tracks. It's best-effort and
   invisible: pre-cached entries don't show up as downloads and are evicted

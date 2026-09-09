@@ -289,6 +289,27 @@ Additional cast checks:
   tab and **Settings → Downloads & network**.
 - ☐ With mobile data allowed, the **cache size limit still applies** over LTE.
 
+### Album / playlist "Download all"
+
+- ☐ An album with server tracks shows the **download** action in its app bar; an
+  all-local album does not.
+- ☐ A playlist's menu offers **Download all** on the same rule.
+- ☐ The confirmation names the exact number of songs, and **Cancel downloads
+  nothing**.
+- ☐ Confirming downloads every song; the **Downloads** screen shows the batch
+  ("Downloading <name>: N of M") with per-track rows below it.
+- ☐ **Stop** ends the batch. Songs already downloaded stay downloaded, and
+  nothing is deleted.
+- ☐ Running it again on the same album re-downloads nothing and says everything
+  is already offline.
+- ☐ On mobile data with **Allow mobile data** off, the whole album is queued
+  with the same friendly "limited to Wi-Fi" message.
+- ☐ With a small cache limit, the batch stops with the "not enough cache space"
+  message instead of evicting pinned tracks.
+- ☐ In a playlist mixing server and on-device songs, only the server ones are
+  counted in the confirmation and only they appear in Downloads.
+- ☐ Starting a second "Download all" while one runs is refused with a message.
+
 ## 7. Smart pre-cache
 
 - ☐ Disabled: nothing is pre-fetched as playback advances.

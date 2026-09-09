@@ -301,15 +301,23 @@ class CacheDownloadRepository
     await _ensureLoaded();
     final String key = _keyForTrack(track);
     if (_statuses[key] == DownloadStatus.downloaded) return;
-    _downloads[key] = CachedTrack(
-      trackId: track.id,
-      sourceType: _sourceTypeOf(track),
-      cachedAt: _now(),
-    );
-    await _save();
-    _statuses[key] = DownloadStatus.downloaded;
-    _emitStatus();
-    _emitCache();
+    // Through the same commit lock the remote path writes under. [_save] hands
+    // the store a snapshot taken now and finishes asynchronously, so two
+    // unserialized saves can land out of order and the older snapshot can
+    // overwrite the newer one, losing a record. Requests arrive concurrently
+    // (several rows at once, or a "Download all"), so this has to be ordered
+    // even though there are no bytes to fetch.
+    await _commit(() async {
+      _downloads[key] = CachedTrack(
+        trackId: track.id,
+        sourceType: _sourceTypeOf(track),
+        cachedAt: _now(),
+      );
+      await _save();
+      _statuses[key] = DownloadStatus.downloaded;
+      _emitStatus();
+      _emitCache();
+    });
   }
 
   /// Drives one remote download: skip if already cached, promote a preloaded
@@ -326,16 +334,33 @@ class CacheDownloadRepository
 
     // A track preloaded ahead of play is already cached: promote it to a user
     // download in place, without re-fetching its bytes.
-    final CachedTrack? preloadedEntry = _downloads[key];
-    if (preloadedEntry != null &&
-        preloadedEntry.preloaded &&
-        preloadedEntry.isManaged) {
-      _downloads[key] = preloadedEntry.copyWith(preloaded: false);
-      await _save();
-      _statuses[key] = DownloadStatus.downloaded;
-      _emitStatus();
-      _emitCache();
-      return DownloadRequestOutcome.started;
+    final CachedTrack? maybePreloaded = _downloads[key];
+    if (maybePreloaded != null &&
+        maybePreloaded.preloaded &&
+        maybePreloaded.isManaged) {
+      // Serialized with every other metadata write for the same reason as the
+      // on-device path above: an unordered save can be overwritten by an older
+      // snapshot still in flight.
+      //
+      // The entry is read again *inside* the commit, because waiting for the
+      // chain is exactly when a commit queued ahead can evict this preloaded
+      // copy to make room for its own. Promoting the copy read before the wait
+      // would persist a `downloaded` record pointing at a file that commit just
+      // deleted. When it is gone, this returns false and the request falls
+      // through to a real download below.
+      final bool promoted = await _commit(() async {
+        final CachedTrack? current = _downloads[key];
+        if (current == null || !current.preloaded || !current.isManaged) {
+          return false;
+        }
+        _downloads[key] = current.copyWith(preloaded: false);
+        await _save();
+        _statuses[key] = DownloadStatus.downloaded;
+        _emitStatus();
+        _emitCache();
+        return true;
+      });
+      if (promoted) return DownloadRequestOutcome.started;
     }
 
     // The network gate only matters here, where there are bytes to pull over the

@@ -7,12 +7,14 @@ import '../../app/routes.dart';
 import '../../core/models/playlist.dart';
 import '../../core/models/track.dart';
 import '../../core/services/bulk_track_actions.dart';
+import '../../data/repositories/download_repository_provider.dart';
 import '../../data/repositories/favorites_repository_provider.dart';
 import '../../data/repositories/playlist_repository_provider.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/reorder_focus_walk.dart';
 import '../../shared/widgets/reorder_handle.dart';
+import '../downloads/collection_download_actions.dart';
 import '../library/song_actions.dart';
 import '../player/favorites_providers.dart';
 import '../player/now_playing.dart';
@@ -64,6 +66,11 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       for (final Track track in resolved.tracks)
         if (_selectedIds.contains(track.uri)) track,
     ];
+    // "Download all" is offered only when something here actually streams from
+    // a server: an all-local playlist is already on disk, and the per-track menu
+    // hides offline actions for those rows for the same reason.
+    final bool canDownloadAll =
+        resolved.tracks.any(ref.watch(remoteTrackDownloaderProvider).isRemote);
 
     return PopScope(
       canPop: !_selecting,
@@ -84,8 +91,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                     tooltip: 'Playlist actions',
                     onSelected: (a) => _runMenu(playlist, a),
                     itemBuilder: (context) =>
-                        const <PopupMenuEntry<_DetailMenuAction>>[
-                      PopupMenuItem<_DetailMenuAction>(
+                        <PopupMenuEntry<_DetailMenuAction>>[
+                      const PopupMenuItem<_DetailMenuAction>(
                         value: _DetailMenuAction.rename,
                         child: ListTile(
                           contentPadding: EdgeInsets.zero,
@@ -93,7 +100,21 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                           title: Text('Rename'),
                         ),
                       ),
-                      PopupMenuItem<_DetailMenuAction>(
+                      if (canDownloadAll) ...<PopupMenuEntry<
+                          _DetailMenuAction>>[
+                        const PopupMenuItem<_DetailMenuAction>(
+                          value: _DetailMenuAction.downloadAll,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.download_outlined),
+                            title: Text('Download all'),
+                          ),
+                        ),
+                        // Keeps the destructive entry a deliberate reach away
+                        // from the new one directly above it.
+                        const PopupMenuDivider(),
+                      ],
+                      const PopupMenuItem<_DetailMenuAction>(
                         value: _DetailMenuAction.delete,
                         child: ListTile(
                           contentPadding: EdgeInsets.zero,
@@ -417,6 +438,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     switch (action) {
       case _DetailMenuAction.rename:
         await _rename(playlist);
+      case _DetailMenuAction.downloadAll:
+        await _downloadAll(playlist);
       case _DetailMenuAction.delete:
         await _deletePlaylist(playlist);
     }
@@ -460,6 +483,28 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
           edit.name,
           description: edit.description,
         );
+  }
+
+  /// Downloads every song currently in this playlist for offline use, through
+  /// the shared collection action (which confirms first and reuses the one
+  /// download repository, cache limit and network policy).
+  ///
+  /// The tracks are read here, when the action is chosen, rather than captured
+  /// when the menu was built, so a playlist that changed in between downloads
+  /// what it holds now.
+  Future<void> _downloadAll(Playlist playlist) async {
+    final List<Track> tracks = ref
+            .read(playlistTracksProvider(widget.playlistId))
+            .valueOrNull
+            ?.tracks ??
+        const <Track>[];
+    if (tracks.isEmpty) return;
+    await CollectionDownloadActions.downloadAll(
+      context,
+      ref,
+      label: playlist.name,
+      tracks: tracks,
+    );
   }
 
   Future<void> _deletePlaylist(Playlist playlist) async {
@@ -673,7 +718,7 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
   }
 }
 
-enum _DetailMenuAction { rename, delete }
+enum _DetailMenuAction { rename, downloadAll, delete }
 
 enum _RowAction {
   toggleFavorite,
