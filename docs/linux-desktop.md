@@ -16,6 +16,8 @@ what works today, and what deliberately does not yet.
 * The window carries Linthra's real identity: application id
   `io.github.thezupzup.linthra` (the same reverse-DNS id as the Android build),
   window title `Linthra`, a 1180×780 default size and a 420×600 minimum.
+* The window remembers its size, maximized state and (on X11) its position
+  across restarts — see [Window state](#window-state).
 * Every shared layer is the same code Android runs: domain models, providers,
   repositories, routing, theming, the local scanner, and the Jellyfin /
   Navidrome / Subsonic / Plex integrations.
@@ -477,6 +479,41 @@ Tests: `test/shared/layout/adaptive_layout_test.dart`,
 `test/features/player/player_desktop_layout_test.dart` — each covers the phone
 width alongside 1280, 1920, 2560 and ultrawide, so a change that only looks
 right on one monitor fails.
+
+## Window state
+
+The window opens where you left it. `linux/runner/window_state_store.cc` writes
+`$XDG_CONFIG_HOME/io.github.thezupzup.linthra/window-state` on shutdown and
+reads it back before the window is shown, so a restored window is drawn at its
+remembered size on the first frame rather than resizing in front of you.
+
+Three things about it are worth knowing:
+
+* **The size saved is the unmaximized one.** GTK 3 will not tell you that after
+  the fact — `gtk_window_get_size()` on a maximized window returns the maximized
+  size — so the store tracks the last size the window had while it was an
+  ordinary window, and saves that alongside the maximized flag. Un-maximizing
+  after a restart lands back where you left it.
+* **Position is X11-only.** Wayland gives a client neither its own position nor
+  a way to set one. Under Wayland the file holds a size and no position, and the
+  compositor places the window, which is what Wayland users expect rather than
+  something to work around.
+* **A saved position is re-checked against the monitors that exist now.** Unplug
+  the monitor a window was on and the position is dropped rather than restored
+  off-screen; so is one whose title bar would land above the work area, where no
+  mouse could reach it. The *size* survives either way — losing a monitor should
+  not also lose the window's shape.
+
+The rules behind all of that — what a saved geometry means, when it is too
+damaged to trust, whether a position is still reachable — live in
+[`native/linthra_desktop`](../native/linthra_desktop), which is pure C++ with no
+GTK, no GDK and no filesystem in it. The runner links those sources directly and
+does the toolkit half; the same sources build and test on their own, without a
+display server or a second monitor to unplug, in
+[`cpp-desktop-window.yml`](../.github/workflows/cpp-desktop-window.yml).
+
+A damaged or missing file is never fatal: it falls back to the 1180×780 default,
+clamped to the 420×600 minimum. Deleting the file resets the window.
 
 ## Guardrails
 

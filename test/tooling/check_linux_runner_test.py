@@ -100,6 +100,13 @@ static constexpr int kMinimumWindowHeight = 600;
 
 static void activate() {{
   self->folder_picker = folder_picker_channel_new(view, window);
+  self->window_state =
+      window_state_store_new(window, kMinimumWindowWidth, kMinimumWindowHeight,
+                             kDefaultWindowWidth, kDefaultWindowHeight);
+}}
+
+static void my_application_shutdown(GApplication* application) {{
+  window_state_store_save(self->window_state);
 }}
 
 static void my_application_startup(GApplication* application) {{
@@ -125,7 +132,11 @@ add_executable(${{BINARY_NAME}}
   "main.cc"
   "my_application.cc"
   "folder_picker_channel.cc"
+  "window_state_store.cc"
+  "${{CMAKE_SOURCE_DIR}}/../native/linthra_desktop/src/window_state.cpp"
 )
+
+target_compile_features(${{BINARY_NAME}} PUBLIC cxx_std_17)
 """
 
 # The two halves of the folder-picker channel, reduced to the strings the
@@ -1399,6 +1410,83 @@ class MissingFileTest(CheckoutCase):
 
     def test_main_reports_a_read_failure_as_exit_two(self) -> None:
         self.assertEqual(checker.main(["--root", str(self.root)]), 2)
+
+
+class WindowStateWiringTest(CheckoutCase):
+    """The window-state wiring (#383), which fails silently when it breaks.
+
+    Every case below still compiles and still launches. The window simply stops
+    remembering its size, which is exactly the kind of regression a template
+    regeneration or a careless merge produces.
+    """
+
+    def test_a_consistent_checkout_is_accepted(self) -> None:
+        build_checkout(self.root)
+        self.assertEqual(checker.check(self.root), [])
+
+    def test_dropping_the_store_from_the_runner_build_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            runner_cmakelists=RUNNER_CMAKELISTS.replace(
+                '  "window_state_store.cc"\n', ""
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("window_state_store.cc", problems[0])
+
+    def test_dropping_the_policy_source_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            runner_cmakelists=RUNNER_CMAKELISTS.replace(
+                '  "${{CMAKE_SOURCE_DIR}}/../native/linthra_desktop/src/'
+                'window_state.cpp"\n',
+                "",
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("window_state.cpp", problems[0])
+
+    def test_dropping_cxx_std_17_is_caught(self) -> None:
+        # The policy is C++17; without the explicit requirement the runner
+        # compiles at whatever the host compiler defaults to, which is a build
+        # that breaks somewhere else rather than here.
+        build_checkout(
+            self.root,
+            runner_cmakelists=RUNNER_CMAKELISTS.replace(
+                "target_compile_features(${{BINARY_NAME}} PUBLIC "
+                "cxx_std_17)\n",
+                "",
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("cxx_std_17", problems[0])
+
+    def test_never_restoring_the_geometry_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                "window_state_store_new", "no_window_state_here"
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("window_state_store_new", problems[0])
+
+    def test_never_saving_the_geometry_is_caught(self) -> None:
+        # Restoring without saving is the worst of the three: it looks wired,
+        # and every launch is a first launch.
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                "  window_state_store_save(self->window_state);\n", ""
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("window_state_store_save", problems[0])
 
 
 class RealRepositoryTest(unittest.TestCase):

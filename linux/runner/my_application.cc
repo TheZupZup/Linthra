@@ -7,6 +7,7 @@
 
 #include "flutter/generated_plugin_registrant.h"
 #include "folder_picker_channel.h"
+#include "window_state_store.h"
 
 // The user-visible application name. Kept as one constant so the header bar,
 // the fallback title bar, and anything added later can never drift apart — and
@@ -32,6 +33,10 @@ struct _MyApplication {
   // here because it needs the application's own window as the dialog parent,
   // which a plugin registrant does not have.
   FolderPickerChannel* folder_picker;
+  // Remembers the window's size, maximized state and position across restarts
+  // (#383). Owned here so it outlives the window and can still be written on
+  // shutdown, after GtkApplication has destroyed the window itself.
+  WindowStateStore* window_state;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -74,17 +79,21 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_title(window, kApplicationName);
   }
 
-  gtk_window_set_default_size(window, kDefaultWindowWidth,
-                              kDefaultWindowHeight);
-
-  // Floor the window at a size the current (phone-first) Flutter layout can
-  // still render without overflowing. Linthra's desktop layout lands in a later
-  // PR; until then this keeps a dragged-narrow window usable for development
-  // rather than letting it collapse into a wall of overflow errors.
+  // Floor the window at a size the shared layout can still render without
+  // overflowing. Set before the state is restored, so a saved size below the
+  // floor is clamped by the same rule a dragged one is.
   GdkGeometry geometry;
   geometry.min_width = kMinimumWindowWidth;
   geometry.min_height = kMinimumWindowHeight;
   gtk_window_set_geometry_hints(window, nullptr, &geometry, GDK_HINT_MIN_SIZE);
+
+  // Restore the remembered geometry, falling back to the opening default above
+  // on a first launch or an unusable saved state. Before the window is shown
+  // (first_frame_cb does that), so a restored window is drawn at its size
+  // rather than resizing in front of the user.
+  self->window_state =
+      window_state_store_new(window, kMinimumWindowWidth, kMinimumWindowHeight,
+                             kDefaultWindowWidth, kDefaultWindowHeight);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
@@ -193,9 +202,12 @@ static void my_application_startup(GApplication* application) {
 
 // Implements GApplication::shutdown.
 static void my_application_shutdown(GApplication* application) {
-  // MyApplication* self = MY_APPLICATION(object);
+  MyApplication* self = MY_APPLICATION(application);
 
-  // Perform any actions required at application shutdown.
+  // Last chance to write the window geometry: the window itself is already
+  // gone by now, which is why the store tracks the geometry rather than reading
+  // it back off the window here.
+  window_state_store_save(self->window_state);
 
   G_APPLICATION_CLASS(my_application_parent_class)->shutdown(application);
 }
@@ -205,6 +217,7 @@ static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_pointer(&self->folder_picker, folder_picker_channel_free);
+  g_clear_pointer(&self->window_state, window_state_store_free);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 

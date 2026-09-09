@@ -1,0 +1,37 @@
+name: C++ desktop window state
+
+on:
+  pull_request:
+    paths:
+      - 'native/linthra_desktop/**'
+      - '.github/workflows/cpp-desktop-window.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'native/linthra_desktop/**'
+      - '.github/workflows/cpp-desktop-window.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-window:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Release, Debug]
+    name: desktop-window (${{ matrix.build_type }})
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        run: >-
+          cmake -S native/linthra_desktop -B build/linthra_desktop
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+      - name: Build
+        run: cmake --build build/linthra_desktop --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build/linthra_desktop --output-on-failure
