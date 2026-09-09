@@ -80,7 +80,8 @@ void main() {
       expect(seeks, hasLength(1));
       // The exact millisecond depends on the marker inset the painter reserves,
       // so this pins the quarter it landed in rather than a hard-coded value.
-      expect(seeks.single, greaterThan(const Duration(minutes: 2, seconds: 40)));
+      expect(
+          seeks.single, greaterThan(const Duration(minutes: 2, seconds: 40)));
       expect(seeks.single, lessThan(const Duration(minutes: 3, seconds: 20)));
     });
 
