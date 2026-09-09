@@ -40,10 +40,15 @@ const double listDetailMinWidth = detailPaneWidth + mediumWindowWidth;
 /// same rule as everywhere else in `shared/layout`.
 ///
 /// It deliberately owns no selection state. The host keeps that, which is what
-/// makes the two modes one screen rather than two: resizing across the
-/// threshold moves the detail between a pane and a pushed route, and neither
-/// the selection nor anything the detail is doing is reset by the move.
-/// [listBuilder] is told which mode it is in so a tap can open the right one.
+/// makes the two modes one screen rather than two: [listBuilder] is told which
+/// mode it is in so a tap opens the right one, and what the user picked in
+/// either survives crossing the threshold.
+///
+/// That last part is the host's job, and it is easy to get wrong: dropping the
+/// pane unmounts the detail outright, so any state the detail holds itself,
+/// including a track selection in progress, goes with it on a resize the user
+/// never thought of as leaving the screen. State that has to outlive the pane
+/// belongs to the host and is passed down (see `LibraryScreen`).
 class ListDetailPanes extends StatelessWidget {
   const ListDetailPanes({
     required this.listBuilder,

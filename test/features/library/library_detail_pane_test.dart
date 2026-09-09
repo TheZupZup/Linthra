@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -190,6 +191,78 @@ void main() {
       // there.
       expect(find.text('Song 0'), findsNothing);
       expect(find.text('Pick an album to see its songs here.'), findsOneWidget);
+    });
+  });
+
+  /// Dropping the pane unmounts the detail screen inside it, so anything that
+  /// screen held itself would go with it. A track selection has to outlive the
+  /// pane: narrowing the window is not something the user does to leave a
+  /// selection, and they cannot even see it happen while the pane is gone.
+  group('a selection in the pane', () {
+    Future<void> ctrlClick(WidgetTester tester, String title) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    }
+
+    Future<void> resizeTo(WidgetTester tester, Size size) async {
+      tester.view.physicalSize = size;
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('survives the window narrowing past the pane and back',
+        (tester) async {
+      await _pumpLibrary(tester, _paneWindow);
+      await _openTab(tester, 'Albums');
+      await tester.tap(find.text('Discovery').first);
+      await tester.pumpAndSettle();
+
+      await ctrlClick(tester, 'Song 0');
+      expect(find.text('1 selected'), findsOneWidget);
+
+      await resizeTo(tester, _narrowWindow);
+      await resizeTo(tester, _paneWindow);
+
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('does not follow the pane onto another album', (tester) async {
+      await _pumpLibrary(tester, _paneWindow);
+      await _openTab(tester, 'Albums');
+      await tester.tap(find.text('Discovery').first);
+      await tester.pumpAndSettle();
+
+      await ctrlClick(tester, 'Song 0');
+      expect(find.text('1 selected'), findsOneWidget);
+
+      // A selection only means anything against the list it was made in.
+      await tester.tap(find.text('Moon Safari').first);
+      await tester.pumpAndSettle();
+      expect(find.text('1 selected'), findsNothing);
+      expect(find.text('Song 1'), findsOneWidget);
+    });
+
+    testWidgets('artists keep their own, separate from the albums pane',
+        (tester) async {
+      await _pumpLibrary(tester, _paneWindow);
+      await _openTab(tester, 'Artists');
+      await tester.tap(find.text('Daft Punk').first);
+      await tester.pumpAndSettle();
+
+      await ctrlClick(tester, 'Song 0');
+      expect(find.text('1 selected'), findsOneWidget);
+
+      await resizeTo(tester, _narrowWindow);
+      await resizeTo(tester, _paneWindow);
+      expect(find.text('1 selected'), findsOneWidget);
+
+      // The albums pane was never told about any of it.
+      await _openTab(tester, 'Albums');
+      await tester.tap(find.text('Discovery').first);
+      await tester.pumpAndSettle();
+      expect(find.text('1 selected'), findsNothing);
     });
   });
 }

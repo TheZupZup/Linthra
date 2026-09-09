@@ -26,17 +26,29 @@ import 'widgets/track_tile.dart';
 /// One artist's catalog: their albums (each opening its album detail) and all
 /// their tracks, with Play all / Shuffle all.
 class ArtistDetailScreen extends ConsumerStatefulWidget {
-  const ArtistDetailScreen({required this.artistId, super.key});
+  const ArtistDetailScreen({
+    required this.artistId,
+    this.selection,
+    super.key,
+  });
 
   final String artistId;
+
+  /// The selection to work in, when a host owns one. See
+  /// [AlbumDetailScreen.selection]: as a detail pane the screen is unmounted by
+  /// an ordinary resize, so what is picked has to outlive it.
+  final TrackSelection? selection;
 
   @override
   ConsumerState<ArtistDetailScreen> createState() => _ArtistDetailScreenState();
 }
 
 class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
+  /// The selection used when no host supplied one.
+  final TrackSelection _ownSelection = TrackSelection();
+
   /// Which songs are picked, and where a Shift-click measures from (#387).
-  final TrackSelection _selection = TrackSelection();
+  TrackSelection get _selection => widget.selection ?? _ownSelection;
 
   bool get _selecting => _selection.isActive;
 

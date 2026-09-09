@@ -31,17 +31,34 @@ import 'widgets/track_tile.dart';
 /// Long-pressing a track starts multi-select so any subset can use that same
 /// playlist flow.
 class AlbumDetailScreen extends ConsumerStatefulWidget {
-  const AlbumDetailScreen({required this.albumId, super.key});
+  const AlbumDetailScreen({
+    required this.albumId,
+    this.selection,
+    super.key,
+  });
 
   final String albumId;
+
+  /// The selection to work in, when a host owns one.
+  ///
+  /// As a pushed route the screen keeps its own, and its lifetime is the
+  /// route's. As a detail pane it does not get to: the pane is dropped whenever
+  /// the window narrows past [listDetailMinWidth], which would reset a
+  /// selection the user is in the middle of on an ordinary resize. So the host
+  /// that holds *which* album is open holds what is picked inside it too, and
+  /// the pane can come and go without losing either.
+  final TrackSelection? selection;
 
   @override
   ConsumerState<AlbumDetailScreen> createState() => _AlbumDetailScreenState();
 }
 
 class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
+  /// The selection used when no host supplied one.
+  final TrackSelection _ownSelection = TrackSelection();
+
   /// Which songs are picked, and where a Shift-click measures from (#387).
-  final TrackSelection _selection = TrackSelection();
+  TrackSelection get _selection => widget.selection ?? _ownSelection;
 
   bool get _selecting => _selection.isActive;
 

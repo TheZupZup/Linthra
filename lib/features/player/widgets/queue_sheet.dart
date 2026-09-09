@@ -7,6 +7,7 @@ import '../../../app/dimens.dart';
 import '../../../core/models/playback_state.dart';
 import '../../../core/models/playlist.dart';
 import '../../../core/models/track.dart';
+import '../../../core/repositories/playlist_repository.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../shared/widgets/now_playing_indicator.dart';
 import '../../playlists/widgets/create_playlist_dialog.dart';
@@ -159,7 +160,12 @@ class QueueSheet extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
+    // Both captured before the dialog: embedded in the player's queue pane,
+    // this sheet is unmounted the moment the window narrows past the pane's
+    // minimum, and a resize while the name prompt is up would otherwise leave
+    // the save reaching through a disposed ref on submit.
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final PlaylistRepository repository = ref.read(playlistRepositoryProvider);
     // Read the freshest full queue at tap time rather than capturing it in
     // build — build now selects only the queue identity (see above), and a save
     // is a one-off action, not a hot path.
@@ -174,7 +180,6 @@ class QueueSheet extends ConsumerWidget {
     final PlaylistEdit? edit = await showCreatePlaylistDialog(context);
     if (edit == null) return;
 
-    final repository = ref.read(playlistRepositoryProvider);
     final Playlist created = await repository.createPlaylist(
       edit.name,
       description: edit.description,

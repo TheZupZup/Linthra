@@ -75,6 +75,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   String? _paneAlbumId;
   String? _paneArtistId;
 
+  /// What is picked *inside* those panes, for the same reason: the pane is
+  /// dropped whenever the window narrows past [listDetailMinWidth], so a
+  /// selection owned by the detail screen would not survive a resize the user
+  /// did not think of as leaving it. Reset when the pane moves to another
+  /// album or artist, since a selection only means anything against the list it
+  /// was made in.
+  final TrackSelection _paneAlbumSelection = TrackSelection();
+  final TrackSelection _paneArtistSelection = TrackSelection();
+
   late final TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
@@ -439,7 +448,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             context.push(AppRoutes.albumDetailPath(album.id));
             return;
           }
-          setState(() => _paneAlbumId = album.id);
+          setState(() {
+            if (_paneAlbumId != album.id) _paneAlbumSelection.clear();
+            _paneAlbumId = album.id;
+          });
         },
       ),
       // A selection that is no longer in the filtered grid would leave the pane
@@ -449,7 +461,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         final String? id = _paneAlbumId;
         if (id == null) return null;
         if (!filtered.any((Album album) => album.id == id)) return null;
-        return AlbumDetailScreen(key: ValueKey<String>(id), albumId: id);
+        return AlbumDetailScreen(
+          key: ValueKey<String>(id),
+          albumId: id,
+          selection: _paneAlbumSelection,
+        );
       },
       placeholderBuilder: (BuildContext context) => const DetailPanePlaceholder(
         icon: Icons.album_outlined,
@@ -478,14 +494,21 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             context.push(AppRoutes.artistDetailPath(artist.id));
             return;
           }
-          setState(() => _paneArtistId = artist.id);
+          setState(() {
+            if (_paneArtistId != artist.id) _paneArtistSelection.clear();
+            _paneArtistId = artist.id;
+          });
         },
       ),
       detailBuilder: (BuildContext context) {
         final String? id = _paneArtistId;
         if (id == null) return null;
         if (!filtered.any((Artist artist) => artist.id == id)) return null;
-        return ArtistDetailScreen(key: ValueKey<String>(id), artistId: id);
+        return ArtistDetailScreen(
+          key: ValueKey<String>(id),
+          artistId: id,
+          selection: _paneArtistSelection,
+        );
       },
       placeholderBuilder: (BuildContext context) => const DetailPanePlaceholder(
         icon: Icons.person_outline,

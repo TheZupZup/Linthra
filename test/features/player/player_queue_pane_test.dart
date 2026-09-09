@@ -3,8 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/lyrics.dart';
 import 'package:linthra/core/models/playback_state.dart';
+import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/lyrics_service.dart';
+import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
+import 'package:linthra/data/repositories/playlist_repository_provider.dart';
 import 'package:linthra/features/player/lyrics_providers.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/player_screen.dart';
@@ -56,7 +59,11 @@ const Size _paneWindow = Size(1400, 900);
 /// A desktop window that is wide enough for two columns but not three.
 const Size _twoColumnWindow = Size(1280, 800);
 
-Future<void> _pumpPlayer(WidgetTester tester, {required Size size}) async {
+Future<void> _pumpPlayer(
+  WidgetTester tester, {
+  required Size size,
+  InMemoryPlaylistStore? store,
+}) async {
   tester.view.devicePixelRatio = 1.0;
   tester.view.physicalSize = size;
   addTearDown(tester.view.reset);
@@ -74,6 +81,7 @@ Future<void> _pumpPlayer(WidgetTester tester, {required Size size}) async {
           ),
         ),
         lyricsServiceProvider.overrideWithValue(_FakeLyricsService(_lyrics)),
+        if (store != null) playlistStoreProvider.overrideWithValue(store),
       ],
       child: const MaterialApp(home: PlayerScreen()),
     ),
@@ -176,6 +184,38 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(BottomSheet), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    /// As a sheet the queue is a route and outlives its own dialogs. As a pane
+    /// it is just a widget in the layout, and narrowing the window takes it off
+    /// screen mid-action — with the name prompt still up on top.
+    testWidgets('saving survives the pane closing under the dialog',
+        (tester) async {
+      final InMemoryPlaylistStore store = InMemoryPlaylistStore();
+      await _pumpPlayer(tester, size: _paneWindow, store: store);
+
+      await tester.tap(find.byTooltip('Show queue'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Save queue as playlist'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'My Queue');
+      await tester.pumpAndSettle();
+
+      // The window narrows while the prompt is open: the pane goes, the dialog
+      // stays.
+      await _resize(tester, _twoColumnWindow);
+      expect(find.byType(QueueSheet), findsNothing);
+      expect(find.text('Create'), findsOneWidget);
+
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+
+      final List<Playlist> saved = await store.load();
+      expect(saved, hasLength(1));
+      expect(saved.single.name, 'My Queue');
+      expect(saved.single.trackIds, <String>[_track.uri, _next.uri]);
       expect(tester.takeException(), isNull);
     });
   });
