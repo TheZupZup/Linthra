@@ -82,10 +82,18 @@ class ContextMenuRegion<T> extends StatelessWidget {
         Overlay.of(context).context.findRenderObject();
     if (overlay is! RenderBox) return;
 
+    // showMenu reads its position in the *overlay's* coordinate space, not in
+    // screen coordinates — and the nearest overlay is rarely at the screen
+    // origin. Inside the desktop shell it belongs to the branch navigator,
+    // which starts after the navigation rail, so handing it a raw global
+    // position would slide every menu across by the rail's width and clamp it
+    // against bounds measured from the wrong corner.
+    final Offset anchor = overlay.globalToLocal(globalPosition);
+
     final T? value = await showMenu<T>(
       context: context,
       position: RelativeRect.fromRect(
-        Rect.fromPoints(globalPosition, globalPosition),
+        Rect.fromPoints(anchor, anchor),
         Offset.zero & overlay.size,
       ),
       items: items,
