@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/dimens.dart';
+import '../../core/models/bulk_download_summary.dart';
 import '../../core/models/cache_size.dart';
 import '../../core/models/download_progress.dart';
 import '../../core/models/track.dart';
@@ -14,6 +15,7 @@ import '../../shared/widgets/empty_state.dart';
 import '../player/now_playing.dart';
 import '../player/widgets/track_artwork.dart';
 import '../settings/network/network_settings_section.dart';
+import 'bulk_download_controller.dart';
 import 'download_providers.dart';
 
 /// Manage explicit, user-controlled downloads. Lists the tracks the user has
@@ -34,12 +36,78 @@ class DownloadsScreen extends ConsumerWidget {
       body: const AdaptiveContentWidth(
         child: Column(
           children: [
+            _BulkDownloadBanner(),
             _CacheUsageHeader(),
             MobileDataDownloadsTile(),
             Divider(height: 1),
             Expanded(child: _DownloadsBody()),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The running "Download all" batch, while one is running: which album or
+/// playlist it is, how far through it is, and the one button that stops it.
+///
+/// Shows nothing at all the rest of the time, so the screen is unchanged unless
+/// there is a batch to report. Stopping ends the batch where it is: the songs
+/// already downloaded stay downloaded (a stop must never take away a file the
+/// user has), and the handful still in flight finish and can be cancelled
+/// individually in the list below.
+class _BulkDownloadBanner extends ConsumerWidget {
+  const _BulkDownloadBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final BulkDownloadSummary? batch =
+        ref.watch(bulkDownloadControllerProvider);
+    if (batch == null || !batch.running) return const SizedBox.shrink();
+
+    final ThemeData theme = Theme.of(context);
+    final int requested = batch.requested;
+    final double? fraction =
+        requested <= 0 ? null : (batch.completed / requested).clamp(0.0, 1.0);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.md,
+        AppSpacing.sm,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Downloading “${batch.label}”: '
+                  '${batch.completed} of $requested',
+                  style: theme.textTheme.bodyMedium,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              TextButton(
+                onPressed: () =>
+                    ref.read(bulkDownloadControllerProvider.notifier).cancel(),
+                child: const Text('Stop'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+            child: LinearProgressIndicator(
+              value: fraction,
+              minHeight: 6,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+            ),
+          ),
+        ],
       ),
     );
   }

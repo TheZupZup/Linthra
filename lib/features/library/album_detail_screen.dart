@@ -7,9 +7,11 @@ import '../../app/routes.dart';
 import '../../core/catalog/library_grouping.dart';
 import '../../core/models/album.dart';
 import '../../core/models/track.dart';
+import '../../data/repositories/download_repository_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../downloads/collection_download_actions.dart';
 import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
@@ -104,6 +106,11 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
     // album; a promoted local can't be captured by one.
     final Album resolved = album;
     final List<Track> selected = _selection.resolve(tracks);
+    // "Download all" is offered only when something in this album actually
+    // streams from a server: an all-local album is already on disk, and the
+    // per-track menu hides offline actions for those rows for the same reason.
+    final bool canDownloadAll =
+        tracks.any(ref.watch(remoteTrackDownloaderProvider).isRemote);
 
     final Widget scaffold = Scaffold(
       appBar: _selecting
@@ -115,6 +122,17 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
               actions: <Widget>[
+                if (canDownloadAll)
+                  IconButton(
+                    icon: const Icon(Icons.download_outlined),
+                    tooltip: 'Download all songs',
+                    onPressed: () => CollectionDownloadActions.downloadAll(
+                      context,
+                      ref,
+                      label: resolved.title,
+                      tracks: tracks,
+                    ),
+                  ),
                 IconButton(
                   icon: const Icon(Icons.playlist_add),
                   tooltip: 'Add all songs to playlist',

@@ -75,6 +75,42 @@ playing right now. If a new download still won't fit, it's refused with a
 friendly "not enough cache space" message instead of deleting something you
 wanted.
 
+## Downloading a whole album or playlist
+
+Open an album or a playlist and use **Download all** (the download button in an
+album's app bar, or **Download all** in a playlist's menu). It is offered only
+where you have one specific album or playlist open. There is deliberately **no
+"download my whole library" button anywhere**.
+
+It always asks first, naming the exact number of songs, and starts nothing until
+you confirm. From there it is the same download path a single track takes, so
+everything above still holds:
+
+- The **Wi-Fi / mobile-data policy** applies per track. On a Wi-Fi-only device
+  the songs are queued, and you get the same friendly explanation a single
+  queued track gives.
+- The **cache size limit** applies. A song the cache cannot fit is skipped and
+  named in the summary, and the batch carries on (one oversized track should not
+  cost you the rest of the album). If several in a row will not fit, the cache
+  really is out of room, so the batch stops there and says so rather than
+  downloading more songs it would have to throw away.
+- **Pinned ("Keep offline") tracks are never evicted** to make room, exactly as
+  before.
+- Songs you **already** have offline are skipped, not re-downloaded, so asking
+  for an album again costs nothing and cannot disturb the copies you have.
+- A song listed twice in a playlist is downloaded once.
+- **On-device songs are left alone.** In a mixed playlist, files already on your
+  device are not part of the batch: their bytes are already there, and their
+  rows offer no offline action for the same reason.
+- If you are **offline**, the songs are queued and you start them again from the
+  **Downloads** screen once you are back online. Nothing retries on its own.
+
+While a batch runs, the **Downloads** screen shows which album or playlist it is
+and how far along it is, with a **Stop** button. Stopping is safe: nothing is
+deleted, the songs already downloaded stay downloaded, and only the handful of
+requests already in flight finish. Individual songs can still be cancelled or
+retried per row, as always.
+
 ## Smart pre-cache follows the same policy
 
 Smart pre-cache warms a small number of **upcoming** queued tracks (1, 3, 5, 10,
