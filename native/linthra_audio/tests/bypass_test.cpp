@@ -216,7 +216,7 @@ void the_limiter_never_releases_all_the_way_back_to_transparency() {
     // hiding something real.
     //
     // One loud frame pulls the gain down, and the quiet frames that follow are
-    // still attenuated on the way back to unity — so they are not bit-exact.
+    // still attenuated on the way back to unity, so they are not bit-exact.
     // The part worth pinning is that they never become bit-exact either. The
     // release is
     //
@@ -227,7 +227,7 @@ void the_limiter_never_releases_all_the_way_back_to_transparency() {
     // the default 80 ms release at 48 kHz that floor is ~0.99989, reached in
     // well under a second and unmoved by another minute of silence.
     //
-    // About -0.001 dB, so nobody will hear it — but it does mean "transparent
+    // About -0.001 dB, so nobody will hear it, but it does mean "transparent
     // again once the limiter releases" is not a promise this chain keeps.
     // `reset()`, which a host calls between streams, is what actually restores
     // exactness, and that is the guarantee the suite claims.

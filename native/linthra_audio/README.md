@@ -32,9 +32,9 @@ performance of the build users actually get.
 | Test | Covers |
 | --- | --- |
 | `linthra_audio_tests` | The chain end to end: bypass, preamp, one limited frame, an EQ impulse response, and the C ABI. |
-| `linthra_audio_limiter` | Limiter response (#337) — see below. |
-| `linthra_audio_bypass` | Bypass transparency (#342) — see below. |
-| `linthra_audio_allocation` | Replaces global `operator new` **and interposes the C allocator** (`malloc`, `calloc`, `realloc`, `aligned_alloc`, `posix_memalign`), proving `process()` and `reset()` allocate nothing by either route — through `DspChain` directly and through the public C ABI the mobile binding will call. |
+| `linthra_audio_limiter` | Limiter response (#337), see below. |
+| `linthra_audio_bypass` | Bypass transparency (#342), see below. |
+| `linthra_audio_allocation` | Replaces global `operator new` **and interposes the C allocator** (`malloc`, `calloc`, `realloc`, `aligned_alloc`, `posix_memalign`), proving `process()` and `reset()` allocate nothing by either route: through `DspChain` directly and through the public C ABI the mobile binding will call. |
 | `linthra_audio_realtime_budget` | 60 s of 48 kHz stereo has to process well inside realtime. |
 
 **Limiter response.** The ceiling holds across a full second of signal 6 dB over
@@ -48,7 +48,7 @@ boost cannot push past the ceiling; and both `reset()` and `configure()` drop
 the ducking so one stream cannot inherit another's.
 
 Every ceiling check is an upper bound, and an upper bound is satisfied by
-silence, by a lower ceiling, and by no limiter at all — so each one has a floor
+silence, by a lower ceiling, and by no limiter at all, so each one has a floor
 beside it. The limited peak has to reach the ceiling (stereo and mono); a
 boosted EQ band has to leave energy in the output; the impulse response has to
 carry energy rather than merely differ from its input; each threshold has to
@@ -71,7 +71,7 @@ compared by their object representation, not with `==`, which would call `-0.0F`
 and `0.0F` equal and let a lost sign of zero through a suite that feeds both on
 purpose. The tests state why bit-exactness is honest here: every stage that is
 off multiplies by exactly `1.0F`. That holds for mono and stereo, for silence in
-both signs, for a flat or disabled EQ band, and — the case that actually ships —
+both signs, for a flat or disabled EQ band, and (the case that actually ships)
 while the limiter is armed but the signal stays under the ceiling, including a
 sample sitting exactly *on* it. Unsupported channel counts, zero frames and a
 null buffer leave the caller's memory alone.
@@ -80,7 +80,7 @@ null buffer leave the caller's memory alone.
 The release is `gain += (1 - gain) * step`, and once `(1 - gain) * step` falls
 below half an ULP of a float near 1.0, the addition rounds to nothing and the
 gain stalls short of unity. With the default 80 ms release at 48 kHz that floor
-is ~0.99989 — reached in well under a second, and unmoved by another minute of
+is ~0.99989, reached in well under a second, and unmoved by another minute of
 silence. It is about -0.001 dB, so nobody will hear it, but it does mean
 "transparent again after the limiter releases" is not a promise this chain
 keeps. `reset()`, which a host calls between streams, is what actually restores

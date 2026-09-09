@@ -15,7 +15,7 @@
 // change has to break a named expectation rather than quietly get worse:
 //
 //   * the ceiling holds on every frame, not just the first
-//   * attack is immediate — there is no overshoot to ride out
+//   * attack is immediate, there is no overshoot to ride out
 //   * release is a one-pole recovery with the configured time constant
 //   * the gain is stereo-linked, so the image never shifts
 //   * reset() drops the ducking, so one stream cannot inherit another's
@@ -57,7 +57,7 @@ DspChain armed(float threshold_db = -0.3F, float release_ms = 80.0F) {
 
 /// The gain the limiter is currently applying, measured by pushing one quiet
 /// frame through and reading what came back. The probe is far below the
-/// ceiling, so it cannot itself trigger the limiter — but it does advance the
+/// ceiling, so it cannot itself trigger the limiter, but it does advance the
 /// release by one frame, which every caller below accounts for.
 float measure_gain(DspChain& chain) {
     constexpr float probe = 0.1F;
@@ -117,7 +117,7 @@ void a_lower_threshold_lowers_the_ceiling() {
     // Upper bounds alone would let every setting collapse to the lowest one:
     // an implementation that limited everything to -12 dB satisfies "<= -0.3"
     // and "<= -6" too. Each peak has to reach its *own* ceiling, and the
-    // ceilings have to come down in order — that is the contract being named.
+    // ceilings have to come down in order. That is the contract being named.
     float previous_peak = 0.0F;
     for (const float threshold_db : {-0.3F, -6.0F, -12.0F}) {
         DspChain chain = armed(threshold_db);
@@ -276,7 +276,7 @@ void an_equalizer_boost_cannot_push_past_the_ceiling() {
         peak = std::max(peak, std::abs(sample));
     }
     // ...and there is still music coming out. Every check above is an upper
-    // bound, which a band that returned zero would satisfy perfectly — so the
+    // bound, which a band that returned zero would satisfy perfectly, so the
     // suite could otherwise certify an EQ that silences playback.
     CHECK(peak > 0.5F);
 }
@@ -292,7 +292,7 @@ void reset_drops_the_ducking() {
 
     // ...and the limiter is still armed. Unity gain on a quiet probe is also
     // what a reset() that threw the configuration away would produce, and the
-    // next loud stream would then run straight past the ceiling — which is
+    // next loud stream would then run straight past the ceiling, which is
     // exactly what a host calls reset() between streams to avoid.
     std::array<float, 2> after{4.0F, 4.0F};
     chain.process(after.data(), 1, 2);

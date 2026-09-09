@@ -71,7 +71,7 @@ int main() {
         }
     }
     CHECK(changed);
-    // "Changed" alone would accept a band that zeroed the response — a muted
+    // "Changed" alone would accept a band that zeroed the response. A muted
     // impulse differs from the input too. The response has to carry energy.
     CHECK(energy > 0.1F * 0.5F * 0.5F);
 

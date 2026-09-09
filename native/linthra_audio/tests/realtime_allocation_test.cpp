@@ -13,7 +13,7 @@
 
 // Replacing the plain forms alone would leave a hole: an over-aligned C++17
 // type routes to the `std::align_val_t` overloads instead, and an allocation
-// through those would go uncounted — leaving the no-allocation check reporting
+// through those would go uncounted, leaving the no-allocation check reporting
 // a comfortable zero for the one case it exists to catch.
 
 // The processing callback runs on the audio thread, where an allocation is a
@@ -27,6 +27,25 @@
 
 namespace {
 std::atomic<long> allocations{0};
+
+/// Somewhere for a deliberately-made allocation to escape to.
+///
+/// A compiler may delete an allocation it can prove nothing observes, and both
+/// of ours do: GCC removed a `new`/`delete` pair at -O2, and Clang removed a
+/// `malloc`/`realloc`/`calloc` sequence. Both times it was a *sanity* check
+/// (the one proving the counter works) quietly becoming a no-op, which is the
+/// worst place to lose one.
+///
+/// The pointer, not just a value, has to escape. Writing a constant into the
+/// block and reading it straight back is still foldable: the compiler knows
+/// what comes out and drops the memory anyway. Parking the pointer in volatile
+/// storage is what it cannot see through.
+volatile void* allocation_sink = nullptr;
+
+/// A size the optimiser cannot fold, derived from the running count.
+std::size_t opaque_size(std::size_t base) {
+    return base + (allocations.load(std::memory_order_relaxed) & 0);
+}
 }  // namespace
 
 #if LINTHRA_WRAP_C_ALLOCATOR
@@ -202,7 +221,7 @@ int main() {
 
     // The very first call, on a chain that has never processed anything. It
     // runs on the audio callback like every other one, so state built lazily on
-    // first use would be just as fatal there — warming up outside the count
+    // first use would be just as fatal there, so warming up outside the count
     // would hide exactly that.
     DspChain first(kSampleRate);
     first.configure(config);
@@ -268,9 +287,10 @@ int main() {
     // Sanity: the counter is actually wired up. Without this, a build where the
     // replacement never took effect would report a comfortable zero.
     const long during_allocation = allocations_during([] {
-        std::vector<float> scratch(1'024);
+        std::vector<float> scratch(opaque_size(1'024));
         // Keep the allocation from being optimised away.
         scratch[0] = 1.0F;
+        allocation_sink = scratch.data();
         CHECK(scratch[0] == 1.0F);
     });
     CHECK(during_allocation > 0);
@@ -283,8 +303,9 @@ int main() {
     // that to a local deleted right after it is made, which leaves the counter
     // reading zero for the very case this is here to prove.
     const long during_aligned_allocation = allocations_during([] {
-        std::vector<CacheLine> wide(4);
+        std::vector<CacheLine> wide(opaque_size(4));
         wide[0].samples[0] = 1.0F;
+        allocation_sink = wide.data();
         CHECK(wide[0].samples[0] == 1.0F);
     });
     CHECK(during_aligned_allocation > 0);
@@ -292,14 +313,25 @@ int main() {
 #if LINTHRA_WRAP_C_ALLOCATOR
     // ...and for the C entry points, which no operator new replacement sees.
     const long during_c_allocation = allocations_during([] {
-        void* raw = std::malloc(512);
+        // Each block writes and reads back through the sink. Without that the
+        // storage is never used, and Clang at -O2 deletes the whole sequence,
+        // leaving this check reporting zero allocations for a build where the
+        // wrappers are perfectly well wired up.
+        void* raw = std::malloc(opaque_size(128 * sizeof(float)));
+        allocation_sink = raw;
         CHECK(raw != nullptr);
-        void* grown = std::realloc(raw, 1'024);
+
+        void* grown = std::realloc(raw, opaque_size(256 * sizeof(float)));
+        allocation_sink = grown;
         CHECK(grown != nullptr);
         std::free(grown);
-        void* zeroed = std::calloc(16, sizeof(float));
+
+        void* zeroed = std::calloc(opaque_size(16), sizeof(float));
+        allocation_sink = zeroed;
         CHECK(zeroed != nullptr);
         std::free(zeroed);
+
+        allocation_sink = nullptr;
     });
     CHECK(during_c_allocation >= 3);
     std::cout << "counting C++ and C allocations\n";

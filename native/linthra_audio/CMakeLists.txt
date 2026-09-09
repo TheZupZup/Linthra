@@ -24,7 +24,7 @@ target_link_libraries(linthra_audio_tests PRIVATE linthra_audio)
 
 # Limiter response (#337) and bypass transparency (#342) are their own binaries
 # rather than more of dsp_test.cpp: each is a focused contract, and a failure
-# names which one broke. The allocation test has to be separate — it replaces
+# names which one broke. The allocation test has to be separate: it replaces
 # global operator new, which is program-wide.
 add_executable(linthra_audio_limiter_tests tests/limiter_test.cpp)
 target_link_libraries(linthra_audio_limiter_tests PRIVATE linthra_audio)
@@ -53,6 +53,18 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND UNIX AND NOT APPLE)
     )
     target_compile_definitions(linthra_audio_allocation_tests
         PRIVATE LINTHRA_WRAP_C_ALLOCATOR=1
+    )
+    # The sanity block deliberately allocates so the counter can be seen
+    # working. Treated as builtins, those calls are dead code the optimiser is
+    # entitled to delete (Clang at -O2 removes the whole malloc/realloc/calloc
+    # sequence), and the check meant to prove the counter works reports zero.
+    # This says "these are ordinary function calls here", which is exactly what
+    # a test that counts them needs.
+    target_compile_options(linthra_audio_allocation_tests PRIVATE
+        -fno-builtin-malloc
+        -fno-builtin-calloc
+        -fno-builtin-realloc
+        -fno-builtin-free
     )
 endif()
 
