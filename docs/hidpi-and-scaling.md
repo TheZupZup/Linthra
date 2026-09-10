@@ -58,7 +58,13 @@ Every one of those is pumped at text scale 1.0, 1.3 (GNOME's Large Text) and
 `test/shared/widgets/artwork_decode_test.dart` covers the other half:
 
 - the decode bound follows the *device* pixels a cover will occupy, rounded up,
-  so a 48 px avatar decodes at 48 px at 100%, 84 px at 175% and 96 px at 200%;
+  so a 48 px avatar asks for 64 px at 100% and 96 px at 200%;
+- it rounds up to a multiple of `artworkDecodeQuantum` (32). The requested
+  extent is part of the `ResizeImage` cache key and `AlbumArtwork` derives it
+  from its own box, so an exact extent would mint a fresh decode for every
+  width a resizable window is dragged through. Bucketing caps that at 32
+  decodes across the whole range instead of hundreds, at a cost of at most 31
+  pixels of over-decode, and never rounds down;
 - it caps at `maxArtworkDecodeExtent` (1024, the same bound Linthra's local
   artwork cache applies), so a full-screen cover on a 4K panel at 200% cannot
   ask for a 2160 px decode;

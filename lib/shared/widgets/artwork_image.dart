@@ -61,6 +61,20 @@ const int maxArtworkDecodeExtent = 1024;
 /// ask for a one-pixel cover that then has to be decoded again when it settles.
 const int minArtworkDecodeExtent = 32;
 
+/// Decode sizes are rounded up to a multiple of this.
+///
+/// The requested extent is part of the `ResizeImage` cache key, and
+/// [AlbumArtwork] derives it from its own box. On a resizable window that box
+/// changes with every resize event, so an exact extent would mint a fresh
+/// cache key (and a fresh decode) for every width the window is dragged
+/// through, which is the churn this bound exists to remove.
+///
+/// Rounding up to 32 device pixels caps that at 32 distinct decodes per image
+/// across the whole range instead of hundreds, and costs at most 31 pixels of
+/// over-decode on the covering axis. It also never rounds *down*, so a bucket
+/// is never softer than the exact extent would have been.
+const int artworkDecodeQuantum = 32;
+
 /// The device-pixel extent to decode a cover at for a box [logicalExtent]
 /// logical pixels across on a display of [devicePixelRatio].
 ///
@@ -80,7 +94,9 @@ int artworkDecodeExtentFor(double logicalExtent, double devicePixelRatio) {
     return maxArtworkDecodeExtent;
   }
   final int extent = (logicalExtent * devicePixelRatio).ceil();
-  return extent.clamp(minArtworkDecodeExtent, maxArtworkDecodeExtent);
+  final int bucketed =
+      (extent / artworkDecodeQuantum).ceil() * artworkDecodeQuantum;
+  return bucketed.clamp(minArtworkDecodeExtent, maxArtworkDecodeExtent);
 }
 
 /// [artworkDecodeExtentFor] with the ratio read from [context].

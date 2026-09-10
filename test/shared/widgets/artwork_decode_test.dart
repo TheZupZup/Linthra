@@ -48,21 +48,58 @@ Future<void> _pump(
   await tester.pump();
 }
 
+/// 700 distinct widths must not become 700 distinct decodes.
+const int travelBudget = 24;
+
 void main() {
   group('artworkDecodeExtentFor', () {
     test('follows the device pixels the cover will occupy', () {
       // The same 48 px avatar on three desktops.
-      expect(artworkDecodeExtentFor(48, 1.0), 48);
-      expect(artworkDecodeExtentFor(48, 1.25), 60);
-      expect(artworkDecodeExtentFor(48, 1.75), 84);
+      expect(artworkDecodeExtentFor(48, 1.0), 64);
+      expect(artworkDecodeExtentFor(48, 1.25), 64);
+      expect(artworkDecodeExtentFor(48, 1.75), 96);
       expect(artworkDecodeExtentFor(48, 2.0), 96);
     });
 
     test('rounds up, so a fractional scale never decodes soft', () {
-      // 48 * 1.3 is 62.4: decoding 62 device pixels into a 62.4 pixel box
-      // would be a visibly resampled avatar on exactly the displays this is
-      // for.
-      expect(artworkDecodeExtentFor(48, 1.3), 63);
+      // 48 * 1.3 is 62.4. Rounding down anywhere in this path would resample a
+      // 62.4 pixel box from 62 device pixels, on exactly the displays this is
+      // for. Both the pixel conversion and the bucketing round up.
+      expect(artworkDecodeExtentFor(48, 1.3), 64);
+      for (double ratio = 1.0; ratio <= 3.0; ratio += 0.05) {
+        expect(
+          artworkDecodeExtentFor(48, ratio),
+          greaterThanOrEqualTo((48 * ratio).ceil()),
+          reason: 'a bucket must never be smaller than the exact extent, but '
+              'it is at ${ratio}x',
+        );
+      }
+    });
+
+    // The requested extent is part of the ResizeImage cache key, so an exact
+    // extent would mint a fresh decode for every width a window is dragged
+    // through. That is the churn this whole bound exists to remove, so it has
+    // to be bounded rather than assumed.
+    test('a window resize sweep collapses to few decodes', () {
+      final Set<int> buckets = <int>{};
+      for (int logical = 200; logical <= 900; logical++) {
+        buckets.add(artworkDecodeExtentFor(logical.toDouble(), 1.0));
+      }
+      expect(
+        buckets.length,
+        lessThanOrEqualTo(travelBudget),
+        reason: '700 widths produced ${buckets.length} distinct decodes',
+      );
+    });
+
+    test('every result is a usable bucket', () {
+      for (final double logical in <double>[33, 47, 48, 100, 257, 999]) {
+        final int extent = artworkDecodeExtentFor(logical, 1.0);
+        expect(extent % artworkDecodeQuantum, 0,
+            reason: '$extent is not a multiple of the quantum');
+        expect(extent, greaterThanOrEqualTo(minArtworkDecodeExtent));
+        expect(extent, lessThanOrEqualTo(maxArtworkDecodeExtent));
+      }
     });
 
     test('caps at the largest surface Linthra draws a cover on', () {
@@ -142,11 +179,20 @@ void main() {
           devicePixelRatio: ratio,
         );
 
+        // The widget must ask for the bucket its own box maps to, which is
+        // what artworkDecodeExtentFor already pins in the unit tests above.
+        // Asserting the raw device pixels here would re-pin the bucketing in a
+        // second place and break on every quantum change.
         expect(
           _decodeWidthOf(tester, find.byType(Image)),
-          (64 * ratio).ceil(),
+          artworkDecodeExtentFor(64, ratio),
           reason: 'a 64 px cover at ${ratio}x should decode at '
-              '${(64 * ratio).ceil()} device pixels',
+              '${artworkDecodeExtentFor(64, ratio)} device pixels',
+        );
+        expect(
+          _decodeWidthOf(tester, find.byType(Image))!,
+          greaterThanOrEqualTo((64 * ratio).ceil()),
+          reason: 'never below the exact extent the box needs',
         );
       });
     }

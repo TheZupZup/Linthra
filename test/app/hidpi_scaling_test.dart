@@ -229,40 +229,50 @@ void main() {
 
   group('controls stay usable at every scale', () {
     for (final _Display display in _displays) {
-      testWidgets('$display keeps the album actions tappable and legible',
-          (WidgetTester tester) async {
-        await _pumpAt(
-          tester,
-          display,
-          const TextScaler.linear(1.3),
-          _screens['Album detail']!,
-        );
+      // Every declared text scale, not just the middle one: 2.0 is the
+      // accessibility case, and a control can stay layout-valid there while
+      // its label truncates or its tap target shrinks, which the overflow
+      // group above cannot see.
+      for (final TextScaler textScaler in _textScales) {
+        final double scale = textScaler.scale(10) / 10;
+        testWidgets(
+            '$display, text x$scale keeps the album actions tappable and legible',
+            (WidgetTester tester) async {
+          await _pumpAt(
+            tester,
+            display,
+            textScaler,
+            _screens['Album detail']!,
+          );
 
-        final Finder play = find.widgetWithText(FilledButton, 'Play');
-        expect(play, findsOneWidget);
+          final Finder play = find.widgetWithText(FilledButton, 'Play');
+          expect(play, findsOneWidget);
 
-        // A primary action's own label must never be the thing that gets cut.
-        expect(
-          _truncated(
-              tester, find.descendant(of: play, matching: find.byType(Text))),
-          isEmpty,
-          reason: 'the Play label is truncated at $display',
-        );
+          // A primary action's own label must never be the thing that gets cut.
+          expect(
+            _truncated(
+                tester, find.descendant(of: play, matching: find.byType(Text))),
+            isEmpty,
+            reason: 'the Play label is truncated at $display, text x$scale',
+          );
 
-        // Material sizes its own tap targets, but a scaled layout can still
-        // squeeze a button below the minimum before anything overflows.
-        expect(
-          tester.getSize(play).height,
-          greaterThanOrEqualTo(kMinInteractiveDimension - 0.01),
-          reason: 'the Play button is under the minimum tap height at $display',
-        );
+          // Material sizes its own tap targets, but a scaled layout can still
+          // squeeze a button below the minimum before anything overflows.
+          expect(
+            tester.getSize(play).height,
+            greaterThanOrEqualTo(kMinInteractiveDimension - 0.01),
+            reason: 'the Play button is under the minimum tap height at '
+                '$display, text x$scale',
+          );
 
-        // tap() hit-tests at the widget's visual centre, so this fails when the
-        // painted button and the box that receives the click have drifted apart.
-        await tester.tap(play);
-        await tester.pumpAndSettle();
-        _expectNoOverflow(tester, 'Play at $display');
-      });
+          // tap() hit-tests at the widget's visual centre, so this fails when
+          // the painted button and the box that receives the click have
+          // drifted apart.
+          await tester.tap(play);
+          await tester.pumpAndSettle();
+          _expectNoOverflow(tester, 'Play at $display, text x$scale');
+        });
+      }
     }
   });
 
