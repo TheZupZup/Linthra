@@ -31,7 +31,7 @@
   The <summary> is held to Flathub's quality guidelines, which are stricter
   than AppStream's: at most 35 characters, no trailing period, no leading
   article, and it may not repeat the app's own name. "Play your own music from
-  this device" was 36 — one character over, and the kind of finding that only
+  this device" was 36, one character over, and the kind of finding that only
   turns up when a submission is already open. test/tooling/
   flathub_metadata_guardrails_test.dart holds the rules that can be checked
   without building anything; scripts/flathub_builder_lint.py runs the real

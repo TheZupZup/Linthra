@@ -7,7 +7,7 @@ CI has validated Linthra's desktop entry and metainfo for a while, with
 `desktop-file-validate` and `appstreamcli validate`. Those answer a different
 question: whether two files are well-formed.
 
-Flathub's own linter answers the one that matters for a submission — whether it
+Flathub's own linter answers the one that matters for a submission: whether it
 would be *accepted*. It checks whether the sources are reproducible, whether the
 permissions are ones Flathub grants, whether the metainfo carries what a
 software centre needs to show the app at all, and a long list of listing-quality
@@ -16,7 +16,7 @@ rules that no XML validator knows about.
 ## The exact commands
 
 The linter ships inside the `org.flatpak.Builder` Flatpak, which is how
-Flathub's own documentation runs it — the same tool a reviewer uses.
+Flathub's own documentation runs it, the same tool a reviewer uses.
 
 ```sh
 flatpak install -y flathub org.flatpak.Builder
@@ -25,7 +25,7 @@ flatpak install -y flathub org.flatpak.Builder
 flatpak run --command=flatpak-builder-lint org.flatpak.Builder \
   manifest flatpak/io.github.thezupzup.linthra.yml
 
-# The exported repository — what Flathub would publish.
+# The exported repository, what Flathub would publish.
 flatpak run --command=flatpak-builder-lint org.flatpak.Builder \
   repo flatpak/repo-ci
 
@@ -58,7 +58,7 @@ succeeds when its tool is missing is worse than no check, because it is
 reported as evidence.
 
 Silence is read carefully, in both directions. flatpak-builder-lint 3.x prints
-*nothing at all* when a mode finds nothing, and exits 0 — that is a clean
+*nothing at all* when a mode finds nothing, and exits 0. That is a clean
 report, and it cannot be confused with a missing tool because the linter's
 presence is established before any mode runs. Silence with a **non-zero** exit
 explains nothing and is still refused.
@@ -76,7 +76,7 @@ rather than an exit code.
 reports also fails the run, so the file cannot quietly accumulate justifications
 for things that were fixed years ago.
 
-**An exception with no reason is rejected outright** — an empty string there is
+**An exception with no reason is rejected outright**: an empty string there is
 a suppression wearing a different hat.
 
 ## Tool and version assumptions
@@ -111,7 +111,7 @@ First real run, against `flatpak-builder-lint 3.0.0.post798.dev0+5181352`:
 | Mode | Result |
 | --- | --- |
 | `manifest` | **clean** |
-| `appstream` | **clean** — "Validation was successful." |
+| `appstream` | **clean**, "Validation was successful." |
 | `repo` | two errors, both the same missing screenshots |
 
 The `repo` findings:
@@ -125,7 +125,7 @@ info: metainfo-missing-screenshots: The metainfo file is missing screenshots
 
 Notably *not* reported: the manifest's `type: dir` source. The development
 manifest builds the working checkout, which is right for testing a PR and wrong
-for a submission — but that is a Flathub *submission* requirement enforced
+for a submission, but that is a Flathub *submission* requirement enforced
 elsewhere, not something this linter flags, so the submission manifest
 ([#451](https://github.com/TheZupZup/Linthra/issues/451)) is still needed and
 this check will not tell you so.
@@ -150,7 +150,7 @@ character summary cap, no trailing period, no leading article, no repeated app
 name, the 20-character name cap, the required metainfo elements, and the desktop
 entry's visibility and icon name.
 
-It is not a reimplementation of the linter — everything else is the linter's
+It is not a reimplementation of the linter: everything else is the linter's
 job. It exists so a regression is caught on the PR that causes it rather than in
 a submission review. The 35-character cap is the one that already bit: the
 summary was 36.
@@ -165,8 +165,8 @@ around it does not.
 
 ## Related
 
-- [flatpak-ci.md](./flatpak-ci.md) — the build this lints the output of
-- [flathub-update-process.md](./flathub-update-process.md) — where a lint result
+- [flatpak-ci.md](./flatpak-ci.md), the build this lints the output of
+- [flathub-update-process.md](./flathub-update-process.md), where a lint result
   sits in a release
-- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md) — the permission
+- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md), the permission
   policy the manifest mode also checks

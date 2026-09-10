@@ -6,7 +6,7 @@
 The script's value is entirely in what it refuses to call a pass, so that is
 what these tests are about: a missing linter, a finding nobody wrote a reason
 for, an exception with an empty reason, and an exception the linter no longer
-reports. The linter itself is stubbed — it lives in a Flatpak, and the point
+reports. The linter itself is stubbed: it lives in a Flatpak, and the point
 here is the judgement around it, not its rules.
 """
 

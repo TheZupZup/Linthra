@@ -15,7 +15,7 @@ result. In particular it refuses two comfortable outcomes:
     nothing.
   * A finding is only tolerated when it has a written reason in the exceptions
     file, and an exception that the linter no longer reports is itself a
-    failure — so the file cannot quietly accumulate reasons for problems that
+    failure, so the file cannot quietly accumulate reasons for problems that
     were fixed years ago.
 
 Usage:
@@ -105,7 +105,7 @@ def run_linter(mode: str, target: Path) -> dict:
     """Run one linter mode and return its parsed report.
 
     The linter exits non-zero when it finds something, which is not an error
-    here — the findings are the output. Anything that stops it from producing a
+    here: the findings are the output. Anything that stops it from producing a
     report at all is.
     """
     command = [
@@ -128,7 +128,7 @@ def run_linter(mode: str, target: Path) -> dict:
     output = result.stdout.strip()
     if not output:
         # flatpak-builder-lint 3.x prints nothing at all when a mode finds
-        # nothing, and exits 0. That is a clean report, not a missing tool —
+        # nothing, and exits 0. That is a clean report, not a missing tool,
         # and it cannot be confused with one here, because main() has already
         # established that org.flatpak.Builder is installed before any mode
         # runs. A *non-zero* exit with no output is still unexplained, and is

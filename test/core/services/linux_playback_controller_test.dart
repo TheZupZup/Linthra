@@ -110,9 +110,9 @@ void main() {
 
     test('keeps what a caller already configured, and adds the defaults', () {
       // The headless audio smoke picks the output device this way.
-      final resolved = resolveLinuxMpvProperties(const {'ao': 'alsa'});
+      final resolved = resolveLinuxMpvProperties(const {'ao': 'null'});
 
-      expect(resolved['ao'], 'alsa');
+      expect(resolved['ao'], 'null');
       expect(resolved['cache-on-disk'], 'no');
     });
 

@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// The Flathub metadata rules that can be checked without building anything
 /// (#449).
 ///
-/// `flatpak-builder-lint` is the authority, and CI runs it — but it needs a
+/// `flatpak-builder-lint` is the authority, and CI runs it, but it needs a
 /// Flatpak, a 90-minute build for two of its three modes, and a runner with
 /// `org.flatpak.Builder` installed. These are the same rules from Flathub's
 /// quality guidelines, checked in the second it takes to read a file, so a
@@ -69,7 +69,7 @@ void main() {
       }
     });
 
-    // "Linthra — a music player" wastes the line: the name is already shown
+    // "Linthra, a music player" wastes the line: the name is already shown
     // right next to it.
     test('does not repeat the app name', () {
       expect(tagValue('summary')!.toLowerCase(), isNot(contains('linthra')));

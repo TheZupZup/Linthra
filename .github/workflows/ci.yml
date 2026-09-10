@@ -122,8 +122,20 @@ jobs:
       - name: Test the release metadata checker
         run: python3 test/tooling/check_release_metadata_sync_test.py
 
+      # The Flatpak audio smoke (#446) runs against a manifest derived from the
+      # submission manifest, and the derivation is only trustworthy because the
+      # generator refuses to change anything but the app module's build
+      # commands. That refusal is what these tests hold it to, and they run here
+      # rather than in the 90-minute Flatpak job so a manifest regenerated into
+      # a shape the generator no longer understands is caught on any PR. Local
+      # twin: `python3 test/tooling/make_flatpak_smoke_manifest_test.py`.
+      - name: Test the Flatpak smoke manifest generator
+        run: |
+          python3 -m pip install --quiet PyYAML
+          python3 test/tooling/make_flatpak_smoke_manifest_test.py
+
       # The Flathub linter itself needs a Flatpak and, for two of its three
-      # modes, a 90-minute build — so it runs in the Flatpak workflow. What
+      # modes, a 90-minute build, so it runs in the Flatpak workflow. What
       # runs here is the judgement wrapped around it: that a missing linter is
       # not a pass, that a finding needs a written reason, and that a reason
       # for a finding the linter no longer reports is itself a failure (#449).
