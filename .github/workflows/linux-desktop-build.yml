@@ -139,8 +139,6 @@ jobs:
       #                                              plaintext credentials.
       #   libmpv-dev                                — media_kit audio backend;
       #                                              also supplies runtime libmpv
-      #   libasound2-plugins                        — ALSA null PCM for headless
-      #                                              native audio lifecycle smoke
       #   desktop-file-utils                        — desktop-file-validate, for
       #                                              the installed desktop entry
       - name: Install Linux build dependencies
@@ -176,7 +174,6 @@ jobs:
             libstdc++-12-dev \
             libsecret-1-dev \
             libmpv-dev \
-            libasound2-plugins \
             desktop-file-utils \
             xauth \
             xvfb
@@ -231,29 +228,26 @@ jobs:
           fi
 
       # A normal Flutter widget test cannot load the Linux plugin bundle, so
-      # this target runs in the real GTK runner and opens a silent local WAV
-      # through libmpv without requiring audible output. Three load/play/stop/
-      # dispose cycles cover reinitialization.
+      # this target runs in the real GTK runner and walks a full transport
+      # lifecycle — initialize, load, play, pause, seek, stop, dispose — against
+      # a local WAV it generates, through libmpv, without requiring audible
+      # output. Three cycles cover reinitialization. The same target runs inside
+      # the packaged Flatpak (#446, docs/flatpak-audio-smoke.md); this run uses
+      # the host's libmpv and so says nothing about packaging.
       - name: Build native audio lifecycle smoke
         run: >-
           flutter build linux --release
           --target=tool/linux_audio_backend_smoke.dart
 
-      # libmpv autoselects PipeWire on ubuntu-latest, which has no audio device.
-      # The smoke target sets `ao=alsa`; route ALSA's default PCM to the null
-      # plugin for this step only — production builds keep the host's normal audio.
+      # libmpv autoselects PipeWire on ubuntu-latest, which has no audio device,
+      # so the smoke target defaults to libmpv's own `null` output. That output
+      # still paces samples against the system clock, which is what the new
+      # position/pause/seek assertions need; ALSA's null PCM does not, and a
+      # five-second fixture used to finish in milliseconds against it. The
+      # override applies to this run only — production builds keep the host's
+      # normal audio.
       - name: Run native audio lifecycle smoke
-        run: |
-          set -euo pipefail
-          alsa_null_conf="$(mktemp)"
-          trap 'rm -f "$alsa_null_conf"' EXIT
-          printf '%s\n' \
-            'pcm.!default { type plug; slave.pcm "null" }' \
-            'pcm.null { type null }' \
-            'ctl.!default { type null }' \
-            > "$alsa_null_conf"
-          ALSA_CONFIG_PATH="$alsa_null_conf" xvfb-run --auto-servernum \
-            build/linux/x64/release/bundle/linthra
+        run: xvfb-run --auto-servernum build/linux/x64/release/bundle/linthra
 
       # Release mode, because that is the build that has to work for packaging
       # and it exercises the AOT path a debug build skips.

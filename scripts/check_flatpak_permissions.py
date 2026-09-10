@@ -14,7 +14,7 @@ Three things are checked.
    grant, or a page describing a sandbox that no longer exists.
 
 2. **Nothing on the refused list is present.** Those are grants that need a
-   security review rather than a commit — the whole host, the whole session
+   security review rather than a commit: the whole host, the whole session
    bus, `--allow=devel`, and the rest. They are rejected here as well as by the
    allow-list, so widening the sandbox means editing two independent checks.
 
@@ -91,7 +91,7 @@ def documented_permissions(path: Path) -> dict[str, str]:
     """The permission table from the rationale document, as {arg: rationale}.
 
     A row counts only when its first cell is a backticked finish-arg and every
-    other cell has something in it — a row with an empty "why" column is not a
+    other cell has something in it, since a row with an empty "why" column is not a
     rationale, it is a placeholder.
     """
     rows: dict[str, str] = {}

@@ -25,7 +25,7 @@ Eight permissions. No filesystem access of any kind, no session-bus access, no
 | `--socket=pulseaudio` | Audio output | `lib/core/services/linux_playback_controller.dart`, and the `mpv` module built with `-Dpulse=enabled` | libmpv needs a path to the audio server. This one socket covers PulseAudio and PipeWire alike, because every PipeWire desktop ships `pipewire-pulse`. There is no narrower audio grant in Flatpak. |
 | `--share=network` | Self-hosted servers | `lib/core/sources/jellyfin/`, `lib/core/sources/subsonic/`, `lib/core/sources/plex/` | Jellyfin, Navidrome/Subsonic and Plex are HTTP(S) endpoints the user configures, on the LAN or beyond. Flatpak's network permission is all-or-nothing: there is no per-host form to ask for instead. |
 | `--own-name=org.mpris.MediaPlayer2.linthra` | Media keys, and the player controls in a desktop shell | `lib/core/services/mpris/mpris_media_session.dart` | MPRIS is a well-known bus name a shell looks for. Flatpak lets an app own names under its own app id for free, and this is not one of those, so it has to be granted. **Owning is not talking**: it lets other clients call Linthra and gives Linthra no way to call anything. |
-| `--own-name=org.mpris.MediaPlayer2.linthra.*` | A second window's media session | same | The MPRIS spec's `.instance<pid>` fallback, used when a second Linthra window finds the plain name taken. Scoped to Linthra's own names — an `org.mpris.MediaPlayer2.*` wildcard would reach every other player's session, and is refused below. |
+| `--own-name=org.mpris.MediaPlayer2.linthra.*` | A second window's media session | same | The MPRIS spec's `.instance<pid>` fallback, used when a second Linthra window finds the plain name taken. Scoped to Linthra's own names, since an `org.mpris.MediaPlayer2.*` wildcard would reach every other player's session, and is refused below. |
 
 ## Features that work with no permission at all
 
@@ -73,14 +73,14 @@ what is still a person's job.
 
 | Feature | Automated evidence | Still manual |
 | --- | --- | --- |
-| The app starts and is a real desktop window | `scripts/flatpak_launch_smoke.sh` — installs the package, waits for the window, and holds it to the app id and its icon | — |
-| No host filesystem reach | `scripts/flatpak_filesystem_smoke.sh` — the installed package declares no filesystem or persist grant, no override adds one, an unrelated host file is invisible, and the private XDG tree is writable | — |
-| Audio output | `scripts/flatpak_audio_smoke.sh` (#446) — the full transport lifecycle on the libmpv the manifest built | That a speaker actually makes a sound: no CI runner has an audio device |
-| Local libraries | `scripts/flatpak_local_library_smoke.sh` (#447) — a user-selected folder scans, its tags and artwork load, a track plays, and unrelated host paths stay unreadable | The chooser dialog itself, which only a person can click |
-| Self-hosted servers | — | Sign in to a Jellyfin/Navidrome/Plex server from the installed Flatpak and play a track. Needs a server and a credential, so it is not a CI job |
-| Secure credentials | — | Sign in, quit, relaunch, and confirm the session survived — which is what proves libsecret's portal-backed store worked with no `--talk-name` |
-| MPRIS | — | `playerctl status` and the media keys while the packaged app plays; a second window to exercise the `.instance` name |
-| Notifications | — | Whatever surfaces a notification, once one does. Nothing in Linthra posts one on Linux today, which is why no permission is listed for it |
+| The app starts and is a real desktop window | `scripts/flatpak_launch_smoke.sh`, which installs the package, waits for the window, and holds it to the app id and its icon | none |
+| No host filesystem reach | `scripts/flatpak_filesystem_smoke.sh`, where the installed package declares no filesystem or persist grant, no override adds one, an unrelated host file is invisible, and the private XDG tree is writable | none |
+| Audio output | `scripts/flatpak_audio_smoke.sh` (#446), the full transport lifecycle on the libmpv the manifest built | That a speaker actually makes a sound: no CI runner has an audio device |
+| Local libraries | `scripts/flatpak_local_library_smoke.sh` (#447), where a user-selected folder scans, its tags and artwork load, a track plays, and unrelated host paths stay unreadable | The chooser dialog itself, which only a person can click |
+| Self-hosted servers | none | Sign in to a Jellyfin/Navidrome/Plex server from the installed Flatpak and play a track. Needs a server and a credential, so it is not a CI job |
+| Secure credentials | none | Sign in, quit, relaunch, and confirm the session survived, which is what proves libsecret's portal-backed store worked with no `--talk-name` |
+| MPRIS | none | `playerctl status` and the media keys while the packaged app plays; a second window to exercise the `.instance` name |
+| Notifications | none | Whatever surfaces a notification, once one does. Nothing in Linthra posts one on Linux today, which is why no permission is listed for it |
 
 The two gaps that matter for [#456](https://github.com/TheZupZup/Linthra/issues/456)
 are server playback and secure credentials: both are manual today, and neither
@@ -95,9 +95,9 @@ started needing something.
 
 ## Related
 
-- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md) — the filesystem
+- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md), the filesystem
   half in detail, and the manual portal pass
-- [flathub-builder-lint.md](./flathub-builder-lint.md) — Flathub's own view of
+- [flathub-builder-lint.md](./flathub-builder-lint.md), Flathub's own view of
   the same permissions
-- `scripts/check_linux_runner.py` — the exact allow-list, checked against both
+- `scripts/check_linux_runner.py`, the exact allow-list, checked against both
   manifests

@@ -5,7 +5,7 @@
 
 The check exists to make two failures loud: a permission nobody explained, and
 an explanation for a permission that is no longer there. Both directions are
-tested here, along with the refusal list — because a refusal that quietly stops
+tested here, along with the refusal list, because a refusal that quietly stops
 matching is the one that would let the sandbox widen unnoticed.
 
 The real repository is read, never written. Fixtures are built in temporary

@@ -7,8 +7,8 @@ This document records the filesystem surface Linthra's Flatpak is allowed to
 use, why each path is reachable, and how to prove that unrelated host files
 remain outside the sandbox.
 
-The wider audit — every socket, device, network and D-Bus permission, each
-against the feature that needs it — is
+The wider audit (every socket, device, network and D-Bus permission, each
+against the feature that needs it) is
 [flatpak-permissions.md](./flatpak-permissions.md) (#455). This page is the
 filesystem half in detail.
 
