@@ -8,7 +8,7 @@ two, so it is worth being precise about which:
 
 **Display scaling** raises the device pixel ratio, which *shrinks* the logical
 size of the same physical window. A 1920×1080 monitor at 150% hands the app
-1280×720 logical pixels. Nothing gets relatively bigger — there is simply less
+1280×720 logical pixels. Nothing gets relatively bigger, there is simply less
 room, so a window that was `expanded` at 100% can be `medium` at 150% and
 `compact` at 200%. This is what changes which layout you get.
 
@@ -40,17 +40,17 @@ detail and Now Playing screens across a matrix of both axes:
 Every one of those is pumped at text scale 1.0, 1.3 (GNOME's Large Text) and
 2.0, and each case asserts:
 
-- **no overflow** — any `RenderFlex` overflow or layout exception fails the test
+- **no overflow**: any `RenderFlex` overflow or layout exception fails the test
   naming the screen and the scale;
-- **primary actions stay legible and tappable** — the Play button's own label is
+- **primary actions stay legible and tappable**: the Play button's own label is
   never truncated, its height stays at or above `kMinInteractiveDimension`, and
   it is tapped, which hit-tests at its visual centre and so fails if the painted
   control and the box that receives the click have drifted apart;
-- **the runner's floor really is a floor** — the minimum window size is read out
+- **the runner's floor really is a floor**: the minimum window size is read out
   of `linux/runner/my_application.cc` rather than repeated, and every screen is
   rendered at it, at three pixel ratios and three text scales. Display scaling
   only ever makes the logical window smaller, so the floor is the worst case;
-- **ultrawide caps rather than stretches** — above `maxPaneLayoutWidth` no
+- **ultrawide caps rather than stretches**: above `maxPaneLayoutWidth` no
   content column is allowed past `maxContentWidth`, because the failure mode at
   3440 px is not overflow, it is a track row with its title and its duration a
   screen apart.
@@ -113,6 +113,6 @@ release does not need a person to find it again.
 
 ## Related
 
-- `lib/shared/layout/adaptive_layout.dart` — the size classes and content caps
-- [manual-test-checklist.md](./manual-test-checklist.md) — the wider manual pass
-- [linux-desktop.md](./linux-desktop.md) — the Linux build and its runner
+- `lib/shared/layout/adaptive_layout.dart`, the size classes and content caps
+- [manual-test-checklist.md](./manual-test-checklist.md), the wider manual pass
+- [linux-desktop.md](./linux-desktop.md), the Linux build and its runner

@@ -8,7 +8,7 @@ import 'package:linthra/shared/widgets/artwork_image.dart';
 
 /// Artwork decode bounds at HiDPI and fractional scales (#457).
 ///
-/// A cover arrives at whatever size its source felt like — a server's original
+/// A cover arrives at whatever size its source felt like: a server's original
 /// scan, or the 1024 px bound Linthra's own local cache applies. Drawn into a
 /// 48 px avatar with no decode bound, that costs the same memory and CPU as
 /// showing it full-screen, once per visible row, and every point of scale

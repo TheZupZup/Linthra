@@ -458,7 +458,7 @@ compositor does that Flutter's own layout cannot tell you. The full GNOME/KDE
 steps live in [hidpi-and-scaling.md](./hidpi-and-scaling.md); the short version:
 
 - ☐ GNOME: Library, an album, an artist and Now Playing at 100 / 125 / 150 /
-  175 / 200% display scale — nothing clipped, artwork sharp rather than soft.
+  175 / 200% display scale: nothing clipped, artwork sharp rather than soft.
 - ☐ GNOME with Large Text on, at 100% and 150%.
 - ☐ KDE Plasma: the same five scales, plus Force font DPI at 96 and 120.
 - ☐ Drag the window to its minimum size: it stops somewhere usable and the

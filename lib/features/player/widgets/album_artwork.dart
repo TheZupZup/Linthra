@@ -35,8 +35,8 @@ class AlbumArtwork extends StatelessWidget {
         child: const _ArtworkPlaceholder(),
       );
     }
-    // This widget fills whatever box it is given — a 48 px row thumbnail and a
-    // full-screen cover are the same widget — so the decode bound has to come
+    // This widget fills whatever box it is given (a 48 px row thumbnail and a
+    // full-screen cover are the same widget) so the decode bound has to come
     // from the box rather than from a constant. LayoutBuilder is what makes the
     // real extent available before the image is built (#457).
     return ClipRRect(

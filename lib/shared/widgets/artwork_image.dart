@@ -66,7 +66,7 @@ const int minArtworkDecodeExtent = 32;
 ///
 /// This is the whole HiDPI story for artwork: the decode target follows the
 /// *device* pixels the cover will actually occupy, so a 48 px avatar decodes at
-/// 48 px at 100%, 84 px at 175% and 96 px at 200% — sharp at every scale,
+/// 48 px at 100%, 84 px at 175% and 96 px at 200%: sharp at every scale,
 /// without ever paying for the full-size image.
 ///
 /// A non-finite or non-positive extent means the box has not been measured
@@ -120,7 +120,7 @@ int artworkDecodeExtent(BuildContext context, double logicalExtent) =>
 /// the caller's `errorBuilder` falls back to the placeholder — never a
 /// broken-image glyph.
 ///
-/// [decodeExtent] bounds how large the image is decoded, in device pixels —
+/// [decodeExtent] bounds how large the image is decoded, in device pixels,
 /// see [artworkDecodeExtent], which every caller should use to derive it from
 /// the box it is about to draw into. Omitting it decodes at full size, which
 /// is what the resolver tests want and what a caller that genuinely cannot know

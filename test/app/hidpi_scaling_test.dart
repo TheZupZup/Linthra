@@ -37,7 +37,7 @@ import '../features/player/fake_playback_controller.dart';
 ///     the one that overflows rows and buttons.
 ///
 /// Real desktops combine them, so the matrix below is expressed the way a user
-/// would describe their setup — a monitor and a scale — and every case is
+/// would describe their setup (a monitor and a scale) and every case is
 /// pumped at both a plain and an enlarged text scale.
 class _Display {
   const _Display(this.label, this.physicalSize, this.devicePixelRatio);
@@ -181,7 +181,7 @@ void _expectNoOverflow(WidgetTester tester, String what) {
 ///
 /// A `TextOverflow.ellipsis` on a deliberately single-line row is a design
 /// decision, not a defect, so this is used against widgets that are supposed to
-/// fit — button labels, and the counts and headers beside them.
+/// fit: button labels, and the counts and headers beside them.
 Iterable<RenderParagraph> _truncated(WidgetTester tester, Finder finder) {
   return finder
       .evaluate()
