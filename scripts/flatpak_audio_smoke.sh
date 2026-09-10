@@ -139,7 +139,17 @@ printf 'Installed %s from local repository %s.\n' "$APP_ID" "$REPO_PATH"
 # A missing smoke binary means the package was built from the submission
 # manifest rather than the derived one. Say so, instead of failing later with
 # an opaque "command not found" from inside the sandbox.
-if ! flatpak run --command=sh "$APP_ID" -c '[ -x "$1" ]' sh "$SMOKE_COMMAND"; then
+# Through bounded_run like everything else: this is a `flatpak run` too, and
+# sandbox startup is exactly where a stall would go unnoticed — an unbounded
+# probe here would recreate the long, logless hang the bound exists to prevent.
+probe_status=0
+bounded_run flatpak run --command=sh "$APP_ID" -c '[ -x "$1" ]' sh "$SMOKE_COMMAND" ||
+  probe_status=$?
+if timed_out "$probe_status"; then
+  report
+  fail "checking for $SMOKE_COMMAND hung and was killed after ${RUN_TIMEOUT_SECONDS}s"
+fi
+if ((probe_status != 0)); then
   fail "$SMOKE_COMMAND is not in the installed package; build the manifest from scripts/make_flatpak_smoke_manifest.py"
 fi
 

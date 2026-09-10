@@ -197,6 +197,10 @@ void main() {
       expect(harness, contains('RUN_TIMEOUT_SECONDS'));
       expect(harness, contains('timeout --signal=TERM --kill-after=30'));
       expect(harness, contains('hung inside the sandbox and was killed'));
+      // The install probe is a `flatpak run` too, and sandbox startup is
+      // exactly where a stall would go unnoticed.
+      expect(harness, contains('bounded_run flatpak run --command=sh'));
+      expect(harness, contains(r'fail "checking for $SMOKE_COMMAND hung'));
       expect(
         harness,
         contains(r'fail "the smoke hung $what and was killed after'),
