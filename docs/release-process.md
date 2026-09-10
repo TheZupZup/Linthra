@@ -777,14 +777,16 @@ disagree:
 It reads a bundle; it does not run one. Two other things carry the playback
 evidence, and neither is duplicated here:
 
-- the **audio lifecycle smoke** (`flatpak-build.yml` ▸ *Audio lifecycle smoke in
-  the sandbox*, [flatpak-audio-smoke.md](./flatpak-audio-smoke.md)) walks the
-  real playback lifecycle inside the installed sandbox on the libmpv the
-  manifest built. It runs on a manifest *derived* from the shipped one — the
-  same package plus a test binary under `/app/libexec` — precisely so the
-  shipped package carries no test harness, which is also why it cannot be run
-  against the release bundle itself. It gates the same packaging changes this
-  bundle is built from;
+- the **sandbox smokes** (`flatpak-build.yml` ▸ *Sandbox smokes on the packaged
+  app*) run inside the installed sandbox. The audio one
+  ([flatpak-audio-smoke.md](./flatpak-audio-smoke.md)) walks the real playback
+  lifecycle on the libmpv the manifest built; the local-library one
+  ([flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md)) covers
+  what a chosen music folder can and cannot reach. Both run on a manifest
+  *derived* from the shipped one — the same package plus test binaries under
+  `/app/libexec` — precisely so the shipped package carries no test harness,
+  which is also why they cannot be pointed at the release bundle itself. They
+  gate the same packaging changes this bundle is built from;
 - the real-desktop checks are in
   [linux-desktop.md](./linux-desktop.md#manual-flatpak-smoke-checklist).
 

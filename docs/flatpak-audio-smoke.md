@@ -3,7 +3,7 @@
 Linthra's Linux audio runs on libmpv through media_kit. Outside a sandbox that
 library comes from the distribution; inside the Flatpak it is built by the
 manifest. Those are different libraries in different places, and a package can
-be wrong about the second one while every native test still passes — because
+be wrong about the second one while every native test still passes, because
 the native tests were quietly using the first.
 
 This smoke closes that gap (issue
@@ -33,7 +33,7 @@ rather than a single-shot failure.
 ### A finding: the app hangs on a wrong libmpv
 
 Handed a library that loads under libmpv's name but exports none of its
-symbols, the packaged app does not fail — it **hangs**, holding a window open.
+symbols, the packaged app does not fail, it **hangs**, holding a window open.
 CI held one for 46 minutes before the job was cancelled. media_kit takes what
 `dlopen` gives it, and nothing downstream ever concludes that the thing it got
 is not libmpv.
@@ -41,7 +41,7 @@ is not libmpv.
 This is a packaging-failure mode rather than something a user can reach: a
 Flatpak always ships its own libmpv. It is recorded here because it shapes the
 negative control below, and because making the app check its own libmpv would
-be a change to shipped code — its own issue, not a test's.
+be a change to shipped code, so it is its own issue rather than a test's.
 
 ### The libmpv identity check
 
@@ -58,8 +58,8 @@ A test that cannot fail proves nothing, so `scripts/flatpak_audio_smoke.sh`
 runs the smoke twice more and requires both runs to **fail**, naming why.
 
 1. **A libmpv that is not libmpv.** A real shared library is copied over
-   *every* name media_kit will try — `libmpv.so`, `libmpv.so.2`,
-   `libmpv.so.1`, in that order — in a directory prepended to
+   *every* name media_kit will try (`libmpv.so`, `libmpv.so.2`,
+   `libmpv.so.1`, in that order) in a directory prepended to
    `LD_LIBRARY_PATH`, so the first candidate opened is the shadow, and it
    cannot supply mpv's symbols.
 
@@ -71,13 +71,13 @@ runs the smoke twice more and requires both runs to **fail**, naming why.
    Three CI rounds shaped this control, each correcting the last. It first
    shadowed only the versioned soname, leaving the unversioned symlink the
    package also installs as the first thing media_kit opens. It then used a
-   zero-byte file, which is not a broken library but an invalid one — an
+   zero-byte file, which is not a broken library but an invalid one: an
    unreadable ELF header is skipped rather than loaded. Both made the control
    *pass*, which is the one thing a negative control must never do.
 
 2. **The identity check itself.** The same run with
    `LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX` pointed at a path nothing can
-   satisfy has to fail on it — otherwise a passing positive run would not tell
+   satisfy has to fail on it, otherwise a passing positive run would not tell
    you the check ran at all. This one must fail *promptly and name libmpv*: a
    hang here would be a failure of the control.
 
@@ -89,14 +89,14 @@ counting as a pass.
 
 **It does not prove sound comes out of a speaker.** No CI runner has an audio
 device, so both runs use libmpv's own `null` output, which discards the samples
-but still paces them against the system clock — which is exactly what the
+but still paces them against the system clock, which is exactly what the
 position, pause and seek assertions need. (ALSA's null PCM is not a substitute:
 it takes data as fast as the decoder produces it, so there is no playback left
 to observe.) Decode, timing, seeking and the transport are all real; the final
 hop to hardware is not exercised.
 
 That hop is a manual check. On a normal desktop, install the Flatpak and play a
-track — the `--socket=pulseaudio` grant covers PulseAudio and PipeWire's
+track. The `--socket=pulseaudio` grant covers PulseAudio and PipeWire's
 pulse shim, and the output-device picker under Settings is the quickest way to
 confirm libmpv enumerated real devices.
 
@@ -105,7 +105,7 @@ does not touch the network or any credential at any point.
 
 ## The fixture
 
-A few dozen kilobytes of 8 kHz mono PCM — a quiet 440 Hz tone — generated into
+A few dozen kilobytes of 8 kHz mono PCM (a quiet 440 Hz tone) generated into
 the sandbox's own temp directory when the smoke starts.
 
 Generated rather than committed on purpose: there is no media licence to track,
@@ -115,7 +115,7 @@ and a reviewer can see exactly what the decoder is being handed.
 ## Why CI builds a second manifest
 
 The smoke needs a second Flutter binary inside the package, and the submission
-manifest must not carry one — a test harness in a published Flathub app is
+manifest must not carry one: a test harness in a published Flathub app is
 dead weight a reviewer would rightly ask about.
 
 So `scripts/make_flatpak_smoke_manifest.py` derives a build-only manifest from
@@ -133,9 +133,11 @@ submitted.
 
 ## Running it
 
-In CI this is the `Audio lifecycle smoke in the sandbox` job in
-`.github/workflows/flatpak-build.yml`, which runs beside the existing build
-rather than after it, so the wall clock is unchanged.
+In CI this is the first step of the `Sandbox smokes on the packaged app` job
+in `.github/workflows/flatpak-build.yml`, which runs beside the existing
+build rather than after it, so the wall clock is unchanged. The
+[local-library smoke](./flatpak-local-library-smoke.md) shares the same
+derived manifest and the same build.
 
 Locally, from a clean checkout with `flatpak`, `flatpak-builder`, `xvfb-run`,
 `dbus-run-session` and PyYAML available:
@@ -145,15 +147,15 @@ python3 scripts/make_flatpak_smoke_manifest.py
 
 cd flatpak
 flatpak-builder --user --install-deps-from=flathub --install-deps-only \
-  --force-clean flatpak-builder-audio-smoke \
-  io.github.thezupzup.linthra.audio-smoke.yml
+  --force-clean flatpak-builder-sandbox-smoke \
+  io.github.thezupzup.linthra.sandbox-smoke.yml
 
 flatpak-builder --user --force-clean --disable-cache --disable-rofiles-fuse \
-  --repo=repo-audio-smoke flatpak-builder-audio-smoke \
-  io.github.thezupzup.linthra.audio-smoke.yml
-flatpak build-update-repo repo-audio-smoke
+  --repo=repo-sandbox-smoke flatpak-builder-sandbox-smoke \
+  io.github.thezupzup.linthra.sandbox-smoke.yml
+flatpak build-update-repo repo-sandbox-smoke
 
-bash ../scripts/flatpak_audio_smoke.sh repo-audio-smoke
+bash ../scripts/flatpak_audio_smoke.sh repo-sandbox-smoke
 ```
 
 The harness refuses to run if Linthra is already installed, so it can never
@@ -162,7 +164,7 @@ removes on exit, app data included.
 
 Every sandbox run is time-bounded (`LINTHRA_FLATPAK_SMOKE_TIMEOUT`, 300s by
 default), including the probe that checks the smoke binary is installed. The
-Dart side bounds each transport step, but only once Dart is running — a hang in
+Dart side bounds each transport step, but only once Dart is running, and a hang in
 the loader, the GTK realize, or media_kit bringing up a library that turns out
 not to be libmpv has nothing else watching it, and a hung CI job serves no log
 at all until it ends.
@@ -172,8 +174,8 @@ What hitting the bound *means* differs by run, and only one case accepts it:
 | Run | Hitting the bound |
 | --- | --- |
 | The lifecycle run, and the install probe | a failure |
-| The shadow control (a wrong libmpv) | **accepted** — the app is known to hang here, and what the control proves is that such a libmpv cannot produce a *passing* smoke |
-| The identity control (a required prefix nothing satisfies) | a failure — this one must fail promptly and name libmpv |
+| The shadow control (a wrong libmpv) | **accepted**, since the app is known to hang here, and what the control proves is that such a libmpv cannot produce a *passing* smoke |
+| The identity control (a required prefix nothing satisfies) | a failure, and this one must fail promptly and name libmpv |
 
 An exit-0 run is never accepted, for any of them.
 
@@ -207,8 +209,8 @@ quotes file paths in its own error strings, the sandbox still sees the host's
 
 ## Related
 
-- [flatpak-ci.md](./flatpak-ci.md) — what the Flatpak build job proves
-- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md) — sandbox
+- [flatpak-ci.md](./flatpak-ci.md), what the Flatpak build job proves
+- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md), sandbox
   filesystem policy and its smoke
-- [flatpak-development.md](./flatpak-development.md) — building the Flatpak
+- [flatpak-development.md](./flatpak-development.md), building the Flatpak
   locally
