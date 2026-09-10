@@ -108,8 +108,21 @@ if ! flatpak run --command=sh "$APP_ID" -c '
   fail "sandbox isolation/app-data write smoke failed"
 fi
 
+# The checks above are about filesystem access specifically. #455 asks the
+# wider question: does the *installed* package carry exactly the permission set
+# that has a written rationale, and nothing else? A manifest says what was asked
+# for; this says what was built.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if command -v python3 >/dev/null 2>&1; then
+  python3 "$SCRIPT_DIR/check_flatpak_permissions.py" --installed ||
+    fail "the installed package's permissions do not match their rationale"
+else
+  fail "python3 is not installed, so the installed permission set was not checked"
+fi
+
 printf 'PASS: %s declares no filesystem/persist grant.\n' "$APP_ID"
 printf 'PASS: global/app user and system overrides add no filesystem/persist grant.\n'
 printf 'PASS: unrelated host file was invisible inside the sandbox.\n'
 printf 'PASS: sandbox-local XDG data and cache locations are writable.\n'
+printf 'PASS: the installed permission set matches docs/flatpak-permissions.md.\n'
 printf 'Manual portal-selected library validation: docs/flatpak-filesystem-audit.md\n'
