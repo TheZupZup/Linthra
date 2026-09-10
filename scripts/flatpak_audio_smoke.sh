@@ -235,11 +235,16 @@ expect_failure() {
 # header as "not this one" and move on. A valid library under the wrong name is
 # what actually gets opened and then cannot supply mpv's symbols.
 #
+# What the packaged app does with such a library is *hang* — CI held one for 46
+# minutes before the job was cancelled — which is why the smoke now resolves
+# libmpv itself before media_kit does, and why this control expects a prompt
+# failure naming libmpv rather than whatever the app would eventually do.
+#
 # The shadow lives in the sandbox's own cache directory and only
 # LD_LIBRARY_PATH points at it, so /app is untouched and the next run is
 # unaffected.
 printf 'Negative control: shadowing the packaged libmpv...\n'
-expect_failure "a libmpv that carries none of mpv's symbols" 'mpv' \
+expect_failure "a libmpv that carries none of mpv's symbols" 'libmpv' \
   flatpak run --command=sh "$APP_ID" -c '
     set -eu
     shadow="${XDG_CACHE_HOME:-$HOME/.cache}/linthra-audio-smoke-shadow-libmpv"
