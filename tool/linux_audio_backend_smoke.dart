@@ -1,7 +1,7 @@
 // Linux native audio lifecycle smoke.
 //
-// Drives Linthra's real Linux playback controller — the same
-// media_kit/libmpv stack the shipped app uses — through a full transport
+// Drives Linthra's real Linux playback controller (the same
+// media_kit/libmpv stack the shipped app uses) through a full transport
 // lifecycle against a generated local fixture:
 //
 //   initialize -> load -> play -> pause -> seek -> stop -> dispose
@@ -69,7 +69,7 @@ Future<void> main() async {
   // No CI runner has an audio device, so the default output is libmpv's own
   // `null` AO: it discards the samples but still paces them against the system
   // clock, which is what the position, pause and seek assertions below need.
-  // ALSA's null PCM is not a substitute — it accepts data as fast as the
+  // ALSA's null PCM is not a substitute, since it accepts data as fast as the
   // decoder produces it, so a five-second fixture finishes in milliseconds and
   // there is no playback left to observe.
   //
@@ -123,11 +123,11 @@ Future<void> main() async {
 /// Each step asserts before moving on, so a failure names the transition that
 /// broke rather than reporting that the whole lifecycle "did not work".
 Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
-  // initialize — constructing the controller is what registers media_kit and
+  // initialize: constructing the controller is what registers media_kit and
   // brings libmpv into the process.
   final LinuxPlaybackController controller = LinuxPlaybackController();
   try {
-    // load — playTrack resolves the URI and starts the engine on it.
+    // load: playTrack resolves the URI and starts the engine on it.
     await controller.playTrack(
       Track(id: 'smoke', title: 'Linthra audio smoke fixture', uri: path),
     );
@@ -158,7 +158,7 @@ Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
       );
     }
 
-    // play — and prove the clock is really running, not just that a status
+    // play, and prove the clock is really running, not just that a status
     // flipped.
     await controller.play();
     await _waitFor(
@@ -172,7 +172,7 @@ Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
       'play: the position never advanced past zero',
     );
 
-    // pause — the position must stop moving, not merely report paused.
+    // pause: the position must stop moving, not merely report paused.
     await controller.pause();
     await _waitFor(
       controller,
@@ -191,7 +191,7 @@ Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
       );
     }
 
-    // seek — while paused, which is the harder case: the position only moves
+    // seek, while paused, which is the harder case: the position only moves
     // if the seek itself reports back.
     await controller.seek(_seekTarget);
     await _waitFor(
@@ -209,7 +209,7 @@ Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
     // Measured from where the seek actually landed, not from the target. The
     // band above accepts a position slightly past ${_ms(_seekTarget)}, so
     // comparing against the target again would already be true before the
-    // engine resumed — and would pass even if play() left it paused.
+    // engine resumed, and would pass even if play() left it paused.
     final Duration landedAt = controller.state.position;
     await controller.play();
     await _waitFor(
@@ -220,7 +220,7 @@ Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
       'landed',
     );
 
-    // stop — a definitive stop clears the loaded source.
+    // stop: a definitive stop clears the loaded source.
     await controller.stop();
     if (controller.state.source != null) {
       throw StateError(
@@ -235,7 +235,7 @@ Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
       );
     }
   } finally {
-    // dispose — always, so a failed cycle cannot leave libmpv holding the
+    // dispose, always, so a failed cycle cannot leave libmpv holding the
     // audio device for the cycles after it.
     await controller.dispose();
   }
@@ -246,7 +246,7 @@ Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
 void _failOnError(LinuxPlaybackController controller, String step) {
   if (controller.state.status != PlaybackStatus.error) return;
   throw StateError(
-    '$step: the native backend reported an error — '
+    '$step: the native backend reported an error: '
     '${controller.state.errorMessage ?? 'no message'}',
   );
 }
@@ -263,7 +263,7 @@ Future<void> _waitFor(
     // real reason instead of timing out on it.
     if (controller.state.status == PlaybackStatus.error) {
       throw StateError(
-        '$describe — the backend errored first: '
+        '$describe, and the backend errored first: '
         '${controller.state.errorMessage ?? 'no message'}',
       );
     }
@@ -284,7 +284,7 @@ Future<void> _waitFor(
 ///
 /// This is the check that makes the Flatpak run meaningful. Inside the sandbox
 /// there is no host `/usr/lib` to fall back to, but that is a property of the
-/// sandbox rather than something this test proves — and outside it, a host
+/// sandbox rather than something this test proves, and outside it, a host
 /// libmpv is exactly what would let a package that ships no libmpv at all look
 /// healthy. Reading `/proc/self/maps` names the file the loader really opened.
 void _checkLoadedLibmpv(_SmokeConfig config) {
