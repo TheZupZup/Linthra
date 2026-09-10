@@ -40,6 +40,10 @@ Two of the three need a completed build, so the practical way to run all of
 them is the sequence in [flatpak-ci.md](./flatpak-ci.md) followed by:
 
 ```sh
+# That sequence ends inside flatpak/, and the paths below are relative to the
+# repository root.
+cd ..
+
 python3 scripts/flathub_builder_lint.py \
   --manifest flatpak/io.github.thezupzup.linthra.yml
 python3 scripts/flathub_builder_lint.py \
@@ -110,30 +114,42 @@ appeared, which is the one thing the staleness rule exists to prevent.
 
 ## What CI gates on today
 
-Only the `manifest` mode. It runs before the build, so a manifest finding fails
-in about a second rather than after ninety minutes, and it is green.
+| Mode | Gates CI | Result today |
+| --- | --- | --- |
+| `manifest` | yes, before the build | clean |
+| `appstream` | yes, after the build | clean |
+| `repo` | not yet, see below | two screenshot findings |
 
-The `repo` and `appstream` modes run locally with the command above, and both
-report `metainfo-missing-screenshots`. That is a real submission blocker, and
-the fix is to take screenshots
+`manifest` runs before the build, so a manifest finding fails in about a second
+rather than after ninety minutes. `appstream` needs the build, and runs *after*
+the launch smoke: a failed step ends the job, so a lint ahead of the smoke would
+stop the package being installed and launched at all, which trades real
+coverage for a red badge.
+
+`repo` is the one that waits. It reports `metainfo-missing-screenshots` and
+`appstream-screenshots-not-mirrored-in-ostree`, both real submission blockers
+whose fix is to take screenshots
 ([#437](https://github.com/TheZupZup/Linthra/issues/437),
-[flathub-screenshots.md](./flathub-screenshots.md)), not to change anything
-here.
+[flathub-screenshots.md](./flathub-screenshots.md)) rather than to change
+anything here. Wiring it in before then would mean one of two things, and both
+are worse than waiting:
 
-So they are deliberately not wired into CI yet. The two ways to wire them in
-now are both worse than waiting:
+- a permanently red job, which trains everyone to ignore it and buries any
+  *new* finding under the one everybody already knows about;
+- an exception, which the rules above forbid for a finding that is simply not
+  fixed yet.
 
-- leave the job permanently red, which trains everyone to ignore it, and buries
-  any *new* finding under the one everybody already knows about;
-- record an exception, which the rules above forbid for a finding that is
-  simply not fixed yet.
-
-They are turned on in
+It is turned on in
 [#628](https://github.com/TheZupZup/Linthra/issues/628), together with the
-screenshots that let them pass. A guardrail in
-`test/tooling/flathub_metadata_guardrails_test.dart` fails if they are wired in
-without that, so switching them on is a decision someone makes rather than
+screenshots that let it pass. A guardrail in
+`test/tooling/flathub_metadata_guardrails_test.dart` fails if it is wired in
+without that, so switching it on is a decision someone makes rather than
 something that drifts in.
+
+Note that `appstream` and `repo` are different checks despite both mentioning
+screenshots: `appstream` reads the catalogue `appstreamcli compose` generated,
+and `repo` reads the exported OSTree that Flathub would publish. Only the second
+currently reports anything, which is why only the second waits.
 
 ## Exceptions
 

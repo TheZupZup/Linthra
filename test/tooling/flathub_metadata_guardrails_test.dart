@@ -19,11 +19,38 @@ void main() {
   late String metainfo;
   late String desktop;
 
+  /// The tag's value as a software centre would render it.
+  ///
+  /// XML entities are decoded first: `&amp;` is one character on screen, and
+  /// counting its five-character spelling would fail a valid summary that sits
+  /// near Flathub's limit.
   String? tagValue(String tag) {
     final RegExpMatch? match =
         RegExp('<$tag>(.*?)</$tag>', dotAll: true).firstMatch(metainfo);
-    return match?.group(1)?.trim();
+    final String? raw = match?.group(1)?.trim();
+    if (raw == null) {
+      return null;
+    }
+    return raw
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        // Last, so a literal "&amp;lt;" does not become "<".
+        .replaceAll('&amp;', '&');
   }
+
+  /// Characters as a reader counts them.
+  ///
+  /// Dart's `String.length` is UTF-16 code units, so anything outside the BMP
+  /// (an emoji, say) counts twice against a limit that is really about how much
+  /// text fits on one line. Runes are code points, which fixes that without
+  /// pulling `package:characters` in as a direct dependency just for a length.
+  ///
+  /// Not grapheme clusters: a combining accent still counts separately. That
+  /// is a smaller error than the one this replaces, and the summary is a short
+  /// line of Latin text rather than somewhere clusters are likely to matter.
+  int displayLength(String value) => value.runes.length;
 
   setUpAll(() {
     // Comments stripped first: the file's header explains the rules below and
@@ -47,10 +74,10 @@ void main() {
       final String? summary = tagValue('summary');
       expect(summary, isNotNull);
       expect(
-        summary!.length,
+        displayLength(summary!),
         lessThanOrEqualTo(35),
         reason: 'Flathub caps the summary at 35 characters; "$summary" is '
-            '${summary.length}',
+            '${displayLength(summary)}',
       );
     });
 
@@ -80,7 +107,7 @@ void main() {
     test('is at most 20 characters', () {
       final String? name = tagValue('name');
       expect(name, isNotNull);
-      expect(name!.length, lessThanOrEqualTo(20));
+      expect(displayLength(name!), lessThanOrEqualTo(20));
     });
 
     test('does not end in a period', () {
@@ -158,15 +185,22 @@ void main() {
           contains('--manifest flatpak/io.github.thezupzup.linthra.yml'));
     });
 
-    // The repo and appstream modes are not wired into CI yet, on purpose: both
-    // report metainfo-missing-screenshots today, which is a real submission
-    // blocker fixed by taking screenshots (#437), not by anything in the
-    // tooling. Wiring them now would mean a permanently red job or an
-    // exception recording "not done yet". They arrive with the screenshots
+    // The appstream mode is clean today, so it gates. Deferring it with the
+    // repo mode would have left a future regression in the generated
+    // catalogue free to land, for no benefit.
+    test('CI gates on the AppStream catalogue the build produced', () {
+      final String workflow =
+          File('.github/workflows/flatpak-build.yml').readAsStringSync();
+      expect(workflow, contains('--builddir flatpak/flatpak-builder-ci'));
+    });
+
+    // Only the repo mode waits, and only because it reports real submission
+    // blockers fixed by taking screenshots (#437) rather than by anything in
+    // the tooling. Wiring it in now would mean a permanently red job or an
+    // exception recording "not done yet". It arrives with the screenshots
     // (#628), and this test is what makes that a decision rather than an
-    // oversight: turning them on has to delete it.
-    test('the post-build modes wait for the screenshots that let them pass',
-        () {
+    // oversight: turning it on has to delete this.
+    test('the repo mode waits for the screenshots that let it pass', () {
       final String workflow =
           File('.github/workflows/flatpak-build.yml').readAsStringSync();
       expect(
@@ -176,6 +210,24 @@ void main() {
       );
       expect(workflow, contains('#628'),
           reason: 'the workflow must say where the missing gate went');
+    });
+
+    // A failed step ends the job, so a lint ahead of the launch smoke would
+    // stop the package being installed and launched at all. Order matters, so
+    // it is asserted rather than left to a comment.
+    test('the launch smoke runs before the catalogue lint', () {
+      final String workflow =
+          File('.github/workflows/flatpak-build.yml').readAsStringSync();
+      final int launch =
+          workflow.indexOf('- name: Install and launch packaged Flatpak');
+      final int lint = workflow.indexOf('- name: Lint the AppStream catalogue');
+      expect(launch, isNonNegative);
+      expect(lint, isNonNegative);
+      expect(
+        launch,
+        lessThan(lint),
+        reason: 'a lint finding must not stop the launch smoke from running',
+      );
     });
 
     // #456 requires an empty exceptions file. Adding the first entry should
