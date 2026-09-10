@@ -50,16 +50,23 @@ cleanup() {
   # failure locally against their own build must not lose it.
   if (( INSTALLED_HERE )); then
     flatpak kill "$APP_ID" >/dev/null 2>&1 || true
-    # And only ever delete app data this script's run created.
+    flatpak --user uninstall -y "$APP_ID" >/dev/null 2>&1 || true
+
+    # And only ever delete app data this run created.
     # docs/flatpak-development.md calls --delete-data Destructive because it
     # is: it wipes the Flatpak install's settings, library database and cache.
     # Refusing to run against an existing *installation* is not enough, since
     # the data tree outlives an ordinary uninstall. A script that borrows the
     # machine for ten seconds has no business emptying it.
-    if (( APP_DATA_EXISTED )); then
-      flatpak --user uninstall -y "$APP_ID" >/dev/null 2>&1 || true
-    else
-      flatpak --user uninstall -y --delete-data "$APP_ID" >/dev/null 2>&1 || true
+    #
+    # Removed directly rather than with `uninstall --delete-data`, because that
+    # flag reaches further than the tree checked above: it also drops the app's
+    # entries from Flatpak's permission store, which lives outside ~/.var/app
+    # and holds the document-portal grants for the music folders a user picked.
+    # A guard about the data tree has to authorise an action about the data
+    # tree, or the check is narrower than what it permits.
+    if (( ! APP_DATA_EXISTED )) && [[ -d "$APP_DATA_DIR" ]]; then
+      rm -rf -- "$APP_DATA_DIR"
     fi
     flatpak --user remote-delete "$REMOTE_NAME" >/dev/null 2>&1 || true
   fi

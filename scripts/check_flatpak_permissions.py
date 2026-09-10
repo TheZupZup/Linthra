@@ -53,6 +53,11 @@ MANIFESTS = (
 )
 APP_ID = "io.github.thezupzup.linthra"
 
+#: The heading above the refusals table in the rationale document. Every
+#: pattern in REFUSED has to have a spelling under it, and every spelling under
+#: it has to be refused.
+REFUSALS_HEADING = "Permissions that are refused"
+
 #: Grants that are never acceptable without a security review, as regular
 #: expressions matched against a whole finish-arg. The reason each is refused
 #: is in the rationale document; this list is what makes the refusal binding.
@@ -150,6 +155,34 @@ def documented_permissions(path: Path) -> dict[str, str]:
             )
         rows[permission] = cells[3]
     return rows
+
+
+def documented_refusals(path: Path) -> list[str]:
+    """The spellings named in the rationale document's refusals table.
+
+    The refusal list in this file is what makes a refusal binding; this table
+    is what makes it *readable*, and the page promises the reason for each one
+    is written there. That promise was being kept by hand, and by the time it
+    was checked six refusals had no row: `--socket=x11`, `--device=input`, all
+    three system-bus spellings, and `--own-name=org.freedesktop.*`. A rule a
+    reviewer cannot look up is not much of a rule.
+
+    So the two are compared, both ways, exactly as the granted table already
+    is. Only the table under the refusals heading is read: the granted table
+    mentions refused spellings in passing (`--socket=x11` appears in the
+    fallback-x11 row) and a mention is not a rationale.
+    """
+    spellings: list[str] = []
+    section = ""
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            section = line[3:].strip()
+            continue
+        if section != REFUSALS_HEADING or not line.startswith("|"):
+            continue
+        first = line.strip().strip("|").split("|")[0]
+        spellings.extend(re.findall(r"`([^`]+)`", first))
+    return spellings
 
 
 def manifest_permissions(path: Path) -> set[str]:
@@ -396,6 +429,30 @@ def main(argv: list[str]) -> int:
         return 1
 
     problems: list[str] = []
+
+    refusals = documented_refusals(RATIONALE)
+    if not refusals:
+        print(
+            "ERROR: {} lists no refused permissions under '{}'. The refusal "
+            "list is only binding if a reviewer can read why.".format(
+                RATIONALE, REFUSALS_HEADING
+            ),
+            file=sys.stderr,
+        )
+        return 1
+    for pattern in REFUSED:
+        if not any(re.fullmatch(pattern, spelling) for spelling in refusals):
+            problems.append(
+                "the refusal {} has no spelling in {}. A refusal nobody wrote "
+                "down is a rule nobody can look up.".format(pattern, RATIONALE.name)
+            )
+    for spelling in refusals:
+        if not refused({spelling}):
+            problems.append(
+                "{} is listed as refused in {}, but nothing refuses it. Remove "
+                "the row or add the pattern.".format(spelling, RATIONALE.name)
+            )
+
     for manifest in MANIFESTS:
         if not manifest.exists():
             problems.append("{} is missing.".format(manifest))

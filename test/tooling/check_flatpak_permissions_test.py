@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import re
 import sys
 import tempfile
 import unittest
@@ -116,6 +117,46 @@ class DocumentedPermissionsTest(unittest.TestCase):
         with written("permissions.md", table) as path:
             with self.assertRaises(ValueError):
                 checker.documented_permissions(path)
+
+
+class DocumentedRefusalsTest(unittest.TestCase):
+    # The refusals table is what makes a refusal readable, and it was being
+    # kept in step by hand. By the time anyone checked, six patterns had no row
+    # at all. Now the two are compared both ways, like the granted table.
+    def test_reads_only_the_table_under_the_refusals_heading(self) -> None:
+        doc = (
+            "## The result\n"
+            "| Permission | Feature | Where | Why |\n"
+            "| --- | --- | --- | --- |\n"
+            "| `--socket=fallback-x11` | window | runner | plain `--socket=x11` "
+            "would |\n"
+            "\n"
+            "## Permissions that are refused\n"
+            "| Refused | Why |\n"
+            "| --- | --- |\n"
+            "| `--filesystem=home` | every file the user owns |\n"
+        )
+        with written("permissions.md", doc) as path:
+            # Not --socket=fallback-x11: that is a granted permission, and
+            # reading the wrong table would report it as an unrefused refusal.
+            self.assertEqual(
+                checker.documented_refusals(path), ["--filesystem=home"]
+            )
+
+    def test_every_refusal_in_the_repository_is_written_down(self) -> None:
+        spellings = checker.documented_refusals(checker.RATIONALE)
+        self.assertTrue(spellings)
+        for pattern in checker.REFUSED:
+            self.assertTrue(
+                any(re.fullmatch(pattern, spelling) for spelling in spellings),
+                msg="{} has no spelling in the refusals table".format(pattern),
+            )
+
+    def test_every_written_refusal_is_actually_refused(self) -> None:
+        for spelling in checker.documented_refusals(checker.RATIONALE):
+            self.assertEqual(
+                checker.refused({spelling}), [spelling], msg=spelling
+            )
 
 
 class ManifestPermissionsTest(unittest.TestCase):
@@ -475,6 +516,24 @@ class MainTest(unittest.TestCase):
             checker.installed_permissions = original
         self.assertEqual(code, 2)
         self.assertIn("not a pass", output)
+
+    # A row describing a refusal that no pattern enforces is the same rot the
+    # granted table is already protected from: a page that says the sandbox is
+    # narrower than it is.
+    def test_a_refusal_row_that_nothing_enforces_fails(self) -> None:
+        doc = checker.RATIONALE.read_text(encoding="utf-8").replace(
+            "| `--filesystem=home` |", "| `--filesystem=home`, `--share=network` |", 1
+        )
+        original = checker.RATIONALE
+        with written("permissions.md", doc) as path:
+            checker.RATIONALE = path
+            try:
+                code, output = self._main([])
+            finally:
+                checker.RATIONALE = original
+        self.assertEqual(code, 1)
+        self.assertIn("--share=network", output)
+        self.assertIn("nothing refuses it", output)
 
     def test_an_installed_package_with_an_extra_grant_fails(self) -> None:
         original = checker.installed_permissions
