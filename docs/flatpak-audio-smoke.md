@@ -143,6 +143,15 @@ The harness refuses to run if Linthra is already installed, so it can never
 uninstall or test a build you care about. Everything it does install, it
 removes on exit, app data included.
 
+Every sandbox run is time-bounded (`LINTHRA_FLATPAK_SMOKE_TIMEOUT`, 300s by
+default) and hitting the bound is a failure, including for the negative
+controls: the smoke is supposed to fail *promptly and with a reason* against a
+broken libmpv, and a process that blocks instead is its own bug. The Dart side
+bounds each transport step, but only once Dart is running — a hang in the
+loader, the GTK realize, or media_kit bringing up a library that turns out not
+to be libmpv has nothing else watching it, and a hung CI job serves no log at
+all until it ends.
+
 ### Running just the lifecycle natively
 
 Faster, and useful while changing the lifecycle itself. It uses the host's
