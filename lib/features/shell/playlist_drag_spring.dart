@@ -26,7 +26,6 @@ class PlaylistDragSpring extends StatefulWidget {
   const PlaylistDragSpring({
     required this.onSpring,
     required this.builder,
-    this.enabled = true,
     super.key,
   });
 
@@ -38,11 +37,11 @@ class PlaylistDragSpring extends StatefulWidget {
   static const Duration dwell = Duration(milliseconds: 600);
 
   /// Called once per hover, when the dwell elapses.
+  ///
+  /// It fires even when the Playlists tab is already the selected one: that
+  /// branch can be showing Favorites or a smart mix, neither of which takes a
+  /// drop, and springing is what puts the drag back on the playlist list.
   final VoidCallback onSpring;
-
-  /// False when the spring has nothing to do, e.g. the Playlists tab is
-  /// already showing.
-  final bool enabled;
 
   /// Builds the navigation region. [hovering] is true while a track drag is
   /// over it, so the destination it would spring to can say so.
@@ -65,7 +64,6 @@ class _PlaylistDragSpringState extends State<PlaylistDragSpring> {
   void _onEnter() {
     if (_hovering) return;
     setState(() => _hovering = true);
-    if (!widget.enabled) return;
     _timer?.cancel();
     _timer = Timer(PlaylistDragSpring.dwell, () {
       // The drag can end, or the widget go away, inside the dwell.

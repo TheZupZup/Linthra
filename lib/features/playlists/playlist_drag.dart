@@ -106,6 +106,12 @@ class PlaylistTrackDraggable extends StatelessWidget {
       data: payload,
       affinity: Axis.horizontal,
       dragAnchorStrategy: pointerDragAnchorStrategy,
+      // The feedback belongs to the root overlay, not the one the drag started
+      // in. Each navigation branch has its own overlay, and the spring's whole
+      // job is to switch branches mid-drag: the source branch then goes
+      // offstage and takes a branch-owned feedback card with it, leaving the
+      // pointer carrying an invisible drag to a target it cannot see.
+      rootOverlay: true,
       feedback: _DragFeedback(payload: payload),
       childWhenDragging: Opacity(opacity: 0.4, child: child),
       child: child,

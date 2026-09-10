@@ -97,9 +97,18 @@ class HomeShell extends StatelessWidget {
         constraints.maxWidth >= desktopNavigationBreakpoint;
   }
 
+  /// Opens the Playlists tab at its root for a drag (#389).
+  ///
+  /// Always the branch's initial location, unlike a tap, which restores
+  /// whatever that branch had on top. Favorites and the smart mixes live
+  /// inside this branch and take no drop, so restoring one of those would put
+  /// the drag on a page it cannot finish on. The playlist list always can.
+  void _springToPlaylists() {
+    navigationShell.goBranch(playlistsBranchIndex, initialLocation: true);
+  }
+
   /// The rail, wrapped in the drag spring so a track dragged out of the
-  /// library can reach the Playlists tab (#389). The spring is off while
-  /// Playlists is already showing, since there is nowhere to go.
+  /// library can reach the Playlists tab (#389).
   Widget _buildNavigationRail() {
     return FocusTraversalOrder(
       order: const NumericFocusOrder(2),
@@ -107,8 +116,7 @@ class HomeShell extends StatelessWidget {
         child: SafeArea(
           right: false,
           child: PlaylistDragSpring(
-            enabled: navigationShell.currentIndex != playlistsBranchIndex,
-            onSpring: () => _onDestinationSelected(playlistsBranchIndex),
+            onSpring: _springToPlaylists,
             builder: (BuildContext context, bool dragHovering) {
               return NavigationRail(
                 selectedIndex: navigationShell.currentIndex,
@@ -154,11 +162,44 @@ class HomeShell extends StatelessWidget {
     );
   }
 
-  NavigationBar _buildNavigationBar() {
-    return NavigationBar(
-      selectedIndex: navigationShell.currentIndex,
-      onDestinationSelected: _onDestinationSelected,
-      destinations: _destinations,
+  /// The bottom bar, wrapped in the same drag spring as the rail.
+  ///
+  /// A Linux window narrower than [desktopNavigationBreakpoint] shows this
+  /// instead of the rail, and a mouse is still a mouse there: the drag starts
+  /// whatever the width, so without a spring here it would pick a row up and
+  /// have nowhere in the app to put it. On a phone no drag ever reaches this,
+  /// because the drag source is desktop-only.
+  Widget _buildNavigationBar() {
+    return PlaylistDragSpring(
+      onSpring: _springToPlaylists,
+      builder: (BuildContext context, bool dragHovering) {
+        return NavigationBar(
+          selectedIndex: navigationShell.currentIndex,
+          onDestinationSelected: _onDestinationSelected,
+          destinations: <Widget>[
+            for (int i = 0; i < _destinations.length; i++)
+              _barDestination(context, i, dragHovering: dragHovering),
+          ],
+        );
+      },
+    );
+  }
+
+  /// One bottom-bar destination, marked the same way the rail's is while a
+  /// track drag is over the bar.
+  NavigationDestination _barDestination(
+    BuildContext context,
+    int index, {
+    required bool dragHovering,
+  }) {
+    final NavigationDestination destination = _destinations[index];
+    if (!(dragHovering && index == playlistsBranchIndex)) return destination;
+    final Color accent = Theme.of(context).colorScheme.primary;
+    final Icon marker = Icon(Icons.playlist_add, color: accent);
+    return NavigationDestination(
+      icon: marker,
+      selectedIcon: marker,
+      label: destination.label,
     );
   }
 

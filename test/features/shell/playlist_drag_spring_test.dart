@@ -10,10 +10,9 @@ Track _local(String id) => Track(id: id, title: id, uri: 'file:///$id.mp3');
 /// A stand-in for the shell: a draggable row on the right, and the spring
 /// wrapping a rail-shaped strip on the left.
 class _Harness extends StatelessWidget {
-  const _Harness({required this.sprung, this.enabled = true});
+  const _Harness({required this.sprung});
 
   final List<int> sprung;
-  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +25,6 @@ class _Harness extends StatelessWidget {
               width: 128,
               height: 600,
               child: PlaylistDragSpring(
-                enabled: enabled,
                 onSpring: () => sprung.add(sprung.length),
                 builder: (BuildContext context, bool hovering) {
                   return ColoredBox(
@@ -129,21 +127,6 @@ void main() {
       await tester.pump(PlaylistDragSpring.dwell);
 
       expect(sprung, hasLength(1));
-      await gesture.up();
-      await tester.pumpAndSettle();
-    });
-
-    testWidgets('disabled, it still highlights but never fires',
-        (tester) async {
-      // The state the Playlists tab is already showing in: there is nowhere to
-      // spring to, and re-selecting the branch would pop the user's stack.
-      final sprung = <int>[];
-      await tester.pumpWidget(_Harness(sprung: sprung, enabled: false));
-
-      final TestGesture gesture = await _dragOntoRail(tester);
-      await tester.pump(PlaylistDragSpring.dwell * 2);
-
-      expect(sprung, isEmpty);
       await gesture.up();
       await tester.pumpAndSettle();
     });

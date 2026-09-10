@@ -69,11 +69,21 @@ the Playlists tab. Dragging a row that is part of a multi-selection carries the
 whole selection; dragging any other row carries just that row, which is what a
 desktop list is expected to do.
 
-The library and the playlist list are different tabs, so the navigation rail is
+The library and the playlist list are different tabs, so Linthra's navigation is
 **spring-loaded**: rest a drag on it for a moment and it opens Playlists, with
 the Playlists destination highlighted so you can see where the drag is heading.
-The rail never takes the drop itself, it only gets you to the rows. Crossing it
-quickly on the way somewhere else does nothing.
+Navigation never takes the drop itself, it only gets you to the rows. Crossing
+it quickly on the way somewhere else does nothing.
+
+This works on the rail of a wide window and on the bottom bar of a narrow one.
+A mouse is still a mouse below the desktop breakpoint, so a drag that could
+start there needs somewhere to go.
+
+The spring always opens the **playlist list**, not whatever that tab had open
+last. Favorites and the smart mixes live inside the Playlists tab and are not
+playlists you can drop onto, so restoring one of those would leave a drag on a
+page it could not finish on. Starting a drag from Favorites and resting it on
+the navigation gets you back to the list for the same reason.
 
 Only sideways drags pick a row up, so a vertical drag still scrolls the list.
 None of this exists on mobile, where a long press already starts multi-select.
