@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +30,12 @@ class _FakeService implements AudioOutputDeviceService {
     routed.add(device);
     return true;
   }
+
+  final StreamController<List<AudioOutputDevice>> changes =
+      StreamController<List<AudioOutputDevice>>.broadcast();
+
+  @override
+  Stream<List<AudioOutputDevice>> get deviceChanges => changes.stream;
 }
 
 void main() {
@@ -155,5 +163,70 @@ void main() {
 
     expect(find.textContaining('could not be used'), findsOneWidget);
     expect(await preferences.audioOutputDeviceId(), isNull);
+  });
+
+  group('an output that went away (#403)', () {
+    testWidgets('a fallback the backend refused is surfaced with a way out',
+        (tester) async {
+      final _FakeService service = _FakeService(
+        devices: const <AudioOutputDevice>[
+          AudioOutputDevice.systemDefault,
+          headset,
+        ],
+      );
+      addTearDown(() => service.changes.close());
+      await pump(tester, service);
+
+      // The listener is on the headset, then it is unplugged and the backend
+      // refuses the system default too.
+      await tester.tap(find.text('System default'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(headset.label).last);
+      await tester.pumpAndSettle();
+
+      service.routingSucceeds = false;
+      service.changes.add(const <AudioOutputDevice>[
+        AudioOutputDevice.systemDefault,
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('playback may be silent'), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
+
+      // The retry re-enumerates and re-applies, which is what a recovered
+      // backend needs.
+      service.routingSucceeds = true;
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('playback may be silent'), findsNothing);
+    });
+
+    testWidgets('a plain dropout says the output will be used again',
+        (tester) async {
+      final _FakeService service = _FakeService(
+        devices: const <AudioOutputDevice>[
+          AudioOutputDevice.systemDefault,
+          headset,
+        ],
+      );
+      addTearDown(() => service.changes.close());
+      await pump(tester, service);
+
+      await tester.tap(find.text('System default'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(headset.label).last);
+      await tester.pumpAndSettle();
+
+      service.changes.add(const <AudioOutputDevice>[
+        AudioOutputDevice.systemDefault,
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('as soon as it is back'),
+        findsOneWidget,
+      );
+      expect(find.text('Try again'), findsNothing);
+    });
   });
 }

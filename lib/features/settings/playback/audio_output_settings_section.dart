@@ -95,12 +95,33 @@ class _AudioOutputSettingsSectionState
             ),
             const SizedBox(height: AppSpacing.md),
             _OutputPicker(state: state, isBusy: async.isLoading),
-            if (state.savedDeviceUnavailable) ...<Widget>[
+            if (state.outputRecoveryFailed) ...<Widget>[
+              const SizedBox(height: AppSpacing.sm),
+              // The one case where playback may not be coming out anywhere:
+              // the chosen output went away and the system default was refused
+              // too. Recoverable, and said so — never left silently muted.
+              _Note(
+                icon: Icons.volume_off_outlined,
+                text: 'The audio output went away and Linthra could not fall '
+                    'back to the system default, so playback may be silent. '
+                    'Try again once your device is back.',
+                color: theme.colorScheme.error,
+                action: (
+                  label: 'Try again',
+                  onPressed: async.isLoading
+                      ? null
+                      : () => ref
+                          .read(audioOutputControllerProvider.notifier)
+                          .refresh(),
+                ),
+              ),
+            ] else if (state.savedDeviceUnavailable) ...<Widget>[
               const SizedBox(height: AppSpacing.sm),
               _Note(
                 icon: Icons.info_outline,
                 text: 'Your saved output is not available right now, so '
-                    'playback is using the system default.',
+                    'playback is using the system default. It will be used '
+                    'again as soon as it is back.',
                 color: theme.colorScheme.tertiary,
               ),
             ],
@@ -199,24 +220,47 @@ class _OutputPicker extends ConsumerWidget {
 }
 
 class _Note extends StatelessWidget {
-  const _Note({required this.icon, required this.text, required this.color});
+  const _Note({
+    required this.icon,
+    required this.text,
+    required this.color,
+    this.action,
+  });
 
   final IconData icon;
   final String text;
   final Color color;
 
+  /// An optional way out of the state the note describes — the retry a failed
+  /// recovery needs, so "playback may be silent" is never a dead end.
+  final ({String label, VoidCallback? onPressed})? action;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final ({String label, VoidCallback? onPressed})? action = this.action;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Icon(icon, size: 16, color: color),
         const SizedBox(width: AppSpacing.sm),
         Expanded(
-          child: Text(
-            text,
-            style: theme.textTheme.bodySmall?.copyWith(color: color),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                text,
+                style: theme.textTheme.bodySmall?.copyWith(color: color),
+              ),
+              if (action != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: action.onPressed,
+                    child: Text(action.label),
+                  ),
+                ),
+            ],
           ),
         ),
       ],
