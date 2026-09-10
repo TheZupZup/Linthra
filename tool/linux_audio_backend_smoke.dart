@@ -205,11 +205,19 @@ Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
 
     // Playing on from the seek point proves the engine seeked the decoder and
     // not just its reported position.
+    //
+    // Measured from where the seek actually landed, not from the target. The
+    // band above accepts a position slightly past ${_ms(_seekTarget)}, so
+    // comparing against the target again would already be true before the
+    // engine resumed — and would pass even if play() left it paused.
+    final Duration landedAt = controller.state.position;
     await controller.play();
     await _waitFor(
       controller,
-      (PlaybackState state) => state.position > _seekTarget,
-      'seek: playback did not continue past ${_ms(_seekTarget)} after seeking',
+      (PlaybackState state) =>
+          state.status == PlaybackStatus.playing && state.position > landedAt,
+      'seek: playback did not resume past ${_ms(landedAt)}, where the seek '
+      'landed',
     );
 
     // stop — a definitive stop clears the loaded source.

@@ -179,11 +179,19 @@ expect_failure() {
 
 # 1. A libmpv that loads but is not libmpv.
 #
-# The first attempt at this used a zero-byte file, and CI proved it wrong: the
-# dynamic loader treats a candidate with a bad ELF header as "not this one" and
-# quietly carries on down the search path, so the packaged libmpv was found
-# anyway and the run passed. A *valid* library under the wrong name is the
-# thing the loader accepts and then cannot resolve mpv's symbols out of.
+# Two things had to be right here, and the first attempt got both wrong.
+#
+# *Which* name to shadow: media_kit dlopens "libmpv.so", then "libmpv.so.2",
+# then "libmpv.so.1", in that order (media_kit's native_library.dart, and
+# scripts/verify_linux.sh documents the same list). Shadowing only the
+# versioned soname left the unversioned symlink the package also installs as
+# the first candidate, so the real library was opened before the shadow was
+# ever consulted. All three names are shadowed.
+#
+# *What* to put there: a zero-byte file is not a broken library, it is an
+# invalid one, and both dlopen and the loader's search treat an unreadable ELF
+# header as "not this one" and move on. A valid library under the wrong name is
+# what actually gets opened and then cannot supply mpv's symbols.
 #
 # The shadow lives in the sandbox's own cache directory and only
 # LD_LIBRARY_PATH points at it, so /app is untouched and the next run is
@@ -214,7 +222,10 @@ expect_failure "a libmpv that carries none of mpv's symbols" 'mpv' \
       printf "no donor library to stand in for libmpv\n" >&2
       exit 3
     fi
-    cp -L "$donor" "$shadow/libmpv.so.2"
+    # Every name media_kit will try, so the first candidate is the shadow.
+    for soname in libmpv.so libmpv.so.2 libmpv.so.1; do
+      cp -L "$donor" "$shadow/$soname"
+    done
 
     LINTHRA_AUDIO_SMOKE_AO=null \
     LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX=/app/ \

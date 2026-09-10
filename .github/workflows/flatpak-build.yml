@@ -28,6 +28,17 @@ on:
       - 'tool/branding/linthra_icon.svg'
       - 'tool/linux_audio_backend_smoke.dart'
       - 'tool/linux_local_library_smoke.dart'
+      # What the two smokes actually import. Named individually rather than as
+      # 'lib/**': the sandbox job is a full flatpak-builder run, and every
+      # unrelated UI change would pay for it. A change here can break only
+      # inside the sandbox, which is the regression these jobs exist to catch.
+      - 'lib/core/services/linux_playback_controller.dart'
+      - 'lib/core/services/just_audio_playback_controller.dart'
+      - 'lib/core/services/linux_audio_output_device_service.dart'
+      - 'lib/core/services/local_playable_uri_resolver.dart'
+      - 'lib/core/services/local_artwork_cache.dart'
+      - 'lib/core/sources/local/**'
+      - 'test/core/sources/local/audio_tag_fixtures.dart'
   pull_request:
     paths:
       - '.github/workflows/flatpak-build.yml'
@@ -49,6 +60,17 @@ on:
       - 'tool/branding/linthra_icon.svg'
       - 'tool/linux_audio_backend_smoke.dart'
       - 'tool/linux_local_library_smoke.dart'
+      # What the two smokes actually import. Named individually rather than as
+      # 'lib/**': the sandbox job is a full flatpak-builder run, and every
+      # unrelated UI change would pay for it. A change here can break only
+      # inside the sandbox, which is the regression these jobs exist to catch.
+      - 'lib/core/services/linux_playback_controller.dart'
+      - 'lib/core/services/just_audio_playback_controller.dart'
+      - 'lib/core/services/linux_audio_output_device_service.dart'
+      - 'lib/core/services/local_playable_uri_resolver.dart'
+      - 'lib/core/services/local_artwork_cache.dart'
+      - 'lib/core/sources/local/**'
+      - 'test/core/sources/local/audio_tag_fixtures.dart'
   workflow_dispatch:
 
 # Fork PRs run this workflow too, so keep it read-only and secret-free.
