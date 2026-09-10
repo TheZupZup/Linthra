@@ -389,7 +389,12 @@ class _ArtistPortrait extends StatelessWidget {
       child: CircleAvatar(
         radius: radius,
         backgroundColor: theme.colorScheme.surfaceContainerHighest,
-        backgroundImage: uri == null ? null : artworkImageProvider(uri),
+        backgroundImage: uri == null
+            ? null
+            : artworkImageProvider(
+                uri,
+                decodeExtent: artworkDecodeExtent(context, radius * 2),
+              ),
         child: uri == null
             ? Icon(
                 Icons.person,
