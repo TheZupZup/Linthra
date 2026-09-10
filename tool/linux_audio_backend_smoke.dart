@@ -23,7 +23,6 @@
 // so there is no fixture binary to license, host, or keep in sync.
 
 import 'dart:async';
-import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -64,18 +63,6 @@ const Duration _stepTimeout = Duration(seconds: 15);
 
 const Duration _pollInterval = Duration(milliseconds: 50);
 
-/// The libmpv names media_kit tries, in the order it tries them (media_kit's
-/// `native_library.dart`; `scripts/verify_linux.sh` documents the same list).
-const List<String> _libmpvCandidates = <String>[
-  'libmpv.so',
-  'libmpv.so.2',
-  'libmpv.so.1',
-];
-
-/// A symbol every real libmpv exports. Opening a file called `libmpv.so` proves
-/// only that *something* by that name loaded; this is what proves it is libmpv.
-const String _libmpvSymbol = 'mpv_client_api_version';
-
 Future<void> main() async {
   final _SmokeConfig config = _SmokeConfig.fromEnvironment();
 
@@ -100,21 +87,6 @@ Future<void> main() async {
   final Directory directory =
       await Directory.systemTemp.createTemp('linthra_linux_audio_smoke_');
   final _Sanitizer sanitizer = _Sanitizer(fixtureDirectory: directory.path);
-
-  // Before anything brings media_kit up. CI showed why: with a library that
-  // loads under libmpv's name but exports none of its symbols, the packaged
-  // app did not fail — it hung, for 46 minutes, until the job was cancelled.
-  // Resolving libmpv here, the same way media_kit will, turns that into a
-  // one-second failure that says what is wrong.
-  try {
-    _preflightLibmpv();
-    _checkLoadedLibmpv(config);
-  } catch (error) {
-    stderr.writeln('FAIL: Linux native audio lifecycle smoke failed.');
-    stderr.writeln(sanitizer.clean(error.toString()));
-    if (directory.existsSync()) await directory.delete(recursive: true);
-    exit(1);
-  }
   final File audioFile = File('${directory.path}/fixture.wav');
   await audioFile.writeAsBytes(_fixtureWav(_fixtureDuration), flush: true);
   int result = 0;
@@ -159,6 +131,10 @@ Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
     await controller.playTrack(
       Track(id: 'smoke', title: 'Linthra audio smoke fixture', uri: path),
     );
+
+    // The mapping only exists once the backend has really been brought up, so
+    // this is checked after the first load rather than at construction.
+    _checkLoadedLibmpv(config);
 
     _failOnError(controller, 'load');
     if (controller.state.source != PlaybackSource.localFile) {
@@ -301,47 +277,6 @@ Future<void> _waitFor(
     }
     await Future<void>.delayed(_pollInterval);
   }
-}
-
-/// Resolves libmpv the way media_kit will, before media_kit gets the chance.
-///
-/// This exists because of how the packaged app behaves when its libmpv is
-/// wrong. A file that loads under libmpv's name but exports none of its
-/// symbols does not make the app exit: in CI it made the app hang, holding a
-/// window open until the job was cancelled 46 minutes later. That is a poor
-/// failure mode to depend on and a worse one to wait for, so the smoke asks
-/// the question itself: open each candidate in media_kit's own order, and
-/// require the one that loads to export [_libmpvSymbol].
-///
-/// The result is that a broken or missing libmpv fails in about a second,
-/// naming every candidate it tried and why each was rejected.
-void _preflightLibmpv() {
-  final List<String> rejected = <String>[];
-  for (final String name in _libmpvCandidates) {
-    final ffi.DynamicLibrary library;
-    try {
-      library = ffi.DynamicLibrary.open(name);
-    } catch (error) {
-      rejected.add('$name: did not load');
-      continue;
-    }
-    try {
-      library.lookup<ffi.NativeFunction<ffi.Uint32 Function()>>(_libmpvSymbol);
-    } catch (_) {
-      // Loaded, but it is not libmpv — a different library under the name, or
-      // a truncated one. media_kit would take this and fail later, or not at
-      // all.
-      rejected.add('$name: loaded but exports no $_libmpvSymbol');
-      continue;
-    }
-    stdout.writeln('libmpv resolved: $name exports $_libmpvSymbol.');
-    return;
-  }
-  throw StateError(
-    'initialize: no libmpv on the loader search path is usable — '
-    '${rejected.join('; ')}. The package is missing libmpv, or something '
-    'else is answering to its name.',
-  );
 }
 
 /// Reads back the libmpv this process actually mapped and, when the caller

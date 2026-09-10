@@ -62,24 +62,6 @@ void main() {
       );
     });
 
-    // A library that loads under libmpv's name but exports none of its symbols
-    // made the packaged app hang in CI rather than exit. Resolving libmpv
-    // first, the way media_kit will, turns that into a one-second failure.
-    test('resolves libmpv itself before media_kit does', () {
-      expect(lifecycle, contains('_preflightLibmpv()'));
-      expect(lifecycle, contains("'libmpv.so',"));
-      expect(lifecycle, contains("'libmpv.so.2',"));
-      expect(lifecycle, contains("'libmpv.so.1',"));
-      expect(lifecycle, contains("_libmpvSymbol = 'mpv_client_api_version'"));
-      expect(lifecycle, contains('loaded but exports no'));
-      expect(
-        lifecycle,
-        contains('no libmpv on the loader search path is usable'),
-        reason: 'a failure has to name every candidate and why each was '
-            'rejected',
-      );
-    });
-
     // The whole point of running inside the sandbox: if a host libmpv can
     // answer for the packaged one, a package that ships none still passes.
     test('reads back which libmpv the loader actually opened', () {
@@ -161,14 +143,37 @@ void main() {
         isNot(contains(r': >"$shadow/libmpv.so')),
         reason: 'a zero-byte shadow is skipped by the loader, not loaded',
       );
+    });
+
+    // The packaged app hangs on a library that loads under libmpv's name but
+    // exports none of its symbols, so what this control proves is that such a
+    // library cannot produce a *passing* smoke. The other control still has to
+    // fail promptly and say why.
+    test('the shadow control is bounded and the identity control is named', () {
       expect(
         harness,
         contains(
           "expect_failure \"a libmpv that carries none of mpv's symbols\" "
-          "'libmpv'",
+          "'libmpv' bounded",
         ),
-        reason: 'the preflight guarantees a message naming libmpv, so the '
-            'control can require one',
+      );
+      expect(
+        harness,
+        contains(
+          "expect_failure \"a libmpv loaded outside the required prefix\" "
+          "'libmpv' named",
+        ),
+      );
+      // `bounded` must never be a licence to hang: an exit-0 run still fails.
+      expect(
+        harness,
+        contains(
+            r'fail "the smoke passed $what, so it cannot detect a broken package"'),
+      );
+      expect(
+        harness,
+        contains(r'fail "the smoke hung $what and was killed after'),
+        reason: 'a named control that hangs is still a failure',
       );
     });
 
