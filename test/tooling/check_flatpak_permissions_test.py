@@ -68,6 +68,26 @@ org.mpris.MediaPlayer2.linthra.*=own
 """
 
 
+# The permissions Linthra's built Flatpak actually carries, in the format
+# `flatpak info --show-permissions` prints. Transcribed from the Flatpak build
+# job rather than written by hand, because the point of --installed is that the
+# artifact is allowed to disagree with the manifest, and a fixture invented
+# from the manifest could not show that.
+#
+# Note `x11` next to `fallback-x11`: that is flatpak spelling the fallback
+# grant, not a second one.
+INSTALLED_METADATA = """\
+[Context]
+shared=network;ipc;
+sockets=x11;wayland;fallback-x11;pulseaudio;
+devices=dri;
+
+[Session Bus Policy]
+org.mpris.MediaPlayer2.linthra=own
+org.mpris.MediaPlayer2.linthra.*=own
+"""
+
+
 @contextlib.contextmanager
 def written(name: str, text: str):
     with tempfile.TemporaryDirectory() as directory:
@@ -260,6 +280,39 @@ class MetadataTest(unittest.TestCase):
     def test_identity_sections_are_ignored_rather_than_refused(self) -> None:
         self.assertNotIn(
             "--name=io.github.thezupzup.linthra", checker.parse_metadata(METADATA)
+        )
+
+    # The first CI run of --installed against a real package failed here, and
+    # the package was right. `--socket=fallback-x11` sets the plain X11 bit as
+    # well as its own (common/flatpak-context.c: `socket |=
+    # FLATPAK_CONTEXT_SOCKET_X11`), and `flatpak run` clears it again when
+    # there is a Wayland display. So the metadata of a package that asked only
+    # for the fallback carries both, and reading it literally reported a
+    # refused `--socket=x11` nobody had declared.
+    def test_fallback_x11_metadata_is_not_read_as_plain_x11(self) -> None:
+        text = INSTALLED_METADATA
+        permissions = checker.parse_metadata(text)
+        self.assertIn("--socket=fallback-x11", permissions)
+        self.assertNotIn("--socket=x11", permissions)
+        self.assertEqual(checker.refused(permissions), [])
+
+    # The whole point of the collapse is that it is the pair that is narrow.
+    def test_plain_x11_alone_is_still_refused(self) -> None:
+        permissions = checker.parse_metadata(
+            "[Context]\nsockets=x11;wayland;\n"
+        )
+        self.assertIn("--socket=x11", permissions)
+        self.assertEqual(checker.refused(permissions), ["--socket=x11"])
+
+    # What the installed package really carries, byte for byte as
+    # `flatpak info --show-permissions` printed it in the Flatpak build job.
+    def test_the_real_installed_metadata_matches_the_documented_table(self) -> None:
+        documented = checker.documented_permissions(checker.RATIONALE)
+        self.assertEqual(
+            checker.check(
+                documented, checker.parse_metadata(INSTALLED_METADATA), "installed"
+            ),
+            [],
         )
 
     def test_reads_an_unset_environment_entry(self) -> None:

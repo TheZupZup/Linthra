@@ -19,7 +19,7 @@ Eight permissions. No filesystem access of any kind, no session-bus access, no
 | Permission | Feature | Where it is used | Why nothing narrower works |
 | --- | --- | --- | --- |
 | `--socket=wayland` | The application window | `linux/runner/my_application.cc` | A GUI app needs a display server connection. Preferred over X11 wherever a compositor offers it. |
-| `--socket=fallback-x11` | The window on X11 sessions | same | `fallback-x11` is the narrow form: it grants X11 **only** when no Wayland display is present, so a Wayland session never hands out an X socket. Plain `--socket=x11` would. |
+| `--socket=fallback-x11` | The window on X11 sessions | same | `fallback-x11` is the narrow form: it grants X11 **only** when no Wayland display is present, so a Wayland session never hands out an X socket. Plain `--socket=x11` would. Note the installed package spells this as `x11` *and* `fallback-x11`; see below for why, and what it costs. |
 | `--share=ipc` | Shared memory on X11 | same | X11 clients pass frames through SysV shared memory (MIT-SHM). Without it the X11 fallback path renders every frame over the socket. Grants no filesystem or network reach of its own. |
 | `--device=dri` | GPU rendering | Flutter's GTK embedder | Flutter renders through OpenGL. Without the render node the sandbox falls back to software rasterisation, which on a music library's scrolling artwork grid is visible. `--device=dri` is the render-node-only grant; `--device=all` (which would add cameras, USB and input devices) is refused below. |
 | `--socket=pulseaudio` | Audio output | `lib/core/services/linux_playback_controller.dart`, and the `mpv` module built with `-Dpulse=enabled` | libmpv needs a path to the audio server. This one socket covers PulseAudio and PipeWire alike, because every PipeWire desktop ships `pipewire-pulse`. There is no narrower audio grant in Flatpak. |
@@ -69,6 +69,34 @@ not read named in the error, instead of quietly answering a narrower question
 than the one they were asked. The cost is that a newer flatpak printing
 something new breaks this check until somebody teaches it, which is the right
 way round. Every refused spelling has a test on both paths.
+
+### The one grant the installed check cannot tell apart
+
+`--socket=fallback-x11` sets the plain X11 bit as well as its own. flatpak's
+own option handler does it (`common/flatpak-context.c`):
+
+```c
+if (socket == FLATPAK_CONTEXT_SOCKET_FALLBACK_X11)
+  socket |= FLATPAK_CONTEXT_SOCKET_X11;
+```
+
+and `flatpak run` clears that bit again when a Wayland display is present,
+which is what makes the grant a fallback. So Linthra's built package reads
+`sockets=x11;wayland;fallback-x11;pulseaudio;` even though neither manifest
+declares `--socket=x11`. The first CI run of `--installed` against a real
+package reported it as a refused grant, and the package was right.
+
+The two bits together are the only shape `--socket=fallback-x11` can produce,
+so the checker reads them back as that one grant. `x11` on its own is
+untouched and still refused.
+
+What that costs: a package declaring **both** `--socket=x11` and
+`--socket=fallback-x11` is indistinguishable from one declaring only the
+fallback, because the metadata is the same two bits either way. This is the
+one permission the installed check cannot verify on its own, and it is why the
+manifest checks matter rather than being a weaker version of this one: they
+read finish-args literally, and `check_flatpak_permissions.py` and
+`check_linux_runner.py` both reject `--socket=x11` before anything is built.
 
 | Refused | Why |
 | --- | --- |

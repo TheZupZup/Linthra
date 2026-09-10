@@ -298,6 +298,40 @@ def parse_metadata(text: str) -> set[str]:
                     "own, talk, see and none.".format(section, value, key)
                 )
             permissions.add(template.format(key))
+    return collapse_fallback_x11(permissions)
+
+
+def collapse_fallback_x11(permissions: set[str]) -> set[str]:
+    """Read `x11` + `fallback-x11` back as the one grant that produced them.
+
+    `--socket=fallback-x11` sets the plain X11 bit as well as its own. From
+    flatpak's option handler, common/flatpak-context.c:
+
+        if (socket == FLATPAK_CONTEXT_SOCKET_FALLBACK_X11)
+          socket |= FLATPAK_CONTEXT_SOCKET_X11;
+
+    `flatpak run` clears the X11 bit again when a Wayland display is present,
+    which is what makes the grant a fallback. So the installed metadata of an
+    app that asked only for `--socket=fallback-x11` reads
+    `sockets=...;x11;...;fallback-x11;`, and taking that literally reports a
+    `--socket=x11` nobody declared.
+
+    Not hypothetical: it is what the first CI run of `--installed` against a
+    real package reported, and the package was correct.
+
+    Both bits together are the only shape `--socket=fallback-x11` can produce,
+    so they collapse back to it. **`x11` on its own is untouched and stays
+    refused**, which is the case this refusal exists for.
+
+    The limit is worth stating rather than hiding. A package declaring *both*
+    `--socket=x11` and `--socket=fallback-x11` is indistinguishable here from
+    one declaring only the fallback, because the metadata is the same two bits
+    either way. That single case is covered instead by the two manifest checks,
+    which read finish-args literally and both refuse `--socket=x11` before
+    anything is built.
+    """
+    if {"--socket=x11", "--socket=fallback-x11"} <= permissions:
+        return permissions - {"--socket=x11"}
     return permissions
 
 
