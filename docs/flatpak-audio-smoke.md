@@ -39,14 +39,29 @@ actually opened came from anywhere else. The Flatpak run sets it to `/app/`.
 This is the point of the whole exercise: a host libmpv is exactly what would
 let a package that ships a broken or missing one still look healthy.
 
-### The negative control
+### The negative controls
 
-`scripts/flatpak_audio_smoke.sh` then runs the smoke a second time with an
-unloadable zero-byte `libmpv.so.2` shadowing the packaged one on
-`LD_LIBRARY_PATH`, and requires that run to **fail** and to name libmpv in its
-output. A test that cannot fail proves nothing, and this is the exact failure
-mode the smoke exists to catch. The shadow file is created inside the sandbox's
-own cache directory, so `/app` is never touched.
+A test that cannot fail proves nothing, so `scripts/flatpak_audio_smoke.sh`
+runs the smoke twice more and requires both runs to **fail**, naming why.
+
+1. **A libmpv that is not libmpv.** A real shared library is copied over
+   `libmpv.so.2` in a directory prepended to `LD_LIBRARY_PATH`, so the loader
+   accepts it and then cannot resolve mpv's symbols out of it.
+
+   The first version of this control used a zero-byte file, and CI proved it
+   wrong: the dynamic loader treats a candidate with a bad ELF header as "not
+   this one" and carries on down the search path, so the packaged libmpv was
+   found anyway and the run passed. A valid library under the wrong name is
+   what the loader actually loads.
+
+2. **The identity check itself.** The same run with
+   `LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX` pointed at a path nothing can
+   satisfy has to fail on it — otherwise a passing positive run would not tell
+   you the check ran at all.
+
+The shadow lives in the sandbox's own cache directory, so `/app` is never
+touched, and a control that could not be set up fails the job rather than
+counting as a pass.
 
 ## What it does not validate
 
