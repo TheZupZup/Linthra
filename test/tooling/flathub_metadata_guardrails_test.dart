@@ -148,6 +148,60 @@ void main() {
     });
   });
 
+  // #450: the listing must describe the Linux app that actually ships, not
+  // everything the codebase can do. A feature reaches this file only after it
+  // has been run on Linux, not because a unit test covers it.
+  group('claims match what is validated on Linux', () {
+    String describedText() {
+      final RegExpMatch? match = RegExp(
+        '<description>(.*?)</description>',
+        dotAll: true,
+      ).firstMatch(metainfo);
+      return (match?.group(1) ?? '').toLowerCase();
+    }
+
+    // Server playback has never been run from the installed Flatpak. The
+    // network permission exists (#440), which makes this an easy claim to add
+    // by accident and a damaging one to publish.
+    test('no streaming provider is advertised', () {
+      for (final String provider in <String>[
+        'jellyfin',
+        'navidrome',
+        'subsonic',
+        'plex',
+      ]) {
+        expect(
+          describedText(),
+          isNot(contains(provider)),
+          reason: 'the listing names $provider, but nobody has signed in to a '
+              'server from the installed Flatpak and played a track. Validate '
+              'it first, then claim it.',
+        );
+      }
+    });
+
+    test('no Android-only feature is advertised', () {
+      for (final String feature in <String>[
+        'chromecast',
+        'android auto',
+        'share sheet',
+      ]) {
+        expect(
+          describedText(),
+          isNot(contains(feature)),
+          reason: '$feature does not exist on Linux',
+        );
+      }
+    });
+
+    // Keywords are what a software centre searches. They are cheap, and a
+    // listing without them is much harder to find.
+    test('the listing is searchable', () {
+      expect(metainfo, contains('<keywords>'));
+      expect(metainfo, contains('<keyword>music</keyword>'));
+    });
+  });
+
   group('the lint runner is wired up and unsuppressed', () {
     test('CI runs all three linter modes', () {
       final String workflow =
