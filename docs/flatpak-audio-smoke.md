@@ -161,13 +161,21 @@ uninstall or test a build you care about. Everything it does install, it
 removes on exit, app data included.
 
 Every sandbox run is time-bounded (`LINTHRA_FLATPAK_SMOKE_TIMEOUT`, 300s by
-default) and hitting the bound is a failure, including for the negative
-controls: the smoke is supposed to fail *promptly and with a reason* against a
-broken libmpv, and a process that blocks instead is its own bug. The Dart side
-bounds each transport step, but only once Dart is running — a hang in the
-loader, the GTK realize, or media_kit bringing up a library that turns out not
-to be libmpv has nothing else watching it, and a hung CI job serves no log at
-all until it ends.
+default), including the probe that checks the smoke binary is installed. The
+Dart side bounds each transport step, but only once Dart is running — a hang in
+the loader, the GTK realize, or media_kit bringing up a library that turns out
+not to be libmpv has nothing else watching it, and a hung CI job serves no log
+at all until it ends.
+
+What hitting the bound *means* differs by run, and only one case accepts it:
+
+| Run | Hitting the bound |
+| --- | --- |
+| The lifecycle run, and the install probe | a failure |
+| The shadow control (a wrong libmpv) | **accepted** — the app is known to hang here, and what the control proves is that such a libmpv cannot produce a *passing* smoke |
+| The identity control (a required prefix nothing satisfies) | a failure — this one must fail promptly and name libmpv |
+
+An exit-0 run is never accepted, for any of them.
 
 ### Running just the lifecycle natively
 
