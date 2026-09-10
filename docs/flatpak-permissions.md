@@ -14,7 +14,7 @@ this cannot drift into a page that used to be accurate.
 ## The result
 
 Eight permissions. No filesystem access of any kind, no session-bus access, no
-`--talk-name` to anything, and no host device beyond the GPU.
+`--talk-name` or `--see-name` to anything, and no host device beyond the GPU.
 
 | Permission | Feature | Where it is used | Why nothing narrower works |
 | --- | --- | --- | --- |
@@ -78,6 +78,7 @@ way round. Every refused spelling has a test on both paths.
 | `--persist=` | Redirects a path into the app tree, which is a filesystem grant in a different spelling. |
 | `--socket=session-bus`, `--socket=system-bus` | The entire bus. Every service on the session bus, including the keyring and every other app's private interfaces. |
 | `--talk-name=…` (any) | Linthra calls no D-Bus service. It owns two names so shells can call *it*. If a future feature needs to call one, it needs its own issue and this table's fourth column. |
+| `--see-name=…` (any) | Narrower than talking, and still bus reach Linthra has no use for. It is here mainly so the refusal is not silently spelling-dependent: `see` is a real `flatpak build-finish` option and one of the four bus policy values. |
 | `--own-name=org.mpris.MediaPlayer2.*` | Would let Linthra impersonate every other media player on the bus. |
 | `--device=all`, `--device=shm` | Cameras, USB and input devices, for a music player. |
 | `--socket=ssh-auth`, `--socket=gpg-agent`, `--socket=cups` | Agents and services with nothing to do with playback. |

@@ -284,6 +284,8 @@ class RefusedTest(unittest.TestCase):
             "--talk-name=org.freedesktop.secrets",
             "--talk-name=org.freedesktop.Notifications",
             "--system-talk-name=org.freedesktop.UDisks2",
+            "--see-name=org.freedesktop.secrets",
+            "--system-see-name=org.freedesktop.UDisks2",
             "--own-name=org.mpris.MediaPlayer2.*",
             "--device=all",
             "--allow=devel",
