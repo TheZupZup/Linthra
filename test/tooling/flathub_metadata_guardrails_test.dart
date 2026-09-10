@@ -31,7 +31,24 @@ void main() {
     if (raw == null) {
       return null;
     }
-    return raw
+    // Numeric references first: `&#38;` is a perfectly legal way to write an
+    // ampersand, and leaving it encoded would count six characters for one.
+    final String numeric = raw.replaceAllMapped(
+      RegExp(r'&#(x[0-9a-fA-F]+|[0-9]+);'),
+      (Match match) {
+        final String digits = match.group(1)!;
+        final int? code = digits.startsWith('x')
+            ? int.tryParse(digits.substring(1), radix: 16)
+            : int.tryParse(digits);
+        // Leave anything unparseable or outside Unicode exactly as written,
+        // rather than throwing inside a guardrail.
+        if (code == null || code < 0 || code > 0x10FFFF) {
+          return match.group(0)!;
+        }
+        return String.fromCharCode(code);
+      },
+    );
+    return numeric
         .replaceAll('&lt;', '<')
         .replaceAll('&gt;', '>')
         .replaceAll('&quot;', '"')

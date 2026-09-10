@@ -216,10 +216,15 @@ summary was 36.
 ## Where this runs
 
 The `Build and launch Flatpak` job in `.github/workflows/flatpak-build.yml`
-lints the manifest before the build and the repository plus AppStream catalogue
-after the export. `.github/workflows/ci.yml` runs the runner's own unit tests on
-every PR, because the linter needs a Flatpak and a long build but the judgement
-around it does not.
+lints the manifest before the build and the AppStream catalogue after the
+export. It does **not** currently lint the exported repository: that mode is
+deferred, per the table above, so CI passing is not evidence that the
+publishable OSTree was checked. Run it locally, or wait for
+[#628](https://github.com/TheZupZup/Linthra/issues/628).
+
+`.github/workflows/ci.yml` runs the runner's own unit tests on every PR,
+because the linter needs a Flatpak and a long build but the judgement around it
+does not.
 
 ## Related
 
