@@ -6,8 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// The smoke itself only runs on a runner with flatpak-builder, which is a
 /// 90-minute job. These read the harness, the lifecycle tool and the workflow
-/// as text so the properties that make that job *mean* something — the libmpv
-/// identity check, the negative control, the absence of credentials — cannot be
+/// as text so the properties that make that job *mean* something (the libmpv
+/// identity check, the negative control, the absence of credentials) cannot be
 /// dropped in a PR that never triggers the heavy build.
 void main() {
   late String harness;
@@ -225,7 +225,7 @@ void main() {
 
   group('workflow', () {
     // A change to the Linux playback stack can break only inside the sandbox,
-    // which is the regression this job exists to catch — so the smoke's own
+    // which is the regression this job exists to catch, so the smoke's own
     // imports have to be able to trigger it.
     test('triggers on the audio implementation the smoke imports', () {
       expect(
@@ -245,11 +245,11 @@ void main() {
       );
       expect(
         workflow,
-        contains('io.github.thezupzup.linthra.audio-smoke.yml'),
+        contains('io.github.thezupzup.linthra.sandbox-smoke.yml'),
       );
       expect(
         workflow,
-        contains('bash ../scripts/flatpak_audio_smoke.sh repo-audio-smoke'),
+        contains('bash ../scripts/flatpak_audio_smoke.sh repo-sandbox-smoke'),
       );
     });
 

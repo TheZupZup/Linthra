@@ -6,8 +6,8 @@
 The generator's whole claim is that the manifest CI builds is the submission
 manifest plus one test binary. These tests hold it to that from both ends: the
 happy path really does add only the smoke commands, and every way the
-submission manifest could drift out from under it — a renamed module, a
-reordered build, a manifest that already carries the harness — is a loud
+submission manifest could drift out from under it (a renamed module, a
+reordered build, a manifest that already carries the harness) is a loud
 failure rather than a quietly wrong package.
 
 Fixtures are built in memory. Nothing here writes to the repository, runs
@@ -189,12 +189,36 @@ class CommittedManifestTest(unittest.TestCase):
 
     def test_real_manifest_ships_no_test_harness(self) -> None:
         text = generator.DEFAULT_MANIFEST.read_text(encoding="utf-8")
-        self.assertNotIn(generator.SMOKE_INSTALL_DIR, text)
-        self.assertNotIn("linux_audio_backend_smoke", text)
+        for name, target in generator.SMOKE_TARGETS.items():
+            self.assertNotIn(generator.install_dir(name), text)
+            self.assertNotIn(Path(target).stem, text)
 
-    def test_smoke_binary_lands_outside_the_user_facing_path(self) -> None:
-        self.assertTrue(generator.SMOKE_INSTALL_DIR.startswith("/app/libexec/"))
-        self.assertTrue(generator.SMOKE_COMMAND.startswith(generator.SMOKE_INSTALL_DIR))
+    def test_every_smoke_binary_lands_outside_the_user_facing_path(self) -> None:
+        seen = set()
+        for name in generator.SMOKE_TARGETS:
+            directory = generator.install_dir(name)
+            self.assertTrue(directory.startswith("/app/libexec/"))
+            self.assertTrue(generator.smoke_command(name).startswith(directory))
+            self.assertNotIn(directory, seen)
+            seen.add(directory)
+
+    def test_smoke_command_rejects_an_unknown_target(self) -> None:
+        with self.assertRaises(KeyError):
+            generator.smoke_command("nope")
+
+    # Every `flutter build linux` writes to the same bundle directory, so a
+    # target that does not copy its output before the next build starts would
+    # ship the wrong binary under its own name.
+    def test_each_target_copies_its_bundle_before_the_next_build(self) -> None:
+        commands = generator.SMOKE_BUILD_COMMANDS
+        for index, command in enumerate(commands):
+            if not command.startswith("flutter build"):
+                continue
+            following = commands[index + 1 : index + 3]
+            self.assertTrue(
+                any(c.startswith("cp -r build/") for c in following),
+                msg="{!r} is not followed by a copy".format(command),
+            )
 
 
 if __name__ == "__main__":
