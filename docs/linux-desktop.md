@@ -384,6 +384,7 @@ undeclared network access to an isolated `flatpak-builder` build.
 | Volume control | Supported | A mute and a slider on Now Playing and the wide mini-player bar, plus MPRIS `Volume`, driven through `PlaybackController` and remembered across launches ([issue #394](https://github.com/TheZupZup/Linthra/issues/394)). See [Volume](#volume). |
 | Desktop layout | Supported | The shell swaps its bottom bar for a navigation rail at 900 px, and feature screens adapt on the width they are given — including a third pane for the Library grids and for Now Playing's queue. See [How the desktop layout adapts](#how-the-desktop-layout-adapts). |
 | Window geometry | Supported | Size and maximized state survive a restart; position too, on X11. A saved position is re-checked against the monitors attached now. See [Window state](#window-state). |
+| Content density | Supported | Compact by default, switchable to Comfortable in Settings → Appearance and remembered across restarts ([issue #395](https://github.com/thezupzup/linthra/issues/395)). Both are Material `VisualDensity` values, so the choice reaches every list row, grid and control at once. Touch builds are unaffected. See [Density (Compact / Comfortable)](#density-compact--comfortable). |
 | Pointer affordances | Supported | Compact content density, visible hover feedback, right-click context menus with a keyboard equivalent, and Ctrl/Shift multi-select in track lists — all keyed on the input rather than the window width. See [Pointer, not width](#pointer-not-width). |
 | Keyboard shortcuts | Partial | Quick search is bound to **Ctrl+K** / **Ctrl+F** ([issue #393](https://github.com/TheZupZup/Linthra/issues/393)) — see [Quick search](#quick-search-ctrlk). The volume control takes the wheel and arrow keys when focused; global transport and volume shortcuts are still later work in #376. |
 
@@ -495,6 +496,45 @@ window and is still driven by a thumb.
   number follow it rather than ignoring it — the songs list's fixed row extent
   (which the A–Z index measures its scroll offsets in) and the artist grid's
   cell floor — and both only give back padding, never room the words need.
+  On desktop the value is also a **preference**: see
+  [Density (Compact / Comfortable)](#density-compact--comfortable).
+### Density (Compact / Comfortable)
+
+Settings → Appearance → **Density** offers two desktop densities
+([issue #395](https://github.com/thezupzup/linthra/issues/395)):
+
+| Mode | Material value | Effect |
+| --- | --- | --- |
+| **Compact** (default) | `VisualDensity.compact` | What a desktop build has always looked like. Fits the most of a library per screen. |
+| **Comfortable** | `VisualDensity.comfortable` | One step back towards the touch layout: roomier rows and grids, still denser than a phone. |
+
+The preference is *only* a choice between two of Material's own
+`VisualDensity` values — there is no second spacing scale. That is what makes
+it reach the whole app for free: every widget that already reads
+`Theme.of(context).visualDensity` (list rows, buttons, popup menus, the songs
+list's row extent, the artist grid's cell floor) follows it with no change of
+its own, and Material's minimum tap targets still apply on top, so neither
+setting can shrink a control below a real click target.
+
+| Piece | File |
+| --- | --- |
+| The preference | `lib/core/models/desktop_density.dart` |
+| Store seam | `lib/core/repositories/desktop_density_store.dart` |
+| Persistence | `lib/data/repositories/shared_preferences_desktop_density_store.dart` |
+| Controller + `VisualDensity` mapping | `lib/features/appearance/desktop_density_controller.dart` |
+| The card | `lib/features/appearance/desktop_density_card.dart` |
+
+Two rules keep touch out of it. The card renders nothing off desktop, and
+`LinthraApp` passes a density to `AppTheme` **only** on a desktop host — off
+desktop the parameter is null and the theme keeps
+`VisualDensity.adaptivePlatformDensity` exactly as before. An Android build can
+therefore never inherit a desktop density, which
+`test/features/appearance/desktop_density_widget_test.dart` pins.
+
+Like the theme mode, the stored value is read before `runApp` so the first
+frame already lays out at the chosen density; changing it afterwards rebuilds
+both themes and relayouts every screen at once, with no restart.
+
 * **Hover** — `hoverColor` carries enough weight to be seen on a black-first
   theme, and every ink surface picks it up at once: list rows, buttons, grid
   cards, rail destinations, menu items. It is neutral rather than brand-tinted,
