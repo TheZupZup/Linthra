@@ -95,6 +95,40 @@ report() {
   sanitize <"$LOG_FILE" >&2
 }
 
+# Every sandbox run is time-bounded, and a run that hits the bound is a
+# failure of its own.
+#
+# The smoke's Dart side bounds each transport step, but that only helps once
+# Dart is running. A process that blocks earlier — the loader, the GTK
+# realize, media_kit bringing up a libmpv that turns out not to be one — has
+# nothing watching it, and neither xvfb-run nor `flatpak run` imposes a limit.
+# CI showed what that costs: a job sitting at 56 minutes against a 14-minute
+# norm, on its way to the 120-minute job timeout, with no output to read
+# because logs are not retrievable until a job ends.
+RUN_TIMEOUT_SECONDS="${LINTHRA_FLATPAK_SMOKE_TIMEOUT:-300}"
+
+# Runs one command inside the sandbox, under a display and the bound above,
+# capturing everything to $LOG_FILE. Returns the command's status, or 124/137
+# when the bound was hit (`timeout` uses 124; 137 is the SIGKILL escalation).
+bounded_run() {
+  local status=0
+  timeout --signal=TERM --kill-after=30 "$RUN_TIMEOUT_SECONDS" \
+    xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
+    dbus-run-session -- \
+    "$@" >"$LOG_FILE" 2>&1 || status=$?
+
+  # xvfb-run does not necessarily take the sandboxed app down with it, and a
+  # survivor would hold the app id against the next run.
+  if ((status == 124 || status == 137)); then
+    flatpak kill "$APP_ID" >/dev/null 2>&1 || true
+  fi
+  return "$status"
+}
+
+timed_out() {
+  (($1 == 124 || $1 == 137))
+}
+
 # This uniquely named remote points only at the unsigned repository produced by
 # the same CI job. --no-gpg-verify must never be used for Flathub or another
 # public remote.
@@ -117,14 +151,17 @@ fi
 # manual check (docs/flatpak-audio-smoke.md).
 printf 'Running the audio lifecycle smoke inside the sandbox...\n'
 status=0
-xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
-  dbus-run-session -- \
+bounded_run \
   flatpak run \
   --env=LINTHRA_AUDIO_SMOKE_AO=null \
   --env=LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX=/app/ \
   --command="$SMOKE_COMMAND" \
-  "$APP_ID" >"$LOG_FILE" 2>&1 || status=$?
+  "$APP_ID" || status=$?
 
+if timed_out "$status"; then
+  report
+  fail "the audio lifecycle smoke hung inside the sandbox and was killed after ${RUN_TIMEOUT_SECONDS}s"
+fi
 if ((status != 0)); then
   report
   fail "the audio lifecycle smoke failed inside the sandbox (status $status)"
@@ -155,10 +192,15 @@ expect_failure() {
   shift 2
 
   local status=0
-  xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
-    dbus-run-session -- \
-    "$@" >"$LOG_FILE" 2>&1 || status=$?
+  bounded_run "$@" || status=$?
 
+  # A control that hung told us nothing: the smoke is supposed to *fail*
+  # against a broken libmpv, promptly and with a reason, and a process that
+  # blocks instead is its own bug.
+  if timed_out "$status"; then
+    report
+    fail "the smoke hung $what and was killed after ${RUN_TIMEOUT_SECONDS}s"
+  fi
   # 3 is the inner script's own "I could not set this control up" exit. A
   # control that did not run is not a control that passed.
   if ((status == 3)); then

@@ -156,6 +156,29 @@ void main() {
       );
     });
 
+    // A job that hangs reports nothing at all: GitHub does not serve a job's
+    // log until it ends, so an unbounded run costs the full job timeout and
+    // leaves nothing to read.
+    test('bounds every sandbox run, and treats hitting the bound as failure',
+        () {
+      expect(harness, contains('bounded_run()'));
+      expect(harness, contains('RUN_TIMEOUT_SECONDS'));
+      expect(harness, contains('timeout --signal=TERM --kill-after=30'));
+      expect(harness, contains('hung inside the sandbox and was killed'));
+      expect(
+        harness,
+        contains(r'fail "the smoke hung $what and was killed after'),
+        reason: 'a control that hung is not a control that failed correctly',
+      );
+      expect(
+        harness,
+        isNot(contains("  xvfb-run --auto-servernum --server-args='-screen 0 "
+            "1280x720x24' \\\n  dbus-run-session -- \\\n  flatpak run \\\n"
+            "  --env=LINTHRA_AUDIO_SMOKE_AO")),
+        reason: 'the positive run must go through bounded_run too',
+      );
+    });
+
     test('sanitizes everything it prints', () {
       expect(harness, contains('sanitize()'));
       expect(harness, contains('/run/user/<uid>'));
