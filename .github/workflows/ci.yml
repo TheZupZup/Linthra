@@ -122,6 +122,18 @@ jobs:
       - name: Test the release metadata checker
         run: python3 test/tooling/check_release_metadata_sync_test.py
 
+      # The Flatpak audio smoke (#446) runs against a manifest derived from the
+      # submission manifest, and the derivation is only trustworthy because the
+      # generator refuses to change anything but the app module's build
+      # commands. That refusal is what these tests hold it to, and they run here
+      # rather than in the 90-minute Flatpak job so a manifest regenerated into
+      # a shape the generator no longer understands is caught on any PR. Local
+      # twin: `python3 test/tooling/make_flatpak_smoke_manifest_test.py`.
+      - name: Test the Flatpak smoke manifest generator
+        run: |
+          python3 -m pip install --quiet PyYAML
+          python3 test/tooling/make_flatpak_smoke_manifest_test.py
+
   release-bump-guard:
     name: Release bump touches only version files
     runs-on: ubuntu-latest
