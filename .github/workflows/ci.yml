@@ -122,6 +122,15 @@ jobs:
       - name: Test the release metadata checker
         run: python3 test/tooling/check_release_metadata_sync_test.py
 
+      # The Flathub linter itself needs a Flatpak and, for two of its three
+      # modes, a 90-minute build — so it runs in the Flatpak workflow. What
+      # runs here is the judgement wrapped around it: that a missing linter is
+      # not a pass, that a finding needs a written reason, and that a reason
+      # for a finding the linter no longer reports is itself a failure (#449).
+      # Local twin: `python3 test/tooling/flathub_builder_lint_test.py`.
+      - name: Test the Flathub lint runner
+        run: python3 test/tooling/flathub_builder_lint_test.py
+
   release-bump-guard:
     name: Release bump touches only version files
     runs-on: ubuntu-latest

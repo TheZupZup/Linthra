@@ -18,6 +18,7 @@ on:
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - 'scripts/check_linux_runner.py'
+      - 'scripts/flathub_builder_lint.py'
       - 'scripts/flatpak_launch_smoke.sh'
       - 'scripts/regenerate_flatpak_sources.sh'
       - 'test/tooling/check_linux_runner_test.py'
@@ -34,6 +35,7 @@ on:
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - 'scripts/check_linux_runner.py'
+      - 'scripts/flathub_builder_lint.py'
       - 'scripts/flatpak_launch_smoke.sh'
       - 'scripts/regenerate_flatpak_sources.sh'
       - 'test/tooling/check_linux_runner_test.py'
@@ -118,6 +120,26 @@ jobs:
           flatpak remote-add --user --if-not-exists \
             flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
+      # Flathub's own submission linter (#449), which is a different question
+      # from the appstreamcli/desktop-file validation above: those check that
+      # two files are well-formed, this checks whether a submission would be
+      # accepted. It ships inside org.flatpak.Builder, which is how Flathub's
+      # documentation runs it, so this is the same tool a reviewer uses.
+      - name: Install Flathub's builder linter
+        run: |
+          set -euo pipefail
+          flatpak install --user -y flathub org.flatpak.Builder
+
+      # Before the build, because a manifest finding does not need one. The
+      # runner script fails on any finding without a written reason in
+      # flatpak/flathub-lint-exceptions.json, and equally on a reason for a
+      # finding the linter no longer reports.
+      - name: Lint the submission manifest
+        run: |
+          set -euo pipefail
+          python3 scripts/flathub_builder_lint.py \
+            --manifest flatpak/io.github.thezupzup.linthra.yml
+
       - name: Install manifest-declared SDK and runtime prerequisites
         working-directory: flatpak
         run: |
@@ -191,6 +213,18 @@ jobs:
           test -f repo-ci/config
           flatpak build-update-repo repo-ci
           echo 'Flatpak build and repository export completed successfully.'
+
+      # The other two halves of the submission check, both of which need the
+      # build: the exported repository (what Flathub would publish) and the
+      # AppStream catalogue appstreamcli compose produced from the metainfo
+      # (what a software centre actually reads, which is not the same file the
+      # validation step above checked).
+      - name: Lint the exported repository and AppStream catalogue
+        run: |
+          set -euo pipefail
+          python3 scripts/flathub_builder_lint.py \
+            --repo flatpak/repo-ci \
+            --builddir flatpak/flatpak-builder-ci
 
       - name: Install and launch packaged Flatpak
         working-directory: flatpak

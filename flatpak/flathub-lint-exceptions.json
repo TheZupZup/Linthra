@@ -1,0 +1,18 @@
+{
+  "_policy": [
+    "Findings from Flathub's builder linter that Linthra accepts, each with a",
+    "written reason (#449). scripts/flathub_builder_lint.py reads this file.",
+    "",
+    "An entry here is not a way to make the check green. It is a claim that a",
+    "human looked at the finding and decided it is wrong or unavoidable for",
+    "Linthra, and the reason has to say which. A finding that is simply not",
+    "fixed yet belongs in its issue, not here.",
+    "",
+    "The file is also checked in the other direction: an exception the linter",
+    "no longer reports fails the run, so a reason can never outlive the problem",
+    "it explains.",
+    "",
+    "Empty is the goal, and the state #456 requires before submission."
+  ],
+  "exceptions": {}
+}
