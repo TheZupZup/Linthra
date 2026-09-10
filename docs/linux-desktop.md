@@ -237,7 +237,7 @@ from pub.dev. The local delta is two small additions:
 
 * `JustAudioMediaKit.mpvProperties`, an optional map of libmpv properties
   applied at player creation. Linthra uses it for the defaults below, and the
-  headless CI smoke target layers `ao=alsa` on top where there is no
+  headless CI smoke target layers its own `ao` on top where there is no
   PipeWire/Pulse device.
 * `JustAudioMediaKit.livePlayers`, a map of the media_kit `Player`s that
   currently exist. just_audio's platform interface has no concept of an audio
