@@ -2,16 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
+import '../../../core/models/playback_history.dart';
 import '../../../core/models/playback_state.dart';
 import '../../../core/models/playlist.dart';
 import '../../../core/models/track.dart';
 import '../../../core/repositories/playlist_repository.dart';
+import '../../../data/repositories/host_platform_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../shared/widgets/now_playing_indicator.dart';
 import '../../../shared/widgets/reorder_focus_walk.dart';
 import '../../../shared/widgets/reorder_handle.dart';
 import '../../playlists/widgets/create_playlist_dialog.dart';
 import '../now_playing.dart';
+import '../playback_history_providers.dart';
 import '../player_providers.dart';
 import 'album_artwork.dart';
 
@@ -45,6 +48,17 @@ Future<void> showQueueSheet(BuildContext context) {
 /// Playing, Cast, and the media session use — so editing the queue here can
 /// never start a second, duplicate playback (local or cast). It only ever holds
 /// catalog [Track]s, never a resolved/authenticated stream URL.
+///
+/// **History differs by host, on purpose (#419).** As a sheet — which is what
+/// Android gets, at any window width — the history section is the current
+/// queue's own already-played prefix, unchanged: tapping a row steps back
+/// inside the queue. On a **desktop** pane the section is instead the session's
+/// bounded recent-playback history ([PlaybackHistory]), which survives the
+/// queue being replaced and is capped at [PlaybackHistory.defaultLimit]
+/// entries. It sits *below* Up next rather than above Now playing, because it
+/// is newest-first and is no longer part of the queue at all. Android's queue
+/// semantics are therefore untouched: the recorder that fills that history does
+/// not even run there.
 class QueueSheet extends ConsumerWidget {
   const QueueSheet({this.embedded = false, super.key});
 
@@ -73,7 +87,19 @@ class QueueSheet extends ConsumerWidget {
     final Track? current = queue.$1;
     final List<Track> upNext = queue.$2;
     final List<Track> history = queue.$3;
-    final bool canClear = upNext.isNotEmpty || history.isNotEmpty;
+
+    // The desktop pane swaps the queue's already-played prefix for the
+    // session's bounded recent-playback history. Keyed on the host, not on the
+    // window width: a wide Android tablet still gets the queue semantics its
+    // phone sibling has.
+    final bool showRecentHistory =
+        embedded && ref.watch(hostPlatformProvider).isDesktop;
+    final PlaybackHistory recent = showRecentHistory
+        ? ref.watch(playbackHistoryProvider)
+        : PlaybackHistory.empty;
+
+    final bool canClear =
+        upNext.isNotEmpty || history.isNotEmpty || recent.isNotEmpty;
     final bool canSave = current != null;
 
     final Widget body = Column(
@@ -99,7 +125,18 @@ class QueueSheet extends ConsumerWidget {
                 tooltip: 'Save queue as playlist',
               ),
               TextButton(
-                onPressed: canClear ? controller.clearQueue : null,
+                onPressed: canClear
+                    ? () {
+                        controller.clearQueue();
+                        // Clear has always meant "drop what is behind and
+                        // ahead, keep what is playing". With history no longer
+                        // derived from the queue on desktop, clearing the queue
+                        // alone would leave half of that promise unkept.
+                        if (showRecentHistory) {
+                          ref.read(playbackHistoryProvider.notifier).clear();
+                        }
+                      }
+                    : null,
                 child: const Text('Clear'),
               ),
             ],
@@ -110,7 +147,7 @@ class QueueSheet extends ConsumerWidget {
               ? const _EmptyQueue()
               : CustomScrollView(
                   slivers: <Widget>[
-                    if (history.isNotEmpty) ...<Widget>[
+                    if (!showRecentHistory && history.isNotEmpty) ...<Widget>[
                       const _SectionLabel(label: 'Previously played'),
                       SliverList.builder(
                         itemCount: history.length,
@@ -131,6 +168,22 @@ class QueueSheet extends ConsumerWidget {
                       const SliverToBoxAdapter(child: _NothingUpNext())
                     else
                       _UpNextList(tracks: upNext),
+                    if (showRecentHistory && recent.isNotEmpty) ...<Widget>[
+                      const _SectionLabel(label: 'Recently played'),
+                      SliverList.builder(
+                        itemCount: recent.length,
+                        itemBuilder: (context, index) => _RecentlyPlayedTile(
+                          entry: recent.entries[index],
+                          onTap: () => playFromRecentHistory(
+                            ref,
+                            recent.entries[index].track,
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: _RecentHistoryFootnote(limit: recent.limit),
+                      ),
+                    ],
                     const SliverToBoxAdapter(
                       child: SizedBox(height: AppSpacing.md),
                     ),
@@ -306,6 +359,87 @@ class _HistoryTile extends StatelessWidget {
       subtitle: artist == null || artist.isEmpty
           ? null
           : Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+    );
+  }
+}
+
+/// A track from the session's recent-playback history.
+///
+/// Tapping it plays that song again through the normal path — the queue if it
+/// is still in it, the ordinary play path otherwise (see
+/// [playFromRecentHistory]). The row carries a catalog [Track] and nothing
+/// else, so a replay always resolves a fresh playable source.
+class _RecentlyPlayedTile extends StatelessWidget {
+  const _RecentlyPlayedTile({required this.entry, required this.onTap});
+
+  final PlaybackHistoryEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Track track = entry.track;
+    final String? artist = track.artistName;
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.7);
+    return ListTile(
+      dense: true,
+      onTap: onTap,
+      leading: SizedBox.square(
+        dimension: 40,
+        child: Opacity(
+          opacity: 0.6,
+          child: AlbumArtwork(
+            artworkUri: track.artworkUri,
+            borderRadius: const BorderRadius.all(Radius.circular(AppRadii.sm)),
+          ),
+        ),
+      ),
+      title: Text(
+        track.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodyLarge?.copyWith(color: muted),
+      ),
+      subtitle: artist == null || artist.isEmpty
+          ? null
+          : Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: Tooltip(
+        message: entry.wasCompleted ? 'Played to the end' : 'Skipped',
+        child: Icon(
+          entry.wasCompleted
+              ? Icons.check_circle_outline
+              : Icons.skip_next_outlined,
+          size: 18,
+          color: muted,
+        ),
+      ),
+    );
+  }
+}
+
+/// The one line that makes the retention bound visible where it applies, so a
+/// listener is never left wondering why an older song fell off the list.
+class _RecentHistoryFootnote extends StatelessWidget {
+  const _RecentHistoryFootnote({required this.limit});
+
+  final int limit;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.xs,
+        AppSpacing.lg,
+        0,
+      ),
+      child: Text(
+        'The last $limit tracks of this session. Nothing is saved to disk.',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        ),
+      ),
     );
   }
 }

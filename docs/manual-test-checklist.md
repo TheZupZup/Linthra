@@ -451,6 +451,23 @@ cache's knowledge survives a restart; it never holds a URL or token.
 - ☐ (Optional) Confirm via *Developer options ▸ Show refresh rate* that the rate
   rises to the panel's max with Linthra in the foreground.
 
+### Desktop HiDPI & fractional scaling (Linux)
+
+The scale matrix is covered by widget tests, so this pass is only about what a
+compositor does that Flutter's own layout cannot tell you. The full GNOME/KDE
+steps live in [hidpi-and-scaling.md](./hidpi-and-scaling.md); the short version:
+
+- ☐ GNOME: Library, an album, an artist and Now Playing at 100 / 125 / 150 /
+  175 / 200% display scale: nothing clipped, artwork sharp rather than soft.
+- ☐ GNOME with Large Text on, at 100% and 150%.
+- ☐ KDE Plasma: the same five scales, plus Force font DPI at 96 and 120.
+- ☐ Drag the window to its minimum size: it stops somewhere usable and the
+  layout still works there.
+- ☐ Drag the window between a HiDPI panel and an external 1080p monitor: it
+  re-renders sharply on the second screen rather than staying blurry.
+- ☐ On an ultrawide, content stays centred and capped rather than stretching a
+  track row across the whole panel.
+
 ---
 
 ## Reporting a bug (for testers and users)

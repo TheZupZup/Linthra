@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/models/desktop_density.dart';
 import '../core/models/theme_mode_preference.dart';
 import '../core/platform/host_platform.dart';
 import '../data/repositories/app_icon_variant_store_provider.dart';
@@ -7,6 +8,7 @@ import '../data/repositories/audio_output_device_service_provider.dart';
 import '../data/repositories/audiobookshelf_session_store_provider.dart';
 import '../data/repositories/cast_receiver_pin_store_provider.dart';
 import '../data/repositories/default_provider_store_provider.dart';
+import '../data/repositories/desktop_density_store_provider.dart';
 import '../data/repositories/desktop_window_controller_provider.dart';
 import '../data/repositories/desktop_window_preferences_provider.dart';
 import '../data/repositories/download_repository_provider.dart';
@@ -30,6 +32,7 @@ import '../data/repositories/share_service_provider.dart';
 import '../data/repositories/subsonic_auto_sync_store_provider.dart';
 import '../data/repositories/subsonic_session_store_provider.dart';
 import '../data/repositories/theme_mode_store_provider.dart';
+import '../features/appearance/desktop_density_controller.dart';
 import '../features/appearance/theme_mode_controller.dart';
 import '../features/downloads/download_providers.dart';
 import '../features/library/playback_candidates_provider.dart';
@@ -45,6 +48,7 @@ import '../features/settings/jellyfin/jellyfin_availability_controller.dart';
 /// without calling `runApp`.
 List<Override> productionApplicationOverrides({
   required ThemeModePreference storedThemeMode,
+  DesktopDensity storedDesktopDensity = DesktopDensity.fallback,
   HostPlatform? host,
 }) {
   final HostPlatform resolvedHost = host ?? HostPlatform.current;
@@ -92,6 +96,8 @@ List<Override> productionApplicationOverrides({
     sharedPreferencesAppIconVariantStoreOverride,
     sharedPreferencesThemeModeStoreOverride,
     initialThemeModeProvider.overrideWithValue(storedThemeMode),
+    sharedPreferencesDesktopDensityStoreOverride,
+    initialDesktopDensityProvider.overrideWithValue(storedDesktopDensity),
     platformLauncherIconServiceOverride,
     platformShareServiceOverride,
     platformAudioOutputDeviceServiceOverride,
