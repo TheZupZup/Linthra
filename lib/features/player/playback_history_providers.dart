@@ -52,6 +52,15 @@ class PlaybackHistoryController extends Notifier<PlaybackHistory> {
 }
 
 /// The session's recent-playback history. Empty off desktop.
+///
+/// **Instantiated at bootstrap, not by the UI.** The controller's state stream
+/// is a plain broadcast stream with no replay, so the recorder only sees what
+/// happens after it subscribes. Left to the queue pane to create — the pane
+/// starts closed — nothing would be recorded until the listener first opened
+/// it, and the list they opened it to read would be empty. `bootstrapApplication`
+/// reads this alongside the other side-effect-only services so recording starts
+/// with the app. Off desktop [PlaybackHistoryController.build] still creates no
+/// recorder, so that read costs one empty value and nothing else.
 final playbackHistoryProvider =
     NotifierProvider<PlaybackHistoryController, PlaybackHistory>(
   PlaybackHistoryController.new,
@@ -74,8 +83,12 @@ final playbackHistoryProvider =
 Future<void> playFromRecentHistory(WidgetRef ref, Track track) {
   final PlaybackController controller = ref.read(playbackControllerProvider);
   final PlaybackState state = controller.state;
+  // The *last* occurrence, not the first: a queue can hold the same song twice,
+  // and the history entry stands for its most recent play. Stepping back to the
+  // earliest copy would put the tracks between them back into Up next and
+  // replay a different part of the queue than the row promised.
   final int inQueue =
-      state.previous.indexWhere((Track queued) => queued.uri == track.uri);
+      state.previous.lastIndexWhere((Track queued) => queued.uri == track.uri);
   if (inQueue >= 0) return controller.playFromHistory(inQueue);
   return controller.playTrack(track);
 }

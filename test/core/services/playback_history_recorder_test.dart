@@ -85,8 +85,11 @@ void main() {
       recorder.onState(
         _playing(_track('1'), position: const Duration(minutes: 3)),
       );
-      // The engine reports position 0 again as the next source loads.
-      recorder.onState(_playing(_track('1')));
+      // A scrub back lands somewhere in the track, not at zero, so it is a
+      // continuation of the same play rather than a replay of it.
+      recorder.onState(
+        _playing(_track('1'), position: const Duration(minutes: 2)),
+      );
       recorder.onState(_playing(_track('2')));
 
       expect(played.single.outcome, PlaybackHistoryOutcome.completed);
@@ -139,17 +142,125 @@ void main() {
       expect(played, isEmpty);
     });
 
-    test('a repeat-one loop keeps one entry, not one per pass', () {
-      recorder.onState(_playing(_track('1')));
-      for (int i = 0; i < 5; i++) {
-        recorder.onState(
-          _playing(_track('1'), position: const Duration(minutes: 3)),
-        );
-        recorder.onState(_playing(_track('1')));
-      }
+    test('a track restored paused and never played earns nothing', () {
+      // Crash restore loads the queue paused on purpose. Nothing was heard, so
+      // moving on to something else must not record it.
+      recorder.onState(
+        _playing(_track('1'), status: PlaybackStatus.paused),
+      );
       recorder.onState(_playing(_track('2')));
 
-      expect(played.length, 1);
+      expect(played, isEmpty);
+    });
+
+    test('pausing a track that did play still records it', () {
+      recorder.onState(_playing(_track('1')));
+      recorder.onState(
+        _playing(
+          _track('1'),
+          position: const Duration(seconds: 30),
+          status: PlaybackStatus.paused,
+        ),
+      );
+      recorder.onState(_playing(_track('2')));
+
+      expect(played.single.outcome, PlaybackHistoryOutcome.skipped);
+    });
+  });
+
+  group('a repeat-one pass is its own play', () {
+    test('each pass is reported, so the outcome is never inherited', () {
+      // The controller publishes no `completed` status under repeat-one: it
+      // seeks to zero and plays again. Without a boundary the second pass would
+      // keep the first pass's furthest position.
+      recorder.onState(_playing(_track('1')));
+      recorder.onState(
+        _playing(_track('1'), position: const Duration(minutes: 3)),
+      );
+      recorder.onState(_playing(_track('1')));
+
+      expect(played.single.outcome, PlaybackHistoryOutcome.completed);
+    });
+
+    test('finishing one pass and skipping the next records the skip', () {
+      recorder.onState(_playing(_track('1')));
+      recorder.onState(
+        _playing(_track('1'), position: const Duration(minutes: 3)),
+      );
+      // Second pass starts over, then the listener moves on halfway.
+      recorder.onState(_playing(_track('1')));
+      recorder.onState(
+        _playing(_track('1'), position: const Duration(seconds: 90)),
+      );
+      recorder.onState(_playing(_track('2')));
+
+      expect(
+        <PlaybackHistoryOutcome>[for (final _Played p in played) p.outcome],
+        <PlaybackHistoryOutcome>[
+          PlaybackHistoryOutcome.completed,
+          PlaybackHistoryOutcome.skipped,
+        ],
+      );
+    });
+
+    test('a replay is only a replay after the track actually finished', () {
+      // Restarting a track the listener skipped early is one skip, not two.
+      recorder.onState(_playing(_track('1')));
+      recorder.onState(
+        _playing(_track('1'), position: const Duration(seconds: 20)),
+      );
+      recorder.onState(_playing(_track('1')));
+      recorder.onState(_playing(_track('2')));
+
+      expect(played.single.outcome, PlaybackHistoryOutcome.skipped);
+    });
+  });
+
+  group('short tracks', () {
+    PlaybackState shortTrack({
+      required Duration position,
+      Duration duration = const Duration(seconds: 2),
+    }) =>
+        PlaybackState(
+          status: PlaybackStatus.playing,
+          currentTrack: Track(
+            id: 's',
+            title: 'Interlude',
+            uri: 'jellyfin:s',
+            duration: duration,
+          ),
+          position: position,
+          duration: duration,
+        );
+
+    test('skipping a two-second interlude is a skip, not a completed play', () {
+      // The fixed two-second tolerance would put the threshold at zero here, so
+      // even an untouched track would read as finished.
+      recorder.onState(shortTrack(position: Duration.zero));
+      recorder.onState(_playing(_track('2')));
+
+      expect(played.single.outcome, PlaybackHistoryOutcome.skipped);
+    });
+
+    test('playing it through is still a completed play', () {
+      recorder.onState(shortTrack(position: Duration.zero));
+      recorder.onState(shortTrack(position: const Duration(seconds: 2)));
+      recorder.onState(_playing(_track('2')));
+
+      expect(played.single.outcome, PlaybackHistoryOutcome.completed);
+    });
+
+    test('the tolerance scales down rather than vanishing', () {
+      // A quarter of four seconds is one second, so three seconds counts.
+      recorder.onState(
+        shortTrack(
+          position: const Duration(seconds: 3),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      recorder.onState(_playing(_track('2')));
+
+      expect(played.single.outcome, PlaybackHistoryOutcome.completed);
     });
   });
 
