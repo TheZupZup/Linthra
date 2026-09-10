@@ -62,6 +62,24 @@ void main() {
       );
     });
 
+    // A library that loads under libmpv's name but exports none of its symbols
+    // made the packaged app hang in CI rather than exit. Resolving libmpv
+    // first, the way media_kit will, turns that into a one-second failure.
+    test('resolves libmpv itself before media_kit does', () {
+      expect(lifecycle, contains('_preflightLibmpv()'));
+      expect(lifecycle, contains("'libmpv.so',"));
+      expect(lifecycle, contains("'libmpv.so.2',"));
+      expect(lifecycle, contains("'libmpv.so.1',"));
+      expect(lifecycle, contains("_libmpvSymbol = 'mpv_client_api_version'"));
+      expect(lifecycle, contains('loaded but exports no'));
+      expect(
+        lifecycle,
+        contains('no libmpv on the loader search path is usable'),
+        reason: 'a failure has to name every candidate and why each was '
+            'rejected',
+      );
+    });
+
     // The whole point of running inside the sandbox: if a host libmpv can
     // answer for the packaged one, a package that ships none still passes.
     test('reads back which libmpv the loader actually opened', () {
@@ -142,6 +160,15 @@ void main() {
         harness,
         isNot(contains(r': >"$shadow/libmpv.so')),
         reason: 'a zero-byte shadow is skipped by the loader, not loaded',
+      );
+      expect(
+        harness,
+        contains(
+          "expect_failure \"a libmpv that carries none of mpv's symbols\" "
+          "'libmpv'",
+        ),
+        reason: 'the preflight guarantees a message naming libmpv, so the '
+            'control can require one',
       );
     });
 

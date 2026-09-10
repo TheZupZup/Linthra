@@ -19,7 +19,7 @@ starts, so a failure names the transition rather than the whole run:
 
 | Step | What is asserted |
 | --- | --- |
-| initialize | A `LinuxPlaybackController` constructs and libmpv is really mapped into the process |
+| initialize | A real libmpv resolves (loads *and* exports `mpv_client_api_version`), comes from the required prefix, and a `LinuxPlaybackController` constructs on it |
 | load | The fixture opens, the source is `localFile`, and the reported duration matches the file that was written |
 | play | The engine reaches `playing` **and** the position advances past zero |
 | pause | The engine reports `paused` **and** the position stops moving for a full second |
@@ -30,11 +30,26 @@ starts, so a failure names the transition rather than the whole run:
 Three cycles run by default, which is what catches an initialize/dispose leak
 rather than a single-shot failure.
 
+### Resolving libmpv, before media_kit does
+
+The smoke opens libmpv itself first, trying media_kit's own candidate names in
+media_kit's own order — `libmpv.so`, `libmpv.so.2`, `libmpv.so.1` — and
+requires the one that loads to export `mpv_client_api_version`. Loading a file
+called `libmpv.so` proves only that *something* by that name loaded; the symbol
+is what proves it is libmpv.
+
+This is not belt-and-braces. It is there because of how the packaged app
+behaves when its libmpv is wrong: given a library that loads under the name but
+exports none of the symbols, the app does not exit — in CI it **hung**, holding
+a window open until the job was cancelled 46 minutes later. Asking the question
+up front turns that into a one-second failure that names every candidate tried
+and why each was rejected.
+
 ### The libmpv identity check
 
 Set `LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX` and the smoke reads
-`/proc/self/maps` after the first load, and fails if the libmpv the loader
-actually opened came from anywhere else. The Flatpak run sets it to `/app/`.
+`/proc/self/maps` and fails if the libmpv the loader actually opened came from
+anywhere else. The Flatpak run sets it to `/app/`.
 
 This is the point of the whole exercise: a host libmpv is exactly what would
 let a package that ships a broken or missing one still look healthy.
