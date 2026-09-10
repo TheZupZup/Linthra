@@ -76,8 +76,23 @@ rather than an exit code.
 reports also fails the run, so the file cannot quietly accumulate justifications
 for things that were fixed years ago.
 
+**Exception keys carry their mode**, as `manifest/`, `repo/` or `appstream/`,
+for example `repo/appstream-screenshots-not-mirrored-in-ostree`. CI does not
+run every mode in one invocation: the manifest is linted before the build and
+the repo and catalogue after it. Without the mode, the staleness check above
+could not tell an exception whose problem was fixed from one whose mode simply
+did not run in that invocation, and would fail the build on a live exception.
+Qualifying the key also stops a reason written for one mode accepting a
+same-named finding from another.
+
 **An exception with no reason is rejected outright**: an empty string there is
 a suppression wearing a different hat.
+
+**A `<mode>-lint-failed` finding cannot be excepted at all.** That name means
+the linter itself failed rather than reporting something about the submission,
+and it is the same name whatever the failure was. A reason attached to it would
+go on matching after the original problem was fixed and a different one
+appeared, which is the one thing the staleness rule exists to prevent.
 
 ## Tool and version assumptions
 

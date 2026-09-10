@@ -86,20 +86,40 @@ class ExceptionsFileTest(unittest.TestCase):
         self.assertEqual(lint.load_exceptions(Path("/nope/absent.json")), {})
 
     def test_reads_written_reasons(self) -> None:
-        with exceptions_file({"exceptions": {"a-finding": "because"}}) as path:
-            self.assertEqual(lint.load_exceptions(path), {"a-finding": "because"})
+        with exceptions_file({"exceptions": {"repo/a-finding": "because"}}) as path:
+            self.assertEqual(lint.load_exceptions(path), {"repo/a-finding": "because"})
 
     def test_accepts_an_object_with_a_reason_field(self) -> None:
         with exceptions_file(
-            {"exceptions": {"a-finding": {"reason": "because", "issue": 449}}}
+            {"exceptions": {"repo/a-finding": {"reason": "because", "issue": 449}}}
         ) as path:
-            self.assertEqual(lint.load_exceptions(path), {"a-finding": "because"})
+            self.assertEqual(lint.load_exceptions(path), {"repo/a-finding": "because"})
 
     # An exception without a reason is exactly the suppression #449 forbids.
     def test_rejects_an_exception_with_no_reason(self) -> None:
-        with exceptions_file({"exceptions": {"a-finding": "   "}}) as path:
+        with exceptions_file({"exceptions": {"repo/a-finding": "   "}}) as path:
             with self.assertRaises(ValueError):
                 lint.load_exceptions(path)
+
+    # CI lints the manifest and the built repo in separate invocations, so an
+    # unqualified key cannot be told from one whose mode did not run.
+    def test_rejects_an_unqualified_key(self) -> None:
+        with exceptions_file({"exceptions": {"a-finding": "because"}}) as path:
+            with self.assertRaises(ValueError):
+                lint.load_exceptions(path)
+
+    def test_rejects_an_unknown_mode(self) -> None:
+        with exceptions_file({"exceptions": {"nonsense/a-finding": "because"}}) as path:
+            with self.assertRaises(ValueError):
+                lint.load_exceptions(path)
+
+    # "<mode>-lint-failed" is the same name whatever went wrong, so a reason
+    # for it would go on matching a different failure later.
+    def test_refuses_to_except_a_linter_failure(self) -> None:
+        for key in ("appstream/appstream-lint-failed", "repo/repo-lint-failed"):
+            with exceptions_file({"exceptions": {key: "known bad"}}) as path:
+                with self.assertRaises(ValueError):
+                    lint.load_exceptions(path)
 
     def test_rejects_a_malformed_exceptions_block(self) -> None:
         with exceptions_file({"exceptions": ["a-finding"]}) as path:
@@ -126,17 +146,38 @@ class ReportModeTest(unittest.TestCase):
             "manifest", {"warnings": ["appstream-missing-screenshots"]}, {}
         )
         self.assertEqual(undocumented, 1)
-        self.assertEqual(seen, {"appstream-missing-screenshots"})
+        self.assertEqual(seen, {"manifest/appstream-missing-screenshots"})
 
     def test_a_documented_finding_is_accepted_and_quotes_its_reason(self) -> None:
         undocumented, seen, output = run_mode(
             "manifest",
             {"errors": ["some-finding"]},
-            {"some-finding": "the linter is wrong about X"},
+            {"manifest/some-finding": "the linter is wrong about X"},
         )
         self.assertEqual(undocumented, 0)
-        self.assertEqual(seen, {"some-finding"})
+        self.assertEqual(seen, {"manifest/some-finding"})
         self.assertIn("the linter is wrong about X", output)
+
+    # A reason written for one mode must not accept a same-named finding from
+    # another, which is the whole point of qualifying the key.
+    def test_a_reason_for_another_mode_does_not_accept_it(self) -> None:
+        undocumented, seen, _ = run_mode(
+            "manifest",
+            {"errors": ["some-finding"]},
+            {"repo/some-finding": "documented for the repo run only"},
+        )
+        self.assertEqual(undocumented, 1)
+        self.assertEqual(seen, {"manifest/some-finding"})
+
+    # Belt and braces: load_exceptions refuses to record one of these, so this
+    # covers a hand-built dict reaching report_mode anyway.
+    def test_a_linter_failure_is_never_accepted(self) -> None:
+        undocumented, _, _ = run_mode(
+            "appstream",
+            {"errors": ["appstream-lint-failed"]},
+            {"appstream/appstream-lint-failed": "a reason that should not count"},
+        )
+        self.assertEqual(undocumented, 1)
 
     # A message the linter emits outside errors/warnings still has to reach the
     # log, or a reviewer reads a summary that quietly dropped it.
@@ -259,7 +300,7 @@ class MainTest(unittest.TestCase):
     # rots into a suppression list.
     def test_a_stale_exception_fails(self) -> None:
         with exceptions_file(
-            {"exceptions": {"fixed-long-ago": "it used to do this"}}
+            {"exceptions": {"manifest/fixed-long-ago": "it used to do this"}}
         ) as path:
             with stub_linter({"manifest": {"errors": [], "warnings": []}}):
                 original_which = lint.shutil.which
@@ -280,6 +321,35 @@ class MainTest(unittest.TestCase):
                     lint.linter_versions = original_versions
         self.assertEqual(code, 1)
         self.assertIn("were not reported", output)
+
+    # The failure Codex caught on #614. CI lints the manifest before the build
+    # and the repo and catalogue after it, in two invocations, each loading the
+    # whole file. Comparing every exception against one run's findings reported
+    # the other run's live exceptions as stale, which made the mechanism
+    # unusable the moment anyone recorded a real one.
+    def test_an_exception_for_a_mode_that_did_not_run_is_not_stale(self) -> None:
+        with exceptions_file(
+            {"exceptions": {"repo/some-repo-finding": "documented, and still true"}}
+        ) as path:
+            with stub_linter({"manifest": {"errors": [], "warnings": []}}):
+                original_which = lint.shutil.which
+                original_versions = lint.linter_versions
+                lint.shutil.which = lambda _: "/usr/bin/flatpak"
+                lint.linter_versions = lambda: {lint.LINTER_APP: "test"}
+                try:
+                    code, output = self._main(
+                        [
+                            "--manifest",
+                            str(self.manifest),
+                            "--exceptions",
+                            str(path),
+                        ]
+                    )
+                finally:
+                    lint.shutil.which = original_which
+                    lint.linter_versions = original_versions
+        self.assertEqual(code, 0, output)
+        self.assertNotIn("were not reported", output)
 
 
 if __name__ == "__main__":
