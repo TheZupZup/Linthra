@@ -246,6 +246,17 @@ jobs:
           flatpak build-update-repo repo-ci
           echo 'Flatpak build and repository export completed successfully.'
 
+      # Before the lint, deliberately. The lint answers "would Flathub accept
+      # this?", the launch smoke answers "does the package work?", and the
+      # second is the one worth keeping answered while the first is knowingly
+      # open. A failed step ends the job, so with the lint first a finding we
+      # are carrying on purpose would stop the package being installed and
+      # launched at all, here and on main after this merges. That trades real
+      # coverage for a red badge.
+      - name: Install and launch packaged Flatpak
+        working-directory: flatpak
+        run: bash ../scripts/flatpak_launch_smoke.sh repo-ci
+
       # The other two halves of the submission check, both of which need the
       # build: the exported repository (what Flathub would publish) and the
       # AppStream catalogue appstreamcli compose produced from the metainfo
@@ -257,10 +268,6 @@ jobs:
           python3 scripts/flathub_builder_lint.py \
             --repo flatpak/repo-ci \
             --builddir flatpak/flatpak-builder-ci
-
-      - name: Install and launch packaged Flatpak
-        working-directory: flatpak
-        run: bash ../scripts/flatpak_launch_smoke.sh repo-ci
 
   # A second build, on its own runner, because the sandbox smokes need binaries
   # the shipped package must not contain (#446, #447). Nobody wants a test

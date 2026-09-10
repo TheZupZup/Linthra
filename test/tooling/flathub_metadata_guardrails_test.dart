@@ -160,6 +160,27 @@ void main() {
       expect(workflow, contains('--builddir flatpak/flatpak-builder-ci'));
     });
 
+    // The lint fails the job on an open submission finding, and a failed step
+    // ends the job. With the lint ahead of the launch smoke, a finding we are
+    // deliberately carrying (screenshots, today) would stop the package from
+    // ever being installed and launched in CI, trading real coverage for a red
+    // badge. Order matters, so it is asserted rather than left to a comment.
+    test('the launch smoke runs before the submission lint', () {
+      final String workflow =
+          File('.github/workflows/flatpak-build.yml').readAsStringSync();
+      final int launch =
+          workflow.indexOf('- name: Install and launch packaged Flatpak');
+      final int lint = workflow
+          .indexOf('- name: Lint the exported repository and AppStream');
+      expect(launch, isNonNegative);
+      expect(lint, isNonNegative);
+      expect(
+        launch,
+        lessThan(lint),
+        reason: 'a lint finding must not stop the launch smoke from running',
+      );
+    });
+
     // #456 requires an empty exceptions file. Adding the first entry should
     // have to change this test, in a diff a reviewer reads.
     test('no linter finding is currently excepted', () {
