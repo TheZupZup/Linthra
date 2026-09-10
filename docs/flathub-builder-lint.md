@@ -40,6 +40,10 @@ Two of the three need a completed build, so the practical way to run all of
 them is the sequence in [flatpak-ci.md](./flatpak-ci.md) followed by:
 
 ```sh
+# That sequence ends inside flatpak/, and the paths below are relative to the
+# repository root.
+cd ..
+
 python3 scripts/flathub_builder_lint.py \
   --manifest flatpak/io.github.thezupzup.linthra.yml
 python3 scripts/flathub_builder_lint.py \
@@ -76,8 +80,23 @@ rather than an exit code.
 reports also fails the run, so the file cannot quietly accumulate justifications
 for things that were fixed years ago.
 
+**Exception keys carry their mode**, as `manifest/`, `repo/` or `appstream/`,
+for example `repo/appstream-screenshots-not-mirrored-in-ostree`. CI does not
+run every mode in one invocation: the manifest is linted before the build and
+the repo and catalogue after it. Without the mode, the staleness check above
+could not tell an exception whose problem was fixed from one whose mode simply
+did not run in that invocation, and would fail the build on a live exception.
+Qualifying the key also stops a reason written for one mode accepting a
+same-named finding from another.
+
 **An exception with no reason is rejected outright**: an empty string there is
 a suppression wearing a different hat.
+
+**A `<mode>-lint-failed` finding cannot be excepted at all.** That name means
+the linter itself failed rather than reporting something about the submission,
+and it is the same name whatever the failure was. A reason attached to it would
+go on matching after the original problem was fixed and a different one
+appeared, which is the one thing the staleness rule exists to prevent.
 
 ## Tool and version assumptions
 
@@ -92,6 +111,45 @@ a suppression wearing a different hat.
   is what makes that obvious, and the fix is to fix the finding.
 - The `repo` and `appstream` modes need a completed `flatpak-builder` run. Only
   `manifest` is cheap.
+
+## What CI gates on today
+
+| Mode | Gates CI | Result today |
+| --- | --- | --- |
+| `manifest` | yes, before the build | clean |
+| `appstream` | yes, after the build | clean |
+| `repo` | not yet, see below | two screenshot findings |
+
+`manifest` runs before the build, so a manifest finding fails in about a second
+rather than after ninety minutes. `appstream` needs the build, and runs *after*
+the launch smoke: a failed step ends the job, so a lint ahead of the smoke would
+stop the package being installed and launched at all, which trades real
+coverage for a red badge.
+
+`repo` is the one that waits. It reports `metainfo-missing-screenshots` and
+`appstream-screenshots-not-mirrored-in-ostree`, both real submission blockers
+whose fix is to take screenshots
+([#437](https://github.com/TheZupZup/Linthra/issues/437),
+[flathub-screenshots.md](./flathub-screenshots.md)) rather than to change
+anything here. Wiring it in before then would mean one of two things, and both
+are worse than waiting:
+
+- a permanently red job, which trains everyone to ignore it and buries any
+  *new* finding under the one everybody already knows about;
+- an exception, which the rules above forbid for a finding that is simply not
+  fixed yet.
+
+It is turned on in
+[#628](https://github.com/TheZupZup/Linthra/issues/628), together with the
+screenshots that let it pass. A guardrail in
+`test/tooling/flathub_metadata_guardrails_test.dart` fails if it is wired in
+without that, so switching it on is a decision someone makes rather than
+something that drifts in.
+
+Note that `appstream` and `repo` are different checks despite both mentioning
+screenshots: `appstream` reads the catalogue `appstreamcli compose` generated,
+and `repo` reads the exported OSTree that Flathub would publish. Only the second
+currently reports anything, which is why only the second waits.
 
 ## Exceptions
 
@@ -158,10 +216,15 @@ summary was 36.
 ## Where this runs
 
 The `Build and launch Flatpak` job in `.github/workflows/flatpak-build.yml`
-lints the manifest before the build and the repository plus AppStream catalogue
-after the export. `.github/workflows/ci.yml` runs the runner's own unit tests on
-every PR, because the linter needs a Flatpak and a long build but the judgement
-around it does not.
+lints the manifest before the build and the AppStream catalogue after the
+export. It does **not** currently lint the exported repository: that mode is
+deferred, per the table above, so CI passing is not evidence that the
+publishable OSTree was checked. Run it locally, or wait for
+[#628](https://github.com/TheZupZup/Linthra/issues/628).
+
+`.github/workflows/ci.yml` runs the runner's own unit tests on every PR,
+because the linter needs a Flatpak and a long build but the judgement around it
+does not.
 
 ## Related
 

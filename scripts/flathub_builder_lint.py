@@ -46,6 +46,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_EXCEPTIONS = REPO_ROOT / "flatpak" / "flathub-lint-exceptions.json"
 
+# The linter modes this script drives. Exception keys are qualified with one of
+# these, so a reason states which run it belongs to.
+MODES = ("manifest", "repo", "appstream")
+
 #: The Flatpak that ships flatpak-builder-lint. Flathub's own documentation
 #: runs the linter this way, so this is the tool a reviewer will use.
 LINTER_APP = "org.flatpak.Builder"
@@ -154,11 +158,27 @@ def run_linter(mode: str, target: Path) -> dict:
         # pass as clean.
         if result.returncode == 0:
             return {"message": output}
-        return {"errors": ["{}-lint-failed".format(mode)], "message": output}
+        # The linter itself failed rather than reporting a submission finding,
+        # and every such failure in this mode collapses to one name. That name
+        # must never be exceptable: a written reason attached to it would go on
+        # matching after the original problem was fixed and a different one
+        # appeared, which is exactly the guarantee the exceptions file makes.
+        return {
+            "errors": ["{}-lint-failed".format(mode)],
+            "message": output,
+        }
     if not isinstance(report, dict):
         raise LinterUnavailable(
             "the linter's report for {} {} was not an object.".format(mode, target)
         )
+    # A non-zero exit has to be explained by something this script will treat as
+    # a finding. A structured report that carries neither errors nor warnings
+    # alongside a failure exit would otherwise read as clean and print PASS,
+    # which is the one outcome a non-zero linter run must never produce. The
+    # text and empty-output paths above already refuse this; so does JSON.
+    if result.returncode != 0 and not (report.get("errors") or report.get("warnings")):
+        report = dict(report)
+        report["errors"] = ["{}-lint-failed".format(mode)]
     return report
 
 
@@ -175,10 +195,16 @@ def findings(report: dict) -> dict[str, list[str]]:
 
 
 def load_exceptions(path: Path) -> dict[str, str]:
-    """The documented exceptions, as {finding: reason}.
+    """The documented exceptions, as {"mode/finding": reason}.
 
     A missing file means no exceptions, which is the state #449 wants to end
     in.
+
+    Keys are qualified by the linter mode they belong to, because CI does not
+    run every mode in one invocation: the manifest is linted before the build
+    and the repo and catalogue after it. An unqualified key could not be told
+    apart from one whose mode simply did not run this time, so the staleness
+    check would have to either miss real stale entries or reject live ones.
     """
     if not path.exists():
         return {}
@@ -188,18 +214,39 @@ def load_exceptions(path: Path) -> dict[str, str]:
         raise ValueError("{}: `exceptions` must be an object.".format(path))
     exceptions: dict[str, str] = {}
     for finding, reason in raw.items():
+        key = str(finding)
+        mode, sep, name = key.partition("/")
+        if not sep or mode not in MODES or not name:
+            raise ValueError(
+                "{}: exception {!r} must be qualified with the linter mode it "
+                "belongs to, as one of {}. CI lints the manifest and the built "
+                "repo in separate runs, so an unqualified reason cannot be "
+                "told from one whose mode did not run.".format(
+                    path, key, "/, ".join(sorted(MODES)) + "/"
+                )
+            )
+        if name.endswith("-lint-failed"):
+            raise ValueError(
+                "{}: {!r} cannot be excepted. That name means the linter itself "
+                "failed, and it is the same name whatever the failure was, so a "
+                "reason for it would outlive the problem it explains.".format(path, key)
+            )
         text = reason if isinstance(reason, str) else reason.get("reason", "")
         if not text.strip():
             raise ValueError(
                 "{}: exception {!r} has no written reason. An exception without "
-                "one is a suppression.".format(path, finding)
+                "one is a suppression.".format(path, key)
             )
-        exceptions[str(finding)] = text.strip()
+        exceptions[key] = text.strip()
     return exceptions
 
 
 def report_mode(mode: str, target: Path, exceptions: dict[str, str]) -> tuple[int, set]:
-    """Print one mode's result. Returns (undocumented count, seen findings)."""
+    """Print one mode's result. Returns (undocumented count, seen keys).
+
+    Findings are looked up as "mode/finding", so a reason written for the repo
+    run cannot silently accept a same-named finding from the manifest run.
+    """
     report = run_linter(mode, target)
     found = findings(report)
     seen: set[str] = set()
@@ -208,10 +255,14 @@ def report_mode(mode: str, target: Path, exceptions: dict[str, str]) -> tuple[in
     print("\n--- {} {} ---".format(mode, target))
     for kind in ("errors", "warnings"):
         for finding in found[kind]:
-            seen.add(finding)
-            if finding in exceptions:
+            key = "{}/{}".format(mode, finding)
+            seen.add(key)
+            # load_exceptions refuses to record one of these, so this is belt
+            # and braces: a linter failure is never accepted, whatever the file
+            # says.
+            if key in exceptions and not finding.endswith("-lint-failed"):
                 print("  {} (accepted): {}".format(finding, kind[:-1]))
-                print("      reason: {}".format(exceptions[finding]))
+                print("      reason: {}".format(exceptions[key]))
             else:
                 undocumented += 1
                 print("  {} ({})".format(finding, kind[:-1]))
@@ -305,7 +356,13 @@ def main(argv: list[str]) -> int:
         return 2
 
     print()
-    stale = sorted(set(exceptions) - seen)
+    # Only the modes this run actually linted. CI lints the manifest before the
+    # build and the repo and catalogue after it, in separate invocations, so
+    # comparing every exception against one run's findings would report the
+    # other run's live exceptions as stale and fail the build.
+    ran = {mode for mode, _ in targets}
+    scoped = {key for key in exceptions if key.split("/", 1)[0] in ran}
+    stale = sorted(scoped - seen)
     if stale:
         print(
             "FAIL: {} documented exception(s) were not reported by the linter. "
@@ -322,10 +379,10 @@ def main(argv: list[str]) -> int:
     if stale or undocumented:
         return 1
 
-    if exceptions:
+    if scoped:
         print(
             "PASS: every finding has a documented reason ({} accepted).".format(
-                len(exceptions)
+                len(scoped)
             )
         )
     else:
