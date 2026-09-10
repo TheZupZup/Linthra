@@ -76,7 +76,7 @@ HEADER = """\
 #
 # This is the submission manifest plus one extra installed directory,
 # {install_dir}, holding the Flutter build of
-# tool/linux_audio_backend_smoke.dart. Nothing else differs — the generator
+# tool/linux_audio_backend_smoke.dart. Nothing else differs, and the generator
 # fails if it does. It exists so the audio lifecycle smoke can run against the
 # libmpv this manifest builds instead of one the host happens to have (#446).
 """

@@ -229,7 +229,7 @@ jobs:
 
       # A normal Flutter widget test cannot load the Linux plugin bundle, so
       # this target runs in the real GTK runner and walks a full transport
-      # lifecycle — initialize, load, play, pause, seek, stop, dispose — against
+      # lifecycle (initialize, load, play, pause, seek, stop, dispose) against
       # a local WAV it generates, through libmpv, without requiring audible
       # output. Three cycles cover reinitialization. The same target runs inside
       # the packaged Flatpak (#446, docs/flatpak-audio-smoke.md); this run uses
@@ -244,7 +244,7 @@ jobs:
       # still paces samples against the system clock, which is what the new
       # position/pause/seek assertions need; ALSA's null PCM does not, and a
       # five-second fixture used to finish in milliseconds against it. The
-      # override applies to this run only — production builds keep the host's
+      # override applies to this run only; production builds keep the host's
       # normal audio.
       - name: Run native audio lifecycle smoke
         run: xvfb-run --auto-servernum build/linux/x64/release/bundle/linthra

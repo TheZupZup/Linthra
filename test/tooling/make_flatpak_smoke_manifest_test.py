@@ -6,8 +6,8 @@
 The generator's whole claim is that the manifest CI builds is the submission
 manifest plus one test binary. These tests hold it to that from both ends: the
 happy path really does add only the smoke commands, and every way the
-submission manifest could drift out from under it — a renamed module, a
-reordered build, a manifest that already carries the harness — is a loud
+submission manifest could drift out from under it (a renamed module, a
+reordered build, a manifest that already carries the harness) is a loud
 failure rather than a quietly wrong package.
 
 Fixtures are built in memory. Nothing here writes to the repository, runs
