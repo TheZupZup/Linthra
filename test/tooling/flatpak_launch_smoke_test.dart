@@ -16,6 +16,17 @@ void main() {
     expect(smoke, isNot(contains('https://')));
   });
 
+  // #618. The release path runs this same smoke a second time against the
+  // standalone `.flatpak` it is about to attach to a Release, installed the way
+  // a user installs it. A bundle carries the package itself, so that path adds
+  // no remote and still no URL.
+  test('launch smoke can install a standalone release bundle', () {
+    expect(
+        smoke, contains(r'flatpak --user install -y --bundle "$BUNDLE_PATH"'));
+    expect(smoke, contains('Flatpak bundle not found'));
+    expect(smoke, contains(r'INSTALL_SOURCE="${1:-repo-ci}"'));
+  });
+
   test('launch smoke preserves pre-existing Linthra installations', () {
     expect(smoke, contains(r'flatpak --user info "$APP_ID"'));
     expect(smoke, contains(r'flatpak --system info "$APP_ID"'));

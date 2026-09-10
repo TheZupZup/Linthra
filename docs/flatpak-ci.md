@@ -24,6 +24,15 @@ The job starts from a clean Ubuntu runner and:
 9. launches the packaged app inside an Xvfb + D-Bus session and waits for a real
    `Linthra` desktop window before terminating and cleaning up the test install.
 
+For a **release build** (a `workflow_dispatch` with `release_tag` set, which is
+how `publish-stable-release.yml` produces the `.flatpak` a Release carries) the
+same job additionally checks out that exact tag, verifies the release metadata
+at it, exports the bundle from the repository it just built, checks the bundle
+against the manifest, and installs and launches *that file*. A separate,
+gated job then attaches it. See
+[release-process.md §4b](./release-process.md#4b-linux-flatpak-bundle-dispatched-alongside-the-android-and-linux-builds).
+Nothing about a PR or push run changes.
+
 No `actions/cache` entry is used by this workflow. Correctness therefore does
 not depend on developer machine state or a warm GitHub Actions cache. The build
 uses `--disable-rofiles-fuse` only to avoid requiring FUSE support from the
@@ -87,6 +96,27 @@ flatpak-builder \
 flatpak build-update-repo repo-ci
 bash ../scripts/flatpak_launch_smoke.sh repo-ci
 ```
+
+To reproduce the release bundle from that same export (nothing here uploads
+anything):
+
+```bash
+cd flatpak
+name="$(python3 ../scripts/flatpak_bundle.py name --tag v0.2.7)"
+flatpak build-bundle \
+  --arch="$(flatpak --default-arch)" \
+  --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+  repo-ci "$name" io.github.thezupzup.linthra master
+
+python3 ../scripts/flatpak_bundle.py verify "$name" --tag v0.2.7
+bash ../scripts/flatpak_launch_smoke.sh "$name"
+```
+
+`flatpak_bundle.py verify` needs `ostree` as well as `flatpak`: reading a
+bundle means importing its OSTree static delta into a scratch repository and
+checking it out. It installs nothing and does not touch an existing Flatpak
+installation. Its rules are unit-tested offline by
+`python3 test/tooling/flatpak_bundle_test.py`, which `ci.yml` runs on every PR.
 
 The launch command requires `xvfb-run`, `xwininfo`, `xprop` and
 `dbus-run-session`, the same tools installed by the CI job. It intentionally refuses to run if Linthra

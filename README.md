@@ -74,7 +74,8 @@ with no account, the F-Droid build is yours, free, for good.
 
 New versions land on
 [GitHub Releases](https://github.com/thezupzup/linthra/releases) first, as
-signed Android APKs and, starting with v0.2.2, a native Linux x64 archive. The
+signed Android APKs, a native Linux x64 archive (since v0.2.2) and, from the
+next stable release, an installable Linux `.flatpak` bundle. The
 current stable is v0.2.4. Linthra is also on
 [F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/); F-Droid
 builds may arrive a bit later while their build and review process runs. Not on
@@ -97,10 +98,22 @@ Or download the `.apk` from the
 [latest release](https://github.com/thezupzup/linthra/releases/latest) and open
 it on your phone.
 
-For Linux, download `Linthra-v0.2.3-linux-x64.tar.gz` from the same GitHub
-Release. This is the native bundle, not a Flatpak yet; required runtime packages
-and native development instructions are in
-[docs/linux-desktop.md](./docs/linux-desktop.md).
+For Linux, the easiest install is the `.flatpak` bundle on the same Release
+(`Linthra-<tag>-x86_64.flatpak`). Open it with a software centre that handles
+Flatpak bundles, or install it from a terminal:
+
+```sh
+flatpak install --user Linthra-<tag>-x86_64.flatpak
+```
+
+It brings its own GTK and libmpv, so there is nothing else to install, and
+Linthra appears in the application launcher like any other app. Linthra is
+**not on Flathub yet**; this bundle is the recommended install until it is.
+
+The native archive `Linthra-<tag>-linux-x64.tar.gz` is still published for
+anyone who wants the plain build. It needs the runtime packages listed in
+[docs/linux-desktop.md](./docs/linux-desktop.md), which also covers both
+install routes and native development.
 
 Notes:
 

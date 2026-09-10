@@ -30,6 +30,10 @@ what works today, and what deliberately does not yet.
   attach it to the GitHub Release — see [Release tarball](#release-tarball)
   below and
   [docs/release-process.md §4a](./release-process.md#4a-linux-release-tarball-dispatched-alongside-the-android-build).
+* A stable Release also carries an installable `.flatpak` bundle, built by
+  [`flatpak-build.yml`](../.github/workflows/flatpak-build.yml) at the same tag
+  — see
+  [Installing from GitHub Releases](#installing-from-github-releases-flatpak).
 
 ## Required packages
 
@@ -809,7 +813,108 @@ Automated coverage: `test/core/models/persisted_playback_session_test.dart`,
 `test/data/repositories/shared_preferences_playback_session_store_test.dart`,
 `test/core/services/playback_session_persistence_test.dart`.
 
+## Installing from GitHub Releases (`.flatpak`)
+
+Every stable Release carries a standalone Flatpak bundle,
+`Linthra-<tag>-x86_64.flatpak` (e.g. `Linthra-v0.2.7-x86_64.flatpak`). It is
+the easiest way to install Linthra on Linux today: one file, no tar extraction,
+no `.desktop` file to write by hand, and none of the
+[required packages](#required-packages) below — the sandbox brings its own
+GTK stack and its own libmpv.
+
+Linthra is **not on Flathub yet** ([#456](https://github.com/TheZupZup/Linthra/issues/456)
+tracks that). Until it is, this bundle is the recommended GitHub-Releases
+install; the [native tarball](#release-tarball) stays available for anyone who
+would rather run the plain build.
+
+You need Flatpak itself installed, and the GNOME runtime the bundle declares.
+Most desktop distributions ship Flatpak; if yours does not, [flatpak.org's
+setup guide](https://flatpak.org/setup/) covers it. The bundle names Flathub as
+where its runtime comes from, so the install can fetch `org.gnome.Platform//50`
+if the machine does not already have it.
+
+**Graphical install.** On a desktop whose software centre handles Flatpak
+bundles (GNOME Software and KDE Discover both do, when the Flatpak backend is
+installed), opening the downloaded file offers to install it. This is not
+universal — plenty of Linux desktops have no such association, and a file
+manager may simply not know what to do with a `.flatpak`. If nothing happens
+when you open it, use the CLI.
+
+**CLI install.**
+
+```bash
+flatpak install --user Linthra-v0.2.7-x86_64.flatpak
+```
+
+Then launch it from the application launcher, or:
+
+```bash
+flatpak run io.github.thezupzup.linthra
+```
+
+To remove it:
+
+```bash
+flatpak uninstall --user io.github.thezupzup.linthra
+```
+
+Uninstalling removes the application and its sandboxed data. It does not touch
+your music: Linthra never has host filesystem access, and reaches local
+libraries only through the file-chooser portal, so the files it played are
+outside anything the package owns. Flatpak keeps per-app data under
+`~/.var/app/io.github.thezupzup.linthra/`; `flatpak uninstall --delete-data`
+removes that too.
+
+### Verifying what you downloaded
+
+Every stable publication records each asset's SHA-256 in its workflow run
+summary, the bundle included, taken from the published file. Compare it with:
+
+```bash
+sha256sum Linthra-v0.2.7-x86_64.flatpak
+```
+
+See [release-artifact-verification.md](./release-artifact-verification.md) for
+what that record is and what it is worth.
+
+### Manual Flatpak smoke checklist
+
+CI builds the bundle on a clean runner, installs it, launches it under Xvfb and
+checks the packaged window's identity and icon. What it cannot do is look at a
+real GNOME or KDE session, so a release is not signed off on Linux until
+someone runs this on an actual desktop. It takes a few minutes.
+
+Use a machine (or a fresh user account) with no existing Linthra
+installation, and a few local music files you own. **Never use production or
+private server credentials for this** — a local folder, or a throwaway test
+server, is enough.
+
+1. Download `Linthra-<tag>-x86_64.flatpak` from the Release.
+2. Install it (`flatpak install --user <file>`, or through the software centre
+   if your desktop offers to).
+3. Open the application launcher and confirm **Linthra** appears there.
+4. Confirm the entry shows the correct name and the Linthra icon — not a
+   generic placeholder.
+5. Launch it from the launcher.
+6. Confirm it reaches a usable first frame (the library shell, not a blank
+   window or an error).
+7. Confirm the local audio backend initializes: add a music folder through the
+   file chooser and confirm tracks appear.
+8. Play a track. Confirm audio actually comes out, and that pause/seek work.
+9. Close the window and relaunch from the launcher. Confirm it reopens and
+   groups with the same launcher entry rather than appearing as a second one.
+10. Uninstall (`flatpak uninstall --user io.github.thezupzup.linthra`).
+11. Confirm the music files you added are still on disk, untouched.
+
+If step 3 or 4 fails, the export half of the package is wrong (desktop entry or
+icons). If step 7 or 8 fails, the packaged audio runtime is the place to look —
+[flatpak-development.md](./flatpak-development.md) has the commands for
+inspecting the sandbox.
+
 ## Release tarball
+
+The native alternative to the [Flatpak bundle](#installing-from-github-releases-flatpak)
+above, for anyone who already has the runtime dependencies installed.
 
 Every official release gets `Linthra-<tag>-linux-x64.tar.gz` attached to its
 GitHub Release automatically — e.g. `Linthra-v0.1.15-linux-x64.tar.gz` for
@@ -832,18 +937,20 @@ tar -xzf Linthra-v0.1.15-linux-x64.tar.gz
 needs the runtime libraries in [Required packages](#required-packages) —
 libmpv and GTK 3 in particular — already installed on the machine running it,
 and a Secret Service provider for [secure storage](#secure-storage). It is
-**not** distro-independent. The eventual [Flatpak](#where-this-is-going) is
-the self-contained, sandboxed distribution target; this tarball is a plain
-native build for anyone who already has the runtime dependencies on hand, and
-it is separate work with no bearing on the Flatpak's design.
+**not** distro-independent. The
+[`.flatpak` bundle](#installing-from-github-releases-flatpak) is the
+self-contained, sandboxed one; this tarball is a plain native build, built by a
+different workflow, with no bearing on the Flatpak's design.
 
 See [docs/release-process.md §4a](./release-process.md#4a-linux-release-tarball-dispatched-alongside-the-android-build)
 for exactly how the CI job builds and attaches it.
 
 ## Where this is going
 
-The Linux distribution target is **Flathub**. A locally installable Flatpak on
-Fedora Kinoite is a validation step on the way, not the destination.
+The Linux distribution target is **Flathub**. The
+[`.flatpak` bundle on GitHub Releases](#installing-from-github-releases-flatpak)
+is what Linux users install until Linthra is accepted there
+([#456](https://github.com/TheZupZup/Linthra/issues/456)), not the destination.
 
 That packaging is now underway in #376 and lives outside this page: the
 committed manifest is in [`flatpak/`](../flatpak/README.md) and the contributor
