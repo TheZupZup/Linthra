@@ -147,6 +147,61 @@ class ReportModeTest(unittest.TestCase):
         self.assertIn("checked 1 ref", output)
 
 
+class RunLinterTest(unittest.TestCase):
+    """How the linter's own output is read.
+
+    flatpak-builder-lint 3.x prints nothing when a mode finds nothing. The
+    first version of this script read that as "the tool is missing" and turned
+    a clean manifest into a hard failure, which is why the distinction below is
+    a test rather than a comment.
+    """
+
+    @contextlib.contextmanager
+    def _subprocess(self, stdout, returncode, stderr=""):
+        original = lint.subprocess.run
+
+        class Result:
+            pass
+
+        result = Result()
+        result.stdout, result.stderr, result.returncode = stdout, stderr, returncode
+        lint.subprocess.run = lambda *a, **k: result
+        try:
+            yield
+        finally:
+            lint.subprocess.run = original
+
+    def test_no_output_and_exit_zero_is_a_clean_report(self) -> None:
+        with self._subprocess("", 0):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                self.assertEqual(lint.run_linter("manifest", Path("x")), {})
+
+    # Silence with a failure exit explains nothing, so it cannot be read as
+    # either a pass or a finding.
+    def test_no_output_and_a_failure_exit_is_refused(self) -> None:
+        with self._subprocess("", 2):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                with self.assertRaises(lint.LinterUnavailable):
+                    lint.run_linter("manifest", Path("x"))
+
+    def test_findings_are_parsed(self) -> None:
+        with self._subprocess('{"errors": ["a"]}', 1):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                self.assertEqual(
+                    lint.run_linter("manifest", Path("x")), {"errors": ["a"]}
+                )
+
+    def test_output_that_is_not_json_is_refused(self) -> None:
+        with self._subprocess("not json", 1):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                with self.assertRaises(lint.LinterUnavailable):
+                    lint.run_linter("manifest", Path("x"))
+
+
 class MainTest(unittest.TestCase):
     def setUp(self) -> None:
         self.manifest = ROOT / "flatpak" / "io.github.thezupzup.linthra.yml"

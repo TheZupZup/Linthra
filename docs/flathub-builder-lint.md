@@ -53,9 +53,15 @@ what it refuses to call a pass, not to wrap them.
 ## What the runner refuses
 
 **A missing linter is not a pass.** If `flatpak` or `org.flatpak.Builder` is
-absent, or the linter produces no report, the script exits 2 and says nothing
-was linted. A check that silently succeeds when its tool is missing is worse
-than no check, because it is reported as evidence.
+absent, the script exits 2 and says nothing was linted. A check that silently
+succeeds when its tool is missing is worse than no check, because it is
+reported as evidence.
+
+Silence is read carefully, in both directions. flatpak-builder-lint 3.x prints
+*nothing at all* when a mode finds nothing, and exits 0 — that is a clean
+report, and it cannot be confused with a missing tool because the linter's
+presence is established before any mode runs. Silence with a **non-zero** exit
+explains nothing and is still refused.
 
 **A finding needs a written reason.** Any error or warning that is not listed
 in `flatpak/flathub-lint-exceptions.json` fails the run. Warnings count:

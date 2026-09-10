@@ -123,10 +123,18 @@ def run_linter(mode: str, target: Path) -> dict:
 
     output = result.stdout.strip()
     if not output:
+        # flatpak-builder-lint 3.x prints nothing at all when a mode finds
+        # nothing, and exits 0. That is a clean report, not a missing tool —
+        # and it cannot be confused with one here, because main() has already
+        # established that org.flatpak.Builder is installed before any mode
+        # runs. A *non-zero* exit with no output is still unexplained, and is
+        # still refused.
+        if result.returncode == 0:
+            return {}
         raise LinterUnavailable(
-            "the linter produced no report for {} {} (exit {}). It is probably "
-            "not installed: `flatpak install -y flathub {}`.".format(
-                mode, target, result.returncode, LINTER_APP
+            "the linter produced no report for {} {} and exited {}. Nothing "
+            "explains that, so it cannot be read as a clean run.".format(
+                mode, target, result.returncode
             )
         )
     try:
