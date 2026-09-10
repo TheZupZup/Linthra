@@ -14,6 +14,7 @@ import '../data/repositories/host_platform_provider.dart';
 import '../features/appearance/app_icon_controller.dart';
 import '../features/appearance/custom_brand_palette.dart';
 import '../features/appearance/custom_theme_controller.dart';
+import '../features/appearance/desktop_density_controller.dart';
 import '../features/appearance/selected_logo_mark.dart';
 import '../features/appearance/theme_mode_controller.dart';
 import '../features/library/remote_library_refresher.dart';
@@ -175,8 +176,23 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       return BrandPalettes.byId(variant.id, brightness: brightness);
     }
 
-    final ThemeData lightTheme = AppTheme.light(paletteFor(Brightness.light));
-    final ThemeData darkTheme = AppTheme.dark(paletteFor(Brightness.dark));
+    // Desktop density (#395). Watched here rather than read deeper down so a
+    // change repaints and relaids out every screen at once, the same way the
+    // theme mode does — no restart, and no widget needing to know the
+    // preference exists.
+    //
+    // Resolved to null off desktop: a touch build keeps
+    // `VisualDensity.adaptivePlatformDensity` exactly as before, so an Android
+    // phone can never inherit a density someone picked for a Linux window (the
+    // preference is per-install, and Android does not show the picker at all).
+    final VisualDensity? density = ref.watch(hostPlatformProvider).isDesktop
+        ? ref.watch(desktopDensityControllerProvider).visualDensity
+        : null;
+
+    final ThemeData lightTheme =
+        AppTheme.light(paletteFor(Brightness.light), density: density);
+    final ThemeData darkTheme =
+        AppTheme.dark(paletteFor(Brightness.dark), density: density);
 
     // Do not construct the router until first-install/update state is known.
     // This tiny branded launch surface prevents both a library→welcome flash and

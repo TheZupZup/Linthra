@@ -94,8 +94,20 @@ is already installed for the current user or system-wide, so a local smoke can
 never launch or remove a contributor's existing installation. Use a clean test
 user/environment for this final step when Linthra is already installed.
 
+## The audio smoke job beside it
+
+The same workflow runs a second job, `Audio lifecycle smoke in the sandbox`,
+on its own runner and in parallel. It builds a manifest derived from the
+submission manifest (the same package plus a test binary under `/app/libexec`)
+and walks the real playback lifecycle inside the installed sandbox, on the
+libmpv the manifest built rather than one the host happens to have.
+
+That job has its own document:
+[flatpak-audio-smoke.md](./flatpak-audio-smoke.md), including what it
+deliberately does *not* prove.
+
 The workflow does not replace the stricter offline-source smoke from #442 or the
-installed-Flatpak audio/library sandbox smokes tracked in #446 and #447. Its job
+installed-Flatpak library sandbox smoke tracked in #447. Its job
 is to catch broken manifests, missing declared build inputs, SDK/runtime
 resolution problems, clean-runner packaging failures, install failures and
 startup regressions before they reach Flathub.

@@ -130,7 +130,7 @@ class LinuxAudioOutputDeviceService implements AudioOutputDeviceService {
     for (final Player player in JustAudioMediaKit.livePlayers.values.toList()) {
       await player.setAudioDevice(AudioDevice(deviceId, ''));
     }
-    // Merged, not assigned: `cache-on-disk=no` (and the smoke's `ao=alsa`) live
+    // Merged, not assigned: `cache-on-disk=no` (and the smoke's `ao`) live
     // in the same map and must survive an output change.
     JustAudioMediaKit.mpvProperties = <String, String>{
       ...JustAudioMediaKit.mpvProperties,

@@ -122,9 +122,20 @@ The script removes its host and sandbox probes before exiting.
 
 ### User-selected library check
 
-The host-isolation smoke cannot manufacture a real FileChooser portal grant,
-because that grant is intentionally created only by the user's chooser action.
-Complete the audit with this manual pass using the installed Flatpak:
+Most of this is now automated. `scripts/flatpak_local_library_smoke.sh` (#447)
+grants the installed sandbox one disposable music folder for the length of one
+run and proves the whole flow below it: the folder scans, its tags and embedded
+artwork load, a track plays, a sentinel file and a sibling directory beside that
+folder stay unreadable, the library survives a relaunch, and taking the grant
+away produces the recoverable `folderUnavailable` state from #438 with the
+previously indexed tracks kept. See
+[flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md).
+
+What it cannot do is press the button. A FileChooser portal grant is minted only
+by the user's chooser action, and no headless runner can perform it, nor does a
+`--filesystem=` run grant exercise the document portal's `/run/user/<uid>/doc/`
+path rewriting. So complete the audit with this manual pass using the installed
+Flatpak:
 
 1. Create a small test directory outside `~/.var/app/`, containing one supported
    audio file. Also create a neighbouring file **outside** that directory.

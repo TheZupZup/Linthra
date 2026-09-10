@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/application_lifecycle.dart';
 import 'app/linthra_app.dart';
+import 'core/models/desktop_density.dart';
 import 'core/models/theme_mode_preference.dart';
+import 'data/repositories/desktop_density_store_provider.dart';
 import 'data/repositories/theme_mode_store_provider.dart';
 
 Future<void> main() async {
@@ -12,6 +14,10 @@ Future<void> main() async {
   // Read the saved theme mode before the container exists so the first frame
   // paints in the user's chosen mode.
   final ThemeModePreference storedThemeMode = await readStoredThemeMode();
+
+  // Same reason, one frame later would be one relayout too many: density
+  // decides every row height, so it is resolved before the first frame too.
+  final DesktopDensity storedDesktopDensity = await readStoredDesktopDensity();
 
   // One container backs the whole app so the *same* PlaybackController and
   // MusicLibraryRepository instances drive both the UI (through providers) and
@@ -24,6 +30,7 @@ Future<void> main() async {
   final container = ProviderContainer(
     overrides: productionApplicationOverrides(
       storedThemeMode: storedThemeMode,
+      storedDesktopDensity: storedDesktopDensity,
     ),
   );
 
