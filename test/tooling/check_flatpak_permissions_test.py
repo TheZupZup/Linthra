@@ -350,6 +350,40 @@ class RefusedTest(unittest.TestCase):
                 msg="{} is not refused".format(permission),
             )
 
+    # `--own-name=org.mpris.*` owns every name below that prefix, so it is
+    # strictly broader than the `org.mpris.MediaPlayer2.*` the list named
+    # explicitly, and it went straight through. Naming bad spellings one at a
+    # time loses that race, so the rule is now that a wildcard is refused
+    # unless it is the reviewed one.
+    def test_catches_every_bus_name_wildcard(self) -> None:
+        for permission in (
+            "--own-name=org.mpris.*",
+            "--own-name=org.mpris.MediaPlayer2.*",
+            "--own-name=org.gnome.*",
+            "--own-name=org.*",
+            "--own-name=com.example.*",
+            # A wildcard that only starts like the approved one.
+            "--own-name=org.mpris.MediaPlayer2.linthra.*.evil",
+        ):
+            self.assertEqual(
+                checker.refused({permission}),
+                [permission],
+                msg="{} is not refused".format(permission),
+            )
+
+    # The two names Linthra actually owns have to survive it, or this stops
+    # being a rule and becomes a ban on the feature.
+    def test_leaves_linthras_own_names_alone(self) -> None:
+        self.assertEqual(
+            checker.refused(
+                {
+                    "--own-name=org.mpris.MediaPlayer2.linthra",
+                    "--own-name=org.mpris.MediaPlayer2.linthra.*",
+                }
+            ),
+            [],
+        )
+
     def test_leaves_the_granted_set_alone(self) -> None:
         self.assertEqual(checker.refused(checker.parse_metadata(METADATA)), [])
 

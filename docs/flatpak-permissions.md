@@ -15,6 +15,8 @@ this cannot drift into a page that used to be accurate.
 
 Eight permissions. No filesystem access of any kind, no session-bus access, no
 `--talk-name` or `--see-name` to anything, and no host device beyond the GPU.
+The widest of the eight is the audio socket, for a reason that is Flatpak's
+rather than Linthra's, written out below the table.
 
 | Permission | Feature | Where it is used | Why nothing narrower works |
 | --- | --- | --- | --- |
@@ -22,10 +24,37 @@ Eight permissions. No filesystem access of any kind, no session-bus access, no
 | `--socket=fallback-x11` | The window on X11 sessions | same | `fallback-x11` is the narrow form: it grants X11 **only** when no Wayland display is present, so a Wayland session never hands out an X socket. Plain `--socket=x11` would. Note the installed package spells this as `x11` *and* `fallback-x11`; see below for why, and what it costs. |
 | `--share=ipc` | Shared memory on X11 | same | X11 clients pass frames through SysV shared memory (MIT-SHM). Without it the X11 fallback path renders every frame over the socket. Grants no filesystem or network reach of its own. |
 | `--device=dri` | GPU rendering | Flutter's GTK embedder | Flutter renders through OpenGL. Without the render node the sandbox falls back to software rasterisation, which on a music library's scrolling artwork grid is visible. `--device=dri` is the render-node-only grant; `--device=all` (which would add cameras, USB and input devices) is refused below. |
-| `--socket=pulseaudio` | Audio output | `lib/core/services/linux_playback_controller.dart`, and the `mpv` module built with `-Dpulse=enabled` | libmpv needs a path to the audio server. This one socket covers PulseAudio and PipeWire alike, because every PipeWire desktop ships `pipewire-pulse`. There is no narrower audio grant in Flatpak. |
+| `--socket=pulseaudio` | Audio output, and unavoidably audio **input** | `lib/core/services/linux_playback_controller.dart`, and the `mpv` module built with `-Dpulse=enabled` | libmpv needs a path to the audio server. This one socket covers PulseAudio and PipeWire alike, because every PipeWire desktop ships `pipewire-pulse`. There is no narrower audio grant in Flatpak, and no output-only form: see below. |
 | `--share=network` | Self-hosted servers | `lib/core/sources/jellyfin/`, `lib/core/sources/subsonic/`, `lib/core/sources/plex/`, `lib/core/sources/audiobookshelf/` | Jellyfin, Navidrome/Subsonic, Plex and Audiobookshelf are HTTP(S) endpoints the user configures, on the LAN or beyond. Flatpak's network permission is all-or-nothing: there is no per-host form to ask for instead. |
 | `--own-name=org.mpris.MediaPlayer2.linthra` | Media keys, and the player controls in a desktop shell | `lib/core/services/mpris/mpris_media_session.dart` | MPRIS is a well-known bus name a shell looks for. Flatpak lets an app own names under its own app id for free, and this is not one of those, so it has to be granted. **Owning is not talking**: it lets other clients call Linthra and gives Linthra no way to call anything. |
 | `--own-name=org.mpris.MediaPlayer2.linthra.*` | A second window's media session | same | The MPRIS spec's `.instance<pid>` fallback, used when a second Linthra window finds the plain name taken. Scoped to Linthra's own names, since an `org.mpris.MediaPlayer2.*` wildcard would reach every other player's session, and is refused below. |
+
+### The audio socket grants recording too
+
+`--socket=pulseaudio` hands the sandbox the PulseAudio protocol, not an
+output-only endpoint. A client with that socket can open a record stream on
+any source the server offers, which means the microphone and the monitor
+sources that capture whatever is currently playing. On a PipeWire desktop the
+same is true through `pipewire-pulse`.
+
+So the honest reading of this row is that Linthra's sandbox *could* record,
+and a reviewer should be able to see that from this page rather than infer it
+from a protocol.
+
+What is true alongside it:
+
+- **Nothing in Linthra opens a capture stream.** Playback goes through
+  `just_audio` and `just_audio_media_kit` to libmpv; there is no recorder
+  package in `pubspec.yaml` and no capture path in `lib/`.
+- **There is no narrower grant to ask for.** Flatpak has no output-only audio
+  socket, and no per-stream-direction form of this one. The alternative is no
+  audio at all.
+- **Nothing here mitigates it.** A permission is what the sandbox may do, not
+  what the current code happens to do, and this row is the sandbox.
+
+The reason it stays is that a music player without audio is not a music
+player. The reason it is written down is that "Audio output" alone understated
+it, and this page is supposed to be the thing a reviewer can trust.
 
 ## Features that work with no permission at all
 

@@ -70,7 +70,13 @@ REFUSED = (
     r"--system-own-name=.*",
     r"--see-name=.*",
     r"--system-see-name=.*",
-    r"--own-name=org\.mpris\.MediaPlayer2\.\*",
+    # Any bus-name wildcard except the one that has been reviewed. Flatpak's
+    # trailing `.*` owns every name below the prefix, so `--own-name=org.mpris.*`
+    # is broader than the `org.mpris.MediaPlayer2.*` this list used to name
+    # explicitly, and slipped straight past it. Naming bad spellings one at a
+    # time loses that race, so the rule is inverted: a wildcard is refused
+    # unless it is exactly Linthra's own instance name.
+    r"--own-name=(?!org\.mpris\.MediaPlayer2\.linthra\.\*$).*\*.*",
     r"--own-name=org\.freedesktop\..*",
     r"--device=all",
     r"--device=shm",

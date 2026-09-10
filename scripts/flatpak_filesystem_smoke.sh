@@ -27,6 +27,16 @@ REMOTE_NAME="linthra-fs-smoke-$$"
 HOST_PROBE_DIR=""
 INSTALLED_HERE=0
 
+# Whether the app's private data tree is already on this machine, checked
+# before anything is installed. Uninstalling a Flatpak does not remove
+# ~/.var/app, so a contributor who removed an older Linthra build without
+# deleting its data still has their library database, settings and credentials
+# sitting there. Whether this script may take that tree with it depends
+# entirely on whether it was here first.
+APP_DATA_DIR="$HOME/.var/app/$APP_ID"
+APP_DATA_EXISTED=0
+[[ -e "$APP_DATA_DIR" ]] && APP_DATA_EXISTED=1
+
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
@@ -40,7 +50,17 @@ cleanup() {
   # failure locally against their own build must not lose it.
   if (( INSTALLED_HERE )); then
     flatpak kill "$APP_ID" >/dev/null 2>&1 || true
-    flatpak --user uninstall -y --delete-data "$APP_ID" >/dev/null 2>&1 || true
+    # And only ever delete app data this script's run created.
+    # docs/flatpak-development.md calls --delete-data Destructive because it
+    # is: it wipes the Flatpak install's settings, library database and cache.
+    # Refusing to run against an existing *installation* is not enough, since
+    # the data tree outlives an ordinary uninstall. A script that borrows the
+    # machine for ten seconds has no business emptying it.
+    if (( APP_DATA_EXISTED )); then
+      flatpak --user uninstall -y "$APP_ID" >/dev/null 2>&1 || true
+    else
+      flatpak --user uninstall -y --delete-data "$APP_ID" >/dev/null 2>&1 || true
+    fi
     flatpak --user remote-delete "$REMOTE_NAME" >/dev/null 2>&1 || true
   fi
 }
