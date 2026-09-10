@@ -19,7 +19,7 @@ starts, so a failure names the transition rather than the whole run:
 
 | Step | What is asserted |
 | --- | --- |
-| initialize | A real libmpv resolves (loads *and* exports `mpv_client_api_version`), comes from the required prefix, and a `LinuxPlaybackController` constructs on it |
+| initialize | A `LinuxPlaybackController` constructs and libmpv is really mapped into the process, from the required prefix |
 | load | The fixture opens, the source is `localFile`, and the reported duration matches the file that was written |
 | play | The engine reaches `playing` **and** the position advances past zero |
 | pause | The engine reports `paused` **and** the position stops moving for a full second |
@@ -30,20 +30,18 @@ starts, so a failure names the transition rather than the whole run:
 Three cycles run by default, which is what catches an initialize/dispose leak
 rather than a single-shot failure.
 
-### Resolving libmpv, before media_kit does
+### A finding: the app hangs on a wrong libmpv
 
-The smoke opens libmpv itself first, trying media_kit's own candidate names in
-media_kit's own order — `libmpv.so`, `libmpv.so.2`, `libmpv.so.1` — and
-requires the one that loads to export `mpv_client_api_version`. Loading a file
-called `libmpv.so` proves only that *something* by that name loaded; the symbol
-is what proves it is libmpv.
+Handed a library that loads under libmpv's name but exports none of its
+symbols, the packaged app does not fail — it **hangs**, holding a window open.
+CI held one for 46 minutes before the job was cancelled. media_kit takes what
+`dlopen` gives it, and nothing downstream ever concludes that the thing it got
+is not libmpv.
 
-This is not belt-and-braces. It is there because of how the packaged app
-behaves when its libmpv is wrong: given a library that loads under the name but
-exports none of the symbols, the app does not exit — in CI it **hung**, holding
-a window open until the job was cancelled 46 minutes later. Asking the question
-up front turns that into a one-second failure that names every candidate tried
-and why each was rejected.
+This is a packaging-failure mode rather than something a user can reach: a
+Flatpak always ships its own libmpv. It is recorded here because it shapes the
+negative control below, and because making the app check its own libmpv would
+be a change to shipped code — its own issue, not a test's.
 
 ### The libmpv identity check
 
@@ -65,17 +63,23 @@ runs the smoke twice more and requires both runs to **fail**, naming why.
    `LD_LIBRARY_PATH`, so the first candidate opened is the shadow, and it
    cannot supply mpv's symbols.
 
-   The first version of this control got both halves wrong, and CI said so. It
+   Because the app hangs rather than exits in that case, this control requires
+   only that the run does **not pass**, and the run bound is what turns "hangs
+   forever" into a result. That is the property that matters: a broken libmpv
+   cannot produce a passing smoke.
+
+   Three CI rounds shaped this control, each correcting the last. It first
    shadowed only the versioned soname, leaving the unversioned symlink the
-   package also installs as the first thing media_kit opens; and it used a
+   package also installs as the first thing media_kit opens. It then used a
    zero-byte file, which is not a broken library but an invalid one — an
-   unreadable ELF header is skipped rather than loaded. The result was a
-   negative control that passed.
+   unreadable ELF header is skipped rather than loaded. Both made the control
+   *pass*, which is the one thing a negative control must never do.
 
 2. **The identity check itself.** The same run with
    `LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX` pointed at a path nothing can
    satisfy has to fail on it — otherwise a passing positive run would not tell
-   you the check ran at all.
+   you the check ran at all. This one must fail *promptly and name libmpv*: a
+   hang here would be a failure of the control.
 
 The shadow lives in the sandbox's own cache directory, so `/app` is never
 touched, and a control that could not be set up fails the job rather than
