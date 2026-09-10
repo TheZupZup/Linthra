@@ -79,6 +79,10 @@ class ArtistTile extends ConsumerWidget {
 class _ArtistAvatar extends StatelessWidget {
   const _ArtistAvatar({required this.artworkUri});
 
+  /// The avatar's logical size, named so the decode bound is derived from the
+  /// same number the box is (#457) rather than repeating it.
+  static const double _avatarDimension = 48;
+
   final Uri? artworkUri;
 
   @override
@@ -86,12 +90,15 @@ class _ArtistAvatar extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final Uri? uri = artworkUri;
     return SizedBox.square(
-      dimension: 48,
+      dimension: _avatarDimension,
       child: ClipOval(
         child: uri == null
             ? _placeholder(theme)
             : Image(
-                image: artworkImageProvider(uri),
+                image: artworkImageProvider(
+                  uri,
+                  decodeExtent: artworkDecodeExtent(context, _avatarDimension),
+                ),
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
                 errorBuilder: (_, __, ___) => _placeholder(theme),
