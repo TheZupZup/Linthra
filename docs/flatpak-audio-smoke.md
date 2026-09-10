@@ -23,7 +23,7 @@ starts, so a failure names the transition rather than the whole run:
 | load | The fixture opens, the source is `localFile`, and the reported duration matches the file that was written |
 | play | The engine reaches `playing` **and** the position advances past zero |
 | pause | The engine reports `paused` **and** the position stops moving for a full second |
-| seek | The position lands within 600 ms of the 2 s target, then playback continues past it |
+| seek | The position lands within 600 ms of the 2 s target, then playback resumes past **where it landed** (not past the target, which the tolerance band may already exceed) |
 | stop | The loaded source is cleared and the engine settles back to `idle` |
 | dispose | Runs in a `finally`, so a failed cycle cannot leave libmpv holding the device |
 
@@ -45,14 +45,17 @@ A test that cannot fail proves nothing, so `scripts/flatpak_audio_smoke.sh`
 runs the smoke twice more and requires both runs to **fail**, naming why.
 
 1. **A libmpv that is not libmpv.** A real shared library is copied over
-   `libmpv.so.2` in a directory prepended to `LD_LIBRARY_PATH`, so the loader
-   accepts it and then cannot resolve mpv's symbols out of it.
+   *every* name media_kit will try — `libmpv.so`, `libmpv.so.2`,
+   `libmpv.so.1`, in that order — in a directory prepended to
+   `LD_LIBRARY_PATH`, so the first candidate opened is the shadow, and it
+   cannot supply mpv's symbols.
 
-   The first version of this control used a zero-byte file, and CI proved it
-   wrong: the dynamic loader treats a candidate with a bad ELF header as "not
-   this one" and carries on down the search path, so the packaged libmpv was
-   found anyway and the run passed. A valid library under the wrong name is
-   what the loader actually loads.
+   The first version of this control got both halves wrong, and CI said so. It
+   shadowed only the versioned soname, leaving the unversioned symlink the
+   package also installs as the first thing media_kit opens; and it used a
+   zero-byte file, which is not a broken library but an invalid one — an
+   unreadable ELF header is skipped rather than loaded. The result was a
+   negative control that passed.
 
 2. **The identity check itself.** The same run with
    `LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX` pointed at a path nothing can

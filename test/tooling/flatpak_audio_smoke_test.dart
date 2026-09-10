@@ -47,11 +47,16 @@ void main() {
       expect(lifecycle, contains('_pauseDriftAllowance'));
     });
 
+    // Measured from where the seek landed, not from the target: the tolerance
+    // band accepts a position slightly past the target, so re-comparing with
+    // the target would be true before playback resumed.
     test('proves a seek moved the decoder, not just the reported position', () {
-      expect(lifecycle, contains('state.position > _seekTarget'));
+      expect(lifecycle, contains('final Duration landedAt'));
+      expect(lifecycle, contains('state.position > landedAt'));
+      expect(lifecycle, contains('state.status == PlaybackStatus.playing &&'));
       expect(
         lifecycle,
-        contains('playback did not continue past'),
+        contains('where the seek '),
         reason: 'playing on from the seek point is what distinguishes a real '
             'seek from a position report',
       );
@@ -123,15 +128,19 @@ void main() {
       expect(harness, contains('never mentioned'));
     });
 
-    // The first attempt used a zero-byte file and CI proved it wrong: the
-    // loader skips a candidate with a bad ELF header and finds the packaged
-    // library anyway. The donor has to be a library that really loads.
-    test('shadows libmpv with a real library, not a broken file', () {
-      expect(harness, contains(r'cp -L "$donor" "$shadow/libmpv.so.2"'));
+    // The first attempt used a zero-byte file under one name, and CI proved
+    // both halves wrong: an unreadable ELF header is skipped rather than
+    // loaded, and media_kit tries "libmpv.so" before "libmpv.so.2", so the
+    // real library was opened before the shadow was consulted at all.
+    test('shadows every name media_kit will try, with a library that loads',
+        () {
+      expect(
+          harness, contains('for soname in libmpv.so libmpv.so.2 libmpv.so.1'));
+      expect(harness, contains(r'cp -L "$donor" "$shadow/$soname"'));
       expect(harness, contains(r'LD_LIBRARY_PATH="$shadow'));
       expect(
         harness,
-        isNot(contains(r': >"$shadow/libmpv.so.2"')),
+        isNot(contains(r': >"$shadow/libmpv.so')),
         reason: 'a zero-byte shadow is skipped by the loader, not loaded',
       );
     });
@@ -156,6 +165,20 @@ void main() {
   });
 
   group('workflow', () {
+    // A change to the Linux playback stack can break only inside the sandbox,
+    // which is the regression this job exists to catch — so the smoke's own
+    // imports have to be able to trigger it.
+    test('triggers on the audio implementation the smoke imports', () {
+      expect(
+        workflow,
+        contains("- 'lib/core/services/linux_playback_controller.dart'"),
+      );
+      expect(
+        workflow,
+        contains("- 'lib/core/services/just_audio_playback_controller.dart'"),
+      );
+    });
+
     test('builds the derived manifest and runs the smoke against it', () {
       expect(
         workflow,

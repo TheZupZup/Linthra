@@ -26,6 +26,13 @@ on:
       - 'third_party/**'
       - 'tool/branding/linthra_icon.svg'
       - 'tool/linux_audio_backend_smoke.dart'
+      # The audio smoke's own imports. Named individually rather than as
+      # 'lib/**': the sandbox job is a full flatpak-builder run, and every
+      # unrelated UI change would pay for it.
+      - 'lib/core/services/linux_playback_controller.dart'
+      - 'lib/core/services/just_audio_playback_controller.dart'
+      - 'lib/core/services/linux_audio_output_device_service.dart'
+      - 'lib/core/services/local_playable_uri_resolver.dart'
   pull_request:
     paths:
       - '.github/workflows/flatpak-build.yml'
@@ -45,6 +52,13 @@ on:
       - 'third_party/**'
       - 'tool/branding/linthra_icon.svg'
       - 'tool/linux_audio_backend_smoke.dart'
+      # The audio smoke's own imports. Named individually rather than as
+      # 'lib/**': the sandbox job is a full flatpak-builder run, and every
+      # unrelated UI change would pay for it.
+      - 'lib/core/services/linux_playback_controller.dart'
+      - 'lib/core/services/just_audio_playback_controller.dart'
+      - 'lib/core/services/linux_audio_output_device_service.dart'
+      - 'lib/core/services/local_playable_uri_resolver.dart'
   workflow_dispatch:
 
 # Fork PRs run this workflow too, so keep it read-only and secret-free.
