@@ -60,11 +60,18 @@ Every one of those is pumped at text scale 1.0, 1.3 (GNOME's Large Text) and
 - the decode bound follows the *device* pixels a cover will occupy, rounded up,
   so a 48 px avatar asks for 64 px at 100% and 96 px at 200%;
 - it rounds up to a multiple of `artworkDecodeQuantum` (32). The requested
-  extent is part of the `ResizeImage` cache key and `AlbumArtwork` derives it
+  extent is part of the image cache key and `AlbumArtwork` derives it
   from its own box, so an exact extent would mint a fresh decode for every
   width a resizable window is dragged through. Bucketing caps that at 32
   decodes across the whole range instead of hundreds, at a cost of at most 31
   pixels of over-decode, and never rounds down;
+- it decodes for `BoxFit.cover`, which every artwork surface uses. Cover is
+  satisfied by the image's *shorter* side, so `CoverResizeImage` reads the
+  source's intrinsic size before the codec is instantiated and scales by
+  `extent / min(srcW, srcH)`. A square cover decodes exactly as a single-axis
+  bound would; a landscape or portrait one no longer comes back short on the
+  covering axis only to be scaled back up, which was a visibly soft cover
+  (#626);
 - it caps at `maxArtworkDecodeExtent` (1024, the same bound Linthra's local
   artwork cache applies), so a full-screen cover on a 4K panel at 200% cannot
   ask for a 2160 px decode;

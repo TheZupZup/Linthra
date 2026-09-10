@@ -1,3 +1,7 @@
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,7 +27,7 @@ final Uri _cover = Uri.parse('file:///cache/linthra_local_artwork/cover.img');
 /// asked for the whole thing.
 int? _decodeWidthOf(WidgetTester tester, Finder image) {
   final ImageProvider provider = tester.widget<Image>(image).image;
-  return provider is ResizeImage ? provider.width : null;
+  return provider is CoverResizeImage ? provider.extent : null;
 }
 
 Future<void> _pump(
@@ -51,6 +55,23 @@ Future<void> _pump(
 /// 700 distinct widths must not become 700 distinct decodes.
 const int travelBudget = 24;
 
+/// A provider that loads nothing; only its cache key matters here.
+@immutable
+class _StubImageProvider extends ImageProvider<String> {
+  const _StubImageProvider(this.id);
+
+  final String id;
+
+  @override
+  Future<String> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture<String>(id);
+
+  @override
+  ImageStreamCompleter loadImage(String key, ImageDecoderCallback decode) {
+    throw UnimplementedError('these tests never decode');
+  }
+}
+
 void main() {
   group('artworkDecodeExtentFor', () {
     test('follows the device pixels the cover will occupy', () {
@@ -76,7 +97,7 @@ void main() {
       }
     });
 
-    // The requested extent is part of the ResizeImage cache key, so an exact
+    // The requested extent is part of the image cache key, so an exact
     // extent would mint a fresh decode for every width a window is dragged
     // through. That is the churn this whole bound exists to remove, so it has
     // to be bounded rather than assumed.
@@ -140,19 +161,24 @@ void main() {
     test('wraps the resolved provider rather than replacing it', () {
       final ImageProvider provider =
           artworkImageProvider(_cover, decodeExtent: 96);
-      expect(provider, isA<ResizeImage>());
-      final ResizeImage resized = provider as ResizeImage;
-      expect(resized.width, 96);
-      expect(resized.height, isNull, reason: 'covers keep their aspect ratio');
+      expect(provider, isA<CoverResizeImage>());
+      final CoverResizeImage resized = provider as CoverResizeImage;
+      expect(resized.extent, 96);
       expect(resized.imageProvider, isA<FileImage>());
     });
 
-    // ResizeImage upscaling would blow a small cover up in memory to look
-    // exactly as soft as letting the GPU scale it.
+    // Upscaling would blow a small cover up in memory to look exactly as soft
+    // as letting the GPU scale it.
     test('never upscales a cover smaller than its box', () {
-      final ResizeImage resized =
-          artworkImageProvider(_cover, decodeExtent: 1024) as ResizeImage;
-      expect(resized.allowUpscaling, isFalse);
+      final CoverResizeImage resized =
+          artworkImageProvider(_cover, decodeExtent: 1024) as CoverResizeImage;
+      // A 512x512 source asked to cover 1024 is left at its own size.
+      expect(resized.targetSizeFor(512, 512).width, isNull);
+      expect(resized.targetSizeFor(512, 512).height, isNull);
+    });
+
+    test('an unbounded caller still gets the raw provider', () {
+      expect(artworkImageProvider(_cover), isA<FileImage>());
     });
   });
 
@@ -232,6 +258,121 @@ void main() {
       );
 
       expect(_decodeWidthOf(tester, find.byType(Image)), 96);
+    });
+  });
+
+  // #626: every artwork surface draws with BoxFit.cover, and cover is
+  // satisfied by the *shorter* side. Constraining one axis leaves the other
+  // short for a non-square source, which is then scaled back up: a soft cover.
+  group('CoverResizeImage decodes for cover, not for one axis', () {
+    const CoverResizeImage provider =
+        CoverResizeImage(_StubImageProvider('a'), extent: 48);
+
+    ui.TargetImageSize sizeFor(int w, int h) => provider.targetSizeFor(w, h);
+
+    test('a landscape source meets the target on its shorter side', () {
+      // 2:1. The regression decoded this 48x24 and let cover enlarge it 2x.
+      final ui.TargetImageSize size = sizeFor(1000, 500);
+      expect(size.height, 48,
+          reason: 'the covering axis must reach the target');
+      expect(size.width, 96, reason: 'the aspect ratio must be preserved');
+    });
+
+    test('a portrait source meets the target on its shorter side', () {
+      final ui.TargetImageSize size = sizeFor(500, 1000);
+      expect(size.width, 48);
+      expect(size.height, 96);
+    });
+
+    test('a square source is unchanged from the single-axis behaviour', () {
+      // The common case must not cost more memory than it did before #626.
+      final ui.TargetImageSize size = sizeFor(1000, 1000);
+      expect(size.width, 48);
+      expect(size.height, 48);
+    });
+
+    test('the shorter side always reaches the target, at any aspect ratio', () {
+      for (final List<int> source in <List<int>>[
+        <int>[1000, 500],
+        <int>[500, 1000],
+        <int>[1000, 1000],
+        <int>[3000, 400],
+        <int>[400, 3000],
+        <int>[1920, 1080],
+        <int>[101, 97],
+      ]) {
+        final ui.TargetImageSize size = sizeFor(source[0], source[1]);
+        final int shorter = math.min(size.width!, size.height!);
+        expect(
+          shorter,
+          greaterThanOrEqualTo(48),
+          reason: '${source[0]}x${source[1]} decoded with a shorter side of '
+              '$shorter, below the 48 the cover needs',
+        );
+      }
+    });
+
+    test('never upscales a source already smaller than the target', () {
+      // Decoding a 20 px cover up to 48 would inflate the image cache for a
+      // picture that has no more detail to give.
+      final ui.TargetImageSize size = sizeFor(20, 20);
+      expect(size.width, isNull);
+      expect(size.height, isNull);
+    });
+
+    test('a degenerate source is left alone rather than dividing by zero', () {
+      expect(sizeFor(0, 100).width, isNull);
+      expect(sizeFor(100, 0).width, isNull);
+      expect(sizeFor(-1, -1).width, isNull);
+    });
+
+    test('an extreme aspect ratio never rounds a side to zero', () {
+      // 10000x96 covering 48: the long side scales to 5000, and the point is
+      // that neither side collapses to 0 on the way.
+      final ui.TargetImageSize size = sizeFor(10000, 96);
+      expect(size.height, 48);
+      expect(size.width, 5000);
+    });
+  });
+
+  // Cache identity does not fail loudly when it is wrong; it just silently
+  // stops the image cache working, or worse, serves one cover for another.
+  group('CoverResizeImage cache identity', () {
+    test('the same cover at the same extent is one cache entry', () async {
+      final Object a = await const CoverResizeImage(
+        _StubImageProvider('cover'),
+        extent: 64,
+      ).obtainKey(ImageConfiguration.empty);
+      final Object b = await const CoverResizeImage(
+        _StubImageProvider('cover'),
+        extent: 64,
+      ).obtainKey(ImageConfiguration.empty);
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('the same cover at two extents is two cache entries', () async {
+      final Object small = await const CoverResizeImage(
+        _StubImageProvider('cover'),
+        extent: 64,
+      ).obtainKey(ImageConfiguration.empty);
+      final Object large = await const CoverResizeImage(
+        _StubImageProvider('cover'),
+        extent: 256,
+      ).obtainKey(ImageConfiguration.empty);
+      expect(small, isNot(large));
+    });
+
+    test('two different covers at one extent never collide', () async {
+      final Object one = await const CoverResizeImage(
+        _StubImageProvider('one'),
+        extent: 64,
+      ).obtainKey(ImageConfiguration.empty);
+      final Object two = await const CoverResizeImage(
+        _StubImageProvider('two'),
+        extent: 64,
+      ).obtainKey(ImageConfiguration.empty);
+      expect(one, isNot(two));
     });
   });
 }
