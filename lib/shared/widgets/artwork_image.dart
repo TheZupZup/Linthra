@@ -44,6 +44,68 @@ void installArtworkDiskCache(ArtworkDiskCache? cache) {
   _diskCache = cache;
 }
 
+/// The most device pixels a cover is ever decoded across, per side.
+///
+/// Covers arrive at whatever size their source felt like: a server's original
+/// scan, or the 1024 px bound Linthra's own local-artwork cache applies. At a
+/// fractional or 2x scale factor, an unbounded decode of one of those into a
+/// 48 px avatar costs the same memory and the same CPU as showing it
+/// full-screen, once per visible row (#457).
+///
+/// Bounded here rather than per call site so no surface can forget. 1024
+/// matches `LocalArtworkCache`'s own bound, which is sized for the largest
+/// surface Linthra draws a cover on: the full-screen Now Playing backdrop.
+const int maxArtworkDecodeExtent = 1024;
+
+/// Floor for a decode bound, so an unmeasured or nearly-collapsed box can never
+/// ask for a one-pixel cover that then has to be decoded again when it settles.
+const int minArtworkDecodeExtent = 32;
+
+/// Decode sizes are rounded up to a multiple of this.
+///
+/// The requested extent is part of the `ResizeImage` cache key, and
+/// [AlbumArtwork] derives it from its own box. On a resizable window that box
+/// changes with every resize event, so an exact extent would mint a fresh
+/// cache key (and a fresh decode) for every width the window is dragged
+/// through, which is the churn this bound exists to remove.
+///
+/// Rounding up to 32 device pixels caps that at 32 distinct decodes per image
+/// across the whole range instead of hundreds, and costs at most 31 pixels of
+/// over-decode on the covering axis. It also never rounds *down*, so a bucket
+/// is never softer than the exact extent would have been.
+const int artworkDecodeQuantum = 32;
+
+/// The device-pixel extent to decode a cover at for a box [logicalExtent]
+/// logical pixels across on a display of [devicePixelRatio].
+///
+/// This is the whole HiDPI story for artwork: the decode target follows the
+/// *device* pixels the cover will actually occupy, so a 48 px avatar decodes at
+/// 48 px at 100%, 84 px at 175% and 96 px at 200%: sharp at every scale,
+/// without ever paying for the full-size image.
+///
+/// A non-finite or non-positive extent means the box has not been measured
+/// (an unbounded constraint), and falls back to the maximum: guessing small
+/// there would render a blurry cover rather than a large one.
+int artworkDecodeExtentFor(double logicalExtent, double devicePixelRatio) {
+  if (!logicalExtent.isFinite || logicalExtent <= 0) {
+    return maxArtworkDecodeExtent;
+  }
+  if (!devicePixelRatio.isFinite || devicePixelRatio <= 0) {
+    return maxArtworkDecodeExtent;
+  }
+  final int extent = (logicalExtent * devicePixelRatio).ceil();
+  final int bucketed =
+      (extent / artworkDecodeQuantum).ceil() * artworkDecodeQuantum;
+  return bucketed.clamp(minArtworkDecodeExtent, maxArtworkDecodeExtent);
+}
+
+/// [artworkDecodeExtentFor] with the ratio read from [context].
+int artworkDecodeExtent(BuildContext context, double logicalExtent) =>
+    artworkDecodeExtentFor(
+      logicalExtent,
+      MediaQuery.devicePixelRatioOf(context),
+    );
+
 /// Resolves an artwork [uri] to the right [ImageProvider] — the app's single
 /// artwork-resolver seam.
 ///
@@ -73,7 +135,21 @@ void installArtworkDiskCache(ArtworkDiskCache? cache) {
 /// reference (signed out), or a failed network fetch all fail the same way, so
 /// the caller's `errorBuilder` falls back to the placeholder — never a
 /// broken-image glyph.
-ImageProvider artworkImageProvider(Uri uri) {
+///
+/// [decodeExtent] bounds how large the image is decoded, in device pixels,
+/// see [artworkDecodeExtent], which every caller should use to derive it from
+/// the box it is about to draw into. Omitting it decodes at full size, which
+/// is what the resolver tests want and what a caller that genuinely cannot know
+/// its box gets; every surface in the app passes one.
+ImageProvider artworkImageProvider(Uri uri, {int? decodeExtent}) {
+  return ResizeImage.resizeIfNeeded(
+    decodeExtent,
+    null,
+    _rawArtworkImageProvider(uri),
+  );
+}
+
+ImageProvider _rawArtworkImageProvider(Uri uri) {
   if (uri.isScheme('file')) {
     return FileImage(File(uri.toFilePath()));
   }

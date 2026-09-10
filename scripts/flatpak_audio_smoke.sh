@@ -3,7 +3,7 @@
 # (#446), so a packaging mistake in the audio stack fails here rather than on a
 # user's machine.
 #
-# The lifecycle itself — initialize, load, play, pause, seek, stop, dispose —
+# The lifecycle itself (initialize, load, play, pause, seek, stop, dispose)
 # lives in tool/linux_audio_backend_smoke.dart and is the same code the native
 # Linux workflow runs. This script is only the sandbox harness around it: it
 # installs the package from a local repository, runs the smoke inside it, and
@@ -31,7 +31,7 @@ set -euo pipefail
 
 APP_ID="io.github.thezupzup.linthra"
 REMOTE_NAME="linthra-audio-smoke-$$"
-REPO_PATH="${1:-repo-audio-smoke}"
+REPO_PATH="${1:-repo-sandbox-smoke}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 fail() {
@@ -47,7 +47,7 @@ command -v xvfb-run >/dev/null 2>&1 || fail "xvfb-run is not installed"
 command -v dbus-run-session >/dev/null 2>&1 || fail "dbus-run-session is not installed"
 
 # Asking the generator keeps this in step with the manifest it writes.
-SMOKE_COMMAND="$(python3 "$SCRIPT_DIR/make_flatpak_smoke_manifest.py" --print-command)"
+SMOKE_COMMAND="$(python3 "$SCRIPT_DIR/make_flatpak_smoke_manifest.py" --print-command audio)"
 [[ -n "$SMOKE_COMMAND" ]] || fail "could not resolve the in-sandbox smoke command"
 
 REPO_PATH="$(cd "$REPO_PATH" && pwd)" || fail "local Flatpak repo not found: $REPO_PATH"
@@ -99,8 +99,8 @@ report() {
 # failure of its own.
 #
 # The smoke's Dart side bounds each transport step, but that only helps once
-# Dart is running. A process that blocks earlier — the loader, the GTK
-# realize, media_kit bringing up a libmpv that turns out not to be one — has
+# Dart is running. A process that blocks earlier (the loader, the GTK
+# realize, media_kit bringing up a libmpv that turns out not to be one) has
 # nothing watching it, and neither xvfb-run nor `flatpak run` imposes a limit.
 # CI showed what that costs: a job sitting at 56 minutes against a 14-minute
 # norm, on its way to the 120-minute job timeout, with no output to read
@@ -140,7 +140,7 @@ printf 'Installed %s from local repository %s.\n' "$APP_ID" "$REPO_PATH"
 # manifest rather than the derived one. Say so, instead of failing later with
 # an opaque "command not found" from inside the sandbox.
 # Through bounded_run like everything else: this is a `flatpak run` too, and
-# sandbox startup is exactly where a stall would go unnoticed — an unbounded
+# sandbox startup is exactly where a stall would go unnoticed, and an unbounded
 # probe here would recreate the long, logless hang the bound exists to prevent.
 probe_status=0
 bounded_run flatpak run --command=sh "$APP_ID" -c '[ -x "$1" ]' sh "$SMOKE_COMMAND" ||
@@ -225,7 +225,7 @@ expect_failure() {
       fail "the smoke hung $what and was killed after ${RUN_TIMEOUT_SECONDS}s"
     fi
     sanitize <"$LOG_FILE"
-    printf 'PASS: %s does not pass the smoke — it hung and was killed after %ss.\n' \
+    printf 'PASS: %s does not pass the smoke: it hung and was killed after %ss.\n' \
       "$what" "$RUN_TIMEOUT_SECONDS"
     return 0
   fi
@@ -262,7 +262,7 @@ expect_failure() {
 # that a broken libmpv cannot produce a *passing* smoke, which is the property
 # that matters. The run bound is what turns "hangs forever" into a result.
 # Proving it fails *promptly* would mean the app checking its own libmpv, which
-# is a change to shipped code and belongs in its own issue — not in a test.
+# is a change to shipped code and belongs in its own issue, not in a test.
 #
 # The shadow lives in the sandbox's own cache directory and only
 # LD_LIBRARY_PATH points at it, so /app is untouched and the next run is

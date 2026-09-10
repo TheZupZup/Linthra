@@ -20,19 +20,25 @@ on:
       - 'scripts/check_linux_runner.py'
       - 'scripts/flatpak_audio_smoke.sh'
       - 'scripts/flatpak_launch_smoke.sh'
+      - 'scripts/flatpak_local_library_smoke.sh'
       - 'scripts/make_flatpak_smoke_manifest.py'
       - 'scripts/regenerate_flatpak_sources.sh'
       - 'test/tooling/check_linux_runner_test.py'
       - 'third_party/**'
       - 'tool/branding/linthra_icon.svg'
       - 'tool/linux_audio_backend_smoke.dart'
-      # The audio smoke's own imports. Named individually rather than as
+      - 'tool/linux_local_library_smoke.dart'
+      # What the two smokes actually import. Named individually rather than as
       # 'lib/**': the sandbox job is a full flatpak-builder run, and every
-      # unrelated UI change would pay for it.
+      # unrelated UI change would pay for it. A change here can break only
+      # inside the sandbox, which is the regression these jobs exist to catch.
       - 'lib/core/services/linux_playback_controller.dart'
       - 'lib/core/services/just_audio_playback_controller.dart'
       - 'lib/core/services/linux_audio_output_device_service.dart'
       - 'lib/core/services/local_playable_uri_resolver.dart'
+      - 'lib/core/services/local_artwork_cache.dart'
+      - 'lib/core/sources/local/**'
+      - 'test/core/sources/local/audio_tag_fixtures.dart'
   pull_request:
     paths:
       - '.github/workflows/flatpak-build.yml'
@@ -46,19 +52,25 @@ on:
       - 'scripts/check_linux_runner.py'
       - 'scripts/flatpak_audio_smoke.sh'
       - 'scripts/flatpak_launch_smoke.sh'
+      - 'scripts/flatpak_local_library_smoke.sh'
       - 'scripts/make_flatpak_smoke_manifest.py'
       - 'scripts/regenerate_flatpak_sources.sh'
       - 'test/tooling/check_linux_runner_test.py'
       - 'third_party/**'
       - 'tool/branding/linthra_icon.svg'
       - 'tool/linux_audio_backend_smoke.dart'
-      # The audio smoke's own imports. Named individually rather than as
+      - 'tool/linux_local_library_smoke.dart'
+      # What the two smokes actually import. Named individually rather than as
       # 'lib/**': the sandbox job is a full flatpak-builder run, and every
-      # unrelated UI change would pay for it.
+      # unrelated UI change would pay for it. A change here can break only
+      # inside the sandbox, which is the regression these jobs exist to catch.
       - 'lib/core/services/linux_playback_controller.dart'
       - 'lib/core/services/just_audio_playback_controller.dart'
       - 'lib/core/services/linux_audio_output_device_service.dart'
       - 'lib/core/services/local_playable_uri_resolver.dart'
+      - 'lib/core/services/local_artwork_cache.dart'
+      - 'lib/core/sources/local/**'
+      - 'test/core/sources/local/audio_tag_fixtures.dart'
   workflow_dispatch:
 
 # Fork PRs run this workflow too, so keep it read-only and secret-free.
@@ -216,21 +228,25 @@ jobs:
         working-directory: flatpak
         run: bash ../scripts/flatpak_launch_smoke.sh repo-ci
 
-  # A second build, on its own runner, because the audio smoke needs a binary
-  # the shipped package must not contain (#446). Nobody wants a test harness in
-  # a published Flathub app, so the submission manifest stays free of one and
-  # this job builds a manifest derived from it instead:
-  # scripts/make_flatpak_smoke_manifest.py appends the smoke build to the app
+  # A second build, on its own runner, because the sandbox smokes need binaries
+  # the shipped package must not contain (#446, #447). Nobody wants a test
+  # harness in a published Flathub app, so the submission manifest stays free of
+  # one and this job builds a manifest derived from it instead:
+  # scripts/make_flatpak_smoke_manifest.py appends the smoke builds to the app
   # module and then proves that nothing else changed, so the package installed
   # here is the package the job above built plus /app/libexec.
+  #
+  # Both smokes share this one build. A second derived manifest would mean a
+  # second 90-minute flatpak-builder run against a package differing by a
+  # directory.
   #
   # It runs in parallel rather than after, so the wall clock is unchanged, and
   # it deliberately repeats the sibling job's setup rather than sharing it: the
   # reasoning behind each of those steps is written out once, above, and the
   # two jobs are supposed to be able to diverge (this one needs PyYAML, that
   # one needs the metadata validators).
-  audio-smoke:
-    name: Audio lifecycle smoke in the sandbox
+  sandbox-smokes:
+    name: Sandbox smokes on the packaged app
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -252,7 +268,7 @@ jobs:
             python3-yaml \
             xvfb
 
-      - name: Derive the audio-smoke manifest from the submission manifest
+      - name: Derive the sandbox-smoke manifest from the submission manifest
         run: python3 scripts/make_flatpak_smoke_manifest.py
 
       - name: Add Flathub build remote
@@ -270,8 +286,8 @@ jobs:
             --install-deps-from=flathub \
             --install-deps-only \
             --force-clean \
-            flatpak-builder-audio-smoke \
-            io.github.thezupzup.linthra.audio-smoke.yml
+            flatpak-builder-sandbox-smoke \
+            io.github.thezupzup.linthra.sandbox-smoke.yml
 
       - name: Prefetch manifest sources
         working-directory: flatpak
@@ -282,8 +298,8 @@ jobs:
                  --user \
                  --download-only \
                  --force-clean \
-                 flatpak-builder-audio-prefetch \
-                 io.github.thezupzup.linthra.audio-smoke.yml; then
+                 flatpak-builder-sandbox-prefetch \
+                 io.github.thezupzup.linthra.sandbox-smoke.yml; then
               echo "Sources downloaded on attempt $attempt."
               exit 0
             fi
@@ -292,21 +308,29 @@ jobs:
           done
           echo "::warning::Prefetch did not complete; the build step downloads the rest."
 
-      - name: Build Flatpak with the audio smoke
+      - name: Build Flatpak with the sandbox smokes
         working-directory: flatpak
         run: |
           set -euo pipefail
-          rm -rf -- flatpak-builder-audio-smoke flatpak-builder-audio-prefetch repo-audio-smoke
+          rm -rf -- flatpak-builder-sandbox-smoke flatpak-builder-sandbox-prefetch repo-sandbox-smoke
           flatpak-builder \
             --user \
             --force-clean \
             --disable-cache \
             --disable-rofiles-fuse \
-            --repo=repo-audio-smoke \
-            flatpak-builder-audio-smoke \
-            io.github.thezupzup.linthra.audio-smoke.yml
-          flatpak build-update-repo repo-audio-smoke
+            --repo=repo-sandbox-smoke \
+            flatpak-builder-sandbox-smoke \
+            io.github.thezupzup.linthra.sandbox-smoke.yml
+          flatpak build-update-repo repo-sandbox-smoke
 
       - name: Run the audio lifecycle smoke inside the installed Flatpak
         working-directory: flatpak
-        run: bash ../scripts/flatpak_audio_smoke.sh repo-audio-smoke
+        run: bash ../scripts/flatpak_audio_smoke.sh repo-sandbox-smoke
+
+      # Separate step, same package. Each harness installs the app, does its
+      # work and uninstalls it again (including the app data) so neither can
+      # be reading state the other left behind, and a failure names which of
+      # the two sandbox questions went wrong.
+      - name: Run the local-library sandbox smoke inside the installed Flatpak
+        working-directory: flatpak
+        run: bash ../scripts/flatpak_local_library_smoke.sh repo-sandbox-smoke
