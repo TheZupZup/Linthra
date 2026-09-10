@@ -63,6 +63,10 @@ report, and it cannot be confused with a missing tool because the linter's
 presence is established before any mode runs. Silence with a **non-zero** exit
 explains nothing and is still refused.
 
+Nor does every mode speak JSON: `appstream` hands the catalogue to
+appstreamcli and prints its verdict as text. There the exit code is the
+verdict, and the text is printed either way.
+
 **A finding needs a written reason.** Any error or warning that is not listed
 in `flatpak/flathub-lint-exceptions.json` fails the run. Warnings count:
 reviewers read them, and #449 is about reaching a submission-quality result
@@ -100,24 +104,43 @@ looked at a finding and decided the linter is wrong or the problem is
 unavoidable for Linthra, and the reason has to say which. A finding that is
 simply *not fixed yet* belongs in its issue, not here.
 
-## Known blockers this cannot resolve on its own
+## Where it stands
 
-Two findings are expected and are somebody else's issue to close:
+First real run, against `flatpak-builder-lint 3.0.0.post798.dev0+5181352`:
 
-- **The manifest CI lints is the development manifest.** It builds the working
-  checkout (`type: dir`, `path: ..`), which is right for a build that has to
-  test the code in the PR and wrong for a submission, which must build a tagged
-  release from immutable sources. The submission manifest is
-  [#451](https://github.com/TheZupZup/Linthra/issues/451); until it exists, the
-  manifest mode is linting the closest thing available.
-- **The metainfo carries no screenshots.** Flathub requires at least one, and
-  inventing them from the Android set would misrepresent the desktop window.
-  Real Linux captures are
-  [#437](https://github.com/TheZupZup/Linthra/issues/437), and the metadata pass
-  that lands them is
-  [#450](https://github.com/TheZupZup/Linthra/issues/450).
+| Mode | Result |
+| --- | --- |
+| `manifest` | **clean** |
+| `appstream` | **clean** — "Validation was successful." |
+| `repo` | two errors, both the same missing screenshots |
 
-Neither is excepted, because neither is a case of the linter being wrong.
+The `repo` findings:
+
+```text
+appstream-screenshots-not-mirrored-in-ostree (error)
+metainfo-missing-screenshots (error)
+info: metainfo-missing-screenshots: The metainfo file is missing screenshots
+      or it is not present under the screenshots/screenshot/image tag
+```
+
+Notably *not* reported: the manifest's `type: dir` source. The development
+manifest builds the working checkout, which is right for testing a PR and wrong
+for a submission — but that is a Flathub *submission* requirement enforced
+elsewhere, not something this linter flags, so the submission manifest
+([#451](https://github.com/TheZupZup/Linthra/issues/451)) is still needed and
+this check will not tell you so.
+
+### Why the screenshots are not excepted
+
+Flathub requires at least one screenshot, and it is right to. Inventing them
+from the Android set would misrepresent the desktop window, so the fix is real
+Linux captures ([#437](https://github.com/TheZupZup/Linthra/issues/437)) landed
+through the metadata pass
+([#450](https://github.com/TheZupZup/Linthra/issues/450)).
+
+Until then the `repo` mode is red, and that is the honest state: the linter has
+found something real that Linthra has not fixed yet. An entry in the exceptions
+file would only record that we would rather not see it.
 
 ## Cheap checks that do not need a build
 

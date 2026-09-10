@@ -28,6 +28,10 @@ Exit codes:
        was reported
     1  an undocumented finding, or a stale exception
     2  the linter could not be run at all
+
+Not every mode returns JSON: `appstream` delegates to appstreamcli and prints
+its verdict as text. There the exit code is the verdict, and the text is
+printed either way.
 """
 
 from __future__ import annotations
@@ -139,12 +143,18 @@ def run_linter(mode: str, target: Path) -> dict:
         )
     try:
         report = json.loads(output)
-    except json.JSONDecodeError as error:
-        raise LinterUnavailable(
-            "the linter's output for {} {} was not JSON:\n{}".format(
-                mode, target, output
-            )
-        ) from error
+    except json.JSONDecodeError:
+        # Not every mode speaks JSON. `appstream` hands the catalogue to
+        # appstreamcli and prints its human-readable verdict
+        # ("Validation was successful."), which the first version of this
+        # script refused as unreadable output and turned into a hard failure.
+        #
+        # For those, the exit code is the verdict and the text is the detail:
+        # both are surfaced, so a failure still has to be looked at and cannot
+        # pass as clean.
+        if result.returncode == 0:
+            return {"message": output}
+        return {"errors": ["{}-lint-failed".format(mode)], "message": output}
     if not isinstance(report, dict):
         raise LinterUnavailable(
             "the linter's report for {} {} was not an object.".format(mode, target)

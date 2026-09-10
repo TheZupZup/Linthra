@@ -194,12 +194,24 @@ class RunLinterTest(unittest.TestCase):
                     lint.run_linter("manifest", Path("x")), {"errors": ["a"]}
                 )
 
-    def test_output_that_is_not_json_is_refused(self) -> None:
-        with self._subprocess("not json", 1):
+    # The `appstream` mode delegates to appstreamcli and prints its verdict as
+    # text. Refusing that as unreadable output turned a successful validation
+    # into a hard failure.
+    def test_text_output_and_exit_zero_is_clean_and_still_printed(self) -> None:
+        with self._subprocess("Validation was successful.", 0):
             buffer = io.StringIO()
             with contextlib.redirect_stdout(buffer):
-                with self.assertRaises(lint.LinterUnavailable):
-                    lint.run_linter("manifest", Path("x"))
+                report = lint.run_linter("appstream", Path("x"))
+        self.assertEqual(lint.findings(report), {"errors": [], "warnings": []})
+        self.assertIn("Validation was successful.", report["message"])
+
+    def test_text_output_and_a_failure_exit_is_a_finding(self) -> None:
+        with self._subprocess("E: something is wrong", 1):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                report = lint.run_linter("appstream", Path("x"))
+        self.assertEqual(lint.findings(report)["errors"], ["appstream-lint-failed"])
+        self.assertIn("something is wrong", report["message"])
 
 
 class MainTest(unittest.TestCase):
