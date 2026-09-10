@@ -139,11 +139,11 @@ void main() {
       );
       expect(
         workflow,
-        contains('io.github.thezupzup.linthra.audio-smoke.yml'),
+        contains('io.github.thezupzup.linthra.sandbox-smoke.yml'),
       );
       expect(
         workflow,
-        contains('bash ../scripts/flatpak_audio_smoke.sh repo-audio-smoke'),
+        contains('bash ../scripts/flatpak_audio_smoke.sh repo-sandbox-smoke'),
       );
     });
 

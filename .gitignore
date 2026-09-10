@@ -25,14 +25,14 @@ build/
 /flatpak/repo/
 /flatpak/flatpak-builder-build/
 # Derived from the manifest above by scripts/make_flatpak_smoke_manifest.py so
-# the audio smoke has a binary to run inside the sandbox (#446). Regenerated on
-# demand, never committed, and never submitted to Flathub.
-/flatpak/io.github.thezupzup.linthra.audio-smoke.yml
-/flatpak/repo-audio-smoke/
+# the sandbox smokes have binaries to run inside the sandbox (#446, #447).
+# Regenerated on demand, never committed, and never submitted to Flathub.
+/flatpak/io.github.thezupzup.linthra.sandbox-smoke.yml
+/flatpak/repo-sandbox-smoke/
 /flatpak/repo-ci/
 /flatpak/flatpak-builder-ci/
-/flatpak/flatpak-builder-audio-smoke/
-/flatpak/flatpak-builder-audio-prefetch/
+/flatpak/flatpak-builder-sandbox-smoke/
+/flatpak/flatpak-builder-sandbox-prefetch/
 /flatpak/flatpak-builder-prefetch/
 
 # Cargo's build directory for the Rust core. native/linthra_core/README.md tells

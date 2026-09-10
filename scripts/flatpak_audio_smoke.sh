@@ -31,7 +31,7 @@ set -euo pipefail
 
 APP_ID="io.github.thezupzup.linthra"
 REMOTE_NAME="linthra-audio-smoke-$$"
-REPO_PATH="${1:-repo-audio-smoke}"
+REPO_PATH="${1:-repo-sandbox-smoke}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 fail() {
@@ -47,7 +47,7 @@ command -v xvfb-run >/dev/null 2>&1 || fail "xvfb-run is not installed"
 command -v dbus-run-session >/dev/null 2>&1 || fail "dbus-run-session is not installed"
 
 # Asking the generator keeps this in step with the manifest it writes.
-SMOKE_COMMAND="$(python3 "$SCRIPT_DIR/make_flatpak_smoke_manifest.py" --print-command)"
+SMOKE_COMMAND="$(python3 "$SCRIPT_DIR/make_flatpak_smoke_manifest.py" --print-command audio)"
 [[ -n "$SMOKE_COMMAND" ]] || fail "could not resolve the in-sandbox smoke command"
 
 REPO_PATH="$(cd "$REPO_PATH" && pwd)" || fail "local Flatpak repo not found: $REPO_PATH"

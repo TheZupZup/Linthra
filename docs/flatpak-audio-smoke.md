@@ -96,9 +96,11 @@ submitted.
 
 ## Running it
 
-In CI this is the `Audio lifecycle smoke in the sandbox` job in
-`.github/workflows/flatpak-build.yml`, which runs beside the existing build
-rather than after it, so the wall clock is unchanged.
+In CI this is the first step of the `Sandbox smokes on the packaged app` job
+in `.github/workflows/flatpak-build.yml`, which runs beside the existing
+build rather than after it, so the wall clock is unchanged. The
+[local-library smoke](./flatpak-local-library-smoke.md) shares the same
+derived manifest and the same build.
 
 Locally, from a clean checkout with `flatpak`, `flatpak-builder`, `xvfb-run`,
 `dbus-run-session` and PyYAML available:
@@ -108,15 +110,15 @@ python3 scripts/make_flatpak_smoke_manifest.py
 
 cd flatpak
 flatpak-builder --user --install-deps-from=flathub --install-deps-only \
-  --force-clean flatpak-builder-audio-smoke \
-  io.github.thezupzup.linthra.audio-smoke.yml
+  --force-clean flatpak-builder-sandbox-smoke \
+  io.github.thezupzup.linthra.sandbox-smoke.yml
 
 flatpak-builder --user --force-clean --disable-cache --disable-rofiles-fuse \
-  --repo=repo-audio-smoke flatpak-builder-audio-smoke \
-  io.github.thezupzup.linthra.audio-smoke.yml
-flatpak build-update-repo repo-audio-smoke
+  --repo=repo-sandbox-smoke flatpak-builder-sandbox-smoke \
+  io.github.thezupzup.linthra.sandbox-smoke.yml
+flatpak build-update-repo repo-sandbox-smoke
 
-bash ../scripts/flatpak_audio_smoke.sh repo-audio-smoke
+bash ../scripts/flatpak_audio_smoke.sh repo-sandbox-smoke
 ```
 
 The harness refuses to run if Linthra is already installed, so it can never
