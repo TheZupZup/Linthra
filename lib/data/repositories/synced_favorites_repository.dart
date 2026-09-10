@@ -5,6 +5,7 @@ import '../../core/repositories/favorites_repository.dart';
 import '../../core/repositories/favorites_store.dart';
 import '../../core/repositories/remote_sync_gateway.dart';
 import '../../core/repositories/remote_sync_result.dart';
+import '../../core/repositories/track_identity_reassignable.dart';
 import '../../core/sources/music_provider.dart';
 
 /// The app's [FavoritesRepository]: an optimistic local mirror with best-effort
@@ -32,7 +33,8 @@ import '../../core/sources/music_provider.dart';
 /// Security: only non-secret track/item ids are stored or sent. Sessions (with
 /// their tokens) live behind the gateways and are never logged or persisted
 /// here. Local-track favourites are never sent anywhere.
-class SyncedFavoritesRepository implements FavoritesRepository {
+class SyncedFavoritesRepository
+    implements FavoritesRepository, TrackIdentityReassignable {
   SyncedFavoritesRepository({
     required FavoritesStore store,
     List<RemoteFavoritesGateway> gateways = const <RemoteFavoritesGateway>[],
@@ -216,6 +218,37 @@ class SyncedFavoritesRepository implements FavoritesRepository {
     _data = _data.copyWith(remoteIds: next);
     _emit();
     await _store.save(_data);
+  }
+
+  /// Carries a moved local file's heart to its new path.
+  ///
+  /// Only the device-local set takes part. A local track's uri is its
+  /// filesystem path, so it can never be a `scheme:`-namespaced remote uri, and
+  /// a caller handing us one is asking for something a *server* owns. It is refused
+  /// rather than quietly rewritten, since no server was told about it and the
+  /// next refresh would revert it anyway. Nothing is pushed anywhere: local
+  /// hearts never leave the device.
+  @override
+  Future<void> reassignTrack({
+    required String fromUri,
+    required String toUri,
+  }) async {
+    if (fromUri == toUri) return;
+    if (_isRemoteUri(fromUri) || _isRemoteUri(toUri)) return;
+    try {
+      await _ensureLoaded();
+      if (!_data.localIds.contains(fromUri)) return;
+      _data = _data.copyWith(
+        localIds: <String>{..._data.localIds}
+          ..remove(fromUri)
+          ..add(toUri),
+      );
+      _emit();
+      await _store.save(_data);
+    } catch (_) {
+      // A store that cannot be written right now leaves the heart where it is
+      // rather than failing the scan that asked; the next scan tries again.
+    }
   }
 
   void _emit() {

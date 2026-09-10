@@ -6,12 +6,15 @@ import '../../core/catalog/library_grouping.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/music_library_repository.dart';
 import '../../core/repositories/source_catalog_reader.dart';
+import '../../core/services/local_track_move_applier.dart';
 import '../../core/sources/local/folder_location.dart';
 import '../../core/sources/local/local_library_scanner.dart';
 import '../../core/sources/local/local_music_roots.dart';
 import '../../core/sources/local/local_music_source.dart';
 import '../../core/sources/local/local_scan_report.dart';
+import '../../data/repositories/favorites_repository_provider.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
+import '../../data/repositories/play_history_repository_provider.dart';
 import 'library_providers.dart';
 import 'library_state.dart';
 import 'local_scan_report_provider.dart';
@@ -132,12 +135,13 @@ class LibraryController extends Notifier<LibraryState> {
     state = const LibraryState.loading();
     final List<String> roots = LocalMusicRoots.normalize(folderPaths);
     try {
-      // Only a multi-folder library can retain anything: with one folder, a
-      // failure means nothing was read and the catalog is left untouched
-      // anyway. Skipping the query keeps Android and single-folder desktop
-      // scans exactly as cheap as before.
-      final List<Track>? previousTracks =
-          roots.length > 1 ? await _localCatalogSnapshot() : null;
+      // Read back what the local slice holds today. Two things need it: an
+      // offline folder's tracks have to be carried into the new slice, and a
+      // file that changed path can only be recognised as *the same file* by
+      // comparing against what was there before. It used to be fetched only for
+      // a multi-folder library, because retention was the only use; move
+      // detection makes it worth one indexed query on every scan.
+      final List<Track>? previousTracks = await _localCatalogSnapshot();
       if (generation != _scanGeneration) return null;
 
       final scanner = LocalLibraryScanner((String root) {
@@ -168,6 +172,14 @@ class LibraryController extends Notifier<LibraryState> {
         // Check at commit time, not merely when the filesystem walk finishes.
         if (generation != _scanGeneration) return null;
         final repository = ref.read(musicLibraryRepositoryProvider);
+        // Before the write, never after: the catalog write stamps any uri it
+        // has not seen before as newly added, so the moved file's real "added
+        // on" date has to be carried across first.
+        await LocalTrackMoveApplier(<Object>[
+          repository,
+          ref.read(favoritesRepositoryProvider),
+          ref.read(playHistoryRepositoryProvider),
+        ]).apply(scan.reconciliation);
         await repository.upsertCatalog(
           sourceId: _localSourceId,
           tracks: scan.tracks,
