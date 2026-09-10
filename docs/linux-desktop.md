@@ -241,7 +241,7 @@ from pub.dev. The local delta is two small additions:
 
 * `JustAudioMediaKit.mpvProperties`, an optional map of libmpv properties
   applied at player creation. Linthra uses it for the defaults below, and the
-  headless CI smoke target layers `ao=alsa` on top where there is no
+  headless CI smoke target layers its own `ao` on top where there is no
   PipeWire/Pulse device.
 * `JustAudioMediaKit.livePlayers`, a map of the media_kit `Player`s that
   currently exist. just_audio's platform interface has no concept of an audio
@@ -907,9 +907,12 @@ server, is enough.
 11. Confirm the music files you added are still on disk, untouched.
 
 If step 3 or 4 fails, the export half of the package is wrong (desktop entry or
-icons). If step 7 or 8 fails, the packaged audio runtime is the place to look —
+icons). If step 7 or 8 fails, the packaged audio runtime is the place to look:
+CI already walks that lifecycle inside the sandbox
+([flatpak-audio-smoke.md](./flatpak-audio-smoke.md)), so a failure here that CI
+did not catch is worth reporting with the details, and
 [flatpak-development.md](./flatpak-development.md) has the commands for
-inspecting the sandbox.
+inspecting the sandbox by hand.
 
 ## Release tarball
 

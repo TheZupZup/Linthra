@@ -50,6 +50,9 @@ The full index of Linthra's docs. New to the project? Start with the
 | PR security surface guard | [pr-security-guard.md](./pr-security-guard.md) |
 | F-Droid readiness | [fdroid-readiness.md](./fdroid-readiness.md) |
 | Google Play readiness | [play-store-readiness.md](./play-store-readiness.md) |
+| Flatpak build CI | [flatpak-ci.md](./flatpak-ci.md) |
+| Flatpak audio playback smoke | [flatpak-audio-smoke.md](./flatpak-audio-smoke.md) |
+| Flatpak sandbox filesystem audit | [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md) |
 | Flathub updates (release to published Flatpak) | [flathub-update-process.md](./flathub-update-process.md) |
 
 ## Licensing & legal

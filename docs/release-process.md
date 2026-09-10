@@ -774,10 +774,23 @@ disagree:
   installed app appear in a GNOME/KDE launcher;
 - there is a compiled Dart payload at all.
 
-It reads a bundle; it does not run one. That the packaged libmpv is the library
-actually used at playback time is the packaged-sandbox audio smoke's job, and
-the real-desktop checks are in
-[linux-desktop.md](./linux-desktop.md#manual-flatpak-smoke-checklist).
+It reads a bundle; it does not run one. Two other things carry the playback
+evidence, and neither is duplicated here:
+
+- the **audio lifecycle smoke** (`flatpak-build.yml` ▸ *Audio lifecycle smoke in
+  the sandbox*, [flatpak-audio-smoke.md](./flatpak-audio-smoke.md)) walks the
+  real playback lifecycle inside the installed sandbox on the libmpv the
+  manifest built. It runs on a manifest *derived* from the shipped one — the
+  same package plus a test binary under `/app/libexec` — precisely so the
+  shipped package carries no test harness, which is also why it cannot be run
+  against the release bundle itself. It gates the same packaging changes this
+  bundle is built from;
+- the real-desktop checks are in
+  [linux-desktop.md](./linux-desktop.md#manual-flatpak-smoke-checklist).
+
+What the release path adds on top is narrow and deterministic: the bundle
+contains a `libmpv`, so the shipped artifact cannot be one that would fall back
+to a host copy.
 
 ### Verification and the published record
 

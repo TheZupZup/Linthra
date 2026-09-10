@@ -51,7 +51,8 @@ class JustAudioMediaKit extends JustAudioPlatform {
   /// Optional libmpv properties applied to each [Player] after creation.
   ///
   /// Linthra sets its Linux defaults here (see `linuxMpvProperties`); the
-  /// headless audio smoke layers `ao=alsa` on top for an ALSA null device.
+  /// headless audio smoke layers its own `ao` on top so it can run where
+  /// there is no audio device.
   static Map<String, String> mpvProperties = const {};
 
   /// The live media_kit [Player]s, keyed by the just_audio player id.
