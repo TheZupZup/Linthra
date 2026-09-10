@@ -171,6 +171,14 @@ def run_linter(mode: str, target: Path) -> dict:
         raise LinterUnavailable(
             "the linter's report for {} {} was not an object.".format(mode, target)
         )
+    # A non-zero exit has to be explained by something this script will treat as
+    # a finding. A structured report that carries neither errors nor warnings
+    # alongside a failure exit would otherwise read as clean and print PASS,
+    # which is the one outcome a non-zero linter run must never produce. The
+    # text and empty-output paths above already refuse this; so does JSON.
+    if result.returncode != 0 and not (report.get("errors") or report.get("warnings")):
+        report = dict(report)
+        report["errors"] = ["{}-lint-failed".format(mode)]
     return report
 
 

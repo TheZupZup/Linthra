@@ -246,6 +246,23 @@ class RunLinterTest(unittest.TestCase):
         self.assertEqual(lint.findings(report), {"errors": [], "warnings": []})
         self.assertIn("Validation was successful.", report["message"])
 
+    # A structured report with neither errors nor warnings alongside a failure
+    # exit would otherwise read as clean and print PASS, which is the one thing
+    # a non-zero linter run must never produce.
+    def test_json_output_and_an_unexplained_failure_exit_is_a_finding(
+        self,
+    ) -> None:
+        with self._subprocess('{"message": "internal failure"}', 1):
+            report = lint.run_linter("repo", Path("x"))
+        self.assertEqual(report["errors"], ["repo-lint-failed"])
+        self.assertEqual(report["message"], "internal failure")
+
+    # ...but a report that does explain itself keeps its own findings.
+    def test_json_findings_explain_a_failure_exit_on_their_own(self) -> None:
+        with self._subprocess('{"errors": ["a-real-finding"]}', 1):
+            report = lint.run_linter("repo", Path("x"))
+        self.assertEqual(report["errors"], ["a-real-finding"])
+
     def test_text_output_and_a_failure_exit_is_a_finding(self) -> None:
         with self._subprocess("E: something is wrong", 1):
             buffer = io.StringIO()

@@ -31,30 +31,35 @@ void main() {
     if (raw == null) {
       return null;
     }
-    // Numeric references first: `&#38;` is a perfectly legal way to write an
-    // ampersand, and leaving it encoded would count six characters for one.
-    final String numeric = raw.replaceAllMapped(
-      RegExp(r'&#(x[0-9a-fA-F]+|[0-9]+);'),
+    // One pass, no chaining. Decoding numeric references and then named ones
+    // decodes twice: `&#38;lt;` renders as the literal text `&lt;`, but a
+    // numeric pass turns it into `&lt;` and a named pass then turns that into
+    // `<`, counting 9 characters as 6. Undercounting is the dangerous
+    // direction, because it lets an overlong summary through.
+    return raw.replaceAllMapped(
+      RegExp(r'&(?:#(x[0-9a-fA-F]+|[0-9]+)|(lt|gt|quot|apos|amp));'),
       (Match match) {
-        final String digits = match.group(1)!;
-        final int? code = digits.startsWith('x')
-            ? int.tryParse(digits.substring(1), radix: 16)
-            : int.tryParse(digits);
-        // Leave anything unparseable or outside Unicode exactly as written,
-        // rather than throwing inside a guardrail.
-        if (code == null || code < 0 || code > 0x10FFFF) {
-          return match.group(0)!;
+        final String? digits = match.group(1);
+        if (digits != null) {
+          final int? code = digits.startsWith('x')
+              ? int.tryParse(digits.substring(1), radix: 16)
+              : int.tryParse(digits);
+          // Leave anything unparseable or outside Unicode exactly as written,
+          // rather than throwing inside a guardrail.
+          if (code == null || code < 0 || code > 0x10FFFF) {
+            return match.group(0)!;
+          }
+          return String.fromCharCode(code);
         }
-        return String.fromCharCode(code);
+        return const <String, String>{
+          'lt': '<',
+          'gt': '>',
+          'quot': '"',
+          'apos': "'",
+          'amp': '&',
+        }[match.group(2)!]!;
       },
     );
-    return numeric
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&apos;', "'")
-        // Last, so a literal "&amp;lt;" does not become "<".
-        .replaceAll('&amp;', '&');
   }
 
   /// Characters as a reader counts them.
