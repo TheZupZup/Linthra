@@ -165,6 +165,9 @@ void main() {
         harness,
         contains(r'fail "the $mode run hung and was killed after'),
       );
+      // The install probe is a `flatpak run` too, and sandbox startup is
+      // exactly where a stall would go unnoticed.
+      expect(harness, contains(r'fail "checking for $SMOKE_COMMAND hung'));
     });
 
     test('the harness leaves nothing behind', () {

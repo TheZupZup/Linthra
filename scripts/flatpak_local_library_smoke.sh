@@ -131,7 +131,17 @@ flatpak --user remote-add --no-gpg-verify "$REMOTE_NAME" "$REPO_PATH"
 flatpak --user install -y "$REMOTE_NAME" "$APP_ID"
 printf 'Installed %s from local repository %s.\n' "$APP_ID" "$REPO_PATH"
 
-if ! flatpak run --command=sh "$APP_ID" -c '[ -x "$1" ]' sh "$SMOKE_COMMAND"; then
+# Bounded like every other run: sandbox startup is where a stall would sit
+# unnoticed until the job's own timeout.
+probe_status=0
+timeout --signal=TERM --kill-after=30 "$RUN_TIMEOUT_SECONDS" \
+  flatpak run --command=sh "$APP_ID" -c '[ -x "$1" ]' sh "$SMOKE_COMMAND" ||
+  probe_status=$?
+if ((probe_status == 124 || probe_status == 137)); then
+  flatpak kill "$APP_ID" >/dev/null 2>&1 || true
+  fail "checking for $SMOKE_COMMAND hung and was killed after ${RUN_TIMEOUT_SECONDS}s"
+fi
+if ((probe_status != 0)); then
   fail "$SMOKE_COMMAND is not in the installed package; build the manifest from scripts/make_flatpak_smoke_manifest.py"
 fi
 
