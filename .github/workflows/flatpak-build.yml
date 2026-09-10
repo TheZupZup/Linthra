@@ -328,7 +328,7 @@ jobs:
         run: bash ../scripts/flatpak_audio_smoke.sh repo-sandbox-smoke
 
       # Separate step, same package. Each harness installs the app, does its
-      # work and uninstalls it again — including the app data — so neither can
+      # work and uninstalls it again (including the app data) so neither can
       # be reading state the other left behind, and a failure names which of
       # the two sandbox questions went wrong.
       - name: Run the local-library sandbox smoke inside the installed Flatpak

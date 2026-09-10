@@ -1,8 +1,8 @@
 // Local-library sandbox smoke (#447).
 //
 // Proves that a Flatpak user who explicitly hands Linthra one music folder can
-// actually use it — scan it, read its tags and its embedded artwork, and play a
-// track out of it — while the rest of the host stays where it was: outside.
+// actually use it (scan it, read its tags and its embedded artwork, and play a
+// track out of it) while the rest of the host stays where it was: outside.
 //
 // It runs from inside the installed Flatpak, driven by
 // scripts/flatpak_local_library_smoke.sh, in three modes:
@@ -14,7 +14,7 @@
 // Everything below the folder grant is the production path: the same scanner,
 // the same metadata reader, the same artwork cache and the same playback
 // controller the app wires up. What this cannot do is press the button in the
-// file chooser — that dialog, and the document-portal grant it mints, stay a
+// file chooser: that dialog, and the document-portal grant it mints, stay a
 // manual step (docs/flatpak-local-library-smoke.md). The grant it stands in for
 // is deliberately narrow: one folder, for one run.
 
@@ -212,7 +212,7 @@ Future<void> _validateGrantedFolder(_SmokeConfig config) async {
     );
   }
   stdout.writeln(
-    'PASS: scanned the selected folder — '
+    'PASS: scanned the selected folder, '
     '${scan.report.filesVisited} files visited, '
     '${scan.tracks.length} tracks imported, '
     '${scan.report.skippedUnsupported} skipped.',
@@ -292,7 +292,7 @@ Future<void> _playFromLibrary(Track track) async {
 /// The other half of a scoped grant: what must *not* be reachable.
 ///
 /// Both probes live in the host's home directory, next to the selected folder,
-/// because that is the interesting case — granting one folder in `$HOME` must
+/// because that is the interesting case: granting one folder in `$HOME` must
 /// not expose the rest of it. Inside the sandbox the host home path resolves to
 /// Linthra's own private tree, so neither probe is there at all.
 void _checkIsolation(_SmokeConfig config) {
@@ -338,9 +338,10 @@ void _checkIsolation(_SmokeConfig config) {
 
 // --- revoked --------------------------------------------------------------
 
-/// The folder the user chose is gone — the drive was unplugged, or the portal
-/// document was revoked. That has to be a recoverable error the user can act
-/// on, and it must never be mistaken for "this folder is empty now".
+/// The folder the user chose is gone: the drive was unplugged, or the
+/// portal document was revoked. That has to be a recoverable error the
+/// user can act on, and it must never be mistaken for "this folder is
+/// empty now".
 Future<void> _validateRevokedFolder(_SmokeConfig config) async {
   if (Directory(config.root).existsSync()) {
     throw StateError(
@@ -390,7 +391,7 @@ Future<void> _validateRevokedFolder(_SmokeConfig config) async {
     );
   }
   stdout.writeln(
-    'PASS: a revoked folder is a recoverable error — '
+    'PASS: a revoked folder is a recoverable error: '
     '"${outcome.message}"',
   );
   stdout.writeln('PASS: previously indexed tracks were kept, not wiped.');
@@ -463,7 +464,7 @@ Future<void> _waitFor(
   while (!predicate(controller.state)) {
     if (controller.state.status == PlaybackStatus.error) {
       throw StateError(
-        '$describe — the backend errored first: '
+        '$describe, and the backend errored first: '
         '${controller.state.errorMessage ?? 'no message'}',
       );
     }

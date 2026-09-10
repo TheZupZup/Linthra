@@ -1,6 +1,6 @@
 # Flatpak local-library sandbox smoke
 
-Linthra's Flatpak ships **no filesystem permission at all** — no
+Linthra's Flatpak ships **no filesystem permission at all**: no
 `--filesystem=home`, no `--filesystem=host`, no XDG grant
 ([flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md)). Local music
 works because the user hands over one folder and nothing else.
@@ -40,7 +40,7 @@ must not hand over the rest of `$HOME`.
 the library has to survive a relaunch while the grant lasts.
 
 **Losing access is recoverable, not destructive.** The last mode runs the same
-package against the same folder path with no grant at all — which is what a
+package against the same folder path with no grant at all, which is what a
 revoked portal document, an unplugged drive and a deleted folder all look like
 from inside. Linthra must:
 
@@ -58,7 +58,7 @@ from inside. Linthra must:
 The grant is `flatpak run --filesystem=<folder>`: one folder, for the length of
 one run, in no persistent override and in nothing the package declares. That is
 the *scope* a document-portal selection produces, and everything downstream of
-it is the real production path — the same scanner, metadata reader, artwork
+it is the real production path: the same scanner, metadata reader, artwork
 cache and playback controller `LibraryController` wires up.
 
 **It is not the chooser dialog.** A portal grant is minted by a person clicking
@@ -68,7 +68,7 @@ it exercise the document portal's `/run/user/<uid>/doc/…` path rewriting.
 Those stay a manual pass, and the audit in
 [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md#user-selected-library-check)
 is still the checklist to follow before a release. What this smoke removes from
-that checklist is everything *after* the click — which is the part that breaks
+that checklist is everything *after* the click, which is the part that breaks
 silently.
 
 `flatpak override --filesystem=…` is never used, by this smoke or by that
@@ -88,7 +88,7 @@ Two formats because one file cannot answer both questions: a WAV really decodes
 (so playback means something) but RIFF INFO has no picture field, while the MP3
 carries the embedded cover.
 
-The tag bytes come from `test/core/sources/local/audio_tag_fixtures.dart` — the
+The tag bytes come from `test/core/sources/local/audio_tag_fixtures.dart`, the
 same byte-level builders the local-metadata unit tests use, imported rather
 than copied, so there is one place to be wrong about a container format. It is
 test support and deliberately stays out of `lib/`.
@@ -123,7 +123,7 @@ bash ../scripts/flatpak_local_library_smoke.sh repo-sandbox-smoke
 ```
 
 The harness refuses to run when Linthra is already installed, or when any user
-or system override already grants filesystem access — an override would decide
+or system override already grants filesystem access, since an override would decide
 the isolation result before the test started. Everything it creates (the music
 folder, the probes, the installed app and its data) is removed on exit.
 
@@ -141,8 +141,8 @@ people paste into issues.
 
 ## Related
 
-- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md) — the permission
+- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md), the permission
   policy this smoke defends, and the manual portal pass
-- [flatpak-audio-smoke.md](./flatpak-audio-smoke.md) — the sibling smoke, and
+- [flatpak-audio-smoke.md](./flatpak-audio-smoke.md), the sibling smoke, and
   the derived manifest both share
-- [local-music.md](./local-music.md) — the feature itself
+- [local-music.md](./local-music.md), the feature itself

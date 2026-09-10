@@ -71,7 +71,7 @@ def build_commands_for(name: str) -> list[str]:
     """The commands that build and install one smoke binary.
 
     `flutter build linux` always writes to the same bundle directory, so each
-    build overwrites the last one's output — which is why every target copies
+    build overwrites the last one's output, which is why every target copies
     its bundle out before the next build runs, and why all of this has to come
     after the app has been copied into /app.
     """
@@ -108,7 +108,7 @@ HEADER = """\
 #
 {targets}
 #
-# Nothing else differs — the generator fails if it does. They exist so the
+# Nothing else differs, and the generator fails if it does. They exist so the
 # sandbox smokes run against the package this manifest builds rather than
 # whatever the host happens to have (#446, #447).
 """

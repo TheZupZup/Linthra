@@ -17,8 +17,8 @@
 # The grant is `flatpak run --filesystem=<folder>`: one folder, for the length
 # of one run, added to no persistent override and to nothing in the package.
 # That is the *scope* a document-portal selection produces, and everything
-# downstream of the grant — the scan, the metadata, the artwork, the playback,
-# the isolation, the revocation — is the real production path.
+# downstream of the grant (the scan, the metadata, the artwork, the playback,
+# the isolation, the revocation) is the real production path.
 #
 # What it is not is the chooser dialog itself. A portal grant is minted by a
 # user clicking a button in xdg-desktop-portal, and no headless runner can
@@ -211,7 +211,7 @@ printf 'Re-scanning after a restart...\n'
 run_mode scan granted
 printf 'PASS: the selected library survived a restart.\n'
 
-# 5. Take the grant away. Same package, same folder path, no access — which is
+# 5. Take the grant away. Same package, same folder path, no access, which is
 #    what a revoked portal document, an unplugged drive or a deleted folder all
 #    look like from inside.
 printf 'Revoking access to the selected folder...\n'

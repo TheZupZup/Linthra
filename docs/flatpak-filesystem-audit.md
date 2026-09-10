@@ -132,7 +132,7 @@ previously indexed tracks kept. See
 [flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md).
 
 What it cannot do is press the button. A FileChooser portal grant is minted only
-by the user's chooser action, and no headless runner can perform it — nor does a
+by the user's chooser action, and no headless runner can perform it, nor does a
 `--filesystem=` run grant exercise the document portal's `/run/user/<uid>/doc/`
 path rewriting. So complete the audit with this manual pass using the installed
 Flatpak:
