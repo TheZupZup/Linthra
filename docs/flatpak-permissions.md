@@ -50,6 +50,15 @@ manifests and in the installed package, even if somebody adds one to the
 allow-list in `scripts/check_linux_runner.py`. Two independent checks have to
 be edited to widen the sandbox, and each edit is a diff a reviewer reads.
 
+"In the installed package" is the half that is easy to get wrong, because
+`flatpak info --show-permissions` does not print finish-args: it prints
+metadata sections that have to be turned back into them. A section the parser
+does not know about is silently invisible, so a grant can be present in the
+artifact and absent from the check. `--env=` was exactly that case until it was
+fixed: banned here, read literally from a manifest, and skipped entirely in the
+installed metadata, where it appears under `[Environment]`. Every refused
+spelling now has a test on both paths.
+
 | Refused | Why |
 | --- | --- |
 | `--filesystem=host`, `--filesystem=host-os`, `--filesystem=host-etc` | The whole host. Nothing Linthra does needs a file the user did not choose. |

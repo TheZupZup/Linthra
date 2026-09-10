@@ -184,6 +184,15 @@ def parse_metadata(text: str) -> set[str]:
             for item in value.split(";"):
                 if item:
                     permissions.add(template.format(item))
+        elif section == "Environment":
+            # `--env=NAME=VALUE` becomes an [Environment] entry in the installed
+            # metadata, and REFUSED bans it. Skipping this section meant the ban
+            # held for the manifest, where finish-args are read literally, but
+            # not for the installed package, which is the artifact a user
+            # actually gets. The whole point of --installed is that a manifest
+            # says what was asked for and only the package says what was
+            # granted.
+            permissions.add("--env={}={}".format(key, value))
         elif section in BUS_FLAGS:
             template = BUS_FLAGS[section].get(value)
             if template is not None:

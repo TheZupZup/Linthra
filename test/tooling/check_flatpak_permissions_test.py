@@ -137,6 +137,25 @@ class MetadataTest(unittest.TestCase):
         text = METADATA + "\n[Context]\nfilesystems=home;\n"
         self.assertIn("--filesystem=home", checker.parse_metadata(text))
 
+    # `--env=` is on the refusal list, but the ban held only for the manifest,
+    # where finish-args are read literally. In the installed metadata an env
+    # grant becomes an [Environment] section, which parse_metadata skipped
+    # entirely, so the artifact a user actually gets could carry one and
+    # --installed would still report a match.
+    def test_reads_an_environment_grant_the_manifest_never_declared(self) -> None:
+        text = METADATA + "\n[Environment]\nLINTHRA_DEBUG=1\n"
+        permissions = checker.parse_metadata(text)
+        self.assertIn("--env=LINTHRA_DEBUG=1", permissions)
+        self.assertEqual(checker.refused(permissions), ["--env=LINTHRA_DEBUG=1"])
+
+    # A value containing "=" must survive, or the grant is misreported.
+    def test_an_environment_value_may_contain_an_equals_sign(self) -> None:
+        text = METADATA + "\n[Environment]\nURL=https://example.invalid/?a=b\n"
+        self.assertIn(
+            "--env=URL=https://example.invalid/?a=b",
+            checker.parse_metadata(text),
+        )
+
     def test_reads_a_talk_name(self) -> None:
         text = METADATA + "org.freedesktop.secrets=talk\n"
         self.assertIn(
