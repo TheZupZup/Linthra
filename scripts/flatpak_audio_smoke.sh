@@ -141,37 +141,99 @@ sanitize <"$LOG_FILE"
 printf 'PASS: the packaged %s completed the audio lifecycle on its own libmpv.\n' \
   "$APP_ID"
 
-# --- negative control ------------------------------------------------------
+# --- negative controls -----------------------------------------------------
 #
-# Shadow the packaged libmpv with a zero-byte file the loader cannot accept,
-# and require the smoke to fail. The shadow lives in the sandbox's own cache
-# directory and only LD_LIBRARY_PATH points at it, so /app is untouched and the
-# next run is unaffected.
-printf 'Negative control: breaking the packaged libmpv...\n'
-status=0
-xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
-  dbus-run-session -- \
+# A smoke that cannot fail proves nothing, so the two ways this one is supposed
+# to catch a broken package are exercised deliberately.
+#
+# Both run the same binary in the same sandbox with one thing changed, and both
+# must fail. `expect_failure` also insists the output names the reason: a
+# non-zero exit with no explanation is a failure nobody can act on.
+expect_failure() {
+  local what="$1"
+  local pattern="$2"
+  shift 2
+
+  local status=0
+  xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
+    dbus-run-session -- \
+    "$@" >"$LOG_FILE" 2>&1 || status=$?
+
+  # 3 is the inner script's own "I could not set this control up" exit. A
+  # control that did not run is not a control that passed.
+  if ((status == 3)); then
+    report
+    fail "could not set up the negative control: $what"
+  fi
+  if ((status == 0)); then
+    report
+    fail "the smoke passed $what, so it cannot detect a broken package"
+  fi
+  if ! grep -qiE "$pattern" "$LOG_FILE"; then
+    report
+    fail "the smoke failed $what but never mentioned $pattern, so the failure is not diagnosable"
+  fi
+  sanitize <"$LOG_FILE"
+  printf 'PASS: %s fails the smoke (status %s).\n' "$what" "$status"
+}
+
+# 1. A libmpv that loads but is not libmpv.
+#
+# The first attempt at this used a zero-byte file, and CI proved it wrong: the
+# dynamic loader treats a candidate with a bad ELF header as "not this one" and
+# quietly carries on down the search path, so the packaged libmpv was found
+# anyway and the run passed. A *valid* library under the wrong name is the
+# thing the loader accepts and then cannot resolve mpv's symbols out of.
+#
+# The shadow lives in the sandbox's own cache directory and only
+# LD_LIBRARY_PATH points at it, so /app is untouched and the next run is
+# unaffected.
+printf 'Negative control: shadowing the packaged libmpv...\n'
+expect_failure "a libmpv that carries none of mpv's symbols" 'mpv' \
   flatpak run --command=sh "$APP_ID" -c '
     set -eu
-    shadow="$XDG_CACHE_HOME/linthra-audio-smoke-broken-libmpv"
+    shadow="${XDG_CACHE_HOME:-$HOME/.cache}/linthra-audio-smoke-shadow-libmpv"
     rm -rf -- "$shadow"
     mkdir -p -- "$shadow"
-    : >"$shadow/libmpv.so.2"
+
+    # Any real shared library will do: the loader checks that a candidate is a
+    # loadable ELF, not that its soname matches what was asked for.
+    donor=""
+    for candidate in \
+      /app/lib/libass.so.9 \
+      /usr/lib/x86_64-linux-gnu/libz.so.1 \
+      /usr/lib/x86_64-linux-gnu/libexpat.so.1 \
+      /usr/lib/x86_64-linux-gnu/libpng16.so.16; do
+      if [ -f "$candidate" ]; then donor="$candidate"; break; fi
+    done
+    if [ -z "$donor" ]; then
+      donor="$(find /app/lib /usr/lib -maxdepth 2 -name "lib*.so.*" -type f \
+        2>/dev/null | grep -v libmpv | head -n 1)"
+    fi
+    if [ -z "$donor" ]; then
+      printf "no donor library to stand in for libmpv\n" >&2
+      exit 3
+    fi
+    cp -L "$donor" "$shadow/libmpv.so.2"
+
     LINTHRA_AUDIO_SMOKE_AO=null \
     LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX=/app/ \
     LD_LIBRARY_PATH="$shadow${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
       exec "$1"
-  ' sh "$SMOKE_COMMAND" >"$LOG_FILE" 2>&1 || status=$?
+  ' sh "$SMOKE_COMMAND"
 
-if ((status == 0)); then
-  report
-  fail "the smoke passed with an unloadable libmpv, so it cannot detect a broken package"
-fi
-if ! grep -qi 'libmpv' "$LOG_FILE"; then
-  report
-  fail "the smoke failed with a broken libmpv but never mentioned it, so the failure is not diagnosable"
-fi
-sanitize <"$LOG_FILE"
-printf 'PASS: a broken libmpv fails the smoke, naming libmpv (status %s).\n' "$status"
+# 2. The identity check itself.
+#
+# The positive run above requires the loaded libmpv to come from /app/. This
+# asks for a prefix nothing can satisfy and requires the run to fail on it, so
+# a passing positive run means the check really ran rather than silently
+# accepting whatever it found.
+printf 'Negative control: requiring a libmpv from somewhere it cannot be...\n'
+expect_failure "a libmpv loaded outside the required prefix" 'libmpv' \
+  flatpak run \
+  --env=LINTHRA_AUDIO_SMOKE_AO=null \
+  --env=LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX=/nowhere-a-package-installs/ \
+  --command="$SMOKE_COMMAND" \
+  "$APP_ID"
 
 printf 'PASS: Flatpak audio playback smoke complete.\n'

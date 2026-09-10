@@ -108,19 +108,43 @@ void main() {
       expect(harness, contains("grep -q 'libmpv in use: /app/'"));
     });
 
-    // A smoke that cannot fail proves nothing. Breaking the packaged library
-    // has to turn this run red, and has to say why.
-    test('runs a negative control that breaks libmpv', () {
-      expect(harness, contains('Negative control'));
-      expect(harness, contains(r'shadow="$XDG_CACHE_HOME'));
-      expect(harness, contains(r': >"$shadow/libmpv.so.2"'));
+    // A smoke that cannot fail proves nothing. Both ways this one is supposed
+    // to catch a broken package are exercised deliberately, and a control that
+    // passes has to fail the job.
+    test('runs negative controls, and a passing one fails the job', () {
+      expect(harness, contains('expect_failure()'));
+      expect(
+        harness,
+        contains(
+            r'fail "the smoke passed $what, so it cannot detect a broken package"'),
+      );
+      // A control that could not be set up is not a control that passed.
+      expect(harness, contains('could not set up the negative control'));
+      expect(harness, contains('never mentioned'));
+    });
+
+    // The first attempt used a zero-byte file and CI proved it wrong: the
+    // loader skips a candidate with a bad ELF header and finds the packaged
+    // library anyway. The donor has to be a library that really loads.
+    test('shadows libmpv with a real library, not a broken file', () {
+      expect(harness, contains(r'cp -L "$donor" "$shadow/libmpv.so.2"'));
       expect(harness, contains(r'LD_LIBRARY_PATH="$shadow'));
       expect(
         harness,
-        contains('the smoke passed with an unloadable libmpv'),
-        reason: 'a passing negative control must fail the job',
+        isNot(contains(r': >"$shadow/libmpv.so.2"')),
+        reason: 'a zero-byte shadow is skipped by the loader, not loaded',
       );
-      expect(harness, contains("grep -qi 'libmpv'"));
+    });
+
+    test('proves the libmpv identity check itself fires', () {
+      expect(
+        harness,
+        contains(
+          '--env=LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX='
+          '/nowhere-a-package-installs/',
+        ),
+        reason: 'a positive run only means something if the check can fail',
+      );
     });
 
     test('sanitizes everything it prints', () {
