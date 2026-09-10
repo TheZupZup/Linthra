@@ -105,13 +105,23 @@ issue and security review instead of silently widening #439's policy.
 
 ## Clean sandbox smoke test
 
-After building and installing the Flatpak, run:
+Against a local repository the smoke installs the package itself and removes
+it again afterwards, which is how CI runs it (`Check the installed package's
+permissions and sandbox`, in the `Flatpak build` workflow):
+
+```bash
+bash scripts/flatpak_filesystem_smoke.sh flatpak/repo-ci
+```
+
+Against an installation you already have, pass nothing. The smoke then uses
+whatever is installed and leaves it alone:
 
 ```bash
 bash scripts/flatpak_filesystem_smoke.sh
 ```
 
-The smoke test does four things without modifying persistent Flatpak overrides:
+The smoke test does five things without modifying persistent Flatpak
+overrides:
 
 1. inspects the **installed** package and fails if it exposes a filesystem or
    persist permission;
@@ -121,7 +131,10 @@ The smoke test does four things without modifying persistent Flatpak overrides:
 3. creates a temporary sentinel in the real host home and proves a shell inside
    Linthra's sandbox cannot see or read it;
 4. proves the sandbox's own XDG data/cache directories remain writable, which
-   is what Linthra's database/cache/offline stores rely on.
+   is what Linthra's database/cache/offline stores rely on;
+5. runs `scripts/check_flatpak_permissions.py --installed`, which holds the
+   package's whole permission set (not only its filesystem grants) to the
+   table in [flatpak-permissions.md](./flatpak-permissions.md).
 
 The script removes its host and sandbox probes before exiting.
 

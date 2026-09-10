@@ -1,12 +1,31 @@
 #!/usr/bin/env bash
 # Verify Linthra's installed Flatpak keeps host files outside the sandbox while
-# retaining writable application-scoped XDG storage. This is a host-side smoke
-# for issue #439; run it after installing the Flatpak.
+# retaining writable application-scoped XDG storage (#439), and that the
+# permissions the package actually carries are the ones with a written
+# rationale (#455).
+#
+# Two ways to run it:
+#
+#   scripts/flatpak_filesystem_smoke.sh repo-ci   installs the package from
+#                                                 that local repository and
+#                                                 uninstalls it afterwards
+#   scripts/flatpak_filesystem_smoke.sh           uses whatever is already
+#                                                 installed, and leaves it
+#
+# The first is what CI runs, and it is why this script exists in a workflow at
+# all. Until it was wired up, the only caller of
+# `check_flatpak_permissions.py --installed` was this file, and nothing ran
+# this file: CI checked the two manifests and never the artifact. A manifest
+# says what was asked for. Only the package says what was granted, and the
+# package is what a user installs.
 
 set -euo pipefail
 
 APP_ID="io.github.thezupzup.linthra"
+REPO_PATH="${1:-}"
+REMOTE_NAME="linthra-fs-smoke-$$"
 HOST_PROBE_DIR=""
+INSTALLED_HERE=0
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -16,6 +35,13 @@ fail() {
 cleanup() {
   if [[ -n "$HOST_PROBE_DIR" && -d "$HOST_PROBE_DIR" ]]; then
     rm -rf -- "$HOST_PROBE_DIR"
+  fi
+  # Only ever undo an installation this script made. Somebody reproducing a
+  # failure locally against their own build must not lose it.
+  if (( INSTALLED_HERE )); then
+    flatpak kill "$APP_ID" >/dev/null 2>&1 || true
+    flatpak --user uninstall -y --delete-data "$APP_ID" >/dev/null 2>&1 || true
+    flatpak --user remote-delete "$REMOTE_NAME" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -40,8 +66,29 @@ check_override_scope() {
 }
 
 command -v flatpak >/dev/null 2>&1 || fail "flatpak is not installed"
+
+if [[ -n "$REPO_PATH" ]]; then
+  REPO_PATH="$(cd "$REPO_PATH" && pwd)" || fail "local Flatpak repo not found: $REPO_PATH"
+  [[ -f "$REPO_PATH/config" ]] || fail "not a Flatpak repository: $REPO_PATH"
+
+  # Never test, replace or remove an installation this script did not make:
+  # an older build would answer these questions about the wrong package.
+  if flatpak --user info "$APP_ID" >/dev/null 2>&1 ||
+    flatpak --system info "$APP_ID" >/dev/null 2>&1; then
+    fail "$APP_ID is already installed; remove it or run this smoke in a clean user environment"
+  fi
+
+  # A uniquely named remote pointing only at the unsigned repository this same
+  # CI job produced. --no-gpg-verify must never be used for Flathub or another
+  # public remote.
+  flatpak --user remote-add --no-gpg-verify "$REMOTE_NAME" "$REPO_PATH"
+  INSTALLED_HERE=1
+  flatpak --user install -y "$REMOTE_NAME" "$APP_ID"
+  printf 'Installed %s from local repository %s.\n' "$APP_ID" "$REPO_PATH"
+fi
+
 flatpak info "$APP_ID" >/dev/null 2>&1 ||
-  fail "$APP_ID is not installed; build/install the Flatpak first"
+  fail "$APP_ID is not installed; build/install the Flatpak first, or pass a local repository path"
 
 permissions="$(flatpak info --show-permissions "$APP_ID")"
 

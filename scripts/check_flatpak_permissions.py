@@ -22,15 +22,25 @@ Three things are checked.
    was asked for; `flatpak info --show-permissions` says what the built package
    actually carries. Only the second one is what a user gets.
 
+   That output is metadata sections, not finish-args, so it has to be turned
+   back into them, and this parser fails closed while doing it: a section, key
+   or bus policy value it does not recognise stops the check rather than being
+   skipped. A skipped grant is present in the artifact and absent from the
+   report, which is a pass that means nothing.
+
 Usage:
     python3 scripts/check_flatpak_permissions.py
     python3 scripts/check_flatpak_permissions.py --installed
+
+The first runs on every PR. The second needs a built package, so it runs in
+the Flatpak workflow through scripts/flatpak_filesystem_smoke.sh.
 """
 
 from __future__ import annotations
 
 import argparse
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -76,15 +86,34 @@ CONTEXT_KEYS = {
     "filesystems": "--filesystem={}",
     "persistent": "--persist={}",
     "features": "--allow={}",
+    "unset-environment": "--unset-env={}",
 }
 
+#: A bus policy is one of four values, and three of them are grants. `see` was
+#: missing here and, because an unknown value used to be skipped, a package
+#: that could see a name on the bus read back as a package that could not.
 BUS_FLAGS = {
-    "Session Bus Policy": {"own": "--own-name={}", "talk": "--talk-name={}"},
+    "Session Bus Policy": {
+        "own": "--own-name={}",
+        "talk": "--talk-name={}",
+        "see": "--see-name={}",
+    },
     "System Bus Policy": {
         "own": "--system-own-name={}",
         "talk": "--system-talk-name={}",
+        "see": "--system-see-name={}",
     },
 }
+
+#: The fourth value. `none` is an explicit denial, so it is the one bus policy
+#: that legitimately produces no permission.
+BUS_POLICY_NONE = "none"
+
+#: Metadata groups that describe the package rather than what it may reach:
+#: an app id, a runtime, a command. `flatpak info --show-permissions` builds
+#: its output from the context alone and should print none of them, but a
+#: metadata file read from anywhere else carries them.
+IDENTITY_SECTIONS = frozenset({"Application", "Runtime", "Instance", "Build"})
 
 
 def documented_permissions(path: Path) -> dict[str, str]:
@@ -121,6 +150,18 @@ def manifest_permissions(path: Path) -> set[str]:
     Deliberately a small line reader rather than a YAML parse: the generated
     manifest carries the comments that explain each grant, and this has to work
     on both files with the same code.
+
+    Each entry then goes through shlex, exactly as `check_linux_runner.py`
+    reads the same block. Stripping quotes by hand instead meant the two
+    checkers disagreed about the same file: a trailing comment on an entry,
+
+        - "--socket=wayland"  # the application window
+
+    read as the permission `--socket=wayland"  # the application window`,
+    which matches no refusal pattern and no documented row. It would have
+    failed as undocumented, but for the wrong reason and with an unreadable
+    message, and the refusal list would have stopped applying to any entry
+    written that way.
     """
     permissions: set[str] = set()
     in_block = False
@@ -135,9 +176,28 @@ def manifest_permissions(path: Path) -> set[str]:
             continue
         if not line.startswith((" ", "\t")):
             break  # the next top-level key ends the block
-        if not stripped.startswith("- "):
-            break
-        permissions.add(stripped[2:].strip().strip("'\""))
+        # A YAML sequence entry is a dash followed by whitespace, or a bare
+        # dash. Matching a bare `startswith("-")` would read the mis-indented
+        # line `--socket=wayland` as the entry `-socket=wayland`: a permission
+        # nobody wrote, silently one dash short of the real one.
+        if re.match(r"-(\s|$)", stripped) is None:
+            raise ValueError(
+                "{}: unrecognised line in finish-args: {!r}".format(path.name, stripped)
+            )
+        try:
+            values = shlex.split(stripped[1:], comments=True, posix=True)
+        except ValueError as error:
+            raise ValueError(
+                "{}: unreadable finish-args entry {!r}: {}".format(
+                    path.name, stripped, error
+                )
+            ) from error
+        if len(values) != 1:
+            raise ValueError(
+                "{}: finish-args entry {!r} does not resolve to exactly one "
+                "permission.".format(path.name, stripped)
+            )
+        permissions.add(values[0])
     return permissions
 
 
@@ -164,7 +224,22 @@ def installed_permissions(app_id: str) -> set[str]:
 
 
 def parse_metadata(text: str) -> set[str]:
-    """Turn Flatpak metadata into the finish-args it represents."""
+    """Turn Flatpak metadata into the finish-args it represents.
+
+    Raises ValueError for anything it cannot read, which is the whole design
+    of this function. `flatpak info --show-permissions` prints metadata
+    sections rather than finish-args, and the first version of this parser
+    skipped whatever it did not recognise. That is the worst possible failure
+    mode for a security check: the grant is in the artifact, absent from the
+    report, and the check says OK. Two of those were found in review, an
+    `[Environment]` section and a `see` bus policy, and they were found by
+    reading the code rather than by anything failing.
+
+    So an unreadable line is a failure. A newer flatpak that prints a section
+    this does not know about stops the check with the section named in the
+    error, rather than quietly answering a narrower question than the one it
+    was asked.
+    """
     permissions: set[str] = set()
     section = ""
     for raw in text.splitlines():
@@ -172,15 +247,33 @@ def parse_metadata(text: str) -> set[str]:
         if not line or line.startswith("#"):
             continue
         if line.startswith("[") and line.endswith("]"):
-            section = line[1:-1]
+            section = line[1:-1].strip()
+            if section not in IDENTITY_SECTIONS and section not in (
+                "Context",
+                "Environment",
+                *BUS_FLAGS,
+            ):
+                raise ValueError(
+                    "unrecognised metadata section [{}]. A grant this checker "
+                    "cannot read is not a grant it may ignore: teach it the "
+                    "section, or remove it from the package.".format(section)
+                )
             continue
+        if section in IDENTITY_SECTIONS:
+            continue
+        if not section:
+            raise ValueError("metadata line outside any section: {!r}".format(line))
         if "=" not in line:
-            continue
+            raise ValueError("unreadable line in [{}]: {!r}".format(section, line))
         key, value = (part.strip() for part in line.split("=", 1))
         if section == "Context":
             template = CONTEXT_KEYS.get(key)
             if template is None:
-                continue
+                raise ValueError(
+                    "unrecognised [Context] key {!r}. Every key here is a "
+                    "permission of some kind, so an unknown one has to fail "
+                    "rather than be dropped.".format(key)
+                )
             for item in value.split(";"):
                 if item:
                     permissions.add(template.format(item))
@@ -193,10 +286,16 @@ def parse_metadata(text: str) -> set[str]:
             # says what was asked for and only the package says what was
             # granted.
             permissions.add("--env={}={}".format(key, value))
-        elif section in BUS_FLAGS:
+        else:
+            if value == BUS_POLICY_NONE:
+                continue
             template = BUS_FLAGS[section].get(value)
-            if template is not None:
-                permissions.add(template.format(key))
+            if template is None:
+                raise ValueError(
+                    "unrecognised [{}] value {!r} for {}. The known values are "
+                    "own, talk, see and none.".format(section, value, key)
+                )
+            permissions.add(template.format(key))
     return permissions
 
 
@@ -259,10 +358,15 @@ def main(argv: list[str]) -> int:
         if not manifest.exists():
             problems.append("{} is missing.".format(manifest))
             continue
+        try:
+            declared = manifest_permissions(manifest)
+        except ValueError as error:
+            problems.append(str(error))
+            continue
         problems.extend(
             check(
                 documented,
-                manifest_permissions(manifest),
+                declared,
                 manifest.relative_to(REPO_ROOT).as_posix(),
             )
         )
@@ -276,7 +380,7 @@ def main(argv: list[str]) -> int:
                     "installed {}".format(args.app_id),
                 )
             )
-        except (OSError, RuntimeError) as error:
+        except (OSError, RuntimeError, ValueError) as error:
             print("ERROR: {}".format(error), file=sys.stderr)
             print(
                 "Nothing was checked about the installed package, so this is "

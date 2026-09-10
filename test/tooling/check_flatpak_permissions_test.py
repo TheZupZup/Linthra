@@ -116,6 +116,52 @@ class ManifestPermissionsTest(unittest.TestCase):
             self.assertIn("--share=network", permissions)
             self.assertIn("--socket=wayland", permissions)
 
+    # YAML lets an entry be quoted and carry a trailing comment, and
+    # scripts/check_linux_runner.py reads exactly that shape out of exactly
+    # these files. Stripping quotes by hand gave the two checkers different
+    # answers about the same line: the permission came out as
+    # `--socket=wayland"  # the window`, which no refusal pattern matches.
+    def test_reads_quoted_entries_and_trailing_comments(self) -> None:
+        manifest = (
+            "app-id: io.github.thezupzup.linthra\n"
+            "finish-args:\n"
+            '  - "--socket=wayland"  # the application window\n'
+            "  - '--share=network'\n"
+            "  - --device=dri # the GPU\n"
+            "modules:\n"
+            "  - name: linthra\n"
+        )
+        with written("manifest.yml", manifest) as path:
+            self.assertEqual(
+                checker.manifest_permissions(path),
+                {"--socket=wayland", "--share=network", "--device=dri"},
+            )
+
+    # A refusal that stops matching is the failure this check exists to
+    # prevent, so the refusal list has to still apply to an entry written
+    # with a comment on it.
+    def test_a_refused_grant_is_still_refused_when_commented(self) -> None:
+        manifest = (
+            'finish-args:\n  - "--filesystem=home"  # just while I debug something\n'
+        )
+        with written("manifest.yml", manifest) as path:
+            self.assertEqual(
+                checker.refused(checker.manifest_permissions(path)),
+                ["--filesystem=home"],
+            )
+
+    def test_an_unreadable_entry_fails_rather_than_ending_the_block(self) -> None:
+        manifest = "finish-args:\n  --socket=wayland\n"
+        with written("manifest.yml", manifest) as path:
+            with self.assertRaises(ValueError):
+                checker.manifest_permissions(path)
+
+    def test_an_entry_that_is_not_one_permission_fails(self) -> None:
+        manifest = "finish-args:\n  - --socket=wayland --share=network\n"
+        with written("manifest.yml", manifest) as path:
+            with self.assertRaises(ValueError):
+                checker.manifest_permissions(path)
+
 
 class MetadataTest(unittest.TestCase):
     def test_turns_installed_metadata_back_into_finish_args(self) -> None:
@@ -161,6 +207,64 @@ class MetadataTest(unittest.TestCase):
         self.assertIn(
             "--talk-name=org.freedesktop.secrets", checker.parse_metadata(text)
         )
+
+    # A bus policy has four values and three of them are grants. `see` was
+    # missing from the table, and because an unknown value was skipped, a
+    # package that could see a name on the bus read back as one that could
+    # not: the same silent-drop shape as the [Environment] hole above.
+    def test_reads_a_see_name(self) -> None:
+        text = METADATA + "org.freedesktop.secrets=see\n"
+        self.assertIn(
+            "--see-name=org.freedesktop.secrets", checker.parse_metadata(text)
+        )
+
+    def test_reads_a_system_see_name(self) -> None:
+        text = METADATA + "\n[System Bus Policy]\norg.freedesktop.UDisks2=see\n"
+        self.assertIn(
+            "--system-see-name=org.freedesktop.UDisks2",
+            checker.parse_metadata(text),
+        )
+
+    # `none` is the fourth value and the only one that is a denial rather than
+    # a grant, so it is the only one that may produce nothing.
+    def test_a_none_policy_grants_nothing(self) -> None:
+        text = METADATA + "org.freedesktop.secrets=none\n"
+        permissions = checker.parse_metadata(text)
+        self.assertNotIn("--talk-name=org.freedesktop.secrets", permissions)
+        self.assertNotIn("--see-name=org.freedesktop.secrets", permissions)
+
+    def test_an_unknown_bus_policy_fails_rather_than_being_dropped(self) -> None:
+        text = METADATA + "org.freedesktop.secrets=whatever\n"
+        with self.assertRaises(ValueError) as caught:
+            checker.parse_metadata(text)
+        self.assertIn("whatever", str(caught.exception))
+
+    # The failure mode this whole parser is shaped around: a grant that is in
+    # the artifact, absent from the report, and reported as OK. A section
+    # nobody taught it about has to stop the check, not shrink it.
+    def test_an_unknown_section_fails_rather_than_being_skipped(self) -> None:
+        text = METADATA + "\n[Somewhere New]\nkey=value\n"
+        with self.assertRaises(ValueError) as caught:
+            checker.parse_metadata(text)
+        self.assertIn("Somewhere New", str(caught.exception))
+
+    def test_an_unknown_context_key_fails(self) -> None:
+        text = METADATA + "\n[Context]\nsomething-new=value;\n"
+        with self.assertRaises(ValueError) as caught:
+            checker.parse_metadata(text)
+        self.assertIn("something-new", str(caught.exception))
+
+    # [Application] carries an app id and a runtime, not a permission.
+    # `flatpak info --show-permissions` builds its output from the context
+    # alone, but a metadata file read from anywhere else has this group.
+    def test_identity_sections_are_ignored_rather_than_refused(self) -> None:
+        self.assertNotIn(
+            "--name=io.github.thezupzup.linthra", checker.parse_metadata(METADATA)
+        )
+
+    def test_reads_an_unset_environment_entry(self) -> None:
+        text = METADATA + "\n[Context]\nunset-environment=LD_PRELOAD;\n"
+        self.assertIn("--unset-env=LD_PRELOAD", checker.parse_metadata(text))
 
 
 class RefusedTest(unittest.TestCase):

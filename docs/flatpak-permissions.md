@@ -23,7 +23,7 @@ Eight permissions. No filesystem access of any kind, no session-bus access, no
 | `--share=ipc` | Shared memory on X11 | same | X11 clients pass frames through SysV shared memory (MIT-SHM). Without it the X11 fallback path renders every frame over the socket. Grants no filesystem or network reach of its own. |
 | `--device=dri` | GPU rendering | Flutter's GTK embedder | Flutter renders through OpenGL. Without the render node the sandbox falls back to software rasterisation, which on a music library's scrolling artwork grid is visible. `--device=dri` is the render-node-only grant; `--device=all` (which would add cameras, USB and input devices) is refused below. |
 | `--socket=pulseaudio` | Audio output | `lib/core/services/linux_playback_controller.dart`, and the `mpv` module built with `-Dpulse=enabled` | libmpv needs a path to the audio server. This one socket covers PulseAudio and PipeWire alike, because every PipeWire desktop ships `pipewire-pulse`. There is no narrower audio grant in Flatpak. |
-| `--share=network` | Self-hosted servers | `lib/core/sources/jellyfin/`, `lib/core/sources/subsonic/`, `lib/core/sources/plex/` | Jellyfin, Navidrome/Subsonic and Plex are HTTP(S) endpoints the user configures, on the LAN or beyond. Flatpak's network permission is all-or-nothing: there is no per-host form to ask for instead. |
+| `--share=network` | Self-hosted servers | `lib/core/sources/jellyfin/`, `lib/core/sources/subsonic/`, `lib/core/sources/plex/`, `lib/core/sources/audiobookshelf/` | Jellyfin, Navidrome/Subsonic, Plex and Audiobookshelf are HTTP(S) endpoints the user configures, on the LAN or beyond. Flatpak's network permission is all-or-nothing: there is no per-host form to ask for instead. |
 | `--own-name=org.mpris.MediaPlayer2.linthra` | Media keys, and the player controls in a desktop shell | `lib/core/services/mpris/mpris_media_session.dart` | MPRIS is a well-known bus name a shell looks for. Flatpak lets an app own names under its own app id for free, and this is not one of those, so it has to be granted. **Owning is not talking**: it lets other clients call Linthra and gives Linthra no way to call anything. |
 | `--own-name=org.mpris.MediaPlayer2.linthra.*` | A second window's media session | same | The MPRIS spec's `.instance<pid>` fallback, used when a second Linthra window finds the plain name taken. Scoped to Linthra's own names, since an `org.mpris.MediaPlayer2.*` wildcard would reach every other player's session, and is refused below. |
 
@@ -53,11 +53,22 @@ be edited to widen the sandbox, and each edit is a diff a reviewer reads.
 "In the installed package" is the half that is easy to get wrong, because
 `flatpak info --show-permissions` does not print finish-args: it prints
 metadata sections that have to be turned back into them. A section the parser
-does not know about is silently invisible, so a grant can be present in the
-artifact and absent from the check. `--env=` was exactly that case until it was
-fixed: banned here, read literally from a manifest, and skipped entirely in the
-installed metadata, where it appears under `[Environment]`. Every refused
-spelling now has a test on both paths.
+skips is silently invisible, so a grant can be present in the artifact, absent
+from the check, and reported as a clean pass.
+
+Two of those were found by reading the code rather than by anything failing.
+`--env=` is banned here and read literally from a manifest, but in the
+installed metadata it appears under `[Environment]`, which the parser skipped
+entirely. A bus policy has four values and three of them are grants; only
+`own` and `talk` were mapped, so a package that could `see` a name on the bus
+read back as one that could not.
+
+The parser now fails closed. An unknown section, an unknown `[Context]` key
+and an unknown bus policy value each stop the check with the thing they could
+not read named in the error, instead of quietly answering a narrower question
+than the one they were asked. The cost is that a newer flatpak printing
+something new breaks this check until somebody teaches it, which is the right
+way round. Every refused spelling has a test on both paths.
 
 | Refused | Why |
 | --- | --- |
@@ -80,13 +91,19 @@ spelling now has a test on both paths.
 permissions" are different claims. This is the evidence for the second, and
 what is still a person's job.
 
+Everything in the "automated evidence" column runs in the `Flatpak build`
+workflow against a package that workflow just built. The manifest half of this
+check is cheaper and runs on every PR in the main CI workflow instead
+(`Check every Flatpak permission has a written rationale`).
+
 | Feature | Automated evidence | Still manual |
 | --- | --- | --- |
 | The app starts and is a real desktop window | `scripts/flatpak_launch_smoke.sh`, which installs the package, waits for the window, and holds it to the app id and its icon | none |
 | No host filesystem reach | `scripts/flatpak_filesystem_smoke.sh`, where the installed package declares no filesystem or persist grant, no override adds one, an unrelated host file is invisible, and the private XDG tree is writable | none |
+| The installed package carries exactly this table | the same script, which then runs `check_flatpak_permissions.py --installed` against the built package | none |
 | Audio output | `scripts/flatpak_audio_smoke.sh` (#446), the full transport lifecycle on the libmpv the manifest built | That a speaker actually makes a sound: no CI runner has an audio device |
 | Local libraries | `scripts/flatpak_local_library_smoke.sh` (#447), where a user-selected folder scans, its tags and artwork load, a track plays, and unrelated host paths stay unreadable | The chooser dialog itself, which only a person can click |
-| Self-hosted servers | none | Sign in to a Jellyfin/Navidrome/Plex server from the installed Flatpak and play a track. Needs a server and a credential, so it is not a CI job |
+| Self-hosted servers | none | Sign in to a Jellyfin/Navidrome/Plex/Audiobookshelf server from the installed Flatpak and play a track. Needs a server and a credential, so it is not a CI job |
 | Secure credentials | none | Sign in, quit, relaunch, and confirm the session survived, which is what proves libsecret's portal-backed store worked with no `--talk-name` |
 | MPRIS | none | `playerctl status` and the media keys while the packaged app plays; a second window to exercise the `.instance` name |
 | Notifications | none | Whatever surfaces a notification, once one does. Nothing in Linthra posts one on Linux today, which is why no permission is listed for it |
