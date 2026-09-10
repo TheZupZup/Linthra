@@ -127,6 +127,11 @@ or system override already grants filesystem access — an override would decide
 the isolation result before the test started. Everything it creates (the music
 folder, the probes, the installed app and its data) is removed on exit.
 
+Every mode is time-bounded (`LINTHRA_FLATPAK_SMOKE_TIMEOUT`, 300s by default)
+and hitting the bound fails the run. The Dart side bounds each step it waits
+on, but only once Dart is running, and a hung CI job serves no log at all
+until it ends.
+
 ## Failure output is sanitized
 
 A music folder path is private data. Both the harness and the Dart smoke

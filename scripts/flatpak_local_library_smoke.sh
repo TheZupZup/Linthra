@@ -110,6 +110,13 @@ report() {
   sanitize <"$LOG_FILE" >&2
 }
 
+# Every sandbox run is time-bounded, for the same reason as the audio smoke:
+# the Dart side bounds each step it waits on, but only once Dart is running,
+# and a process that blocks before that has nothing watching it. A hung job
+# serves no log at all until it ends, so an unbounded run costs the whole job
+# timeout and reports nothing.
+RUN_TIMEOUT_SECONDS="${LINTHRA_FLATPAK_SMOKE_TIMEOUT:-300}"
+
 # The probes live in $HOME beside the music folder, because that is the case
 # worth proving: choosing one folder in your home directory must not hand over
 # the rest of it.
@@ -140,7 +147,8 @@ run_mode() {
   fi
 
   local status=0
-  xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
+  timeout --signal=TERM --kill-after=30 "$RUN_TIMEOUT_SECONDS" \
+    xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
     dbus-run-session -- \
     flatpak run \
     "${grant_args[@]}" \
@@ -151,6 +159,14 @@ run_mode() {
     --command="$SMOKE_COMMAND" \
     "$APP_ID" >"$LOG_FILE" 2>&1 || status=$?
 
+  # `timeout` reports 124, or 137 after the SIGKILL escalation. xvfb-run does
+  # not necessarily take the sandboxed app with it, and a survivor would hold
+  # the app id against the next mode.
+  if ((status == 124 || status == 137)); then
+    flatpak kill "$APP_ID" >/dev/null 2>&1 || true
+    report
+    fail "the $mode run hung and was killed after ${RUN_TIMEOUT_SECONDS}s"
+  fi
   if ((status != 0)); then
     report
     fail "the local-library smoke failed in $mode mode (status $status)"

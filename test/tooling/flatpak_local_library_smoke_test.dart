@@ -156,6 +156,17 @@ void main() {
       expect(smoke, contains('sanitizer.clean(error.toString())'));
     });
 
+    // A hung job serves no log until it ends, so an unbounded run costs the
+    // whole job timeout and reports nothing.
+    test('bounds every sandbox run and fails when one hits the bound', () {
+      expect(harness, contains('RUN_TIMEOUT_SECONDS'));
+      expect(harness, contains('timeout --signal=TERM --kill-after=30'));
+      expect(
+        harness,
+        contains(r'fail "the $mode run hung and was killed after'),
+      );
+    });
+
     test('the harness leaves nothing behind', () {
       expect(harness, contains('trap cleanup EXIT'));
       expect(harness, contains(r'rm -rf -- "$MUSIC_DIR"'));
