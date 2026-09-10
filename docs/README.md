@@ -45,6 +45,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | --- | --- |
 | Reporting a bug | [reporting-bugs.md](./reporting-bugs.md) |
 | Manual QA checklist | [manual-test-checklist.md](./manual-test-checklist.md) |
+| Desktop HiDPI & fractional scaling | [hidpi-and-scaling.md](./hidpi-and-scaling.md) |
 | Release process & signing | [release-process.md](./release-process.md) · [signing](./release-signing.md) · [artifact verification](./release-artifact-verification.md) |
 | Dependency update bots | [dependency-updates.md](./dependency-updates.md) |
 | PR security surface guard | [pr-security-guard.md](./pr-security-guard.md) |
@@ -52,7 +53,9 @@ The full index of Linthra's docs. New to the project? Start with the
 | Google Play readiness | [play-store-readiness.md](./play-store-readiness.md) |
 | Flatpak build CI | [flatpak-ci.md](./flatpak-ci.md) |
 | Flatpak audio playback smoke | [flatpak-audio-smoke.md](./flatpak-audio-smoke.md) |
+| Flatpak local-library sandbox smoke | [flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md) |
 | Flatpak sandbox filesystem audit | [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md) |
+| Flathub builder lint | [flathub-builder-lint.md](./flathub-builder-lint.md) |
 | Flatpak permission audit | [flatpak-permissions.md](./flatpak-permissions.md) |
 | Flathub updates (release to published Flatpak) | [flathub-update-process.md](./flathub-update-process.md) |
 
