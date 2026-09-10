@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/catalog/library_grouping.dart';
+import '../../core/models/local_file_stamp.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/music_library_repository.dart';
 import '../../core/repositories/source_catalog_reader.dart';
+import '../../core/repositories/stamped_catalog_writer.dart';
 import '../../core/sources/local/folder_location.dart';
 import '../../core/sources/local/local_library_scanner.dart';
 import '../../core/sources/local/local_music_roots.dart';
@@ -99,14 +101,18 @@ class LibraryController extends Notifier<LibraryState> {
 
   /// Returns this operation's report, or null if it was superseded. Callers
   /// must not infer success from the last globally recorded scan report.
-  Future<LocalScanReport?> scanFolderWithReport(String folderPath) {
-    return scanFoldersWithReport(<String>[folderPath]);
+  Future<LocalScanReport?> scanFolderWithReport(
+    String folderPath, {
+    bool full = false,
+  }) {
+    return scanFoldersWithReport(<String>[folderPath], full: full);
   }
 
   /// Scans every selected local folder and replaces the local catalog with what
   /// they hold together.
-  Future<void> scanFolders(List<String> folderPaths) async {
-    await scanFoldersWithReport(folderPaths);
+  Future<void> scanFolders(List<String> folderPaths,
+      {bool full = false}) async {
+    await scanFoldersWithReport(folderPaths, full: full);
   }
 
   /// Scans [folderPaths] as one library and returns the merged report, or null
@@ -119,9 +125,16 @@ class LibraryController extends Notifier<LibraryState> {
   /// folders that *are* readable. A scan that could read nothing at all — or
   /// that could not read back what an offline folder had indexed — writes
   /// nothing, exactly as a failed single-folder scan always has.
+  /// Pass [full] to re-parse every file regardless of whether it looks
+  /// unchanged. This is the recovery path: an ordinary scan trusts each file's
+  /// size and mtime, and a write that restores both (a backup tool putting an
+  /// old file back, `touch -r` after an in-place edit) would otherwise go
+  /// unnoticed. It is also the honest answer to "the library looks wrong",
+  /// since it rebuilds the whole slice from the files themselves.
   Future<LocalScanReport?> scanFoldersWithReport(
-    List<String> folderPaths,
-  ) async {
+    List<String> folderPaths, {
+    bool full = false,
+  }) async {
     // Through invalidatePendingScans, so starting a scan also stops the native
     // walk it replaces. A SAF-to-SAF switch would supersede on its own (the
     // next listAudioDocuments trips the old flag), but switching to the
@@ -132,13 +145,21 @@ class LibraryController extends Notifier<LibraryState> {
     state = const LibraryState.loading();
     final List<String> roots = LocalMusicRoots.normalize(folderPaths);
     try {
-      // Only a multi-folder library can retain anything: with one folder, a
-      // failure means nothing was read and the catalog is left untouched
-      // anyway. Skipping the query keeps Android and single-folder desktop
-      // scans exactly as cheap as before.
-      final List<Track>? previousTracks =
-          roots.length > 1 ? await _localCatalogSnapshot() : null;
+      // The stored slice, with each row's on-disk stamp. Two jobs: an offline
+      // folder's tracks are carried into the new slice, and a file whose stamp
+      // is unchanged is reused instead of being opened and parsed again.
+      final List<StampedTrack>? previousTracks = await _localCatalogSnapshot();
       if (generation != _scanGeneration) return null;
+
+      // A full rescan simply looks at nothing: with no known stamp, every file
+      // falls through to the parse. It is the same code path, which is what
+      // keeps the two from drifting apart.
+      final Map<String, StampedTrack> alreadyIndexed = full
+          ? const <String, StampedTrack>{}
+          : <String, StampedTrack>{
+              for (final StampedTrack stamped in previousTracks ?? const [])
+                stamped.track.uri: stamped,
+            };
 
       final scanner = LocalLibraryScanner((String root) {
         return LocalMusicSource(
@@ -147,6 +168,8 @@ class LibraryController extends Notifier<LibraryState> {
           safDocumentLister: ref.read(safDocumentListerProvider),
           androidMediaLibrary: ref.read(androidMediaLibraryProvider),
           metadataReader: ref.read(localMetadataReaderProvider),
+          statReader: ref.read(localFileStatReaderProvider),
+          alreadyIndexed: alreadyIndexed,
         ).scanTracks();
       });
       final LocalLibraryScan scan = await scanner.scan(
@@ -168,12 +191,23 @@ class LibraryController extends Notifier<LibraryState> {
         // Check at commit time, not merely when the filesystem walk finishes.
         if (generation != _scanGeneration) return null;
         final repository = ref.read(musicLibraryRepositoryProvider);
-        await repository.upsertCatalog(
-          sourceId: _localSourceId,
-          tracks: scan.tracks,
-          albums: groupAlbums(scan.tracks),
-          artists: groupArtists(scan.tracks),
-        );
+        final List<Track> tracks = scan.plainTracks;
+        if (repository is StampedCatalogWriter) {
+          // Same write, plus the stamps a later scan compares against. Without
+          // them every scan re-parses everything, which is correct but is the
+          // cost this exists to remove.
+          await (repository as StampedCatalogWriter).upsertStampedCatalog(
+            sourceId: _localSourceId,
+            tracks: scan.tracks,
+          );
+        } else {
+          await repository.upsertCatalog(
+            sourceId: _localSourceId,
+            tracks: tracks,
+            albums: groupAlbums(tracks),
+            artists: groupArtists(tracks),
+          );
+        }
         // A newer action may have started while the write was awaiting I/O.
         // Its queued write will run after this one; do not publish stale status.
         if (generation != _scanGeneration) return null;
@@ -204,17 +238,30 @@ class LibraryController extends Notifier<LibraryState> {
     }
   }
 
-  /// The local slice of the catalog as it stands, or null when this repository
-  /// cannot read a source's slice. Null means "unknown", never "empty": the
-  /// scan uses it to decide whether it may overwrite the local slice, and
-  /// mistaking one for the other would delete an offline folder's music.
-  Future<List<Track>?> _localCatalogSnapshot() async {
+  /// The local slice of the catalog as it stands, with each row's on-disk
+  /// stamp, or null when this repository cannot read a source's slice.
+  ///
+  /// Null means "unknown", never "empty": the scan uses it to decide whether it
+  /// may overwrite the local slice, and mistaking one for the other would
+  /// delete an offline folder's music. A repository that can read a slice but
+  /// cannot store stamps answers with unstamped tracks, so retention still
+  /// works and every file is simply parsed.
+  Future<List<StampedTrack>?> _localCatalogSnapshot() async {
     final MusicLibraryRepository repository =
         ref.read(musicLibraryRepositoryProvider);
-    if (repository is! SourceCatalogReader) return null;
     try {
-      return await (repository as SourceCatalogReader)
-          .getTracksForSource(_localSourceId);
+      if (repository is StampedCatalogWriter) {
+        return await (repository as StampedCatalogWriter)
+            .getStampedTracksForSource(_localSourceId);
+      }
+      if (repository is SourceCatalogReader) {
+        final List<Track> tracks = await (repository as SourceCatalogReader)
+            .getTracksForSource(_localSourceId);
+        return <StampedTrack>[
+          for (final Track track in tracks) StampedTrack(track: track),
+        ];
+      }
+      return null;
     } catch (_) {
       return null;
     }

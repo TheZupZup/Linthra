@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/sources/local/folder_location.dart';
+import 'package:linthra/core/sources/local/local_file_stat.dart';
 import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
@@ -114,6 +115,15 @@ void main() {
             // test/core/sources/local/filesystem_local_metadata_reader_test.dart.
             localMetadataReaderProvider.overrideWithValue(
               const UnsupportedLocalMetadataReader(),
+            ),
+            // Same reason, for the stat an incremental scan does before it
+            // decides whether to parse: FileStat.stat on a fictional path is
+            // real asynchronous I/O, and pumpAndSettle's fake clock never sees
+            // it finish. Answering nothing means every file is parsed, which
+            // is what this test wants anyway. The incremental behaviour has
+            // its own tests.
+            localFileStatReaderProvider.overrideWithValue(
+              const UnsupportedLocalFileStatReader(),
             ),
           ],
           child: const MaterialApp(home: LibraryScreen()),
