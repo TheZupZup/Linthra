@@ -58,11 +58,11 @@ below), so the difference from upstream is exactly what it does with them.
 
 ### Why
 
-**`mpvProperties`.** Headless Linux CI has no PipeWire/Pulse device. libmpv
-autoselects PipeWire on Ubuntu and fails to open the WAV even when
-`ALSA_CONFIG_PATH` points the default PCM at the null plugin, so the native
-audio lifecycle smoke test needs `ao=alsa` set on each libmpv instance before
-playback starts. Production needs the same hook for `cache-on-disk=no`.
+**`mpvProperties`.** Headless Linux CI has no PipeWire/Pulse device, and
+libmpv autoselects PipeWire on Ubuntu, so the native audio lifecycle smoke test
+needs its own `ao` set on each libmpv instance before playback starts (it uses
+libmpv's `null` output, which discards the samples but still paces them against
+the system clock). Production needs the same hook for `cache-on-disk=no`.
 Upstream exposes `setProperty` internally but has no public hook for extra mpv
 options at player creation (unlike `prefetchPlaylist`).
 
@@ -84,7 +84,7 @@ removing it breaks shipped playback behaviour, not just a test.
 | Caller | Sets | Why |
 | --- | --- | --- |
 | `lib/core/services/linux_playback_controller.dart` (`linuxMpvProperties`) | `cache-on-disk=no` | media_kit turns mpv's on-disk demuxer cache on for every player; Linthra streams audio and manages its own offline cache, and mpv logs `[lavf] Failed to create file cache.` on every stream where it cannot write the temporary file ([#405](https://github.com/thezupzup/linthra/issues/405)). |
-| `tool/linux_audio_backend_smoke.dart` | `ao=alsa` | The headless CI case described above. |
+| `tool/linux_audio_backend_smoke.dart` | `ao=null` (overridable) | The headless CI case described above. |
 | `lib/core/services/linux_audio_output_device_service.dart` | `audio-device=<chosen device>` | The user's chosen audio output, so a player created *after* the choice starts on it. Only set once the listener picks a device; never written on a default install. |
 
 The smoke target layers its value on top of the production defaults rather than

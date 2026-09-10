@@ -17,8 +17,10 @@ import 'dimens.dart';
 /// Reach for these instead of hard-coding colours, so retuning the brand stays
 /// a one-file change.
 abstract final class AppTheme {
-  static ThemeData dark(BrandPalette palette) => _build(
+  static ThemeData dark(BrandPalette palette, {VisualDensity? density}) =>
+      _build(
         palette: palette,
+        density: density,
         brightness: Brightness.dark,
         background: AppColors.darkBackground,
         surface: AppColors.darkSurface,
@@ -33,8 +35,10 @@ abstract final class AppTheme {
         error: AppColors.error,
       );
 
-  static ThemeData light(BrandPalette palette) => _build(
+  static ThemeData light(BrandPalette palette, {VisualDensity? density}) =>
+      _build(
         palette: palette,
+        density: density,
         brightness: Brightness.light,
         background: AppColors.lightBackground,
         surface: AppColors.lightSurface,
@@ -52,6 +56,7 @@ abstract final class AppTheme {
   static ThemeData _build({
     required BrandPalette palette,
     required Brightness brightness,
+    VisualDensity? density,
     required Color background,
     required Color surface,
     required Color surfaceHigh,
@@ -105,7 +110,12 @@ abstract final class AppTheme {
       // navigation rail keys off, rather than shrinking on width: density is
       // about what is pointing at the row, and an Android tablet in landscape
       // is as wide as a desktop window and still driven by a thumb.
-      visualDensity: VisualDensity.adaptivePlatformDensity,
+      //
+      // [density] overrides it with the user's Compact/Comfortable choice
+      // (#395). `LinthraApp` passes one only on a desktop host, so a touch
+      // build can never inherit a desktop density: off desktop the parameter is
+      // null and this stays exactly the adaptive value it has always been.
+      visualDensity: density ?? VisualDensity.adaptivePlatformDensity,
       // Hover feedback (#385). Material's default is a 4% white/black veil,
       // which on a black-first theme is close to invisible — so a mouse user
       // could not tell a row apart from the page it sits on.
