@@ -175,6 +175,7 @@ class LinuxPlaybackDiagnosticsData {
     this.mpvProperties = const <String, String>{},
     this.outputSelectionSupported = false,
     this.outputsEnumerated,
+    this.outputEnumerationFailed = false,
     this.selectedOutputDriver = AudioOutputDriver.systemDefault,
     this.selectedOutputKind = AudioOutputKind.systemDefault,
     this.selectedOutputIsSystemDefault = true,
@@ -205,9 +206,19 @@ class LinuxPlaybackDiagnosticsData {
   /// Whether this build can enumerate and choose an output at all.
   final bool outputSelectionSupported;
 
-  /// How many outputs the backend last reported, when it has been asked. Null
-  /// when Settings has never enumerated.
+  /// How many outputs the backend reported, when it answered. Null when the
+  /// list has never been asked for, and null when the ask *failed* — see
+  /// [outputEnumerationFailed]. A count is only ever a real count.
   final int? outputsEnumerated;
+
+  /// Whether an enumeration was attempted and the backend did not answer.
+  ///
+  /// Distinct from a count of zero, and never reported as one. A successful
+  /// enumeration always contains at least the system default (
+  /// `audioOutputDevicesFromBackend` prepends it), so an empty list can only
+  /// mean the backend could not be asked — which is one of the failures this
+  /// report exists to surface, not a machine with no outputs.
+  final bool outputEnumerationFailed;
 
   final AudioOutputDriver selectedOutputDriver;
   final AudioOutputKind selectedOutputKind;
@@ -336,7 +347,9 @@ abstract final class LinuxPlaybackDiagnostics {
         'mpv ${entry.key}: ${entry.value}',
       'Output selection: '
           '${data.outputSelectionSupported ? 'supported' : 'unsupported'}',
-      if (data.outputsEnumerated != null)
+      if (data.outputEnumerationFailed)
+        'Outputs found: unknown (the backend did not answer)'
+      else if (data.outputsEnumerated != null)
         'Outputs found: ${data.outputsEnumerated}',
       'Selected output: ${_selectedOutputLine(data)}',
       if (!data.selectedOutputIsSystemDefault)

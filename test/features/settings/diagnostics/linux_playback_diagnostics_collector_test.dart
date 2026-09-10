@@ -22,14 +22,17 @@ import '../../player/fake_playback_controller.dart';
 
 /// A libmpv that answers whatever the test says, including not at all.
 class _FakeProbe implements LinuxMpvProbe {
-  _FakeProbe({this.reachable = true, this.version});
+  _FakeProbe({
+    this.availability = LibmpvAvailability.available,
+    this.version,
+  });
 
-  final bool reachable;
+  final LibmpvAvailability availability;
   final String? version;
 
   @override
   Future<LinuxMpvProbeResult> probe() async =>
-      (reachable: reachable, version: version);
+      (availability: availability, version: version);
 }
 
 /// A stand-in for libmpv's device list.
@@ -116,8 +119,8 @@ void main() {
     });
 
     test('nothing playing means "not probed", not "unavailable"', () async {
-      final ProviderContainer container =
-          _containerFor(probe: _FakeProbe(reachable: false));
+      final ProviderContainer container = _containerFor(
+          probe: _FakeProbe(availability: LibmpvAvailability.notProbed));
 
       final LinuxPlaybackDiagnosticsData data = await container
           .read(linuxPlaybackDiagnosticsCollectorProvider)
@@ -125,6 +128,67 @@ void main() {
 
       expect(data.libmpv, LibmpvAvailability.notProbed);
       expect(data.libmpvVersion, isNull);
+    });
+
+    test('a backend that will not answer reads as unavailable, not available',
+        () async {
+      // The failure the report exists to show. A wedged libmpv that a live
+      // player cannot query must never read as a healthy backend.
+      final ProviderContainer container = _containerFor(
+        probe: _FakeProbe(availability: LibmpvAvailability.unavailable),
+      );
+
+      final LinuxPlaybackDiagnosticsData data = await container
+          .read(linuxPlaybackDiagnosticsCollectorProvider)
+          .collect();
+
+      expect(data.libmpv, LibmpvAvailability.unavailable);
+      expect(
+        LinuxPlaybackDiagnostics.report(data),
+        contains('libmpv: unavailable'),
+      );
+    });
+
+    test('an enumeration that failed is not reported as zero outputs',
+        () async {
+      // A successful enumeration always carries the system default, so an
+      // empty list means the backend did not answer (#402 reports it that
+      // way) — never "this machine has no outputs".
+      final ProviderContainer container = _containerFor();
+      await container.read(audioOutputControllerProvider.notifier).refresh();
+
+      final LinuxPlaybackDiagnosticsData data = await container
+          .read(linuxPlaybackDiagnosticsCollectorProvider)
+          .collect();
+
+      expect(data.outputEnumerationFailed, isTrue);
+      expect(data.outputsEnumerated, isNull);
+      final String report = LinuxPlaybackDiagnostics.report(data);
+      expect(report, contains('Outputs found: unknown'));
+      expect(report, isNot(contains('Outputs found: 0')));
+    });
+
+    test('a real enumeration still reports its count', () async {
+      final ProviderContainer container = _containerFor(
+        outputs: _FakeOutputService(
+          available: const <AudioOutputDevice>[
+            AudioOutputDevice.systemDefault,
+            _usbDac,
+          ],
+        ),
+      );
+      await container.read(audioOutputControllerProvider.notifier).refresh();
+
+      final LinuxPlaybackDiagnosticsData data = await container
+          .read(linuxPlaybackDiagnosticsCollectorProvider)
+          .collect();
+
+      expect(data.outputEnumerationFailed, isFalse);
+      expect(data.outputsEnumerated, 2);
+      expect(
+        LinuxPlaybackDiagnostics.report(data),
+        contains('Outputs found: 2'),
+      );
     });
 
     test('the selected output is reduced to a driver and a kind', () async {
@@ -246,6 +310,88 @@ void main() {
       );
       await tester.pumpAndSettle();
     }
+
+    testWidgets('the actions stack rather than cramp at the 420px minimum',
+        (tester) async {
+      // 420x600 is the Linux window's enforced minimum (linux/runner). Side by
+      // side at 2x text each button would get ~170px and wrap its label onto
+      // four lines.
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(420, 900);
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: _containerFor(),
+          child: const MaterialApp(
+            home: MediaQuery(
+              data: MediaQueryData(textScaler: TextScaler.linear(2)),
+              child: Scaffold(
+                body: SingleChildScrollView(
+                  child: LinuxPlaybackDiagnosticsSection(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Size copy = tester.getSize(
+        find.widgetWithText(FilledButton, 'Copy playback report'),
+      );
+      final Size show =
+          tester.getSize(find.widgetWithText(OutlinedButton, 'Show report'));
+      // Stacked: each button spans the card rather than sharing a row.
+      expect(copy.width, greaterThan(300));
+      expect(show.width, greaterThan(300));
+      expect(
+        tester
+            .getTopLeft(find.widgetWithText(OutlinedButton, 'Show report'))
+            .dy,
+        greaterThan(
+          tester
+                  .getBottomLeft(
+                    find.widgetWithText(FilledButton, 'Copy playback report'),
+                  )
+                  .dy -
+              1,
+        ),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a wide card still puts the actions side by side',
+        (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(1200, 900);
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: _containerFor(),
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: LinuxPlaybackDiagnosticsSection(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .getTopLeft(find.widgetWithText(OutlinedButton, 'Show report'))
+            .dy,
+        tester
+            .getTopLeft(
+              find.widgetWithText(FilledButton, 'Copy playback report'),
+            )
+            .dy,
+      );
+    });
 
     testWidgets('renders nothing off Linux', (tester) async {
       await pump(tester, _containerFor(host: HostPlatform.android));

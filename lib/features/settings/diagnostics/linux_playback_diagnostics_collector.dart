@@ -69,16 +69,20 @@ class LinuxPlaybackDiagnosticsCollector {
 
     return LinuxPlaybackDiagnosticsData(
       backend: LinuxPlaybackBackend.mediaKitLibmpv,
-      libmpv: probe.reachable
-          ? LibmpvAvailability.available
-          : LibmpvAvailability.notProbed,
+      libmpv: probe.availability,
       libmpvVersion: LinuxPlaybackDiagnostics.sanitizeVersion(probe.version),
       mpvProperties: LinuxPlaybackDiagnostics.filterMpvProperties(
         _ref.read(linuxMpvPropertiesProvider)(),
       ),
       outputSelectionSupported:
           _ref.read(audioOutputDeviceServiceProvider).isSupported,
-      outputsEnumerated: output.hasEnumerated ? output.devices.length : null,
+      // A count only when there is one to report. An enumeration that was
+      // attempted and came back empty is a backend that did not answer (#402
+      // reports it that way), so it is published as a failure rather than as
+      // "this machine has zero outputs".
+      outputsEnumerated:
+          output.devices.isNotEmpty ? output.devices.length : null,
+      outputEnumerationFailed: output.hasEnumerated && output.devices.isEmpty,
       selectedOutputDriver: AudioOutputDriver.fromDeviceId(selected.id),
       selectedOutputKind: AudioOutputKind.fromDeviceId(selected.id),
       selectedOutputIsSystemDefault: selected.isSystemDefault,

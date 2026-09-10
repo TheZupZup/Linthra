@@ -113,28 +113,72 @@ class _LinuxPlaybackDiagnosticsSectionState
               _ReportBox(report: report),
               const SizedBox(height: AppSpacing.md),
             ],
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    onPressed: _busy ? null : _copy,
-                    icon: const Icon(Icons.copy_outlined),
-                    label: const Text('Copy playback report'),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _build,
-                    icon: const Icon(Icons.refresh),
-                    label: Text(report == null ? 'Show report' : 'Refresh'),
-                  ),
-                ),
-              ],
+            _Actions(
+              copy: FilledButton.tonalIcon(
+                onPressed: _busy ? null : _copy,
+                icon: const Icon(Icons.copy_outlined),
+                label: const Text('Copy playback report'),
+              ),
+              show: OutlinedButton.icon(
+                onPressed: _busy ? null : _build,
+                icon: const Icon(Icons.refresh),
+                label: Text(report == null ? 'Show report' : 'Refresh'),
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The card's two actions, side by side when there is room and stacked when
+/// there is not.
+///
+/// Side by side, each button gets half of a card that can be as narrow as the
+/// Linux window's 420 px minimum — about 170 px. "Copy playback report" does
+/// not fit that at a large text scale: it wraps onto four lines and the button
+/// grows to several times its normal height. Nothing overflows, but a listener
+/// who needs 2× text is exactly the listener who should not be given the worst
+/// version of the layout. Below [_stackBelow] the buttons take the full width
+/// one above the other instead, where the label fits on one or two lines.
+class _Actions extends StatelessWidget {
+  const _Actions({required this.copy, required this.show});
+
+  final Widget copy;
+  final Widget show;
+
+  /// Narrower than this and two buttons in a row stop being readable. Measured
+  /// against the longest label at the largest supported text scale, not picked
+  /// from a breakpoint table: it is a property of these two buttons.
+  static const double _stackBelow = 420;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        // Scaled text needs proportionally more room, so the threshold moves
+        // with it: at 2x, a 500 px card is as tight as a 250 px one at 1x.
+        final double scaled =
+            MediaQuery.textScalerOf(context).scale(_stackBelow);
+        if (constraints.maxWidth >= scaled) {
+          return Row(
+            children: <Widget>[
+              Expanded(child: copy),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(child: show),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            copy,
+            const SizedBox(height: AppSpacing.sm),
+            show,
+          ],
+        );
+      },
     );
   }
 }

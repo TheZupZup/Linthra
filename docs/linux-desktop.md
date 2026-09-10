@@ -432,13 +432,26 @@ its line omitted.
 pin all of that, including that a hostile device id or version string cannot
 put a secret marker into the output.
 
-### Missing information is not an error
+### Missing information is not an error, and a failure is not a value
 
-Every optional line is emitted only when its value is known. Nothing is
-playing, so libmpv could not be asked? The report says `libmpv: not probed` —
-which is honest, and different from `unavailable`. Settings has never
-enumerated outputs? The `Outputs found` line is simply absent. The card never
-fails to render because something was unavailable.
+Every optional line is emitted only when its value is known, and a *failure* is
+reported as one rather than dressed up as an answer. Three states are kept
+apart deliberately, because collapsing any pair of them hides the thing the
+report exists to show:
+
+| Situation | Reported as |
+| --- | --- |
+| Nothing playing, so no player exists to ask | `libmpv: not probed` |
+| A player answered | `libmpv: available` |
+| A player exists and libmpv would not answer it (timeout, wedged handle) | `libmpv: unavailable` |
+
+The same rule applies to the output list. A successful enumeration always
+contains at least the system default, so an empty list can only mean the
+backend did not answer — reported as `Outputs found: unknown (the backend did
+not answer)`, never as `Outputs found: 0`, which would read as a machine with
+no sound card. A list that was never asked for simply omits the line.
+
+The card never fails to render because something was unavailable.
 
 The libmpv probe deliberately **never creates a player**: it asks a live one
 for `mpv-version` and gives up otherwise. A diagnostics view that spun up a
@@ -455,6 +468,7 @@ loaded:
 | Open the card with nothing playing | `libmpv: not probed`, and no sound is produced (no player is created to answer). |
 | Start a track, then open the card | `libmpv: available` with a real version line, and the selected output's driver/kind matching the Audio output card. |
 | Play something that fails (a server that is down), then open the card | The failure appears under `Recent playback failures` as a kind and a count, never as an error message or a URL. |
+| Narrow the window to its 420 px minimum, or raise the desktop's text scale | The card's two actions stack instead of sharing a row, and the labels stay readable. |
 
 ## Remaining Linux limitations
 
