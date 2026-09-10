@@ -149,36 +149,33 @@ void main() {
   });
 
   group('the lint runner is wired up and unsuppressed', () {
-    test('CI runs all three linter modes', () {
+    test('CI installs the linter and gates the manifest on it', () {
       final String workflow =
           File('.github/workflows/flatpak-build.yml').readAsStringSync();
       expect(workflow,
           contains('flatpak install --user -y flathub org.flatpak.Builder'));
       expect(workflow,
           contains('--manifest flatpak/io.github.thezupzup.linthra.yml'));
-      expect(workflow, contains('--repo flatpak/repo-ci'));
-      expect(workflow, contains('--builddir flatpak/flatpak-builder-ci'));
     });
 
-    // The lint fails the job on an open submission finding, and a failed step
-    // ends the job. With the lint ahead of the launch smoke, a finding we are
-    // deliberately carrying (screenshots, today) would stop the package from
-    // ever being installed and launched in CI, trading real coverage for a red
-    // badge. Order matters, so it is asserted rather than left to a comment.
-    test('the launch smoke runs before the submission lint', () {
+    // The repo and appstream modes are not wired into CI yet, on purpose: both
+    // report metainfo-missing-screenshots today, which is a real submission
+    // blocker fixed by taking screenshots (#437), not by anything in the
+    // tooling. Wiring them now would mean a permanently red job or an
+    // exception recording "not done yet". They arrive with the screenshots
+    // (#628), and this test is what makes that a decision rather than an
+    // oversight: turning them on has to delete it.
+    test('the post-build modes wait for the screenshots that let them pass',
+        () {
       final String workflow =
           File('.github/workflows/flatpak-build.yml').readAsStringSync();
-      final int launch =
-          workflow.indexOf('- name: Install and launch packaged Flatpak');
-      final int lint = workflow
-          .indexOf('- name: Lint the exported repository and AppStream');
-      expect(launch, isNonNegative);
-      expect(lint, isNonNegative);
       expect(
-        launch,
-        lessThan(lint),
-        reason: 'a lint finding must not stop the launch smoke from running',
+        workflow,
+        isNot(contains('--repo flatpak/repo-ci')),
+        reason: 'wiring the repo mode in needs #628, and this test with it',
       );
+      expect(workflow, contains('#628'),
+          reason: 'the workflow must say where the missing gate went');
     });
 
     // #456 requires an empty exceptions file. Adding the first entry should

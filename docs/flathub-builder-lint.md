@@ -108,6 +108,33 @@ appeared, which is the one thing the staleness rule exists to prevent.
 - The `repo` and `appstream` modes need a completed `flatpak-builder` run. Only
   `manifest` is cheap.
 
+## What CI gates on today
+
+Only the `manifest` mode. It runs before the build, so a manifest finding fails
+in about a second rather than after ninety minutes, and it is green.
+
+The `repo` and `appstream` modes run locally with the command above, and both
+report `metainfo-missing-screenshots`. That is a real submission blocker, and
+the fix is to take screenshots
+([#437](https://github.com/TheZupZup/Linthra/issues/437),
+[flathub-screenshots.md](./flathub-screenshots.md)), not to change anything
+here.
+
+So they are deliberately not wired into CI yet. The two ways to wire them in
+now are both worse than waiting:
+
+- leave the job permanently red, which trains everyone to ignore it, and buries
+  any *new* finding under the one everybody already knows about;
+- record an exception, which the rules above forbid for a finding that is
+  simply not fixed yet.
+
+They are turned on in
+[#628](https://github.com/TheZupZup/Linthra/issues/628), together with the
+screenshots that let them pass. A guardrail in
+`test/tooling/flathub_metadata_guardrails_test.dart` fails if they are wired in
+without that, so switching them on is a decision someone makes rather than
+something that drifts in.
+
 ## Exceptions
 
 `flatpak/flathub-lint-exceptions.json` is **empty**, and that is the state

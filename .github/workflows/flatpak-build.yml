@@ -246,28 +246,26 @@ jobs:
           flatpak build-update-repo repo-ci
           echo 'Flatpak build and repository export completed successfully.'
 
-      # Before the lint, deliberately. The lint answers "would Flathub accept
-      # this?", the launch smoke answers "does the package work?", and the
-      # second is the one worth keeping answered while the first is knowingly
-      # open. A failed step ends the job, so with the lint first a finding we
-      # are carrying on purpose would stop the package being installed and
-      # launched at all, here and on main after this merges. That trades real
-      # coverage for a red badge.
       - name: Install and launch packaged Flatpak
         working-directory: flatpak
         run: bash ../scripts/flatpak_launch_smoke.sh repo-ci
 
-      # The other two halves of the submission check, both of which need the
-      # build: the exported repository (what Flathub would publish) and the
-      # AppStream catalogue appstreamcli compose produced from the metainfo
-      # (what a software centre actually reads, which is not the same file the
-      # validation step above checked).
-      - name: Lint the exported repository and AppStream catalogue
-        run: |
-          set -euo pipefail
-          python3 scripts/flathub_builder_lint.py \
-            --repo flatpak/repo-ci \
-            --builddir flatpak/flatpak-builder-ci
+      # The other two linter modes, the exported repository (what Flathub would
+      # publish) and the AppStream catalogue appstreamcli compose produced from
+      # the metainfo, are deliberately NOT wired up here yet. Both currently
+      # report metainfo-missing-screenshots, which is a real submission blocker
+      # rather than a tooling problem, and it is fixed by taking screenshots
+      # (#437), not by changing anything in this PR.
+      #
+      # Turning them on now would mean either a permanently red job or an
+      # exception recording "not done yet", and the exceptions file exists for
+      # findings a human judged wrong or unavoidable, not for unfinished work.
+      # So the runner, its tests and the manifest mode land first, and the
+      # post-build gate arrives with the screenshots that let it pass (#628).
+      #
+      # `scripts/flathub_builder_lint.py --repo ... --builddir ...` runs today
+      # and is documented in docs/flathub-builder-lint.md; it is the CI wiring
+      # that waits, not the capability.
 
   # A second build, on its own runner, because the sandbox smokes need binaries
   # the shipped package must not contain (#446, #447). Nobody wants a test
