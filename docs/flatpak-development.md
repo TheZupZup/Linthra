@@ -231,7 +231,7 @@ Ordered least to most destructive. Nothing here needs `sudo`.
 | `rm -rf flatpak/flatpak-builder-build flatpak/repo` | build tree + local repo | Safe; both are recreated by the next build. Delete the remote too, or it dangles |
 | `flatpak --user uninstall --unused` | runtimes nothing installed needs any more | Safe, but re-downloads them next time you build |
 | `rm -rf flatpak/.flatpak-builder` | downloaded sources + every cached module build | **Expensive.** The next build recompiles ffmpeg/libplacebo/libass/mpv and re-downloads the Flutter SDK |
-| `flatpak --user uninstall --delete-data io.github.thezupzup.linthra` | the app **and** `~/.var/app/io.github.thezupzup.linthra/` | **Destructive.** Wipes the Flatpak install's settings, library database and cache. Your native build's data under `~/.local/share`/`~/.config` is untouched |
+| `flatpak --user uninstall --delete-data io.github.thezupzup.linthra` | the app, `~/.var/app/io.github.thezupzup.linthra/` **and** the app's entries in Flatpak's permission store | **Destructive.** Wipes the Flatpak install's settings, library database and cache, and clears the document-portal grants for folders you picked through a file chooser. Your native build's data under `~/.local/share`/`~/.config` is untouched |
 | `rm -rf .tool/flatpak-flutter .tool/flatpak-flutter-venv` | the source-regeneration tool checkout | Safe; refetched by `regenerate_flatpak_sources.sh` |
 
 The audio/network testing in

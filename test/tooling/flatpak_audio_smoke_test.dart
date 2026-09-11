@@ -11,11 +11,22 @@ import 'package:flutter_test/flutter_test.dart';
 /// dropped in a PR that never triggers the heavy build.
 void main() {
   late String harness;
+
+  /// The harness with its comments stripped.
+  ///
+  /// It explains at length which flag it deliberately does *not* use, so a
+  /// check for `--delete-data` has to read the commands rather than the prose
+  /// about them.
+  late String harnessCommands;
   late String lifecycle;
   late String workflow;
 
   setUpAll(() {
     harness = File('scripts/flatpak_audio_smoke.sh').readAsStringSync();
+    harnessCommands = harness
+        .split('\n')
+        .where((String line) => !line.trimLeft().startsWith('#'))
+        .join('\n');
     lifecycle = File('tool/linux_audio_backend_smoke.dart').readAsStringSync();
     workflow = File('.github/workflows/flatpak-build.yml').readAsStringSync();
   });
@@ -102,7 +113,59 @@ void main() {
       expect(harness, contains(r'flatpak --system info "$APP_ID"'));
       expect(harness, contains(r'$APP_ID is already installed'));
       expect(harness, contains('trap cleanup EXIT'));
-      expect(harness, contains('--delete-data'));
+      expect(harness, contains(r'flatpak --user uninstall -y "$APP_ID"'));
+    });
+
+    // An installed build and an app-data tree are two different questions
+    // (#629). The refusal above answers the first. `uninstall --delete-data`
+    // reached past it: an ordinary uninstall leaves ~/.var/app/<app id>/ in
+    // place, so a contributor who removed an older build still has their
+    // library database, settings, offline audio and credentials there while
+    // nothing is installed, and the flag also drops the app's Flatpak
+    // permission-store entries, where the document-portal grants for their
+    // music folders live.
+    test('deletes app data only when this run created it', () {
+      expect(
+        harnessCommands,
+        isNot(contains('--delete-data')),
+        reason: 'a guard about the data tree cannot authorise an action that '
+            'also clears the permission store',
+      );
+      expect(harness, contains(r'APP_DATA_DIR="$HOME/.var/app/$APP_ID"'));
+      expect(
+        harness,
+        contains(r'[[ -e "$APP_DATA_DIR" ]] && APP_DATA_EXISTED=1'),
+      );
+      expect(harness, contains('(( ! APP_DATA_EXISTED ))'));
+      expect(harness, contains(r'rm -rf -- "$APP_DATA_DIR"'));
+      // Asked before installing, because after the install the answer is
+      // always yes.
+      expect(
+        harness.indexOf('APP_DATA_EXISTED=1'),
+        lessThan(harness.indexOf('flatpak --user install')),
+      );
+    });
+
+    // The shadow library used to be cleaned up as a side effect of deleting
+    // the whole tree. When the tree is somebody else's and stays, the one
+    // directory this run put inside it has to go by name.
+    test('removes the shadow directory even when the data tree stays', () {
+      expect(
+        harness,
+        contains(r'SHADOW_HOST_DIR="$APP_DATA_DIR/cache/$SHADOW_DIR_NAME"'),
+      );
+      // One name, passed into the sandbox rather than written twice.
+      expect(harness, contains(r'sh "$SMOKE_COMMAND" "$SHADOW_DIR_NAME"'));
+      // The sandbox's own cache directory, which Flatpak maps to the `cache/`
+      // subdirectory of the host tree the cleanup reads.
+      expect(harness, contains(r'shadow="$XDG_CACHE_HOME/$2"'));
+      expect(harness, contains(r'rm -rf -- "$SHADOW_HOST_DIR"'));
+      // Marked before the control runs: a control that died halfway still
+      // left a directory behind.
+      expect(
+        harness.indexOf('SHADOW_CREATED=1'),
+        lessThan(harness.indexOf('expect_failure "a libmpv that carries')),
+      );
     });
 
     test('requires the packaged libmpv', () {
