@@ -409,10 +409,13 @@ void main() {
     test(
       'a folder Linthra can no longer reach keeps the catalog intact',
       () async {
-        // The recoverable-source case (#438/#414): a selected folder that has
-        // gone away — an unplugged drive, a deleted folder, a revoked Flatpak
-        // portal document — must leave the already-indexed tracks alone. Wiping
-        // them would turn a "reselect the folder" problem into a lost library.
+        // The recoverable-source case (#438/#414/#415): a selected folder that
+        // has gone away (an unplugged drive, a deleted folder, a revoked Flatpak
+        // portal document) must leave the already-indexed tracks alone. Wiping them would turn a "reselect the folder" problem into a
+        // lost library, and so would replacing them on screen with an error
+        // page: the tracks are still indexed, so the screen still shows them.
+        // The failure is reported through the scan report instead, which is
+        // what the Local music card and diagnostics read.
         // The scan report recorder is a process-wide static; keep this test's
         // report from leaking into the next one.
         addTearDown(LocalScanDiagnostics.reset);
@@ -437,7 +440,8 @@ void main() {
             .scanFolder('/home/me/Music');
 
         final state = container.read(libraryControllerProvider);
-        expect(state.status, LibraryStatus.error);
+        expect(state.status, LibraryStatus.loaded);
+        expect(state.tracks, hasLength(2));
         expect(await repository.getAllTracks(), hasLength(2));
         // Recorded as a folder-availability failure, not as an Android SAF one,
         // so a desktop diagnostics report says what actually happened.

@@ -2,7 +2,17 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
+import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
+
+/// The selected folder is no longer there once the walk is done: what an
+/// unplugged drive looks like to the check at the end of the walk.
+class _Gone implements DirectoryReadability {
+  const _Gone();
+
+  @override
+  Future<bool> canList(String path) async => false;
+}
 
 void main() {
   group('IoAudioFileScanner', () {
@@ -52,6 +62,34 @@ void main() {
       expect(files.any((path) => path.endsWith('top.mp3')), isTrue);
       expect(files.any((path) => path.endsWith('mid.flac')), isTrue);
       expect(files.any((path) => path.endsWith('deep.ogg')), isTrue);
+    });
+
+    test('raises a recoverable scan error when the drive goes mid-scan',
+        () async {
+      // The removable-drive case (#415). The folder was there when the walk
+      // started, so the walk produced *some* files, but every directory still
+      // pending when the mount went away failed, and those are deliberately
+      // skipped so one unreadable subfolder cannot fail a whole scan. Reporting
+      // that half-walk as a complete scan would conclude that every file it
+      // never reached had been deleted, which is how unplugging a drive would
+      // erase the user's index of it.
+      Directory('${root.path}/Album').createSync();
+      File('${root.path}/a.mp3').writeAsStringSync('x');
+      const scanner = IoAudioFileScanner(presence: _Gone());
+
+      await expectLater(
+        scanner.listFiles(root.path),
+        throwsA(
+          isA<FolderScanException>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('disconnected while it was being scanned'),
+              contains('Reconnect it'),
+            ),
+          ),
+        ),
+      );
     });
 
     test('raises a recoverable scan error for a folder that is gone', () async {

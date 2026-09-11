@@ -47,6 +47,73 @@ What that means in practice:
 - **The selection survives restarts**, and an existing single-folder library is
   carried over untouched — it simply becomes the first folder in the list.
 
+## Music on a removable drive (desktop)
+
+A lot of libraries live on a USB disk or an external SSD, so a music folder that
+is there in the morning and gone in the afternoon is normal, not an error. The
+rule Linthra follows is one sentence: **a drive that is unplugged is temporarily
+unavailable, and that is not the same thing as deleted.**
+
+What that means while the drive is out:
+
+- **The folder stays configured.** It keeps its place in Settings ▸ Local music.
+  Nothing removes it but you.
+- **Its music stays indexed.** The tracks it contributed stay in the library and
+  keep their play counts, hearts and "added on" dates. A rescan while the drive
+  is away refreshes the folders it *can* read and leaves that folder's tracks
+  exactly as they were; if no folder at all can be read, nothing is written.
+- **Unplugging it mid-scan is safe too.** A scan that was still walking the
+  folder when the drive went is treated as a folder that could not be read,
+  rather than as a folder whose remaining files were all deleted, so the
+  half-walk is thrown away instead of written.
+- **Everything else keeps working.** The other local folders scan and update
+  normally, and server sources (Jellyfin, Navidrome / Subsonic, Plex) are
+  untouched: a local drive going away costs them nothing.
+- **Playing a track from the drive fails cleanly.** It stops on that track with a
+  message saying the file isn't where Linthra last saw it and that the drive may
+  not be connected, and the queue keeps its shape: the track stays in its place
+  and skipping past it works normally.
+
+And when you plug it back in:
+
+- **Linthra notices on its own.** While a folder is away it asks that path again
+  every few seconds, so the folder coming back needs no button. (While every
+  folder is present nothing is polled at all, so a drive that spun down is never
+  woken by Linthra's schedule.)
+- **It refreshes itself.** The folder returning runs the ordinary incremental
+  rescan (the same one the Rescan button runs), so anything added, removed or
+  moved while the drive was elsewhere lands in the library, and files that did
+  not change are not re-read.
+- **Its live updates come back too.** The filesystem watch died with the mount;
+  a returning folder is watched again.
+- **You do not add the folder again.** The selection never changed.
+
+None of this looks at mount points, automounters, `/run/media`, `/media`, or
+anything GNOME- or KDE-specific. A removable drive, to Linthra, is a configured
+path that is sometimes there, which is the only property that holds on every
+distribution and inside the Flatpak.
+
+### The one case Linthra will not guess
+
+**A drive that comes back at a different path is not adopted.** Automounters
+name mount points after the volume label, the device, or the user, and those can
+change between sessions, so the folder now sitting at another path *might* be
+the same disk, and might be a different one entirely. Linthra has no way to
+prove which, and pointing your configured library at whatever happens to be
+there would be worse than saying nothing.
+
+So the configured folder stays configured and stays unavailable, and the choice
+is yours: mount the drive where it was, or select the new folder (which indexes
+it as the folder it actually is). Nothing is deleted either way.
+
+### Removing a folder is still a different thing
+
+Removing a source is a decision, and it is the only thing that drops a folder's
+tracks. The ✕ beside a folder (or Forget, for the whole local source) removes
+exactly that folder's music from the index and nothing else, whether the drive is
+plugged in at the time or not. You never need the drive back to remove it, and
+your files are never touched on disk.
+
 ## What's supported
 
 - Internal phone storage and **removable / external SD cards**.
@@ -258,7 +325,9 @@ is live:
 - **Many network filesystems cannot be watched at all** (NFS and SMB do not
   report changes another machine made). Those folders need a manual rescan.
 - **A folder on an unmounted drive** cannot be watched until it comes back.
-  Rescanning or re-selecting retries it.
+  The drive returning re-opens the watch on its own (see
+  [Music on a removable drive](#music-on-a-removable-drive-desktop)); rescanning
+  or re-selecting retries it too.
 - **Hidden files and folders are not watched.** `.DS_Store` and the bookkeeping
   folders sync tools scatter around (`.stfolder`, `.stversions`) change on
   someone else's schedule; music inside a hidden folder is still found by a

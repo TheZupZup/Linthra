@@ -22,6 +22,7 @@ import '../data/repositories/playback_session_store_provider.dart';
 import '../data/repositories/playlist_repository_provider.dart';
 import '../data/repositories/remote_cache_index_provider.dart';
 import '../features/library/local_library_watch_service.dart';
+import '../features/library/local_root_availability_controller.dart';
 import '../features/player/media_artwork_providers.dart';
 import '../features/player/playback_history_providers.dart';
 import '../features/player/player_providers.dart';
@@ -263,6 +264,14 @@ Future<ApplicationHandle> bootstrapApplication(
     // rather than a directory, and harmless when the kernel refuses a watch:
     // the folder is simply not live and manual refresh is untouched.
     container.read(localLibraryWatchServiceProvider);
+    // Removable-drive availability for the local library (#415). Reading it
+    // probes the folders already selected, so a music drive that is not plugged
+    // in at startup reads as *temporarily unavailable* (its tracks stay
+    // indexed, its folder stays selected) and asks for the ordinary
+    // incremental scan when the drive comes back. Inert where nothing can be
+    // probed (Android's SAF trees answer for themselves), and it holds a timer
+    // only while some folder is actually away.
+    container.read(localRootAvailabilityProvider);
     // Desktop recent-playback history (#419). Read here rather than left to the
     // queue pane: the pane starts closed, and the controller's state stream
     // does not replay, so a lazily-created recorder would miss everything

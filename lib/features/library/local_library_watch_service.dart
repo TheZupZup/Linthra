@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/lifecycle/async_disposal_registry.dart';
 import '../../core/sources/local/local_directory_watch.dart';
 import '../../core/sources/local/local_library_watcher.dart';
+import '../../core/sources/local/local_root_availability.dart';
 import '../../data/repositories/host_platform_provider.dart';
 import 'library_controller.dart';
+import 'local_root_availability_controller.dart';
 import 'selected_folder_controller.dart';
 
 /// Keeps the [LocalLibraryWatcher]'s watched folders in step with the user's
@@ -56,6 +58,18 @@ final directoryWatchFactoryProvider = Provider<DirectoryWatchFactory>((ref) {
 final localLibraryWatcherProvider = Provider<LocalLibraryWatcher>((ref) {
   final LocalLibraryWatcher watcher = LocalLibraryWatcher(
     watchFactory: ref.watch(directoryWatchFactoryProvider),
+    // A watch that dies is the first thing that happens when a drive is
+    // unmounted, and it names the folder it was watching. Probing that folder
+    // right away is what turns an unplug into "this folder is away" while the
+    // user is only browsing, with no scan and nothing touched in the catalog.
+    // A watch can also fail for reasons that have nothing to do with the drive
+    // (an exhausted inotify budget, a filesystem that cannot be watched), which
+    // is why this asks rather than concludes: the probe decides.
+    onWatchFailed: (String root, Object _) {
+      unawaited(
+        ref.read(localRootAvailabilityProvider.notifier).recheck(root),
+      );
+    },
     onLibraryChanged: () async {
       final List<String> roots =
           ref.read(selectedFolderControllerProvider).valueOrNull ??
@@ -85,6 +99,22 @@ final localLibraryWatchServiceProvider =
     selectedFolderControllerProvider,
     (_, __) => unawaited(service.syncToSelection()),
     fireImmediately: true,
+  );
+  // A folder that was away and is back needs its watch again: the old one died
+  // with the mount, and nothing else re-opens it. Syncing the whole selection is
+  // how that is done, because the watcher only opens what it is not already
+  // watching, so the folders that never left are left alone. Only a folder
+  // *gaining* availability is worth it; one that just went away has already lost
+  // its watch, and retrying it on every probe would ask the kernel to watch a
+  // path that is not there.
+  ref.listen<LocalLibraryAvailability>(
+    localRootAvailabilityProvider,
+    (LocalLibraryAvailability? previous, LocalLibraryAvailability next) {
+      final Set<String> returned = next.availableRoots
+          .difference(previous?.availableRoots ?? const <String>{});
+      if (returned.isEmpty) return;
+      unawaited(service.syncToSelection());
+    },
   );
   return service;
 });

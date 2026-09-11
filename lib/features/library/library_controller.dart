@@ -19,6 +19,7 @@ import '../../data/repositories/music_library_repository_provider.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
 import 'library_providers.dart';
 import 'library_state.dart';
+import 'local_root_availability_controller.dart';
 import 'local_scan_report_provider.dart';
 
 /// Drives the Library screen: loads tracks from the [MusicLibraryRepository]
@@ -185,10 +186,21 @@ class LibraryController extends Notifier<LibraryState> {
       );
       if (generation != _scanGeneration) return null;
 
+      _noteRootOutcomes(scan);
+
       if (!scan.isWritable) {
         ref.read(localScanReportProvider.notifier).record(scan.report);
-        _loadGeneration++;
-        state = LibraryState.error(
+        // Nothing was written, so the catalog still holds exactly what it held
+        // before. Show it. A drive that is unplugged, or a folder that went away
+        // while the watcher was refreshing, is not a broken library, and
+        // replacing the user's music with an error page is the screen's way of
+        // saying "it's gone", which is the one thing this must never imply. The
+        // failure is still reported: the scan report drives the Local music
+        // card's message and the diagnostics line.
+        //
+        // With nothing indexed at all the message *is* the whole answer, so
+        // that case keeps the error state.
+        await _showCatalogOrError(
           scan.firstFailureMessage ?? _scanFailedMessage,
         );
         return scan.report;
@@ -250,6 +262,47 @@ class LibraryController extends Notifier<LibraryState> {
       _loadGeneration++;
       state = const LibraryState.error(_scanFailedMessage);
       return report;
+    }
+  }
+
+  /// Tells availability tracking which folders this scan could read and which
+  /// it could not.
+  ///
+  /// A scan walked those folders, so it knows more than any probe can and it
+  /// knows it without a second syscall: a folder that answered with files is
+  /// there, and one that threw is not reachable right now. Availability turns
+  /// that into the per-folder state the UI reads, and into nothing else, because
+  /// a folder that cannot be read is never a folder to forget.
+  void _noteRootOutcomes(LocalLibraryScan scan) {
+    if (scan.roots.isEmpty) return;
+    ref.read(localRootAvailabilityProvider.notifier).noteScanOutcome(
+      readRoots: <String>[
+        for (final LocalRootOutcome outcome in scan.roots)
+          if (outcome.available) outcome.root,
+      ],
+      unreadableRoots: <String>[
+        for (final LocalRootOutcome outcome in scan.roots)
+          if (!outcome.available) outcome.root,
+      ],
+    );
+  }
+
+  /// Publishes whatever the catalog holds, falling back to [message] only when
+  /// there is nothing at all to show.
+  ///
+  /// Used by the scans that write nothing. Every source is included, so a local
+  /// drive going away cannot blank a Jellyfin or Navidrome library either.
+  Future<void> _showCatalogOrError(String message) async {
+    final int generation = ++_loadGeneration;
+    try {
+      final List<Track> tracks =
+          await ref.read(musicLibraryRepositoryProvider).getAllTracks();
+      if (generation != _loadGeneration) return;
+      state = tracks.isEmpty
+          ? LibraryState.error(message)
+          : LibraryState.loaded(tracks);
+    } catch (_) {
+      if (generation == _loadGeneration) state = LibraryState.error(message);
     }
   }
 
