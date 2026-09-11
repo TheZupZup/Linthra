@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/audio_output_device.dart';
 import 'package:linthra/core/platform/host_platform.dart';
@@ -23,6 +25,12 @@ class _RecordingService implements AudioOutputDeviceService {
     selected = device;
     return true;
   }
+
+  final StreamController<List<AudioOutputDevice>> changes =
+      StreamController<List<AudioOutputDevice>>.broadcast();
+
+  @override
+  Stream<List<AudioOutputDevice>> get deviceChanges => changes.stream;
 }
 
 void main() {
@@ -45,6 +53,13 @@ void main() {
       await service.select(headset);
       expect(linux.selected, headset);
       expect(fallback.selected, isNull);
+      // Hotplug watching follows the same split: a Linux build observes the
+      // real backend, and the fallback is never subscribed to.
+      final Future<List<AudioOutputDevice>> watched =
+          service.deviceChanges.first;
+      linux.changes.add(const <AudioOutputDevice>[headset]);
+      expect(await watched, const <AudioOutputDevice>[headset]);
+      expect(fallback.changes.hasListener, isFalse);
     });
 
     test('on Android, output routing stays with the system', () async {
@@ -57,6 +72,8 @@ void main() {
 
       expect(service.isSupported, isFalse);
       expect(await service.devices(), isEmpty);
+      expect(await service.deviceChanges.toList(), isEmpty,
+          reason: 'Android has nothing to watch: the system owns routing');
       await service.select(headset);
       expect(linux.selected, isNull);
     });

@@ -36,4 +36,24 @@ abstract interface class AudioOutputDeviceService {
   /// as done: it is the difference between remembering an output that is
   /// playing and remembering one that never started.
   Future<bool> select(AudioOutputDevice device);
+
+  /// Emits the host's output list whenever the backend reports that it changed
+  /// — a headset plugged in or pulled out, a Bluetooth speaker connecting or
+  /// dropping, an HDMI sink appearing when a monitor wakes, the system default
+  /// moving.
+  ///
+  /// Each event is the full list in the same shape [devices] returns, so a
+  /// listener compares lists rather than reconstructing a diff from events it
+  /// might have missed.
+  ///
+  /// This is *observation only*: it starts, stops and re-routes nothing. What
+  /// to do about a device that vanished is policy, and it lives in
+  /// `AudioOutputController` — the same place that already owns which output
+  /// is chosen and whether it is remembered.
+  ///
+  /// A broadcast stream: several listeners are fine and none of them changes
+  /// what the others see. Implementations that cannot observe (every platform
+  /// but Linux) return an empty stream rather than throwing, so a caller never
+  /// has to ask whether watching is supported before listening.
+  Stream<List<AudioOutputDevice>> get deviceChanges;
 }

@@ -50,6 +50,26 @@ class _FakeService implements AudioOutputDeviceService {
     routed.add(device);
     return true;
   }
+
+  /// The hotplug channel (#403): the test pushes a device list the way libmpv
+  /// republishes `audio-device-list` when hardware comes or goes.
+  final StreamController<List<AudioOutputDevice>> changes =
+      StreamController<List<AudioOutputDevice>>.broadcast();
+
+  int deviceChangeListeners = 0;
+
+  @override
+  Stream<List<AudioOutputDevice>> get deviceChanges {
+    deviceChangeListeners++;
+    return changes.stream;
+  }
+
+  /// Publishes [devices] as the host's new output list and also makes them what
+  /// a later enumeration reports, the way a real unplug does both.
+  void hotplug(List<AudioOutputDevice> devices) {
+    available = devices;
+    changes.add(devices);
+  }
 }
 
 void main() {
