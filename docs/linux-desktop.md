@@ -206,6 +206,24 @@ The same resolved URI path handles regular filesystem files and direct or
 transcoded Jellyfin, Navidrome/Subsonic, and supported Plex HTTP(S) URLs. No
 source-specific player exists and credentials remain in the existing resolver.
 
+### When a track won't play
+
+Desktop listening runs into more of this than a phone does: a NAS that is
+asleep, an unmounted drive, a codec libmpv wasn't built with. So a track that
+gives up says what happened and offers what can still be done about it, in
+place. Now Playing shows the message where the source badge usually sits, with
+Retry, "Try another source" and Skip as they apply, and the mini-player's second
+line says the track is failing. Nothing is modal; the queue, the library and
+settings keep working.
+
+The model behind it (`PlaybackFailure`) and the controller actions
+(`retryCurrentTrack`, `tryAnotherSource`) live on the shared playback seam, so
+Android gets exactly the same behaviour from exactly the same code, and a source
+switch reuses the existing logical-track candidates rather than a second
+fallback path. The rules (which recoveries are valid for which failure, the
+bounded attempt budget, what happens to the queue) are in
+[streaming.md](streaming.md#when-a-track-cant-play-at-all).
+
 ### Volume
 
 Desktop needs its own volume control: there are no hardware volume keys bound to

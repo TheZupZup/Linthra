@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/playback_failure.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
@@ -120,23 +121,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('an error shows a Retry control that re-triggers play', (
+  testWidgets('an error shows a Retry control that retries the same track', (
     tester,
   ) async {
     final controller = FakePlaybackController(
       initial: const PlaybackState(
         status: PlaybackStatus.error,
         currentTrack: _track,
-        errorMessage: "Couldn't reach your music server.",
+        failure: PlaybackFailure(
+          kind: PlaybackFailureKind.temporarySource,
+          message: "Couldn't reach your music server.",
+          canRetry: true,
+        ),
       ),
     );
     await _pumpPlayer(tester, controller);
 
+    expect(find.text("Couldn't reach your music server."), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     await tester.tap(find.text('Retry'));
     await tester.pump();
 
-    expect(controller.playCount, 1);
+    // The bounded recovery action, not a bare play(): the controller owns the
+    // retry budget.
+    expect(controller.retryCount, 1);
+    expect(controller.playCount, 0);
   });
 
   testWidgets('reconnecting is distinct from buffering and from error', (

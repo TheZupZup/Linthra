@@ -1,9 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/dimens.dart';
+import '../../core/models/playback_failure.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
 import '../../data/repositories/host_platform_provider.dart';
@@ -18,6 +17,7 @@ import 'widgets/lyrics_view.dart';
 import 'widgets/now_playing_actions.dart';
 import 'widgets/now_playing_background.dart';
 import 'widgets/playback_controls.dart';
+import 'widgets/playback_error_notice.dart';
 import 'widgets/playback_progress_bar.dart';
 import 'widgets/queue_sheet.dart';
 import 'widgets/track_metadata.dart';
@@ -512,10 +512,18 @@ class _LiveControls extends ConsumerWidget {
     final controller = ref.watch(playbackControllerProvider);
     final PlaybackState state =
         ref.watch(playbackStateProvider).valueOrNull ?? controller.state;
+    // A failed track takes the status strip rather than a dialog: the transport,
+    // the queue and the rest of the app stay usable underneath it. It needs more
+    // than the one line the strip reserves (a readable sentence plus its
+    // actions), so it replaces the slot instead of squeezing into it.
+    final PlaybackFailure? failure = state.failure;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _StatusSlot(child: _SourceOrError(state: state)),
+        if (failure != null)
+          PlaybackErrorNotice(failure: failure)
+        else
+          _StatusSlot(child: _SourceIndicator(state: state)),
         const SizedBox(height: AppSpacing.md),
         PlaybackProgressBar(
           // Identity is the track, so a track change disposes the bar's state
@@ -573,19 +581,21 @@ class _StatusSlot extends StatelessWidget {
 }
 
 /// Under the metadata: while casting, a clear `Casting to …` indicator;
-/// otherwise a friendly error message when playback failed, or the
-/// playback-source badge ("Playing from Navidrome / Jellyfin / Local music /
-/// Cache") once a track has resolved — naming the copy actually playing, not the
-/// active/default provider. Shows nothing while a track is still loading locally.
-class _SourceOrError extends ConsumerWidget {
-  const _SourceOrError({required this.state});
+/// otherwise a buffering/reconnecting hint, or the playback-source badge
+/// ("Playing from Navidrome / Jellyfin / Local music / Cache") once a track has
+/// resolved, naming the copy actually playing, not the active/default provider.
+/// Shows nothing while a track is still loading locally.
+///
+/// A *failed* track is not shown here: [PlaybackErrorNotice] takes this whole
+/// band, because an error has a message and recoveries rather than a one-line
+/// badge.
+class _SourceIndicator extends ConsumerWidget {
+  const _SourceIndicator({required this.state});
 
   final PlaybackState state;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-
     // While casting, the source badge would be misleading (the receiver, not
     // this device, is playing); show where the audio is going instead.
     final castState = ref.watch(
@@ -597,45 +607,8 @@ class _SourceOrError extends ConsumerWidget {
       return _CastingIndicator(deviceName: cast.connectedDevice!.name);
     }
 
-    if (state.status == PlaybackStatus.error) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              state.errorMessage ?? "Couldn't play this track",
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.error,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (state.currentTrack != null) ...[
-            const SizedBox(width: AppSpacing.xs),
-            TextButton(
-              onPressed: () =>
-                  unawaited(ref.read(playbackControllerProvider).play()),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text(
-                'Retry',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-            ),
-          ],
-        ],
-      );
-    }
     // A mid-stream network reconnect: distinct from plain "Buffering…" and from
-    // a permanent error + Retry, so the listener knows recovery is in flight.
+    // the permanent-failure panel, so the listener knows recovery is in flight.
     if (state.status == PlaybackStatus.reconnecting) {
       return const _ReconnectingIndicator();
     }

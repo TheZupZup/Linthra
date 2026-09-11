@@ -72,7 +72,8 @@ enum ReachabilityStatus {
 /// Returns `null` for track-specific or content failures
 /// ([PlaybackResolutionErrorKind.streamUnavailable],
 /// [PlaybackResolutionErrorKind.invalidStream],
-/// [PlaybackResolutionErrorKind.serverReturnedWebPage]) and for
+/// [PlaybackResolutionErrorKind.serverReturnedWebPage],
+/// [PlaybackResolutionErrorKind.mediaUnsupported]) and for
 /// [PlaybackResolutionErrorKind.notSignedIn]: the server may well be fine for
 /// the *next* track, so caching "unreachable" off one of these would wrongly
 /// suppress good copies.
@@ -92,6 +93,9 @@ ReachabilityStatus? reachabilityFromPlaybackError(
     // server: no provider was contacted, and caching an outage off it would
     // suppress perfectly good remote copies of the same song.
     case PlaybackResolutionErrorKind.localFileMissing:
+    // Nor does one track the backend couldn't decode: the server delivered the
+    // bytes it was asked for, so the next track may well play fine.
+    case PlaybackResolutionErrorKind.mediaUnsupported:
       return null;
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/active_playback_output.dart';
 import 'package:linthra/core/models/cast_playback_status.dart';
 import 'package:linthra/core/models/cast_state.dart';
+import 'package:linthra/core/models/playback_failure.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
@@ -233,12 +234,16 @@ void main() {
       local.emit(const PlaybackState(
         status: PlaybackStatus.error,
         currentTrack: _trackA,
-        errorMessage: "Couldn't stream this track.",
+        failure: PlaybackFailure(
+          kind: PlaybackFailureKind.temporarySource,
+          message: "Couldn't stream this track.",
+        ),
       ));
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       expect(controller.activeOutput, ActivePlaybackOutput.cast);
       expect(controller.state.status, PlaybackStatus.playing);
+      expect(controller.state.failure, isNull);
       expect(controller.state.errorMessage, isNull);
       expect(local.playCount, 0);
     });

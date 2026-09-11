@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
+import '../../core/models/playback_failure.dart';
 import '../../core/models/playback_source.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
@@ -66,20 +67,28 @@ class MiniPlayer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Watch only the current track (id-distinct) and its resolved source, so the
-    // ~5 Hz position ticks rebuild just the thin progress line and the transport
-    // buttons below — not the whole bar (artwork, text) on every screen, every
-    // tick. The source changes only when the track does, so including it adds no
-    // tick rebuilds. Falls back to the controller's latest state until the first
-    // stream event arrives.
-    final (Track?, PlaybackSource?) streamed = ref.watch(
+    // Watch only the current track (id-distinct), its resolved source and
+    // whether it is failing, so the ~5 Hz position ticks rebuild just the thin
+    // progress line and the transport buttons below, not the whole bar
+    // (artwork, text) on every screen, every tick. All three change only when
+    // the track or its outcome does, so they add no tick rebuilds. Falls back to
+    // the controller's latest state until the first stream event arrives.
+    final (Track?, PlaybackSource?, PlaybackFailure?) streamed = ref.watch(
       playbackStateProvider.select(
-        (s) => (s.valueOrNull?.currentTrack, s.valueOrNull?.source),
+        (s) => (
+          s.valueOrNull?.currentTrack,
+          s.valueOrNull?.source,
+          s.valueOrNull?.failure,
+        ),
       ),
     );
     final PlaybackState fallback = ref.read(playbackControllerProvider).state;
     final Track? track = streamed.$1 ?? fallback.currentTrack;
     final PlaybackSource? source = streamed.$2 ?? fallback.source;
+    // Why the bar is quiet, when it is. The bar has one line for it, so it shows
+    // the short form and the full message plus its recoveries live on the
+    // now-playing screen a tap away.
+    final PlaybackFailure? failure = streamed.$3 ?? fallback.failure;
 
     // Collapse entirely when there is nothing to show, so screens without a
     // loaded track look exactly as they did before.
@@ -127,6 +136,7 @@ class MiniPlayer extends ConsumerWidget {
                         subtitle: subtitle,
                         sourceName: sourceName,
                         isCasting: isCasting,
+                        failure: failure,
                       );
 
                       // Desktop bars wide enough for the full transport also
@@ -204,12 +214,17 @@ class _NowPlayingMetadata extends StatelessWidget {
     required this.subtitle,
     required this.sourceName,
     required this.isCasting,
+    required this.failure,
   });
 
   final Track track;
   final String? subtitle;
   final String? sourceName;
   final bool isCasting;
+
+  /// Set when the current track failed to play; the second line then says so
+  /// instead of naming an artist and a source that isn't playing anything.
+  final PlaybackFailure? failure;
 
   @override
   Widget build(BuildContext context) {
@@ -246,7 +261,9 @@ class _NowPlayingMetadata extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (subtitle != null || sourceName != null)
+                if (failure != null)
+                  _MiniFailureLine(failure: failure!)
+                else if (subtitle != null || sourceName != null)
                   _MiniSubtitle(subtitle: subtitle, sourceName: sourceName),
               ],
             ),
@@ -263,6 +280,46 @@ class _NowPlayingMetadata extends StatelessWidget {
             semanticLabel: 'Casting',
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// The mini-player's second line when the current track failed: a short reason,
+/// in the error colour, in place of the artist • source line.
+///
+/// One line is all the bar has, so it carries the short form of the failure and
+/// nothing else. The full message and the Retry / another source / Skip actions
+/// are on the now-playing screen, which tapping the bar opens. It reads from the
+/// same [PlaybackFailure] that screen does, so the two can never disagree about
+/// what went wrong.
+class _MiniFailureLine extends StatelessWidget {
+  const _MiniFailureLine({required this.failure});
+
+  final PlaybackFailure failure;
+
+  /// Finds the line in tests.
+  static const ValueKey<String> lineKey =
+      ValueKey<String>('mini-player-failure');
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color color = theme.colorScheme.error;
+    return Row(
+      key: lineKey,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(Icons.error_outline, size: 14, color: color),
+        const SizedBox(width: AppSpacing.xs),
+        Flexible(
+          child: Text(
+            failure.shortLabel,
+            style: theme.textTheme.bodySmall?.copyWith(color: color),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     );
   }

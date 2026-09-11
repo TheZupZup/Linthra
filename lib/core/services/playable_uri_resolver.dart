@@ -51,6 +51,16 @@ enum PlaybackResolutionErrorKind {
   /// at its new path), or plugging the drive back in. Nothing on disk is
   /// touched either way, because Linthra never deletes or moves the user's audio.
   localFileMissing,
+
+  /// The URI resolved and the bytes were reachable, but the audio backend could
+  /// not play them: an unsupported container or codec, a corrupt file, or a
+  /// decoder this platform doesn't have.
+  ///
+  /// Raised where a *load* fails rather than a resolve: the engine's own error
+  /// is classified (never echoed) to tell this apart from a source that simply
+  /// stopped answering, because the two have different recoveries. Retrying the
+  /// same bytes cannot fix a decode, but another copy of the song might play.
+  mediaUnsupported,
 }
 
 /// A typed, user-facing failure raised while resolving a [Track] to a URI the
