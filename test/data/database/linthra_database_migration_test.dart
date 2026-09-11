@@ -51,6 +51,47 @@ CREATE TABLE tracks (
 );
 ''';
 
+/// The exact `tracks` DDL as of schema v4: the v3 shape, still without the
+/// local-file stamp columns, plus the `source_id` index that v4 added.
+const String _v4CreateTracks = '''
+CREATE TABLE tracks (
+  id TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  uri TEXT NOT NULL,
+  artist_name TEXT NULL,
+  album_name TEXT NULL,
+  album_id TEXT NULL,
+  album_artist_name TEXT NULL,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  track_number INTEGER NULL,
+  artwork_uri TEXT NULL,
+  PRIMARY KEY (uri)
+);
+''';
+
+const String _v4CreateSourceIdIndex =
+    'CREATE INDEX tracks_source_id ON tracks (source_id);';
+
+/// Opens a database whose underlying file is already at schema v4 with
+/// [seedStatements] inserted, then lets the real migration run on first use.
+Future<LinthraDatabase> _openMigratedFromV4(
+  List<String> seedStatements,
+) async {
+  final NativeDatabase executor = NativeDatabase.memory(
+    setup: (db) {
+      db.execute(_v4CreateTracks);
+      db.execute(_v4CreateSourceIdIndex);
+      for (final String statement in seedStatements) {
+        db.execute(statement);
+      }
+      // Mark the file as schema v4 so drift runs onUpgrade(4 -> 5).
+      db.execute('PRAGMA user_version = 4;');
+    },
+  );
+  return LinthraDatabase.forTesting(executor);
+}
+
 /// Opens a database whose underlying file is already at schema v3 with
 /// [seedStatements] inserted, then lets the real migration run on first use.
 Future<LinthraDatabase> _openMigratedFromV3(
@@ -264,11 +305,13 @@ void main() {
       expect(remaining.single.sourceId, 'subsonic');
     });
 
-    test('leaves the schema at v4', () async {
+    test('leaves the schema at the current version', () async {
+      // Read from schemaVersion rather than a literal, so a later additive
+      // migration does not fail this on its way past.
       db = await _openMigratedFromV3(<String>[]);
       await db.select(db.tracks).get();
       final result = await db.customSelect('PRAGMA user_version;').getSingle();
-      expect(result.data.values.first, 4);
+      expect(result.data.values.first, db.schemaVersion);
     });
 
     test(
@@ -325,6 +368,99 @@ void main() {
       // v3 -> v4 step because createTable alone does not.
       await db.select(db.tracks).get();
       expect(await _hasSourceIdIndex(db), isTrue);
+    });
+  });
+
+  group('v4 → v5 migration', () {
+    // Adds the nullable file_size_bytes / file_modified_at_ms columns an
+    // incremental local scan compares a fresh stat against. Purely additive:
+    // an upgraded catalog keeps every row, and a row with no stamp simply gets
+    // re-parsed on the next scan, which is exactly the pre-v5 behavior.
+    late LinthraDatabase db;
+
+    tearDown(() async => db.close());
+
+    test('every existing row survives, with null stamps', () async {
+      db = await _openMigratedFromV4(<String>[
+        "INSERT INTO tracks (id, source_id, title, uri, artist_name, "
+            "album_name, duration_ms, track_number, artwork_uri) "
+            "VALUES ('t1', 'local', 'One', '/music/one.mp3', 'A', 'B', "
+            "1000, 1, NULL);",
+        "INSERT INTO tracks (id, source_id, title, uri, artist_name, "
+            "album_name, duration_ms, track_number, artwork_uri) "
+            "VALUES ('t2', 'jellyfin', 'Two', 'jellyfin:t2', 'C', 'D', "
+            "2000, 2, NULL);",
+      ]);
+
+      final List<TrackRow> rows = await db.select(db.tracks).get();
+
+      expect(rows, hasLength(2));
+      final TrackRow local =
+          rows.firstWhere((TrackRow r) => r.uri == '/music/one.mp3');
+      expect(local.title, 'One');
+      expect(local.artistName, 'A');
+      expect(local.durationMs, 1000);
+      expect(local.fileSizeBytes, isNull);
+      expect(local.fileModifiedAtMs, isNull);
+    });
+
+    test('the upgraded table accepts stamps afterwards', () async {
+      db = await _openMigratedFromV4(const <String>[]);
+
+      await db.into(db.tracks).insert(
+            TracksCompanion.insert(
+              id: '/music/one.mp3',
+              sourceId: 'local',
+              title: 'One',
+              uri: '/music/one.mp3',
+              fileSizeBytes: const Value(4096),
+              fileModifiedAtMs: const Value(1700000000000),
+            ),
+          );
+
+      final TrackRow row = await db.select(db.tracks).getSingle();
+      expect(row.fileSizeBytes, 4096);
+      expect(row.fileModifiedAtMs, 1700000000000);
+    });
+
+    test('the source_id index the previous version added is still there',
+        () async {
+      db = await _openMigratedFromV4(const <String>[]);
+      await db.select(db.tracks).get();
+
+      expect(await _hasSourceIdIndex(db), isTrue);
+    });
+
+    test('a v2 database arrives at v5 in one go', () async {
+      // The long way round: two column-adding steps and an index, on a file
+      // that predates all of them.
+      db = await _openMigratedFromV2(<String>[
+        "INSERT INTO tracks (id, source_id, title, uri, duration_ms) "
+            "VALUES ('t1', 'local', 'One', '/music/one.mp3', 1000);",
+      ]);
+
+      final TrackRow row = await db.select(db.tracks).getSingle();
+      expect(row.title, 'One');
+      expect(row.albumId, isNull);
+      expect(row.fileSizeBytes, isNull);
+      expect(await _hasSourceIdIndex(db), isTrue);
+    });
+
+    test('a fresh install already has the stamp columns', () async {
+      db = LinthraDatabase.forTesting(NativeDatabase.memory());
+
+      await db.into(db.tracks).insert(
+            TracksCompanion.insert(
+              id: '/music/one.mp3',
+              sourceId: 'local',
+              title: 'One',
+              uri: '/music/one.mp3',
+              fileSizeBytes: const Value(1),
+              fileModifiedAtMs: const Value(2),
+            ),
+          );
+
+      expect((await db.select(db.tracks).getSingle()).fileSizeBytes, 1);
     });
   });
 }

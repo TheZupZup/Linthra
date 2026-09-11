@@ -44,6 +44,174 @@ Every query is timed the same number of times and reported as a mean, so
 wall-clock time the run spent querying, and `slowest single run` is the single
 slowest timed iteration, not the slowest query on average.
 
+## Memory: large-library profiling (#463)
+
+The SQL side above answers "does a query stay fast at 200k tracks". This
+answers a different question: **does the app stop growing** once you have been
+scrolling, navigating and playing for a while?
+
+```bash
+./tools/large_library/run_memory_check.sh
+```
+
+That runs the harness twice over a large synthetic library and analyses both
+series. Roughly ten minutes; `--tracks` and `--cycles` make it smaller.
+
+### What it does not do, and what it does instead
+
+It does **not** assert an RSS figure. A number measured on one laptop is not
+comparable to the same number on another machine, another kernel, another
+glibc or another Flutter version, so a threshold picked on one of them is
+either meaningless or permanently red on the rest. Any check built that way
+gets muted within a month.
+
+The first attempt here asked something milder: *is the line flat after
+warm-up?* Measuring said no, and for a reason worth writing down. In a
+headless Dart VM under sustained allocation the line is not flat even with
+nothing wrong: nothing forces a major collection, so the heap high-water mark
+ratchets up. A clean run of this harness drifts a couple of MiB per navigation
+cycle on its own. A check that demanded flatness would need a noise band wide
+enough to swallow a real leak, which is the same as having no check at all.
+
+So the check is **comparative**. Record a baseline run, then measure a
+candidate run of the same harness on the same machine, and compare their
+growth *rates*. The runtime's own drift, the image cache filling, the glyph
+atlas, glibc's arenas all appear on both sides at roughly the same rate and
+subtract out. What is left is what the candidate holds on to and the baseline
+did not.
+
+```bash
+python3 tools/large_library/memory_report.py after.json \
+  --baseline before.json --expect same
+```
+
+Without `--baseline` it still reports the series, the phase deltas and the
+trend, which is what you want when you are reading rather than gating.
+
+### The two pieces
+
+| Piece | Job |
+| --- | --- |
+| `test/benchmarks/large_library_memory_bench.dart` | Drives the real Library UI over a synthetic catalog and records RSS. Decides nothing. |
+| `tools/large_library/memory_report.py` | Reads that series, reports phase deltas and the per-cycle trend, and gives the verdict. |
+
+Run them by hand when you want one scenario:
+
+```bash
+LINTHRA_MEMORY_OUT=/tmp/clean.json \
+  flutter test test/benchmarks/large_library_memory_bench.dart
+python3 tools/large_library/memory_report.py /tmp/clean.json
+```
+
+The states it measures: startup with the catalog loaded, a long scroll through
+Songs, browsing the Albums grid (which is where artwork decoding happens),
+opening an album and coming back, browsing Artists, opening an artist and
+coming back, queueing 200 tracks and skipping through 40 of them, and then the
+whole navigation repeated as identical cycles.
+
+Artwork is real: the harness writes a small PNG per album and gives each track
+a `file://` cover, so covers are decoded and cached the way they are in the
+app. A run with no artwork would miss the single biggest thing holding memory
+during a scroll.
+
+### Two controls, both required
+
+`run_memory_check.sh` runs the harness three times, and both control results
+have to pass before any of it means anything:
+
+- **control against baseline** must be `NO REGRESSION`. Two identical runs that
+  disagree mean the noise band is too tight for this machine, and any red
+  result the check produces is worthless. This is the false-positive control.
+- **leak against baseline** must be `REGRESSION`. The leak run sets
+  `LINTHRA_MEMORY_LEAK=1`, which retains 2 MiB per navigation cycle. A check
+  that only ever says "fine" is indistinguishable from one that has quietly
+  stopped measuring, and handing it something it *must* catch is the only way
+  to tell those apart. This is the false-negative control.
+
+The 1 MiB default band comes from measuring, not from taste. Three clean runs
+and one leak run, 12,000 tracks and 16 cycles each, on the machine this was
+developed on:
+
+| comparison | extra per cycle | verdict |
+| --- | --- | --- |
+| clean B vs clean A | +0.1 MiB | no regression |
+| clean C vs clean A | -0.2 MiB | no regression |
+| clean C vs clean B | -0.3 MiB | no regression |
+| leak vs clean A | +1.7 MiB | regression |
+| leak vs clean B | +1.6 MiB | regression |
+
+Run-to-run noise stays inside ±0.3 MiB per cycle; the deliberate 2 MiB/cycle
+leak lands at +1.6 to +1.7. A 1 MiB band sits between the two with room on
+both sides. Re-measure before trusting it on very different hardware, and use
+more cycles if the margin looks tight: the median steadies as the series gets
+longer, which is why the default is 16 rather than the 12 the first attempt
+used.
+
+### What the noise is made of
+
+RSS is a high-water mark. Every one of these makes it rise once and then stop,
+and none of them is a leak:
+
+- **Flutter's image cache** fills as covers are decoded. It is bounded (1000
+  images or 100 MiB by default), so it plateaus.
+- **The glyph atlas** fills with the text of rows as they are first drawn.
+- **The Dart heap** grows to its working size and does not hand pages back to
+  the OS promptly; freed objects usually mean reusable heap, not lower RSS.
+- **glibc's malloc** keeps freed memory in its arenas.
+- **The Dart VM and the test harness** are a large fixed baseline (a couple of
+  hundred MiB here) that has nothing to do with the app.
+
+Which is why the healthy signal is *flat*, never *falling*, and why the first
+few cycles are dropped as warm-up (`--warmup`, default 3).
+
+The analyser keys off the **median cycle-to-cycle delta** rather than the total
+or a least-squares slope. A leak adds memory on every cycle, so its deltas are
+all positive and the median is the leak rate. A one-off step (a cache that
+filled a cycle late, a route that allocated once) is a single large delta among
+zeros, and a median ignores it where a mean or a slope would not. A second
+clause, a real slope plus most cycles rising, catches a leak that only fires on
+some cycles.
+
+That is also the number the comparison subtracts, which is why it survives the
+runtime drift: both runs drift, so both medians include it, and the difference
+does not.
+
+### Cycles have to be idempotent
+
+This bit cost a run to discover, and is worth knowing before changing the
+harness. A tab keeps its scroll offset, so a cycle that only scrolls *down*
+starts each pass where the last one stopped: it visits rows and covers it has
+never seen, the image cache keeps filling toward its bound, and the series
+climbs for reasons that are not a leak. Every scroll in a cycle therefore
+returns to the top. If you add navigation to a cycle, make sure it leaves the
+UI exactly as it found it, or the baseline stops meaning anything.
+
+### Honest limits
+
+- **This is Dart-side retention, in a headless test VM.** It does not include
+  the GPU, the platform's own image pipeline, or the media_kit/libmpv decoder
+  buffers a real playing session allocates natively. Those need a profiler
+  attached to a real desktop build (`flutter run --profile` plus DevTools'
+  memory view), and that is the right follow-up when this points at something.
+- **Nothing forces a GC.** Dart offers no way to do it from pure Dart, so the
+  series is "RSS as the VM happened to leave it". That is exactly why the
+  verdict is a trend over many cycles compared against another run, and never a
+  single reading.
+- **A baseline is only valid on the machine and commit that produced it.**
+  Comparing across machines, or against a months-old file, measures the
+  difference between those instead of the change you are checking.
+- **No personal data is involved anywhere.** The library is generated, the
+  covers are a 1x1 PNG, and the output is counts and byte totals.
+- **No profiling hook ships.** The harness is a test that reads
+  `ProcessInfo.currentRss`; there is no instrumented build, no debug flag and
+  no production code that knows any of this exists.
+
+The analyser's own unit tests need no Flutter and no measurement:
+
+```bash
+python3 test/tooling/large_library_memory_report_test.py
+```
+
 ## Query plans (#341)
 
 Timing alone cannot tell "used the index" apart from "scanned a table small

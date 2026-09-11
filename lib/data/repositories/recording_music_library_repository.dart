@@ -1,10 +1,12 @@
 import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
+import '../../core/models/local_file_stamp.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/library_added_store.dart';
 import '../../core/repositories/music_library_repository.dart';
 import '../../core/repositories/source_catalog_reader.dart';
+import '../../core/repositories/stamped_catalog_writer.dart';
 import '../../core/repositories/track_identity_reassignable.dart';
 import '../../core/sources/music_provider.dart';
 
@@ -42,6 +44,7 @@ class RecordingMusicLibraryRepository
         MusicLibraryRepository,
         IncrementalCatalogWriter,
         SourceCatalogReader,
+        StampedCatalogWriter,
         TrackIdentityReassignable {
   RecordingMusicLibraryRepository({
     required MusicLibraryRepository delegate,
@@ -76,6 +79,67 @@ class RecordingMusicLibraryRepository
     throw UnsupportedError(
       'the wrapped MusicLibraryRepository cannot read a source slice',
     );
+  }
+
+  /// Passes through when the wrapped repository can store stamps (the
+  /// production Drift one can), so an incremental local scan keeps working
+  /// through this decorator.
+  ///
+  /// A wrapped repository that can read a source's slice but cannot store
+  /// stamps answers with unstamped tracks, the same fallback
+  /// [upsertStampedCatalog] takes on the write side. Losing the stamps only
+  /// costs a re-parse; failing the read instead would look to the caller like
+  /// "I cannot read the catalog", which turns off both retention for an
+  /// offline folder and move detection.
+  ///
+  /// Throws only when the slice genuinely cannot be read, for the same reason
+  /// [getTracksForSource] does: a caller must be able to tell "nothing is
+  /// stored" from "I cannot know".
+  @override
+  Future<List<StampedTrack>> getStampedTracksForSource(String sourceId) async {
+    final MusicLibraryRepository delegate = _delegate;
+    if (delegate is StampedCatalogWriter) {
+      return (delegate as StampedCatalogWriter)
+          .getStampedTracksForSource(sourceId);
+    }
+    if (delegate is SourceCatalogReader) {
+      final List<Track> tracks =
+          await (delegate as SourceCatalogReader).getTracksForSource(sourceId);
+      return <StampedTrack>[
+        for (final Track track in tracks) StampedTrack(track: track),
+      ];
+    }
+    throw UnsupportedError(
+      'the wrapped MusicLibraryRepository cannot read a source slice',
+    );
+  }
+
+  /// The stamped twin of [upsertCatalog], stamping first-seen times exactly the
+  /// same way so an incremental scan still feeds "Recently added". Falls back to
+  /// a plain whole-slice write when the wrapped repository cannot store stamps:
+  /// the catalog ends up correct either way, and the next scan simply re-parses.
+  @override
+  Future<void> upsertStampedCatalog({
+    required String sourceId,
+    required List<StampedTrack> tracks,
+  }) async {
+    await _migrateLegacyAddedKeysOnce();
+    final MusicLibraryRepository delegate = _delegate;
+    final List<Track> plain = <Track>[
+      for (final StampedTrack stamped in tracks) stamped.track,
+    ];
+    if (delegate is StampedCatalogWriter) {
+      await (delegate as StampedCatalogWriter)
+          .upsertStampedCatalog(sourceId: sourceId, tracks: tracks);
+    } else {
+      await delegate.upsertCatalog(
+        sourceId: sourceId,
+        tracks: plain,
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+    }
+    await _stampFirstSeen(plain);
   }
 
   @override

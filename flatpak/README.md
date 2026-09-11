@@ -178,6 +178,13 @@ On a distribution with a native `flatpak-builder`, drop the
 To uninstall: `flatpak --user uninstall io.github.thezupzup.linthra` and
 `flatpak --user remote-delete linthra-dev`.
 
+A stable release turns that same exported repository into the single
+`Linthra-<tag>-x86_64.flatpak` file attached to the GitHub Release (#618) — one
+manifest, one package, two ways of installing it. The commands are in
+[docs/flatpak-ci.md](../docs/flatpak-ci.md#reproduce-the-build-locally) and the
+release path is
+[docs/release-process.md §4b](../docs/release-process.md#4b-linux-flatpak-bundle-dispatched-alongside-the-android-and-linux-builds).
+
 Nothing above needs network access during the actual sandboxed build —
 `flatpak-builder`'s normal declared-source fetch (`generated/sources/pubspec.json`,
 the Flutter SDK module, the ffmpeg/libplacebo/libass/mpv archives) happens

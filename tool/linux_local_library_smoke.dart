@@ -25,6 +25,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/linux_playback_controller.dart';
@@ -201,7 +202,7 @@ Future<void> _validateGrantedFolder(_SmokeConfig config) async {
   if (scan.tracks.length != 2) {
     throw StateError(
       'scan: expected 2 tracks, found ${scan.tracks.length} '
-      '(${scan.tracks.map((Track t) => t.title).join(', ')}).',
+      '(${scan.plainTracks.map((Track t) => t.title).join(', ')}).',
     );
   }
   if (scan.report.skippedUnsupported < 1) {
@@ -219,7 +220,7 @@ Future<void> _validateGrantedFolder(_SmokeConfig config) async {
   );
 
   // Metadata came from the tags, not from the filename.
-  final Track wav = _trackEndingWith(scan.tracks, '.wav');
+  final Track wav = _trackEndingWith(scan.plainTracks, '.wav');
   _expect(wav.title, _wavTitle, 'the WAV title');
   _expect(wav.artistName, _artist, 'the WAV artist');
   _expect(wav.albumName, _album, 'the WAV album');
@@ -231,7 +232,7 @@ Future<void> _validateGrantedFolder(_SmokeConfig config) async {
 
   // Embedded artwork was extracted, cached inside the sandbox's private tree,
   // and is a real image.
-  final Track mp3 = _trackEndingWith(scan.tracks, '.mp3');
+  final Track mp3 = _trackEndingWith(scan.plainTracks, '.mp3');
   _expect(mp3.title, _mp3Title, 'the MP3 title');
   final Uri? artwork = mp3.artworkUri;
   if (artwork == null || !artwork.isScheme('file')) {
@@ -361,7 +362,9 @@ Future<void> _validateRevokedFolder(_SmokeConfig config) async {
 
   final LocalLibraryScan retained = await _scan(
     config.root,
-    previousTracks: <Track>[indexed],
+    // No stamp: exactly what a row written before schema v5 looks like,
+    // and the case retention has to keep working for.
+    previousTracks: <StampedTrack>[StampedTrack(track: indexed)],
   );
 
   final LocalRootOutcome outcome = retained.roots.single;
@@ -384,7 +387,7 @@ Future<void> _validateRevokedFolder(_SmokeConfig config) async {
     );
   }
   if (retained.tracks.length != 1 ||
-      retained.tracks.single.uri != indexed.uri) {
+      retained.plainTracks.single.uri != indexed.uri) {
     throw StateError(
       'revoked: the previously indexed track was dropped rather than kept '
       '(${retained.tracks.length} tracks).',
@@ -418,7 +421,7 @@ Future<void> _validateRevokedFolder(_SmokeConfig config) async {
 /// metadata reader, with the Android-only seams left unsupported.
 Future<LocalLibraryScan> _scan(
   String root, {
-  List<Track>? previousTracks,
+  List<StampedTrack>? previousTracks,
 }) {
   final LocalLibraryScanner scanner = LocalLibraryScanner((String each) {
     return LocalMusicSource(

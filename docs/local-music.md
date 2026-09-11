@@ -206,9 +206,10 @@ place and skipping past it works normally.
 
 Rescans compare what is on disk against what Linthra last indexed, so:
 
-- **Between rescans the library can be stale.** Filesystem watching
-  ([#409](https://github.com/thezupzup/linthra/issues/409)) is what closes that
-  gap.
+- **A move is only noticed when the folder is looked at.** On Linux that
+  happens on its own, because the selected folders are watched (see below); a
+  manual rescan is what brings Android, and any folder that cannot be watched,
+  back in step.
 - **Hardlinks and bind mounts** make one file visible at two paths. Linthra
   imports it once (per selected folder) and cannot tell such a pair apart from
   a genuine copy, so it treats it as one.
@@ -217,6 +218,98 @@ Rescans compare what is on disk against what Linthra last indexed, so:
   scanned. Rescanning with the drive connected brings it back.
 - **Moving a file while it plays** is not noticed until the next rescan or the
   next time that track is loaded.
+
+## The library keeps itself up to date (Linux)
+
+On Linux, Linthra watches the folders you selected and refreshes the library
+when something under one of them changes. Adding an album, deleting a track, or
+renaming a folder shows up without pressing Rescan.
+
+What that means in practice:
+
+- **Only the folders you chose are watched**, recursively. Nothing else on the
+  machine is looked at, and removing a folder from the list releases its watch
+  immediately.
+- **A burst is one refresh, not hundreds.** Copying a 12-track album produces
+  dozens of filesystem events; Linthra waits for the copying to go quiet and
+  then refreshes once. A long copy that never goes quiet (over a slow network
+  mount, say) still refreshes periodically while it runs, so the album fills in
+  rather than appearing only at the end.
+- **The refresh is the ordinary incremental scan**, the same one the Rescan
+  button runs, so it re-reads only the files that actually changed. There is no
+  separate "live update" path that could disagree with a manual rescan.
+- **Files that are not music are ignored.** A downloader's `.part` files, cover
+  art, `.nfo` / `.log` / `.cue` sidecars and editor swap files change constantly
+  while music is being added and cannot change the library, so they do not
+  trigger anything.
+- **Nothing is written to your folders.** Watching only reads, exactly like
+  scanning.
+
+### When watching is not available
+
+Watching is best-effort, and Linthra says so rather than pretending the library
+is live:
+
+- **Linux uses inotify, which has a per-user watch limit.** A very large library
+  on a machine with a low `fs.inotify.max_user_watches` can exhaust it. That
+  folder is then simply not watched; the others still are, and **manual Rescan
+  keeps working exactly as before**. Raising the limit is a system setting
+  (`sysctl fs.inotify.max_user_watches`), not something an app can do for you.
+- **Many network filesystems cannot be watched at all** (NFS and SMB do not
+  report changes another machine made). Those folders need a manual rescan.
+- **A folder on an unmounted drive** cannot be watched until it comes back.
+  Rescanning or re-selecting retries it.
+- **Hidden files and folders are not watched.** `.DS_Store` and the bookkeeping
+  folders sync tools scatter around (`.stfolder`, `.stversions`) change on
+  someone else's schedule; music inside a hidden folder is still found by a
+  manual rescan.
+- **Android does not use this at all.** Its local library is a Storage Access
+  Framework tree or a MediaStore query rather than a directory, so there is no
+  path to watch.
+
+## Rescans only read what changed
+
+A scan of a real library spends nearly all of its time opening files and
+parsing their metadata blocks. On a routine rescan almost none of those files
+changed, so Linthra does not open them again.
+
+Each candidate file is `stat`-ed for its size and last-modified time, which is
+one syscall. If the catalog already holds that path with the identical size and
+mtime, the stored track is reused as it is and the file is never opened. Only
+new files, and files whose size or mtime moved, are parsed.
+
+On a synthetic 100,000-track library, with a fixed per-file parse cost, a full
+scan takes about 23 seconds and a rescan of the same untouched library takes
+about 0.65 seconds. The harness that produces those numbers is
+`test/benchmarks/local_incremental_scan_bench.dart`; run it on your own machine
+rather than trusting these figures, since the real cost is dominated by your
+disk.
+
+Details worth knowing:
+
+- **Each folder is independent.** A changed file in one music folder does not
+  cause the others to be re-read.
+- **An offline folder keeps its stamps** along with its tracks, so plugging a
+  drive back in does not re-parse everything on it.
+- **Android is unaffected.** Its local library comes through the content
+  resolver rather than from paths, so there is nothing to `stat`, and it scans
+  exactly as it always did.
+- The stamps live in the catalog database (schema v5), added as two nullable
+  columns. Upgrading keeps every row; the columns simply read back empty until
+  the first scan after the upgrade fills them in.
+
+### When to rescan everything
+
+Size and mtime miss exactly one kind of change: a write that restores the
+previous modification time *and* lands on the same byte count. A backup tool
+putting an old file back over a new one does it, and so does `touch -r` after
+an in-place edit. Hashing every file would catch those, at the cost of reading
+every byte of the library on every scan, which is the thing being avoided.
+
+So if the library ever looks wrong, a **full rescan** is the answer: it ignores
+every stamp and rebuilds the local index from the files themselves. Forgetting
+the source and selecting the folders again does the same thing, since there is
+then nothing indexed to compare against.
 
 ## Local music vs Offline downloads vs Cache
 

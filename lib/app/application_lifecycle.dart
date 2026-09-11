@@ -21,6 +21,7 @@ import '../data/repositories/playback_preferences_provider.dart';
 import '../data/repositories/playback_session_store_provider.dart';
 import '../data/repositories/playlist_repository_provider.dart';
 import '../data/repositories/remote_cache_index_provider.dart';
+import '../features/library/local_library_watch_service.dart';
 import '../features/player/media_artwork_providers.dart';
 import '../features/player/playback_history_providers.dart';
 import '../features/player/player_providers.dart';
@@ -254,6 +255,14 @@ Future<ApplicationHandle> bootstrapApplication(
     container.read(mediaArtworkPrewarmServiceProvider);
     container.read(smartPrecacheServiceProvider);
     container.read(remotePrebufferServiceProvider);
+    // Filesystem watching for the local library (#409). Reading it opens
+    // watches on the folders already selected and keeps them in step as the
+    // selection changes; the watches are released with the container, so a
+    // shutdown gives back its inotify descriptors rather than leaving them to
+    // the process exit. Inert on Android, whose local library is a SAF tree
+    // rather than a directory, and harmless when the kernel refuses a watch:
+    // the folder is simply not live and manual refresh is untouched.
+    container.read(localLibraryWatchServiceProvider);
     // Desktop recent-playback history (#419). Read here rather than left to the
     // queue pane: the pane starts closed, and the controller's state stream
     // does not replay, so a lazily-created recorder would miss everything
