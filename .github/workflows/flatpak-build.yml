@@ -5,6 +5,21 @@ name: Flatpak build
 # Flatpak SDK/runtime declared by the generated manifest and proves that a
 # clean GitHub-hosted runner can resolve the declared prerequisites, build the
 # package, install it, and reach a real desktop window without developer state.
+#
+# It also serves the Flatpak release path (#618), via workflow_dispatch's
+# optional `release_tag` input — the same mechanism, for the same reason, as
+# linux-desktop-build.yml's: Linthra's release automation creates tags and
+# Releases with its own GITHUB_TOKEN, and GitHub generally does not start new
+# workflow runs from GITHUB_TOKEN-authored events, so publish-stable-release.yml
+# dispatches this workflow explicitly rather than relying on a push/release
+# event to fire it.
+#
+# With `release_tag` set, `build-flatpak` checks out that EXACT tag, verifies
+# the release metadata at it, and runs unchanged; it then turns the repository
+# it just exported into a standalone `.flatpak` bundle and launches that bundle
+# too. A second job attaches the bundle to that Release. Everything else about
+# this workflow — what it builds, what it proves, and the fact that it is
+# read-only on PRs — is unchanged. See docs/release-process.md §4b.
 on:
   push:
     branches: [main]
@@ -17,13 +32,19 @@ on:
       - 'linux/runner/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/check_flatpak_permissions.py'
       - 'scripts/check_linux_runner.py'
       - 'scripts/flatpak_audio_smoke.sh'
+      - 'scripts/flathub_builder_lint.py'
+      - 'scripts/flatpak_bundle.py'
+      - 'scripts/flatpak_filesystem_smoke.sh'
       - 'scripts/flatpak_launch_smoke.sh'
       - 'scripts/flatpak_local_library_smoke.sh'
       - 'scripts/make_flatpak_smoke_manifest.py'
       - 'scripts/regenerate_flatpak_sources.sh'
+      - 'scripts/verify_release_containment.py'
       - 'test/tooling/check_linux_runner_test.py'
+      - 'test/tooling/flatpak_bundle_test.py'
       - 'third_party/**'
       - 'tool/branding/linthra_icon.svg'
       - 'tool/linux_audio_backend_smoke.dart'
@@ -49,13 +70,19 @@ on:
       - 'linux/runner/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/check_flatpak_permissions.py'
       - 'scripts/check_linux_runner.py'
       - 'scripts/flatpak_audio_smoke.sh'
+      - 'scripts/flathub_builder_lint.py'
+      - 'scripts/flatpak_bundle.py'
+      - 'scripts/flatpak_filesystem_smoke.sh'
       - 'scripts/flatpak_launch_smoke.sh'
       - 'scripts/flatpak_local_library_smoke.sh'
       - 'scripts/make_flatpak_smoke_manifest.py'
       - 'scripts/regenerate_flatpak_sources.sh'
+      - 'scripts/verify_release_containment.py'
       - 'test/tooling/check_linux_runner_test.py'
+      - 'test/tooling/flatpak_bundle_test.py'
       - 'third_party/**'
       - 'tool/branding/linthra_icon.svg'
       - 'tool/linux_audio_backend_smoke.dart'
@@ -72,23 +99,91 @@ on:
       - 'lib/core/sources/local/**'
       - 'test/core/sources/local/audio_tag_fixtures.dart'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Existing GitHub Release tag (e.g. v0.2.7) to build at and attach the
+          standalone .flatpak bundle to. Leave empty for a normal manual build
+          with no Release interaction.
+        required: false
+        type: string
+        default: ""
 
-# Fork PRs run this workflow too, so keep it read-only and secret-free.
+# Fork PRs run this workflow too, so keep it read-only and secret-free. Only
+# package-flatpak-release below (reachable only for a validated release_tag,
+# never on a PR or push) elevates to `contents: write`, and only for itself.
 permissions:
   contents: read
 
+# A release build gets its own concurrency group, keyed by the tag, and is
+# never cancelled: dispatched runs share `github.ref` (main) with every push to
+# main, so without this a merge landing mid-release would cancel the build whose
+# artifact the Release is waiting for.
 concurrency:
-  group: flatpak-build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: >-
+    flatpak-build-${{ inputs.release_tag ||
+    github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !inputs.release_tag }}
 
 jobs:
   build-flatpak:
     name: Build and launch Flatpak
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    outputs:
+      is_release_build: ${{ steps.resolve.outputs.is_release_build }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      bundle_name: ${{ steps.bundle.outputs.name }}
     steps:
+      # Runs on every trigger. On a PR, a push, or a manual run with no tag,
+      # `inputs.release_tag` is empty and this exits immediately leaving `ref`
+      # empty, so the checkout below is actions/checkout's own default and the
+      # rest of the job is unchanged. When a tag IS supplied, this is the one
+      # place that decides whether this run builds a Release at all: it
+      # validates the tag's shape before it can reach a file name, and confirms
+      # via the GitHub API that a Release for it exists, since that Release is
+      # what the packaging job uploads to. Same validation, in the same words,
+      # as linux-desktop-build.yml's.
+      - name: Validate release_tag input
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RELEASE_TAG_INPUT:-}" ]; then
+            echo "is_release_build=false" >> "$GITHUB_OUTPUT"
+            echo "ref=" >> "$GITHUB_OUTPUT"
+            echo "No release_tag supplied; normal build (PR/push/manual), no Release interaction."
+            exit 0
+          fi
+
+          # Same tag grammar as scripts/release_preflight.sh and
+          # scripts/flatpak_bundle.py: vMAJOR.MINOR.PATCH, optionally
+          # -alpha.N / -beta.N / -rc.N.
+          if [[ ! "$RELEASE_TAG_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+            echo "::error::Unexpected release tag shape: $RELEASE_TAG_INPUT"
+            exit 1
+          fi
+
+          if ! gh release view "$RELEASE_TAG_INPUT" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::No GitHub Release found for tag $RELEASE_TAG_INPUT. Create/publish the Release first, then dispatch this workflow."
+            exit 1
+          fi
+
+          echo "is_release_build=true" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$RELEASE_TAG_INPUT" >> "$GITHUB_OUTPUT"
+          echo "ref=$RELEASE_TAG_INPUT" >> "$GITHUB_OUTPUT"
+          echo "Release $RELEASE_TAG_INPUT confirmed; building at that exact tag."
+
+      # Empty ref for a PR/push/plain-manual run, which is checkout's default
+      # behavior; the exact validated tag for a release build. Nothing else in
+      # this job knows the difference.
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
 
       # --no-install-recommends is deliberate: it keeps the runner close to the
       # set of tools this job actually needs, rather than whatever a package
@@ -126,14 +221,33 @@ jobs:
             flatpak \
             flatpak-builder \
             librsvg2-common \
+            ostree \
             x11-utils \
             xvfb
+
+      # The bundle a Release carries has to be the release everything else in
+      # the repository says it is. Both checks are Linthra's existing ones, run
+      # here against the tagged checkout: release_preflight.sh holds the tag to
+      # pubspec.yaml and AppInfo, and check_release_metadata_sync.py holds
+      # pubspec.yaml to the Play changelog, the F-Droid entry, the AppStream
+      # release list a software centre shows, and the Flatpak manifest. A
+      # disagreement fails here, before a version number reaches an artifact
+      # name.
+      - name: Verify the release metadata at the tag
+        if: ${{ steps.resolve.outputs.is_release_build == 'true' }}
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          ./scripts/release_preflight.sh "$RELEASE_TAG"
+          python3 scripts/check_release_metadata_sync.py --tag "$RELEASE_TAG"
 
       - name: Validate committed packaging metadata
         run: |
           set -euo pipefail
           python3 scripts/check_linux_runner.py
           python3 test/tooling/check_linux_runner_test.py
+          python3 test/tooling/flatpak_bundle_test.py
 
           desktop_report="$(desktop-file-validate linux/packaging/io.github.thezupzup.linthra.desktop)"
           if [ -n "$desktop_report" ]; then
@@ -149,6 +263,26 @@ jobs:
           set -euo pipefail
           flatpak remote-add --user --if-not-exists \
             flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      # Flathub's own submission linter (#449), which is a different question
+      # from the appstreamcli/desktop-file validation above: those check that
+      # two files are well-formed, this checks whether a submission would be
+      # accepted. It ships inside org.flatpak.Builder, which is how Flathub's
+      # documentation runs it, so this is the same tool a reviewer uses.
+      - name: Install Flathub's builder linter
+        run: |
+          set -euo pipefail
+          flatpak install --user -y flathub org.flatpak.Builder
+
+      # Before the build, because a manifest finding does not need one. The
+      # runner script fails on any finding without a written reason in
+      # flatpak/flathub-lint-exceptions.json, and equally on a reason for a
+      # finding the linter no longer reports.
+      - name: Lint the submission manifest
+        run: |
+          set -euo pipefail
+          python3 scripts/flathub_builder_lint.py \
+            --manifest flatpak/io.github.thezupzup.linthra.yml
 
       - name: Install manifest-declared SDK and runtime prerequisites
         working-directory: flatpak
@@ -224,9 +358,289 @@ jobs:
           flatpak build-update-repo repo-ci
           echo 'Flatpak build and repository export completed successfully.'
 
+      # What the package actually carries, which is a different question from
+      # what the manifests ask for (#455). The manifest half runs on every PR
+      # in the main CI workflow and is cheap; this half needs a built package,
+      # so it lives here, and until it was wired up it ran nowhere at all.
+      # `check_flatpak_permissions.py --installed` reads
+      # `flatpak info --show-permissions` off the installed app and holds it to
+      # the same table in docs/flatpak-permissions.md.
+      #
+      # The same script also re-checks #439's filesystem policy against the
+      # artifact: no filesystem or persist grant in the package, none added by
+      # any override scope, an unrelated host file invisible from inside, and
+      # the private XDG tree writable.
+      #
+      # dbus-run-session because `flatpak run` wants a session bus for its bus
+      # proxy, and a GitHub runner has none.
+      #
+      # Ahead of the launch smoke on purpose. Both install the package, so they
+      # have to be sequential, and a failed step ends the job. This one is fast
+      # and deterministic; the launch smoke waits on window and icon timing and
+      # has flaked on it before. Putting the flakier step first is what would
+      # cost coverage.
+      - name: Check the installed package's permissions and sandbox
+        working-directory: flatpak
+        run: |
+          set -euo pipefail
+          dbus-run-session -- bash ../scripts/flatpak_filesystem_smoke.sh repo-ci
+
+      # Before the lint below, deliberately. A failed step ends the job, so a
+      # lint finding sitting ahead of this would stop the package being
+      # installed and launched at all, which trades real coverage for a red
+      # badge.
       - name: Install and launch packaged Flatpak
         working-directory: flatpak
         run: bash ../scripts/flatpak_launch_smoke.sh repo-ci
+
+      # The AppStream catalogue appstreamcli compose produced from the metainfo
+      # during the build. This is what a software centre actually reads, and it
+      # is not the file the pre-build validation step checked.
+      - name: Lint the AppStream catalogue
+        run: |
+          set -euo pipefail
+          python3 scripts/flathub_builder_lint.py \
+            --builddir flatpak/flatpak-builder-ci
+
+      # The third mode, `repo` (the exported OSTree, what Flathub would
+      # actually publish), is deliberately NOT wired up yet. It reports
+      # metainfo-missing-screenshots and
+      # appstream-screenshots-not-mirrored-in-ostree, which are real submission
+      # blockers fixed by taking screenshots (#437), not by anything in the
+      # tooling.
+      #
+      # Turning it on now would mean either a permanently red job or an
+      # exception recording "not done yet", and the exceptions file exists for
+      # findings a human judged wrong or unavoidable, not for unfinished work.
+      # It arrives with the screenshots that let it pass (#628).
+      #
+      # `scripts/flathub_builder_lint.py --repo ...` runs today and is
+      # documented in docs/flathub-builder-lint.md; it is the CI wiring that
+      # waits, not the capability.
+
+      # Everything below here only happens for a validated release build.
+      #
+      # A GitHub Release cannot serve an OSTree repository, so the artifact a
+      # user downloads is a single-file bundle exported from the very
+      # repository this job just built, validated and launched. Building it
+      # here rather than in a second job is what makes that true: the bundle
+      # cannot come from a different build than the one the smoke above
+      # exercised.
+      #
+      # --runtime-repo names Flathub as where org.gnome.Platform//50 comes
+      # from, so installing this file on a machine without that runtime offers
+      # to fetch it instead of failing. It does not put Linthra on Flathub
+      # (#456) and does not fetch the app from anywhere: Linthra's own bytes
+      # are inside the bundle.
+      #
+      # The name comes from scripts/flatpak_bundle.py, which derives it from
+      # the tag — the workflow never spells a version itself.
+      - name: Build the standalone Flatpak bundle
+        id: bundle
+        if: ${{ steps.resolve.outputs.is_release_build == 'true' }}
+        working-directory: flatpak
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          arch="$(flatpak --default-arch)"
+          name="$(python3 ../scripts/flatpak_bundle.py name \
+            --tag "$RELEASE_TAG" --arch "$arch")"
+
+          flatpak build-bundle \
+            --arch="$arch" \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            repo-ci \
+            "$name" \
+            io.github.thezupzup.linthra \
+            master
+
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "arch=$arch" >> "$GITHUB_OUTPUT"
+          ls -l "$name"
+
+      # Reads the bundle back and holds it to the manifest that built it: one
+      # app ref, the right application id, runtime and command, every file the
+      # manifest installs, the packaged libmpv (#433), and the exported desktop
+      # entry and icon that make it a launcher entry at all. The packaging job
+      # runs this again on the downloaded copy, immediately before upload; this
+      # run is here to fail fast, with the manifest right next to it.
+      - name: Verify the standalone bundle
+        if: ${{ steps.resolve.outputs.is_release_build == 'true' }}
+        working-directory: flatpak
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
+          BUNDLE_NAME: ${{ steps.bundle.outputs.name }}
+          BUNDLE_ARCH: ${{ steps.bundle.outputs.arch }}
+        run: |
+          set -euo pipefail
+          python3 ../scripts/flatpak_bundle.py verify "$BUNDLE_NAME" \
+            --tag "$RELEASE_TAG" \
+            --arch "$BUNDLE_ARCH"
+
+      # The same smoke as above, pointed at the file a user actually downloads
+      # and installed the way a user installs it (`flatpak install --bundle`),
+      # rather than from the local repository. The previous smoke uninstalled
+      # the app it installed, so this starts from a clean environment too.
+      - name: Install and launch the standalone bundle
+        if: ${{ steps.resolve.outputs.is_release_build == 'true' }}
+        working-directory: flatpak
+        env:
+          BUNDLE_NAME: ${{ steps.bundle.outputs.name }}
+        run: bash ../scripts/flatpak_launch_smoke.sh "$BUNDLE_NAME"
+
+      - name: Upload the Flatpak bundle
+        if: ${{ steps.resolve.outputs.is_release_build == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: linthra-flatpak-bundle
+          path: flatpak/${{ steps.bundle.outputs.name }}
+          if-no-files-found: error
+
+  # Attaches the bundle build-flatpak already built, verified and launched to
+  # the GitHub Release named by that tag. Only reachable when build-flatpak
+  # confirmed a validated release_tag, so this job — the only one with
+  # `contents: write` — never exists on a PR, a push, or a no-tag manual run.
+  # It never builds anything: it downloads the artifact, checks it again, and
+  # uploads it, so what lands on the Release cannot drift from what was tested.
+  package-flatpak-release:
+    name: Attach Flatpak bundle to the Release
+    needs: build-flatpak
+    if: ${{ needs.build-flatpak.outputs.is_release_build == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # The released tag, for the two things that must come from the tree the
+      # bundle was built from: the manifest the bundle is checked against, and
+      # the Cast containment message the verifier looks for.
+      - name: Checkout the released tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.build-flatpak.outputs.release_tag }}
+
+      # Same split as the Android and Linux release builds: the tag supplies
+      # the expectations, this workflow's own revision supplies the scripts
+      # that check them, so rebuilding an older tag is still verified.
+      - name: Check out the release tooling from this workflow's revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tooling
+          sparse-checkout: scripts
+
+      # Reading a .flatpak means unpacking an OSTree static delta; nothing is
+      # installed and no Flatpak installation is touched.
+      - name: Install bundle inspection tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update || echo 'apt-get update was incomplete; the install below decides'
+          sudo apt-get install -y --no-install-recommends flatpak ostree
+
+      - name: Download the Flatpak bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: linthra-flatpak-bundle
+          path: bundle
+
+      # On the downloaded bytes, not the ones in the build job: this is the
+      # copy about to be attached to a public Release. The name is re-derived
+      # from the tag rather than trusted, so an artifact that came back under
+      # some other name fails instead of being uploaded under this one.
+      #
+      # x86_64 is named explicitly because it is the architecture the hosted
+      # runners build, and it is what publish-stable-release.yml requires on
+      # the Release. If the build job ever produced another one, this
+      # disagrees and fails rather than uploading it under the wrong name.
+      - name: Verify the downloaded bundle
+        env:
+          RELEASE_TAG: ${{ needs.build-flatpak.outputs.release_tag }}
+          BUNDLE_NAME: ${{ needs.build-flatpak.outputs.bundle_name }}
+        run: |
+          set -euo pipefail
+
+          expected="$(python3 .release-tooling/scripts/flatpak_bundle.py name \
+            --tag "$RELEASE_TAG" --arch x86_64)"
+          if [ "$BUNDLE_NAME" != "$expected" ]; then
+            echo "::error::Built bundle is named $BUNDLE_NAME, expected $expected."
+            exit 1
+          fi
+
+          python3 .release-tooling/scripts/flatpak_bundle.py verify \
+            "bundle/$BUNDLE_NAME" \
+            --tag "$RELEASE_TAG" \
+            --arch x86_64 \
+            --manifest flatpak/io.github.thezupzup.linthra.yml
+
+      # Casting is withheld from shipped builds while a reported security issue
+      # is resolved (lib/core/services/cast/cast_containment.dart). The Android
+      # and Linux release builds make this same check on their artifacts before
+      # uploading them; this is the Flatpak's, and it runs *before* the upload
+      # for the same reason: the Release is already public, so an artifact that
+      # fails must never become downloadable from it. Fails closed; see the
+      # script's docstring for what it can and cannot see.
+      - name: Verify the bundle carries the Cast containment
+        env:
+          BUNDLE_NAME: ${{ needs.build-flatpak.outputs.bundle_name }}
+        run: |
+          set -euo pipefail
+
+          source_file="lib/core/services/cast/cast_containment.dart"
+
+          if [ ! -f "$source_file" ] || ! grep -q 'static const String userMessage' "$source_file"; then
+            echo "::warning::This tag predates the Cast containment, so its bundle carries nothing to check. See docs/release-artifact-verification.md."
+            exit 0
+          fi
+
+          python3 .release-tooling/scripts/verify_release_containment.py \
+            --containment-source "$source_file" \
+            --json "$RUNNER_TEMP/flatpak-containment.json" \
+            "bundle/$BUNDLE_NAME"
+
+      - name: Attach the bundle to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build-flatpak.outputs.release_tag }}
+          BUNDLE_NAME: ${{ needs.build-flatpak.outputs.bundle_name }}
+        run: |
+          set -euo pipefail
+
+          # --clobber replaces only an existing asset with this exact file name
+          # (a re-run after a failed first attempt); it never touches the other
+          # assets on the Release, such as the Android APK/AAB or the Linux
+          # tarball.
+          gh release upload "$RELEASE_TAG" "bundle/$BUNDLE_NAME" \
+            --clobber \
+            --repo "$GITHUB_REPOSITORY"
+          echo "Attached $BUNDLE_NAME to Release '$RELEASE_TAG'."
+
+      # The digest of the file that was just uploaded, recorded where the rest
+      # of the release evidence is. publish-stable-release.yml re-downloads
+      # every published asset and records their digests too; this is the same
+      # number, from the copy this job attached.
+      - name: Record the bundle digest
+        env:
+          RELEASE_TAG: ${{ needs.build-flatpak.outputs.release_tag }}
+          BUNDLE_NAME: ${{ needs.build-flatpak.outputs.bundle_name }}
+        run: |
+          set -euo pipefail
+
+          record="$RUNNER_TEMP/flatpak-containment.json"
+          {
+            echo "### Flatpak bundle attached to $RELEASE_TAG"
+            echo
+            echo '| Asset | Bytes | SHA-256 |'
+            echo '| --- | --- | --- |'
+            if [ -f "$record" ]; then
+              jq -r '.[] | "| `\(.artifact)` | \(.bytes) | `\(.sha256)` |"' "$record"
+            else
+              printf '| `%s` | %s | `%s` |\n' \
+                "$BUNDLE_NAME" \
+                "$(stat -c '%s' "bundle/$BUNDLE_NAME")" \
+                "$(sha256sum "bundle/$BUNDLE_NAME" | cut -d' ' -f1)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # A second build, on its own runner, because the sandbox smokes need binaries
   # the shipped package must not contain (#446, #447). Nobody wants a test

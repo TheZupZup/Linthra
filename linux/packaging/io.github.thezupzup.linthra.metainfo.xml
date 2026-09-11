@@ -14,12 +14,32 @@
   is the icon-theme name that entry's Icon= already uses, which resolves to
   the SVG installed from tool/branding/linthra_icon.svg.
 
-  Claims are limited to what the current Flatpak can do: local files. Server
-  streaming (Jellyfin, Navidrome/Subsonic, Plex) is left out until the Flatpak
-  has network permission (#440). Android-only features (Chromecast, Android
-  Auto, SAF, share sheet, launcher-icon switching) are not advertised here.
-  Screenshots are omitted until there are Linux captures; inventing them from
-  the Android set would misrepresent the desktop window.
+  Claims are limited to what is *validated* on Linux, which is a narrower set
+  than what the code supports.
+
+  Local playback and the local library are covered by smokes that run inside
+  the installed Flatpak: scripts/flatpak_audio_smoke.sh walks the whole
+  transport on the packaged libmpv (#446), and scripts/flatpak_local_library_smoke.sh
+  scans a user-selected folder, reads its tags and embedded artwork, and plays
+  a track from it (#447). Those are the claims below.
+
+  Server streaming (Jellyfin, Navidrome/Subsonic, Plex) is deliberately still
+  absent. The Flatpak does now carry the network share permission (#440,
+  closed 2026-09-03),
+  so the old reason no longer applies, but nothing has yet signed in to a real
+  server from the installed package and played a track. Until that is done it
+  stays out: shipping a software-centre listing that promises streaming we have
+  not run once would be exactly the kind of claim #450 exists to prevent.
+
+  Android-only features (Chromecast, Android Auto, SAF, share sheet,
+  launcher-icon switching) are not advertised here.
+
+  Screenshots are still missing, and flatpak-builder-lint reports that as
+  metainfo-missing-screenshots. It is a real finding, not one to except. The
+  captures have to come from a real desktop session; see
+  docs/flathub-screenshots.md for the sizes, the naming, and the exact block to
+  paste in once the files exist. Inventing them from the Android set would
+  misrepresent the desktop window.
 
   The <releases> list is maintained by scripts/prepare_release_bump.py, which
   adds this release's entry when it bumps pubspec.yaml, and it is held to the
@@ -27,6 +47,15 @@
   entry) by scripts/check_release_metadata_sync.py, which CI runs on every push
   (#452). Newest entry first; a pre-release carries type="development" so a
   software centre does not offer an alpha as the current stable build.
+
+  The <summary> is held to Flathub's quality guidelines, which are stricter
+  than AppStream's: at most 35 characters, no trailing period, no leading
+  article, and it may not repeat the app's own name. "Play your own music from
+  this device" was 36, one character over, and the kind of finding that only
+  turns up when a submission is already open. test/tooling/
+  flathub_metadata_guardrails_test.dart holds the rules that can be checked
+  without building anything; scripts/flathub_builder_lint.py runs the real
+  linter (#449).
 
   Validate after editing:
     appstreamcli validate linux/packaging/io.github.thezupzup.linthra.metainfo.xml
@@ -37,7 +66,7 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>AGPL-3.0-or-later</project_license>
   <name>Linthra</name>
-  <summary>Play your own music from this device</summary>
+  <summary>Play your own music collection</summary>
   <description>
     <p>
       Linthra is an open-source music player for people who keep their music
@@ -59,6 +88,14 @@
     <category>Player</category>
     <category>Music</category>
   </categories>
+  <keywords>
+    <keyword>music</keyword>
+    <keyword>player</keyword>
+    <keyword>audio</keyword>
+    <keyword>library</keyword>
+    <keyword>offline</keyword>
+    <keyword>local</keyword>
+  </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
     <release version="0.2.6" date="2026-09-08"/>

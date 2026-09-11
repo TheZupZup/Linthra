@@ -21,6 +21,7 @@ Everything is offline. No network, no builds, no repository writes.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import sys
@@ -279,6 +280,83 @@ class ArtifactVerificationTest(unittest.TestCase):
     def test_missing_file_fails_closed(self):
         with self.assertRaises(verifier.VerificationError):
             self.verify(self.tmp / "never-built.apk")
+
+
+class FlatpakBundleTest(unittest.TestCase):
+    """The Flatpak release bundle (#618) is read like every other artifact.
+
+    A real `.flatpak` is an OSTree static delta produced by a full
+    flatpak-builder run, so what is faked here is the unpacking — the same seam
+    the script itself uses, scripts/flatpak_bundle.py's `extract_bundle`. The
+    payload it finds afterwards is the ordinary synthetic `libapp.so` every
+    other case uses, because that is all the containment check ever reads.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+
+        import flatpak_bundle
+
+        self.flatpak_bundle = flatpak_bundle
+        self.addCleanup(
+            setattr, flatpak_bundle, "extract_bundle", flatpak_bundle.extract_bundle
+        )
+
+    def stub_extractor(self, payload: bytes | None):
+        def extract(_bundle: Path, destination: Path) -> str:
+            target = destination / "files" / "lib" / "linthra" / "lib"
+            target.mkdir(parents=True)
+            if payload is not None:
+                (target / "libapp.so").write_bytes(payload)
+            return "app/io.github.thezupzup.linthra/x86_64/master"
+
+        self.flatpak_bundle.extract_bundle = extract
+
+    def bundle(self, name: str = "Linthra-v0.2.7-x86_64.flatpak") -> Path:
+        path = self.tmp / name
+        path.write_bytes(b"not really an ostree static delta")
+        return path
+
+    def test_contained_bundle_passes_and_reports_its_digest(self):
+        self.stub_extractor(contained_payload())
+        artifact = self.bundle()
+
+        record = verifier.verify_artifact(artifact, MESSAGE)
+
+        # The digest is of the bundle a user downloads, not of the payload
+        # unpacked out of it — that is the whole point of hashing here.
+        self.assertEqual(record["artifact"], "Linthra-v0.2.7-x86_64.flatpak")
+        self.assertEqual(
+            record["sha256"],
+            hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(record["payloads"], ["files/lib/linthra/lib/libapp.so"])
+
+    def test_uncontained_bundle_is_refused(self):
+        self.stub_extractor(contained_payload(extra=("DefaultCastService",)))
+
+        with self.assertRaises(verifier.VerificationError) as caught:
+            verifier.verify_artifact(self.bundle(), MESSAGE)
+        self.assertIn("DefaultCastService", str(caught.exception))
+
+    def test_a_bundle_with_no_payload_fails_closed(self):
+        self.stub_extractor(None)
+
+        with self.assertRaises(verifier.VerificationError) as caught:
+            verifier.verify_artifact(self.bundle(), MESSAGE)
+        self.assertIn("no libapp.so", str(caught.exception))
+
+    def test_an_unreadable_bundle_fails_closed(self):
+        def refuse(_bundle: Path, _destination: Path) -> str:
+            raise self.flatpak_bundle.BundleError("ostree is not installed")
+
+        self.flatpak_bundle.extract_bundle = refuse
+
+        with self.assertRaises(verifier.VerificationError) as caught:
+            verifier.verify_artifact(self.bundle(), MESSAGE)
+        self.assertIn("ostree is not installed", str(caught.exception))
 
 
 class CommandLineTest(unittest.TestCase):

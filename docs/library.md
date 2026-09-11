@@ -153,6 +153,61 @@ track or surfaced in the Library — a Jellyfin track's stored reference is an
 opaque `jellyfin:<id>`, and stream URLs (which carry the access token) are minted
 only at play time.
 
+## Track status in the library
+
+Every track row carries one small, non-interactive glyph beside its overflow
+menu. It never grows into a control, and it is **silent by default**: on-device
+music has no server to be away from, and a server-backed row whose server is
+answering and which has no saved copy of its own has nothing worth saying. An
+indicator lit on every ordinary row is one nobody reads, so the interesting
+states earn their place by being the exception.
+
+The glyph answers two questions, in this order:
+
+1. **Is something being transferred?** Queued, downloading (a determinate ring
+   when the server reported a size), or failed. Transient and actionable, so it
+   wins whenever it has something to say.
+2. **Will this still play when the server is away?** Once nothing is in flight,
+   the row reports its settled availability.
+
+| What the row is | Glyph | Meaning |
+| --- | --- | --- |
+| On-device file | *(nothing)* | There is no server to be away from. |
+| Server-backed, server answering, no copy | *(nothing)* | The ordinary case. |
+| Explicitly downloaded | Download done | A copy the user asked for, and the server is answering. |
+| Pre-cached only | Outlined pin | A copy the app prefetched ahead of play ([offline-cache.md](./offline-cache.md)). Cached, but **evictable** — deliberately not shown as "Downloaded", which would promise more than it can keep. |
+| Saved copy, server away | Filled pin | The copy is no longer a convenience: it is the only reason the row still plays. |
+| Server unreachable, no copy | Cloud-off | This row will not play right now. |
+| Session rejected, no copy | Lock | The server *answered* — sign in again, rather than checking the network. |
+| Probe in flight | Cloud-sync | We do not know yet. Never shown as a failure. |
+
+A saved copy outranks the server's state on purpose: once a row plays anyway,
+whether the server is up has stopped being the interesting fact.
+
+**It is derived, never probed.** Every input already exists — the per-source
+availability the probe controller publishes
+(`core/sources/source_availability.dart`) and the live offline-cache set the
+download repository maintains. No row performs a network check of its own, and
+the state is read through Riverpod, so a server that comes back **updates every
+visible row with no restart, no reconnect and no rescan**. The glyph is scoped to
+its own row's source, so a probe of one server never rebuilds another's rows.
+
+**Nothing secret is reachable from it.** The only text the glyph announces is a
+fixed, human-readable server name — "Jellyfin", "Navidrome", "Plex" — taken from
+`PlaybackSourceLabel`, the same safe vocabulary the now-playing "Playing from …"
+indicator uses. A server URL, host, username, token, or file path is never
+formatted into it.
+
+Two things it deliberately does **not** do yet:
+
+- **Album and artist rows have no indicator.** An album mixes tracks, so
+  "available" would first have to mean something specific — every track, or the
+  primary copy — which is a design question rather than a wiring one.
+- **Only Jellyfin reports a real probe.** Every other source is treated as
+  reachable by construction, so its rows stay silent until it adopts the same
+  probe. Nothing here is Jellyfin-specific: a source that starts publishing
+  availability gets its indicators for free.
+
 ## Known limitations
 
 - **Metadata quality depends on the source.** Grouping is only as good as the

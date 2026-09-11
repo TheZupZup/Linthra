@@ -73,6 +73,18 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
   late final GeneratedColumn<String> artworkUri = GeneratedColumn<String>(
       'artwork_uri', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _fileSizeBytesMeta =
+      const VerificationMeta('fileSizeBytes');
+  @override
+  late final GeneratedColumn<int> fileSizeBytes = GeneratedColumn<int>(
+      'file_size_bytes', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _fileModifiedAtMsMeta =
+      const VerificationMeta('fileModifiedAtMs');
+  @override
+  late final GeneratedColumn<int> fileModifiedAtMs = GeneratedColumn<int>(
+      'file_modified_at_ms', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -85,7 +97,9 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
         albumArtistName,
         durationMs,
         trackNumber,
-        artworkUri
+        artworkUri,
+        fileSizeBytes,
+        fileModifiedAtMs
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -158,6 +172,18 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           artworkUri.isAcceptableOrUnknown(
               data['artwork_uri']!, _artworkUriMeta));
     }
+    if (data.containsKey('file_size_bytes')) {
+      context.handle(
+          _fileSizeBytesMeta,
+          fileSizeBytes.isAcceptableOrUnknown(
+              data['file_size_bytes']!, _fileSizeBytesMeta));
+    }
+    if (data.containsKey('file_modified_at_ms')) {
+      context.handle(
+          _fileModifiedAtMsMeta,
+          fileModifiedAtMs.isAcceptableOrUnknown(
+              data['file_modified_at_ms']!, _fileModifiedAtMsMeta));
+    }
     return context;
   }
 
@@ -189,6 +215,10 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           .read(DriftSqlType.int, data['${effectivePrefix}track_number']),
       artworkUri: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}artwork_uri']),
+      fileSizeBytes: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}file_size_bytes']),
+      fileModifiedAtMs: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}file_modified_at_ms']),
     );
   }
 
@@ -219,6 +249,22 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
   final int durationMs;
   final int? trackNumber;
   final String? artworkUri;
+
+  /// The source file's length in bytes the last time its tags were parsed, and
+  /// the file's last-modified time as milliseconds since the Unix epoch. Together
+  /// they are the stamp an incremental local scan compares against a fresh
+  /// `stat` to decide whether a file has to be opened and parsed again. Both
+  /// null for anything that is not a plain local file (remote tracks, Android
+  /// SAF documents, MediaStore rows) and for rows written before schema v5; a
+  /// null stamp means "parse it", i.e. exactly the pre-v5 behavior.
+  ///
+  /// They live on the track row rather than in a side table because the row
+  /// *is* the record of "this path was parsed into this track": one write, one
+  /// transaction, and no way for a catalog and a separate stamp index to drift
+  /// apart and skip parsing a file whose track was never stored. Added in
+  /// schema v5.
+  final int? fileSizeBytes;
+  final int? fileModifiedAtMs;
   const TrackRow(
       {required this.id,
       required this.sourceId,
@@ -230,7 +276,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       this.albumArtistName,
       required this.durationMs,
       this.trackNumber,
-      this.artworkUri});
+      this.artworkUri,
+      this.fileSizeBytes,
+      this.fileModifiedAtMs});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -256,6 +304,12 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     }
     if (!nullToAbsent || artworkUri != null) {
       map['artwork_uri'] = Variable<String>(artworkUri);
+    }
+    if (!nullToAbsent || fileSizeBytes != null) {
+      map['file_size_bytes'] = Variable<int>(fileSizeBytes);
+    }
+    if (!nullToAbsent || fileModifiedAtMs != null) {
+      map['file_modified_at_ms'] = Variable<int>(fileModifiedAtMs);
     }
     return map;
   }
@@ -285,6 +339,12 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       artworkUri: artworkUri == null && nullToAbsent
           ? const Value.absent()
           : Value(artworkUri),
+      fileSizeBytes: fileSizeBytes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(fileSizeBytes),
+      fileModifiedAtMs: fileModifiedAtMs == null && nullToAbsent
+          ? const Value.absent()
+          : Value(fileModifiedAtMs),
     );
   }
 
@@ -303,6 +363,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       durationMs: serializer.fromJson<int>(json['durationMs']),
       trackNumber: serializer.fromJson<int?>(json['trackNumber']),
       artworkUri: serializer.fromJson<String?>(json['artworkUri']),
+      fileSizeBytes: serializer.fromJson<int?>(json['fileSizeBytes']),
+      fileModifiedAtMs: serializer.fromJson<int?>(json['fileModifiedAtMs']),
     );
   }
   @override
@@ -320,6 +382,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       'durationMs': serializer.toJson<int>(durationMs),
       'trackNumber': serializer.toJson<int?>(trackNumber),
       'artworkUri': serializer.toJson<String?>(artworkUri),
+      'fileSizeBytes': serializer.toJson<int?>(fileSizeBytes),
+      'fileModifiedAtMs': serializer.toJson<int?>(fileModifiedAtMs),
     };
   }
 
@@ -334,7 +398,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           Value<String?> albumArtistName = const Value.absent(),
           int? durationMs,
           Value<int?> trackNumber = const Value.absent(),
-          Value<String?> artworkUri = const Value.absent()}) =>
+          Value<String?> artworkUri = const Value.absent(),
+          Value<int?> fileSizeBytes = const Value.absent(),
+          Value<int?> fileModifiedAtMs = const Value.absent()}) =>
       TrackRow(
         id: id ?? this.id,
         sourceId: sourceId ?? this.sourceId,
@@ -349,6 +415,11 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
         durationMs: durationMs ?? this.durationMs,
         trackNumber: trackNumber.present ? trackNumber.value : this.trackNumber,
         artworkUri: artworkUri.present ? artworkUri.value : this.artworkUri,
+        fileSizeBytes:
+            fileSizeBytes.present ? fileSizeBytes.value : this.fileSizeBytes,
+        fileModifiedAtMs: fileModifiedAtMs.present
+            ? fileModifiedAtMs.value
+            : this.fileModifiedAtMs,
       );
   TrackRow copyWithCompanion(TracksCompanion data) {
     return TrackRow(
@@ -369,6 +440,12 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           data.trackNumber.present ? data.trackNumber.value : this.trackNumber,
       artworkUri:
           data.artworkUri.present ? data.artworkUri.value : this.artworkUri,
+      fileSizeBytes: data.fileSizeBytes.present
+          ? data.fileSizeBytes.value
+          : this.fileSizeBytes,
+      fileModifiedAtMs: data.fileModifiedAtMs.present
+          ? data.fileModifiedAtMs.value
+          : this.fileModifiedAtMs,
     );
   }
 
@@ -385,14 +462,28 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           ..write('albumArtistName: $albumArtistName, ')
           ..write('durationMs: $durationMs, ')
           ..write('trackNumber: $trackNumber, ')
-          ..write('artworkUri: $artworkUri')
+          ..write('artworkUri: $artworkUri, ')
+          ..write('fileSizeBytes: $fileSizeBytes, ')
+          ..write('fileModifiedAtMs: $fileModifiedAtMs')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, sourceId, title, uri, artistName,
-      albumName, albumId, albumArtistName, durationMs, trackNumber, artworkUri);
+  int get hashCode => Object.hash(
+      id,
+      sourceId,
+      title,
+      uri,
+      artistName,
+      albumName,
+      albumId,
+      albumArtistName,
+      durationMs,
+      trackNumber,
+      artworkUri,
+      fileSizeBytes,
+      fileModifiedAtMs);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -407,7 +498,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           other.albumArtistName == this.albumArtistName &&
           other.durationMs == this.durationMs &&
           other.trackNumber == this.trackNumber &&
-          other.artworkUri == this.artworkUri);
+          other.artworkUri == this.artworkUri &&
+          other.fileSizeBytes == this.fileSizeBytes &&
+          other.fileModifiedAtMs == this.fileModifiedAtMs);
 }
 
 class TracksCompanion extends UpdateCompanion<TrackRow> {
@@ -422,6 +515,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
   final Value<int> durationMs;
   final Value<int?> trackNumber;
   final Value<String?> artworkUri;
+  final Value<int?> fileSizeBytes;
+  final Value<int?> fileModifiedAtMs;
   final Value<int> rowid;
   const TracksCompanion({
     this.id = const Value.absent(),
@@ -435,6 +530,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.durationMs = const Value.absent(),
     this.trackNumber = const Value.absent(),
     this.artworkUri = const Value.absent(),
+    this.fileSizeBytes = const Value.absent(),
+    this.fileModifiedAtMs = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TracksCompanion.insert({
@@ -449,6 +546,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.durationMs = const Value.absent(),
     this.trackNumber = const Value.absent(),
     this.artworkUri = const Value.absent(),
+    this.fileSizeBytes = const Value.absent(),
+    this.fileModifiedAtMs = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
         sourceId = Value(sourceId),
@@ -466,6 +565,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     Expression<int>? durationMs,
     Expression<int>? trackNumber,
     Expression<String>? artworkUri,
+    Expression<int>? fileSizeBytes,
+    Expression<int>? fileModifiedAtMs,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -480,6 +581,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       if (durationMs != null) 'duration_ms': durationMs,
       if (trackNumber != null) 'track_number': trackNumber,
       if (artworkUri != null) 'artwork_uri': artworkUri,
+      if (fileSizeBytes != null) 'file_size_bytes': fileSizeBytes,
+      if (fileModifiedAtMs != null) 'file_modified_at_ms': fileModifiedAtMs,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -496,6 +599,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       Value<int>? durationMs,
       Value<int?>? trackNumber,
       Value<String?>? artworkUri,
+      Value<int?>? fileSizeBytes,
+      Value<int?>? fileModifiedAtMs,
       Value<int>? rowid}) {
     return TracksCompanion(
       id: id ?? this.id,
@@ -509,6 +614,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       durationMs: durationMs ?? this.durationMs,
       trackNumber: trackNumber ?? this.trackNumber,
       artworkUri: artworkUri ?? this.artworkUri,
+      fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+      fileModifiedAtMs: fileModifiedAtMs ?? this.fileModifiedAtMs,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -549,6 +656,12 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     if (artworkUri.present) {
       map['artwork_uri'] = Variable<String>(artworkUri.value);
     }
+    if (fileSizeBytes.present) {
+      map['file_size_bytes'] = Variable<int>(fileSizeBytes.value);
+    }
+    if (fileModifiedAtMs.present) {
+      map['file_modified_at_ms'] = Variable<int>(fileModifiedAtMs.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -569,6 +682,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
           ..write('durationMs: $durationMs, ')
           ..write('trackNumber: $trackNumber, ')
           ..write('artworkUri: $artworkUri, ')
+          ..write('fileSizeBytes: $fileSizeBytes, ')
+          ..write('fileModifiedAtMs: $fileModifiedAtMs, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -600,6 +715,8 @@ typedef $$TracksTableCreateCompanionBuilder = TracksCompanion Function({
   Value<int> durationMs,
   Value<int?> trackNumber,
   Value<String?> artworkUri,
+  Value<int?> fileSizeBytes,
+  Value<int?> fileModifiedAtMs,
   Value<int> rowid,
 });
 typedef $$TracksTableUpdateCompanionBuilder = TracksCompanion Function({
@@ -614,6 +731,8 @@ typedef $$TracksTableUpdateCompanionBuilder = TracksCompanion Function({
   Value<int> durationMs,
   Value<int?> trackNumber,
   Value<String?> artworkUri,
+  Value<int?> fileSizeBytes,
+  Value<int?> fileModifiedAtMs,
   Value<int> rowid,
 });
 
@@ -659,6 +778,13 @@ class $$TracksTableFilterComposer
 
   ColumnFilters<String> get artworkUri => $composableBuilder(
       column: $table.artworkUri, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get fileSizeBytes => $composableBuilder(
+      column: $table.fileSizeBytes, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get fileModifiedAtMs => $composableBuilder(
+      column: $table.fileModifiedAtMs,
+      builder: (column) => ColumnFilters(column));
 }
 
 class $$TracksTableOrderingComposer
@@ -703,6 +829,14 @@ class $$TracksTableOrderingComposer
 
   ColumnOrderings<String> get artworkUri => $composableBuilder(
       column: $table.artworkUri, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get fileSizeBytes => $composableBuilder(
+      column: $table.fileSizeBytes,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get fileModifiedAtMs => $composableBuilder(
+      column: $table.fileModifiedAtMs,
+      builder: (column) => ColumnOrderings(column));
 }
 
 class $$TracksTableAnnotationComposer
@@ -746,6 +880,12 @@ class $$TracksTableAnnotationComposer
 
   GeneratedColumn<String> get artworkUri => $composableBuilder(
       column: $table.artworkUri, builder: (column) => column);
+
+  GeneratedColumn<int> get fileSizeBytes => $composableBuilder(
+      column: $table.fileSizeBytes, builder: (column) => column);
+
+  GeneratedColumn<int> get fileModifiedAtMs => $composableBuilder(
+      column: $table.fileModifiedAtMs, builder: (column) => column);
 }
 
 class $$TracksTableTableManager extends RootTableManager<
@@ -782,6 +922,8 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<int> durationMs = const Value.absent(),
             Value<int?> trackNumber = const Value.absent(),
             Value<String?> artworkUri = const Value.absent(),
+            Value<int?> fileSizeBytes = const Value.absent(),
+            Value<int?> fileModifiedAtMs = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               TracksCompanion(
@@ -796,6 +938,8 @@ class $$TracksTableTableManager extends RootTableManager<
             durationMs: durationMs,
             trackNumber: trackNumber,
             artworkUri: artworkUri,
+            fileSizeBytes: fileSizeBytes,
+            fileModifiedAtMs: fileModifiedAtMs,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -810,6 +954,8 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<int> durationMs = const Value.absent(),
             Value<int?> trackNumber = const Value.absent(),
             Value<String?> artworkUri = const Value.absent(),
+            Value<int?> fileSizeBytes = const Value.absent(),
+            Value<int?> fileModifiedAtMs = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               TracksCompanion.insert(
@@ -824,6 +970,8 @@ class $$TracksTableTableManager extends RootTableManager<
             durationMs: durationMs,
             trackNumber: trackNumber,
             artworkUri: artworkUri,
+            fileSizeBytes: fileSizeBytes,
+            fileModifiedAtMs: fileModifiedAtMs,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

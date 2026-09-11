@@ -60,8 +60,18 @@ left:
 - **Skipped** — the listener moved on first: a skip, a jump elsewhere in the
   queue, or a whole new queue.
 
-A track that never actually started (a load that failed) is not recorded:
-"recently played" has to mean played.
+A track that never actually started is not recorded: "recently played" has to
+mean played. That covers a load that failed, and a queue restored paused after
+a crash and never played — a paused state is not evidence that any audio came
+out.
+
+Under **repeat one** each pass is its own play. The player publishes no
+"finished" signal there (it just seeks back to zero and plays again), so the
+history closes the previous pass at the restart. Finishing a song and then
+skipping the next time round is recorded as a skip, which is what happened.
+
+A very short track is judged on a proportionally shorter tolerance, so
+skipping a two-second interlude is a skip rather than a completed play.
 
 Playing the same song again **moves** its entry to the front rather than adding
 a second one, so a repeat-heavy session cannot push everything else off the end.
@@ -77,13 +87,20 @@ It is also **memory only**. Nothing about the recent-playback history is
 written to disk, so it is empty again after a restart. That is deliberate — see
 *Security* below.
 
+Recording starts with the **app**, not with the pane. The player's state stream
+does not replay, so a recorder created when the pane is first opened would have
+missed everything played up to that moment — and the list you opened it to read
+would be empty. It is started during desktop startup instead, alongside the
+other background services.
+
 ### Replaying a row
 
 Tapping a Recently played row plays that song again, by one of two routes:
 
 - the track is **still in the current queue's** history → it steps back to it,
   exactly like tapping a Previously played row: up-next is preserved and the
-  queue is not rebuilt;
+  queue is not rebuilt. When the same song is queued more than once it steps
+  back to the **most recent** one, which is the play the row stands for;
 - otherwise (it came from an earlier queue) → it plays through the ordinary
   play path.
 
@@ -247,4 +264,8 @@ when you save the queue as a playlist (only stable track ids are saved).
       track re-resolves; no stale URL is reused).
 - [ ] Press **Clear** — up next and Recently played both empty, the current
       track keeps playing.
+- [ ] Play a few songs **without opening the queue pane**, then open it —
+      they are all listed.
+- [ ] With repeat one on, let a song finish, then skip it partway through the
+      next pass — the row reads as skipped.
 - [ ] Restart the app — Recently played is empty again (memory only).

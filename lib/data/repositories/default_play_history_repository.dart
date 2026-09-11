@@ -4,6 +4,7 @@ import '../../core/models/play_history.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/play_history_repository.dart';
 import '../../core/repositories/play_history_store.dart';
+import '../../core/repositories/track_identity_reassignable.dart';
 
 /// The app's [PlayHistoryRepository]: an in-memory mirror persisted through a
 /// [PlayHistoryStore].
@@ -23,7 +24,8 @@ import '../../core/repositories/play_history_store.dart';
 /// Privacy: the stored key is the non-secret [Track.uri] — the same identity the
 /// catalog DB and "recently added" store already persist — never a token or an
 /// authenticated stream URL, and nothing is sent off the device.
-class DefaultPlayHistoryRepository implements PlayHistoryRepository {
+class DefaultPlayHistoryRepository
+    implements PlayHistoryRepository, TrackIdentityReassignable {
   DefaultPlayHistoryRepository({
     required PlayHistoryStore store,
     DateTime Function()? now,
@@ -86,6 +88,35 @@ class DefaultPlayHistoryRepository implements PlayHistoryRepository {
       } catch (_) {
         // Never throw out of recordCompletion: a failed persist keeps the
         // in-memory count and the next write retries the save.
+      }
+    });
+    return _writes;
+  }
+
+  /// Carries a moved local file's play count and last-played time to its new
+  /// path, on the same write queue as [recordCompletion] so it cannot race a
+  /// play being recorded at either end.
+  ///
+  /// [PlayHistory.remapKey] does the merging: if the new path somehow already
+  /// had stats (the same song was there before, then replaced) the counts add
+  /// up and the later last-played time wins, so nothing is lost either way.
+  @override
+  Future<void> reassignTrack({
+    required String fromUri,
+    required String toUri,
+  }) {
+    _writes = _writes.then((_) async {
+      try {
+        await _ensureLoaded();
+        final PlayHistory remapped = _history.remapKey(fromUri, toUri);
+        if (identical(remapped, _history)) return;
+        _history = remapped;
+        if (!_changes.isClosed) _changes.add(_history);
+        await _store.save(_history);
+      } catch (_) {
+        // Same contract as recordCompletion: never throw at the caller. A
+        // failed persist keeps the re-keyed history in memory and the next
+        // write retries the save.
       }
     });
     return _writes;

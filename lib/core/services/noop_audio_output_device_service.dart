@@ -20,4 +20,10 @@ class NoopAudioOutputDeviceService implements AudioOutputDeviceService {
 
   @override
   Future<bool> select(AudioOutputDevice device) async => false;
+
+  /// Nothing to observe: an empty stream that closes immediately, so a listener
+  /// is never left waiting on events that cannot come.
+  @override
+  Stream<List<AudioOutputDevice>> get deviceChanges =>
+      const Stream<List<AudioOutputDevice>>.empty();
 }

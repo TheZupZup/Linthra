@@ -17,6 +17,7 @@ import 'package:linthra/data/repositories/remote_cache_index_provider.dart';
 import 'package:linthra/features/library/library_providers.dart';
 import 'package:linthra/features/player/lyrics_providers.dart';
 import 'package:linthra/features/player/media_artwork_providers.dart';
+import 'package:linthra/features/player/playback_history_providers.dart';
 import 'package:linthra/features/player/player_providers.dart';
 
 import '../support/fake_audio_player.dart';
@@ -58,6 +59,7 @@ void main() {
       container.read(mediaArtworkPrewarmServiceProvider);
       container.read(smartPrecacheServiceProvider);
       container.read(remotePrebufferServiceProvider);
+      container.read(playbackHistoryProvider);
       container.read(remoteCacheIndexProvider);
       container.read(playbackReportingServiceProvider);
       container.read(remoteControlServiceProvider);

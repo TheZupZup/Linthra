@@ -1,16 +1,18 @@
-name: Large-library SQL
+name: Large-library SQL and memory
 
 on:
   pull_request:
     paths:
       - 'tools/large_library/**'
       - 'test/tooling/large_library_benchmark_test.py'
+      - 'test/tooling/large_library_memory_report_test.py'
       - '.github/workflows/large-library-sql.yml'
   push:
     branches: [main]
     paths:
       - 'tools/large_library/**'
       - 'test/tooling/large_library_benchmark_test.py'
+      - 'test/tooling/large_library_memory_report_test.py'
       - '.github/workflows/large-library-sql.yml'
 
 permissions:
@@ -26,6 +28,17 @@ jobs:
       # summary block is broken there is no point spending minutes on timings.
       - name: Test benchmark summary rendering
         run: python3 test/tooling/large_library_benchmark_test.py
+
+      # The judgement half of the memory check (#463). Pure Python over
+      # synthetic series: no Flutter, no measurement, nothing machine-dependent,
+      # so it belongs in CI even though the measurement itself does not.
+      #
+      # What it guards is the analyser's ability to tell a leak from noise. The
+      # measurement runs locally (tools/large_library/run_memory_check.sh),
+      # because an RSS series taken on a shared CI runner says more about the
+      # runner than about Linthra. Local twin: the same command.
+      - name: Test the memory-report analyser
+        run: python3 test/tooling/large_library_memory_report_test.py
 
       - name: Generate 200k-track catalog
         run: >-
