@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../core/services/artwork_disk_cache.dart';
@@ -142,11 +145,143 @@ int artworkDecodeExtent(BuildContext context, double logicalExtent) =>
 /// is what the resolver tests want and what a caller that genuinely cannot know
 /// its box gets; every surface in the app passes one.
 ImageProvider artworkImageProvider(Uri uri, {int? decodeExtent}) {
-  return ResizeImage.resizeIfNeeded(
-    decodeExtent,
-    null,
-    _rawArtworkImageProvider(uri),
-  );
+  final ImageProvider raw = _rawArtworkImageProvider(uri);
+  if (decodeExtent == null) {
+    return raw;
+  }
+  return CoverResizeImage(raw, extent: decodeExtent);
+}
+
+/// Decodes an image for [BoxFit.cover] into a square of [extent] device pixels.
+///
+/// Every artwork surface draws with `BoxFit.cover`, and cover is satisfied by
+/// the image's *shorter* side. `ResizeImage` cannot express that: given one
+/// axis it derives the other from the aspect ratio, so a landscape source
+/// constrained on width comes back too short and gets scaled back up, which is
+/// a visibly soft cover (#626). Given both axes it either stretches the image
+/// (`exact`) or fits it inside the box (`fit`), and neither is cover.
+///
+/// The decode callback is handed the source's intrinsic size before the codec
+/// is instantiated, which is the piece `ResizeImage`'s public API cannot use
+/// for this. So the scale is chosen from the shorter side:
+///
+/// ```
+/// scale = extent / min(intrinsicWidth, intrinsicHeight)
+/// ```
+///
+/// A square source therefore decodes exactly as it did before, and a
+/// non-square one decodes to whatever makes its shorter side meet [extent],
+/// with no extra memory for the common case.
+///
+/// Never upscales: a source already smaller than [extent] on its shorter side
+/// is decoded untouched, so a small cover is not inflated in the image cache.
+@immutable
+class CoverResizeImage extends ImageProvider<CoverResizeImageKey> {
+  const CoverResizeImage(this.imageProvider, {required this.extent});
+
+  /// The provider that actually loads the bytes.
+  final ImageProvider imageProvider;
+
+  /// The device pixels the cover's shorter side must reach.
+  final int extent;
+
+  /// The target size for a source of [intrinsicWidth] x [intrinsicHeight].
+  ///
+  /// Separated out so the arithmetic is testable without decoding an image.
+  @visibleForTesting
+  ui.TargetImageSize targetSizeFor(int intrinsicWidth, int intrinsicHeight) {
+    if (intrinsicWidth <= 0 || intrinsicHeight <= 0) {
+      return const ui.TargetImageSize();
+    }
+    final int shortest = math.min(intrinsicWidth, intrinsicHeight);
+    if (shortest <= extent) {
+      // Already at or below the target on the covering axis. Decoding it
+      // larger would be upscaling into the cache for nothing.
+      return const ui.TargetImageSize();
+    }
+    final double scale = extent / shortest;
+    return ui.TargetImageSize(
+      width: math.max(1, (intrinsicWidth * scale).round()),
+      height: math.max(1, (intrinsicHeight * scale).round()),
+    );
+  }
+
+  @override
+  ImageStreamCompleter loadImage(
+    CoverResizeImageKey key,
+    ImageDecoderCallback decode,
+  ) {
+    Future<ui.Codec> decodeCover(
+      ui.ImmutableBuffer buffer, {
+      ui.TargetImageSizeCallback? getTargetSize,
+    }) {
+      assert(
+        getTargetSize == null,
+        'CoverResizeImage cannot be composed with another ImageProvider that '
+        'applies getTargetSize.',
+      );
+      return decode(buffer, getTargetSize: targetSizeFor);
+    }
+
+    return imageProvider.loadImage(key.providerCacheKey, decodeCover);
+  }
+
+  @override
+  Future<CoverResizeImageKey> obtainKey(ImageConfiguration configuration) {
+    // Mirrors ResizeImage.obtainKey: the wrapped provider's key is usually
+    // available synchronously, and forcing it through a Completer would make
+    // every artwork render take an extra frame.
+    Completer<CoverResizeImageKey>? completer;
+    SynchronousFuture<CoverResizeImageKey>? result;
+    imageProvider.obtainKey(configuration).then((Object key) {
+      if (completer == null) {
+        result = SynchronousFuture<CoverResizeImageKey>(
+          CoverResizeImageKey._(key, extent),
+        );
+      } else {
+        completer.complete(CoverResizeImageKey._(key, extent));
+      }
+    });
+    if (result != null) {
+      return result!;
+    }
+    completer = Completer<CoverResizeImageKey>();
+    return completer.future;
+  }
+}
+
+/// The image-cache key for a [CoverResizeImage].
+///
+/// Carries the wrapped provider's key *and* the extent, so the same cover at
+/// two different sizes is two cache entries and the same cover at the same
+/// size is one. Getting this wrong does not fail loudly, it just silently
+/// stops the image cache working, which is why it has its own tests.
+@immutable
+class CoverResizeImageKey {
+  const CoverResizeImageKey._(this.providerCacheKey, this.extent);
+
+  /// The key of the provider [CoverResizeImage] wraps.
+  final Object providerCacheKey;
+
+  /// The extent the image was decoded for.
+  final int extent;
+
+  @override
+  bool operator ==(Object other) {
+    if (other.runtimeType != runtimeType) {
+      return false;
+    }
+    return other is CoverResizeImageKey &&
+        other.providerCacheKey == providerCacheKey &&
+        other.extent == extent;
+  }
+
+  @override
+  int get hashCode => Object.hash(providerCacheKey, extent);
+
+  @override
+  String toString() =>
+      'CoverResizeImageKey($providerCacheKey, extent: $extent)';
 }
 
 ImageProvider _rawArtworkImageProvider(Uri uri) {
