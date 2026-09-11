@@ -143,6 +143,17 @@ jobs:
       - name: Test the Flathub lint runner
         run: python3 test/tooling/flathub_builder_lint_test.py
 
+      # Every Flatpak permission has to be explained in a table a reviewer can
+      # read, and an explanation cannot outlive the permission it explains
+      # (#455). Cheap and toolchain-free, so it runs on every PR rather than in
+      # the 90-minute Flatpak job. Local twin:
+      # `python3 scripts/check_flatpak_permissions.py`.
+      - name: Check every Flatpak permission has a written rationale
+        run: python3 scripts/check_flatpak_permissions.py
+
+      - name: Test the Flatpak permission checker
+        run: python3 test/tooling/check_flatpak_permissions_test.py
+
   release-bump-guard:
     name: Release bump touches only version files
     runs-on: ubuntu-latest

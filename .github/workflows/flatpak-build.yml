@@ -17,9 +17,11 @@ on:
       - 'linux/runner/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/check_flatpak_permissions.py'
       - 'scripts/check_linux_runner.py'
       - 'scripts/flatpak_audio_smoke.sh'
       - 'scripts/flathub_builder_lint.py'
+      - 'scripts/flatpak_filesystem_smoke.sh'
       - 'scripts/flatpak_launch_smoke.sh'
       - 'scripts/flatpak_local_library_smoke.sh'
       - 'scripts/make_flatpak_smoke_manifest.py'
@@ -50,9 +52,11 @@ on:
       - 'linux/runner/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/check_flatpak_permissions.py'
       - 'scripts/check_linux_runner.py'
       - 'scripts/flatpak_audio_smoke.sh'
       - 'scripts/flathub_builder_lint.py'
+      - 'scripts/flatpak_filesystem_smoke.sh'
       - 'scripts/flatpak_launch_smoke.sh'
       - 'scripts/flatpak_local_library_smoke.sh'
       - 'scripts/make_flatpak_smoke_manifest.py'
@@ -245,6 +249,33 @@ jobs:
           test -f repo-ci/config
           flatpak build-update-repo repo-ci
           echo 'Flatpak build and repository export completed successfully.'
+
+      # What the package actually carries, which is a different question from
+      # what the manifests ask for (#455). The manifest half runs on every PR
+      # in the main CI workflow and is cheap; this half needs a built package,
+      # so it lives here, and until it was wired up it ran nowhere at all.
+      # `check_flatpak_permissions.py --installed` reads
+      # `flatpak info --show-permissions` off the installed app and holds it to
+      # the same table in docs/flatpak-permissions.md.
+      #
+      # The same script also re-checks #439's filesystem policy against the
+      # artifact: no filesystem or persist grant in the package, none added by
+      # any override scope, an unrelated host file invisible from inside, and
+      # the private XDG tree writable.
+      #
+      # dbus-run-session because `flatpak run` wants a session bus for its bus
+      # proxy, and a GitHub runner has none.
+      #
+      # Ahead of the launch smoke on purpose. Both install the package, so they
+      # have to be sequential, and a failed step ends the job. This one is fast
+      # and deterministic; the launch smoke waits on window and icon timing and
+      # has flaked on it before. Putting the flakier step first is what would
+      # cost coverage.
+      - name: Check the installed package's permissions and sandbox
+        working-directory: flatpak
+        run: |
+          set -euo pipefail
+          dbus-run-session -- bash ../scripts/flatpak_filesystem_smoke.sh repo-ci
 
       # Before the lint below, deliberately. A failed step ends the job, so a
       # lint finding sitting ahead of this would stop the package being
