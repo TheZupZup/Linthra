@@ -286,7 +286,7 @@ not rendered at all.
 | The seam | `lib/core/services/audio_output_device_service.dart` |
 | Linux implementation | `lib/core/services/linux_audio_output_device_service.dart` |
 | Platform split | `lib/core/services/platform_audio_output_device_service.dart` |
-| Policy (restore, fallback, what is remembered) | `lib/features/settings/playback/audio_output_controller.dart` |
+| Policy (restore, fallback, hotplug, what is remembered) | `lib/features/settings/playback/audio_output_controller.dart` |
 
 Four decisions worth knowing:
 
@@ -350,6 +350,66 @@ desktop:
 | Plug in a headset, then press Refresh | The new device appears in the list. |
 | Pick a USB output, quit, unplug it, relaunch | Playback uses the system default and the card says the saved output is unavailable. |
 | Pick a USB output, quit, plug it back in, relaunch | Playback goes back to that output on its own. |
+
+### Device hotplug
+
+Devices come and go while music is playing: headphones are unplugged, a
+Bluetooth speaker drops out of range and comes back, an HDMI sink appears when a
+monitor wakes, the desktop moves its default sink
+([issue #403](https://github.com/thezupzup/linthra/issues/403)). The same seam
+handles all of it — `AudioOutputDeviceService.deviceChanges` is libmpv's
+`audio-device-list` *observed* rather than read once, and the rules for reacting
+live in `AudioOutputController` next to the ones that already decide which
+output is chosen and whether it is remembered.
+
+| The host does this | Linthra does this |
+| --- | --- |
+| A device appears | Adds it to the list. Playback is not moved. |
+| An unrelated device disappears | Updates the list. Playback is not moved. |
+| The system default moves, and nothing was chosen | Nothing. "System default" means the host decides, including when it changes its mind. |
+| The chosen device is still listed | Nothing. libmpv carried playback through with no gap, and re-routing to a sink audio is already on would be an interruption caused purely by the recovery code. |
+| The chosen device disappears | Falls back to the system default so audio stays audible, and the card says why it moved. The preference is **kept**. |
+| The chosen device comes back | Hands playback back to it and clears the notice. |
+| The fallback is refused too | Surfaces a recoverable "playback may be silent" state with a **Try again**, rather than leaving playback pointed at a sink that is not there. |
+
+Three properties are what keep this from causing the bugs it is meant to fix:
+
+* **Nothing is ever re-loaded.** Recovery is a *routing* decision: the queue,
+  the track and the position are untouched, and no second player is created, so
+  a device event cannot produce duplicate playback.
+* **Exactly one subscription.** The controller opens one device-change
+  subscription in `build` and closes it with the notifier, and the Linux service
+  keeps at most one device-list listener per live player, keyed by the player
+  id. One unplug is handled once.
+* **Nothing polls.** The service re-attaches when the engine rebuilds its
+  player, driven by the vendored plugin's `livePlayersChanged` signal
+  (`third_party/just_audio_media_kit/PATCHES.md`) rather than by a timer.
+
+**Memory remembers what disk forgets.** A saved output that was *never seen* on
+this machine is dropped at launch — that is the "saved on another machine" rule
+and it has not changed. But a device that has been playing this session and then
+vanished is a hotplug, not a stale preference, so the preference survives it and
+a reconnect restores the choice. Without that split, a Bluetooth dropout plus a
+refresh would quietly lose what the listener picked.
+
+**When nothing is playing there are no events.** Watching needs a live player,
+and Linthra will not create one just to watch — a diagnostics or settings screen
+that spun up a second libmpv handle would be the next bug. There is nothing to
+recover in that state either, because no audio is being interrupted; the next
+play, or the card's Refresh, picks up whatever changed.
+
+`test/features/settings/playback/audio_output_hotplug_test.dart` drives every
+row of the table above against a fake backend, including a flapping device over
+repeated connect/disconnect cycles. On a real desktop:
+
+| Check | Expected |
+| --- | --- |
+| Play something on the built-in output, plug in wired headphones | Audio keeps playing; the new device appears in the list without playback moving. |
+| Choose the headphones, then unplug them mid-track | Audio continues on the system default, the track does not restart, and the card explains the move. |
+| Plug them back in | Playback returns to them on its own. |
+| Choose a Bluetooth speaker, walk out of range and back | Same: fall back, then hand back, with no duplicated audio and no restart. |
+| Choose an HDMI output, put the monitor to sleep, wake it | Same. |
+| Change the desktop's default sink while playing on "System default" | Audio follows the desktop; Linthra does not fight it. |
 
 libmpv provides broad codec/container support and PulseAudio/PipeWire output.
 It is a native runtime dependency, not a binary downloaded when Linthra starts.
@@ -489,6 +549,7 @@ loaded:
 | Local tag reading | Supported | `FilesystemLocalMetadataReader` reads title, artist, album artist, album, track number and duration from ID3, Vorbis comments, MP4 atoms, APEv2 and RIFF INFO through `audio_metadata_reader` ([issue #407](https://github.com/TheZupZup/Linthra/issues/407)). An unreadable or untagged file still appears, from its filename. Android is deliberately unchanged: its tags come from the native SAF walk. |
 | Local embedded artwork | Unsupported | Tags are read without pulling cover images out of every file during a scan. Extracting and caching embedded art on desktop is [issue #408](https://github.com/TheZupZup/Linthra/issues/408); tracks keep the placeholder until then. |
 | **Audio output device** | Supported | Settings → Music & playback → Audio output lists libmpv's `audio-device-list` and routes playback with `audio-device` ([issue #402](https://github.com/TheZupZup/Linthra/issues/402)). A saved device is re-applied at launch, and one that is no longer present falls back to the system default. See [Audio output device](#audio-output-device). |
+| **Device hotplug** | Supported | A headset, Bluetooth speaker or HDMI sink appearing or disappearing mid-playback is recovered without restarting the track or creating a second player, and a chosen device that comes back takes playback back ([issue #403](https://github.com/thezupzup/linthra/issues/403)). If even the system default is refused, the card says so and offers a retry. See [Device hotplug](#device-hotplug). |
 | **Playback diagnostics** | Supported | Settings → Diagnostics & support → Linux playback builds a copyable report of the backend, libmpv, the selected output subsystem and recent failure kinds ([issue #406](https://github.com/thezupzup/linthra/issues/406)). Safe by construction: no field can hold a URL, token, header, path, device name or raw error. See [Playback diagnostics](#playback-diagnostics). |
 | Chromecast | Android/iOS only | Already gated in `cast_providers.dart`; Linux keeps the honest "cast unavailable" service. |
 | Share sheet, launcher-icon switching | Android-only, by design | No desktop equivalent; the UI simply omits them. |
