@@ -32,16 +32,23 @@ typedef PlaybackHistoryRecord = void Function(
 /// next track — so the rule cannot be "wait for a completed status". Instead
 /// the outgoing track is judged on how far it actually got:
 ///
-///  * it reached within [endTolerance] of its duration → [
-///    PlaybackHistoryOutcome.completed];
+///  * it reached its end (within [endTolerance], clamped for short tracks —
+///    see [_endThreshold]) → [PlaybackHistoryOutcome.completed];
 ///  * a [PlaybackStatus.completed] state arrived for it (the queue ran out with
 ///    repeat off, so there is no track change to observe) → completed, recorded
 ///    right then;
 ///  * anything else → [PlaybackHistoryOutcome.skipped].
 ///
-/// A track that never actually started — a load that errored, a queue rebuilt
-/// before audio reached it — is not recorded at all: "recently played" has to
-/// mean played.
+/// A track change is not the only boundary between plays: under repeat-one the
+/// *same* track starts again, and the controller publishes no `completed`
+/// status for it (`_onCompleted` replays without emitting). Left alone, the
+/// second pass would inherit the first pass's furthest position and a skip
+/// halfway through it would be recorded as a completed play. [_isReplay]
+/// closes each pass at the restart instead.
+///
+/// A track that never actually started — a load that errored, a queue restored
+/// paused and never played, a queue rebuilt before audio reached it — is not
+/// recorded at all: "recently played" has to mean played.
 class PlaybackHistoryRecorder {
   PlaybackHistoryRecorder({
     required Stream<PlaybackState> states,
@@ -58,6 +65,11 @@ class PlaybackHistoryRecorder {
   /// header) can stop a second short. Two seconds absorbs both without turning
   /// a real skip near the end into a "completed".
   static const Duration endTolerance = Duration(seconds: 2);
+
+  /// How close to zero a position has to be to count as "started over" rather
+  /// than "seeked backwards". One second: the first position tick of a replay
+  /// lands within it, a deliberate scrub back does not.
+  static const Duration replayThreshold = Duration(seconds: 1);
 
   final Stream<PlaybackState> _states;
   final PlaybackHistoryRecord _onPlayed;
@@ -94,7 +106,8 @@ class PlaybackHistoryRecorder {
     final Track? current = state.currentTrack;
     final Track? observed = _observed;
 
-    if (observed != null && current?.uri != observed.uri) {
+    if (observed != null &&
+        (current?.uri != observed.uri || _isReplay(state))) {
       _flush();
       _begin(current);
     } else if (observed == null && current != null) {
@@ -106,10 +119,16 @@ class PlaybackHistoryRecorder {
     if (state.duration > Duration.zero) _duration = state.duration;
     switch (state.status) {
       case PlaybackStatus.playing:
-      case PlaybackStatus.paused:
       case PlaybackStatus.buffering:
       case PlaybackStatus.reconnecting:
         _started = true;
+      case PlaybackStatus.paused:
+        // Deliberately does *not* start an observation. A paused state is not
+        // evidence that audio played: a crash-restored queue is loaded paused
+        // on purpose, and the engine reaches paused/ready before an autoplay
+        // call takes effect. It only preserves a `_started` an active status
+        // already set, so pausing a track that did play still records it.
+        break;
       case PlaybackStatus.completed:
         _started = true;
         // The queue ran out with repeat off: no track change will ever follow,
@@ -125,6 +144,20 @@ class PlaybackHistoryRecorder {
     }
   }
 
+  /// Whether [state] is the same track starting *again* rather than continuing.
+  ///
+  /// The signal is a position that has jumped back to the very beginning after
+  /// the track had already reached its end — which is exactly what repeat-one
+  /// produces (`_replayCurrent` seeks to zero and plays) and what an ordinary
+  /// seek does not: a listener scrubbing backwards lands somewhere in the
+  /// track, not at [replayThreshold] from zero, and a track that never reached
+  /// its end is not replaying anything.
+  bool _isReplay(PlaybackState state) =>
+      _started &&
+      _reachedEnd &&
+      state.position <= replayThreshold &&
+      _furthest > replayThreshold;
+
   /// Reports the track being watched, if it earned an entry.
   void _flush() {
     final Track? outgoing = _observed;
@@ -139,8 +172,26 @@ class PlaybackHistoryRecorder {
     );
   }
 
+  /// The position at or past which a track counts as finished.
+  ///
+  /// [endTolerance] is a *fixed* two seconds, which is right for a song and
+  /// nonsense for a two-second interlude: subtracting it there yields a
+  /// threshold of zero or less, and every skip of a short track would be
+  /// recorded as a completed play. The tolerance is therefore capped at a
+  /// quarter of the track, so it always leaves something to fall short of.
+  Duration get _endThreshold {
+    final Duration quarter = _duration ~/ 4;
+    return _duration - (quarter < endTolerance ? quarter : endTolerance);
+  }
+
+  /// Whether the observed track got far enough to count as played to the end.
+  ///
+  /// Requires actual progress as well: a track sitting at position zero has not
+  /// finished, however short it is.
   bool get _reachedEnd =>
-      _duration > Duration.zero && _furthest >= _duration - endTolerance;
+      _duration > Duration.zero &&
+      _furthest > Duration.zero &&
+      _furthest >= _endThreshold;
 
   void _begin(Track? track) {
     _observed = track;

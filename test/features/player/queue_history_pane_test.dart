@@ -175,6 +175,76 @@ void main() {
     });
   });
 
+  group('recording starts with the app, not with the pane', () {
+    testWidgets('tracks played before the pane is ever opened are kept',
+        (tester) async {
+      // The regression: the provider used to be created by the queue pane, and
+      // the controller's state stream does not replay — so a listener who
+      // played an album and then opened Recently played found it empty.
+      final FakePlaybackController controller = FakePlaybackController();
+      addTearDown(controller.dispose);
+
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          playbackControllerProvider.overrideWithValue(controller),
+          hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // What bootstrap does, before any widget exists.
+      container.read(playbackHistoryProvider);
+
+      for (final String id in <String>['1', '2']) {
+        final Track track = _track(id);
+        controller.emit(PlaybackState(
+          status: PlaybackStatus.playing,
+          currentTrack: track,
+          duration: const Duration(minutes: 3),
+        ));
+        await tester.pump();
+        controller.emit(PlaybackState(
+          status: PlaybackStatus.playing,
+          currentTrack: track,
+          position: const Duration(minutes: 3),
+          duration: const Duration(minutes: 3),
+        ));
+        await tester.pump();
+      }
+      await controller.playTracks(<Track>[_track('3')]);
+      await tester.pumpAndSettle();
+
+      expect(container.read(playbackHistoryProvider).length, 2);
+    });
+
+    testWidgets('a touch build still records nothing at bootstrap',
+        (tester) async {
+      final FakePlaybackController controller = FakePlaybackController();
+      addTearDown(controller.dispose);
+
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          playbackControllerProvider.overrideWithValue(controller),
+          hostPlatformProvider.overrideWithValue(HostPlatform.android),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      container.read(playbackHistoryProvider);
+      controller.emit(PlaybackState(
+        status: PlaybackStatus.playing,
+        currentTrack: _track('1'),
+        position: const Duration(minutes: 3),
+        duration: const Duration(minutes: 3),
+      ));
+      await tester.pump();
+      await controller.playTracks(<Track>[_track('2')]);
+      await tester.pumpAndSettle();
+
+      expect(container.read(playbackHistoryProvider), PlaybackHistory.empty);
+    });
+  });
+
   group('replaying a history row', () {
     testWidgets('steps back inside the queue when the track is still in it',
         (tester) async {
@@ -200,6 +270,38 @@ void main() {
       expect(
         controller.state.upNext.map((Track t) => t.id),
         <String>['2', '3'],
+      );
+    });
+
+    testWidgets('a song queued twice steps back to its most recent play',
+        (tester) async {
+      final FakePlaybackController controller = FakePlaybackController();
+      addTearDown(controller.dispose);
+      await _pumpPane(tester, controller: controller);
+
+      // [A, X, A, current]: the recent-history entry for A stands for the
+      // second one, so tapping it must not jump back past X.
+      await controller.playTracks(<Track>[
+        _track('1'),
+        _track('2'),
+        _track('1'),
+        _track('9'),
+      ]);
+      await tester.pumpAndSettle();
+      for (int i = 0; i < 3; i++) {
+        await controller.skipToNext();
+        await tester.pumpAndSettle();
+      }
+      expect(controller.state.currentTrack?.id, '9');
+
+      await tester.tap(find.text('Song 1').last);
+      await tester.pumpAndSettle();
+
+      expect(controller.state.currentTrack?.id, '1');
+      expect(
+        controller.state.upNext.map((Track t) => t.id),
+        <String>['9'],
+        reason: 'stepping back to the later copy, not the first one',
       );
     });
 

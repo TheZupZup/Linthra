@@ -23,6 +23,7 @@ import '../data/repositories/playlist_repository_provider.dart';
 import '../data/repositories/remote_cache_index_provider.dart';
 import '../features/library/local_library_watch_service.dart';
 import '../features/player/media_artwork_providers.dart';
+import '../features/player/playback_history_providers.dart';
 import '../features/player/player_providers.dart';
 import '../features/settings/audiobookshelf/audiobookshelf_settings_controller.dart';
 import '../features/settings/desktop/close_behavior_controller.dart';
@@ -262,6 +263,12 @@ Future<ApplicationHandle> bootstrapApplication(
     // rather than a directory, and harmless when the kernel refuses a watch:
     // the folder is simply not live and manual refresh is untouched.
     container.read(localLibraryWatchServiceProvider);
+    // Desktop recent-playback history (#419). Read here rather than left to the
+    // queue pane: the pane starts closed, and the controller's state stream
+    // does not replay, so a lazily-created recorder would miss everything
+    // played before the listener first opened it. Off desktop this creates no
+    // recorder at all.
+    container.read(playbackHistoryProvider);
     // Loads and prunes the credential-free remote-cache manifest off the
     // first-frame path. Owned rather than merely unawaited: it writes to the
     // app-support directory, so a restart must not race a prune still in
