@@ -122,6 +122,16 @@ only when you've allowed it, and never offline. Pre-cache is best-effort — whe
 it simply skips (it doesn't queue), and pre-cached tracks are the first to be
 evicted under the cache limit.
 
+A pre-cached track is **not** the same thing as a download, and the library rows
+say so: a copy the user asked for reads as **Downloaded**, while one the app
+prefetched ahead of play reads as **Cached for offline play**. The distinction is
+the one already recorded on the entry itself (`CachedTrack.preloaded`), and it
+matters because only the first is a promise — a pre-cached copy can be evicted
+under the cache limit at any time. When the server is away, either kind of copy
+reads as **Playing from offline copy**, because at that point the copy is the
+only reason the row still plays. See
+[library.md § Track status in the library](./library.md#track-status-in-the-library).
+
 ## Security & privacy
 
 - Track URIs and cache metadata carry only a non-secret track id, an id-derived
