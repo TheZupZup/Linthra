@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
+import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_library_added_store.dart';
@@ -181,6 +182,22 @@ void main() {
       );
     });
 
+    test('a stamped slice read falls back to unstamped tracks', () async {
+      // The delegate here cannot store stamps. Answering with the slice
+      // unstamped only costs the next scan a re-parse; failing the read would
+      // read as "I cannot see the catalog", which switches off both retention
+      // for an offline folder and move detection.
+      final repo = build();
+      await sync(repo, <Track>[_t('1')], sourceId: 'local');
+
+      final List<StampedTrack> stamped =
+          await repo.getStampedTracksForSource('local');
+
+      expect(
+          stamped.map((StampedTrack s) => s.track.uri), <String>['jellyfin:1']);
+      expect(stamped.single.stamp, isNull);
+    });
+
     test('a delegate that cannot read a slice fails loudly', () async {
       // Never an empty list: the caller uses this to decide whether it may
       // overwrite a catalog slice, and a silent "nothing stored" would delete
@@ -192,6 +209,10 @@ void main() {
 
       expect(
         () => repo.getTracksForSource('local'),
+        throwsUnsupportedError,
+      );
+      expect(
+        () => repo.getStampedTracksForSource('local'),
         throwsUnsupportedError,
       );
     });

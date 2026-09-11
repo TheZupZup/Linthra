@@ -1,6 +1,7 @@
 /// `package:media_kit` bindings for `just_audio` to support Linux and Windows.
 library just_audio_media_kit;
 
+import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/services.dart';
@@ -51,7 +52,8 @@ class JustAudioMediaKit extends JustAudioPlatform {
   /// Optional libmpv properties applied to each [Player] after creation.
   ///
   /// Linthra sets its Linux defaults here (see `linuxMpvProperties`); the
-  /// headless audio smoke layers `ao=alsa` on top for an ALSA null device.
+  /// headless audio smoke layers its own `ao` on top so it can run where
+  /// there is no audio device.
   static Map<String, String> mpvProperties = const {};
 
   /// The live media_kit [Player]s, keyed by the just_audio player id.
@@ -63,6 +65,17 @@ class JustAudioMediaKit extends JustAudioPlatform {
   /// is created and is removed when it is released, so a stale [Player] is
   /// never handed out.
   static final Map<String, Player> livePlayers = <String, Player>{};
+
+  /// Broadcasts whenever [livePlayers] gains or loses an entry.
+  ///
+  /// The engine tears a player down and builds a new one on a stop, on
+  /// suspend/resume and on some source switches, so a reader that attached a
+  /// listener to one player's device-list stream has to know when to re-attach.
+  /// Without a signal the only way to notice would be to poll the map on a
+  /// timer, for the whole life of the app. Nothing is carried on the stream: it
+  /// means "look at [livePlayers] again" and nothing more.
+  static final StreamController<void> livePlayersChanged =
+      StreamController<void>.broadcast();
 
   static final _logger = Logger('JustAudioMediaKit');
   final _players = HashMap<String, MediaKitPlayer>();

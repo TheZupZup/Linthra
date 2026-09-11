@@ -2,10 +2,12 @@ import 'package:drift/drift.dart';
 
 import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
+import '../../core/models/local_file_stamp.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/music_library_repository.dart';
 import '../../core/repositories/source_catalog_reader.dart';
+import '../../core/repositories/stamped_catalog_writer.dart';
 import '../database/linthra_database.dart';
 import '../mappers/track_mapper.dart';
 
@@ -22,7 +24,8 @@ class DriftMusicLibraryRepository
     implements
         MusicLibraryRepository,
         IncrementalCatalogWriter,
-        SourceCatalogReader {
+        SourceCatalogReader,
+        StampedCatalogWriter {
   DriftMusicLibraryRepository(this._db);
 
   final LinthraDatabase _db;
@@ -36,10 +39,21 @@ class DriftMusicLibraryRepository
   /// The stored slice for one source, straight off the `source_id` index.
   @override
   Future<List<Track>> getTracksForSource(String sourceId) async {
-    final List<TrackRow> rows = await (_db.select(_db.tracks)
-          ..where((t) => t.sourceId.equals(sourceId)))
+    return (await _rowsForSource(sourceId)).map(trackFromRow).toList();
+  }
+
+  /// The same slice, carrying each row's on-disk stamp so a local scan can
+  /// tell which files still look exactly as they did when they were parsed.
+  /// One query, the same `source_id` index; the stamp columns ride along on
+  /// rows that are being read anyway.
+  @override
+  Future<List<StampedTrack>> getStampedTracksForSource(String sourceId) async {
+    return (await _rowsForSource(sourceId)).map(stampedTrackFromRow).toList();
+  }
+
+  Future<List<TrackRow>> _rowsForSource(String sourceId) {
+    return (_db.select(_db.tracks)..where((t) => t.sourceId.equals(sourceId)))
         .get();
-    return rows.map(trackFromRow).toList();
   }
 
   @override
@@ -73,6 +87,21 @@ class DriftMusicLibraryRepository
     });
   }
 
+  /// Replaces [sourceId]'s slice with [tracks] and their stamps, in one
+  /// transaction. Same shape and same guarantees as [upsertCatalog]; the only
+  /// difference is that each row records what its source file looked like when
+  /// it was parsed.
+  @override
+  Future<void> upsertStampedCatalog({
+    required String sourceId,
+    required List<StampedTrack> tracks,
+  }) async {
+    await _db.transaction(() async {
+      await _deleteSource(sourceId);
+      await _insertStampedTracks(sourceId, tracks);
+    });
+  }
+
   /// Starts an incremental replacement: clears [sourceId]'s slice and writes the
   /// first batch in one transaction, so a reader never sees the old rows gone
   /// with no new ones in their place.
@@ -100,7 +129,17 @@ class DriftMusicLibraryRepository
   Future<void> _deleteSource(String sourceId) =>
       (_db.delete(_db.tracks)..where((t) => t.sourceId.equals(sourceId))).go();
 
-  Future<void> _insertTracks(String sourceId, List<Track> tracks) async {
+  Future<void> _insertTracks(String sourceId, List<Track> tracks) {
+    return _insertStampedTracks(
+      sourceId,
+      <StampedTrack>[for (final Track t in tracks) StampedTrack(track: t)],
+    );
+  }
+
+  Future<void> _insertStampedTracks(
+    String sourceId,
+    List<StampedTrack> tracks,
+  ) async {
     if (tracks.isEmpty) return;
     await _db.batch((Batch batch) {
       // insertOrReplace makes the write idempotent: a source can legitimately
@@ -118,7 +157,10 @@ class DriftMusicLibraryRepository
       // never cascade.
       batch.insertAll(
         _db.tracks,
-        tracks.map((Track t) => trackToCompanion(t, sourceId)).toList(),
+        tracks
+            .map((StampedTrack t) =>
+                trackToCompanion(t.track, sourceId, stamp: t.stamp))
+            .toList(),
         mode: InsertMode.insertOrReplace,
       );
     });

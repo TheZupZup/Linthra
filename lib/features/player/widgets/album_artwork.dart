@@ -29,22 +29,40 @@ class AlbumArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Uri? uri = artworkUri;
+    if (uri == null) {
+      return ClipRRect(
+        borderRadius: borderRadius,
+        child: const _ArtworkPlaceholder(),
+      );
+    }
+    // This widget fills whatever box it is given (a 48 px row thumbnail and a
+    // full-screen cover are the same widget) so the decode bound has to come
+    // from the box rather than from a constant. LayoutBuilder is what makes the
+    // real extent available before the image is built (#457).
     return ClipRRect(
       borderRadius: borderRadius,
-      child: uri == null
-          ? const _ArtworkPlaceholder()
-          : Image(
-              image: artworkImageProvider(uri),
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: double.infinity,
-              gaplessPlayback: true,
-              errorBuilder: (_, __, ___) => const _ArtworkPlaceholder(),
-              frameBuilder: (context, child, frame, wasSync) {
-                if (wasSync || frame != null) return child;
-                return const _ArtworkPlaceholder();
-              },
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          return Image(
+            image: artworkImageProvider(
+              uri,
+              decodeExtent: artworkDecodeExtent(
+                context,
+                constraints.biggest.longestSide,
+              ),
             ),
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => const _ArtworkPlaceholder(),
+            frameBuilder: (context, child, frame, wasSync) {
+              if (wasSync || frame != null) return child;
+              return const _ArtworkPlaceholder();
+            },
+          );
+        },
+      ),
     );
   }
 }

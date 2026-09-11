@@ -110,6 +110,15 @@ jobs:
       - name: Test the release artifact verifier
         run: python3 test/tooling/verify_release_containment_test.py
 
+      # Its Flatpak twin (#618): the Linux release bundle's name, and what the
+      # bundle has to contain before it is attached to a Release. The full
+      # Flatpak build only runs on packaging changes, but these rules are read
+      # by the stable publication path, so they are checked on every PR here —
+      # offline, against a synthetic extracted bundle. Local twin:
+      # `python3 test/tooling/flatpak_bundle_test.py`.
+      - name: Test the Flatpak bundle tooling
+        run: python3 test/tooling/flatpak_bundle_test.py
+
       # The release version is written down in five places (pubspec, the About
       # screen, the Play changelog, the F-Droid entry, the AppStream release
       # entry a software centre shows). Nothing fails to build when one of them
@@ -121,6 +130,38 @@ jobs:
 
       - name: Test the release metadata checker
         run: python3 test/tooling/check_release_metadata_sync_test.py
+
+      # The Flatpak audio smoke (#446) runs against a manifest derived from the
+      # submission manifest, and the derivation is only trustworthy because the
+      # generator refuses to change anything but the app module's build
+      # commands. That refusal is what these tests hold it to, and they run here
+      # rather than in the 90-minute Flatpak job so a manifest regenerated into
+      # a shape the generator no longer understands is caught on any PR. Local
+      # twin: `python3 test/tooling/make_flatpak_smoke_manifest_test.py`.
+      - name: Test the Flatpak smoke manifest generator
+        run: |
+          python3 -m pip install --quiet PyYAML
+          python3 test/tooling/make_flatpak_smoke_manifest_test.py
+
+      # The Flathub linter itself needs a Flatpak and, for two of its three
+      # modes, a 90-minute build, so it runs in the Flatpak workflow. What
+      # runs here is the judgement wrapped around it: that a missing linter is
+      # not a pass, that a finding needs a written reason, and that a reason
+      # for a finding the linter no longer reports is itself a failure (#449).
+      # Local twin: `python3 test/tooling/flathub_builder_lint_test.py`.
+      - name: Test the Flathub lint runner
+        run: python3 test/tooling/flathub_builder_lint_test.py
+
+      # Every Flatpak permission has to be explained in a table a reviewer can
+      # read, and an explanation cannot outlive the permission it explains
+      # (#455). Cheap and toolchain-free, so it runs on every PR rather than in
+      # the 90-minute Flatpak job. Local twin:
+      # `python3 scripts/check_flatpak_permissions.py`.
+      - name: Check every Flatpak permission has a written rationale
+        run: python3 scripts/check_flatpak_permissions.py
+
+      - name: Test the Flatpak permission checker
+        run: python3 test/tooling/check_flatpak_permissions_test.py
 
   release-bump-guard:
     name: Release bump touches only version files

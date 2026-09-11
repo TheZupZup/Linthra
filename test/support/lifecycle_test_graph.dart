@@ -12,6 +12,7 @@ import 'package:linthra/data/repositories/playback_session_store_provider.dart';
 import 'package:linthra/features/player/player_providers.dart';
 
 import 'counting_audio_player.dart';
+import 'fake_local_file_presence.dart';
 import 'recording_remote_control_receiver.dart';
 
 /// Opens [database]'s connection (drift opens lazily on the first query), so a
@@ -46,6 +47,11 @@ List<Override> linuxLifecycleOverrides({
   return <Override>[
     hostPlatformProvider.overrideWithValue(HostPlatform.linux),
     linuxAudioPlayerProvider.overrideWithValue(audioPlayer),
+    // These tests play tracks with made-up paths. The real presence check
+    // would (correctly) refuse them as missing files, which is a different
+    // suite's subject; here the interesting part is the lifecycle around a
+    // track that plays.
+    localFilePresenceProvider.overrideWithValue(FakeLocalFilePresence.all()),
     // The real database provider, over an in-memory executor: its close is the
     // asynchronous teardown the lifecycle has to wait for.
     linthraDatabaseExecutorProvider.overrideWithValue(NativeDatabase.memory()),

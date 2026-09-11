@@ -28,6 +28,15 @@
   (#452). Newest entry first; a pre-release carries type="development" so a
   software centre does not offer an alpha as the current stable build.
 
+  The <summary> is held to Flathub's quality guidelines, which are stricter
+  than AppStream's: at most 35 characters, no trailing period, no leading
+  article, and it may not repeat the app's own name. "Play your own music from
+  this device" was 36, one character over, and the kind of finding that only
+  turns up when a submission is already open. test/tooling/
+  flathub_metadata_guardrails_test.dart holds the rules that can be checked
+  without building anything; scripts/flathub_builder_lint.py runs the real
+  linter (#449).
+
   Validate after editing:
     appstreamcli validate linux/packaging/io.github.thezupzup.linthra.metainfo.xml
     python3 scripts/check_release_metadata_sync.py
@@ -37,7 +46,7 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>AGPL-3.0-or-later</project_license>
   <name>Linthra</name>
-  <summary>Play your own music from this device</summary>
+  <summary>Play your own music collection</summary>
   <description>
     <p>
       Linthra is an open-source music player for people who keep their music

@@ -7,6 +7,11 @@ This document records the filesystem surface Linthra's Flatpak is allowed to
 use, why each path is reachable, and how to prove that unrelated host files
 remain outside the sandbox.
 
+The wider audit (every socket, device, network and D-Bus permission, each
+against the feature that needs it) is
+[flatpak-permissions.md](./flatpak-permissions.md) (#455). This page is the
+filesystem half in detail.
+
 ## Result
 
 The shipped Flatpak needs **no `--filesystem=` finish argument and no
@@ -100,13 +105,23 @@ issue and security review instead of silently widening #439's policy.
 
 ## Clean sandbox smoke test
 
-After building and installing the Flatpak, run:
+Against a local repository the smoke installs the package itself and removes
+it again afterwards, which is how CI runs it (`Check the installed package's
+permissions and sandbox`, in the `Flatpak build` workflow):
+
+```bash
+bash scripts/flatpak_filesystem_smoke.sh flatpak/repo-ci
+```
+
+Against an installation you already have, pass nothing. The smoke then uses
+whatever is installed and leaves it alone:
 
 ```bash
 bash scripts/flatpak_filesystem_smoke.sh
 ```
 
-The smoke test does four things without modifying persistent Flatpak overrides:
+The smoke test does five things without modifying persistent Flatpak
+overrides:
 
 1. inspects the **installed** package and fails if it exposes a filesystem or
    persist permission;
@@ -116,15 +131,29 @@ The smoke test does four things without modifying persistent Flatpak overrides:
 3. creates a temporary sentinel in the real host home and proves a shell inside
    Linthra's sandbox cannot see or read it;
 4. proves the sandbox's own XDG data/cache directories remain writable, which
-   is what Linthra's database/cache/offline stores rely on.
+   is what Linthra's database/cache/offline stores rely on;
+5. runs `scripts/check_flatpak_permissions.py --installed`, which holds the
+   package's whole permission set (not only its filesystem grants) to the
+   table in [flatpak-permissions.md](./flatpak-permissions.md).
 
 The script removes its host and sandbox probes before exiting.
 
 ### User-selected library check
 
-The host-isolation smoke cannot manufacture a real FileChooser portal grant,
-because that grant is intentionally created only by the user's chooser action.
-Complete the audit with this manual pass using the installed Flatpak:
+Most of this is now automated. `scripts/flatpak_local_library_smoke.sh` (#447)
+grants the installed sandbox one disposable music folder for the length of one
+run and proves the whole flow below it: the folder scans, its tags and embedded
+artwork load, a track plays, a sentinel file and a sibling directory beside that
+folder stay unreadable, the library survives a relaunch, and taking the grant
+away produces the recoverable `folderUnavailable` state from #438 with the
+previously indexed tracks kept. See
+[flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md).
+
+What it cannot do is press the button. A FileChooser portal grant is minted only
+by the user's chooser action, and no headless runner can perform it, nor does a
+`--filesystem=` run grant exercise the document portal's `/run/user/<uid>/doc/`
+path rewriting. So complete the audit with this manual pass using the installed
+Flatpak:
 
 1. Create a small test directory outside `~/.var/app/`, containing one supported
    audio file. Also create a neighbouring file **outside** that directory.

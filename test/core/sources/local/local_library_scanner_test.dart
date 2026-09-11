@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 import 'package:linthra/core/sources/local/local_library_scanner.dart';
@@ -6,6 +7,10 @@ import 'package:linthra/core/sources/local/local_music_source.dart';
 import 'package:linthra/core/sources/local/local_scan_report.dart';
 
 Track _track(String path) => Track(id: path, title: path, uri: path);
+
+/// A previously indexed row, as the scan reads them back. The stamp is beside
+/// the point in these merge tests, so there isn't one.
+StampedTrack _indexed(String path) => StampedTrack(track: _track(path));
 
 LocalScan _scanOf(List<String> paths) {
   return LocalScan(
@@ -53,7 +58,7 @@ void main() {
       );
 
       expect(
-        scan.tracks.map((Track t) => t.uri),
+        scan.plainTracks.map((Track t) => t.uri),
         <String>['/music/a.mp3', '/media/usb/b.mp3', '/media/usb/c.mp3'],
       );
       expect(scan.report.importedTracks, 3);
@@ -92,7 +97,7 @@ void main() {
       );
 
       expect(
-        scan.tracks.map((Track t) => t.uri),
+        scan.plainTracks.map((Track t) => t.uri),
         <String>['/music/a.mp3', '/media/usb/b.mp3'],
       );
     });
@@ -109,14 +114,14 @@ void main() {
 
       final LocalLibraryScan scan = await scanner.scan(
         roots: <String>['/music', '/media/usb'],
-        previousTracks: <Track>[
-          _track('/music/gone.mp3'),
-          _track('/media/usb/kept.mp3'),
+        previousTracks: <StampedTrack>[
+          _indexed('/music/gone.mp3'),
+          _indexed('/media/usb/kept.mp3'),
         ],
       );
 
       expect(
-        scan.tracks.map((Track t) => t.uri),
+        scan.plainTracks.map((Track t) => t.uri),
         <String>['/music/a.mp3', '/media/usb/kept.mp3'],
         reason: 'the unplugged drive keeps its music; the readable folder is '
             'refreshed, so a file deleted there is gone',
@@ -140,14 +145,14 @@ void main() {
 
       final LocalLibraryScan scan = await scanner.scan(
         roots: <String>['/music', '/media/usb'],
-        previousTracks: <Track>[
-          _track('/removed/old.mp3'),
-          _track('/media/usb/kept.mp3'),
+        previousTracks: <StampedTrack>[
+          _indexed('/removed/old.mp3'),
+          _indexed('/media/usb/kept.mp3'),
         ],
       );
 
       expect(
-        scan.tracks.map((Track t) => t.uri),
+        scan.plainTracks.map((Track t) => t.uri),
         isNot(contains('/removed/old.mp3')),
       );
     });
@@ -162,7 +167,7 @@ void main() {
 
       final LocalLibraryScan scan = await scanner.scan(
         roots: <String>['/music', '/media/usb'],
-        previousTracks: <Track>[_track('/music/a.mp3')],
+        previousTracks: <StampedTrack>[_indexed('/music/a.mp3')],
       );
 
       expect(scan.everyRootFailed, isTrue);

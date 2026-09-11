@@ -32,6 +32,7 @@ class LocalScanReport {
     required this.readFailures,
     this.foldersVisited = 0,
     this.importedTracks = 0,
+    this.reusedTracks = 0,
     this.recursive = true,
     this.isDeviceLibrary = false,
     this.rootsScanned = 1,
@@ -55,6 +56,7 @@ class LocalScanReport {
         foldersVisited = 0,
         audioCandidates = 0,
         importedTracks = 0,
+        reusedTracks = 0,
         skippedUnsupported = 0,
         readFailures = 0,
         recursive = true,
@@ -92,6 +94,7 @@ class LocalScanReport {
       foldersVisited: sum((LocalScanReport r) => r.foldersVisited),
       audioCandidates: sum((LocalScanReport r) => r.audioCandidates),
       importedTracks: sum((LocalScanReport r) => r.importedTracks),
+      reusedTracks: sum((LocalScanReport r) => r.reusedTracks),
       skippedUnsupported: sum((LocalScanReport r) => r.skippedUnsupported),
       readFailures: sum((LocalScanReport r) => r.readFailures),
       rootsScanned: rootsScanned,
@@ -114,6 +117,17 @@ class LocalScanReport {
   final int foldersVisited;
   final int audioCandidates;
   final int importedTracks;
+
+  /// How many of [importedTracks] were carried over from the previous scan
+  /// without opening the file, because its size and mtime were unchanged.
+  ///
+  /// The counter that says whether an incremental scan actually worked: on a
+  /// second scan of a library nobody touched it should equal [importedTracks],
+  /// and the difference between the two is how many files were parsed. Zero on
+  /// a first scan, after a full rescan, and on Android (whose local library
+  /// comes from the content resolver, where there is nothing to stat).
+  final int reusedTracks;
+
   final int skippedUnsupported;
   final int readFailures;
   final bool recursive;
@@ -138,4 +152,8 @@ class LocalScanReport {
 
   /// How many folders this scan actually read.
   int get rootsAvailable => rootsScanned - rootsUnavailable;
+
+  /// How many files this scan opened and parsed, as opposed to carried over
+  /// unchanged. This is the cost an incremental scan exists to reduce.
+  int get parsedTracks => importedTracks - reusedTracks;
 }

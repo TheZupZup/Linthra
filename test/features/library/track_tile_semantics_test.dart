@@ -7,8 +7,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/download_progress.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_repository.dart';
+import 'package:linthra/core/repositories/download_store.dart';
+import 'package:linthra/core/sources/music_provider.dart';
+import 'package:linthra/core/sources/source_availability.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/features/downloads/download_providers.dart';
+import 'package:linthra/features/library/source_availability_providers.dart';
 import 'package:linthra/features/library/widgets/track_tile.dart';
 import 'package:linthra/features/player/now_playing.dart';
 
@@ -32,6 +36,8 @@ Future<void> _pump(
   DownloadStatus status = DownloadStatus.notDownloaded,
   bool selectionActive = false,
   bool selected = false,
+  SourceAvailability availability = SourceAvailability.available,
+  bool offlineCopy = false,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -40,6 +46,15 @@ Future<void> _pump(
             .overrideWithValue(FakeRemoteTrackDownloader()),
         if (nowPlaying != null)
           nowPlayingProvider.overrideWithValue(nowPlaying),
+        sourceAvailabilityProvider.overrideWith(
+          (ref) => <String, SourceAvailability>{
+            MusicProviders.jellyfin.sourceId: availability,
+          },
+        ),
+        if (offlineCopy)
+          offlineAvailableTrackKeysProvider.overrideWithValue(
+            <String>{CachedTrack.cacheKeyForTrack(_remote)},
+          ),
         trackDownloadStatusProvider.overrideWith(
           (ref, String key) => Stream<DownloadStatus>.value(status),
         ),
@@ -164,6 +179,38 @@ void main() {
 
       // Exactly the visible text, nothing invented on top of it.
       expect(_row(tester).label, 'Careful\nNF • Perception');
+      handle.dispose();
+    });
+
+    testWidgets('a row whose server is away says so', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await _pump(tester, availability: SourceAvailability.unreachable);
+
+      expect(_row(tester).label, contains('Jellyfin unavailable'));
+      handle.dispose();
+    });
+
+    testWidgets('a row saved offline says the server being away is survivable',
+        (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await _pump(
+        tester,
+        offlineCopy: true,
+        availability: SourceAvailability.unreachable,
+      );
+
+      expect(_row(tester).label, contains('Playing from offline copy'));
+      // The row still plays, so it must not also be announced as broken.
+      expect(_row(tester).label, isNot(contains('unavailable')));
+      handle.dispose();
+    });
+
+    testWidgets('a rejected session asks for a sign-in instead of the network',
+        (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await _pump(tester, availability: SourceAvailability.authenticationError);
+
+      expect(_row(tester).label, contains('Jellyfin sign-in needed'));
       handle.dispose();
     });
 

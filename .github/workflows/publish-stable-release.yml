@@ -29,7 +29,10 @@ jobs:
        github.event.comment.user.login == github.repository_owner &&
        startsWith(github.event.comment.body, '/publish-stable v'))
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Three release builds are dispatched and waited on in turn: the signed
+    # Android build, the native Linux tarball, and the Flatpak bundle, which
+    # builds ffmpeg, mpv and the Flutter SDK from source inside the sandbox.
+    timeout-minutes: 120
     env:
       GH_TOKEN: ${{ github.token }}
       COMMAND_BODY: ${{ github.event_name == 'workflow_dispatch' && format('/publish-stable {0}', inputs.release_tag) || github.event.comment.body }}
@@ -243,6 +246,69 @@ jobs:
           RUN_ID: ${{ steps.dispatch-linux.outputs.run_id }}
         run: gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
 
+      # Third and last of the dispatched builds, and the same before/after
+      # `gh run list` pattern as the two above. This one produces the
+      # standalone `.flatpak` bundle (#618): a single file a Linux user can
+      # install from the Release with a software centre or `flatpak install`,
+      # instead of extracting the native tarball and installing its runtime
+      # dependencies by hand. flatpak-build.yml checks out the exact tag,
+      # verifies the release metadata at it, builds and launches the package,
+      # exports the bundle and attaches it — see docs/release-process.md §4b.
+      - name: Dispatch Flatpak release build
+        id: dispatch-flatpak
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          before="$RUNNER_TEMP/flatpak-runs-before.txt"
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow flatpak-build.yml \
+            --event workflow_dispatch \
+            --limit 30 \
+            --json databaseId \
+            --jq '.[].databaseId' > "$before"
+
+          gh workflow run flatpak-build.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f release_tag="$RELEASE_TAG"
+
+          run_id=""
+          run_url=""
+          for attempt in $(seq 1 30); do
+            candidate="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow flatpak-build.yml \
+              --event workflow_dispatch \
+              --limit 10 \
+              --json databaseId,url \
+              --jq '.[0] | [.databaseId, .url] | @tsv')"
+            candidate_id="${candidate%%$'\t'*}"
+            candidate_url="${candidate#*$'\t'}"
+            if [ -n "$candidate_id" ] && ! grep -qx "$candidate_id" "$before"; then
+              run_id="$candidate_id"
+              run_url="$candidate_url"
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$run_id" ]; then
+            echo "::error::The Flatpak release build did not appear."
+            exit 1
+          fi
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Flatpak release build
+        env:
+          RUN_ID: ${{ steps.dispatch-flatpak.outputs.run_id }}
+        run: gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+
       - name: Verify every public Release asset
         id: assets
         env:
@@ -260,6 +326,12 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --json url,assets > "$release_json"
 
+          # The Flatpak bundle's name is derived by the same helper the build
+          # used, so this list and the artifact can never disagree about how a
+          # version is spelled.
+          flatpak_bundle="$(python3 scripts/flatpak_bundle.py name \
+            --tag "$RELEASE_TAG" --arch x86_64)"
+
           required=(
             "linthra-$RELEASE_TAG-release-signed.apk"
             "linthra-$RELEASE_TAG-release-signed.aab"
@@ -267,6 +339,7 @@ jobs:
             "linthra-$RELEASE_TAG-arm64-v8a-release-signed.apk"
             "linthra-$RELEASE_TAG-x86_64-release-signed.apk"
             "Linthra-$RELEASE_TAG-linux-x64.tar.gz"
+            "$flatpak_bundle"
           )
 
           missing=()
@@ -290,6 +363,16 @@ jobs:
           printf 'Present on the Release:\n'
           printf '  %s\n' "${required[@]}"
 
+      # Reading the published .flatpak means unpacking an OSTree static delta,
+      # which the verifier below shells out to flatpak/ostree for. Neither
+      # installs anything, and no Flatpak installation is touched.
+      - name: Install bundle inspection tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update || echo 'apt-get update was incomplete; the install below decides'
+          sudo apt-get install -y --no-install-recommends flatpak ostree
+
       # The assets exist — this asks what is inside them. Casting is withheld
       # from shipped builds while a reported security issue is resolved
       # (lib/core/services/cast/cast_containment.dart), and the check that
@@ -309,6 +392,7 @@ jobs:
           RELEASE_URL: ${{ steps.assets.outputs.release_url }}
           RUN_URL: ${{ steps.dispatch.outputs.run_url }}
           LINUX_RUN_URL: ${{ steps.dispatch-linux.outputs.run_url }}
+          FLATPAK_RUN_URL: ${{ steps.dispatch-flatpak.outputs.run_url }}
           PR_URL: ${{ steps.release.outputs.pr_url }}
         shell: bash
         run: |
@@ -326,7 +410,7 @@ jobs:
 
           python3 scripts/verify_release_containment.py \
             --json "$record" \
-            "$assets"/*.apk "$assets"/*.aab "$assets"/*.tar.gz
+            "$assets"/*.apk "$assets"/*.aab "$assets"/*.tar.gz "$assets"/*.flatpak
 
           # Only now, with the shipped bytes checked, does the run claim the
           # release is verified.
@@ -337,6 +421,7 @@ jobs:
             echo "Tagged commit: \`$TARGET_SHA\`"
             echo "Signed Android build: $RUN_URL"
             echo "Linux release build: $LINUX_RUN_URL"
+            echo "Flatpak release build: $FLATPAK_RUN_URL"
             echo "Release: $RELEASE_URL"
             echo
             echo "### Cast containment verified in the published artifacts"
@@ -355,6 +440,8 @@ jobs:
           RUN_URL: ${{ steps.dispatch.outputs.run_url }}
           LINUX_RUN_ID: ${{ steps.dispatch-linux.outputs.run_id }}
           LINUX_RUN_URL: ${{ steps.dispatch-linux.outputs.run_url }}
+          FLATPAK_RUN_ID: ${{ steps.dispatch-flatpak.outputs.run_id }}
+          FLATPAK_RUN_URL: ${{ steps.dispatch-flatpak.outputs.run_url }}
         shell: bash
         run: |
           set +e
@@ -366,6 +453,9 @@ jobs:
             fi
             if [ -n "$LINUX_RUN_URL" ]; then
               echo "Linux release build: $LINUX_RUN_URL"
+            fi
+            if [ -n "$FLATPAK_RUN_URL" ]; then
+              echo "Flatpak release build: $FLATPAK_RUN_URL"
             fi
             echo
             if [ -n "$RUN_ID" ]; then
@@ -380,6 +470,14 @@ jobs:
               echo 'Failed Linux build log tail (if it failed):'
               echo '```text'
               gh run view "$LINUX_RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --log-failed 2>&1 | tail -n 100
+              echo '```'
+            fi
+            if [ -n "$FLATPAK_RUN_ID" ]; then
+              echo 'Failed Flatpak build log tail (if it failed):'
+              echo '```text'
+              gh run view "$FLATPAK_RUN_ID" \
                 --repo "$GITHUB_REPOSITORY" \
                 --log-failed 2>&1 | tail -n 100
               echo '```'
