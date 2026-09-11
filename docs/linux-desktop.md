@@ -558,7 +558,7 @@ loaded:
 | Chromecast | Android/iOS only | Already gated in `cast_providers.dart`; Linux keeps the honest "cast unavailable" service. |
 | Share sheet, launcher-icon switching | Android-only, by design | No desktop equivalent; the UI simply omits them. |
 | Volume control | Supported | A mute and a slider on Now Playing and the wide mini-player bar, plus MPRIS `Volume`, driven through `PlaybackController` and remembered across launches ([issue #394](https://github.com/TheZupZup/Linthra/issues/394)). See [Volume](#volume). |
-| Desktop layout | Supported | The shell swaps its bottom bar for a navigation rail at 900 px, and feature screens adapt on the width they are given — including a third pane for the Library grids and for Now Playing's queue. See [How the desktop layout adapts](#how-the-desktop-layout-adapts). |
+| Desktop layout | Supported | The shell swaps its bottom bar for a navigation rail at 900 px, and feature screens adapt on the width they are given, including a third pane for the Library grids and for Now Playing's queue. On a wide enough window the shell can also keep the queue as a column beside the page ([issue #416](https://github.com/TheZupZup/Linthra/issues/416)). See [How the desktop layout adapts](#how-the-desktop-layout-adapts). |
 | Window geometry | Supported | Size and maximized state survive a restart; position too, on X11. A saved position is re-checked against the monitors attached now. See [Window state](#window-state). |
 | Content density | Supported | Compact by default, switchable to Comfortable in Settings → Appearance and remembered across restarts ([issue #395](https://github.com/thezupzup/linthra/issues/395)). Both are Material `VisualDensity` values, so the choice reaches every list row, grid and control at once. Touch builds are unaffected. See [Density (Compact / Comfortable)](#density-compact--comfortable). |
 | Pointer affordances | Supported | Compact content density, visible hover feedback, right-click context menus with a keyboard equivalent, and Ctrl/Shift multi-select in track lists — all keyed on the input rather than the window width. See [Pointer, not width](#pointer-not-width). |
@@ -650,6 +650,15 @@ What it buys, per surface:
   still, the queue joins them as a third column instead of a sheet over the top,
   so lyrics and up-next are readable at once; the action row's queue button
   becomes the pane toggle, and narrower windows keep the sheet.
+* **The queue, beside the page**: past `queueSidePanelMinWindowWidth` the
+  frame itself can hold the queue as a column on the right, so up-next stays
+  readable while you browse the library. The now-playing bar's queue button is
+  its toggle there (and still opens the sheet at every narrower width), the
+  column is closed until asked for, and it is the same `QueueSheet` the phone
+  opens as a sheet: one queue, three hosts. The threshold is what it takes for
+  all three columns to be worth having: the panel's 340 px, the rail beside it,
+  and a page still wide enough to split into list and detail. Narrow the window
+  and the column goes; widen it and it comes back where you left it.
 * **The now-playing bar** — on a desktop host the progress line along its top
   edge is a seek control, not a readout: the same `PlaybackProgressBar` the full
   player uses, at its compact density and without the time caption. Width alone
