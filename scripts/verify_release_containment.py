@@ -4,8 +4,9 @@
 Casting is withheld from shipped builds while a reported security issue is
 resolved (see lib/core/services/cast/cast_containment.dart and docs/cast.md).
 `scripts/check_cast_containment.py` looks at the *source tree*; this script looks
-at the *artifact a user installs* — an APK, an AAB, or the Linux tarball — and
-asks whether the compiled Dart in it looks like a contained build.
+at the *artifact a user installs* — an APK, an AAB, the Linux tarball, or the
+Linux `.flatpak` bundle — and asks whether the compiled Dart in it looks like a
+contained build.
 
 It reads every Dart AOT payload in the artifact (`libapp.so`) and looks for
 three things:
@@ -54,6 +55,7 @@ Usage:
 
     python3 scripts/verify_release_containment.py dist/*.apk dist/*.aab
     python3 scripts/verify_release_containment.py --json report.json build/*.tar.gz
+    python3 scripts/verify_release_containment.py Linthra-v0.2.7-x86_64.flatpak
     python3 .../verify_release_containment.py \
         --containment-source lib/core/services/cast/cast_containment.dart *.apk
 
@@ -69,11 +71,20 @@ import json
 import re
 import sys
 import tarfile
+import tempfile
 import zipfile
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
 CONTAINMENT_SOURCE = REPO_ROOT / "lib/core/services/cast/cast_containment.dart"
+
+# scripts/flatpak_bundle.py is imported lazily (only for a .flatpak artifact),
+# the same way check_release_metadata_sync.py imports prepare_release_bump.
+# Python only guarantees the script's own directory is importable when the
+# script is run directly, so make it so for the imported case too.
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 # The expected message must come from the tree the artifact was BUILT from, which
 # is not always the tree this script lives in: a release build checks out the tag
@@ -82,7 +93,8 @@ CONTAINMENT_SOURCE = REPO_ROOT / "lib/core/services/cast/cast_containment.dart"
 
 # The compiled Dart snapshot inside every Flutter release artifact. Android puts
 # one per ABI under lib/<abi>/ (an AAB nests that under base/), the Linux bundle
-# ships a single one next to the other bundled libraries.
+# ships a single one next to the other bundled libraries, and the Flatpak ships
+# that same bundle under /app/lib/linthra/lib/.
 AOT_PAYLOAD = "libapp.so"
 
 # Strings that must be in a contained build's snapshot.
@@ -166,9 +178,11 @@ def aot_payloads(path: Path) -> dict[str, bytes]:
         return _zip_payloads(path)
     if suffixes in {".tar.gz", ".tar.xz"} or path.suffix == ".tgz":
         return _tar_payloads(path)
+    if path.suffix == ".flatpak":
+        return _flatpak_payloads(path)
     raise VerificationError(
-        f"{path.name}: unknown artifact type; this script reads .apk, .aab and "
-        "the Linux .tar.gz."
+        f"{path.name}: unknown artifact type; this script reads .apk, .aab, the "
+        "Linux .tar.gz and the Linux .flatpak bundle."
     )
 
 
@@ -200,6 +214,38 @@ def _tar_payloads(path: Path) -> dict[str, bytes]:
                 payloads[member.name] = handle.read()
     except (OSError, tarfile.TarError) as error:
         raise VerificationError(f"cannot read {path.name}: {error}") from error
+    return payloads
+
+
+def _flatpak_payloads(path: Path) -> dict[str, bytes]:
+    """The payloads inside a `.flatpak`, read out of the bundle itself.
+
+    A bundle is an OSTree static delta, not an archive Python can open, so this
+    unpacks it with the same extractor scripts/flatpak_bundle.py uses for its
+    own packaging checks — one way of opening a bundle, shared by both. Nothing
+    is installed and no existing Flatpak installation is read or changed.
+
+    A missing `flatpak`/`ostree` is an error, not a skip: the caller asked for
+    this artifact to be verified, and a check that cannot run has not passed.
+    """
+    try:
+        from flatpak_bundle import BundleError, extract_bundle
+    except ImportError as error:  # pragma: no cover - packaging accident
+        raise VerificationError(
+            f"{path.name}: scripts/flatpak_bundle.py is not importable, so this "
+            f"script cannot open a Flatpak bundle: {error}"
+        ) from error
+
+    payloads: dict[str, bytes] = {}
+    with tempfile.TemporaryDirectory(prefix="linthra-containment-") as scratch:
+        tree = Path(scratch) / "tree"
+        try:
+            extract_bundle(path, tree)
+        except BundleError as error:
+            raise VerificationError(f"cannot read {path.name}: {error}") from error
+        for payload in sorted(tree.rglob(AOT_PAYLOAD)):
+            if payload.is_file():
+                payloads[str(payload.relative_to(tree))] = payload.read_bytes()
     return payloads
 
 

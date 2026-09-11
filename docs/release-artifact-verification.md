@@ -14,9 +14,9 @@ itself stays in the private advisory.
 
 ## The check
 
-`scripts/verify_release_containment.py` reads an APK, an AAB, or the Linux
-tarball, pulls out every compiled Dart payload inside it (`libapp.so`, one per
-ABI on Android), and searches those bytes for:
+`scripts/verify_release_containment.py` reads an APK, an AAB, the Linux
+tarball, or the Linux `.flatpak` bundle, pulls out every compiled Dart payload
+inside it (`libapp.so`, one per ABI on Android), and searches those bytes for:
 
 - **the containment message**, exactly as `CastContainment.userMessage` spells it
   in the checkout the script runs from. It is a compile-time constant reached
@@ -26,6 +26,13 @@ ABI on Android), and searches those bytes for:
 - **the absence** of `DefaultCastService`, `ChromecastCastTransport`, and the
   Cast protocol namespaces the live transport talks. Nothing constructs them
   while containment holds, so tree shaking drops them.
+
+A `.flatpak` is an OSTree static delta rather than an archive, so the payloads
+are read by unpacking the bundle with the extractor in
+`scripts/flatpak_bundle.py` — one way of opening a bundle, shared with the
+packaging checks. It needs `flatpak` and `ostree` on the machine running it,
+installs nothing, and touches no Flatpak installation; a missing tool is an
+error, not a skipped check.
 
 It prints each artifact's SHA-256, and `--json` writes the same record to a file.
 
@@ -37,6 +44,9 @@ python3 scripts/verify_release_containment.py \
   --json /tmp/linthra-v0.2.6/containment.json \
   /tmp/linthra-v0.2.6/*.apk /tmp/linthra-v0.2.6/*.aab /tmp/linthra-v0.2.6/*.tar.gz
 ```
+
+From `v0.2.7` on a Release also carries a `.flatpak` bundle; add
+`/tmp/linthra-<tag>/*.flatpak` to that command to check it too.
 
 Run it from a checkout of the commit the release was built from: the expected
 message is read from that checkout's `cast_containment.dart`, so checking an old
@@ -71,9 +81,10 @@ exit non-zero rather than reporting a pass.
 | Every PR and push | `ci.yml` ▸ *Cast containment markers* | The verifier's own unit tests (`test/tooling/verify_release_containment_test.py`), on synthetic artifacts, so a change that stops it catching an uncontained build is caught here. |
 | Every release build | `android-release-build.yml` ▸ *Verify the built artifacts carry the Cast containment* | The APK/AAB in `dist/`, before they are uploaded anywhere. |
 | Every Linux release build | `linux-desktop-build.yml` ▸ *Verify the archive carries the Cast containment* | The `.tar.gz`, before it is attached to the Release — the Release is already public by then, so an artifact that fails the check must never become downloadable from it. |
+| Every Flatpak release build | `flatpak-build.yml` ▸ *Verify the bundle carries the Cast containment* | The `.flatpak` bundle, before it is attached to the Release, for the same reason. The bundle is also checked against its own manifest first (`scripts/flatpak_bundle.py verify`) — see [release-process.md §4b](./release-process.md#4b-linux-flatpak-bundle-dispatched-alongside-the-android-and-linux-builds). |
 
-Both release builds check out the tag they are building, so the script itself
-comes from a second, script-only checkout of the revision the workflow is
+All three release builds check out the tag they are building, so the script
+itself comes from a second, script-only checkout of the revision the workflow is
 running from, and `--containment-source` points it at the *built* tree's
 `cast_containment.dart`. That way rebuilding an existing release is still
 verified, against that release's own message, even though its tree predates the

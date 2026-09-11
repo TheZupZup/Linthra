@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# Install Linthra from a local Flatpak repository and prove that the packaged
-# application reaches a real desktop window inside its sandbox, and that the
-# window introduces itself as io.github.thezupzup.linthra (#554).
+# Install Linthra from a local Flatpak repository — or from a standalone
+# `.flatpak` bundle — and prove that the packaged application reaches a real
+# desktop window inside its sandbox, and that the window introduces itself as
+# io.github.thezupzup.linthra (#554).
+#
+# The bundle form (#618) is what a user downloads from a GitHub Release, so the
+# release path runs this smoke a second time against the actual artifact it is
+# about to upload rather than only against the repository it was exported from.
 #
 # This is intentionally credential- and network-independent. It uses an Xvfb
 # display only for deterministic CI window detection; production users keep the
@@ -16,7 +21,10 @@ set -euo pipefail
 
 APP_ID="io.github.thezupzup.linthra"
 REMOTE_NAME="linthra-ci-smoke-$$"
-REPO_PATH="${1:-repo-ci}"
+# A local repository directory (the flatpak-builder --repo= export) or a single
+# .flatpak bundle file. Both install the same package; only the install command
+# differs.
+INSTALL_SOURCE="${1:-repo-ci}"
 WINDOW_TITLE="Linthra"
 TIMEOUT_SECONDS="${LINTHRA_FLATPAK_LAUNCH_TIMEOUT:-30}"
 
@@ -31,8 +39,19 @@ command -v xwininfo >/dev/null 2>&1 || fail "xwininfo is not installed"
 command -v xprop >/dev/null 2>&1 || fail "xprop is not installed"
 command -v dbus-run-session >/dev/null 2>&1 || fail "dbus-run-session is not installed"
 
-REPO_PATH="$(cd "$REPO_PATH" && pwd)" || fail "local Flatpak repo not found: $REPO_PATH"
-[[ -f "$REPO_PATH/config" ]] || fail "not a Flatpak repository: $REPO_PATH"
+case "$INSTALL_SOURCE" in
+  *.flatpak)
+    [[ -f "$INSTALL_SOURCE" ]] || fail "Flatpak bundle not found: $INSTALL_SOURCE"
+    BUNDLE_PATH="$(cd "$(dirname "$INSTALL_SOURCE")" && pwd)/$(basename "$INSTALL_SOURCE")"
+    REPO_PATH=""
+    ;;
+  *)
+    REPO_PATH="$(cd "$INSTALL_SOURCE" && pwd)" ||
+      fail "local Flatpak repo not found: $INSTALL_SOURCE"
+    [[ -f "$REPO_PATH/config" ]] || fail "not a Flatpak repository: $REPO_PATH"
+    BUNDLE_PATH=""
+    ;;
+esac
 
 # Never replace or remove a contributor's existing Linthra installation. CI
 # starts clean, while a local reproduction must opt into a clean environment
@@ -49,16 +68,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# This uniquely named remote points only at the unsigned repository produced by
-# the same CI job. --no-gpg-verify must never be used for Flathub or another
-# public remote.
-flatpak --user remote-add \
-  --no-gpg-verify \
-  "$REMOTE_NAME" \
-  "$REPO_PATH"
-flatpak --user install -y "$REMOTE_NAME" "$APP_ID"
-
-printf 'Installed %s from local repository %s.\n' "$APP_ID" "$REPO_PATH"
+if [[ -n "$BUNDLE_PATH" ]]; then
+  # A bundle carries the package itself, so there is no remote to add and
+  # nothing to verify a signature against beyond the file handed to this
+  # script. This is the same command a user runs on a downloaded release
+  # artifact, which is why the release path exercises it here.
+  flatpak --user install -y --bundle "$BUNDLE_PATH"
+  printf 'Installed %s from bundle %s.\n' "$APP_ID" "$BUNDLE_PATH"
+else
+  # This uniquely named remote points only at the unsigned repository produced by
+  # the same CI job. --no-gpg-verify must never be used for Flathub or another
+  # public remote.
+  flatpak --user remote-add \
+    --no-gpg-verify \
+    "$REMOTE_NAME" \
+    "$REPO_PATH"
+  flatpak --user install -y "$REMOTE_NAME" "$APP_ID"
+  printf 'Installed %s from local repository %s.\n' "$APP_ID" "$REPO_PATH"
+fi
 
 export APP_ID WINDOW_TITLE TIMEOUT_SECONDS
 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
