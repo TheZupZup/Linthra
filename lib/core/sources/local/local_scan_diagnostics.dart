@@ -51,6 +51,10 @@ abstract final class LocalScanDiagnostics {
       'folders=${report.foldersVisited}',
       'audio=${report.audioCandidates}',
       'imported=${report.importedTracks}',
+      // Only when the scan actually skipped some parsing, so an Android or
+      // first-run report reads exactly as it always did. A count, like every
+      // other field here, and it says nothing about *which* files.
+      if (report.reusedTracks > 0) 'reused=${report.reusedTracks}',
       'skipped=${report.skippedUnsupported}',
       'readFailures=${report.readFailures}',
       'recursive=${report.recursive ? 'yes' : 'no'}',

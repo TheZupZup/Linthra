@@ -151,8 +151,19 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
             : 'plex:${source.session.machineIdentifier}';
       },
     ),
-    const LocalPlayableUriResolver(),
+    LocalPlayableUriResolver(presence: ref.read(localFilePresenceProvider)),
   ]);
+});
+
+/// The seam that answers whether an on-device file is still at the path the
+/// catalog holds for it, so a track whose file was moved, deleted or unplugged
+/// fails with a message that says so instead of a generic engine error.
+///
+/// A provider rather than the resolver's own default so a test can drive the
+/// vanished-file path (and so a test that isn't about it can say "everything
+/// exists") without writing real files.
+final localFilePresenceProvider = Provider<LocalFilePresence>((ref) {
+  return const IoLocalFilePresence();
 });
 
 /// The read side of the remote playback cache: serves a prebuffered stream URL

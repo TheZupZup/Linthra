@@ -22,6 +22,7 @@ import '../../playlists/playlist_drag.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../library_browse_providers.dart';
 import '../song_actions.dart';
+import 'track_status_glyph.dart';
 
 /// The actions reachable from a track row's overflow menu. Which subset is
 /// offered is context-aware: it depends on whether the track is remote and on
@@ -45,8 +46,9 @@ enum _TrackAction {
 /// The row is deliberately calm: artwork (or a placeholder), the title, and a
 /// clean artist • album subtitle. Per-track actions live behind a trailing
 /// 3-dots overflow menu rather than a dedicated button, so the list stays
-/// uncluttered. Download state is still surfaced — but only as a subtle leading
-/// glyph next to the menu, never as a large control.
+/// uncluttered. Status is still surfaced — but only as one subtle glyph next to
+/// the menu, never as a large control: its download task and whether the row
+/// still plays with its server away, both handled by [TrackStatusGlyph].
 ///
 /// Tapping the row plays the tapped track and queues the rest of [tracks]
 /// behind it, then opens the now-playing screen — unchanged from before.
@@ -181,10 +183,11 @@ class TrackTile extends ConsumerWidget {
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _StatusGlyph(
-                  status: status,
+                TrackStatusGlyph(
+                  track: track,
                   isRemote: isRemote,
-                  progress: downloadFraction,
+                  downloadStatus: status,
+                  downloadProgress: downloadFraction,
                 ),
                 _OverflowMenu(
                   track: track,
@@ -269,64 +272,6 @@ class TrackTile extends ConsumerWidget {
   static String _subtitle(Track track) {
     final String label = track.artistAlbumLabel;
     return label.isEmpty ? track.uri : label;
-  }
-}
-
-/// The subtle, non-interactive download-state hint shown just before the
-/// overflow menu. Nothing here is tappable — it only mirrors state so the row
-/// stays quiet. Only meaningful for remote tracks; local tracks render nothing.
-class _StatusGlyph extends StatelessWidget {
-  const _StatusGlyph({
-    required this.status,
-    required this.isRemote,
-    this.progress,
-  });
-
-  final DownloadStatus status;
-  final bool isRemote;
-
-  /// Download completion in the range 0.0–1.0 when known; `null` shows an
-  /// indeterminate (spinning) ring while downloading.
-  final double? progress;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!isRemote) return const SizedBox.shrink();
-    final theme = Theme.of(context);
-    switch (status) {
-      case DownloadStatus.downloaded:
-        return Icon(
-          Icons.download_done,
-          size: 18,
-          color: theme.colorScheme.primary,
-          semanticLabel: 'Downloaded',
-        );
-      case DownloadStatus.downloading:
-        // The other three states name themselves; this one is a bare ring.
-        return Semantics(
-          label: 'Downloading',
-          child: SizedBox.square(
-            dimension: 16,
-            child: CircularProgressIndicator(strokeWidth: 2, value: progress),
-          ),
-        );
-      case DownloadStatus.queued:
-        return Icon(
-          Icons.schedule,
-          size: 18,
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-          semanticLabel: 'Queued',
-        );
-      case DownloadStatus.failed:
-        return Icon(
-          Icons.error_outline,
-          size: 18,
-          color: theme.colorScheme.error,
-          semanticLabel: 'Download failed',
-        );
-      case DownloadStatus.notDownloaded:
-        return const SizedBox.shrink();
-    }
   }
 }
 
