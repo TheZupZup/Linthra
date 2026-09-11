@@ -93,6 +93,15 @@ work in the native Linux build and the package declares the names they need,
 but media keys and `playerctl` against the installed Flatpak have not been
 confirmed.
 
+**Automatic folder watching and incremental rescans are not yet validated in
+the Flatpak.** Linthra watches the folders you selected and refreshes when they
+change, and a rescan only re-reads files that actually changed. Both have unit
+tests, and neither is exercised inside the packaged Flatpak on every build: the
+local-library check above scans, reads and plays, but never changes a file
+underneath a running app. A sandbox is exactly where filesystem watching can
+behave differently, so treat a manual rescan as the reliable path for now. See
+[local-music.md](../local-music.md) for what is and is not watched.
+
 **Nothing posts a desktop notification yet**, which is why the package asks for
 no notification permission.
 
