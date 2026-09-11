@@ -28,9 +28,27 @@ import 'fake_audio_file_scanner.dart';
 class _DeferredScanner implements AudioFileScanner {
   final requests = <String, Completer<List<String>>>{};
 
+  final Map<String, Completer<void>> _arrivals = <String, Completer<void>>{};
+
+  /// Completes once [listFiles] has really been called for [folder].
+  ///
+  /// The scan reads the previously indexed local slice before it walks
+  /// anything (that is what lets it tell a moved file from a deleted one), so
+  /// a test that wants to drive the walk has to wait for the walk to start
+  /// rather than assume it already has.
+  Future<void> requested(String folder) =>
+      (_arrivals[folder] ??= Completer<void>()).future;
+
+  void _noteArrival(String folder) {
+    final Completer<void> arrival = _arrivals[folder] ??= Completer<void>();
+    if (!arrival.isCompleted) arrival.complete();
+  }
+
   @override
-  Future<List<String>> listFiles(String folder) =>
-      (requests[folder] ??= Completer<List<String>>()).future;
+  Future<List<String>> listFiles(String folder) {
+    _noteArrival(folder);
+    return (requests[folder] ??= Completer<List<String>>()).future;
+  }
 }
 
 /// Delays the first nonempty local write, then performs it only when released.
@@ -186,11 +204,13 @@ void main() {
     final controller = container.read(libraryControllerProvider.notifier);
 
     final first = controller.scanFolderWithReport('/first');
+    await scanner.requested('/first');
     scanner.requests['/first']!.complete(['/first/First.mp3']);
     final previous = await first;
     expect(previous?.importedTracks, 1);
 
     final stale = controller.scanFolderWithReport('/stale');
+    await scanner.requested('/stale');
     controller.invalidatePendingScans();
     scanner.requests['/stale']!.complete(['/stale/Stale.mp3']);
     expect(await stale, isNull);
@@ -213,6 +233,7 @@ void main() {
     final controller = container.read(libraryControllerProvider.notifier);
 
     final scan = controller.scanFolderWithReport('/music');
+    await scanner.requested('/music');
     await container.read(localMusicControllerProvider.notifier).forget();
     scanner.requests['/music']!.complete(['/music/ShouldNotReturn.mp3']);
     expect(await scan, isNull);

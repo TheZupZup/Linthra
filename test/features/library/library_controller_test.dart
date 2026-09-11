@@ -41,8 +41,25 @@ class _DeferredAudioFileScanner implements AudioFileScanner {
   final Map<String, Completer<List<String>>> requests =
       <String, Completer<List<String>>>{};
 
+  final Map<String, Completer<void>> _arrivals = <String, Completer<void>>{};
+
+  /// Completes once [listFiles] has really been called for [folder].
+  ///
+  /// The scan reads the previously indexed local slice before it walks
+  /// anything (that is what lets it tell a moved file from a deleted one), so
+  /// a test that wants to drive the walk has to wait for the walk to start
+  /// rather than assume it already has.
+  Future<void> requested(String folder) =>
+      (_arrivals[folder] ??= Completer<void>()).future;
+
+  void _noteArrival(String folder) {
+    final Completer<void> arrival = _arrivals[folder] ??= Completer<void>();
+    if (!arrival.isCompleted) arrival.complete();
+  }
+
   @override
   Future<List<String>> listFiles(String folder) {
+    _noteArrival(folder);
     return (requests[folder] ??= Completer<List<String>>()).future;
   }
 }
@@ -164,7 +181,12 @@ void main() {
       final controller = container.read(libraryControllerProvider.notifier);
 
       final Future<void> oldScan = controller.scanFolder('/old');
+      // Let the old walk genuinely start before the new scan supersedes it:
+      // the point is that a walk already in flight cannot commit late, not
+      // that a superseded scan never starts walking.
+      await scanner.requested('/old');
       final Future<void> newScan = controller.scanFolder('/new');
+      await scanner.requested('/new');
       scanner.requests['/new']!.complete(<String>['/new/New.mp3']);
       await newScan;
       scanner.requests['/old']!.complete(<String>['/old/Old.mp3']);
@@ -185,6 +207,7 @@ void main() {
       final controller = container.read(libraryControllerProvider.notifier);
 
       final Future<void> scan = controller.scanFolder('/forgotten');
+      await scanner.requested('/forgotten');
       controller.invalidatePendingScans();
       await controller.refresh();
       scanner.requests['/forgotten']!.complete(<String>[
@@ -207,6 +230,7 @@ void main() {
 
       final scan = controller.scanFolderWithReport('/music');
       await controller.refresh();
+      await scanner.requested('/music');
       scanner.requests['/music']!.complete(<String>['/music/One.mp3']);
       final report = await scan;
 
