@@ -27,6 +27,10 @@ part 'linthra_database.g.dart';
 ///    source re-sync's `DELETE ... WHERE source_id = ?` no longer scans the
 ///    whole catalog to find the one source's rows. Purely additive: no rows
 ///    or columns change.
+///  * **v5**: nullable `file_size_bytes` / `file_modified_at_ms` columns, so
+///    a local scan can tell an unchanged file from a changed one with a
+///    `stat` instead of re-parsing its tags. Purely additive; see
+///    [_addLocalFileStampColumns] for why this is worth a migration at all.
 @DriftDatabase(tables: [Tracks])
 class LinthraDatabase extends _$LinthraDatabase {
   LinthraDatabase() : super(_openConnection());
@@ -36,7 +40,7 @@ class LinthraDatabase extends _$LinthraDatabase {
   LinthraDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -60,6 +64,13 @@ class LinthraDatabase extends _$LinthraDatabase {
           // fresh-install path) is the only place that already includes it.
           if (from < 4) {
             await _addTracksSourceIdIndex(m);
+          }
+          // Also independent of the branches above, and for the same reason:
+          // _migrateTracksKeyToUri rebuilds from the *current* table
+          // definition, which already has these columns, so a v1 database
+          // arrives here with them and must not add them twice.
+          if (from < 5 && from >= 2) {
+            await _addLocalFileStampColumns(m);
           }
         },
       );
@@ -123,6 +134,34 @@ class LinthraDatabase extends _$LinthraDatabase {
   /// dropped.
   Future<void> _addTracksSourceIdIndex(Migrator m) async {
     await m.createIndex(tracksSourceId);
+  }
+
+  /// v(2|3|4) → v5: add the nullable `file_size_bytes` /
+  /// `file_modified_at_ms` columns an incremental local scan compares against
+  /// a fresh `stat`.
+  ///
+  /// **Why this earns a migration.** A scan of a real Linux library spends
+  /// nearly all of its time opening files and parsing metadata blocks, and on
+  /// a routine rescan almost none of those files changed. Skipping them needs
+  /// to know what each one looked like when it was last parsed, and the only
+  /// place that fact can live without being able to drift is next to the row
+  /// it describes: one write, one transaction, no way for a catalog and a
+  /// separate stamp index to disagree about whether a file was ever indexed.
+  /// A sidecar store would avoid the migration and buy a real hazard, namely
+  /// a stamp saying "parsed" for a track the catalog does not have.
+  ///
+  /// **Purely additive, and data is preserved.** Both columns are nullable
+  /// with no default, so SQLite's `ALTER TABLE … ADD COLUMN` rewrites no rows:
+  /// every existing row keeps every value and reads back with the two new
+  /// fields null. A null stamp means "parse this file", so an upgraded
+  /// database behaves exactly as it did before, and the first scan after the
+  /// upgrade fills the stamps in as it goes. There is nothing to backfill and
+  /// nothing to lose if the upgrade is interrupted.
+  Future<void> _addLocalFileStampColumns(Migrator m) async {
+    await transaction(() async {
+      await m.addColumn(tracks, tracks.fileSizeBytes);
+      await m.addColumn(tracks, tracks.fileModifiedAtMs);
+    });
   }
 }
 

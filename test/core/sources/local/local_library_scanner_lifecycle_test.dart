@@ -5,6 +5,7 @@
 // matching rules live in local_catalog_reconciliation_test.dart. This is the
 // seam between them.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 import 'package:linthra/core/sources/local/local_catalog_reconciliation.dart';
@@ -23,6 +24,13 @@ Track _tagged(String path, {String title = 'Holocene', int ms = 337000}) {
     trackNumber: 5,
   );
 }
+
+/// A row as the catalog holds it. No stamp: these tests are about identity
+/// and availability, not about which files get re-parsed, and an absent
+/// stamp is what a row written before schema v5 looks like anyway.
+StampedTrack _indexed(String path,
+        {String title = 'Holocene', int ms = 337000}) =>
+    StampedTrack(track: _tagged(path, title: title, ms: ms));
 
 LocalScan _scanOf(List<Track> tracks) {
   return LocalScan(
@@ -65,13 +73,14 @@ void main() {
 
       final LocalLibraryScan scan = await scanner.scan(
         roots: <String>['/music'],
-        previousTracks: <Track>[
-          _tagged('/music/a.flac'),
-          _tagged('/music/gone.flac', title: 'Perth', ms: 250000),
+        previousTracks: <StampedTrack>[
+          _indexed('/music/a.flac'),
+          _indexed('/music/gone.flac', title: 'Perth', ms: 250000),
         ],
       );
 
-      expect(scan.tracks.map((Track t) => t.uri), <String>['/music/a.flac']);
+      expect(
+          scan.plainTracks.map((Track t) => t.uri), <String>['/music/a.flac']);
       expect(scan.reconciliation.removedUris, <String>['/music/gone.flac']);
       expect(scan.reconciliation.moves, isEmpty);
       expect(scan.isWritable, isTrue);
@@ -84,7 +93,7 @@ void main() {
 
       final LocalLibraryScan scan = await scanner.scan(
         roots: <String>['/music'],
-        previousTracks: <Track>[_tagged('/music/inbox/track.flac')],
+        previousTracks: <StampedTrack>[_indexed('/music/inbox/track.flac')],
       );
 
       expect(
@@ -111,14 +120,14 @@ void main() {
 
       final LocalLibraryScan scan = await scanner.scan(
         roots: <String>['/music', '/media/usb'],
-        previousTracks: <Track>[
-          _tagged('/music/a.flac'),
-          _tagged('/media/usb/kept.flac', title: 'Perth', ms: 250000),
+        previousTracks: <StampedTrack>[
+          _indexed('/music/a.flac'),
+          _indexed('/media/usb/kept.flac', title: 'Perth', ms: 250000),
         ],
       );
 
       expect(
-        scan.tracks.map((Track t) => t.uri),
+        scan.plainTracks.map((Track t) => t.uri),
         containsAll(<String>['/music/a.flac', '/media/usb/kept.flac']),
       );
       expect(scan.reconciliation.isEmpty, isTrue);
@@ -135,7 +144,7 @@ void main() {
 
       final LocalLibraryScan scan = await scanner.scan(
         roots: <String>['/music'],
-        previousTracks: <Track>[_tagged('/music/a.flac')],
+        previousTracks: <StampedTrack>[_indexed('/music/a.flac')],
       );
 
       expect(scan.isWritable, isFalse);
@@ -167,14 +176,14 @@ void main() {
 
       final LocalLibraryScan scan = await scanner.scan(
         roots: <String>['/music'],
-        previousTracks: <Track>[
-          _tagged('/music/a.flac'),
-          _tagged('/media/usb/b.flac', title: 'Perth', ms: 250000),
+        previousTracks: <StampedTrack>[
+          _indexed('/music/a.flac'),
+          _indexed('/media/usb/b.flac', title: 'Perth', ms: 250000),
         ],
       );
 
       expect(
-        scan.tracks.map((Track t) => t.uri),
+        scan.plainTracks.map((Track t) => t.uri),
         <String>['/music/a.flac'],
       );
       expect(

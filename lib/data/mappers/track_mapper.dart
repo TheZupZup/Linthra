@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../core/models/local_file_stamp.dart';
 import '../../core/models/track.dart';
 import '../database/linthra_database.dart';
 
@@ -24,9 +25,36 @@ Track trackFromRow(TrackRow row) {
   );
 }
 
+/// Rebuilds the on-disk stamp a row was parsed with, or null when it carries
+/// none: anything that is not a plain local file, and any row written before
+/// schema v5. A null stamp reads as "parse this file again".
+///
+/// Both halves have to be present to mean anything, so a row with only one is
+/// treated as having none rather than as a stamp with a zero in it.
+LocalFileStamp? fileStampFromRow(TrackRow row) {
+  final int? size = row.fileSizeBytes;
+  final int? modified = row.fileModifiedAtMs;
+  if (size == null || modified == null) return null;
+  return LocalFileStamp(sizeBytes: size, modifiedAtMs: modified);
+}
+
+/// Rebuilds a stored row as the track plus the stamp it was parsed with.
+StampedTrack stampedTrackFromRow(TrackRow row) => StampedTrack(
+      track: trackFromRow(row),
+      stamp: fileStampFromRow(row),
+    );
+
 /// Builds an insertable companion for [track], tagged with the [sourceId] it
 /// belongs to. `durationMs`/`artworkUri` are flattened to primitives here.
-TracksCompanion trackToCompanion(Track track, String sourceId) {
+///
+/// [stamp] records what the source file looked like when its tags were parsed,
+/// for the sources that have one (local files); omitting it stores nulls, which
+/// simply means the next scan re-parses that file.
+TracksCompanion trackToCompanion(
+  Track track,
+  String sourceId, {
+  LocalFileStamp? stamp,
+}) {
   return TracksCompanion(
     id: Value(track.id),
     sourceId: Value(sourceId),
@@ -39,5 +67,7 @@ TracksCompanion trackToCompanion(Track track, String sourceId) {
     durationMs: Value(track.duration.inMilliseconds),
     trackNumber: Value(track.trackNumber),
     artworkUri: Value(track.artworkUri?.toString()),
+    fileSizeBytes: Value(stamp?.sizeBytes),
+    fileModifiedAtMs: Value(stamp?.modifiedAtMs),
   );
 }

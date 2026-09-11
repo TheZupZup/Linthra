@@ -218,6 +218,50 @@ Rescans compare what is on disk against what Linthra last indexed, so:
 - **Moving a file while it plays** is not noticed until the next rescan or the
   next time that track is loaded.
 
+## Rescans only read what changed
+
+A scan of a real library spends nearly all of its time opening files and
+parsing their metadata blocks. On a routine rescan almost none of those files
+changed, so Linthra does not open them again.
+
+Each candidate file is `stat`-ed for its size and last-modified time, which is
+one syscall. If the catalog already holds that path with the identical size and
+mtime, the stored track is reused as it is and the file is never opened. Only
+new files, and files whose size or mtime moved, are parsed.
+
+On a synthetic 100,000-track library, with a fixed per-file parse cost, a full
+scan takes about 23 seconds and a rescan of the same untouched library takes
+about 0.65 seconds. The harness that produces those numbers is
+`test/benchmarks/local_incremental_scan_bench.dart`; run it on your own machine
+rather than trusting these figures, since the real cost is dominated by your
+disk.
+
+Details worth knowing:
+
+- **Each folder is independent.** A changed file in one music folder does not
+  cause the others to be re-read.
+- **An offline folder keeps its stamps** along with its tracks, so plugging a
+  drive back in does not re-parse everything on it.
+- **Android is unaffected.** Its local library comes through the content
+  resolver rather than from paths, so there is nothing to `stat`, and it scans
+  exactly as it always did.
+- The stamps live in the catalog database (schema v5), added as two nullable
+  columns. Upgrading keeps every row; the columns simply read back empty until
+  the first scan after the upgrade fills them in.
+
+### When to rescan everything
+
+Size and mtime miss exactly one kind of change: a write that restores the
+previous modification time *and* lands on the same byte count. A backup tool
+putting an old file back over a new one does it, and so does `touch -r` after
+an in-place edit. Hashing every file would catch those, at the cost of reading
+every byte of the library on every scan, which is the thing being avoided.
+
+So if the library ever looks wrong, a **full rescan** is the answer: it ignores
+every stamp and rebuilds the local index from the files themselves. Forgetting
+the source and selecting the folders again does the same thing, since there is
+then nothing indexed to compare against.
+
 ## Local music vs Offline downloads vs Cache
 
 These three are easy to confuse but are distinct:
