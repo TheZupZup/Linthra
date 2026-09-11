@@ -49,6 +49,13 @@ class _FakeOutputService implements AudioOutputDeviceService {
 
   @override
   Future<bool> select(AudioOutputDevice device) async => true;
+
+  /// Hotplug watching (#403). The diagnostics collector never listens, but the
+  /// seam requires it, and an empty stream is the honest answer for a fake that
+  /// nothing plugs into.
+  @override
+  Stream<List<AudioOutputDevice>> get deviceChanges =>
+      const Stream<List<AudioOutputDevice>>.empty();
 }
 
 const AudioOutputDevice _usbDac = AudioOutputDevice(

@@ -678,15 +678,15 @@ run, stays `contents: read`.
   Linux build), and no dispatch loop: `linux-desktop-build.yml` never
   dispatches anything itself.
 
-**This tarball is the native Linux build, not the future Flatpak.** It is
+**This tarball is the native Linux build, not the Flatpak.** It is
 Linthra's plain `flutter build linux --release` bundle — it still expects the
 Linux runtime libraries listed in
 [docs/linux-desktop.md](./linux-desktop.md#required-packages) (GTK 3,
 libmpv, a Secret Service provider, …) to already be present on the machine
 that runs it. It is **not** distro-independent or self-contained. The
-Flatpak, which will sandbox and bundle those runtime dependencies for
-Flathub, is separate, later work tracked by [issue #376](https://github.com/TheZupZup/Linthra/issues/376) and is not
-implemented by this workflow.
+self-contained, sandboxed artifact is the `.flatpak` bundle in §4b, produced
+by a different workflow from a different build; this one stays available for
+anyone who already has the runtime dependencies on hand.
 
 **If the Linux release build fails**, open the failed **Linux desktop
 build** run — `publish-stable-release.yml`'s and `android-release-build.yml`'s
@@ -696,6 +696,150 @@ test, and smoke-test steps run and where most failures surface.
 `package-linux-release` only runs after `build-linux` succeeds, so a failure
 there means the bundle built and validated fine and the problem is in
 archiving or the Release upload itself.
+
+## 4b. Linux Flatpak bundle (dispatched alongside the Android and Linux builds)
+
+A stable Release also carries `Linthra-<tag>-x86_64.flatpak` — e.g.
+`Linthra-v0.2.7-x86_64.flatpak` — the artifact a Linux user installs instead
+of extracting the tarball above and installing its runtime dependencies by
+hand (#618). It is the *same* Flatpak Linthra already builds and validates on
+packaging PRs: one manifest, one application id, one desktop entry, one set of
+icons, one AppStream file. Nothing about the package is release-specific; what
+is new is that the export becomes a single downloadable file.
+
+This is **not** a Flathub submission. Flathub remains
+[#456](https://github.com/TheZupZup/Linthra/issues/456), and nothing here
+publishes anything to it.
+
+### How the bundle is produced
+
+[`.github/workflows/flatpak-build.yml`](../.github/workflows/flatpak-build.yml)
+— the same workflow that already builds, installs and launches the Flatpak on
+packaging changes — gains an optional `workflow_dispatch` input, `release_tag`,
+exactly like `linux-desktop-build.yml`'s and for the same
+`GITHUB_TOKEN`-can't-trigger-workflows reason (§4a). Left empty, the workflow
+behaves precisely as before.
+
+Set to an existing Release tag:
+
+- **`build-flatpak`** validates the tag's shape, confirms via the GitHub API
+  that a Release for it exists, and checks out **that exact tag** — never
+  `main`. It then verifies the release metadata *at that tag* with Linthra's
+  existing tooling: `scripts/release_preflight.sh` (tag ↔ `pubspec.yaml` ↔
+  `AppInfo`) and `scripts/check_release_metadata_sync.py --tag` (pubspec ↔ Play
+  changelog ↔ F-Droid entry ↔ AppStream `<release>` ↔ Flatpak manifest). A
+  disagreement fails the build before a version number can reach a file name.
+  The rest of the job is unchanged: the same manifest build on a clean runner,
+  the same export, the same install-and-launch smoke.
+
+  It then runs `flatpak build-bundle` on the repository **it just exported and
+  launched**, so the artifact cannot come from a different build than the one
+  that was tested. `--runtime-repo` points at Flathub so that installing the
+  file on a machine without `org.gnome.Platform//50` offers to fetch the
+  runtime rather than failing; Linthra's own bytes are inside the bundle.
+
+  The name comes from `scripts/flatpak_bundle.py name --tag`, which derives it
+  from the tag — the workflow never spells a version itself, and
+  `publish-stable-release.yml` asks the same helper for the name it requires on
+  the Release.
+
+  Finally it checks the bundle it produced (`scripts/flatpak_bundle.py verify`)
+  and installs and launches *that file* with the existing
+  `scripts/flatpak_launch_smoke.sh`, the way a user installs it
+  (`flatpak install --bundle`).
+
+- **`package-flatpak-release`** only runs when `build-flatpak` confirmed a
+  validated `release_tag`, and is the only job in the workflow with
+  `contents: write`. It never rebuilds: it downloads the artifact, re-derives
+  the expected name, re-checks the downloaded copy against the manifest at the
+  tag, verifies the Cast containment in it, uploads it with
+  `gh release upload --clobber`, and records its SHA-256 in the job summary.
+
+Every other trigger of this workflow — fork PRs included — stays
+`contents: read`.
+
+### What `flatpak_bundle.py verify` checks
+
+Its expectations are read from `flatpak/io.github.thezupzup.linthra.yml`, not
+restated, so a packaging change cannot make the check and the manifest
+disagree:
+
+- the bundle holds exactly one ref, `app/io.github.thezupzup.linthra/<arch>/master`;
+- `metadata` names that application id, the manifest's runtime, and its command;
+- every path the manifest `install`s into `/app` is present — the desktop entry
+  (#434), the AppStream metainfo (#435) and all five icons (#436);
+- a `libmpv` shared library is inside the bundle (#433), so playback does not
+  fall back to a host-installed one;
+- the desktop entry and an icon are in `export/`, which is what makes an
+  installed app appear in a GNOME/KDE launcher;
+- there is a compiled Dart payload at all.
+
+It reads a bundle; it does not run one. Two other things carry the playback
+evidence, and neither is duplicated here:
+
+- the **sandbox smokes** (`flatpak-build.yml` ▸ *Sandbox smokes on the packaged
+  app*) run inside the installed sandbox. The audio one
+  ([flatpak-audio-smoke.md](./flatpak-audio-smoke.md)) walks the real playback
+  lifecycle on the libmpv the manifest built; the local-library one
+  ([flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md)) covers
+  what a chosen music folder can and cannot reach. Both run on a manifest
+  *derived* from the shipped one — the same package plus test binaries under
+  `/app/libexec` — precisely so the shipped package carries no test harness,
+  which is also why they cannot be pointed at the release bundle itself. They
+  gate the same packaging changes this bundle is built from;
+- the real-desktop checks are in
+  [linux-desktop.md](./linux-desktop.md#manual-flatpak-smoke-checklist).
+
+What the release path adds on top is narrow and deterministic: the bundle
+contains a `libmpv`, so the shipped artifact cannot be one that would fall back
+to a host copy.
+
+### Verification and the published record
+
+The bundle goes through the same artifact verification as every other release
+asset. `scripts/verify_release_containment.py` reads `.flatpak` files directly
+(it unpacks the bundle with the extractor in `scripts/flatpak_bundle.py`), so:
+
+- the packaging job verifies the containment in the bundle **before** the
+  upload — the Release is already public by then;
+- `publish-stable-release.yml` requires `Linthra-<tag>-x86_64.flatpak` among
+  the Release's assets, downloads every published asset back, and verifies them
+  together, writing each one's SHA-256 into the job summary. The bundle's digest
+  is therefore recorded from the published file, next to the APK/AAB and the
+  tarball.
+
+**Who dispatches it:** `publish-stable-release.yml`, right after the Android
+and Linux builds, with the same before/after `gh run list` pattern, and it
+waits on the run with `gh run watch --exit-status`. A failed Flatpak build
+fails the publication, the same way a failed Android or Linux build already
+does.
+
+```
+/publish-stable vX.Y.Z
+      ↓
+publish-stable-release.yml creates the tag + GitHub Release
+      ↓
+workflow_dispatch: android-release-build.yml (release_tag=vX.Y.Z) — waited on
+      ↓
+workflow_dispatch: linux-desktop-build.yml   (release_tag=vX.Y.Z) — waited on
+      ↓
+workflow_dispatch: flatpak-build.yml         (release_tag=vX.Y.Z) — waited on
+      ↓
+publish-stable-release.yml verifies every asset, including the .flatpak
+```
+
+A directly-pushed alpha/beta/rc tag does **not** get a Flatpak bundle today.
+The dispatch input accepts a pre-release tag, so one can be produced with a
+manual `workflow_dispatch` if a pre-release ever needs it; nothing dispatches
+it automatically.
+
+**If the Flatpak release build fails**, open the failed **Flatpak build** run —
+`publish-stable-release.yml`'s job summary links to it as "Flatpak release
+build" — and read `build-flatpak` first: tag validation, the release-metadata
+checks, the manifest build, the bundle export and both launch smokes all live
+there. `package-flatpak-release` only runs after that job succeeds, so a
+failure there means the bundle built and launched fine and the problem is in
+the verification or the Release upload itself.
 
 ## 5. F-Droid relationship
 
@@ -742,9 +886,10 @@ consume our signed artifacts:
 | Release APK/AAB build | **Manual** (`workflow_dispatch`) **and automatic on `v*` tags** (`android-release-build.yml`). |
 | Preparing the version-bump PR (pubspec, in-app mirror, Fastlane changelog, F-Droid `CurrentVersion`, AppStream `<release>`) | **Manual** (`workflow_dispatch`, `prepare-release-bump.yml`); opens a draft PR but never tags, builds, or publishes. The same edits are reproducible locally with `scripts/prepare_release_bump.py`. |
 | Verifying the tag matches `pubspec.yaml` (versionName/versionCode) | **Automatic** on a `v*` tag build (`scripts/release_preflight.sh`, encoding-checked against `tool/version_from_tag.dart`); fails fast on a mismatch and the workflow summary explicitly says "Version mismatch: release was not built." so it is not confused with an APK build failure. The same script is intended to be run locally before tagging (§3 step 10). Both manual and tag builds take the version from `pubspec.yaml`. |
-| Verifying the shipped artifacts carry the Cast containment | **Automatic**: on every release build (`android-release-build.yml`, before the artifacts are uploaded) and again on the published assets during a stable publication (`publish-stable-release.yml`, which records every SHA-256 in the job summary). Local twin: `python3 scripts/verify_release_containment.py dist/*.apk dist/*.aab`. See [release-artifact-verification.md](./release-artifact-verification.md). |
+| Verifying the shipped artifacts carry the Cast containment | **Automatic**: on every release build (`android-release-build.yml`, `linux-desktop-build.yml` and `flatpak-build.yml`, before each artifact is uploaded) and again on the published assets during a stable publication (`publish-stable-release.yml`, which records every SHA-256 in the job summary). Local twin: `python3 scripts/verify_release_containment.py dist/*.apk dist/*.aab`. See [release-artifact-verification.md](./release-artifact-verification.md). |
 | Attaching APK/AAB to a Release | **Automatic** on a `v*` tag build. Alpha/beta/rc tags attach (debug- or release-signed) to a **pre-release**; stable tags attach **release-signed** assets to an existing Release only. |
 | Linux `.tar.gz` build + attach to a Release | **Automatic**, via `workflow_dispatch` (`linux-desktop-build.yml` `release_tag` input, job `package-linux-release`) — see §4a. `publish-stable-release.yml` dispatches it for every stable release; `android-release-build.yml`'s `attach-release` job dispatches it for a directly-pushed alpha/beta/rc tag. Not wired to `push: tags` or `release: published` — a `GITHUB_TOKEN`-authored tag push/Release doesn't reliably start either. |
+| Linux `.flatpak` bundle build + attach to a Release | **Automatic** for stable releases, via `workflow_dispatch` (`flatpak-build.yml` `release_tag` input, job `package-flatpak-release`) — see §4b. `publish-stable-release.yml` dispatches it and waits for it. A directly-pushed alpha/beta/rc tag does not get one automatically. |
 | Creating a GitHub **pre-release** (alpha/beta/rc) | **Automatic** on the tag build if no Release exists yet (placeholder notes; edit afterwards). |
 | Creating a stable GitHub Release | **Manual** (operator, §4); never auto-created. |
 | Drift code generation | **Manual only** (`generate-drift.yml`, `workflow_dispatch`). |
@@ -769,12 +914,16 @@ Release, writes production notes, signs a store build, or submits to F-Droid.
 | `android-release-build.yml` · `build-release`/`attach-release` — release APK/AAB, tag↔pubspec preflight, attach | — | — | ✅ | ✅ (also how `publish-stable-release.yml` triggers it for a stable release) |
 | `linux-desktop-build.yml` · `build-linux` — build/validate the Linux desktop target | ✅ | ✅ | — | ✅ (`release_tag` set: checks out that exact tag; empty: normal manual build) |
 | `linux-desktop-build.yml` · `package-linux-release` — package `.tar.gz`, attach to Release | — | — | — | ✅ (only when `release_tag` is set and its Release exists) |
+| `flatpak-build.yml` · `build-flatpak` — build, install and launch the Flatpak | ✅ (packaging paths) | ✅ (packaging paths) | — | ✅ (`release_tag` set: checks out that exact tag and exports the `.flatpak`; empty: normal manual build) |
+| `flatpak-build.yml` · `package-flatpak-release` — verify the `.flatpak`, attach to Release | — | — | — | ✅ (only when `release_tag` is set and its Release exists) |
 | `prepare-release-bump.yml` — open the version-bump PR | — | — | — | ✅ |
 | `generate-drift.yml` — regenerate `*.g.dart` | — | — | — | ✅ |
 
 `android-release-build.yml`'s `attach-release` job and `publish-stable-release.yml`
 are the two places that dispatch `linux-desktop-build.yml` with `release_tag`
-set — see §4a for exactly when each one fires it.
+set — see §4a for exactly when each one fires it. `publish-stable-release.yml`
+is the only place that dispatches `flatpak-build.yml` with `release_tag` set
+(§4b).
 
 The `flutter` job also runs the whole `test/` suite, which includes the
 release-safety guardrail tests below — so those gate every PR, not just release

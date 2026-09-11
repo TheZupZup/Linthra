@@ -66,6 +66,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
     }
 
     JustAudioMediaKit.livePlayers[id] = _player;
+    JustAudioMediaKit.livePlayersChanged.add(null);
 
     if (JustAudioMediaKit.prefetchPlaylist) {
       setProperty(_player, 'prefetch-playlist', 'yes');
@@ -397,6 +398,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   Future<void> release() async {
     _logger.info('releasing player resources');
     JustAudioMediaKit.livePlayers.remove(id);
+    JustAudioMediaKit.livePlayersChanged.add(null);
     _mediaOpened = false;
     await _player.dispose();
     // cancel all stream subscriptions

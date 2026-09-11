@@ -88,6 +88,10 @@ ReachabilityStatus? reachabilityFromPlaybackError(
     case PlaybackResolutionErrorKind.invalidStream:
     case PlaybackResolutionErrorKind.serverReturnedWebPage:
     case PlaybackResolutionErrorKind.streamUnavailable:
+    // An on-device file that isn't there says nothing whatsoever about a
+    // server: no provider was contacted, and caching an outage off it would
+    // suppress perfectly good remote copies of the same song.
+    case PlaybackResolutionErrorKind.localFileMissing:
       return null;
   }
 }
