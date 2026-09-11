@@ -56,6 +56,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | Flatpak local-library sandbox smoke | [flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md) |
 | Flatpak sandbox filesystem audit | [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md) |
 | Flathub builder lint | [flathub-builder-lint.md](./flathub-builder-lint.md) |
+| Flatpak permission audit | [flatpak-permissions.md](./flatpak-permissions.md) |
 | Flathub updates (release to published Flatpak) | [flathub-update-process.md](./flathub-update-process.md) |
 
 ## Licensing & legal

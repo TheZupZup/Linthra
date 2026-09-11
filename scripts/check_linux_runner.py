@@ -134,6 +134,12 @@ FLATPAK_TEMPLATE = FLATPAK_DIR / "flatpak-flutter.yml"
 # `.*` form is what the spec's `.instance<pid>` fallback needs for a second
 # window.
 #
+# Each entry's rationale (the feature that needs it, where that feature lives,
+# and why nothing narrower works) is the table in docs/flatpak-permissions.md,
+# which scripts/check_flatpak_permissions.py holds to this same set from the
+# other side (#455). Adding a permission therefore means editing two
+# independent checks and writing down why.
+#
 # Everything broader stays rejected by this exact list rather than quietly
 # accepted: --socket=session-bus, an org.mpris.MediaPlayer2.* wildcard that
 # would cover other players, any --talk-name, and the same names on the system
