@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/colors.dart';
 import '../../app/dimens.dart';
+import '../../data/repositories/host_platform_provider.dart';
 import '../../data/repositories/launcher_icon_service_provider.dart';
 import '../support/support_actions_provider.dart';
 import 'app_icon_controller.dart';
 import 'app_icon_variant.dart';
 import 'custom_theme_card.dart';
+import 'desktop_density_card.dart';
 import 'linthra_logo_mark.dart';
 import 'theme_mode_card.dart';
 
@@ -38,6 +40,13 @@ class AppearanceSettingsScreen extends ConsumerWidget {
         children: <Widget>[
           const ThemeModeCard(),
           const SizedBox(height: AppSpacing.lg),
+          // Desktop only — the card renders nothing elsewhere, so the spacing
+          // below it would be a stray gap on a phone. Both live inside the same
+          // conditional list entry for that reason.
+          if (ref.watch(hostPlatformProvider).isDesktop) ...<Widget>[
+            const DesktopDensityCard(),
+            const SizedBox(height: AppSpacing.lg),
+          ],
           _IntroCard(showCustomPalette: showCustomPalette),
           const SizedBox(height: AppSpacing.md),
           _VariantGrid(
