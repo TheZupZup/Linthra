@@ -351,30 +351,79 @@ def query_plan(
     return rows
 
 
+#: The width of the query-name column in the per-query timing lines. Names are
+#: padded to it so the timings of every query start in the same place; the
+#: query catalogue is kept inside it by a unit test.
+QUERY_NAME_WIDTH = 18
+
+#: The summary's label column, and the column its numbers are right-aligned in.
+#: Both are fixed so counts and timings end in the same place whatever their
+#: magnitude, which is what makes the block scannable in a CI log.
+SUMMARY_LABEL_WIDTH = 24
+SUMMARY_VALUE_WIDTH = 9
+
+
+def query_line(name: str, average_ms: float, p95_ms: float, max_ms: float) -> str:
+    """One query's timings, as printed on the line above its plan.
+
+    The maximum is here because the summary's "slowest single run" is drawn
+    from it: without it, the one number a spiky run gets read for appears out of
+    nowhere, and there is no way to see which other query was close behind.
+    """
+    return (
+        f"{name:{QUERY_NAME_WIDTH}} avg={average_ms:8.3f} ms"
+        f"  p95={p95_ms:8.3f} ms  max={max_ms:8.3f} ms"
+    )
+
+
 def summary_lines(
+    database: Path,
     track_count: int,
     results: Sequence[tuple[str, float, float, float]],
     iterations: int,
+    max_average_ms: float,
 ) -> list[str]:
     """Render the summary block printed after the per-query lines.
 
     Separate from `main` so the wording, the numbers and the alignment can be
-    checked without a database: everything here is derived from `results`.
+    checked without a database: everything here is derived from its arguments.
     """
     summed_average_ms = sum(average_ms for _, average_ms, _, _ in results)
     average_query_ms = summed_average_ms / len(results)
+    # Every query is timed the same number of times and reported as a mean, so
+    # iterations x mean adds that query's samples back up, and the sum over the
+    # queries is the time the run actually spent executing them. Nothing else
+    # is inside it: building the fixture, collecting the plans and printing all
+    # happen outside the timed section.
+    total_query_ms = summed_average_ms * iterations
     slowest_name, _, _, slowest_max_ms = max(results, key=lambda result: result[3])
 
     # Labels are padded to a fixed width and values are right-aligned inside
     # one column, so counts and timings line up whatever their magnitude.
     def row(label: str, value: str, unit: str = "") -> str:
-        return f"  {label + ':':<24}{value:>9}{unit}"
+        return (
+            f"  {label + ':':<{SUMMARY_LABEL_WIDTH}}"
+            f"{value:>{SUMMARY_VALUE_WIDTH}}{unit}"
+        )
+
+    def text_row(label: str, value: str) -> str:
+        # A path has no right edge worth aligning to, and one longer than the
+        # value column would push the numbers out of line, so text starts where
+        # the number column starts and runs on from there.
+        return f"  {label + ':':<{SUMMARY_LABEL_WIDTH}}{value}"
 
     return [
         "benchmark summary",
+        # Which fixture this was: the numbers below mean nothing without it,
+        # and a 200k run and a 5k run otherwise look identical in a log.
+        text_row("database", str(database)),
         row("tracks", f"{track_count:,}"),
         row("queries", f"{len(results)}"),
         row("iterations per query", f"{iterations:,}"),
+        # The time the run spent inside the timed queries: every sample of
+        # every query, added up. It scales with --iterations, which is exactly
+        # what the two averages below do not do.
+        row("total time in queries", f"{total_query_ms:.3f}", " ms"),
         # Each query is timed the same number of times and reported as a mean,
         # so this is the sum of those per-query averages, not the wall-clock
         # time the benchmark spent querying. Saying so keeps the number
@@ -384,6 +433,10 @@ def summary_lines(
         # The slowest single timed run, not the slowest query on average: it is
         # the outlier worth looking at when a run is unexpectedly spiky.
         row("slowest single run", f"{slowest_max_ms:.3f}", f" ms ({slowest_name})"),
+        # The bar every per-query average had to clear. A red run says which
+        # query missed it; this says what it missed, and a green run says how
+        # much headroom there was.
+        row("average-query budget", f"{max_average_ms:.3f}", " ms"),
     ]
 
 
@@ -430,7 +483,7 @@ def main() -> None:
             # per line and indented by its depth. The plan used to be joined
             # onto the end of the timing line, where it wrapped and stopped
             # being read.
-            print(f"{query.name:18} avg={average_ms:8.3f} ms  p95={p95_ms:8.3f} ms")
+            print(query_line(query.name, average_ms, p95_ms, max_ms))
             for row in plan:
                 print(f"    {row.rendered()}")
 
@@ -486,13 +539,15 @@ def main() -> None:
                 failed = True
             if average_ms > args.max_average_ms:
                 print(
-                    f"ERROR: {query.name} exceeded the {args.max_average_ms:.1f} ms "
+                    f"ERROR: {query.name} exceeded the {args.max_average_ms:.3f} ms "
                     "average-query budget"
                 )
                 failed = True
 
         print()
-        for line in summary_lines(count, results, args.iterations):
+        for line in summary_lines(
+            args.database, count, results, args.iterations, args.max_average_ms
+        ):
             print(line)
         if failed:
             raise SystemExit(1)
