@@ -18,6 +18,8 @@ Related pages, each with a different job:
   debugging the Flatpak on your own machine.
 * [flatpak-ci.md](./flatpak-ci.md): what the automated Flatpak build proves on
   every packaging PR, and how to reproduce it locally.
+* [flathub-builder-lint.md](./flathub-builder-lint.md): Flathub's own submission
+  linter, the exact commands, and the exceptions policy.
 * [flatpak-offline-build.md](./flatpak-offline-build.md): why the sandboxed
   build needs no network, and how that is audited.
 * [`flatpak/README.md`](../flatpak/README.md): what each packaging file is and

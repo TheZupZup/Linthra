@@ -16,6 +16,7 @@ import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/settings/plex/plex_settings_controller.dart';
 
 import '../../core/sources/plex/fake_plex_client.dart';
+import '../../support/fake_local_file_presence.dart';
 
 /// A signed-in Plex stream source minting a canned URL, for routing tests that
 /// don't need the full client round trip.
@@ -54,7 +55,7 @@ RoutingPlayableUriResolver _router({
     JellyfinPlayableUriResolver(() => null),
     SubsonicPlayableUriResolver(() => null),
     PlexPlayableUriResolver(plex ?? () => null),
-    const LocalPlayableUriResolver(),
+    LocalPlayableUriResolver(presence: FakeLocalFilePresence.all()),
   ]);
 }
 
@@ -145,7 +146,14 @@ void main() {
       // No overrides: exactly what a production install runs before anyone
       // connects. The jellyfin/subsonic/plex session stores default to
       // in-memory (empty), so plexMusicSourceProvider serves null.
-      final container = ProviderContainer();
+      final container = ProviderContainer(
+        overrides: <Override>[
+          // The one seam that would touch the real disk: /music/one.mp3 does
+          // not exist here, and a missing file is a different suite's subject.
+          localFilePresenceProvider
+              .overrideWithValue(FakeLocalFilePresence.all()),
+        ],
+      );
       addTearDown(container.dispose);
       final resolver = container.read(remoteCacheResolverProvider);
 

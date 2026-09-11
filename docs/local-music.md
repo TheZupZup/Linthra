@@ -160,6 +160,64 @@ is an ordinary `dart:io` walk. What differs is where the path comes from:
    artist instead. FLAC avoids that because Linthra reads its comment block
    itself and keeps the field names.
 
+## When files move or disappear
+
+Your music folder is yours, and Linthra assumes you will reorganise it. A
+rescan is what brings the library back in step, and it follows three rules.
+
+**A file that is really gone leaves the library.** If a folder was read fine
+and a file it used to hold is not in it any more, the track is dropped from the
+index. Nothing is deleted from disk: the file was already gone, and Linthra never
+removes or moves your audio, on a rescan or at any other time.
+
+**A folder that could not be read changes nothing.** An unplugged drive, a
+network mount that is down, a revoked portal document: none of those are
+deletions, and none of them are treated as one. That folder's tracks stay
+indexed exactly as they were while the folders Linthra *can* read are
+refreshed. If no folder at all can be read, nothing is written.
+
+**A file that moved keeps its history, when that can be proven.** Local tracks
+are identified by their path, so moving one would normally reset its play
+count, un-heart it, and make a five-year-old rip look newly added. Linthra
+avoids that by matching a file that vanished against a file that appeared,
+using the **tags read out of the file** (exact duration, title, artist, album,
+album artist, track number), and never the file name.
+
+The matching is deliberately cautious, and gives up rather than guessing:
+
+- a file whose tags could not be read is never matched, because its title and
+  artist/album came from the file name and folders and matching on those is
+  matching the path in disguise;
+- if two files that disappeared share the same tags, or two that appeared do,
+  the match is ambiguous and nothing is claimed, because copying an album is not the
+  same as moving it;
+- a file that was re-encoded or re-tagged no longer matches, so it is simply
+  treated as a new track.
+
+Every one of those falls back to the same safe result: the old path counts as
+removed, the new one as a new track, and no listening history changes hands.
+It is better to lose a play count than to hand one song's history to another.
+
+**If the file that is playing disappears**, playback stops on that track with a
+message saying so, and the queue is left exactly as it is: the track keeps its
+place and skipping past it works normally.
+
+### What this cannot see
+
+Rescans compare what is on disk against what Linthra last indexed, so:
+
+- **Between rescans the library can be stale.** Filesystem watching
+  ([#409](https://github.com/thezupzup/linthra/issues/409)) is what closes that
+  gap.
+- **Hardlinks and bind mounts** make one file visible at two paths. Linthra
+  imports it once (per selected folder) and cannot tell such a pair apart from
+  a genuine copy, so it treats it as one.
+- **A file moved *out of* a folder Linthra can read into one it cannot** (an
+  offline drive) looks like a deletion, because the destination was never
+  scanned. Rescanning with the drive connected brings it back.
+- **Moving a file while it plays** is not noticed until the next rescan or the
+  next time that track is loaded.
+
 ## Local music vs Offline downloads vs Cache
 
 These three are easy to confuse but are distinct:
