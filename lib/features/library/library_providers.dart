@@ -6,6 +6,7 @@ import '../../core/sources/local/android_media_library.dart';
 import '../../core/sources/local/audio_file_scanner.dart';
 import '../../core/sources/local/directory_readability.dart';
 import '../../core/sources/local/filesystem_local_metadata_reader.dart';
+import '../../core/sources/local/local_file_stat.dart';
 import '../../core/sources/local/local_metadata_reader.dart';
 import '../../core/sources/local/method_channel_android_media_library.dart';
 import '../../core/sources/local/method_channel_saf_document_lister.dart';
@@ -76,4 +77,18 @@ final localMetadataReaderProvider = Provider<LocalMetadataReader>((ref) {
   return ref.watch(hostPlatformProvider).isAndroid
       ? const UnsupportedLocalMetadataReader()
       : FilesystemLocalMetadataReader();
+});
+
+/// The seam an incremental scan uses to ask what a file looks like on disk
+/// (size and mtime) without opening it.
+///
+/// Android is deliberately left on [UnsupportedLocalFileStatReader]: its local
+/// library comes from the content resolver rather than from paths, so there is
+/// nothing here to stat, and answering nothing means every document is read the
+/// way it always was. Everywhere else this is what turns a rescan from
+/// "re-parse the library" into "parse what changed".
+final localFileStatReaderProvider = Provider<LocalFileStatReader>((ref) {
+  return ref.watch(hostPlatformProvider).isAndroid
+      ? const UnsupportedLocalFileStatReader()
+      : const IoLocalFileStatReader();
 });

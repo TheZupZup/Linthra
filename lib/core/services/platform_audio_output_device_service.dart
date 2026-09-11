@@ -46,4 +46,7 @@ class PlatformAudioOutputDeviceService implements AudioOutputDeviceService {
 
   @override
   Future<bool> select(AudioOutputDevice device) => _delegate.select(device);
+
+  @override
+  Stream<List<AudioOutputDevice>> get deviceChanges => _delegate.deviceChanges;
 }

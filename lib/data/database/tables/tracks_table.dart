@@ -50,6 +50,22 @@ class Tracks extends Table {
   IntColumn get trackNumber => integer().nullable()();
   TextColumn get artworkUri => text().nullable()();
 
+  /// The source file's length in bytes the last time its tags were parsed, and
+  /// the file's last-modified time as milliseconds since the Unix epoch. Together
+  /// they are the stamp an incremental local scan compares against a fresh
+  /// `stat` to decide whether a file has to be opened and parsed again. Both
+  /// null for anything that is not a plain local file (remote tracks, Android
+  /// SAF documents, MediaStore rows) and for rows written before schema v5; a
+  /// null stamp means "parse it", i.e. exactly the pre-v5 behavior.
+  ///
+  /// They live on the track row rather than in a side table because the row
+  /// *is* the record of "this path was parsed into this track": one write, one
+  /// transaction, and no way for a catalog and a separate stamp index to drift
+  /// apart and skip parsing a file whose track was never stored. Added in
+  /// schema v5.
+  IntColumn get fileSizeBytes => integer().nullable()();
+  IntColumn get fileModifiedAtMs => integer().nullable()();
+
   @override
   Set<Column> get primaryKey => {uri};
 }

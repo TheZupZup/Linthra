@@ -15,10 +15,13 @@ class FakeAudioFileScanner implements AudioFileScanner {
     this.error,
   });
 
-  final List<String> files;
-  final Map<String, List<String>> filesByFolder;
-  final Set<String> unavailable;
-  final Object? error;
+  List<String> files;
+
+  /// Mutable so one test can scan, change what is on "disk", and scan again,
+  /// which is the whole shape of an add / delete / move test.
+  Map<String, List<String>> filesByFolder;
+  Set<String> unavailable;
+  Object? error;
   String? requestedFolder;
 
   /// Every folder this scanner was asked to walk, in order.

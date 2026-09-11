@@ -15,6 +15,9 @@ import '../../../shared/widgets/artwork_image.dart';
 class NowPlayingBackground extends StatelessWidget {
   const NowPlayingBackground({required this.artworkUri, super.key});
 
+  /// Device pixels the blurred backdrop is decoded across.
+  static const int _backdropDecodeExtent = 256;
+
   final Uri? artworkUri;
 
   @override
@@ -36,7 +39,15 @@ class NowPlayingBackground extends StatelessWidget {
             ImageFiltered(
               imageFilter: ui.ImageFilter.blur(sigmaX: 40, sigmaY: 40),
               child: Image(
-                image: artworkImageProvider(uri),
+                // Decoded far smaller than the screen on purpose. A 40px
+                // gaussian blur destroys every detail a larger decode would
+                // buy, so a full-screen 4K backdrop would cost tens of
+                // megabytes to look identical (#457). This is the one artwork
+                // surface whose bound is a constant rather than its box.
+                image: artworkImageProvider(
+                  uri,
+                  decodeExtent: _backdropDecodeExtent,
+                ),
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
                 // A failed/decoding image leaves just the gradient showing.

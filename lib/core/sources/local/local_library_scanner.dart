@@ -1,6 +1,8 @@
+import '../../models/local_file_stamp.dart';
 import '../../models/track.dart';
 import 'folder_location.dart';
 import 'folder_scan_exception.dart';
+import 'local_catalog_reconciliation.dart';
 import 'local_music_roots.dart';
 import 'local_music_source.dart';
 import 'local_scan_report.dart';
@@ -45,11 +47,24 @@ class LocalLibraryScan {
     required this.report,
     required this.roots,
     this.retentionUnavailable = false,
+    this.reconciliation = LocalCatalogReconciliation.none,
   });
 
   /// The complete local catalog to persist: every readable folder's tracks,
   /// plus the retained tracks of folders that were unreachable this time.
-  final List<Track> tracks;
+  ///
+  /// Each carries the on-disk stamp it was parsed at, when it has one, so the
+  /// write records what a later scan will compare against. A retained track
+  /// keeps the stamp it already had: the folder was not read, so nothing about
+  /// it is newly known, and losing the stamp would mean re-parsing that whole
+  /// folder the next time it *is* readable.
+  final List<StampedTrack> tracks;
+
+  /// The tracks alone, for the callers and assertions that do not care where
+  /// the bytes were when they were parsed.
+  List<Track> get plainTracks => <Track>[
+        for (final StampedTrack stamped in tracks) stamped.track,
+      ];
 
   final LocalScanReport report;
   final List<LocalRootOutcome> roots;
@@ -58,6 +73,17 @@ class LocalLibraryScan {
   /// could not be read back, so the retained half of [tracks] is missing.
   /// Writing it would silently drop that folder's music, so callers must not.
   final bool retentionUnavailable;
+
+  /// What happened to files the catalog knew about that a *readable* folder no
+  /// longer holds: the ones that turned up at a new path with their identity
+  /// proven, and the ones that are confirmed gone.
+  ///
+  /// [tracks] already reflects both (a moved file is in it under its new path,
+  /// a deleted one is simply absent), so this is only for the state that lives
+  /// outside the catalog and is keyed on the uri (play counts, hearts, "added
+  /// on"). Empty when the caller passed no [LocalLibraryScanner.scan]
+  /// `previousTracks`, since without them nothing can be compared.
+  final LocalCatalogReconciliation reconciliation;
 
   /// No folder could be read. Nothing new was learned, so the catalog should be
   /// left exactly as it is.
@@ -114,19 +140,22 @@ class LocalLibraryScanner {
 
   /// Scans [roots] and merges the result.
   ///
-  /// [previousTracks] is the local slice of the catalog as it stands, used to
-  /// keep the tracks of folders that are temporarily unreachable. Pass null
-  /// when it cannot be read: the scan then reports [
+  /// [previousTracks] is the local slice of the catalog as it stands, with the
+  /// on-disk stamp each row was written at. It does two jobs: keeping the
+  /// tracks of folders that are temporarily unreachable, and giving
+  /// [LocalLibraryScan.reconciliation] something to compare against so a file
+  /// that changed path can be recognised as the same file. Pass null when it
+  /// cannot be read: the scan then reports [
   /// LocalLibraryScan.retentionUnavailable] rather than quietly dropping that
   /// folder's music.
   Future<LocalLibraryScan> scan({
     required List<String> roots,
-    List<Track>? previousTracks,
+    List<StampedTrack>? previousTracks,
   }) async {
     final List<String> effective = LocalMusicRoots.normalize(roots);
     if (effective.isEmpty) {
       return const LocalLibraryScan(
-        tracks: <Track>[],
+        tracks: <StampedTrack>[],
         report: LocalScanReport(
           folderSelected: false,
           isContentUri: false,
@@ -142,18 +171,25 @@ class LocalLibraryScanner {
 
     // Insertion-ordered so the catalog keeps the user's folder order, and so
     // the first folder to claim a uri keeps it.
-    final Map<String, Track> merged = <String, Track>{};
+    final Map<String, StampedTrack> merged = <String, StampedTrack>{};
     final List<LocalScanReport> reports = <LocalScanReport>[];
     final List<LocalRootOutcome> outcomes = <LocalRootOutcome>[];
+    // The folders that actually answered. Only a file under one of these can
+    // be called moved or deleted: the others were never looked at.
+    final List<String> refreshedRoots = <String>[];
     bool retentionUnavailable = false;
 
     for (final String root in effective) {
       try {
         final LocalScan scan = await scanRoot(root);
+        refreshedRoots.add(root);
         int imported = 0;
         for (final Track track in scan.tracks) {
           if (merged.containsKey(track.uri)) continue;
-          merged[track.uri] = track;
+          merged[track.uri] = StampedTrack(
+            track: track,
+            stamp: scan.stamps[track.uri],
+          );
           imported++;
         }
         reports.add(scan.report);
@@ -175,10 +211,14 @@ class LocalLibraryScanner {
           continue;
         }
         int retained = 0;
-        for (final Track track in previousTracks) {
-          if (LocalMusicRoots.ownerOf(track.uri, effective) != root) continue;
-          if (merged.containsKey(track.uri)) continue;
-          merged[track.uri] = track;
+        for (final StampedTrack stamped in previousTracks) {
+          final String uri = stamped.track.uri;
+          if (LocalMusicRoots.ownerOf(uri, effective) != root) continue;
+          if (merged.containsKey(uri)) continue;
+          // Stamp and all: this folder was not read, so nothing about these
+          // files is newly known, and dropping the stamp would re-parse the
+          // whole folder the next time it can be read.
+          merged[uri] = stamped;
           retained++;
         }
         outcomes.add(
@@ -195,8 +235,12 @@ class LocalLibraryScanner {
     final int unavailable =
         outcomes.where((LocalRootOutcome o) => !o.available).length;
     final bool everyRootFailed = unavailable == outcomes.length;
+    final List<StampedTrack> tracks = merged.values.toList(growable: false);
+    final List<Track> plainTracks = <Track>[
+      for (final StampedTrack stamped in tracks) stamped.track,
+    ];
     return LocalLibraryScan(
-      tracks: merged.values.toList(growable: false),
+      tracks: tracks,
       report: LocalScanReport.merged(
         reports,
         rootsScanned: effective.length,
@@ -210,6 +254,19 @@ class LocalLibraryScanner {
       ),
       roots: outcomes,
       retentionUnavailable: retentionUnavailable,
+      // Only meaningful against a known previous state, and only worth
+      // computing for a scan whose result may actually be written.
+      reconciliation: previousTracks == null || everyRootFailed
+          ? LocalCatalogReconciliation.none
+          : LocalCatalogReconciliation.resolve(
+              previous: <Track>[
+                for (final StampedTrack stamped in previousTracks)
+                  stamped.track,
+              ],
+              scanned: plainTracks,
+              wasRefreshed: (String uri) =>
+                  LocalMusicRoots.ownerOf(uri, refreshedRoots) != null,
+            ),
     );
   }
 
