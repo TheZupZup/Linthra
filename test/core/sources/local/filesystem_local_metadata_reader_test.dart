@@ -605,5 +605,76 @@ void main() {
       expect(second, isNotNull);
       expect(File(second!.toFilePath()).existsSync(), isTrue);
     });
+
+    test('re-tagging a file with new art replaces the cover it shows',
+        () async {
+      // The stale-cache case that matters in practice: the user fixes an
+      // album's artwork in a tagger. The scan sees a changed stamp and
+      // re-reads the file, and the cover must follow the tags rather than
+      // being served from the entry cached before the edit.
+      final String path = write(
+        'retagged.mp3',
+        AudioTagFixtures.mp3(title: 'Song', coverImage: await solidPng(32, 32)),
+      );
+      final Uri before = (await reader.readFromPath(path))!.artworkUri!;
+      expect(
+          await decodedSize(File(before.toFilePath())), const ui.Size(32, 32));
+
+      // A real re-tag rewrites the bytes and moves the mtime; writing a
+      // different cover does both.
+      File(path).writeAsBytesSync(
+        AudioTagFixtures.mp3(title: 'Song', coverImage: await solidPng(96, 96)),
+        flush: true,
+      );
+      File(path).setLastModifiedSync(
+        DateTime.now().add(const Duration(seconds: 5)),
+      );
+
+      final Uri after = (await reader.readFromPath(path))!.artworkUri!;
+
+      expect(after, isNot(before));
+      expect(
+          await decodedSize(File(after.toFilePath())), const ui.Size(96, 96));
+    });
+
+    test('retainArtwork drops covers the library no longer references',
+        () async {
+      final String kept = write(
+        'kept.mp3',
+        AudioTagFixtures.mp3(title: 'Kept', coverImage: await solidPng(24, 24)),
+      );
+      final String removed = write(
+        'removed.mp3',
+        AudioTagFixtures.mp3(title: 'Gone', coverImage: await solidPng(24, 24)),
+      );
+      final Uri keptCover = (await reader.readFromPath(kept))!.artworkUri!;
+      final Uri removedCover =
+          (await reader.readFromPath(removed))!.artworkUri!;
+
+      await reader.retainArtwork(<Uri>{keptCover});
+
+      expect(File(keptCover.toFilePath()).existsSync(), isTrue);
+      expect(File(removedCover.toFilePath()).existsSync(), isFalse);
+    });
+
+    test('retainArtwork never touches the source audio files', () async {
+      final Uint8List songBytes = AudioTagFixtures.mp3(
+        title: 'Song',
+        coverImage: await solidPng(24, 24),
+      );
+      final String path = write('source.mp3', songBytes);
+      await reader.readFromPath(path);
+
+      // The most aggressive sweep there is: nothing at all is live.
+      await reader.retainArtwork(const <Uri>{});
+
+      expect(File(path).existsSync(), isTrue);
+      expect(File(path).readAsBytesSync(), songBytes);
+      expect(root.listSync(), hasLength(1));
+      // …and the track is still perfectly readable afterwards, cover included.
+      final LocalAudioMetadata? again = await reader.readFromPath(path);
+      expect(again!.title, 'Song');
+      expect(File(again.artworkUri!.toFilePath()).existsSync(), isTrue);
+    });
   });
 }

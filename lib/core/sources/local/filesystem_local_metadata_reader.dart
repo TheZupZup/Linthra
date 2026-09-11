@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 
+import '../../models/local_file_stamp.dart';
 import '../../services/local_artwork_cache.dart';
 import 'local_audio_metadata.dart';
 import 'local_metadata_reader.dart';
@@ -28,17 +29,21 @@ import 'vorbis_comment_fields.dart';
 /// unsupported container, a truncated tag or a format the package has no parser
 /// for all return `null`, so the track still appears with its filename-derived
 /// metadata instead of vanishing from the library.
-class FilesystemLocalMetadataReader implements LocalMetadataReader {
+class FilesystemLocalMetadataReader
+    implements LocalMetadataReader, LocalArtworkMaintainer {
   FilesystemLocalMetadataReader({LocalArtworkCache? artworkCache})
       : _artworkCache = artworkCache ?? LocalArtworkCache();
 
   final LocalArtworkCache _artworkCache;
 
   @override
+  Future<void> retainArtwork(Set<Uri> live) => _artworkCache.retainOnly(live);
+
+  @override
   Future<LocalAudioMetadata?> readFromPath(String path) async {
     try {
       final File file = File(path);
-      // `await`, and asynchronous `exists()` rather than `existsSync()`, is
+      // `await`, and an asynchronous `stat()` rather than `statSync()`, is
       // load-bearing: it is the only point in this method that reaches the
       // event loop. `readAllMetadata` below is synchronous, so without a real
       // asynchronous call first, this method would do all its work before
@@ -48,14 +53,29 @@ class FilesystemLocalMetadataReader implements LocalMetadataReader {
       // unbroken chain with no frame rendered and no input handled from the
       // first file to the last. Measured on a 2000-iteration stand-in: zero
       // event-loop ticks with the synchronous check, one per file with this.
-      // Switching this back to existsSync() re-freezes the desktop UI for the
-      // length of the scan, silently (see the test that asserts the yield).
-      if (!await file.exists()) return null;
+      // Switching this back to a synchronous check re-freezes the desktop UI
+      // for the length of the scan, silently (see the test that asserts the
+      // yield).
+      //
+      // `stat` rather than `exists` because it is the same one syscall and
+      // answers strictly more: whether this is a regular file (a *directory*
+      // named `Album.mp3` used to read as "exists" and then fail deeper in),
+      // and the size and mtime that identify which bytes any cached cover was
+      // extracted from.
+      final FileStat stat = await file.stat();
+      if (stat.type != FileSystemEntityType.file) return null;
+      final LocalFileStamp stamp = LocalFileStamp(
+        sizeBytes: stat.size,
+        modifiedAtMs: stat.modified.millisecondsSinceEpoch,
+      );
 
       // A cover cached from an earlier scan needs no re-extraction: checking
       // first means a hit costs nothing beyond this stat, and only a genuine
-      // miss asks the parser for the (possibly large) embedded picture.
-      final File? cachedArtwork = await _artworkCache.cachedFile(path);
+      // miss asks the parser for the (possibly large) embedded picture. The
+      // lookup is keyed by the stamp too, so a file re-tagged with new art
+      // misses here and re-extracts rather than serving the cover from before
+      // the edit.
+      final File? cachedArtwork = await _artworkCache.cachedFile(path, stamp);
       final bool needsArtwork = cachedArtwork == null;
 
       // Format-specific rather than the package's unified `readMetadata`: that
@@ -77,7 +97,7 @@ class FilesystemLocalMetadataReader implements LocalMetadataReader {
       if (needsArtwork) {
         final Picture? cover = _bestCover(_picturesOf(tag));
         if (cover != null) {
-          artworkUri = await _artworkCache.store(path, cover.bytes);
+          artworkUri = await _artworkCache.store(path, stamp, cover.bytes);
         }
       }
 
