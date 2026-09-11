@@ -46,8 +46,9 @@ class _DeferredAudioFileScanner implements AudioFileScanner {
   /// Completes once [listFiles] has really been called for [folder].
   ///
   /// The scan reads the previously indexed local slice before it walks
-  /// anything (that is what lets it skip files whose stamp is unchanged), so a
-  /// test that wants to drive the walk has to wait for the walk to start
+  /// anything (that is what lets it skip files whose stamp is unchanged, and
+  /// tell a moved file from a deleted one), so a test that wants to drive the
+  /// walk has to wait for the walk to start
   /// rather than assume it already has.
   Future<void> requested(String folder) =>
       (_arrivals[folder] ??= Completer<void>()).future;

@@ -17,8 +17,11 @@ on:
       - 'linux/runner/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/check_flatpak_permissions.py'
       - 'scripts/check_linux_runner.py'
       - 'scripts/flatpak_audio_smoke.sh'
+      - 'scripts/flathub_builder_lint.py'
+      - 'scripts/flatpak_filesystem_smoke.sh'
       - 'scripts/flatpak_launch_smoke.sh'
       - 'scripts/flatpak_local_library_smoke.sh'
       - 'scripts/make_flatpak_smoke_manifest.py'
@@ -49,8 +52,11 @@ on:
       - 'linux/runner/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/check_flatpak_permissions.py'
       - 'scripts/check_linux_runner.py'
       - 'scripts/flatpak_audio_smoke.sh'
+      - 'scripts/flathub_builder_lint.py'
+      - 'scripts/flatpak_filesystem_smoke.sh'
       - 'scripts/flatpak_launch_smoke.sh'
       - 'scripts/flatpak_local_library_smoke.sh'
       - 'scripts/make_flatpak_smoke_manifest.py'
@@ -150,6 +156,26 @@ jobs:
           flatpak remote-add --user --if-not-exists \
             flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
+      # Flathub's own submission linter (#449), which is a different question
+      # from the appstreamcli/desktop-file validation above: those check that
+      # two files are well-formed, this checks whether a submission would be
+      # accepted. It ships inside org.flatpak.Builder, which is how Flathub's
+      # documentation runs it, so this is the same tool a reviewer uses.
+      - name: Install Flathub's builder linter
+        run: |
+          set -euo pipefail
+          flatpak install --user -y flathub org.flatpak.Builder
+
+      # Before the build, because a manifest finding does not need one. The
+      # runner script fails on any finding without a written reason in
+      # flatpak/flathub-lint-exceptions.json, and equally on a reason for a
+      # finding the linter no longer reports.
+      - name: Lint the submission manifest
+        run: |
+          set -euo pipefail
+          python3 scripts/flathub_builder_lint.py \
+            --manifest flatpak/io.github.thezupzup.linthra.yml
+
       - name: Install manifest-declared SDK and runtime prerequisites
         working-directory: flatpak
         run: |
@@ -224,9 +250,65 @@ jobs:
           flatpak build-update-repo repo-ci
           echo 'Flatpak build and repository export completed successfully.'
 
+      # What the package actually carries, which is a different question from
+      # what the manifests ask for (#455). The manifest half runs on every PR
+      # in the main CI workflow and is cheap; this half needs a built package,
+      # so it lives here, and until it was wired up it ran nowhere at all.
+      # `check_flatpak_permissions.py --installed` reads
+      # `flatpak info --show-permissions` off the installed app and holds it to
+      # the same table in docs/flatpak-permissions.md.
+      #
+      # The same script also re-checks #439's filesystem policy against the
+      # artifact: no filesystem or persist grant in the package, none added by
+      # any override scope, an unrelated host file invisible from inside, and
+      # the private XDG tree writable.
+      #
+      # dbus-run-session because `flatpak run` wants a session bus for its bus
+      # proxy, and a GitHub runner has none.
+      #
+      # Ahead of the launch smoke on purpose. Both install the package, so they
+      # have to be sequential, and a failed step ends the job. This one is fast
+      # and deterministic; the launch smoke waits on window and icon timing and
+      # has flaked on it before. Putting the flakier step first is what would
+      # cost coverage.
+      - name: Check the installed package's permissions and sandbox
+        working-directory: flatpak
+        run: |
+          set -euo pipefail
+          dbus-run-session -- bash ../scripts/flatpak_filesystem_smoke.sh repo-ci
+
+      # Before the lint below, deliberately. A failed step ends the job, so a
+      # lint finding sitting ahead of this would stop the package being
+      # installed and launched at all, which trades real coverage for a red
+      # badge.
       - name: Install and launch packaged Flatpak
         working-directory: flatpak
         run: bash ../scripts/flatpak_launch_smoke.sh repo-ci
+
+      # The AppStream catalogue appstreamcli compose produced from the metainfo
+      # during the build. This is what a software centre actually reads, and it
+      # is not the file the pre-build validation step checked.
+      - name: Lint the AppStream catalogue
+        run: |
+          set -euo pipefail
+          python3 scripts/flathub_builder_lint.py \
+            --builddir flatpak/flatpak-builder-ci
+
+      # The third mode, `repo` (the exported OSTree, what Flathub would
+      # actually publish), is deliberately NOT wired up yet. It reports
+      # metainfo-missing-screenshots and
+      # appstream-screenshots-not-mirrored-in-ostree, which are real submission
+      # blockers fixed by taking screenshots (#437), not by anything in the
+      # tooling.
+      #
+      # Turning it on now would mean either a permanently red job or an
+      # exception recording "not done yet", and the exceptions file exists for
+      # findings a human judged wrong or unavoidable, not for unfinished work.
+      # It arrives with the screenshots that let it pass (#628).
+      #
+      # `scripts/flathub_builder_lint.py --repo ...` runs today and is
+      # documented in docs/flathub-builder-lint.md; it is the CI wiring that
+      # waits, not the capability.
 
   # A second build, on its own runner, because the sandbox smokes need binaries
   # the shipped package must not contain (#446, #447). Nobody wants a test

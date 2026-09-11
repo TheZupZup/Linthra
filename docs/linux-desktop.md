@@ -360,6 +360,116 @@ it, so the packaged app needs no host libmpv at all
 Linthra explicitly disables it in `linux/CMakeLists.txt`, so this backend adds no
 undeclared network access to an isolated `flatpak-builder` build.
 
+## Playback diagnostics
+
+Settings → **Diagnostics & support** → **Linux playback** builds a copyable
+report of what Linthra is playing through on this machine
+([issue #406](https://github.com/thezupzup/linthra/issues/406)). It is a
+separate card from the general Diagnostics one, shown on Linux only, so the
+Android page is unchanged.
+
+A typical report:
+
+```
+Linthra Linux playback diagnostics
+Backend: media_kit / libmpv (just_audio_media_kit)
+libmpv: available
+libmpv version: mpv 0.38.0
+mpv audio-device: set
+mpv cache-on-disk: no
+Output selection: supported
+Outputs found: 4
+Selected output: usb, via pipewire
+Selected output remembered: yes
+Suspend/resume recovery: enabled
+Playback state: playing
+Recent playback failures: load ×2
+```
+
+| Piece | File |
+| --- | --- |
+| The snapshot + renderer | `lib/core/diagnostics/linux_playback_diagnostics.dart` |
+| libmpv probe | `lib/core/services/linux_mpv_probe.dart` |
+| Collector | `lib/features/settings/diagnostics/linux_playback_diagnostics_collector.dart` |
+| The card | `lib/features/settings/diagnostics/linux_playback_diagnostics_section.dart` |
+
+### Safe by construction, not by redaction
+
+The report has no redaction pass, because there is nothing in the snapshot to
+redact. Every field of `LinuxPlaybackDiagnosticsData` is one of four things: a
+value from a closed enum, a bool, an int, or a version string that has already
+been accepted by `sanitizeVersion`. There is deliberately no field for a stream
+URL, a token, a header, a file path, a device node name, or a raw backend
+error.
+
+Three collection choices carry most of that:
+
+* **The output device is never named.** libmpv's device id is
+  `pipewire/alsa_output.usb-Topping_D10-00.analog-stereo`, and a Bluetooth sink
+  is `pulse/bluez_output.AC_12_2F_…` — the adapter's MAC. The report says
+  `usb, via pipewire` / `bluetooth, via pulse` instead: the driver comes from
+  the prefix, the kind from a fixed substring match, and both results are enum
+  constants. The string that was classified is not kept.
+* **Failures come from `SafeEventLog`.** Those entries are already fixed
+  structural labels (`load`, `resolution`, `timeout`) written by
+  `StabilityDiagnostics`, which has no parameter for a raw error. The report
+  aggregates them to kind + count. The raw engine error — the one value that
+  can carry a tokenized URL — is not collected anywhere, which is why it cannot
+  leak.
+* **mpv properties are an allowlist.** Only `cache-on-disk`, `ao` and
+  `audio-device` may appear; `audio-device` is shown as `set` rather than by
+  value, and any value that is not a plain short token is shown as `set` too. A
+  property added to the map later is invisible here until someone decides it is
+  safe to show.
+
+`sanitizeVersion` **rejects** rather than strips: stripping the punctuation out
+of `mpv 1.0\nAuthorization: Bearer abc` would leave the words behind, which is
+worse than saying nothing, so a value that is not version-shaped is dropped and
+its line omitted.
+
+`test/core/diagnostics/linux_playback_diagnostics_test.dart` and
+`test/features/settings/diagnostics/linux_playback_diagnostics_collector_test.dart`
+pin all of that, including that a hostile device id or version string cannot
+put a secret marker into the output.
+
+### Missing information is not an error, and a failure is not a value
+
+Every optional line is emitted only when its value is known, and a *failure* is
+reported as one rather than dressed up as an answer. Three states are kept
+apart deliberately, because collapsing any pair of them hides the thing the
+report exists to show:
+
+| Situation | Reported as |
+| --- | --- |
+| Nothing playing, so no player exists to ask | `libmpv: not probed` |
+| A player answered | `libmpv: available` |
+| A player exists and libmpv would not answer it (timeout, wedged handle) | `libmpv: unavailable` |
+
+The same rule applies to the output list. A successful enumeration always
+contains at least the system default, so an empty list can only mean the
+backend did not answer — reported as `Outputs found: unknown (the backend did
+not answer)`, never as `Outputs found: 0`, which would read as a machine with
+no sound card. A list that was never asked for simply omits the line.
+
+The card never fails to render because something was unavailable.
+
+The libmpv probe deliberately **never creates a player**: it asks a live one
+for `mpv-version` and gives up otherwise. A diagnostics view that spun up a
+second libmpv handle would be the next bug report.
+
+### What needs a real Linux box
+
+The pure parts (classification, sanitising, rendering, collection, the card)
+run in `flutter test`. Two things do not, because they need libmpv actually
+loaded:
+
+| Check | Expected |
+| --- | --- |
+| Open the card with nothing playing | `libmpv: not probed`, and no sound is produced (no player is created to answer). |
+| Start a track, then open the card | `libmpv: available` with a real version line, and the selected output's driver/kind matching the Audio output card. |
+| Play something that fails (a server that is down), then open the card | The failure appears under `Recent playback failures` as a kind and a count, never as an error message or a URL. |
+| Narrow the window to its 420 px minimum, or raise the desktop's text scale | The card's two actions stack instead of sharing a row, and the labels stay readable. |
+
 ## Remaining Linux limitations
 
 | Area | State | Why |
@@ -379,6 +489,7 @@ undeclared network access to an isolated `flatpak-builder` build.
 | Local tag reading | Supported | `FilesystemLocalMetadataReader` reads title, artist, album artist, album, track number and duration from ID3, Vorbis comments, MP4 atoms, APEv2 and RIFF INFO through `audio_metadata_reader` ([issue #407](https://github.com/TheZupZup/Linthra/issues/407)). An unreadable or untagged file still appears, from its filename. Android is deliberately unchanged: its tags come from the native SAF walk. |
 | Local embedded artwork | Unsupported | Tags are read without pulling cover images out of every file during a scan. Extracting and caching embedded art on desktop is [issue #408](https://github.com/TheZupZup/Linthra/issues/408); tracks keep the placeholder until then. |
 | **Audio output device** | Supported | Settings → Music & playback → Audio output lists libmpv's `audio-device-list` and routes playback with `audio-device` ([issue #402](https://github.com/TheZupZup/Linthra/issues/402)). A saved device is re-applied at launch, and one that is no longer present falls back to the system default. See [Audio output device](#audio-output-device). |
+| **Playback diagnostics** | Supported | Settings → Diagnostics & support → Linux playback builds a copyable report of the backend, libmpv, the selected output subsystem and recent failure kinds ([issue #406](https://github.com/thezupzup/linthra/issues/406)). Safe by construction: no field can hold a URL, token, header, path, device name or raw error. See [Playback diagnostics](#playback-diagnostics). |
 | Chromecast | Android/iOS only | Already gated in `cast_providers.dart`; Linux keeps the honest "cast unavailable" service. |
 | Share sheet, launcher-icon switching | Android-only, by design | No desktop equivalent; the UI simply omits them. |
 | Volume control | Supported | A mute and a slider on Now Playing and the wide mini-player bar, plus MPRIS `Volume`, driven through `PlaybackController` and remembered across launches ([issue #394](https://github.com/TheZupZup/Linthra/issues/394)). See [Volume](#volume). |

@@ -42,6 +42,15 @@ enum PlaybackResolutionErrorKind {
   /// The source is reachable and authorized, but no playable URL is available
   /// for this track right now.
   streamUnavailable,
+
+  /// An on-device track whose file is no longer at the path the catalog has
+  /// for it: moved, deleted, or on a drive that isn't mounted right now.
+  ///
+  /// Distinct from [streamUnavailable] because nothing here is a server or a
+  /// network: the recovery is a rescan (which drops the row, or finds the file
+  /// at its new path), or plugging the drive back in. Nothing on disk is
+  /// touched either way, because Linthra never deletes or moves the user's audio.
+  localFileMissing,
 }
 
 /// A typed, user-facing failure raised while resolving a [Track] to a URI the

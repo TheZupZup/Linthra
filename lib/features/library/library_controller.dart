@@ -8,12 +8,15 @@ import '../../core/models/track.dart';
 import '../../core/repositories/music_library_repository.dart';
 import '../../core/repositories/source_catalog_reader.dart';
 import '../../core/repositories/stamped_catalog_writer.dart';
+import '../../core/services/local_track_move_applier.dart';
 import '../../core/sources/local/folder_location.dart';
 import '../../core/sources/local/local_library_scanner.dart';
 import '../../core/sources/local/local_music_roots.dart';
 import '../../core/sources/local/local_music_source.dart';
 import '../../core/sources/local/local_scan_report.dart';
+import '../../data/repositories/favorites_repository_provider.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
+import '../../data/repositories/play_history_repository_provider.dart';
 import 'library_providers.dart';
 import 'library_state.dart';
 import 'local_scan_report_provider.dart';
@@ -145,9 +148,13 @@ class LibraryController extends Notifier<LibraryState> {
     state = const LibraryState.loading();
     final List<String> roots = LocalMusicRoots.normalize(folderPaths);
     try {
-      // The stored slice, with each row's on-disk stamp. Two jobs: an offline
-      // folder's tracks are carried into the new slice, and a file whose stamp
-      // is unchanged is reused instead of being opened and parsed again.
+      // The stored slice, with each row's on-disk stamp. Three jobs: an
+      // offline folder's tracks are carried into the new slice, a file whose
+      // stamp is unchanged is reused instead of being opened and parsed again,
+      // and a file that changed path can only be recognised as *the same file*
+      // by comparing against what was there before. It used to be fetched only
+      // for a multi-folder library, because retention was the only use; the
+      // other two make it worth one indexed query on every scan.
       final List<StampedTrack>? previousTracks = await _localCatalogSnapshot();
       if (generation != _scanGeneration) return null;
 
@@ -191,6 +198,14 @@ class LibraryController extends Notifier<LibraryState> {
         // Check at commit time, not merely when the filesystem walk finishes.
         if (generation != _scanGeneration) return null;
         final repository = ref.read(musicLibraryRepositoryProvider);
+        // Before the write, never after: the catalog write stamps any uri it
+        // has not seen before as newly added, so the moved file's real "added
+        // on" date has to be carried across first.
+        await LocalTrackMoveApplier(<Object>[
+          repository,
+          ref.read(favoritesRepositoryProvider),
+          ref.read(playHistoryRepositoryProvider),
+        ]).apply(scan.reconciliation);
         final List<Track> tracks = scan.plainTracks;
         if (repository is StampedCatalogWriter) {
           // Same write, plus the stamps a later scan compares against. Without
