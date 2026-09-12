@@ -80,6 +80,18 @@ for scope in "--user" "--system"; do
 done
 
 [[ -n "${HOME:-}" ]] || fail "HOME is not set"
+
+# The installed check above is about an *installation*. The app's data tree is
+# a separate question, and it outlives an ordinary uninstall: somebody who
+# removed an older Linthra build without deleting its data still has
+# ~/.var/app/<app id>/ with their library database, settings, offline audio and
+# credentials in it, while `flatpak info` reports nothing installed. Whether
+# this script may take that tree with it depends entirely on whether the tree
+# was here first, which can only be asked before anything is installed.
+APP_DATA_DIR="$HOME/.var/app/$APP_ID"
+APP_DATA_EXISTED=0
+[[ -e "$APP_DATA_DIR" ]] && APP_DATA_EXISTED=1
+
 LOG_FILE="$(mktemp)"
 
 cleanup() {
@@ -87,7 +99,22 @@ cleanup() {
   [[ -n "$MUSIC_DIR" && -d "$MUSIC_DIR" ]] && rm -rf -- "$MUSIC_DIR"
   [[ -n "$SIBLING_DIR" && -d "$SIBLING_DIR" ]] && rm -rf -- "$SIBLING_DIR"
   flatpak kill "$APP_ID" >/dev/null 2>&1 || true
-  flatpak --user uninstall -y --delete-data "$APP_ID" >/dev/null 2>&1 || true
+
+  # A plain uninstall, never `--delete-data`. docs/flatpak-development.md calls
+  # that flag Destructive because it is: it wipes ~/.var/app/<app id>/ with the
+  # library database, settings and offline audio in it, and it also drops the
+  # app's entries from Flatpak's permission store, which lives outside
+  # ~/.var/app and holds the document-portal grants for the music folders a
+  # user picked. This smoke is about proving those grants work. Clearing them
+  # on the way out would be a poor way to say so.
+  flatpak --user uninstall -y "$APP_ID" >/dev/null 2>&1 || true
+
+  # And only ever the app data this run created. A tree that was here first
+  # belongs to the contributor, not to the test that borrowed their machine.
+  if (( ! APP_DATA_EXISTED )) && [[ -d "$APP_DATA_DIR" ]]; then
+    rm -rf -- "$APP_DATA_DIR"
+  fi
+
   flatpak --user remote-delete "$REMOTE_NAME" >/dev/null 2>&1 || true
   return 0
 }

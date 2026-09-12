@@ -146,6 +146,30 @@ class FakePlaybackController implements LocalPlaybackController {
     _playCurrent();
   }
 
+  /// How many times each listener-driven recovery was asked for, so widget
+  /// tests can assert that a button reached the shared controller, and reached
+  /// it exactly once.
+  int retryCount = 0;
+  int anotherSourceCount = 0;
+
+  /// What [tryAnotherSource] should publish when it runs. Null (the default)
+  /// records the call and changes nothing, which is what a test asserting "the
+  /// button reached the controller" wants; a state here plays out a switch that
+  /// worked, or one that failed again.
+  PlaybackState? anotherSourceResult;
+
+  @override
+  Future<void> retryCurrentTrack() async {
+    retryCount++;
+  }
+
+  @override
+  Future<void> tryAnotherSource() async {
+    anotherSourceCount++;
+    final PlaybackState? result = anotherSourceResult;
+    if (result != null) emit(result);
+  }
+
   @override
   void clearQueue() {
     clearCount++;

@@ -159,8 +159,23 @@ bash ../scripts/flatpak_audio_smoke.sh repo-sandbox-smoke
 ```
 
 The harness refuses to run if Linthra is already installed, so it can never
-uninstall or test a build you care about. Everything it does install, it
-removes on exit, app data included.
+uninstall or test a build you care about.
+
+It also never runs `flatpak uninstall --delete-data`. That flag would take
+`~/.var/app/io.github.thezupzup.linthra/` with it (library database, settings,
+offline audio, credentials) and clear the app's entries in Flatpak's permission
+store, where the document-portal grants for the music folders you picked live.
+Neither of those is necessarily something the run created: an install you
+removed earlier *without* `--delete-data` leaves both behind, while
+`flatpak info` reports nothing installed at all.
+
+So what the harness cleans up is what it owns. On exit it removes the temporary
+remote, the install, and the app-data tree **only if that tree was not already
+there** when it started. If it was, the tree stays, and the one thing inside it
+this run made, the negative control's shadow directory under `cache/`, is
+removed by name instead. Your permission-store grants are never touched either
+way. A run does leave the packaged app's own settings and cache written into a
+tree you already had, the same as launching the app would.
 
 Every sandbox run is time-bounded (`LINTHRA_FLATPAK_SMOKE_TIMEOUT`, 300s by
 default), including the probe that checks the smoke binary is installed. The

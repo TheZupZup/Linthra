@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'playback_failure.dart';
 import 'playback_source.dart';
 import 'repeat_mode.dart';
 import 'track.dart';
@@ -43,7 +44,7 @@ class PlaybackState {
     this.volume = 1.0,
     this.muted = false,
     this.interruptedByTransientFocus = false,
-    this.errorMessage,
+    this.failure,
   });
 
   static const PlaybackState idle = PlaybackState();
@@ -119,11 +120,21 @@ class PlaybackState {
   /// `LinthraAudioHandler._isSessionPlaying`.
   final bool interruptedByTransientFocus;
 
-  /// A friendly, secret-free explanation shown when [status] is
-  /// [PlaybackStatus.error]. Deliberately *not* carried by [copyWith]: it is set
-  /// only on a freshly built error state and clears on the next state change, so
-  /// a stale message can never ride along onto a later playing/paused state.
-  final String? errorMessage;
+  /// Why the current track isn't playing and what the listener can do about it,
+  /// set when [status] is [PlaybackStatus.error]. Deliberately *not* carried by
+  /// [copyWith]: it is set only on a freshly built error state and clears on the
+  /// next state change, so a stale failure can never ride along onto a later
+  /// playing/paused state.
+  ///
+  /// The controller decides the offered recoveries when it builds this, because
+  /// only it knows whether the song has another provider copy and whether the
+  /// bounded retry budget is spent, so the UI renders the actions rather than
+  /// deciding which ones are valid.
+  final PlaybackFailure? failure;
+
+  /// The failure's friendly, secret-free message, for the surfaces (and tests)
+  /// that only want the sentence. Null when nothing has failed.
+  String? get errorMessage => failure?.message;
 
   /// The level actually heard: zero while muted, [volume] otherwise. What a
   /// volume UI (and MPRIS' `Volume`) should show, so muted always reads as
@@ -186,10 +197,10 @@ class PlaybackState {
 
   /// Returns this state with [interruptedByTransientFocus] set to [value].
   ///
-  /// Unlike [copyWith] this preserves [errorMessage], because it re-stamps a
-  /// state the controller has *already* built rather than deriving a new one:
-  /// the focus hold is orthogonal to why playback stopped, so an error state
-  /// must keep its message when the flag is stamped onto it.
+  /// Unlike [copyWith] this preserves [failure], because it re-stamps a state
+  /// the controller has *already* built rather than deriving a new one: the
+  /// focus hold is orthogonal to why playback stopped, so an error state must
+  /// keep its failure when the flag is stamped onto it.
   PlaybackState withTransientFocusInterruption(bool value) {
     if (value == interruptedByTransientFocus) return this;
     return PlaybackState(
@@ -206,14 +217,14 @@ class PlaybackState {
       volume: volume,
       muted: muted,
       interruptedByTransientFocus: value,
-      errorMessage: errorMessage,
+      failure: failure,
     );
   }
 
   /// Returns this state carrying [volume] and [muted].
   ///
   /// Like [withTransientFocusInterruption] this re-stamps a state the
-  /// controller has already built, so [errorMessage] survives: the volume is
+  /// controller has already built, so [failure] survives: the volume is
   /// orthogonal to why playback stopped. Controllers stamp every emission
   /// through here, so no emit path can publish a stale level — including the
   /// paths that build a fresh state rather than copying the last one.
@@ -233,7 +244,7 @@ class PlaybackState {
       volume: volume,
       muted: muted,
       interruptedByTransientFocus: interruptedByTransientFocus,
-      errorMessage: errorMessage,
+      failure: failure,
     );
   }
 
@@ -265,7 +276,7 @@ class PlaybackState {
           other.volume == volume &&
           other.muted == muted &&
           other.interruptedByTransientFocus == interruptedByTransientFocus &&
-          other.errorMessage == errorMessage);
+          other.failure == failure);
 
   @override
   int get hashCode {
@@ -283,7 +294,7 @@ class PlaybackState {
       volume,
       muted,
       interruptedByTransientFocus,
-      errorMessage,
+      failure,
     );
   }
 }

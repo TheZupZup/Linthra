@@ -6,6 +6,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../models/playback_failure.dart';
 import '../models/playback_queue.dart';
 import '../models/playback_source.dart';
 import '../models/playback_state.dart';
@@ -17,6 +18,7 @@ import 'local_playback_controller.dart';
 import 'playable_uri_resolver.dart';
 import 'playback_candidate_source.dart';
 import 'playback_controller.dart';
+import 'playback_failure_classifier.dart';
 import 'stability_diagnostics.dart';
 import 'stream_interruption.dart';
 
@@ -127,6 +129,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// One bounded retry per track for a mid-stream failure, so a transient drop
   /// recovers without ever looping forever on a real outage/expiry.
   static const int _maxStreamRetries = 1;
+
+  /// How many listener-driven recovery attempts (Retry, Try another source) one
+  /// failing track gets before the error state stops offering them.
+  ///
+  /// The automatic budget above bounds what Linthra does on its own; this bounds
+  /// what the error UI keeps offering, so a source that is simply down cannot be
+  /// tapped into an endless resolve/load cycle. Enough attempts to cover a
+  /// listener who reconnects a drive or waits out a blip, few enough that the
+  /// panel stops promising a recovery that clearly isn't coming. The budget is
+  /// per track and is returned in full the moment anything actually plays.
+  static const int maxRecoveryAttemptsPerTrack = 3;
 
   /// Pause before the bounded mid-stream retry so a brief glitch can clear and
   /// we never hammer the server on every drop. Zero in tests.
@@ -303,6 +316,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   // failure. Reset when a fresh track loads and when playback reaches `playing`,
   // so each track (and each successful stretch) gets its own one-retry budget.
   int _retriesForCurrent = 0;
+
+  /// The track uri [_recoveryAttempts] is counted for, so the budget follows the
+  /// failing track rather than the session. Null when no attempts are on record.
+  String? _recoveryTrackUri;
+
+  /// Listener-driven recovery attempts spent on [_recoveryTrackUri], bounded by
+  /// [maxRecoveryAttemptsPerTrack] and cleared whenever a track actually starts.
+  int _recoveryAttempts = 0;
 
   /// Whether a mid-stream recovery (bounded retry or sibling fallback) is
   /// already running. Set synchronously before the async work starts so a
@@ -912,7 +933,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         await _playCurrent(startAt: _state.position, isRetry: true);
         return;
       }
-      await _tryRemainingCandidatesOrError(track, interruption.message);
+      await _tryRemainingCandidatesOrError(
+        track,
+        interruption.message,
+        playbackFailureKindForInterruption(interruption.kind),
+      );
     } finally {
       _streamRecoveryInFlight = false;
       // Recovery may finish while the UI is still on buffering/reconnecting
@@ -967,6 +992,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Future<void> _tryRemainingCandidatesOrError(
     Track track,
     String message,
+    PlaybackFailureKind kind,
   ) async {
     final Track? current = _queue.current;
     final List<Track> candidates = _candidates.candidatesFor(track);
@@ -979,7 +1005,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
             : candidates.sublist(playedIndex + 1);
 
     if (remaining.isEmpty) {
-      _emitError(track, message);
+      _emitError(
+          track, _failureFor(track: track, message: message, kind: kind));
       return;
     }
 
@@ -995,12 +1022,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       outcome = await _loadFirstWorkingCandidate(remaining, generation);
     } on PlaybackResolutionException catch (error) {
       if (generation != _playbackGeneration) return;
-      _emitError(track, error.message);
+      _emitError(track, _failureFrom(track, error));
       return;
     }
 
     if (outcome == null || generation != _playbackGeneration) return;
 
+    _resetRecoveryBudget();
     final Track played = outcome.track;
     final bool swappedProvider = played.uri != track.uri;
     if (swappedProvider) _queue = _queue.replaceCurrent(played);
@@ -1203,6 +1231,82 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (!_queue.hasPrevious) return;
     _queue = _queue.previous();
     await _playCurrent();
+  }
+
+  @override
+  Future<void> retryCurrentTrack() async {
+    // A cast receiver owns playback while suspended; never start local audio
+    // underneath it.
+    if (_suspended) return;
+    // Recovery belongs to a failure: without one there is nothing to retry, and
+    // taking a budget slot for a track that is playing fine would be wrong.
+    if (_state.status != PlaybackStatus.error) return;
+    final Track? track = _queue.current;
+    if (track == null) return;
+    if (!_claimRecoveryAttempt(track)) return;
+    // A deliberate retry is a fresh start for the automatic mid-stream budget
+    // too, exactly as pressing play on a failed track already is.
+    _retriesForCurrent = 0;
+    await _playCurrent(startAt: _state.position);
+  }
+
+  @override
+  Future<void> tryAnotherSource() async {
+    if (_suspended) return;
+    if (_state.status != PlaybackStatus.error) return;
+    final Track? track = _queue.current;
+    if (track == null) return;
+    // The same ordered candidates the automatic fallback uses, minus the copy
+    // that just failed. Empty for a single-source song: nothing to switch to.
+    final List<Track> alternates = _alternateSourcesFor(track);
+    if (alternates.isEmpty) return;
+    if (!_claimRecoveryAttempt(track)) return;
+
+    // This transition supersedes anything still resolving, and each alternate is
+    // tried at most once, so the pass always terminates.
+    final int generation = ++_playbackGeneration;
+    final Duration startAt = _state.position;
+    // Leave the error state while the attempt runs, so the panel doesn't sit
+    // there looking as though the tap did nothing.
+    _emit(_state.copyWith(status: PlaybackStatus.loading));
+
+    final ({Track track, ResolvedPlayable resolved})? outcome;
+    try {
+      outcome = await _loadFirstWorkingCandidate(alternates, generation);
+    } on PlaybackResolutionException catch (error) {
+      if (generation != _playbackGeneration) return;
+      // The other copies failed too: back to an error state, on the same queue
+      // entry, with whatever recoveries are still worth offering.
+      _emitError(track, _failureFrom(track, error));
+      return;
+    }
+
+    // Superseded by a newer skip/seek/play while the alternates resolved.
+    if (outcome == null || generation != _playbackGeneration) return;
+
+    _resetRecoveryBudget();
+    // Replace the queue's current entry rather than adding one: this is the same
+    // song, playing from somewhere else, and it keeps its place in the queue.
+    final Track played = outcome.track;
+    _queue = _queue.replaceCurrent(played);
+    _emit(
+      _state.copyWith(
+        currentTrack: played,
+        source: outcome.resolved.source,
+        upNext: _queue.upNext,
+        previous: _queue.history,
+        hasPrevious: _queue.hasPrevious,
+      ),
+      // A same-bare-id swap (jellyfin:101 -> subsonic:101) leaves every field
+      // equal under PlaybackState ==, so force the emission: otherwise the UI
+      // would keep naming the provider that failed.
+      force: true,
+    );
+
+    await _applyVolume();
+    if (startAt > Duration.zero) await _player.seek(startAt);
+    if (generation != _playbackGeneration) return;
+    unawaited(_player.play());
   }
 
   @override
@@ -1454,8 +1558,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // A failure from a transition the user has already skipped past must not
       // surface as an error on the track they actually landed on.
       if (generation != _playbackGeneration) return;
-      // Every candidate failed: surface one friendly, secret-free message.
-      _emitError(track, error.message);
+      // Every candidate failed: surface one friendly, secret-free failure.
+      _emitError(track, _failureFrom(track, error));
       return;
     }
 
@@ -1465,6 +1569,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // touching the queue, the emitted state, or playback: the newer transition
     // now owns the engine and will load/play its own track.
     if (outcome == null || generation != _playbackGeneration) return;
+
+    // Something played: whatever the listener spent on recovering the previous
+    // attempt is theirs again if this track later fails.
+    _resetRecoveryBudget();
 
     // Make the copy that actually started the current one, so the queue, the
     // mini-player, and the "Playing from …" indicator all reflect the source
@@ -1556,7 +1664,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         // — that is turned into an authenticated stream URL before it gets here.
         await _player.setUrl(resolved.uri.toString());
         return (track: candidate, resolved: resolved);
-      } catch (_) {
+      } catch (error) {
         // Resolved (and, for streams, probed) OK but the engine couldn't open
         // it: a start failure. Word it for the source.
         StabilityDiagnostics.playbackError('load');
@@ -1571,17 +1679,22 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         // stale transition rather than recording a failure on a track the user
         // has already moved past.
         if (generation != _playbackGeneration) return null;
-        failures.add(PlaybackResolutionException(
-          _loadErrorFor(resolved.source),
-          kind: PlaybackResolutionErrorKind.streamUnavailable,
-        ));
+        failures.add(_loadFailureFor(error, resolved.source));
         continue;
       }
     }
     if (failures.length == 1) throw failures.first;
-    throw const PlaybackResolutionException(
+    // Every copy failed the same way (all unreachable, none decodable): keep
+    // that kind so the error offers the recovery that fits, with wording that
+    // doesn't pin it on one provider. Mixed causes stay generic.
+    final bool sameKind = failures.isNotEmpty &&
+        failures.every((PlaybackResolutionException failure) =>
+            failure.kind == failures.first.kind);
+    throw PlaybackResolutionException(
       "Couldn't play this track from any available source.",
-      kind: PlaybackResolutionErrorKind.streamUnavailable,
+      kind: sameKind
+          ? failures.first.kind
+          : PlaybackResolutionErrorKind.streamUnavailable,
     );
   }
 
@@ -1627,6 +1740,32 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     }
   }
 
+  /// The failure to record when the engine cannot open an already-resolved
+  /// source.
+  ///
+  /// The engine's raw [error] is *classified*, never echoed (it can carry the
+  /// tokenized stream URL), and only to answer one question: were these bytes
+  /// undecodable, or did the source stop answering? They take different
+  /// recoveries (another copy of the song vs. trying again), so the error UI
+  /// needs them apart. Anything the classifier can't place keeps the previous
+  /// wording and kind, so only a recognised decode failure changes behaviour.
+  static PlaybackResolutionException _loadFailureFor(
+    Object error,
+    PlaybackSource source,
+  ) {
+    if (classifyEngineError(error).kind ==
+        StreamInterruptionKind.formatUnsupported) {
+      return const PlaybackResolutionException(
+        "This track's format isn't supported on this device.",
+        kind: PlaybackResolutionErrorKind.mediaUnsupported,
+      );
+    }
+    return PlaybackResolutionException(
+      _loadErrorFor(source),
+      kind: PlaybackResolutionErrorKind.streamUnavailable,
+    );
+  }
+
   /// The generic message for an engine load failure *after* a successful
   /// resolve, worded for the resolved [source] (a direct stream "couldn't
   /// stream", an on-device/cached file "couldn't play").
@@ -1635,9 +1774,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           ? "Couldn't stream this track."
           : "Couldn't play this track.";
 
-  /// Emits an error state for [track] carrying a friendly [message], preserving
-  /// the queue context so the UI keeps showing the right track and up-next.
-  void _emitError(Track track, String message) {
+  /// Emits an error state for [track] carrying [failure], preserving the queue
+  /// context so the UI keeps showing the right track and up-next.
+  void _emitError(Track track, PlaybackFailure failure) {
     _cancelBufferingWatchdog();
     _emit(PlaybackState(
       status: PlaybackStatus.error,
@@ -1647,8 +1786,76 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       hasPrevious: _queue.hasPrevious,
       shuffleEnabled: _shuffleEnabled,
       repeatMode: _repeatMode,
-      errorMessage: message,
+      failure: failure,
     ));
+  }
+
+  /// The user-facing failure for a resolution/load [error] on [track].
+  PlaybackFailure _failureFrom(
+          Track track, PlaybackResolutionException error) =>
+      _failureFor(
+        track: track,
+        message: error.message,
+        kind: playbackFailureKindForResolution(error.kind),
+      );
+
+  /// Builds the failure the error UI renders: the classified [kind], its
+  /// friendly [message], and the recoveries that are actually valid *now*.
+  ///
+  /// Validity is decided here rather than in the UI because only the controller
+  /// knows all three inputs: what failed, whether this song has another provider
+  /// copy, and whether the bounded attempt budget still has room. A track with no
+  /// sibling copy never offers "another source"; a last-in-queue track never
+  /// offers Skip; a spent budget offers neither Retry nor another source, which
+  /// is what keeps the panel from becoming a loop.
+  PlaybackFailure _failureFor({
+    required Track track,
+    required String message,
+    required PlaybackFailureKind kind,
+  }) {
+    final bool hasAttemptsLeft = _recoveryAttemptsLeftFor(track) > 0;
+    return PlaybackFailure(
+      kind: kind,
+      message: message,
+      canRetry: hasAttemptsLeft && kind.isWorthRetrying,
+      canTryAnotherSource:
+          hasAttemptsLeft && _alternateSourcesFor(track).isNotEmpty,
+      canSkip: _queue.hasNext,
+    );
+  }
+
+  /// The other provider copies of [track]'s song, most-preferred first and
+  /// without the copy that is loaded (and failing) right now. Empty for the
+  /// everyday single-source track.
+  List<Track> _alternateSourcesFor(Track track) => <Track>[
+        for (final Track candidate in _candidates.candidatesFor(track))
+          if (candidate.uri != track.uri) candidate,
+      ];
+
+  /// How many listener-driven recovery attempts [track] has left. A track the
+  /// budget isn't counting yet has the full allowance.
+  int _recoveryAttemptsLeftFor(Track track) => _recoveryTrackUri == track.uri
+      ? maxRecoveryAttemptsPerTrack - _recoveryAttempts
+      : maxRecoveryAttemptsPerTrack;
+
+  /// Takes one attempt from [track]'s budget, returning false when it is spent.
+  /// Moving to a different track starts a fresh budget.
+  bool _claimRecoveryAttempt(Track track) {
+    if (_recoveryTrackUri != track.uri) {
+      _recoveryTrackUri = track.uri;
+      _recoveryAttempts = 0;
+    }
+    if (_recoveryAttempts >= maxRecoveryAttemptsPerTrack) return false;
+    _recoveryAttempts++;
+    return true;
+  }
+
+  /// Returns the budget in full. Called the moment a track actually starts, so
+  /// the allowance is spent on a track that is failing *now*, never carried over
+  /// from a stretch of playback that worked.
+  void _resetRecoveryBudget() {
+    _recoveryTrackUri = null;
+    _recoveryAttempts = 0;
   }
 
   @override

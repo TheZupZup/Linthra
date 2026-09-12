@@ -57,6 +57,27 @@ abstract interface class PlaybackController {
   /// has no upcoming tracks.
   Future<void> skipToNext();
 
+  /// Tries the *same* copy of the failed track again, from the position it
+  /// stopped at.
+  ///
+  /// The listener's half of playback recovery: called when the error UI's Retry
+  /// is tapped, never automatically. Attempts are bounded per track, so a source
+  /// that keeps failing stops offering Retry
+  /// ([PlaybackState.failure]'s `canRetry`) instead of looping; once the budget
+  /// is spent this is a no-op. A no-op too when nothing is loaded.
+  Future<void> retryCurrentTrack();
+
+  /// Plays the same song from another provider that has it, keeping its place in
+  /// the queue.
+  ///
+  /// Uses the same ordered logical-track candidates the automatic runtime
+  /// fallback uses, most-preferred first, skipping the copy that just failed;
+  /// the queue entry is *replaced* by the copy that works rather than a second
+  /// entry being added. Shares the bounded per-track attempt budget with
+  /// [retryCurrentTrack]. A no-op when the song has no other copy, when the
+  /// budget is spent, or when nothing is loaded.
+  Future<void> tryAnotherSource();
+
   /// Steps back to the previous track in the queue, if any. A no-op when the
   /// current track is the first one.
   Future<void> skipToPrevious();
