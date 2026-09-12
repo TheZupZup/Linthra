@@ -83,7 +83,10 @@ lib/
   **capability model** (`core/sources/music_provider.dart`) declares what each
   provider supports (`canStream` / `canCache` / `canFavorite` / `canLyrics` /
   `canCast`) so the UI offers only the actions that work. `WebDavMusicSource`
-  slots in the same way later; see [providers.md](providers.md).
+  slots in the same way later: its design (auth, identity, scan, streaming,
+  secrets) is settled in [webdav.md](webdav.md), and it deliberately reuses the
+  local-file scanner's shape rather than introducing a second library. See
+  [providers.md](providers.md).
 - **`MusicLibraryRepository`** (`core/repositories/`) — the local SQLite cache
   the UI reads from. Sources *sync into* it; the UI never talks to a source
   directly. This is what keeps the app fast and fully offline.
