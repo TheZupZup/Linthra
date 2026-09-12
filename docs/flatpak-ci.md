@@ -124,6 +124,30 @@ is already installed for the current user or system-wide, so a local smoke can
 never launch or remove a contributor's existing installation. Use a clean test
 user/environment for this final step when Linthra is already installed.
 
+### What a smoke may delete on your machine
+
+CI runners start clean, so none of this matters there. It matters locally, and
+the rule is the same for every smoke in `scripts/`: each removes what it
+created, and nothing else.
+
+None of them uses `flatpak uninstall --delete-data`. That flag deletes
+`~/.var/app/io.github.thezupzup.linthra/` (library database, settings, offline
+audio, credentials) and clears the app's Flatpak permission-store entries, the
+document-portal grants for the music folders you picked, and it reaches both
+whether or not the run put them there. An ordinary uninstall leaves a data tree
+behind, so "Linthra is not installed" says nothing about whether one exists.
+
+The three smokes that install the app themselves (`flatpak_audio_smoke.sh`,
+`flatpak_local_library_smoke.sh`, `flatpak_filesystem_smoke.sh`) therefore
+look for
+`~/.var/app/io.github.thezupzup.linthra/` *before* they install anything,
+uninstall plainly on the way out, and remove that directory only when it was
+not already there. `flatpak_launch_smoke.sh` never removes app data at all. So
+a data tree you already had, and your permission-store grants, are never
+removed by a smoke. For the commands that *do* delete that data, when you want
+it gone, see
+[flatpak-development.md § Clean and uninstall](./flatpak-development.md#clean-and-uninstall).
+
 ## The audio smoke job beside it
 
 The same workflow runs a second job, `Audio lifecycle smoke in the sandbox`,
