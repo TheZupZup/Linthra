@@ -3,6 +3,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/dimens.dart';
+import '../focus/focus_ring.dart';
 
 /// The modifier the move chord is spelled with on [platform].
 ///
@@ -128,12 +129,16 @@ class ReorderHandle extends StatelessWidget {
               const CustomSemanticsAction(label: 'Move down'): () =>
                   onMoveBy(1),
           },
-          child: Focus(
-            focusNode: focusNode,
-            child: Builder(
-              builder: (BuildContext context) {
-                final bool focused = Focus.of(context).hasFocus;
-                return MouseRegion(
+          child: Padding(
+            padding: const EdgeInsets.only(left: AppSpacing.xs),
+            // The shared ring (#390): the handle is a focusable control like
+            // any other, and says so the same way the rows around it do. Drawn
+            // as an overlay outside the node, so arriving on it never nudges
+            // the row's layout and `Focus.of` below still finds the handle.
+            child: FocusRing(
+              child: Focus(
+                focusNode: focusNode,
+                child: MouseRegion(
                   cursor: SystemMouseCursors.grab,
                   child: ReorderableDragStartListener(
                     index: index,
@@ -147,27 +152,17 @@ class ReorderHandle extends StatelessWidget {
                       // desktop trigger anyway, and the handle is still named
                       // for screen readers either way.
                       triggerMode: TooltipTriggerMode.manual,
-                      child: Container(
-                        margin: const EdgeInsets.only(left: AppSpacing.xs),
-                        padding: const EdgeInsets.all(AppSpacing.xs),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(AppRadii.sm),
-                          border: Border.all(
-                            width: 2,
-                            color: focused
-                                ? theme.colorScheme.primary
-                                : Colors.transparent,
-                          ),
-                        ),
-                        child: const Icon(
+                      child: const Padding(
+                        padding: EdgeInsets.all(AppSpacing.xs),
+                        child: Icon(
                           Icons.drag_handle,
                           semanticLabel: 'Reorder',
                         ),
                       ),
                     ),
                   ),
-                );
-              },
+                ),
+              ),
             ),
           ),
         ),

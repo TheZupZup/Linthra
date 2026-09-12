@@ -34,6 +34,7 @@ class NowPlayingActions extends ConsumerWidget {
     this.onToggleLyrics,
     this.queueVisible = false,
     this.onToggleQueue,
+    this.queueButtonFocusNode,
   });
 
   final Track track;
@@ -55,6 +56,14 @@ class NowPlayingActions extends ConsumerWidget {
   /// — keeps the queue a modal sheet, which is the right shape on every surface
   /// without the width for a pane.
   final VoidCallback? onToggleQueue;
+
+  /// The queue button's focus node, when the host wants to keep it (#390).
+  ///
+  /// Closing a queue pane disposes whatever inside it had the keyboard, so the
+  /// host hands focus back to this button, which means the node has to belong
+  /// to the host, not to a button that is rebuilt beneath it. Null everywhere
+  /// the queue is a sheet, which takes and returns focus itself.
+  final FocusNode? queueButtonFocusNode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -105,6 +114,7 @@ class NowPlayingActions extends ConsumerWidget {
         ),
         IconButton(
           iconSize: 22,
+          focusNode: queueButtonFocusNode,
           onPressed: onToggleQueue ?? () => _openQueue(context),
           icon: Icon(
             queueVisible ? Icons.queue_music : Icons.queue_music_outlined,

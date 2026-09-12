@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
 import '../../../core/models/album.dart';
+import '../../../shared/focus/list_keyboard_navigation.dart';
 import 'album_grid_card.dart';
 
 /// Narrowest a desktop album card should get before the grid drops a column.
@@ -61,23 +62,29 @@ class AlbumGrid extends StatelessWidget {
         final int columns = albumGridColumnCount(content);
         final double cardWidth =
             (content - _gridGutter * (columns - 1)) / columns;
-        return GridView.builder(
-          key: const Key('library_album_grid'),
-          padding: const EdgeInsets.all(_gridGutter),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: _gridGutter,
-            mainAxisSpacing: AppSpacing.lg,
-            mainAxisExtent: cardWidth + labelExtent,
+        // A grid of covers is walked the way a desktop icon grid is: the arrow
+        // keys move cell to cell and carry on into the next row at a row's
+        // end, and Home/End go to the ends of the collection (#390).
+        return ListKeyboardNavigation(
+          wrapRows: true,
+          child: GridView.builder(
+            key: const Key('library_album_grid'),
+            padding: const EdgeInsets.all(_gridGutter),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              crossAxisSpacing: _gridGutter,
+              mainAxisSpacing: AppSpacing.lg,
+              mainAxisExtent: cardWidth + labelExtent,
+            ),
+            itemCount: albums.length,
+            itemBuilder: (BuildContext context, int index) {
+              final Album album = albums[index];
+              return AlbumGridCard(
+                album: album,
+                onTap: () => onOpen(album),
+              );
+            },
           ),
-          itemCount: albums.length,
-          itemBuilder: (BuildContext context, int index) {
-            final Album album = albums[index];
-            return AlbumGridCard(
-              album: album,
-              onTap: () => onOpen(album),
-            );
-          },
         );
       },
     );

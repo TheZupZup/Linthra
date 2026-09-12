@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../app/dimens.dart';
+import '../focus/focus_handoff.dart';
+import '../focus/focus_reading_order.dart';
 import 'adaptive_layout.dart';
 
 /// Width of a fixed side pane that holds one thing's header: a cover, a title
@@ -49,7 +51,13 @@ const double listDetailMinWidth = detailPaneWidth + mediumWindowWidth;
 /// including a track selection in progress, goes with it on a resize the user
 /// never thought of as leaving the screen. State that has to outlive the pane
 /// belongs to the host and is passed down (see `LibraryScreen`).
-class ListDetailPanes extends StatelessWidget {
+///
+/// Keyboard focus is the one piece of that this widget can hold itself (#390).
+/// When the pane goes and the keyboard was in it, focus would otherwise unwind
+/// to the route's scope: nothing on screen carries a ring, and the next Tab
+/// starts again at the top of the page. So it lands on the list instead, which
+/// is now the whole screen, and is where the detail was opened from.
+class ListDetailPanes extends StatefulWidget {
   const ListDetailPanes({
     required this.listBuilder,
     required this.detailBuilder,
@@ -76,16 +84,60 @@ class ListDetailPanes extends StatelessWidget {
   final double minWidthForPane;
 
   @override
+  State<ListDetailPanes> createState() => _ListDetailPanesState();
+}
+
+class _ListDetailPanesState extends State<ListDetailPanes> {
+  /// Parked around the list so the pane has somewhere to hand the keyboard
+  /// back to. Never focusable itself.
+  final FocusNode _listRegion = FocusNode(
+    debugLabel: 'list beside detail pane',
+    canRequestFocus: false,
+    skipTraversal: true,
+  );
+
+  @override
+  void dispose() {
+    _listRegion.dispose();
+    super.dispose();
+  }
+
+  /// The first row of the list, resolved after the pane has gone and the list
+  /// has been laid out at its new width.
+  ///
+  /// The row the detail was opened from would be the ideal landing place, but
+  /// the list owns no handle on it, and after a resize it may not even be on
+  /// screen. The top of the list always is, and it is somewhere the ring is
+  /// visible and Tab carries on sensibly from.
+  FocusNode? _firstRowOfList() {
+    // The list can have gone with the pane (the whole screen left, or the tab
+    // changed under it), in which case there is nothing here to hand back to.
+    if (!mounted) return null;
+    final List<FocusNode> rows = focusableRowsIn(
+      _listRegion,
+      rtl: Directionality.of(context) == TextDirection.rtl,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        final bool paneVisible = constraints.maxWidth >= minWidthForPane;
-        final Widget list = listBuilder(context, paneVisible);
+        final bool paneVisible = constraints.maxWidth >= widget.minWidthForPane;
+        final Widget list = FocusRegion(
+          node: _listRegion,
+          child: widget.listBuilder(context, paneVisible),
+        );
         if (!paneVisible) return list;
 
         return SplitPanes(
-          fixed: detailBuilder(context) ?? placeholderBuilder(context),
-          fixedWidth: paneWidth,
+          fixed: FocusHandoff(
+            returnFocusTo: _firstRowOfList,
+            child: widget.detailBuilder(context) ??
+                widget.placeholderBuilder(context),
+          ),
+          fixedWidth: widget.paneWidth,
           flexible: list,
           fixedFirst: false,
           // A grid is happy at any width — it answers extra room with more

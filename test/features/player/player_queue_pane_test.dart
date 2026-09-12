@@ -53,6 +53,25 @@ const Lyrics _lyrics = Lyrics(
   ],
 );
 
+/// Whether whatever holds focus sits inside a [T].
+bool _focusedInside<T extends Widget>() {
+  final BuildContext? context = FocusManager.instance.primaryFocus?.context;
+  return context != null && context.findAncestorWidgetOfExactType<T>() != null;
+}
+
+/// The icon button behind a tooltip. `find.byTooltip` lands on the [Tooltip]
+/// the button builds, which is one step below the button itself.
+IconButton _queueButton(WidgetTester tester, String tooltip) {
+  return tester.widget<IconButton>(
+    find
+        .ancestor(
+          of: find.byTooltip(tooltip),
+          matching: find.byType(IconButton),
+        )
+        .first,
+  );
+}
+
 /// Just above `_queuePaneMinWidth` (1000 + 340 + 24).
 const Size _paneWindow = Size(1400, 900);
 
@@ -217,6 +236,47 @@ void main() {
       expect(saved.single.name, 'My Queue');
       expect(saved.single.trackIds, <String>[_track.uri, _next.uri]);
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('closing the pane keeps the keyboard (#390)', () {
+    testWidgets('the toggle takes focus back from inside the pane',
+        (tester) async {
+      await _pumpPlayer(tester, size: _paneWindow);
+      await tester.tap(find.byTooltip('Show queue'));
+      await tester.pumpAndSettle();
+
+      // The keyboard is on a queue row when the pane goes.
+      Focus.of(tester.element(find.text('Song Two'))).requestFocus();
+      await tester.pump();
+      expect(_focusedInside<QueueSheet>(), isTrue);
+
+      await tester.tap(find.byTooltip('Hide queue'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(QueueSheet), findsNothing);
+      expect(
+        FocusManager.instance.primaryFocus,
+        _queueButton(tester, 'Show queue').focusNode,
+      );
+    });
+
+    testWidgets('narrowing the window does the same', (tester) async {
+      await _pumpPlayer(tester, size: _paneWindow);
+      await tester.tap(find.byTooltip('Show queue'));
+      await tester.pumpAndSettle();
+      Focus.of(tester.element(find.text('Song Two'))).requestFocus();
+      await tester.pump();
+
+      await _resize(tester, _twoColumnWindow);
+
+      expect(find.byType(QueueSheet), findsNothing);
+      // The button is the sheet's now, but it is the same control in the same
+      // place and it carries the same node.
+      expect(
+        FocusManager.instance.primaryFocus,
+        _queueButton(tester, 'Queue').focusNode,
+      );
     });
   });
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
 import '../../../core/models/track.dart';
+import '../../../shared/focus/list_keyboard_navigation.dart';
 import 'track_tile.dart';
 
 /// A track list with first-letter section grouping and an A–Z fast-scroll
@@ -196,69 +197,74 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   @override
   Widget build(BuildContext context) {
     final showRail = _letters.length >= 2;
-    return Stack(
-      children: [
-        ListView.builder(
-          key: const Key('library_track_list'),
-          controller: _controller,
-          // Reserve room for the rail so rows never render beneath it.
-          padding:
-              EdgeInsets.only(right: showRail ? _railWidth : AppSpacing.md),
-          itemCount: _entries.length,
-          itemExtentBuilder: (index, _) =>
-              _entries[index].isHeader ? _headerExtent : _trackExtent,
-          itemBuilder: (context, i) {
-            final entry = _entries[i];
-            if (entry.isHeader) {
-              return _SectionHeader(letter: entry.letter!);
-            }
-            final int trackIndex = entry.trackIndex!;
-            final Track track = _sorted[trackIndex];
-            return TrackTile(
-              tracks: _sorted,
-              index: trackIndex,
-              selectable: widget.selectable,
-              selectionActive: widget.selectionActive,
-              selected: widget.selectedUris.contains(track.uri),
-              onSelectToggle: widget.onSelectToggle == null
-                  ? null
-                  : () => widget.onSelectToggle!(track),
-              onSelectStart: widget.onSelectStart == null
-                  ? null
-                  : () => widget.onSelectStart!(track),
-              onSelectRange: widget.onSelectRange,
-              // Resolved from the sorted list the rows are drawn from, so a
-              // drag carries the selection in the order the user sees it.
-              // Only runs when a drag actually starts.
-              dragSelection: () => <Track>[
-                for (final Track candidate in _sorted)
-                  if (widget.selectedUris.contains(candidate.uri)) candidate,
-              ],
-            );
-          },
-        ),
-        if (showRail)
-          Positioned(
-            top: 0,
-            bottom: 0,
-            right: 0,
-            width: _railWidth,
-            child: _AlphabetIndex(
-              letters: _letters,
-              activeLetter: _activeLetter,
-              onSelected: _jumpToLetter,
-              onScrubChanged: (scrubbing) =>
-                  setState(() => _scrubbing = scrubbing),
+    // Home and End jump to the ends of the library the way they do in any
+    // desktop list; the arrow keys already walk it row by row. The A–Z rail
+    // beside it is the pointer's version of the same idea (#390).
+    return ListKeyboardNavigation(
+      child: Stack(
+        children: [
+          ListView.builder(
+            key: const Key('library_track_list'),
+            controller: _controller,
+            // Reserve room for the rail so rows never render beneath it.
+            padding:
+                EdgeInsets.only(right: showRail ? _railWidth : AppSpacing.md),
+            itemCount: _entries.length,
+            itemExtentBuilder: (index, _) =>
+                _entries[index].isHeader ? _headerExtent : _trackExtent,
+            itemBuilder: (context, i) {
+              final entry = _entries[i];
+              if (entry.isHeader) {
+                return _SectionHeader(letter: entry.letter!);
+              }
+              final int trackIndex = entry.trackIndex!;
+              final Track track = _sorted[trackIndex];
+              return TrackTile(
+                tracks: _sorted,
+                index: trackIndex,
+                selectable: widget.selectable,
+                selectionActive: widget.selectionActive,
+                selected: widget.selectedUris.contains(track.uri),
+                onSelectToggle: widget.onSelectToggle == null
+                    ? null
+                    : () => widget.onSelectToggle!(track),
+                onSelectStart: widget.onSelectStart == null
+                    ? null
+                    : () => widget.onSelectStart!(track),
+                onSelectRange: widget.onSelectRange,
+                // Resolved from the sorted list the rows are drawn from, so a
+                // drag carries the selection in the order the user sees it.
+                // Only runs when a drag actually starts.
+                dragSelection: () => <Track>[
+                  for (final Track candidate in _sorted)
+                    if (widget.selectedUris.contains(candidate.uri)) candidate,
+                ],
+              );
+            },
+          ),
+          if (showRail)
+            Positioned(
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: _railWidth,
+              child: _AlphabetIndex(
+                letters: _letters,
+                activeLetter: _activeLetter,
+                onSelected: _jumpToLetter,
+                onScrubChanged: (scrubbing) =>
+                    setState(() => _scrubbing = scrubbing),
+              ),
             ),
-          ),
-        if (showRail && _scrubbing && _activeLetter != null)
-          Positioned(
-            right: _railWidth + AppSpacing.sm,
-            top: 0,
-            bottom: 0,
-            child: Center(child: _ScrubBubble(letter: _activeLetter!)),
-          ),
-      ],
+          if (showRail && _scrubbing && _activeLetter != null)
+            Positioned(
+              right: _railWidth + AppSpacing.sm,
+              top: 0,
+              bottom: 0,
+              child: Center(child: _ScrubBubble(letter: _activeLetter!)),
+            ),
+        ],
+      ),
     );
   }
 }
