@@ -35,10 +35,15 @@ so no secret reaches the persisted catalog.
 | Jellyfin              | `jellyfin` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
 | Navidrome / Subsonic  | `subsonic` |   ✅   |  ✅   | ✅ synced | ✅ synced |   ✅   |  ✅  |
 | Plex                  | `plex`     |   ✅   |  ✅   |    🔜     |    🔜     |   ✅   |  🔜  |
+| WebDAV / NAS          | `webdav`   |   📝   |  📝   | 📝 local  |    ❌     |   📝   |  ❌  |
 
-✅ implemented · 🔜 planned follow-up · — not applicable. "local"
-favourites/playlists stay on-device; "synced" ones mirror with the server
-(server is the source of truth on refresh).
+✅ implemented · 🔜 planned follow-up · 📝 designed, not built
+([webdav.md](webdav.md)) · ❌ not supported by design · — not applicable.
+"local" favourites/playlists stay on-device; "synced" ones mirror with the
+server (server is the source of truth on refresh). WebDAV favourites are local
+because a WebDAV share has no per-user state to sync, and WebDAV cast is off
+because a receiver cannot send an auth header (see
+[WebDAV / NAS](#webdav--nas-designed)).
 
 ## One library across providers
 
@@ -249,13 +254,61 @@ apps — receiving those is the separate **Plex Companion** protocol, designed i
 The `MusicSource` seam is designed so more **self-hosted / user-owned** backends
 can be added the same way Jellyfin and Subsonic were:
 
-- **WebDAV** — play from a WebDAV share (Nextcloud, etc.).
-- **SMB / NAS** — browse and stream from a network file share.
-- **DLNA / UPnP** — discover and play from a media server on the LAN.
+- **WebDAV / NAS** (Nextcloud, Synology, QNAP, plain `mod_dav`): **designed**,
+  not built yet. The full implementation-ready design lives in
+  [webdav.md](webdav.md) (issue #86): connection and auth, the app-password
+  preference, the self-signed TLS policy, track identity, the directory scan,
+  streaming and seeking, artwork, offline downloads, and the proposed capability
+  row. See the [summary below](#webdav--nas-designed).
+- **SMB / NAS** (native file share): a different transport with its own auth and
+  native dependencies. The identity, scan and capability model in
+  [webdav.md](webdav.md) is reusable for it; the transport is not.
+- **DLNA / UPnP**: discover and play from a media server on the LAN.
 
 Each would implement `MusicSource` (and the narrow stream/download seams),
-declare its capabilities, and add a settings section — with the same rule that
+declare its capabilities, and add a settings section, with the same rule that
 credentials are stored securely and never woven into a persisted URI.
+
+## WebDAV / NAS (designed)
+
+WebDAV is the next provider on the roadmap and the only one with a settled
+design. It is worth reading [webdav.md](webdav.md) before starting any of it,
+because a few decisions are not obvious:
+
+- **WebDAV is a file protocol, not a music API.** There is no server-side song
+  id, no tag database, no favourites, and no playlists. So the provider is much
+  closer to Linthra's local-file scanner (a directory walk, a metadata ladder,
+  `cover.jpg` and `.lrc` sidecars) than it is to Jellyfin, and it reuses that
+  code path deliberately rather than inventing a second library.
+- **Identity is a digest of the file's path**, relative to the chosen music
+  root: `Track.uri` is `webdav:<percent-encoded relative path>` and `Track.id`
+  is a short `sha256` digest of it. The digest matters because the offline cache
+  names files from `Track.id`, and a raw path would both collide after
+  filename sanitization and overflow the filesystem's name limit.
+- **The credential rides in a header, never in a URL**, which removes the whole
+  "a log line or transport error echoed the tokenized URL" risk the Subsonic and
+  Plex providers have to guard against. The new thing to guard instead is the
+  `Authorization` header: it is never logged and never placed in an error.
+- **Basic auth means a replayable secret has to be stored**, which is the one
+  way WebDAV is weaker than every provider shipping today (they all store a
+  derived token instead). The design contains that by asking for an **app
+  password** by preference (revocable per device, survives 2FA), documenting a
+  read-only NAS user as the stronger option, and keeping Digest (storing only
+  `HA1`, never the password) as a follow-up.
+- **Self-signed certificates are handled by pinning, not by bypassing.** A LAN
+  NAS with its own certificate is confirmed once by the user against the shown
+  SHA-256 fingerprint, and only that exact certificate on that exact host is
+  then accepted, for that one server's client. Nothing is weakened globally, and
+  a changed fingerprint fails closed.
+- **Casting stays off permanently.** A Cast receiver fetches the URL itself and
+  cannot send an `Authorization` header, so casting would mean minting a
+  credential-bearing URL. Linthra will not.
+
+Proposed capabilities: stream, offline cache, **local** favourites (the first
+remote provider whose hearts stay on-device, because there is no server state to
+sync), sidecar lyrics, no playlists, no cast, and nothing that writes to the
+server. Read-only shares are a fully supported configuration, not a degraded
+one.
 
 ## Non-goals
 
