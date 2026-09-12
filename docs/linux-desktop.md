@@ -562,7 +562,8 @@ loaded:
 | Media session / MPRIS | Supported | `PlatformMediaSessionBinding` routes Linux to `MprisMediaSessionBinding`, which exports `/org/mpris/MediaPlayer2` and owns `org.mpris.MediaPlayer2.linthra` ([issue #397](https://github.com/TheZupZup/Linthra/issues/397)). Shells get PlaybackStatus, Metadata, Position and the transport methods; media keys work through the same interface. `Volume` is read/write, so a shell's own volume slider drives Linthra's level (and reads zero while muted); `Rate` stays honestly read-only. `Raise` and `Quit` are answered too, so a listener whose window is hidden by background mode can bring Linthra back or shut it down from the shell's media widget (#401). `audio_service` is still never initialised on Linux — it stays the Android delegate. A machine with no session bus simply gets no desktop controls. |
 | Close-window behaviour | Supported | Settings → Music & playback → Desktop window chooses between quitting and keeping playback running ([issue #401](https://github.com/TheZupZup/Linthra/issues/401)). The runner answers the close, Dart decides what the answer should be, and background mode only ever starts while audio is actually playing. See [Closing the window](#closing-the-window). |
 | Android Auto | Android-only, by design | It is an Android platform integration, not a Linthra feature. |
-| Media notification + `POST_NOTIFICATIONS` | Android-only, by design | There is no equivalent gate on Linux; desktop controls come from MPRIS instead. Standalone track-change notifications are [issue #400](https://github.com/TheZupZup/Linthra/issues/400). |
+| Media notification + `POST_NOTIFICATIONS` | Android-only, by design | There is no equivalent gate on Linux; desktop controls come from MPRIS instead, and a Linux notification needs no runtime permission. |
+| Track change notifications | Supported, off by default | Settings → Music & playback → Desktop notifications shows a short notification when the song changes ([issue #400](https://github.com/TheZupZup/Linthra/issues/400)). D-Bus, through the Notification portal where there is one and `org.freedesktop.Notifications` otherwise, so it works in the Flatpak without widening the sandbox. Android is untouched: its per-track notification is the media session's. See [Track change notifications](#track-change-notifications). |
 | Android audio focus | Android-only, by design | `JustAudioPlaybackController` already scopes its focus handling to Android/iOS. |
 | SAF (`content://` folders) | Android-only, by design | Linux picks a real filesystem path. The scanner's desktop path is the one that runs. |
 | Folder chooser | Supported | Linthra's own runner channel (`linux/runner/folder_picker_channel.cc`) opens `GtkFileChooserNative`: the ordinary GTK dialog natively, and the xdg-desktop-portal chooser inside the Flatpak, where `file_picker`'s `zenity`/`kdialog` do not exist ([issue #438](https://github.com/TheZupZup/Linthra/issues/438)). `scripts/check_linux_runner.py` holds the runner's channel name to the Dart side's. |
@@ -997,6 +998,132 @@ desktop can answer, to re-check before a Linux milestone release:
 | Close the window while a track plays | Quit | Linthra quits, audio stops |
 | Quit from the media widget, or "Quit Linthra now" | Either | Playback stops, the window goes, the MPRIS name is released |
 | Reopen after any quit | Either | Normal cold start; the crash-safe session restores paused, as it always did |
+
+## Track change notifications
+
+Off by default. Settings → Music & playback → **Desktop notifications** turns
+on a short notification when the song changes: the title, the catalog's
+"Artist • Album" subtitle, and the cover when there is a safe one to hand over.
+
+It is off by default because a desktop shell already draws a now-playing card
+from Linthra's MPRIS session. A toast per track is a useful addition for
+someone who wants it and an unasked-for interruption otherwise, so it is the
+listener's choice, and the switch turns it off completely rather than making it
+quieter.
+
+### What counts as a track change
+
+`TrackChangeNotifier` watches the same `PlaybackState` stream MPRIS and the
+recent-played recorder read, and is a pure observer of it: it never touches the
+queue, the controller or the audio engine. The stream carries a state several
+times a second, and almost none of them are news, so three rules reduce it to
+real transitions:
+
+* **Identity.** The track's logical identity has to differ from the last one
+  announced. Position ticks, a pause, a resume, a seek, a volume change, a
+  mid-stream reconnect and a queue rebuild that re-creates the same song all
+  say nothing, and neither does repeat-one starting the same song again,
+  because that is not a new song.
+* **Something is actually playing.** A queue restored paused at launch, a track
+  loaded but not started, and a load that errored are all "nothing is playing".
+  Announcing one would be a claim Linthra cannot back.
+* **At most one per five seconds.** Holding *next* down through an album must
+  not put a notification per track on the bus. A burst is coalesced rather than
+  dropped: the newest track replaces whatever was waiting, one timer covers the
+  whole burst, and the track the listener actually landed on is the one
+  announced. Ordinary listening never meets this limit at all.
+
+Turning the preference off is read live, so it silences the next track change
+immediately, including one already waiting out that window.
+
+### What it says, and what it never says
+
+`nowPlayingNotification` is the whole of what Linthra is willing to tell a
+notification daemon, and it is a pure function so that the rule is in one
+readable place rather than inside a D-Bus call. It sends the title and the
+artist/album subtitle. It never sends:
+
+* the track's URI: for a remote track that is an authenticated stream URL, for
+  a local one the listener's own file path;
+* the track or album id, or anything naming the server it came from;
+* a cover *reference*, or any URL at all.
+
+Artwork follows the same rule MPRIS publishes `mpris:artUrl` under, narrowed
+for a consumer that opens files rather than fetching URLs:
+
+* a `file:` cover passes through. Every `file:` cover in the catalog is a copy
+  Linthra wrote into its own artwork cache, under the application cache
+  directory, which is the same path inside the Flatpak and outside it, so the
+  daemon can actually open it;
+* an app-internal reference (`subsonic-cover:<id>`, `plex-thumb:<path>`) is
+  published only as the local copy the media-artwork cache has *already*
+  fetched. Nothing is fetched on the track change itself;
+* an `http(s)` cover is dropped: a daemon does not fetch a URL for an image,
+  and a cover URL is the shape a credentialed one would arrive in;
+* a `content:` cover is dropped: that is Android's FileProvider form, and
+  nothing on a Linux desktop can open it.
+
+A track with no title at all reads as "Unknown track", never as its path.
+
+### How it reaches the desktop
+
+A desktop notification is a D-Bus method call, and that is what Linthra makes,
+through the same `dbus` package MPRIS already uses, so there is no new
+dependency, no native code, and **no subprocess**. Shelling out to
+`notify-send` would mean a music player spawning a binary off `PATH` with
+strings built from track metadata, and it does not exist inside the Flatpak
+anyway.
+
+`DBusDesktopNotifier` tries two routes and remembers which one answered:
+
+1. **`org.freedesktop.portal.Notification`** on the desktop portal. First,
+   because it is the only route a sandboxed Linthra has: the Flatpak asks for
+   no `--talk-name` at all (`scripts/check_flatpak_permissions.py` refuses
+   every spelling of one), and the portal is available to every Flatpak with no
+   finish-arg. See [docs/flatpak-permissions.md](./flatpak-permissions.md).
+2. **`org.freedesktop.Notifications`**, the spec interface every notification
+   daemon implements, for a host that has no portal running: a bare window
+   manager with `dunst`, say.
+
+Both keep one notification rather than a pile: the portal route reuses a fixed
+id, which is how the portal replaces a notification, and the spec route passes
+the previous notification's id as `replaces_id`. The spec route also asks for
+low urgency and marks the notification transient, so a track change belongs on
+screen for a moment rather than in the shell's history for the evening.
+
+Artwork goes out in whichever form the route can take safely: an `image-path`
+hint on the spec route, and on the portal route a serialized `bytes` icon,
+only when the running portal reports interface version 2 or newer, which is
+where that icon form was added, and bounded to 512 KiB so a cover cannot
+become a large transfer on every track change.
+
+Failure is silent and total: a missing daemon, a refused call, a bus that went
+away, a cover evicted between being cached and being sent. Every delivery is
+guarded and never awaited by playback, so the worst case is a notification that
+did not appear. Each call is also given a five-second deadline, because nothing
+awaits it: a wedged notification service must not leave a pending call behind
+for every track change of the session.
+
+Automated coverage:
+`test/core/services/notifications/track_change_notifier_test.dart`,
+`test/core/services/notifications/now_playing_notification_test.dart`,
+`test/core/services/notifications/dbus_desktop_notifier_test.dart`,
+`test/core/services/notifications/platform_desktop_notifier_test.dart`,
+`test/features/settings/desktop/desktop_notifications_section_test.dart`, and
+`test/data/repositories/shared_preferences_desktop_notification_preferences_test.dart`.
+What only a real desktop can answer, to re-check before a Linux milestone
+release:
+
+| Scenario | Expect |
+| --- | --- |
+| Turn the switch on, then let a track end into the next one | One notification, with title, artist and cover |
+| Pause, resume, seek, change the volume | No notification |
+| Hold *next* through several tracks | One notification, for the track you land on |
+| Turn the switch off, then change track | Nothing at all |
+| Play a local file with embedded art, and a server track whose cover is cached | Cover shown in both |
+| Play a server track whose cover has not been fetched yet | Notification without a cover, never a placeholder or a URL |
+| Same, in the Flatpak | Identical behaviour; `flatpak info --show-permissions` unchanged |
+| Kill the notification daemon, then change track | Playback unaffected, no error anywhere in the app |
 
 ## Crash-safe playback restore
 

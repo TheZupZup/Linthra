@@ -26,6 +26,7 @@ import '../features/library/local_root_availability_controller.dart';
 import '../features/player/media_artwork_providers.dart';
 import '../features/player/playback_history_providers.dart';
 import '../features/player/player_providers.dart';
+import '../features/player/track_notification_providers.dart';
 import '../features/settings/audiobookshelf/audiobookshelf_settings_controller.dart';
 import '../features/settings/desktop/close_behavior_controller.dart';
 import '../features/settings/desktop/desktop_window_providers.dart';
@@ -278,6 +279,13 @@ Future<ApplicationHandle> bootstrapApplication(
     // played before the listener first opened it. Off desktop this creates no
     // recorder at all.
     container.read(playbackHistoryProvider);
+    // Desktop track-change notifications (#400). Read here for the same reason
+    // as the history recorder: the state stream does not replay, so an observer
+    // created later would miss every track played before it. Null off the
+    // desktop and wherever there is no notification seam, and silent until the
+    // listener turns the preference on, so this read costs one null or one
+    // subscription that announces nothing.
+    container.read(trackChangeNotifierProvider);
     // Loads and prunes the credential-free remote-cache manifest off the
     // first-frame path. Owned rather than merely unawaited: it writes to the
     // app-support directory, so a restart must not race a prune still in

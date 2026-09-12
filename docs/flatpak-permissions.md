@@ -65,7 +65,7 @@ was avoided.
 | --- | --- | --- |
 | Local music libraries | `--filesystem=home`, `--filesystem=xdg-music`, `--filesystem=host` | `GtkFileChooserNative` (`linux/runner/folder_picker_channel.cc`), which GTK redirects to the xdg-desktop-portal FileChooser inside a sandbox. The user's choice becomes a document-portal grant for that folder alone. See [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md). |
 | Server credentials | `--talk-name=org.freedesktop.secrets` | `flutter_secure_storage_linux` → libsecret. Inside a Flatpak with the Secret portal available, libsecret keeps its own encrypted file under the app's data directory, with the master secret handed over by the portal from the host keyring. Documented at `lib/data/repositories/secure_session_storage.dart`. |
-| Desktop notifications | `--talk-name=org.freedesktop.Notifications` | The Notification portal, which every Flatpak may use without a finish-arg. |
+| Desktop notifications | `--talk-name=org.freedesktop.Notifications` | The Notification portal, which every Flatpak may use without a finish-arg. `lib/core/services/notifications/dbus_desktop_notifier.dart` calls it first and only falls back to the spec interface outside the sandbox, where the session bus is directly reachable. |
 | The app's own database, caches and downloads | `--persist=`, `--filesystem=~/.local/share/linthra` | The private XDG tree Flatpak gives every app under `~/.var/app/<app-id>/`, reached through `path_provider`. |
 | Opening a link (bug report, docs) | `--talk-name=org.freedesktop.portal.OpenURI` | The OpenURI portal, again available without a grant. |
 
