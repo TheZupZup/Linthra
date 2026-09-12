@@ -93,7 +93,18 @@ PASSING_TEST = "import sys\nsys.exit(0)\n"
 FAILING_TEST = (
     "import sys\nsys.stderr.write('a real assertion failed\\n')\nsys.exit(1)\n"
 )
-UNIMPORTABLE_TEST = "import a_module_that_is_not_installed  # noqa: F401\n"
+# Fails to import an external dependency, in the shape a real one does, but
+# without depending on whether this machine happens to have PyYAML installed.
+MISSING_EXTERNAL_DEPENDENCY_TEST = (
+    "raise ModuleNotFoundError(\"No module named 'yaml'\")\n"
+)
+# The same shape, for a module this repository is supposed to provide.
+# test/tooling/large_library_memory_report_test.py really does import
+# memory_report from tools/large_library/ at the top of the file, so renaming
+# that module produces exactly this.
+MISSING_REPOSITORY_MODULE_TEST = (
+    "raise ModuleNotFoundError(\"No module named 'memory_report'\")\n"
+)
 # Runs, fails for real, and quotes a ModuleNotFoundError while doing it: a test
 # asserting on how some tool reports a missing dependency looks exactly like
 # this. The output must not be mistaken for the file failing to import.
@@ -260,6 +271,40 @@ class AgreementWithCI(unittest.TestCase):
         self.assertEqual(paths, {"scripts tool tools"})
         self.assertIn("ruff check scripts tool tools", script_text())
         self.assertIn("ruff format --check scripts tool tools", script_text())
+
+    def test_the_skippable_modules_are_the_ones_CI_installs(self) -> None:
+        """Only an external dependency may excuse a test from running.
+
+        CI pip-installs what the tooling tests need beyond stdlib, so that set
+        is the whole of what this machine can legitimately be missing.
+        Anything else is owned by this repository, and its absence is a broken
+        change rather than a missing tool.
+        """
+        installed: set[str] = set()
+        for path in sorted((WORKFLOWS).glob("*.yml")):
+            text = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"pip install [^\n]*", text):
+                for package in re.findall(
+                    r"[\"']?([A-Za-z][\w.-]+)[\"']?", match.group(0)
+                ):
+                    if package in ("pip", "install", "python3", "m", "quiet"):
+                        continue
+                    installed.add(package.split("==")[0].lower())
+        self.assertIn("pyyaml", installed, msg="CI stopped installing PyYAML")
+
+        declared = set(
+            script_text().split("PYTHON_EXTERNAL_MODULES=(")[1].split(")")[0].split()
+        )
+        # PyYAML is the distribution; yaml is what a failed import names.
+        self.assertEqual(
+            declared,
+            {"yaml"},
+            msg=(
+                "the skippable set drifted from what CI installs "
+                "({}); widening it lets a broken repository module "
+                "pass as a missing tool".format(sorted(installed))
+            ),
+        )
 
     def test_no_ruff_version_is_pinned_in_two_places(self) -> None:
         """The pin lives in python-lint.yml. A copy here would rot."""
@@ -536,6 +581,24 @@ class FailuresAreFailures(StubHarness):
         self.assertIn("FAIL  test/tooling/quoting_test.py", run.output)
         self.assertNotIn("skip  test/tooling/quoting_test.py", run.output)
 
+    def test_a_missing_repository_module_is_a_failure_not_a_skip(self) -> None:
+        """A module this repo owns going missing is a broken change.
+
+        Several tooling tests import a repository module at the top of the
+        file, so removing or renaming one fails the import in exactly the shape
+        a missing dependency does. Calling that a skip would pass the very
+        change CI is about to reject.
+        """
+        run = self._run(
+            tooling_tests={
+                "ok_test.py": PASSING_TEST,
+                "repo_module_test.py": MISSING_REPOSITORY_MODULE_TEST,
+            }
+        )
+        self.assertEqual(run.process.returncode, 1, msg=run.output)
+        self.assertIn("FAIL  test/tooling/repo_module_test.py", run.output)
+        self.assertNotIn("skip  test/tooling/repo_module_test.py", run.output)
+
     def test_a_failing_tooling_test_fails_the_script_and_shows_its_output(self) -> None:
         run = self._run(
             tooling_tests={"ok_test.py": PASSING_TEST, "bad_test.py": FAILING_TEST}
@@ -604,6 +667,33 @@ class MissingToolsAreSkips(StubHarness):
         self.assertEqual(run.process.returncode, 0, msg=run.output)
         self.assertNotIn("SKIPPED: C++ checks", run.output)
 
+    def test_windows_defaults_to_an_IDE_generator_with_no_compiler_on_PATH(
+        self,
+    ) -> None:
+        """CMake's default generator on Windows supplies its own toolchain.
+
+        cl is not on a Git Bash PATH and CMAKE_GENERATOR need not be set for
+        CMake to find the Visual Studio toolchain, so nothing visible from the
+        script can confirm a compiler there. Skipping the section on that
+        basis would drop the C++ checks on a machine where they would run.
+        """
+        run = self._run(
+            tools=("cargo", "cmake", "ctest", "ruff"),
+            env={"OSTYPE": "msys"},
+        )
+        self.assertEqual(run.process.returncode, 0, msg=run.output)
+        self.assertNotIn("SKIPPED: C++ checks", run.output)
+        self.assertTrue([c for c in run.calls if c[0] == "ctest"], msg=run.output)
+
+    def test_a_unix_machine_with_no_compiler_still_skips(self) -> None:
+        """The exemption above must not become a blanket pass."""
+        run = self._run(
+            tools=("cargo", "cmake", "ctest", "ruff"),
+            env={"OSTYPE": "linux-gnu"},
+        )
+        self.assertIn("SKIPPED: C++ checks", run.output)
+        self.assertIn("C++17 compiler", run.output)
+
     def test_no_ruff_still_runs_the_python_tooling_tests(self) -> None:
         run = self._run(tools=("cargo", "cmake", "ctest", "c++"))
         self.assertEqual(run.process.returncode, 0, msg=run.output)
@@ -611,18 +701,17 @@ class MissingToolsAreSkips(StubHarness):
         self.assertIn("pip install ruff", run.output)
         self.assertIn("ok    test/tooling/example_test.py", run.output)
 
-    def test_a_test_that_cannot_import_its_module_is_skipped_not_failed(self) -> None:
+    def test_a_missing_external_dependency_is_skipped_not_failed(self) -> None:
         """The PyYAML shape: ci.yml installs it, a contributor may not have it."""
         run = self._run(
             tooling_tests={
                 "ok_test.py": PASSING_TEST,
-                "needs_module_test.py": UNIMPORTABLE_TEST,
+                "needs_module_test.py": MISSING_EXTERNAL_DEPENDENCY_TEST,
             }
         )
         self.assertEqual(run.process.returncode, 0, msg=run.output)
         self.assertIn(
-            "skip  test/tooling/needs_module_test.py "
-            "(needs the a_module_that_is_not_installed Python module)",
+            "skip  test/tooling/needs_module_test.py (needs the yaml Python module)",
             run.output,
         )
 

@@ -158,6 +158,14 @@ cxx_compiler_available() {
   case "${CMAKE_GENERATOR:-}" in
     "Visual Studio"*|Xcode|"Green Hills MULTI") return 0 ;;
   esac
+  # The same applies when CMAKE_GENERATOR is unset on Windows, where CMake's
+  # default is a Visual Studio generator: cl is not on a Git Bash PATH, and
+  # cmake-generators(7) notes that "since the IDEs configure their own
+  # environment one may launch CMake from any environment". Nothing visible
+  # from here can confirm that toolchain, so do not skip the section over it.
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win32*) return 0 ;;
+  esac
   local candidate
   for candidate in "${CXX_CANDIDATES[@]}"; do
     command -v "$candidate" >/dev/null 2>&1 && return 0
@@ -227,6 +235,26 @@ cpp_section() {
   done
 }
 
+# The external Python packages CI installs before it runs these tests, and so
+# the only modules whose absence is this machine's problem rather than the
+# change's. ci.yml and pr-security-review-tests.yml both pip-install PyYAML;
+# everything else the tests import is either stdlib or owned by this
+# repository, and a repository module that has gone missing is a broken change,
+# not a missing tool. Kept honest by
+# test/tooling/verify_native_test.py, which reads the pip installs out of the
+# workflows and requires this list to match.
+PYTHON_EXTERNAL_MODULES=(yaml)
+
+# Whether a missing module names an external dependency rather than something
+# this repository is supposed to provide.
+is_external_python_module() {
+  local wanted="$1" known
+  for known in "${PYTHON_EXTERNAL_MODULES[@]}"; do
+    [ "$wanted" = "$known" ] && return 0
+  done
+  return 1
+}
+
 # One tooling test, run the way CI runs it. Output is captured and only printed
 # when the test fails, the same bargain `ctest --output-on-failure` makes: a
 # clean run stays readable, a broken one shows everything.
@@ -248,21 +276,31 @@ run_python_test() {
     return 0
   fi
 
-  # Only a module missing *before any test ran* is a skip. unittest prints a
+  # A skip has to clear two bars, because getting either wrong means a real
+  # regression leaves the run looking clean.
+  #
+  # First, the file must have failed *before any test ran*: unittest prints a
   # "Ran N tests" line as soon as it has run something, so the absence of that
   # line is what separates "this machine cannot run the file at all" from "the
-  # file ran and something failed". Grepping the whole output for the error on
-  # its own would downgrade a genuine failure whose output merely quotes a
-  # ModuleNotFoundError, and the run would exit 0 with a regression inside it.
-  if ! printf '%s\n' "$output" | grep -q '^Ran [0-9]' &&
-    printf '%s\n' "$output" | grep -q 'ModuleNotFoundError'; then
+  # file ran and something failed". Without it, a genuine failure whose output
+  # merely quotes a ModuleNotFoundError would be downgraded to a skip.
+  #
+  # Second, the missing module must be one CI installs rather than one this
+  # repository owns. Several of these tests import a repository module at the
+  # top of the file (test/tooling/large_library_memory_report_test.py takes
+  # memory_report from tools/large_library/, for instance). If a change removes
+  # or renames one, the import fails in exactly the shape a missing dependency
+  # does, and calling that a skip would pass the very change CI is about to
+  # reject.
+  if ! printf '%s\n' "$output" | grep -q '^Ran [0-9]'; then
     module="$(printf '%s\n' "$output" |
       sed -n "s/.*ModuleNotFoundError: No module named '\([^']*\)'.*/\1/p" |
       head -1)"
-    : "${module:=an unnamed module}"
-    printf '  skip  %s (needs the %s Python module)\n' "$path" "$module"
-    SKIPPED+=("python3 $path (needs the $module Python module)")
-    return 0
+    if [ -n "$module" ] && is_external_python_module "$module"; then
+      printf '  skip  %s (needs the %s Python module)\n' "$path" "$module"
+      SKIPPED+=("python3 $path (needs the $module Python module)")
+      return 0
+    fi
   fi
 
   RAN=$((RAN + 1))
