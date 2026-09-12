@@ -147,6 +147,13 @@ dev_dependencies:
   # produces the *.g.dart files that back LinthraDatabase.
   drift_dev: ^2.18.0
   build_runner: ^2.4.13
+  # Test-only. audio_service's platform seam, already in the graph as one of its
+  # own dependencies. The Android media-session boundary test needs it directly
+  # to install the *Android* AudioServicePlatform on a Linux test host and to
+  # drive the real handler method channel, so a car's Next/Previous is tested
+  # across the channel the Android plugin actually uses rather than against a
+  # Dart stand-in. Nothing in lib/ imports it.
+  audio_service_platform_interface: ^0.1.3
 
 flutter:
   uses-material-design: true

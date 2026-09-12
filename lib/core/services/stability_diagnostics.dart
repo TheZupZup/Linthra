@@ -168,4 +168,24 @@ abstract final class StabilityDiagnostics {
   }
 
   static String describePauseCommand(String source) => 'pause command: $source';
+
+  /// A track-navigation command that arrived through the platform media session
+  /// — Android Auto's on-screen Next/Previous, a steering-wheel or Bluetooth
+  /// button, a wired headset, or the notification. [direction] is `next` or
+  /// `previous`; Android routes every transport through the one session, so the
+  /// specific hardware isn't distinguishable here.
+  ///
+  /// Recorded because "the car's Next did nothing" has two very different
+  /// causes and only this tells them apart: **no** breadcrumb means the command
+  /// never reached the app (the head unit swallowed the press — the #638
+  /// failure, where the session was reporting `STATE_CONNECTING` across every
+  /// track change), while a breadcrumb with no following track change means it
+  /// arrived and was a legitimate queue-boundary no-op.
+  static void skipCommand(String direction) {
+    SafeEventLog.instance.record('skip', direction);
+    _log(describeSkipCommand(direction));
+  }
+
+  static String describeSkipCommand(String direction) =>
+      'skip command: $direction';
 }

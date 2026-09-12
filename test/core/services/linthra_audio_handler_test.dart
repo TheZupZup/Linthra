@@ -95,6 +95,365 @@ void main() {
       expect(controller.seeks, [const Duration(seconds: 12)]);
     });
 
+    group('Android Auto track navigation (#638)', () {
+      // The car's Next / Previous must reach Linthra's real queue, exactly
+      // once per press, and leave the session showing the track that is now
+      // playing. Everything here goes through the *shared*
+      // PlaybackController API — there is no Android-Auto queue model and no
+      // index is touched behind the controller.
+
+      final List<Track> album = <Track>[
+        _track('a'),
+        _track('b'),
+        _track('c'),
+      ];
+
+      /// The active row the session is advertising, i.e. what a head unit
+      /// highlights in Up Next. Kept window-relative by the handler.
+      int? publishedQueueIndex() => handler.playbackState.value.queueIndex;
+
+      test('next reaches the controller and advances exactly one track',
+          () async {
+        await controller.playTracks(album);
+        await _settle();
+
+        await handler.skipToNext();
+        await _settle();
+
+        expect(controller.skipCount, 1);
+        expect(controller.state.currentTrack?.id, 'b');
+      });
+
+      test('previous reaches the controller and steps back one track',
+          () async {
+        await controller.playTracks(album, startIndex: 2);
+        await _settle();
+
+        await handler.skipToPrevious();
+        await _settle();
+
+        expect(controller.previousCount, 1);
+        expect(controller.state.currentTrack?.id, 'b');
+      });
+
+      test('previous uses the shared step-back behaviour, not a restart',
+          () async {
+        // Linthra's policy is "Previous goes to the previous queue item"; it
+        // does not restart the current track first. The car must get exactly
+        // that, including from a track that is well past its start.
+        await controller.playTracks(album, startIndex: 1);
+        await _settle();
+        controller.emit(
+            controller.state.copyWith(position: const Duration(seconds: 45)));
+        await _settle();
+
+        await handler.skipToPrevious();
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'a');
+      });
+
+      test('one press is one advance; three presses are three', () async {
+        await controller.playTracks(<Track>[
+          _track('a'),
+          _track('b'),
+          _track('c'),
+          _track('d'),
+        ]);
+        await _settle();
+
+        await handler.skipToNext();
+        await _settle();
+        expect(controller.state.currentTrack?.id, 'b');
+
+        await handler.skipToNext();
+        await handler.skipToNext();
+        await _settle();
+
+        expect(controller.skipCount, 3);
+        expect(controller.state.currentTrack?.id, 'd');
+      });
+
+      test('a burst of presses never advances more than it was pressed',
+          () async {
+        // A head unit can deliver presses faster than a track loads. Each one
+        // must still be worth exactly one step — no coalescing, no doubling.
+        await controller.playTracks(<Track>[
+          for (int i = 0; i < 6; i++) _track('t$i'),
+        ]);
+        await _settle();
+
+        await Future.wait(<Future<void>>[
+          handler.skipToNext(),
+          handler.skipToNext(),
+        ]);
+        await _settle();
+
+        expect(controller.skipCount, 2);
+        expect(controller.state.currentTrack?.id, 't2');
+      });
+
+      test('the session queue index follows the controller', () async {
+        await controller.playTracks(album);
+        await _settle();
+        expect(publishedQueueIndex(), 0);
+
+        await handler.skipToNext();
+        await _settle();
+        expect(publishedQueueIndex(), 1);
+
+        await handler.skipToNext();
+        await _settle();
+        expect(publishedQueueIndex(), 2);
+
+        await handler.skipToPrevious();
+        await _settle();
+        expect(publishedQueueIndex(), 1);
+      });
+
+      test('the published row always matches the track actually playing',
+          () async {
+        await controller.playTracks(album);
+        await _settle();
+
+        for (int i = 0; i < 2; i++) {
+          await handler.skipToNext();
+          await _settle();
+          final int row = publishedQueueIndex()!;
+          expect(
+              handler.queue.value[row].id, controller.state.currentTrack?.id);
+        }
+      });
+
+      test('metadata follows the new track after navigating', () async {
+        await controller.playTracks(album);
+        await _settle();
+        expect(handler.mediaItem.value?.title, 'Song a');
+
+        await handler.skipToNext();
+        await _settle();
+
+        final item = handler.mediaItem.value;
+        expect(item?.id, 'b');
+        expect(item?.title, 'Song b');
+        expect(item?.artist, 'Artist b');
+        expect(item?.album, 'Album b');
+      });
+
+      test('navigating while paused still changes the track', () async {
+        await controller.playTracks(album);
+        await _settle();
+        controller
+            .emit(controller.state.copyWith(status: PlaybackStatus.paused));
+        await _settle();
+
+        await handler.skipToNext();
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'b');
+        expect(handler.mediaItem.value?.id, 'b');
+      });
+
+      test('next on the last track is a safe no-op', () async {
+        await controller.playTracks(album, startIndex: 2);
+        await _settle();
+        final item = handler.mediaItem.value;
+
+        await handler.skipToNext();
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'c');
+        expect(handler.mediaItem.value?.id, item?.id);
+        expect(publishedQueueIndex(), 2);
+      });
+
+      test('previous on the first track is a safe no-op', () async {
+        await controller.playTracks(album);
+        await _settle();
+
+        await handler.skipToPrevious();
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'a');
+        expect(publishedQueueIndex(), 0);
+      });
+
+      test('a one-track queue survives navigation in both directions',
+          () async {
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+
+        await handler.skipToNext();
+        await handler.skipToPrevious();
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'a');
+        expect(handler.playbackState.value.playing, isTrue);
+      });
+
+      test('navigating with repeat-all on stays on the shared policy',
+          () async {
+        await controller.playTracks(album);
+        await _settle();
+        await handler.setRepeatMode(audio.AudioServiceRepeatMode.all);
+        await _settle();
+
+        await handler.skipToNext();
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'b');
+        expect(handler.playbackState.value.repeatMode,
+            audio.AudioServiceRepeatMode.all);
+        // Repeat-all wraps when a track *finishes*, not when Next is pressed —
+        // the same rule the in-app button follows, unchanged here.
+        await handler.skipToNext();
+        await handler.skipToNext();
+        await _settle();
+        expect(controller.state.currentTrack?.id, 'c');
+      });
+
+      test('navigating with repeat-one on still moves to the next track',
+          () async {
+        await controller.playTracks(album);
+        await _settle();
+        await handler.setRepeatMode(audio.AudioServiceRepeatMode.one);
+        await _settle();
+
+        await handler.skipToNext();
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'b');
+      });
+
+      test('navigating with shuffle on follows the shuffled order', () async {
+        await controller.playTracks(album);
+        await _settle();
+        await handler.setShuffleMode(audio.AudioServiceShuffleMode.all);
+        await _settle();
+
+        final List<String> shuffled = <String>[
+          controller.state.currentTrack!.id,
+          ...controller.state.upNext.map((Track t) => t.id),
+        ];
+
+        await handler.skipToNext();
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, shuffled[1]);
+        expect(handler.mediaItem.value?.id, shuffled[1]);
+        expect(handler.playbackState.value.shuffleMode,
+            audio.AudioServiceShuffleMode.all);
+      });
+
+      test('a detached handler never drives the controller again', () async {
+        // A rebind (Android Auto reconnecting, the session re-attaching)
+        // installs a new handler; a command still in flight on the old one must
+        // not run the same press through the controller a second time.
+        await controller.playTracks(album);
+        await _settle();
+        await handler.dispose();
+
+        await handler.skipToNext();
+        await handler.skipToPrevious();
+        await handler.play();
+        await handler.pause();
+        await handler.seek(const Duration(seconds: 5));
+        await handler.skipToQueueItem(1);
+        await _settle();
+
+        expect(controller.skipCount, 0);
+        expect(controller.previousCount, 0);
+        expect(controller.playCount, 0);
+        expect(controller.pauseCount, 0);
+        expect(controller.seeks, isEmpty);
+        expect(controller.state.currentTrack?.id, 'a');
+      });
+
+      test('disposing twice is safe', () async {
+        await handler.dispose();
+        await handler.dispose();
+      });
+    });
+
+    group('the session never reports STATE_CONNECTING (#638)', () {
+      // `AudioProcessingState.loading` is the only value audio_service maps to
+      // PlaybackStateCompat.STATE_CONNECTING. Android Auto reads that as "this
+      // session is connecting to a destination": it shows its connecting
+      // placeholder, drops the progress it was drawing, and stops dispatching
+      // transport presses — so a Next pressed during a track change was
+      // swallowed by the head unit and never reached the handler. Linthra
+      // enters `loading` on *every* track change (the controller publishes it
+      // while it resolves the next playable URI, a network round trip on a
+      // remote source), which is what made the car's Next/Previous work only
+      // sometimes.
+
+      test('a track change reports buffering, never loading', () async {
+        await controller.playTracks(<Track>[_track('a'), _track('b')]);
+        await _settle();
+
+        // Exactly what the controller publishes while it opens the next track.
+        controller.emit(controller.state.copyWith(
+          currentTrack: _track('b'),
+          status: PlaybackStatus.loading,
+        ));
+        await _settle();
+
+        expect(handler.playbackState.value.processingState,
+            audio.AudioProcessingState.buffering);
+        expect(handler.playbackState.value.processingState,
+            isNot(audio.AudioProcessingState.loading));
+      });
+
+      test('no state published across a whole navigation is loading', () async {
+        final List<audio.AudioProcessingState> seen =
+            <audio.AudioProcessingState>[];
+        final sub = handler.playbackState
+            .listen((audio.PlaybackState s) => seen.add(s.processingState));
+        addTearDown(sub.cancel);
+
+        await controller.playTracks(<Track>[_track('a'), _track('b')]);
+        await _settle();
+        controller.emit(controller.state.copyWith(
+          currentTrack: _track('b'),
+          status: PlaybackStatus.loading,
+        ));
+        await _settle();
+        controller
+            .emit(controller.state.copyWith(status: PlaybackStatus.playing));
+        await _settle();
+
+        expect(seen, isNot(contains(audio.AudioProcessingState.loading)));
+        expect(seen, contains(audio.AudioProcessingState.buffering));
+        expect(seen, contains(audio.AudioProcessingState.ready));
+      });
+
+      test('the transport stays advertised across the track change', () async {
+        await controller.playTracks(<Track>[_track('a'), _track('b')]);
+        await _settle();
+        controller.emit(controller.state.copyWith(
+          currentTrack: _track('b'),
+          status: PlaybackStatus.loading,
+        ));
+        await _settle();
+
+        final state = handler.playbackState.value;
+        expect(state.systemActions, contains(audio.MediaAction.skipToNext));
+        expect(state.systemActions, contains(audio.MediaAction.skipToPrevious));
+        // And the service is still held across the transition (#244 / #499).
+        expect(state.playing, isTrue);
+      });
+
+      test('an idle session still reports idle, not buffering', () async {
+        await controller.playTracks(<Track>[_track('a')]);
+        await _settle();
+        controller.emit(const PlaybackState());
+        await _settle();
+
+        expect(handler.playbackState.value.processingState,
+            audio.AudioProcessingState.idle);
+      });
+    });
+
     test('mirrors the current track into the media item', () async {
       await controller.playTracks([_track('a'), _track('b')]);
       await _settle();
@@ -374,7 +733,11 @@ void main() {
 
         final state = handler.playbackState.value;
         expect(state.playing, isTrue);
-        expect(state.processingState, audio.AudioProcessingState.loading);
+        // Buffering, not loading: `loading` is the one processing state
+        // audio_service turns into PlaybackStateCompat.STATE_CONNECTING, which
+        // Android Auto treats as "connecting to a destination" and uses to
+        // suspend its transport row (#638). See the STATE_CONNECTING group.
+        expect(state.processingState, audio.AudioProcessingState.buffering);
       });
 
       test('a car skip that loads the next track stays playing', () async {
@@ -393,7 +756,7 @@ void main() {
 
         final state = handler.playbackState.value;
         expect(state.playing, isTrue);
-        expect(state.processingState, audio.AudioProcessingState.loading);
+        expect(state.processingState, audio.AudioProcessingState.buffering);
         expect(handler.mediaItem.value?.id, 'b');
       });
 
