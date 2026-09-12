@@ -16,6 +16,7 @@ class LocalAudioMetadata {
     this.album,
     this.albumId,
     this.trackNumber,
+    this.discNumber,
     this.duration,
     this.artworkUri,
   });
@@ -43,6 +44,19 @@ class LocalAudioMetadata {
   /// The 1-based track number within its album, when known.
   final int? trackNumber;
 
+  /// The 1-based disc number within a multi-disc album (e.g. ID3 `TPOS`,
+  /// Vorbis `DISCNUMBER`), when the file carries a usable one.
+  ///
+  /// Null for a single-disc release, a file with no disc tag, and a tag that
+  /// can't be trusted (blank, non-numeric, zero or negative) — the same "no
+  /// trustworthy value" meaning every other field here has. There is no
+  /// filename fallback: a disc number is never guessed from a name or folder,
+  /// only read from real tags.
+  ///
+  /// Reported by the Android SAF walk today; the desktop reader leaves it null
+  /// until it reads the tag too, and nothing groups albums by it yet (#85).
+  final int? discNumber;
+
   /// The track's real duration, when the source reported one. Distinct from the
   /// filename — a filename can never reveal a duration, so this only comes from
   /// actual tag/stream metadata.
@@ -66,6 +80,7 @@ class LocalAudioMetadata {
       album == null &&
       albumId == null &&
       trackNumber == null &&
+      discNumber == null &&
       duration == null &&
       artworkUri == null;
 
