@@ -3,11 +3,10 @@
 
     python3 test/tooling/large_library_benchmark_test.py
 
-`tools/large_library/benchmark_sqlite.py` prints a small summary after the
-per-query lines, and that block is what a contributor (or a CI log reader)
-actually looks at. These tests pin the two things that make it useful: the
-numbers are the ones the labels claim, and the block stays aligned and
-deterministic.
+`tools/large_library/benchmark_sqlite.py` prints a line per query and then a
+small summary, and those are what a contributor (or a CI log reader) actually
+looks at. These tests pin the two things that make them useful: the numbers are
+the ones the labels claim, and both stay aligned and deterministic.
 
 The plan checks are here for the same reason: they are the part of the
 benchmark that decides pass or fail, and getting them wrong is either a green
@@ -45,6 +44,10 @@ def _load():
 
 benchmark_sqlite = _load()
 
+# The --database argument as main() passes it on: the summary prints the path
+# it was given, so a test path stands in for the 200k fixture.
+DATABASE = Path("/tmp/linthra-200k.sqlite")
+
 # (name, average ms, p95 ms, max ms): the shape main() collects per query.
 RESULTS = (
     ("title prefix", 1.5, 2.0, 4.25),
@@ -54,12 +57,78 @@ RESULTS = (
 )
 
 
-class SummaryLinesTest(unittest.TestCase):
-    def summary(self, results=RESULTS, track_count=200_000, iterations=200):
-        return benchmark_sqlite.summary_lines(track_count, results, iterations)
+# Where the summary's values start, once the two-space indent and the label
+# column are out of the way.
+VALUE_COLUMN = 2 + benchmark_sqlite.SUMMARY_LABEL_WIDTH
 
-    def labelled(self, label: str) -> str:
-        matches = [line for line in self.summary() if line.strip().startswith(label)]
+
+class QueryLineTest(unittest.TestCase):
+    """The per-query line printed above each plan."""
+
+    def line(self, name="album exact", average_ms=0.113, p95_ms=0.177, max_ms=2.845):
+        return benchmark_sqlite.query_line(name, average_ms, p95_ms, max_ms)
+
+    def test_it_reports_the_average_the_p95_and_the_max(self):
+        line = self.line()
+        self.assertIn("avg=   0.113 ms", line)
+        self.assertIn("p95=   0.177 ms", line)
+        self.assertIn("max=   2.845 ms", line)
+
+    def test_the_max_is_the_number_the_summary_singles_out(self):
+        # "slowest single run" is one query's max, so printing the max on every
+        # query's line is what lets a reader see where that number came from
+        # and which query was next.
+        name, average_ms, p95_ms, max_ms = "provider album", 2.0, 3.0, 9.5
+        summary = benchmark_sqlite.summary_lines(DATABASE, 200_000, RESULTS, 200, 50.0)
+        slowest = [line for line in summary if "slowest single run:" in line][0]
+        self.assertIn("9.500 ms", slowest)
+        self.assertIn(f"({name})", slowest)
+        self.assertIn("max=   9.500 ms", self.line(name, average_ms, p95_ms, max_ms))
+
+    def test_columns_line_up_whatever_the_query_is_called(self):
+        lines = [self.line(name=name) for name in ("a", "provider identity")]
+        for marker in ("avg=", "p95=", "max="):
+            with self.subTest(marker=marker):
+                self.assertEqual(len({line.index(marker) for line in lines}), 1)
+
+    def test_a_long_name_still_fits_a_narrow_terminal(self):
+        # Query names are capped at QUERY_NAME_WIDTH by a test below; at that
+        # width the line has to stay inside 80 columns or it wraps in a CI log
+        # and takes its plan with it.
+        longest = "x" * benchmark_sqlite.QUERY_NAME_WIDTH
+        self.assertLessEqual(len(self.line(name=longest)), 80)
+
+    def test_it_is_deterministic_and_free_of_tabs(self):
+        self.assertEqual(self.line(), self.line())
+        self.assertNotIn("\t", self.line())
+
+
+class SummaryLinesTest(unittest.TestCase):
+    def summary(
+        self,
+        results=RESULTS,
+        track_count=200_000,
+        iterations=200,
+        database=DATABASE,
+        max_average_ms=50.0,
+    ):
+        return benchmark_sqlite.summary_lines(
+            database, track_count, results, iterations, max_average_ms
+        )
+
+    def rows(self, **kwargs) -> list[str]:
+        return [line for line in self.summary(**kwargs) if line.startswith("  ")]
+
+    def numeric_rows(self, **kwargs) -> list[str]:
+        return [
+            line
+            for line in self.rows(**kwargs)
+            if not line.strip().startswith("database:")
+        ]
+
+    def labelled(self, label: str, lines=None) -> str:
+        lines = self.summary() if lines is None else lines
+        matches = [line for line in lines if line.strip().startswith(label)]
         self.assertEqual(len(matches), 1, f"expected exactly one {label!r} line")
         return matches[0]
 
@@ -68,6 +137,10 @@ class SummaryLinesTest(unittest.TestCase):
         self.assertIn("4", self.labelled("queries:"))
         self.assertIn("200", self.labelled("iterations per query:"))
 
+    def test_the_database_says_which_fixture_was_measured(self):
+        # 200k and 5k runs are otherwise indistinguishable in a log.
+        self.assertIn(str(DATABASE), self.labelled("database:"))
+
     def test_summed_averages_add_up_the_per_query_averages(self):
         # 1.5 + 0.5 + 2.0 + 0.25, not the wall-clock time of 200 iterations.
         self.assertIn("4.250 ms", self.labelled("sum of query averages:"))
@@ -75,24 +148,63 @@ class SummaryLinesTest(unittest.TestCase):
     def test_average_per_query_is_the_mean_of_those_averages(self):
         self.assertIn("1.062 ms", self.labelled("average per query:"))
 
+    def test_total_time_in_queries_adds_up_every_sample(self):
+        # Each query is timed `iterations` times and reported as a mean, so
+        # iterations x mean is that query's samples added back up: 200 x 4.25.
+        self.assertIn("850.000 ms", self.labelled("total time in queries:"))
+
+    def test_total_time_in_queries_scales_with_iterations(self):
+        # The distinction from the two averages, which do not move: this is the
+        # time the run really spent querying, so doubling the iterations
+        # doubles it.
+        doubled = self.summary(iterations=400)
+        self.assertIn("1700.000 ms", self.labelled("total time in queries:", doubled))
+
     def test_slowest_single_run_reports_the_max_sample_and_its_query(self):
         line = self.labelled("slowest single run:")
         self.assertIn("9.500 ms", line)
         self.assertIn("(provider album)", line)
 
+    def test_the_budget_every_average_had_to_clear_is_shown(self):
+        # A red run says which query missed it; without this, a green run never
+        # says how much headroom it had.
+        self.assertIn("50.000 ms", self.labelled("average-query budget:"))
+
     def test_no_label_claims_a_total_the_benchmark_never_measures(self):
         # The old "total query time" label read as wall-clock time while the
-        # value was the sum of the per-query averages (#338).
+        # value was the sum of the per-query averages (#338). The total below
+        # it is a different number with a label that says which one it is.
         joined = "\n".join(self.summary())
         self.assertNotIn("total query time", joined)
 
     def test_values_line_up_in_one_column(self):
-        rows = [line for line in self.summary() if line.startswith("  ")]
-        self.assertEqual(len(rows), 6)
+        rows = self.numeric_rows()
+        self.assertEqual(len(rows), 8)
         # Counts have no unit and end the line; timings are followed by " ms".
         # Both end their value in the same column, which is what makes the
         # block scannable in a CI log.
         ends = {len(line) if " ms" not in line else line.index(" ms") for line in rows}
+        self.assertEqual(len(ends), 1, f"values end at {ends}")
+
+    def test_every_label_fits_its_column(self):
+        # A label wider than the column would push its own value out of line
+        # and break the column above for that one row.
+        for line in self.rows():
+            with self.subTest(line=line):
+                self.assertIn(":", line[:VALUE_COLUMN])
+
+    def test_a_text_value_starts_where_the_numbers_do(self):
+        # A path has no right edge worth aligning to, so it is left-aligned
+        # from the value column rather than pushed around by its own length.
+        line = self.labelled("database:")
+        self.assertEqual(line[VALUE_COLUMN:], str(DATABASE))
+
+    def test_a_long_path_does_not_disturb_the_numbers(self):
+        long_path = Path("/tmp") / ("nested/" * 12) / "linthra-200k.sqlite"
+        ends = {
+            len(line) if " ms" not in line else line.index(" ms")
+            for line in self.numeric_rows(database=long_path)
+        }
         self.assertEqual(len(ends), 1, f"values end at {ends}")
 
     def test_no_tabs_anywhere(self):
@@ -101,6 +213,23 @@ class SummaryLinesTest(unittest.TestCase):
 
     def test_output_is_deterministic(self):
         self.assertEqual(self.summary(), self.summary())
+
+    def test_only_the_numbers_move_between_runs(self):
+        # Nothing in the block is keyed off the clock, the environment or the
+        # order the queries happened to finish in, which is what makes it
+        # diffable between two CI runs.
+        labels = [line[:VALUE_COLUMN] for line in self.rows()]
+        other = [
+            line[:VALUE_COLUMN]
+            for line in self.rows(
+                results=(("title prefix", 1.0, 1.2, 1.5),),
+                track_count=5_000,
+                iterations=10,
+                database=Path("/tmp/other.sqlite"),
+                max_average_ms=25.0,
+            )
+        ]
+        self.assertEqual(labels, other)
 
     def test_single_query_run_still_renders(self):
         lines = self.summary(results=(("title prefix", 1.0, 1.2, 1.5),))
@@ -633,7 +762,7 @@ class QueryCatalogueTest(unittest.TestCase):
         names = [query.name for query in benchmark_sqlite.QUERIES]
         self.assertEqual(len(names), len(set(names)))
         for name in names:
-            self.assertLessEqual(len(name), 18, name)
+            self.assertLessEqual(len(name), benchmark_sqlite.QUERY_NAME_WIDTH, name)
 
     def test_every_schema_index_is_exercised_by_some_query(self):
         # #341 is about showing the indexes are used. An index nothing

@@ -11,6 +11,7 @@ import '../../core/repositories/stamped_catalog_writer.dart';
 import '../../core/services/local_track_move_applier.dart';
 import '../../core/sources/local/folder_location.dart';
 import '../../core/sources/local/local_library_scanner.dart';
+import '../../core/sources/local/local_metadata_reader.dart';
 import '../../core/sources/local/local_music_roots.dart';
 import '../../core/sources/local/local_music_source.dart';
 import '../../core/sources/local/local_scan_report.dart';
@@ -169,13 +170,18 @@ class LibraryController extends Notifier<LibraryState> {
                 stamped.track.uri: stamped,
             };
 
+      // Hoisted so the post-write artwork sweep below asks the *same* reader
+      // that just populated the cache, rather than assuming which one the
+      // provider hands out.
+      final LocalMetadataReader metadataReader =
+          ref.read(localMetadataReaderProvider);
       final scanner = LocalLibraryScanner((String root) {
         return LocalMusicSource(
           folderPath: root,
           scanner: ref.read(audioFileScannerProvider),
           safDocumentLister: ref.read(safDocumentListerProvider),
           androidMediaLibrary: ref.read(androidMediaLibraryProvider),
-          metadataReader: ref.read(localMetadataReaderProvider),
+          metadataReader: metadataReader,
           statReader: ref.read(localFileStatReaderProvider),
           alreadyIndexed: alreadyIndexed,
         ).scanTracks();
@@ -238,6 +244,26 @@ class LibraryController extends Notifier<LibraryState> {
         // A newer action may have started while the write was awaiting I/O.
         // Its queued write will run after this one; do not publish stale status.
         if (generation != _scanGeneration) return null;
+
+        // The catalog just written *is* the live set, so anything else in the
+        // local artwork cache belongs to a file that has since been deleted,
+        // moved, or re-tagged. Swept here and nowhere else, for two reasons:
+        // this is the only point where the set is both complete (a folder that
+        // could not be read contributed its retained tracks, and a scan that
+        // lost even those never reaches here — see `scan.isWritable`) and
+        // current (a superseded scan returned at the check above rather than
+        // deleting covers a newer one had already written).
+        //
+        // Android's reader is not a LocalArtworkMaintainer, so this is a
+        // no-op there and its SAF-side artwork cache is left entirely alone.
+        if (metadataReader is LocalArtworkMaintainer) {
+          await (metadataReader as LocalArtworkMaintainer).retainArtwork(
+            <Uri>{
+              for (final Track track in tracks)
+                if (track.artworkUri != null) track.artworkUri!,
+            },
+          );
+        }
         ref.read(localScanReportProvider.notifier).record(scan.report);
         await _load();
         return generation == _scanGeneration ? scan.report : null;
