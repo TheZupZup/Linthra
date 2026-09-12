@@ -149,6 +149,18 @@ class TheScriptItself(unittest.TestCase):
                 msg="`cargo fmt` without `-- --check` rewrites the Rust sources",
             )
 
+    def test_the_tooling_tests_are_found_by_glob_not_by_find(self) -> None:
+        """ "No tests found" is a skip, so the listing must not be able to fail.
+
+        A `find` inside a process substitution hands the reading loop a
+        successful status whatever happened, so a listing that broke for any
+        reason would arrive looking like an empty directory and drop the whole
+        Python suite from the run without saying so.
+        """
+        text = script_text()
+        self.assertIn("local tests=(test/tooling/*_test.py)", text)
+        self.assertNotIn("find test/tooling", text)
+
     def test_every_section_names_the_workflow_it_stands_in_for(self) -> None:
         """A reader has to be able to get from the script back to CI."""
         for workflow in (
@@ -211,6 +223,35 @@ class AgreementWithCI(unittest.TestCase):
             "CPP_PROJECTS=({})".format(" ".join(sorted(sources))),
             script_text(),
         )
+
+    def test_the_compiler_gate_is_no_narrower_than_CMake_s_detection(self) -> None:
+        """Missing a compiler CMake would find drops coverage silently.
+
+        The gate only chooses between running the C++ checks and skipping
+        them, so it should err wide: a compiler that turns out not to work
+        costs a configure error, which is reported as a failure, while one the
+        gate fails to see costs the whole section with nothing said.
+        """
+        # CMakeDetermineCXXCompiler.cmake's candidates.
+        for candidate in (
+            "c++",
+            "CC",
+            "g++",
+            "aCC",
+            "cl",
+            "bcc",
+            "xlC",
+            "icpx",
+            "icx",
+            "clang++",
+        ):
+            self.assertIn(
+                candidate,
+                script_text().split("CXX_CANDIDATES=(")[1].split(")")[0].split(),
+            )
+        # An IDE generator supplies its own toolchain rather than taking one
+        # from PATH, so nothing has to be found for the build to work.
+        self.assertIn('"Visual Studio"*', script_text())
 
     def test_the_ruff_paths_are_the_ones_the_workflow_passes(self) -> None:
         """ruff.toml sets the rules, not the scope: the paths are the scope."""
@@ -546,6 +587,22 @@ class MissingToolsAreSkips(StubHarness):
         self.assertEqual(run.process.returncode, 0, msg=run.output)
         self.assertNotIn("SKIPPED: C++ checks", run.output)
         self.assertTrue([c for c in run.calls if c[0] == "ctest"], msg=run.output)
+
+    def test_a_compiler_only_CMake_would_have_named_still_counts(self) -> None:
+        """`cl`, `icpx` and friends are compilers too, not an absent toolchain."""
+        for compiler in ("cl", "icpx", "CC"):
+            with self.subTest(compiler=compiler):
+                run = self._run(tools=("cargo", "cmake", "ctest", "ruff", compiler))
+                self.assertEqual(run.process.returncode, 0, msg=run.output)
+                self.assertNotIn("SKIPPED: C++ checks", run.output)
+
+    def test_an_IDE_generator_supplies_its_own_toolchain(self) -> None:
+        run = self._run(
+            tools=("cargo", "cmake", "ctest", "ruff"),
+            env={"CMAKE_GENERATOR": "Visual Studio 17 2022"},
+        )
+        self.assertEqual(run.process.returncode, 0, msg=run.output)
+        self.assertNotIn("SKIPPED: C++ checks", run.output)
 
     def test_no_ruff_still_runs_the_python_tooling_tests(self) -> None:
         run = self._run(tools=("cargo", "cmake", "ctest", "c++"))

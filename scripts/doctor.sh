@@ -100,7 +100,9 @@ fi
 CXX_FOUND="${CXX:-}"
 CXX_FOUND="${CXX_FOUND%% *}"
 if [ -z "$CXX_FOUND" ]; then
-  for candidate in c++ g++ clang++; do
+  # CMake's own candidate list, from CMakeDetermineCXXCompiler.cmake, so this
+  # report does not call a compiler missing that CMake would have found.
+  for candidate in c++ CC g++ aCC cl bcc xlC icpx icx clang++; do
     if command -v "$candidate" >/dev/null 2>&1; then
       CXX_FOUND="$candidate"
       break

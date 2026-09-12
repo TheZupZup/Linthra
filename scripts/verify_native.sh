@@ -141,12 +141,25 @@ rust_section() {
 # with. Only the first word names a program. A compiler path that itself
 # contains spaces is indistinguishable from a path plus options here, which is
 # a limitation CMake shares.
+#
+# The candidate list is CMake's own, from CMakeDetermineCXXCompiler.cmake. A
+# shorter list would be the wrong kind of wrong: this gate only decides whether
+# to run the C++ checks or skip them, so missing a compiler CMake would have
+# found drops real coverage silently, while guessing one that turns out not to
+# work costs nothing but a configure error, which is reported as a failure.
+CXX_CANDIDATES=(c++ CC g++ aCC cl bcc xlC icpx icx clang++)
+
 cxx_compiler_available() {
   if [ -n "${CXX:-}" ] && command -v "${CXX%% *}" >/dev/null 2>&1; then
     return 0
   fi
+  # An IDE generator brings its own toolchain instead of taking one from PATH,
+  # so nothing needs to be found here for the build to work.
+  case "${CMAKE_GENERATOR:-}" in
+    "Visual Studio"*|Xcode|"Green Hills MULTI") return 0 ;;
+  esac
   local candidate
-  for candidate in c++ g++ clang++; do
+  for candidate in "${CXX_CANDIDATES[@]}"; do
     command -v "$candidate" >/dev/null 2>&1 && return 0
   done
   return 1
@@ -266,11 +279,18 @@ run_python_test() {
 # sixth place, so this runs whatever the directory holds: a test added to it is
 # picked up without anyone remembering to touch this script.
 python_tooling_tests() {
-  local tests=()
+  # A glob rather than `find`: one fewer external tool in the way, and no way
+  # for a failure inside a process substitution to arrive here looking like an
+  # empty directory. That distinction matters, because "no tests found" is
+  # reported as a skip, so a silently broken listing would quietly drop the
+  # whole Python suite from the run.
+  local had_nullglob=0
+  shopt -q nullglob && had_nullglob=1
+  shopt -s nullglob
+  local tests=(test/tooling/*_test.py)
+  [ "$had_nullglob" -eq 1 ] || shopt -u nullglob
+
   local path
-  while IFS= read -r path; do
-    [ -n "$path" ] && tests+=("$path")
-  done < <(find test/tooling -maxdepth 1 -type f -name '*_test.py' | LC_ALL=C sort)
 
   if [ "${#tests[@]}" -eq 0 ]; then
     skip "Python tooling tests" "no test/tooling/*_test.py files found"
