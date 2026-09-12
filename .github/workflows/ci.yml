@@ -175,6 +175,16 @@ jobs:
       - name: Test what a Flatpak smoke may delete
         run: python3 test/tooling/flatpak_smoke_cleanup_test.py
 
+      # scripts/verify_native.sh is the local twin of the Rust, C++ and Python
+      # workflows (#354), and a twin is only worth having while it still says
+      # what its originals say. These tests read those workflows and run the
+      # script end to end against stub cargo/cmake/ctest/ruff binaries, so they
+      # need none of those toolchains and belong on every PR rather than behind
+      # the path filters of the three workflows they cover. Local twin:
+      # `python3 test/tooling/verify_native_test.py`.
+      - name: Test the local native verify script
+        run: python3 test/tooling/verify_native_test.py
+
   release-bump-guard:
     name: Release bump touches only version files
     runs-on: ubuntu-latest

@@ -45,6 +45,25 @@ For normal Dart/Flutter/Android work, start with:
 `verify_android.sh` runs the main Flutter checks and can build a debug APK when
 an Android SDK is available.
 
+If you came for the Rust core, the C++ DSP or the Python tooling instead, there
+is one command that covers all three:
+
+```bash
+./scripts/verify_native.sh
+```
+
+It runs what CI runs, in CI's order: `cargo fmt --check`, Clippy with warnings
+as errors, `cargo test` and the 200k-track benchmark for `native/linthra_core/`;
+a CMake configure, build and `ctest` in both Release and Debug for
+`native/linthra_audio/` and `native/linthra_desktop/`; then the Ruff checks and
+the Python tooling tests. The output is split into Rust, C++ and Python
+sections.
+
+A toolchain you don't have installed is skipped with a note about what it needs,
+so the script is still useful if you only have one of the three. Anything that
+actually fails makes it exit non-zero. `./scripts/doctor.sh` reports what it
+found without running any of it.
+
 More setup details are in [docs/development.md](./docs/development.md), and the
 [codebase tour](./docs/codebase-tour.md) is useful if you want to see where
 things live before touching the code.
@@ -52,7 +71,7 @@ things live before touching the code.
 For the other areas:
 
 - `native/linthra_core/` uses Cargo.
-- `native/linthra_audio/` uses CMake.
+- `native/linthra_audio/` and `native/linthra_desktop/` use CMake.
 - `linux/` is the native Linux desktop runner (C++/GTK/CMake). Its setup —
   required distribution packages, how to run Linthra on Linux from source, and
   what is still unsupported there — is in
@@ -65,7 +84,8 @@ For the other areas:
 - Python tooling (`scripts/`, `tool/`, `tools/`) is checked with
   [Ruff](https://docs.astral.sh/ruff/). Before pushing a Python change, run
   `ruff check scripts tool tools` and `ruff format --check scripts tool tools` —
-  the same two commands, with the same paths, that CI runs. Details are in
+  the same two commands, with the same paths, that CI runs.
+  `verify_native.sh` runs both of them for you. Details are in
   [docs/development.md](./docs/development.md#python-tooling-checks-ruff).
 
 ## Before you start
