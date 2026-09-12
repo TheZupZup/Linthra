@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../models/playback_failure.dart';
 import '../models/playback_state.dart';
 import '../models/repeat_mode.dart';
 import '../models/track.dart';
@@ -35,6 +36,14 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
       'Audio playback is not available on this platform yet.';
 
   final String _reason;
+
+  /// The failure every refusal publishes: this host has no audio backend, so
+  /// nothing here is retryable and no other provider copy would fare better.
+  /// Skipping is left to the queue, which [_refuse] fills in.
+  late final PlaybackFailure _failure = PlaybackFailure(
+    kind: PlaybackFailureKind.unplayableMedia,
+    message: _reason,
+  );
   final StreamController<PlaybackState> _states =
       StreamController<PlaybackState>.broadcast();
 
@@ -58,7 +67,7 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
     _emit(PlaybackState(
       status: PlaybackStatus.error,
       currentTrack: track ?? _state.currentTrack,
-      errorMessage: _reason,
+      failure: _failure,
       shuffleEnabled: _state.shuffleEnabled,
       repeatMode: _state.repeatMode,
     ));
@@ -106,6 +115,15 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
   @override
   Future<void> skipToPrevious() async => _refuse(null);
 
+  // There is nothing to recover *to* on a host with no audio engine, so the
+  // recovery actions refuse exactly like play does rather than pretending to
+  // try. The published failure offers neither, so the error UI shows neither.
+  @override
+  Future<void> retryCurrentTrack() async => _refuse(null);
+
+  @override
+  Future<void> tryAnotherSource() async => _refuse(null);
+
   // Everything below either has no audio to act on or is a mode the UI may set
   // before anything plays. These stay quiet no-ops so the settings and queue
   // screens behave normally instead of erroring at rest.
@@ -124,7 +142,7 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
     _emit(PlaybackState(
       status: _state.status,
       currentTrack: _state.currentTrack,
-      errorMessage: _state.errorMessage,
+      failure: _state.failure,
       shuffleEnabled: enabled,
       repeatMode: _state.repeatMode,
     ));
@@ -135,7 +153,7 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
     _emit(PlaybackState(
       status: _state.status,
       currentTrack: _state.currentTrack,
-      errorMessage: _state.errorMessage,
+      failure: _state.failure,
       shuffleEnabled: _state.shuffleEnabled,
       repeatMode: mode,
     ));

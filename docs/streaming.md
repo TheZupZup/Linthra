@@ -99,6 +99,43 @@ The engine's raw error can carry the tokenized stream URL; it is **only
 classified, never echoed, logged, or surfaced** — the message shown is always a
 fixed, secret-free string.
 
+## When a track can't play at all
+
+When every automatic recovery is spent, the failure becomes something the
+listener can act on rather than a dead player. The controller publishes a
+`PlaybackFailure` on the playback state: a classified `kind`, a fixed
+secret-free message, and the recoveries that are valid *for this failure, right
+now*:
+
+| Kind | What it means | Recoveries |
+| --- | --- | --- |
+| `temporarySource` | server unreachable, connection dropped, a non-audio answer | Retry, another source, Skip |
+| `localFileUnavailable` | the file moved, was deleted, or its drive isn't mounted | Retry, another source, Skip |
+| `sourceSignInRequired` | no session, or one the server no longer accepts | another source, Skip |
+| `unplayableMedia` | unsupported container/codec, corrupt file, no decoder | another source, Skip |
+
+An action is only offered when it can do something: Retry is dropped where
+re-presenting the same session or re-reading the same bytes has a fixed answer,
+"try another source" appears only for a song that really does exist on another
+provider, and Skip only when the queue has a next track.
+
+**Bounded, so it can't become a loop.** Retry and "try another source" share a
+budget of three attempts per failing track. When it runs out those actions stop
+being offered (Skip remains), and the budget is returned in full the moment
+anything actually plays.
+
+**The queue stays put.** A retry re-plays the same queue entry. A source switch
+*replaces* that entry with the copy that works, using the same ordered
+candidates the automatic runtime fallback uses (see
+[playback-source-strategy.md](playback-source-strategy.md)), so the song keeps
+its one place in the queue instead of being added again. Skip advances exactly
+one track.
+
+The UI is the same on Android and Linux because both read the same model: the
+now-playing screen shows the message and the buttons in place of the source
+badge (no dialog, and nothing else in the app is blocked), and the
+mini-player's second line says, briefly, that the track is failing.
+
 ## Streaming over mobile data (LTE)
 
 - **Streaming works over LTE by default** when you've chosen to stream — normal
@@ -118,7 +155,7 @@ The player exposes distinct states so the UI is honest and never looks frozen:
 | `loading` | preparing (resolving + opening) | spinner |
 | `buffering` | mid-stream re-buffer (waiting on data) | calm "Buffering…" hint; mini-player spinner; transport stays usable |
 | `playing` / `paused` | steady playback | play/pause |
-| `error` | a specific, friendly failure | the friendly message |
+| `error` | a specific, friendly failure | the message plus the recoveries that apply (Retry / another source / Skip) |
 
 `loading` and `buffering` are deliberately separate: a fresh load shows a
 spinner, while a mid-stream stall shows a subtle "Buffering…" — so the

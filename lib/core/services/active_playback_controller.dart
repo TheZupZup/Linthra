@@ -287,6 +287,17 @@ class ActivePlaybackController implements PlaybackController {
   @override
   Future<void> skipToPrevious() => _local.skipToPrevious();
 
+  // Recovery from a failed track is the local engine's business too: the queue
+  // and the source candidates live there, and a failure can only have come from
+  // it (while casting the receiver owns playback, and the merged state carries
+  // no local failure for the UI to offer a recovery for).
+
+  @override
+  Future<void> retryCurrentTrack() => _local.retryCurrentTrack();
+
+  @override
+  Future<void> tryAnotherSource() => _local.tryAnotherSource();
+
   @override
   void clearQueue() => _local.clearQueue();
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/playback_failure.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
@@ -261,15 +262,21 @@ void main() {
             title: 'Remote Song',
             uri: 'jellyfin:t1',
           ),
-          errorMessage: 'Your Jellyfin session has expired.',
+          failure: PlaybackFailure(
+            kind: PlaybackFailureKind.sourceSignInRequired,
+            message: 'Your Jellyfin session has expired.',
+            canSkip: true,
+          ),
         ),
       );
       await _pumpScreen(tester, controller);
 
       expect(find.text('Remote Song'), findsOneWidget);
       expect(find.text('Your Jellyfin session has expired.'), findsOneWidget);
-      // The generic fallback is not shown when a specific message exists.
-      expect(find.text("Couldn't play this track"), findsNothing);
+      // An expired session is not fixed by asking the same server again, so no
+      // Retry is offered; moving on is still valid and is.
+      expect(find.text('Retry'), findsNothing);
+      expect(find.text('Skip'), findsOneWidget);
     });
 
     testWidgets('shows the Lyrics empty state with no source', (tester) async {
