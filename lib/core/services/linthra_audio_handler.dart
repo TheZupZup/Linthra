@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:audio_service/audio_service.dart' as audio;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../models/playback_state.dart';
 import '../models/repeat_mode.dart';
@@ -140,6 +141,22 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   Track? _lastBroadcastTrack;
   Duration? _lastBroadcastDuration;
 
+  // Whether this handler has been detached from the session ([dispose]).
+  //
+  // A detached handler must never drive the controller again. `audio_service`
+  // hands a command to whichever handler its callbacks currently point at, and
+  // a rebind installs a new one — but nothing tears the old one down, and a
+  // command already in flight (or a car that still holds a reference across a
+  // reconnect) can still land on it. Forwarding then would run the *same* press
+  // through the controller twice, once per live handler. Every transport
+  // command checks this first, so a superseded handler is inert rather than a
+  // second, invisible driver of the queue (#638).
+  bool _detached = false;
+
+  /// Whether [dispose] has run, i.e. this handler no longer speaks for the
+  /// session and forwards nothing to the controller.
+  bool get isDetached => _detached;
+
   /// The most rows the platform session's queue ever carries.
   ///
   /// The published queue is delivered to every media controller — Android Auto
@@ -166,38 +183,71 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   static const Duration _positionResyncThreshold = Duration(seconds: 1);
 
   @override
-  Future<void> play() {
+  Future<void> play() async {
+    if (_detached) return;
     // A play that arrived through the platform media session: the user tapped
     // the notification / lock-screen play, or Android Auto / Bluetooth / a
     // headset sent PLAY. Breadcrumb it (secret-free) so every legitimate resume
     // is accounted for and distinguishable from an unwanted self-resume — which,
     // with the engine's audio-focus auto-resume disabled, no longer happens.
     StabilityDiagnostics.playCommand('media-session');
-    return _controller.play();
+    await _controller.play();
   }
 
   @override
-  Future<void> pause() {
+  Future<void> pause() async {
+    if (_detached) return;
     // A pause that arrived through the platform media session: the notification
     // / lock-screen pause, or Android Auto / Bluetooth / a headset sending
     // PAUSE. Breadcrumb it (secret-free) so a screen-off "it paused by itself"
     // report can tell a real session PAUSE apart from an audio-focus-loss or
     // becoming-noisy pause (both logged under `audio focus:` by the engine).
     StabilityDiagnostics.pauseCommand('media-session');
-    return _controller.pause();
+    await _controller.pause();
   }
 
   @override
   Future<void> stop() async {
+    if (_detached) return;
     await _controller.stop();
     await super.stop();
   }
 
+  /// Advances one track, on behalf of whoever pressed Next: Android Auto's
+  /// on-screen control, a steering-wheel or Bluetooth button, a wired headset,
+  /// or the notification. They all arrive here, and all of them mean the same
+  /// thing, so this forwards to the one shared [PlaybackController.skipToNext]
+  /// and does nothing else — no Android-Auto-only queue, no index arithmetic.
+  ///
+  /// Exactly one advance per press: the controller moves its queue pointer
+  /// synchronously before it awaits anything, so two presses in quick
+  /// succession advance twice and one press can never advance twice. At the end
+  /// of the queue it is a safe no-op, and the shared repeat/shuffle policy
+  /// applies exactly as it does in the app.
   @override
-  Future<void> skipToNext() => _controller.skipToNext();
+  Future<void> skipToNext() async {
+    if (_detached) return;
+    // Breadcrumb it (secret-free) so a "the car's Next did nothing" report can
+    // tell a command that never arrived (no breadcrumb — the head unit swallowed
+    // it) from one that arrived and was a legitimate queue-boundary no-op.
+    StabilityDiagnostics.skipCommand('next');
+    await _controller.skipToNext();
+  }
 
+  /// Steps back, on behalf of whoever pressed Previous — same transports, same
+  /// shared policy as [skipToNext].
+  ///
+  /// It calls [PlaybackController.skipToPrevious] and nothing else, so the car
+  /// gets whatever Linthra's previous-track behaviour is, and keeps getting it
+  /// if that behaviour ever changes: today the controller steps to the previous
+  /// queue item (it does not restart the current track first), and a Previous on
+  /// the first track is a safe no-op.
   @override
-  Future<void> skipToPrevious() => _controller.skipToPrevious();
+  Future<void> skipToPrevious() async {
+    if (_detached) return;
+    StabilityDiagnostics.skipCommand('previous');
+    await _controller.skipToPrevious();
+  }
 
   /// Jumps to the [index]-th row of the published [queue] — what a head unit /
   /// Android Auto's "Up Next" list reports when tapped.
@@ -224,6 +274,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   /// as for a skip.
   @override
   Future<void> skipToQueueItem(int index) async {
+    if (_detached) return;
     // Only rows that exist in the queue this handler last published are real.
     final int publishedLength = _lastQueueTracks?.length ?? 0;
     if (index < 0 || index >= publishedLength) return;
@@ -243,16 +294,21 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   }
 
   @override
-  Future<void> seek(Duration position) => _controller.seek(position);
+  Future<void> seek(Duration position) async {
+    if (_detached) return;
+    await _controller.seek(position);
+  }
 
   @override
   Future<void> setShuffleMode(audio.AudioServiceShuffleMode shuffleMode) async {
+    if (_detached) return;
     _controller
         .setShuffleEnabled(shuffleMode != audio.AudioServiceShuffleMode.none);
   }
 
   @override
   Future<void> setRepeatMode(audio.AudioServiceRepeatMode repeatMode) async {
+    if (_detached) return;
     _controller.setRepeatMode(_repeatModeFrom(repeatMode));
   }
 
@@ -297,6 +353,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     String mediaId, [
     Map<String, dynamic>? extras,
   ]) async {
+    if (_detached) return;
     final request = await _tree.resolve(mediaId, _controller.state);
     // Secret-free selection trace: which category was picked and whether it
     // resolved to something playable — useful when "controls don't work" turns
@@ -756,12 +813,47 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     ];
   }
 
+  /// The session-level processing state for a controller [status].
+  ///
+  /// Opening a track — [PlaybackStatus.loading] — is reported as *buffering*,
+  /// not as `audio_service`'s `loading` (#638).
+  ///
+  /// `AudioProcessingState.loading` is the one value that becomes
+  /// `PlaybackStateCompat.STATE_CONNECTING`
+  /// (`AudioService.getPlaybackState()`), and `STATE_CONNECTING` does not mean
+  /// "preparing the next item" — the platform defines it as the session
+  /// connecting to a *new destination*. Android Auto reads it that way: while
+  /// the session sits in `STATE_CONNECTING` the head unit shows its connecting
+  /// placeholder, drops the position/progress it was drawing, and stops
+  /// dispatching transport presses — so a Next pressed in that window is
+  /// acknowledged by the car and never reaches this handler at all.
+  ///
+  /// Linthra enters `loading` on *every* track change: the controller's
+  /// `_playCurrent` publishes it before resolving the next track's playable
+  /// URI, which on a remote source is a network round trip. In a car that is
+  /// most of the window a listener actually presses Next in, which is what
+  /// made the car's Next/Previous look like it only worked sometimes.
+  /// Bluetooth/headset buttons and the notification never regressed with it
+  /// because those arrive as media-button intents that the session dispatches
+  /// whatever state it is in.
+  ///
+  /// Buffering is also simply the truthful state: the item is being prepared,
+  /// which is exactly what `STATE_BUFFERING` is for, and the car keeps its
+  /// transport row live and its metadata/progress visible across the change.
+  /// This is a *reporting* change only — nothing about the queue, the
+  /// controller, or [PlaybackStatus] moves — and the session keeps reporting
+  /// `playing` through the transition ([_isSessionPlaying]), so the foreground
+  /// service is held exactly as before.
+  ///
+  /// `STATE_CONNECTING` is never the right answer for this session: it has no
+  /// destination to connect to. Cast routing is resolved by
+  /// `ActivePlaybackController` before any state reaches this bridge, so what
+  /// arrives here is always a local view of one already-chosen output.
   audio.AudioProcessingState _processingStateFor(PlaybackStatus status) {
     switch (status) {
       case PlaybackStatus.idle:
         return audio.AudioProcessingState.idle;
       case PlaybackStatus.loading:
-        return audio.AudioProcessingState.loading;
       case PlaybackStatus.buffering:
       case PlaybackStatus.reconnecting:
         return audio.AudioProcessingState.buffering;
@@ -775,9 +867,18 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     }
   }
 
-  /// Stops mirroring controller state. Call before disposing the controller.
+  /// Stops mirroring controller state and makes this handler inert.
+  ///
+  /// Call before disposing the controller, and whenever this handler stops being
+  /// the session's handler. Idempotent, and it closes both directions: no
+  /// further state is mirrored *out*, and any command that still arrives *in* —
+  /// from a car that is reconnecting, or one already in flight when the session
+  /// was rebound — is dropped instead of driving a controller this handler no
+  /// longer speaks for.
   Future<void> dispose() async {
+    _detached = true;
     await _coverReadySub?.cancel();
+    _coverReadySub = null;
     await _subscription.cancel();
   }
 }
@@ -805,6 +906,17 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 /// breaks basic playback. A failure is logged (secret-free) under [_logName] so
 /// a silent "no media session / not in Android Auto" is diagnosable from
 /// `adb logcat`.
+///
+/// **Attaches at most once per process.** A second call returns the handler that
+/// is already attached instead of initialising `audio_service` again (#638).
+/// `AudioService.init` installs a fresh set of platform callbacks and starts a
+/// fresh set of stream observers each time it runs, but it tears none of the
+/// previous ones down: a second init would leave the first handler mirroring
+/// state into the *same* platform session — two writers racing over the
+/// notification, the now-playing metadata and the car's Up Next list — while
+/// commands went to the second. It is an assertion error in debug and silent in
+/// release, which is exactly the shape of a bug that only shows up on a real
+/// head unit, so the guard is here rather than left to the caller.
 Future<LinthraAudioHandler?> connectMediaSession(
   PlaybackController controller,
   MusicLibraryRepository library, {
@@ -813,6 +925,14 @@ Future<LinthraAudioHandler?> connectMediaSession(
   DownloadRepository? downloads,
   MediaArtworkSource? artwork,
 }) async {
+  final LinthraAudioHandler? attached = _attachedHandler;
+  if (attached != null && !attached.isDetached) {
+    _log('media session already attached (reusing the live handler)');
+    return attached;
+  }
+  // A detached handler is never handed back: it forwards nothing, so returning
+  // it would look like a live session and behave like none at all.
+  _attachedHandler = null;
   try {
     final handler = await audio.AudioService.init(
       builder: () => LinthraAudioHandler(
@@ -871,6 +991,7 @@ Future<LinthraAudioHandler?> connectMediaSession(
         artDownscaleHeight: 256,
       ),
     );
+    _attachedHandler = handler;
     _log('media session attached (Android Auto browser ready)');
     return handler;
   } catch (error) {
@@ -881,4 +1002,23 @@ Future<LinthraAudioHandler?> connectMediaSession(
     _log('media session init failed: ${error.runtimeType}');
     return null;
   }
+}
+
+/// The handler currently attached to the platform media session, or null when
+/// none is. Process-scoped because `audio_service`'s session is: it belongs to
+/// the Android foreground service, not to any one app object.
+LinthraAudioHandler? _attachedHandler;
+
+/// Detaches the attached session handler, so a later [connectMediaSession] can
+/// attach a fresh one.
+///
+/// Only for tests. Production never detaches on Android: the session outlives
+/// the app object (see `AudioServiceMediaSessionBinding`). Disposing the old
+/// handler is the point — it makes it inert, so a stale command can't reach a
+/// controller it no longer speaks for.
+@visibleForTesting
+Future<void> resetAttachedMediaSession() async {
+  final LinthraAudioHandler? handler = _attachedHandler;
+  _attachedHandler = null;
+  await handler?.dispose();
 }
