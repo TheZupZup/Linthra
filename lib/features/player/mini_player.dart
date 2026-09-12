@@ -20,6 +20,7 @@ import 'player_providers.dart';
 import 'widgets/album_artwork.dart';
 import 'widgets/playback_progress_bar.dart';
 import 'widgets/queue_sheet.dart';
+import 'widgets/queue_side_panel.dart';
 import 'widgets/volume_controls.dart';
 import 'widgets/wavy_seek_bar.dart';
 
@@ -541,17 +542,37 @@ class _SkipButton extends ConsumerWidget {
 
 /// Opens the up-next list. Desktop windows only: it is the one control here
 /// that has somewhere better to live on a phone (the full player's action row).
+///
+/// Two shapes, decided by the frame rather than by the button. Where the shell
+/// can host the queue as a column beside the page (#416) this is the toggle for
+/// it, lit while the column is open. Everywhere else it opens the sheet, as it
+/// always has, so the queue is reachable at every window size, and the button
+/// never offers a panel that has nowhere to go.
 class _QueueButton extends StatelessWidget {
   const _QueueButton();
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.7);
+    final QueueSidePanelScope? panel = QueueSidePanelScope.maybeOf(context);
+    if (panel == null || !panel.available) {
+      return IconButton(
+        onPressed: () => showQueueSheet(context),
+        icon: const Icon(Icons.queue_music_outlined),
+        iconSize: 22,
+        color: muted,
+        tooltip: 'Queue',
+      );
+    }
     return IconButton(
-      onPressed: () => showQueueSheet(context),
+      onPressed: panel.onToggle,
+      isSelected: panel.visible,
       icon: const Icon(Icons.queue_music_outlined),
+      selectedIcon: const Icon(Icons.queue_music),
       iconSize: 22,
-      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-      tooltip: 'Queue',
+      color: panel.visible ? theme.colorScheme.primary : muted,
+      tooltip: panel.visible ? 'Hide queue' : 'Show queue',
     );
   }
 }

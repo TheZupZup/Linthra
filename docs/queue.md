@@ -6,9 +6,10 @@ how it behaves with shuffle/repeat/Cast/Android Auto, and the known limits.
 
 The queue is owned by a single `PlaybackController` (see
 [docs/architecture.md](./architecture.md) and
-[docs/background-playback.md](./background-playback.md)). Every surface —
-mini-player, Now Playing, the Queue sheet, Cast, and the Android Auto media
-session — reads from and edits the **same** queue. There is never a second copy.
+[docs/background-playback.md](./background-playback.md)). Every surface reads
+from and edits the **same** queue: mini-player, Now Playing, the Queue sheet,
+the desktop queue column, Cast, and the Android Auto media session. There is
+never a second copy.
 
 ## Opening the Queue
 
@@ -32,6 +33,37 @@ On a wide **desktop** window the same manager opens as a pane beside Now
 Playing, and its history section is a different thing — see
 [Recently played (desktop)](#recently-played-desktop).
 
+## The desktop queue column
+
+On a wide desktop window the queue can also stay open beside whatever you are
+browsing, instead of only beside Now Playing
+([issue #416](https://github.com/TheZupZup/Linthra/issues/416)). The
+now-playing bar's **queue** button is the toggle: it lights up while the column
+is open, and the column has its own close button in the header.
+
+It is the same Queue manager, so everything above applies unchanged: current
+track, up next, reorder, remove, play now, Save and Clear. There is no separate
+desktop queue: the column reads and edits the one `PlaybackController` queue, so
+a reorder made here, a skip from the media keys and a track queued from the
+library all land in the same place and every surface sees it at once.
+
+What is specific to the column:
+
+- **It is the frame's, not a screen's.** It sits between the page and the
+  now-playing bar, so switching tabs, opening an album or pushing a detail route
+  leaves it exactly where it was.
+- **Width decides whether it exists.** It needs room for its own 340 px, the
+  navigation rail, and a page still wide enough to keep its own detail pane,
+  so a narrower window simply does not offer it, and the queue button opens the
+  sheet there as it always has. Narrowing a window with the column open takes it
+  away without touching playback; widening finds it open again.
+- **Closed until you ask.** It costs the page real width, so it never opens
+  itself.
+- **Long queues stay cheap.** Up next is a lazily built list: a thousand queued
+  songs cost a screenful of rows, not a thousand.
+- **Android is untouched.** The column is part of the desktop frame, so a wide
+  Android tablet keeps the phone layout and the sheet at every width.
+
 ## Recently played (desktop)
 
 There are two kinds of "what already played", and the desktop pane shows the
@@ -44,6 +76,10 @@ second one ([issue #419](https://github.com/thezupzup/linthra/issues/419)).
 | Bound | the queue's own length | **50 tracks**, hard cap |
 | Order | queue order, above Now playing | newest first, below Up next |
 | Tapping a row | steps back inside the queue | replays the track (see below) |
+
+"Desktop pane" here means both desktop hosts of the manager: Now Playing's
+queue pane and the shell's [queue column](#the-desktop-queue-column). They are
+the same widget, so they show the same history.
 
 Android keeps the sheet and its queue-derived history at **every** window
 width. The pane's history is chosen on the host, not on the width, so a wide
@@ -269,3 +305,13 @@ when you save the queue as a playlist (only stable track ids are saved).
 - [ ] With repeat one on, let a song finish, then skip it partway through the
       next pass — the row reads as skipped.
 - [ ] Restart the app — Recently played is empty again (memory only).
+- [ ] On a wide window, press the queue button in the now-playing bar: the
+      queue opens as a column beside the library, and the library still shows
+      its detail pane.
+- [ ] Reorder, remove and play a song from the column, then open Now Playing.
+      The queue matches what the column shows.
+- [ ] Narrow the window until the column goes, then widen it again. Playback
+      never stops and the column comes back open.
+- [ ] Switch tabs and open an album with the column open. It stays put.
+- [ ] Tab from the page: focus reaches the column before the navigation rail,
+      and Ctrl + ↑ / ↓ moves the focused row there too.

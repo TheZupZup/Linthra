@@ -34,12 +34,14 @@ Future<void> showQueueSheet(BuildContext context) {
 
 /// The Queue / Up Next manager.
 ///
-/// Hosted two ways. As a modal sheet ([showQueueSheet]) it keeps its own height
-/// budget and safe-area inset, the way a sheet has to. As an [embedded] pane —
-/// what a desktop-width Now Playing does with it — it fills whatever box the
-/// host gives it instead: the pane is already inside the screen's padding, and
-/// a sheet's 85%-of-the-window ceiling in a column that is the full window tall
-/// would leave a band of dead space under the list.
+/// Hosted three ways. As a modal sheet ([showQueueSheet]) it keeps its own
+/// height budget and safe-area inset, the way a sheet has to. As an [embedded]
+/// pane (what a desktop-width Now Playing does with it, and what the shell's
+/// desktop queue column, `QueueSidePanel`, does with it in #416) it fills
+/// whatever box the host gives it instead: the pane is already inside the
+/// host's padding, and a sheet's 85%-of-the-window ceiling in a column that is
+/// the full window tall would leave a band of dead space under the list. Only
+/// a host that can collapse passes [onClose].
 ///
 /// Reads the live [PlaybackState] (so it stays current while open) and shows,
 /// top to bottom: a header with Save/Clear actions, the played history, the
@@ -60,10 +62,16 @@ Future<void> showQueueSheet(BuildContext context) {
 /// semantics are therefore untouched: the recorder that fills that history does
 /// not even run there.
 class QueueSheet extends ConsumerWidget {
-  const QueueSheet({this.embedded = false, super.key});
+  const QueueSheet({this.embedded = false, this.onClose, super.key});
 
   /// Whether the host lays this out as a pane rather than a modal sheet.
   final bool embedded;
+
+  /// Collapses the host pane, when it is one that can be collapsed (the shell's
+  /// desktop queue column). Null everywhere else, because a modal sheet is
+  /// dismissed the way every sheet is and Now Playing's pane has its own toggle
+  /// in the action row beside it, and then no close control is drawn at all.
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -117,8 +125,17 @@ class QueueSheet extends ConsumerWidget {
             children: <Widget>[
               Icon(Icons.queue_music, color: theme.colorScheme.primary),
               const SizedBox(width: AppSpacing.sm),
-              Text('Queue', style: theme.textTheme.titleMedium),
-              const Spacer(),
+              // Takes the slack, and gives it back: in a fixed-width column at
+              // a large text scale the actions beside it are what has to stay
+              // reachable, so the title is the part that yields.
+              Expanded(
+                child: Text(
+                  'Queue',
+                  style: theme.textTheme.titleMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               IconButton(
                 onPressed: canSave ? () => _saveAsPlaylist(context, ref) : null,
                 icon: const Icon(Icons.playlist_add),
@@ -139,6 +156,12 @@ class QueueSheet extends ConsumerWidget {
                     : null,
                 child: const Text('Clear'),
               ),
+              if (onClose != null)
+                IconButton(
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Close queue',
+                ),
             ],
           ),
         ),
