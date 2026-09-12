@@ -163,6 +163,18 @@ jobs:
       - name: Test the Flatpak permission checker
         run: python3 test/tooling/check_flatpak_permissions_test.py
 
+      # A smoke borrows a contributor's machine: it may remove what it
+      # installed, and nothing else (#629). The audio and local-library smokes
+      # used to end with `uninstall --delete-data`, which deletes
+      # ~/.var/app/<app id>/ and the app's permission-store grants whether or
+      # not the run created them. These tests run the real harnesses against
+      # stub flatpak binaries in a throwaway HOME, so the rule is checked on
+      # every PR rather than only on a runner with flatpak-builder, where it
+      # never bites because the runner starts clean. Local twin:
+      # `python3 test/tooling/flatpak_smoke_cleanup_test.py`.
+      - name: Test what a Flatpak smoke may delete
+        run: python3 test/tooling/flatpak_smoke_cleanup_test.py
+
   release-bump-guard:
     name: Release bump touches only version files
     runs-on: ubuntu-latest

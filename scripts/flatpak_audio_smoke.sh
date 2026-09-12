@@ -61,16 +61,56 @@ if flatpak --user info "$APP_ID" >/dev/null 2>&1 ||
   fail "$APP_ID is already installed; remove it or run this smoke in a clean user environment"
 fi
 
+# That guard is about an *installation*. The data tree is a different question,
+# and it outlives an ordinary uninstall: somebody who removed an older Linthra
+# build without deleting its data still has ~/.var/app/<app id>/ with their
+# library database, settings, offline audio and credentials in it, while
+# `flatpak info` reports nothing installed at all. So the guard above cannot
+# speak for the tree, and whether this script may take the tree with it depends
+# entirely on whether the tree was here first. Asked before anything is
+# installed, because afterwards there is no way to tell.
+[[ -n "${HOME:-}" ]] || fail "HOME is not set"
+APP_DATA_DIR="$HOME/.var/app/$APP_ID"
+APP_DATA_EXISTED=0
+[[ -e "$APP_DATA_DIR" ]] && APP_DATA_EXISTED=1
+
+# The negative control writes its shadow libmpv into the sandbox's own cache
+# directory, which is $APP_DATA_DIR/cache on the host. That used to be cleaned
+# up as a side effect of deleting the whole tree; now that a pre-existing tree
+# stays, the one directory this run creates inside it is removed by name.
+SHADOW_DIR_NAME="linthra-audio-smoke-shadow-libmpv"
+SHADOW_HOST_DIR="$APP_DATA_DIR/cache/$SHADOW_DIR_NAME"
+SHADOW_CREATED=0
+
 LOG_FILE="$(mktemp)"
 
 cleanup() {
   rm -f -- "$LOG_FILE"
   flatpak kill "$APP_ID" >/dev/null 2>&1 || true
-  # --delete-data takes the sandbox's own XDG tree with it, including the
-  # negative control's shadow directory. Safe because this script refused to
-  # start against an installation it did not make.
-  flatpak --user uninstall -y --delete-data "$APP_ID" >/dev/null 2>&1 || true
+
+  # A plain uninstall, never `--delete-data`. docs/flatpak-development.md calls
+  # that flag Destructive because it is: it wipes ~/.var/app/<app id>/ with the
+  # library database, settings and offline audio in it, and it also drops the
+  # app's entries from Flatpak's permission store, which lives outside
+  # ~/.var/app and holds the document-portal grants for the music folders a
+  # user picked. A script that borrows the machine for a few minutes has no
+  # business reaching either of those.
+  flatpak --user uninstall -y "$APP_ID" >/dev/null 2>&1 || true
+
+  # So the cleanup is scoped to what this run actually created.
+  if (( ! APP_DATA_EXISTED )); then
+    # No tree before the install, so the install made this one: it goes, and
+    # with it the shadow directory that lives inside it.
+    [[ -d "$APP_DATA_DIR" ]] && rm -rf -- "$APP_DATA_DIR"
+  elif (( SHADOW_CREATED )); then
+    # The tree was here first, so it stays. The negative control's shadow
+    # directory is the one thing inside it this run put there, and it is
+    # removed on its own rather than by emptying somebody's library.
+    [[ -d "$SHADOW_HOST_DIR" ]] && rm -rf -- "$SHADOW_HOST_DIR"
+  fi
+
   flatpak --user remote-delete "$REMOTE_NAME" >/dev/null 2>&1 || true
+  return 0
 }
 trap cleanup EXIT
 
@@ -268,10 +308,24 @@ expect_failure() {
 # LD_LIBRARY_PATH points at it, so /app is untouched and the next run is
 # unaffected.
 printf 'Negative control: shadowing the packaged libmpv...\n'
+# From here on there is a directory inside the app's cache that this run made,
+# and cleanup has to account for it whether or not the control gets as far as
+# writing anything into it.
+SHADOW_CREATED=1
 expect_failure "a libmpv that carries none of mpv's symbols" 'libmpv' bounded \
   flatpak run --command=sh "$APP_ID" -c '
     set -eu
-    shadow="${XDG_CACHE_HOME:-$HOME/.cache}/linthra-audio-smoke-shadow-libmpv"
+    # $2 is the directory name the host-side cleanup removes, and the cache
+    # directory of the sandbox is where it has to land: Flatpak maps that to
+    # $APP_DATA_DIR/cache on the host, so the two halves meet. A shadow
+    # anywhere else would outlive a run that found the data tree already there
+    # and therefore left it alone. 3 is the "could not set this control up"
+    # exit, which fails the job rather than guessing at a path.
+    if [ -z "${XDG_CACHE_HOME:-}" ]; then
+      printf "XDG_CACHE_HOME is not set inside the sandbox\n" >&2
+      exit 3
+    fi
+    shadow="$XDG_CACHE_HOME/$2"
     rm -rf -- "$shadow"
     mkdir -p -- "$shadow"
 
@@ -302,7 +356,7 @@ expect_failure "a libmpv that carries none of mpv's symbols" 'libmpv' bounded \
     LINTHRA_AUDIO_SMOKE_REQUIRE_LIBMPV_PREFIX=/app/ \
     LD_LIBRARY_PATH="$shadow${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
       exec "$1"
-  ' sh "$SMOKE_COMMAND"
+  ' sh "$SMOKE_COMMAND" "$SHADOW_DIR_NAME"
 
 # 2. The identity check itself.
 #

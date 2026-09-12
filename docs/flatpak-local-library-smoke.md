@@ -124,8 +124,16 @@ bash ../scripts/flatpak_local_library_smoke.sh repo-sandbox-smoke
 
 The harness refuses to run when Linthra is already installed, or when any user
 or system override already grants filesystem access, since an override would decide
-the isolation result before the test started. Everything it creates (the music
-folder, the probes, the installed app and its data) is removed on exit.
+the isolation result before the test started.
+
+What it removes on exit is what it created: the music folder, the host probes,
+the temporary remote, the install, and the app-data tree at
+`~/.var/app/io.github.thezupzup.linthra/` **only if that tree was not already
+there** when it started. It never runs `flatpak uninstall --delete-data`, so a
+tree an earlier install left behind (your library database, settings, offline
+audio and credentials) survives a run, and so do your Flatpak permission-store
+grants, the document-portal grants for the folders you picked included. Those
+grants matter here more than anywhere: they are the thing this smoke is about.
 
 Every mode is time-bounded (`LINTHRA_FLATPAK_SMOKE_TIMEOUT`, 300s by default)
 and hitting the bound fails the run. The Dart side bounds each step it waits

@@ -170,11 +170,41 @@ void main() {
       expect(harness, contains(r'fail "checking for $SMOKE_COMMAND hung'));
     });
 
-    test('the harness leaves nothing behind', () {
+    test('the harness leaves nothing of its own behind', () {
       expect(harness, contains('trap cleanup EXIT'));
       expect(harness, contains(r'rm -rf -- "$MUSIC_DIR"'));
       expect(harness, contains(r'rm -rf -- "$SIBLING_DIR"'));
-      expect(harness, contains('--delete-data'));
+      expect(harness, contains(r'flatpak --user uninstall -y "$APP_ID"'));
+      expect(harness, contains(r'rm -rf -- "$APP_DATA_DIR"'));
+    });
+
+    // ...and nothing of anyone else's (#629). Refusing to run against an
+    // installed Linthra said nothing about the app-data tree, which survives an
+    // ordinary uninstall: a contributor who removed an older build still has
+    // their library database, settings, offline audio and credentials in
+    // ~/.var/app/<app id>/ with nothing installed. `--delete-data` took that,
+    // and the app's Flatpak permission-store entries with it, which in this
+    // smoke's case means the document-portal grants for the music folders it
+    // exists to prove work.
+    test('deletes app data only when this run created it', () {
+      expect(
+        harnessCommands,
+        isNot(contains('--delete-data')),
+        reason: 'a guard about the data tree cannot authorise an action that '
+            'also clears the permission store',
+      );
+      expect(harness, contains(r'APP_DATA_DIR="$HOME/.var/app/$APP_ID"'));
+      expect(
+        harness,
+        contains(r'[[ -e "$APP_DATA_DIR" ]] && APP_DATA_EXISTED=1'),
+      );
+      expect(harness, contains('(( ! APP_DATA_EXISTED ))'));
+      // Asked before installing, because after the install the answer is
+      // always yes.
+      expect(
+        harness.indexOf('APP_DATA_EXISTED=1'),
+        lessThan(harness.indexOf('flatpak --user install')),
+      );
     });
 
     test('CI runs it against the packaged app', () {

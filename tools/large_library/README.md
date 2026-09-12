@@ -20,9 +20,9 @@ python3 tools/large_library/benchmark_sqlite.py \
 Each query prints its timings, then its query plan indented underneath:
 
 ```
-title prefix       avg=   0.051 ms  p95=   0.102 ms
+title prefix       avg=   0.027 ms  p95=   0.040 ms  max=   0.104 ms
     SEARCH tracks USING INDEX idx_tracks_title (normalized_title>? AND normalized_title<?)
-album exact        avg=   0.113 ms  p95=   0.177 ms
+album exact        avg=   0.058 ms  p95=   0.072 ms  max=   0.357 ms
     SEARCH tracks USING INDEX idx_tracks_album (normalized_album=?)
     USE TEMP B-TREE FOR ORDER BY
 ```
@@ -31,18 +31,33 @@ then a summary block:
 
 ```
 benchmark summary
+  database:               /tmp/linthra-200k.sqlite
   tracks:                   200,000
   queries:                        8
   iterations per query:         200
-  sum of query averages:      2.166 ms
-  average per query:          0.271 ms
-  slowest single run:         2.845 ms (track count)
+  total time in queries:    269.751 ms
+  sum of query averages:      1.349 ms
+  average per query:          0.169 ms
+  slowest single run:         2.128 ms (track count)
+  average-query budget:      50.000 ms
 ```
 
-Every query is timed the same number of times and reported as a mean, so
-`sum of query averages` adds up those per-query means rather than the
-wall-clock time the run spent querying, and `slowest single run` is the single
-slowest timed iteration, not the slowest query on average.
+Every query is timed the same number of times and reported as a mean, so the
+three totals are three different numbers and the labels say which is which:
+
+- `total time in queries` is every timed sample added up, so it is the time the
+  run really spent executing queries (and the only one that moves when you
+  change `--iterations`). Building the fixture, collecting the plans and
+  printing all happen outside it.
+- `sum of query averages` adds up the per-query means instead, which is what
+  keeps two runs at different iteration counts comparable.
+- `slowest single run` is the single slowest timed iteration, not the slowest
+  query on average: it is the outlier worth looking at when a run is spiky, and
+  the `max=` on each query line is where it comes from.
+
+`average-query budget` is the `--max-average-ms` this run was checked against,
+so a green run shows how much headroom it had rather than only a red one
+showing the miss, and `database` says which fixture produced all of it.
 
 ## Memory: large-library profiling (#463)
 
