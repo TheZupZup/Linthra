@@ -93,7 +93,12 @@ else
 fi
 
 # Same order CMake itself resolves a compiler in: $CXX, then what is on PATH.
+# CXX may carry required options as well as a program name (cmake-env-variables(7)
+# documents `CXX="custom-compiler --sysroot=/sdk"`), so only its first word is a
+# command to look for. Kept in step with cxx_compiler_available() in
+# scripts/verify_native.sh, which gates the C++ checks on the same question.
 CXX_FOUND="${CXX:-}"
+CXX_FOUND="${CXX_FOUND%% *}"
 if [ -z "$CXX_FOUND" ]; then
   for candidate in c++ g++ clang++; do
     if command -v "$candidate" >/dev/null 2>&1; then

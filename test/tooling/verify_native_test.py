@@ -94,6 +94,22 @@ FAILING_TEST = (
     "import sys\nsys.stderr.write('a real assertion failed\\n')\nsys.exit(1)\n"
 )
 UNIMPORTABLE_TEST = "import a_module_that_is_not_installed  # noqa: F401\n"
+# Runs, fails for real, and quotes a ModuleNotFoundError while doing it: a test
+# asserting on how some tool reports a missing dependency looks exactly like
+# this. The output must not be mistaken for the file failing to import.
+FAILING_TEST_QUOTING_AN_IMPORT_ERROR = """import sys
+import unittest
+
+
+class T(unittest.TestCase):
+    def test_a_genuine_regression(self):
+        self.assertEqual("ModuleNotFoundError: No module named 'x'", "clean")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2, exit=False)
+    sys.exit(1)
+"""
 
 
 def script_text() -> str:
@@ -220,6 +236,7 @@ class StubHarness(unittest.TestCase):
         tools: tuple[str, ...] = ("cargo", "cmake", "ctest", "c++", "ruff"),
         fail: tuple[str, ...] = (),
         tooling_tests: dict[str, str] | None = None,
+        env: dict[str, str] | None = None,
     ) -> "_Run":
         """Run verify_native.sh with exactly `tools` available on PATH.
 
@@ -277,6 +294,7 @@ class StubHarness(unittest.TestCase):
                 "HOME": str(tmp),
                 "LINTHRA_STUB_LOG": str(log),
                 "LINTHRA_STUB_FAIL": " ".join(fail),
+                **(env or {}),
             },
             capture_output=True,
             text=True,
@@ -375,6 +393,33 @@ class RunAgainstStubs(StubHarness):
         self.assertEqual(built, [c[1] for c in configured])
         self.assertEqual(tested, [c[1] for c in configured])
 
+    def test_the_build_and_the_tests_name_the_configuration(self) -> None:
+        """Under a multi-config generator, CMAKE_BUILD_TYPE alone is ignored.
+
+        CI's runner uses a single-config generator, so the workflows get away
+        with setting only CMAKE_BUILD_TYPE. A contributor with CMAKE_GENERATOR
+        set to Ninja Multi-Config, Xcode or Visual Studio would otherwise build
+        the generator's default config in both legs, and ctest without -C
+        reports every test as "Not Run" and exits non-zero.
+        """
+        run = self._run()
+        for call in self._calls(run, "cmake"):
+            if call[1] != "--build":
+                continue
+            self.assertIn("--config", call, msg=" ".join(call))
+            self.assertEqual(
+                call[call.index("--config") + 1],
+                call[2].split("/")[-1],
+                msg="built a different configuration than the directory is for",
+            )
+        for call in self._calls(run, "ctest"):
+            self.assertIn("-C", call, msg=" ".join(call))
+            self.assertEqual(
+                call[call.index("-C") + 1],
+                call[2].split("/")[-1],
+                msg="tested a different configuration than was built",
+            )
+
     def test_only_the_audio_debug_leg_drops_the_realtime_budget(self) -> None:
         run = self._run()
         excluding = [
@@ -436,6 +481,20 @@ class FailuresAreFailures(StubHarness):
             msg="ctest ran even though every build failed:\n" + run.output,
         )
 
+    def test_a_real_failure_quoting_an_import_error_is_still_a_failure(self) -> None:
+        """The skip is for a file that cannot start, not for any mention of it.
+
+        Classifying on the error string alone would downgrade a genuine
+        regression whose output happens to quote a ModuleNotFoundError, and the
+        whole run would exit 0 with that regression hidden inside it.
+        """
+        run = self._run(
+            tooling_tests={"quoting_test.py": FAILING_TEST_QUOTING_AN_IMPORT_ERROR}
+        )
+        self.assertEqual(run.process.returncode, 1, msg=run.output)
+        self.assertIn("FAIL  test/tooling/quoting_test.py", run.output)
+        self.assertNotIn("skip  test/tooling/quoting_test.py", run.output)
+
     def test_a_failing_tooling_test_fails_the_script_and_shows_its_output(self) -> None:
         run = self._run(
             tooling_tests={"ok_test.py": PASSING_TEST, "bad_test.py": FAILING_TEST}
@@ -472,6 +531,21 @@ class MissingToolsAreSkips(StubHarness):
         self.assertIn("SKIPPED: C++ checks", run.output)
         self.assertIn("cmake", run.output)
         self.assertIn("C++17 compiler", run.output)
+
+    def test_a_CXX_carrying_required_options_still_counts_as_a_compiler(self) -> None:
+        """cmake-env-variables(7) permits options in CXX, so the gate must too.
+
+        Looking the whole value up as one command name rejects a cross
+        toolchain CMake would configure happily, and on a machine without
+        c++/g++/clang++ that skipped every C++ check.
+        """
+        run = self._run(
+            tools=("cargo", "cmake", "ctest", "ruff", "custom-compiler"),
+            env={"CXX": "custom-compiler --sysroot=/sdk"},
+        )
+        self.assertEqual(run.process.returncode, 0, msg=run.output)
+        self.assertNotIn("SKIPPED: C++ checks", run.output)
+        self.assertTrue([c for c in run.calls if c[0] == "ctest"], msg=run.output)
 
     def test_no_ruff_still_runs_the_python_tooling_tests(self) -> None:
         run = self._run(tools=("cargo", "cmake", "ctest", "c++"))

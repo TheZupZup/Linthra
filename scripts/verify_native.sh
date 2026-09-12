@@ -134,8 +134,15 @@ rust_section() {
 # CMake finds the compiler on its own (CXX first, then c++/g++/clang++ on PATH).
 # This asks the same question up front so a machine without one reads as
 # "install a compiler" rather than as a CMake configure error.
+#
+# CXX may carry required options, not just a program name: cmake-env-variables(7)
+# documents `CXX="custom-compiler --sysroot=/sdk"`, and looking the whole string
+# up as one command would reject a cross toolchain CMake is perfectly happy
+# with. Only the first word names a program. A compiler path that itself
+# contains spaces is indistinguishable from a path plus options here, which is
+# a limitation CMake shares.
 cxx_compiler_available() {
-  if [ -n "${CXX:-}" ] && command -v "$CXX" >/dev/null 2>&1; then
+  if [ -n "${CXX:-}" ] && command -v "${CXX%% *}" >/dev/null 2>&1; then
     return 0
   fi
   local candidate
@@ -181,8 +188,14 @@ cpp_section() {
       run_step "$project $build_type: cmake configure" \
         cmake -S "native/$project" -B "$build_dir" \
         -DCMAKE_BUILD_TYPE="$build_type" || continue
+      # --config goes beyond the workflow's command line on purpose. CI's
+      # runner uses a single-config generator, where CMAKE_BUILD_TYPE above
+      # decides everything; a contributor with CMAKE_GENERATOR set to a
+      # multi-config generator (Ninja Multi-Config, Xcode, Visual Studio) has
+      # CMAKE_BUILD_TYPE ignored and would build the generator's default
+      # config in both legs. It is a no-op for single-config generators.
       run_step "$project $build_type: cmake build" \
-        cmake --build "$build_dir" --parallel || continue
+        cmake --build "$build_dir" --parallel --config "$build_type" || continue
 
       ctest_args=()
       if [ "$project" = "linthra_audio" ] && [ "$build_type" = "Debug" ]; then
@@ -191,8 +204,11 @@ cpp_section() {
         # the build users actually get.
         ctest_args=(--exclude-regex linthra_audio_realtime_budget)
       fi
+      # -C for the same reason, and it matters more here: under a
+      # multi-config generator ctest without it reports every test as "Not
+      # Run" and exits non-zero, which would read as a broken checkout.
       run_step "$project $build_type: ctest" \
-        ctest --test-dir "$build_dir" --output-on-failure \
+        ctest --test-dir "$build_dir" --output-on-failure -C "$build_type" \
         "${ctest_args[@]+"${ctest_args[@]}"}"
     done
   done
@@ -219,7 +235,14 @@ run_python_test() {
     return 0
   fi
 
-  if printf '%s\n' "$output" | grep -q 'ModuleNotFoundError'; then
+  # Only a module missing *before any test ran* is a skip. unittest prints a
+  # "Ran N tests" line as soon as it has run something, so the absence of that
+  # line is what separates "this machine cannot run the file at all" from "the
+  # file ran and something failed". Grepping the whole output for the error on
+  # its own would downgrade a genuine failure whose output merely quotes a
+  # ModuleNotFoundError, and the run would exit 0 with a regression inside it.
+  if ! printf '%s\n' "$output" | grep -q '^Ran [0-9]' &&
+    printf '%s\n' "$output" | grep -q 'ModuleNotFoundError'; then
     module="$(printf '%s\n' "$output" |
       sed -n "s/.*ModuleNotFoundError: No module named '\([^']*\)'.*/\1/p" |
       head -1)"
