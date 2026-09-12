@@ -32,7 +32,14 @@ abstract interface class AudioFileScanner {
 /// that resolves to a path. It does not understand `content://` URIs — routing
 /// is [PlatformAudioFileScanner]'s job.
 class IoAudioFileScanner implements AudioFileScanner {
-  const IoAudioFileScanner();
+  const IoAudioFileScanner({
+    DirectoryReadability presence = const IoDirectoryReadability(),
+  }) : _presence = presence;
+
+  /// Asks whether the selected folder is still readable once the walk is done.
+  /// Injected so "the drive was pulled mid-scan" can be reproduced in a test
+  /// without a drive to pull.
+  final DirectoryReadability _presence;
 
   @override
   Future<List<String>> listFiles(String folder) async {
@@ -92,6 +99,25 @@ class IoAudioFileScanner implements AudioFileScanner {
         // Unreadable subtree: skip it and keep scanning the rest.
         continue;
       }
+    }
+
+    // The walk only means something if the folder was still there at the end of
+    // it, and a drive unplugged *mid-scan* is exactly the case where it wasn't.
+    // Every directory still pending when the mount went away fails, and the rule
+    // just above deliberately skips those, because one unreadable subfolder must
+    // not fail a whole scan. Without this check that half-walk would be reported as
+    // a complete one, and every file it never reached would be concluded
+    // deleted: a drive being unplugged would delete the user's index of it,
+    // which is the one thing that must never happen. So a folder that has gone
+    // away since the walk began is reported exactly like one that was already
+    // gone: unavailable, keep what is indexed.
+    if (!await _presence.canList(folder)) {
+      throw FolderScanException(
+        "Linthra couldn't finish reading the selected folder. The drive may "
+        'have been disconnected while it was being scanned. Reconnect it, or '
+        'try selecting the folder again.',
+        folder: folder,
+      );
     }
     return paths;
   }

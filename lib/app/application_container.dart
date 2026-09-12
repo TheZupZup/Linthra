@@ -35,6 +35,7 @@ import '../data/repositories/theme_mode_store_provider.dart';
 import '../features/appearance/desktop_density_controller.dart';
 import '../features/appearance/theme_mode_controller.dart';
 import '../features/downloads/download_providers.dart';
+import '../features/library/local_root_availability_controller.dart';
 import '../features/library/playback_candidates_provider.dart';
 import '../features/player/cast/cast_providers.dart';
 import '../features/player/favorites_providers.dart';
@@ -80,6 +81,10 @@ List<Override> productionApplicationOverrides({
     nowPlayingOverride,
     secureJellyfinSessionStoreOverride,
     jellyfinAvailabilityPollOverride,
+    // Ask an absent music folder again every few seconds, so a removable drive
+    // that is plugged back in is picked up without the user pressing anything.
+    // Off by default (no timer in tests); armed only while a folder is away.
+    localRootAvailabilityPollOverride,
     sharedPreferencesJellyfinAutoSyncStoreOverride,
     secureSubsonicSessionStoreOverride,
     sharedPreferencesSubsonicAutoSyncStoreOverride,

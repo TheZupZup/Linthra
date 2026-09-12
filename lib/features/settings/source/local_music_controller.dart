@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/sources/local/android_media_library.dart';
 import '../../../core/sources/local/folder_location.dart';
 import '../../../core/sources/local/local_music_roots.dart';
+import '../../../core/sources/local/local_root_probe.dart';
 import '../../../core/sources/local/local_scan_report.dart';
 import '../../../data/repositories/host_platform_provider.dart';
 import '../../library/library_controller.dart';
 import '../../library/library_providers.dart';
+import '../../library/local_root_availability_controller.dart';
 import '../../library/local_scan_report_provider.dart';
 import '../../library/selected_folder_controller.dart';
 
@@ -269,30 +271,19 @@ final localFolderAccessProvider =
     FutureProvider<Map<String, bool>>((ref) async {
   final List<String> folders =
       ref.watch(selectedFolderControllerProvider).valueOrNull ?? <String>[];
+  // Re-probed after every scan. Access is lost while the app runs (a drive
+  // unplugged, a Flatpak portal document revoked) and the *selection* never
+  // changes when that happens, so a rescan is the user's natural moment to find
+  // out.
   ref.watch(localScanReportProvider);
+  final LocalRootProbe probe = ref.watch(localRootProbeProvider);
   final Map<String, bool> access = <String, bool>{};
   for (final String folder in folders) {
-    if (folder.isEmpty) continue;
-    final FolderLocation location = FolderLocation.parse(folder);
-    if (location.isAndroidMediaStore) {
-      final AndroidMusicPermissionStatus status =
-          await ref.read(androidMediaLibraryProvider).permissionStatus();
-      access[folder] = status == AndroidMusicPermissionStatus.allowed;
-      continue;
-    }
-    if (location.isContentUri) {
-      // Null means the probe can't answer here (off Android). Leave the folder
-      // out rather than calling a grant Linthra cannot see "lost".
-      final bool? granted = await ref
-          .read(safPermissionProbeProvider)
-          .hasPersistedPermission(folder);
-      if (granted != null) access[folder] = granted;
-      continue;
-    }
-    if (!ref.watch(hostPlatformProvider).isDesktop) continue;
-    access[folder] = await ref.read(directoryReadabilityProvider).canList(
-          folder,
-        );
+    // Null means nothing here can answer for this folder (a SAF grant off
+    // Android, a raw path on a platform that does not read paths). Leave it out
+    // rather than calling a folder Linthra cannot see "lost".
+    final bool? reachable = await probe.isAvailable(folder);
+    if (reachable != null) access[folder] = reachable;
   }
   return access;
 });

@@ -157,4 +157,67 @@ void main() {
       expect(presence.probed, <String>[first.uri]);
     });
   });
+
+  group('a removable drive unplugged mid-queue (#415)', () {
+    // The same rule at the scale a drive works at: a whole folder's worth of
+    // files goes at once, and everything else in the queue keeps playing. The
+    // queue is logical (it holds tracks, not open files), so a track whose drive
+    // is out is one that cannot start, not one that has to be removed.
+    final Track onUsb = _local('/media/usb/Music/Holocene.flac');
+    final Track alsoOnUsb = _local('/media/usb/Music/Perth.flac');
+    final Track onInternal = _local('/home/me/Music/Mother.mp3');
+
+    test('the track on the drive fails and the rest still plays', () async {
+      await controller.playTracks(
+        <Track>[onInternal, onUsb, alsoOnUsb, onInternal],
+      );
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+
+      // The drive is pulled out. Everything under its mount point goes with it.
+      presence.present = <String>{onInternal.uri};
+      await controller.skipToNext();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.currentTrack?.uri, onUsb.uri);
+      expect(
+        controller.state.upNext.map((Track t) => t.uri),
+        <String>[alsoOnUsb.uri, onInternal.uri],
+        reason: 'an unplugged drive shortens nothing, on disk or in the queue',
+      );
+
+      await controller.skipToNext(); // still on the drive: fails the same way
+      expect(controller.state.status, PlaybackStatus.error);
+
+      await controller.skipToNext(); // back on the internal folder
+      expect(controller.state.currentTrack?.uri, onInternal.uri);
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+    });
+
+    test('the message points at the drive, not at a broken library', () async {
+      presence.present = <String>{};
+
+      await controller.playTracks(<Track>[onUsb]);
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(
+        controller.state.errorMessage,
+        contains('drive it lives on may not be connected'),
+      );
+      expect(controller.state.errorMessage, isNot(contains('/media/usb')));
+    });
+
+    test('playing it again once the drive is back just works', () async {
+      presence.present = <String>{};
+      await controller.playTracks(<Track>[onUsb]);
+      expect(controller.state.status, PlaybackStatus.error);
+
+      // Plugged back in at the same path: the queued track is still the right
+      // track, so nothing has to be re-added.
+      presence.present = <String>{onUsb.uri};
+      await controller.playTracks(<Track>[onUsb]);
+
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+      expect(player.setUrlCalls, <String>[Uri.file(onUsb.uri).toString()]);
+    });
+  });
 }
