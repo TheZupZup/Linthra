@@ -12,6 +12,7 @@ import '../../../core/repositories/download_repository.dart';
 import '../../../core/repositories/download_store.dart';
 import '../../../data/repositories/download_repository_provider.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
+import '../../../shared/focus/focus_ring.dart';
 import '../../../shared/widgets/context_menu_region.dart';
 import '../../downloads/download_providers.dart';
 import '../../player/favorites_providers.dart';
@@ -146,82 +147,84 @@ class TrackTile extends ConsumerWidget {
             ?.fraction
         : null;
 
-    final Widget row = ListTile(
-      selected: selectionActive && selected,
-      leading: TrackArtwork(
-        artworkUri: track.artworkUri,
-        nowPlaying: nowPlaying,
-      ),
-      title: Text(
-        track.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w600,
+    final Widget row = FocusRing(
+      child: ListTile(
+        selected: selectionActive && selected,
+        leading: TrackArtwork(
+          artworkUri: track.artworkUri,
+          nowPlaying: nowPlaying,
         ),
-      ),
-      subtitle: Text(
-        _subtitle(track),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        title: Text(
+          track.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
-      ),
-      trailing: selectionActive
-          // The row itself already carries the selected state (and toggles on
-          // tap), so the box is the visual echo of it: a second, unnamed
-          // checkbox node next to every title would only make the list harder
-          // to move through, not clearer.
-          ? ExcludeSemantics(
-              child: Checkbox(
-                value: selected,
-                onChanged:
-                    onSelectToggle == null ? null : (_) => onSelectToggle!(),
+        subtitle: Text(
+          _subtitle(track),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+        trailing: selectionActive
+            // The row itself already carries the selected state (and toggles on
+            // tap), so the box is the visual echo of it: a second, unnamed
+            // checkbox node next to every title would only make the list harder
+            // to move through, not clearer.
+            ? ExcludeSemantics(
+                child: Checkbox(
+                  value: selected,
+                  onChanged:
+                      onSelectToggle == null ? null : (_) => onSelectToggle!(),
+                ),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TrackStatusGlyph(
+                    track: track,
+                    isRemote: isRemote,
+                    downloadStatus: status,
+                    downloadProgress: downloadFraction,
+                  ),
+                  _OverflowMenu(
+                    track: track,
+                    status: status,
+                    isRemote: isRemote,
+                  ),
+                ],
               ),
-            )
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TrackStatusGlyph(
-                  track: track,
-                  isRemote: isRemote,
-                  downloadStatus: status,
-                  downloadProgress: downloadFraction,
-                ),
-                _OverflowMenu(
-                  track: track,
-                  status: status,
-                  isRemote: isRemote,
-                ),
-              ],
-            ),
-      onTap: () {
-        if (selectable && _extendsSelection) {
-          onSelectRange?.call(tracks, index);
-          return;
-        }
-        // Ctrl (or Cmd) picks this row out on its own, and starts a selection
-        // when there isn't one — the whole point of it on a desktop, where
-        // holding a row down for half a second to begin is not the gesture
-        // anybody reaches for.
-        if (selectable && _togglesSelection) {
+        onTap: () {
+          if (selectable && _extendsSelection) {
+            onSelectRange?.call(tracks, index);
+            return;
+          }
+          // Ctrl (or Cmd) picks this row out on its own, and starts a selection
+          // when there isn't one — the whole point of it on a desktop, where
+          // holding a row down for half a second to begin is not the gesture
+          // anybody reaches for.
+          if (selectable && _togglesSelection) {
+            if (selectionActive) {
+              onSelectToggle?.call();
+            } else {
+              onSelectStart?.call();
+            }
+            return;
+          }
           if (selectionActive) {
             onSelectToggle?.call();
-          } else {
-            onSelectStart?.call();
+            return;
           }
-          return;
-        }
-        if (selectionActive) {
-          onSelectToggle?.call();
-          return;
-        }
-        final controller = ref.read(playbackControllerProvider);
-        controller.playTracks(tracks, startIndex: index);
-        context.push(AppRoutes.player);
-      },
-      onLongPress: (selectable && !selectionActive) ? onSelectStart : null,
+          final controller = ref.read(playbackControllerProvider);
+          controller.playTracks(tracks, startIndex: index);
+          context.push(AppRoutes.player);
+        },
+        onLongPress: (selectable && !selectionActive) ? onSelectStart : null,
+      ),
     );
 
     // The same menu the 3-dot button opens, on right-click and on the

@@ -126,6 +126,26 @@ abstract final class AppTheme {
       // reaches every ink surface at once: list rows, buttons, grid cards, the
       // navigation rail's destinations and popup-menu items.
       hoverColor: onSurface.withValues(alpha: 0.07),
+      // Keyboard focus (#390). Material's default is another neutral veil, a
+      // few percent apart from the hover one above and from the selected tint
+      // below: three states saying almost the same thing, which on a keyboard
+      // leaves "where am I" unanswerable without moving and looking again.
+      //
+      // Focus takes the accent instead, and takes it harder: a different hue
+      // from both hover (neutral) and selection (identity violet), so the three
+      // read apart even where all three are true of the same row at once. Like
+      // `hoverColor`, one value here reaches every ink surface (buttons, list
+      // rows, popup-menu items, the navigation rail's destinations), so no
+      // widget carries its own idea of what focus looks like.
+      //
+      // Surfaces that ink cannot reach (an album card, whose cover is painted
+      // over the overlay) draw `FocusRing` on top of this instead; see
+      // `lib/shared/focus/focus_ring.dart`.
+      //
+      // Not gated on the platform: Flutter only paints a focus highlight while
+      // the user is driving with a keyboard or mouse, so a phone never shows
+      // one and mobile is unchanged.
+      focusColor: palette.accent.withValues(alpha: 0.18),
       extensions: <ThemeExtension<dynamic>>[
         LinthraAccents(
           accentBright: palette.accentBright,

@@ -11,6 +11,7 @@ import 'package:linthra/data/repositories/playlist_repository_provider.dart';
 import 'package:linthra/features/library/album_detail_screen.dart';
 import 'package:linthra/features/library/artist_detail_screen.dart';
 import 'package:linthra/features/library/library_screen.dart';
+import 'package:linthra/features/library/widgets/album_grid_card.dart';
 import 'package:linthra/features/library/widgets/track_tile.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/player_screen.dart';
@@ -87,6 +88,12 @@ Future<void> _pumpLibrary(WidgetTester tester, Size size) async {
 Future<void> _openTab(WidgetTester tester, String tab) async {
   await tester.tap(find.text(tab));
   await tester.pumpAndSettle();
+}
+
+/// Whether whatever holds focus sits inside a [T].
+bool _focusedInside<T extends Widget>() {
+  final BuildContext? context = FocusManager.instance.primaryFocus?.context;
+  return context != null && context.findAncestorWidgetOfExactType<T>() != null;
 }
 
 void main() {
@@ -174,6 +181,30 @@ void main() {
       tester.view.physicalSize = _paneWindow;
       await tester.pumpAndSettle();
       expect(find.text('Song 0'), findsOneWidget);
+    });
+
+    testWidgets('narrowing gives the keyboard back to the grid (#390)',
+        (tester) async {
+      await _pumpLibrary(tester, _paneWindow);
+      await _openTab(tester, 'Albums');
+      await tester.tap(find.text('Discovery').first);
+      await tester.pumpAndSettle();
+
+      // The keyboard is on a track in the pane when the window narrows.
+      Focus.of(tester.element(find.text('Song 0'))).requestFocus();
+      await tester.pump();
+      expect(_focusedInside<TrackTile>(), isTrue);
+
+      tester.view.physicalSize = _narrowWindow;
+      await tester.pumpAndSettle();
+
+      // Not the route's scope, which is where it unwinds to on its own: that
+      // leaves nothing ringed on screen and sends the next Tab back to the top
+      // of the page.
+      final FocusNode? focused = FocusManager.instance.primaryFocus;
+      expect(focused, isNot(isA<FocusScopeNode>()));
+      expect(focused?.rect.isFinite, isTrue);
+      expect(_focusedInside<AlbumGridCard>(), isTrue);
     });
 
     testWidgets('a search that hides the album clears the pane with it',

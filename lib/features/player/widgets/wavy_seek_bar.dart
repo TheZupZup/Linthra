@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../app/dimens.dart';
+import '../../../shared/focus/focus_ring.dart';
 import '../../../shared/widgets/wavy_progress_indicator.dart';
 
 /// How much room a [WavySeekBar] is drawn to take.
@@ -220,12 +221,19 @@ class WavySeekBar extends StatelessWidget {
             // A visible focus ring is the keyboard's equivalent of the pointer's
             // marker: without it, Tab moves through the transport with nothing
             // on screen saying where it landed.
+            //
+            // The same ring the rest of the app draws through `FocusRing`
+            // (#390), same accent and same width, but drawn here rather than
+            // wrapped around the bar: the shared widget adds a box of its own,
+            // and this widget's outermost node has to stay the slider
+            // semantics a screen reader reads. The two numbers come from the
+            // shared file so they cannot drift apart.
             decoration: node.hasFocus
                 ? BoxDecoration(
                     borderRadius: BorderRadius.circular(AppRadii.sm),
                     border: Border.all(
                       color: theme.colorScheme.secondary,
-                      width: 2,
+                      width: focusRingWidth,
                     ),
                   )
                 : null,

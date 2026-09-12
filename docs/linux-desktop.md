@@ -581,6 +581,7 @@ loaded:
 | Window geometry | Supported | Size and maximized state survive a restart; position too, on X11. A saved position is re-checked against the monitors attached now. See [Window state](#window-state). |
 | Content density | Supported | Compact by default, switchable to Comfortable in Settings → Appearance and remembered across restarts ([issue #395](https://github.com/thezupzup/linthra/issues/395)). Both are Material `VisualDensity` values, so the choice reaches every list row, grid and control at once. Touch builds are unaffected. See [Density (Compact / Comfortable)](#density-compact--comfortable). |
 | Pointer affordances | Supported | Compact content density, visible hover feedback, right-click context menus with a keyboard equivalent, and Ctrl/Shift multi-select in track lists — all keyed on the input rather than the window width. See [Pointer, not width](#pointer-not-width). |
+| Keyboard navigation | Supported | The whole UI is reachable without a pointer: predictable Tab/Shift+Tab order, a strong accent focus ring distinct from hover and selection, Enter/Space activation, arrow keys through lists and grids with Home/End at their ends, and panes and dialogs that hand focus back when they close ([issue #390](https://github.com/TheZupZup/Linthra/issues/390)). Shared helpers in `lib/shared/focus/`, keyed on the input device rather than the platform, so touch is untouched. See [Keyboard navigation](#keyboard-navigation). |
 | Keyboard shortcuts | Partial | Quick search is bound to **Ctrl+K** / **Ctrl+F** ([issue #393](https://github.com/TheZupZup/Linthra/issues/393)) — see [Quick search](#quick-search-ctrlk). The volume control takes the wheel and arrow keys when focused; global transport and volume shortcuts are still later work in #376. |
 
 Nothing in that table is faked. Each one is an explicit implementation behind an
@@ -772,6 +773,71 @@ be acted on. A range is computed over the list the clicked row is in, which for
 the songs tab is the A–Z view's own sorted order rather than whatever the screen
 handed it. Starting a selection hands the screen the keyboard, so Escape leaves
 it. Long-press still does what it always did, so nothing about a phone changes.
+
+### Keyboard navigation
+
+Everything on the Linux UI can be reached and operated without a pointer
+([#390](https://github.com/TheZupZup/Linthra/issues/390)). None of it is a
+Linux branch: the pieces below are keyed on the *input device* or on the box a
+widget is given, the same rule the rest of the desktop work follows, so a phone
+behaves exactly as it always has and an Android tablet with a keyboard case
+gets the lot for free.
+
+- **Tab and Shift+Tab** walk the frame the way it reads: the page pane by pane,
+  then the queue column, the navigation rail and the mini-player. The shell
+  orders those groups explicitly (`HomeShell`), because the default
+  reading-order policy sorts a rail beside a page by geometry and splits it
+  around the content.
+- **A focus ring** in the accent colour marks whatever holds the keyboard.
+  Focus gets its own vocabulary on purpose: hover is a neutral veil and
+  selection is an identity tint, and a third veil would leave all three saying
+  roughly the same thing. `FocusRing`
+  ([`lib/shared/focus/focus_ring.dart`](../lib/shared/focus/focus_ring.dart))
+  draws it as an overlay, so it is visible even on an album cover, where
+  Material's ink highlight is painted on the surface *behind* the card. It is
+  drawn only while the focus manager is in keyboard/mouse mode, which is what
+  keeps it off a touch build without a platform check.
+- **Enter and Space** activate whatever is focused, which is Material's own
+  behaviour for every ink surface and is pinned by tests on the library rows
+  and the album grid.
+- **The arrow keys** move through lists and grids, row by row and cell by cell,
+  scrolling as they go.
+- **Home and End** jump to the ends of a collection. They have to be added:
+  in a lazily-built list the far end has no focus node for a traversal policy
+  to find until something scrolls it into range. `ListKeyboardNavigation`
+  ([`lib/shared/focus/list_keyboard_navigation.dart`](../lib/shared/focus/list_keyboard_navigation.dart))
+  scrolls first and takes the outermost row at that end on the next frame. The
+  same widget lets **← / →** carry on into the next row of a grid of cards, the
+  way a desktop icon grid is walked. A focused text field is left alone
+  outright, so Home, End and the arrows keep meaning what they mean while
+  typing.
+- **Panes hand the keyboard back.** Closing the queue column, the Now Playing
+  queue pane or the Library detail pane disposes everything inside it, and
+  Flutter unwinds focus to the route's scope: nothing is ringed and the next
+  Tab starts again at the top of the page. `FocusHandoff`
+  ([`lib/shared/focus/focus_handoff.dart`](../lib/shared/focus/focus_handoff.dart))
+  puts it back on the control that reopens the pane, or on the list the detail
+  was sitting beside. It fires only when the pane really was holding focus, and
+  a window narrowed past a pane's width floor counts the same as pressing its
+  close button.
+- **Dialogs** trap Tab while they are open and give focus back to the control
+  that opened them, which is Flutter's own modal behaviour; the tests pin it so
+  a future change cannot quietly drop it.
+
+Tests: `test/shared/focus/`, `test/features/library/keyboard_navigation_test.dart`,
+`test/features/library/library_detail_pane_test.dart`,
+`test/features/settings/provider_form_keyboard_test.dart`,
+`test/features/shell/home_shell_focus_order_test.dart`,
+`test/features/shell/queue_side_panel_shell_test.dart`,
+`test/features/player/player_queue_pane_test.dart` and
+`test/shared/widgets/confirm_dialog_test.dart`. Between them they cover forward
+and backward traversal, activation, list and grid movement, the two pane
+closures, dialog trapping and restoration, and a touch build behaving exactly
+as it did before.
+
+Configurable shortcuts are a separate job
+([#391](https://github.com/TheZupZup/Linthra/issues/391)); what is bound today
+is in the row above.
 
 ### Quick search (Ctrl+K)
 

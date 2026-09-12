@@ -93,6 +93,7 @@ class QueueSidePanelScope extends InheritedWidget {
     required this.available,
     required this.visible,
     required this.onToggle,
+    required this.toggleFocusNode,
     required super.child,
     super.key,
   });
@@ -108,6 +109,23 @@ class QueueSidePanelScope extends InheritedWidget {
   /// Opens the panel, or closes it again.
   final VoidCallback onToggle;
 
+  /// The focus node of whichever control offers [onToggle]: today the
+  /// mini-player's queue button, under either of the shapes it takes.
+  ///
+  /// It lives in the shell rather than in that button because it is the shell
+  /// that needs it: closing the column disposes everything inside it, and if
+  /// the keyboard was in there it has to land somewhere. The control that
+  /// opens the column again is where the user is going next anyway, so the
+  /// column hands focus back to this node (see `FocusHandoff`) instead of
+  /// leaving it to unwind to nothing.
+  ///
+  /// The button carries this node whether or not the window is wide enough for
+  /// a column, because the width is exactly what can change underneath: a
+  /// resize that takes the column away is the case the handoff exists for, and
+  /// it would have nowhere to aim if the narrow shape of the button were a
+  /// different node.
+  final FocusNode toggleFocusNode;
+
   /// The nearest scope, or null when nothing above hosts a queue column: a
   /// phone, or any surface outside the shell (the full Now Playing route,
   /// which draws its own pane).
@@ -119,6 +137,7 @@ class QueueSidePanelScope extends InheritedWidget {
   bool updateShouldNotify(QueueSidePanelScope oldWidget) {
     return available != oldWidget.available ||
         visible != oldWidget.visible ||
-        onToggle != oldWidget.onToggle;
+        onToggle != oldWidget.onToggle ||
+        toggleFocusNode != oldWidget.toggleFocusNode;
   }
 }

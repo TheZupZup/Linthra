@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/catalog/library_grouping.dart';
 import '../../../core/models/artist.dart';
 import '../../../core/models/track.dart';
+import '../../../shared/focus/focus_ring.dart';
 import '../../../shared/widgets/artwork_image.dart';
 import '../../../shared/widgets/context_menu_region.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
@@ -30,27 +31,29 @@ class ArtistTile extends ConsumerWidget {
       itemBuilder: (BuildContext context) => collectionMenuItems(),
       onSelected: (CollectionAction action) =>
           runCollectionAction(context, ref, action, _tracks(ref)),
-      child: ListTile(
-        leading: _ArtistAvatar(artworkUri: artist.artworkUri),
-        title: Text(
-          artist.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
+      child: FocusRing(
+        child: ListTile(
+          leading: _ArtistAvatar(artworkUri: artist.artworkUri),
+          title: Text(
+            artist.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        ),
-        subtitle: Text(
-          _subtitle(artist),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          subtitle: Text(
+            _subtitle(artist),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
           ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+          onLongPress: () => _addAllToPlaylist(context, ref),
         ),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: onTap,
-        onLongPress: () => _addAllToPlaylist(context, ref),
       ),
     );
   }
