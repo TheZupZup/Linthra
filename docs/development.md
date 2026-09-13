@@ -82,6 +82,36 @@ If no Android SDK is found (`ANDROID_HOME`/`ANDROID_SDK_ROOT` unset and no
 verification does **not** fail just because the Android SDK is missing. The
 analyze/format/test steps still run and still fail the script if they fail.
 
+### What `verify_native.sh` does
+
+The same idea for the non-Flutter areas, so a Rust, C++ or Python contributor
+has one command instead of three workflows to read. It runs, in CI's order, and
+exits non-zero if any real check fails:
+
+1. **Rust** (`native/linthra_core`, mirroring `rust-core.yml`): `cargo fmt
+   --check`, `cargo clippy --all-targets` with `-D warnings`, `cargo test`, and
+   the `benchmark_200k` binary, which asserts the large-library search budget.
+2. **C++** (mirroring `cpp-audio-dsp.yml` and `cpp-desktop-window.yml`): a
+   CMake configure, build and `ctest` for `native/linthra_audio` and
+   `native/linthra_desktop`, in Release and Debug. Debug skips
+   `linthra_audio_realtime_budget` exactly as CI does: an unoptimized build says
+   nothing useful about the realtime budget of the build users actually get.
+3. **Python** (mirroring `python-lint.yml`): `ruff check scripts tool tools`,
+   `ruff format --check scripts tool tools`, and every `test/tooling/*_test.py`,
+   which CI runs a file at a time across five workflows.
+
+A toolchain that isn't installed **skips** that part with a message naming what
+to install, the same way the APK build is skipped above, and the summary lists
+everything skipped so a pass is never read as full coverage. If nothing at all
+could be checked, that is an error rather than a pass. `scripts/doctor.sh`
+reports the same toolchains without running anything.
+
+Nothing it runs writes to a tracked file: Cargo builds into
+`native/linthra_core/target/` and CMake into `build/`, both git-ignored, and
+Ruff runs with `--check`. `test/tooling/verify_native_test.py` holds it to all
+of that, using stub `cargo`/`cmake`/`ctest`/`ruff` binaries, so it needs none of
+those toolchains itself.
+
 ### How this helps
 
 Contributors and future Claude/agent sessions get a consistent toolchain in two
