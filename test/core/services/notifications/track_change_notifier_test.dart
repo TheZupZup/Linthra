@@ -269,6 +269,29 @@ void main() {
 
       expect(announced(), <String>['Song 1']);
     });
+
+    test('a track dropped by turning it off counts as already observed', () {
+      observer.onState(_state(_track('1')));
+      clock += const Duration(seconds: 1);
+      observer.onState(_state(_track('2')));
+      enabled = false;
+      timers.single.fire();
+      expect(announced(), <String>['Song 1']);
+
+      // Back on, with the same song still playing. Same rule as turning it on
+      // mid-track: quiet until the next real change, not a toast for a song
+      // that has been playing for minutes.
+      enabled = true;
+      clock += const Duration(seconds: 30);
+      observer.onState(
+        _state(_track('2'), position: const Duration(seconds: 30)),
+      );
+      expect(announced(), <String>['Song 1']);
+
+      clock += const Duration(minutes: 3);
+      observer.onState(_state(_track('3')));
+      expect(announced(), <String>['Song 1', 'Song 3']);
+    });
   });
 
   group('rapid skipping', () {

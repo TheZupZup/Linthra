@@ -21,10 +21,24 @@ class TrackChangeNotificationsController extends AsyncNotifier<bool> {
   }
 
   Future<void> setEnabled(bool enabled) async {
-    await ref
-        .read(desktopNotificationPreferencesProvider)
-        .setTrackChangeNotifications(enabled);
+    final AsyncValue<bool> previous = state;
+    // Applied before the write, not after it. The notification path reads this
+    // live on every track change, and persisting is a platform round-trip: in
+    // between, a track change would still see the old answer, so turning
+    // notifications off could let one more notification through and turning
+    // them on could mark the next track as already seen.
     state = AsyncData<bool>(enabled);
+    try {
+      await ref
+          .read(desktopNotificationPreferencesProvider)
+          .setTrackChangeNotifications(enabled);
+    } catch (_) {
+      // The choice did not reach storage, so stop claiming it: a switch left
+      // on would disagree with the next launch. Restored only if nothing has
+      // since been chosen on top of it, so a second tap is never undone by the
+      // first tap's failure.
+      if (state.valueOrNull == enabled) state = previous;
+    }
   }
 }
 

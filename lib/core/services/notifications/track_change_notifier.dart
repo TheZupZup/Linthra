@@ -218,8 +218,17 @@ class TrackChangeNotifier {
     final Track? track = _pending;
     _pending = null;
     if (track == null) return;
-    // Turned off, or already announced by something else, while the window ran.
-    if (!_enabled() || track.uri == _announced) return;
+    // Already announced by something else while the window ran.
+    if (track.uri == _announced) return;
+    if (!_enabled()) {
+      // Turned off while the window ran. Recorded as observed anyway, exactly
+      // as the disabled path in [onState] does: the track was playing while
+      // the preference was off, so switching it back on has to stay quiet
+      // until the next real change rather than announce a song that has been
+      // playing for two minutes.
+      _announced = track.uri;
+      return;
+    }
     _announce(track, _elapsed());
   }
 
