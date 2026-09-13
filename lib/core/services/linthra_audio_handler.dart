@@ -360,6 +360,15 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     // out to be a stale id resolving to nothing.
     _log('play: ${_categoryOf(mediaId)} resolved=${request != null}');
     if (request == null) return;
+    // Re-checked after the await, not only before it: resolving a media id is
+    // asynchronous (it reads the catalog), so this handler can be detached
+    // while it runs — a reconnect rebinding the session is exactly that shape.
+    // Without this a superseded handler would still start playback on the
+    // controller it no longer speaks for, which is the in-flight command the
+    // inert-handler guard exists to stop. Every other command reaches the
+    // controller synchronously after its check; this is the one that awaits
+    // first.
+    if (_detached) return;
     // Delegates to the single PlaybackController, exactly like tapping a track
     // in the app. While a Cast session is active the controller has suspended
     // the local engine, so this updates the queue and mirrors onto the receiver
@@ -924,12 +933,49 @@ Future<LinthraAudioHandler?> connectMediaSession(
   FavoritesRepository? favorites,
   DownloadRepository? downloads,
   MediaArtworkSource? artwork,
-}) async {
+}) {
   final LinthraAudioHandler? attached = _attachedHandler;
   if (attached != null && !attached.isDetached) {
     _log('media session already attached (reusing the live handler)');
-    return attached;
+    return Future<LinthraAudioHandler?>.value(attached);
   }
+  // An attach that is still running is *joined*, not raced. Attaching is
+  // asynchronous, so a second caller arriving before the first finishes would
+  // otherwise see no attached handler yet and start its own `AudioService.init`
+  // alongside it — the very duplication the guard exists to prevent, just
+  // through a narrower window. Holding the in-flight future closes it: both
+  // callers get the one handler the single init produced.
+  final Future<LinthraAudioHandler?>? pending = _attaching;
+  if (pending != null) {
+    _log('media session attach already in flight (joining it)');
+    return pending;
+  }
+  final Future<LinthraAudioHandler?> attaching = _attachMediaSession(
+    controller,
+    library,
+    playlists: playlists,
+    favorites: favorites,
+    downloads: downloads,
+    artwork: artwork,
+  );
+  _attaching = attaching;
+  // Release the slot once this attach settles, so a failed one can be retried.
+  // Guarded by identity: only the attach that owns the slot may clear it.
+  unawaited(attaching.whenComplete(() {
+    if (identical(_attaching, attaching)) _attaching = null;
+  }));
+  return attaching;
+}
+
+/// Performs the one real attach [connectMediaSession] serializes callers onto.
+Future<LinthraAudioHandler?> _attachMediaSession(
+  PlaybackController controller,
+  MusicLibraryRepository library, {
+  PlaylistRepository? playlists,
+  FavoritesRepository? favorites,
+  DownloadRepository? downloads,
+  MediaArtworkSource? artwork,
+}) async {
   // A detached handler is never handed back: it forwards nothing, so returning
   // it would look like a live session and behave like none at all.
   _attachedHandler = null;
@@ -1009,6 +1055,11 @@ Future<LinthraAudioHandler?> connectMediaSession(
 /// the Android foreground service, not to any one app object.
 LinthraAudioHandler? _attachedHandler;
 
+/// The attach currently in flight, or null when none is. Process-scoped for the
+/// same reason as [_attachedHandler], and cleared as soon as the attach
+/// settles so a failed one can be retried.
+Future<LinthraAudioHandler?>? _attaching;
+
 /// Detaches the attached session handler, so a later [connectMediaSession] can
 /// attach a fresh one.
 ///
@@ -1020,5 +1071,6 @@ LinthraAudioHandler? _attachedHandler;
 Future<void> resetAttachedMediaSession() async {
   final LinthraAudioHandler? handler = _attachedHandler;
   _attachedHandler = null;
+  _attaching = null;
   await handler?.dispose();
 }

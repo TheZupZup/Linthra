@@ -130,13 +130,30 @@ void main() {
     });
 
     controller = FakePlaybackController();
-    // The app's own attach path — the same call `bootstrapApplication` makes.
-    final handler = await connectMediaSession(
-      controller,
-      FakeMusicLibraryRepository(tracks: album),
+    // The app's own attach path — the same call `bootstrapApplication` makes —
+    // started *twice concurrently*, which is the shape a startup racing a
+    // reconnect has. Both callers must land on the one handler the single
+    // `AudioService.init` produced: attaching is asynchronous, so a second
+    // caller arriving before the first finishes would otherwise see nothing
+    // attached yet and start its own init alongside it, leaving two handlers
+    // mirroring into one session.
+    final List<LinthraAudioHandler?> attached = await Future.wait(
+      <Future<LinthraAudioHandler?>>[
+        connectMediaSession(
+            controller, FakeMusicLibraryRepository(tracks: album)),
+        connectMediaSession(
+            controller, FakeMusicLibraryRepository(tracks: album)),
+      ],
     );
-    expect(handler, isNotNull,
+    expect(attached.first, isNotNull,
         reason: 'the media session did not attach at the platform boundary');
+    expect(identical(attached.first, attached.last), isTrue,
+        reason: 'a concurrent attach produced a second handler');
+    expect(
+      published.where((MethodCall c) => c.method == 'configure'),
+      hasLength(1),
+      reason: 'audio_service was initialised more than once',
+    );
   });
 
   tearDownAll(() async {

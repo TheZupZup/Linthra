@@ -47,6 +47,23 @@ class _RecordingArtworkSource implements MediaArtworkSource {
   Future<void> close() => _coverReady.close();
 }
 
+/// A [MediaBrowserTree] whose `resolve` can be held open, so a test can detach
+/// the handler *while* a selection is still being looked up.
+class _GatedTree extends MediaBrowserTree {
+  _GatedTree(super.library);
+
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<MediaPlaybackRequest?> resolve(
+    String mediaId,
+    PlaybackState playback,
+  ) async {
+    await gate.future;
+    return super.resolve(mediaId, playback);
+  }
+}
+
 Track _track(String id) {
   return Track(
     id: id,
@@ -372,6 +389,31 @@ void main() {
       test('disposing twice is safe', () async {
         await handler.dispose();
         await handler.dispose();
+      });
+
+      test('detaching mid-selection stops the play that was resolving',
+          () async {
+        // Resolving a media id is asynchronous, so a reconnect can detach this
+        // handler while a selection is still being looked up. The command must
+        // not land on the controller afterwards — every other command reaches
+        // the controller synchronously after its check, this is the one that
+        // awaits first.
+        final gatedController = FakePlaybackController();
+        final tree = _GatedTree(FakeMusicLibraryRepository(tracks: _library));
+        final gated = LinthraAudioHandler(gatedController, tree);
+        addTearDown(gatedController.dispose);
+
+        final Future<void> selection =
+            gated.playFromMediaId(MediaId.libraryTrack('/b.mp3'));
+        await _settle();
+        // The session is rebound while the lookup is still open.
+        await gated.dispose();
+        tree.gate.complete();
+        await selection;
+        await _settle();
+
+        expect(gatedController.playedTracks, isEmpty);
+        expect(gatedController.state.currentTrack, isNull);
       });
     });
 
