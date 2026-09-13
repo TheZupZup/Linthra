@@ -58,7 +58,7 @@ packages:
     source: hosted
     version: "0.18.18"
   audio_service_platform_interface:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: audio_service_platform_interface
       sha256: "6283782851f6c8b501b60904a32fc7199dc631172da0629d7301e66f672ab777"
