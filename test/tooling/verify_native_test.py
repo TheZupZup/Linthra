@@ -39,10 +39,11 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "verify_native.sh"
 WORKFLOWS = ROOT / ".github" / "workflows"
 
-# Real tools the script itself needs. Everything else on PATH is deliberately
-# withheld, so "cargo is not installed" can be staged by simply not writing a
-# cargo stub.
+# Real tools the script itself needs, plus mkdir for the cmake stub's build
+# tree. Everything else on PATH is deliberately withheld, so "cargo is not
+# installed" can be staged by simply not writing a cargo stub.
 PASSTHROUGH_TOOLS = (
+    "mkdir",
     "bash",
     "sh",
     "env",
@@ -70,7 +71,7 @@ for arg in "$@"; do
   fi
 done
 
-printf '%s' "$name" >> "$LINTHRA_STUB_LOG"
+printf '%s\\t%s' "$name" "$PWD" >> "$LINTHRA_STUB_LOG"
 for arg in "$@"; do
   printf '\\t%s' "$arg" >> "$LINTHRA_STUB_LOG"
 done
@@ -82,6 +83,14 @@ case " ${LINTHRA_STUB_FAIL:-} " in
     exit 1
     ;;
 esac
+
+# Real cmake creates the build tree named by -B, and ctest is run from inside
+# it, so the stub has to do at least that much to be worth running against.
+previous=""
+for arg in "$@"; do
+  [ "$previous" = "-B" ] && mkdir -p -- "$arg"
+  previous="$arg"
+done
 exit 0
 """
 
@@ -98,6 +107,25 @@ FAILING_TEST = (
 MISSING_EXTERNAL_DEPENDENCY_TEST = (
     "raise ModuleNotFoundError(\"No module named 'yaml'\")\n"
 )
+# Passes, but skips a test inside itself, the way a suite that needs a tool
+# beyond Python does (check_pr_security_surface_test.py skips its
+# review-decision class when jq is absent). unittest reports "OK (skipped=1)".
+PASSING_TEST_WITH_AN_INTERNAL_SKIP = """import unittest
+
+
+class T(unittest.TestCase):
+    @unittest.skip("needs a tool this machine does not have")
+    def test_needs_a_tool(self):
+        pass
+
+    def test_runs(self):
+        pass
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
+"""
+
 # The same shape, for a module this repository is supposed to provide.
 # test/tooling/large_library_memory_report_test.py really does import
 # memory_report from tools/large_library/ at the top of the file, so renaming
@@ -404,9 +432,23 @@ class StubHarness(unittest.TestCase):
     def _calls(run: "_Run", name: str, *, probes: bool = False) -> list[list[str]]:
         """The recorded argv for `name`, without the version probes."""
         return [
-            call
+            [call[0]] + call[2:]
             for call in run.calls
-            if call[0] == name and (probes or "--version" not in call)
+            if call[0] == name and (probes or "--version" not in call[2:])
+        ]
+
+    @staticmethod
+    def _cwds(run: "_Run", name: str) -> list[str]:
+        """The directory each `name` invocation ran in."""
+        return [inv[0] for inv in StubHarness._invocations(run, name)]
+
+    @staticmethod
+    def _invocations(run: "_Run", name: str) -> list[tuple[str, list[str]]]:
+        """(working directory, argv) for each non-probe call of `name`."""
+        return [
+            (call[1], [call[0]] + call[2:])
+            for call in run.calls
+            if call[0] == name and "--version" not in call[2:]
         ]
 
 
@@ -475,8 +517,12 @@ class RunAgainstStubs(StubHarness):
             msg=run.output,
         )
         built = [call[2] for call in self._calls(run, "cmake") if call[1] == "--build"]
-        tested = [call[2] for call in self._calls(run, "ctest")]
         self.assertEqual(built, [c[1] for c in configured])
+        # ctest is run from inside each build tree rather than pointed at it.
+        tested = [
+            cwd.split("/a checkout with spaces/")[-1]
+            for cwd in self._cwds(run, "ctest")
+        ]
         self.assertEqual(tested, [c[1] for c in configured])
 
     def test_the_build_and_the_tests_name_the_configuration(self) -> None:
@@ -498,18 +544,33 @@ class RunAgainstStubs(StubHarness):
                 call[2].split("/")[-1],
                 msg="built a different configuration than the directory is for",
             )
-        for call in self._calls(run, "ctest"):
+        for cwd, call in self._invocations(run, "ctest"):
             self.assertIn("-C", call, msg=" ".join(call))
             self.assertEqual(
                 call[call.index("-C") + 1],
-                call[2].split("/")[-1],
+                cwd.split("/")[-1],
                 msg="tested a different configuration than was built",
             )
+
+    def test_ctest_runs_from_inside_the_build_tree(self) -> None:
+        """`ctest --test-dir` is CMake 3.20; the projects declare 3.16.
+
+        Both native projects say cmake_minimum_required(VERSION 3.16), and
+        Ubuntu 20.04 still ships 3.16.3, so a contributor who meets the
+        projects' own stated minimum would watch every test leg die on an
+        unknown argument.
+        """
+        run = self._run()
+        for call in self._calls(run, "ctest"):
+            self.assertNotIn("--test-dir", call, msg=" ".join(call))
+        self.assertEqual(len(self._cwds(run, "ctest")), 4, msg=run.output)
 
     def test_only_the_audio_debug_leg_drops_the_realtime_budget(self) -> None:
         run = self._run()
         excluding = [
-            call[2] for call in self._calls(run, "ctest") if "--exclude-regex" in call
+            cwd.split("/a checkout with spaces/")[-1]
+            for cwd, call in self._invocations(run, "ctest")
+            if "--exclude-regex" in call
         ]
         self.assertEqual(excluding, ["build/linthra_audio/Debug"], msg=run.output)
 
@@ -694,12 +755,48 @@ class MissingToolsAreSkips(StubHarness):
         self.assertIn("SKIPPED: C++ checks", run.output)
         self.assertIn("C++17 compiler", run.output)
 
+    def test_a_cmake_toolchain_file_answers_the_compiler_question(self) -> None:
+        """A toolchain file names its own compiler, often off PATH entirely."""
+        run = self._run(
+            tools=("cargo", "cmake", "ctest", "ruff"),
+            env={"CMAKE_TOOLCHAIN_FILE": "/opt/sdk/arm-linux.cmake"},
+        )
+        self.assertEqual(run.process.returncode, 0, msg=run.output)
+        self.assertNotIn("SKIPPED: C++ checks", run.output)
+        self.assertTrue([c for c in run.calls if c[0] == "ctest"], msg=run.output)
+
     def test_no_ruff_still_runs_the_python_tooling_tests(self) -> None:
         run = self._run(tools=("cargo", "cmake", "ctest", "c++"))
         self.assertEqual(run.process.returncode, 0, msg=run.output)
         self.assertIn("ruff not found", run.output)
         self.assertIn("pip install ruff", run.output)
         self.assertIn("ok    test/tooling/example_test.py", run.output)
+
+    def test_a_suite_that_skipped_tests_inside_itself_says_so(self) -> None:
+        """A green summary must not hide coverage this machine did not run.
+
+        check_pr_security_surface_test.py skips its review-decision class when
+        jq is absent and still exits 0. CI has jq and runs those tests, so
+        reporting the file as a plain "ok" overstates what was checked.
+        """
+        run = self._run(
+            tooling_tests={
+                "ok_test.py": PASSING_TEST,
+                "partial_test.py": PASSING_TEST_WITH_AN_INTERNAL_SKIP,
+            }
+        )
+        self.assertEqual(run.process.returncode, 0, msg=run.output)
+        self.assertIn(
+            "ok    test/tooling/partial_test.py (1 test(s) skipped inside it)",
+            run.output,
+        )
+        # And it reaches the summary, which is what a contributor actually reads.
+        self.assertIn(
+            "python3 test/tooling/partial_test.py (1 test(s) skipped inside it)",
+            _summary_items(run.output, "Skipped"),
+        )
+        # A file with nothing skipped stays a plain ok.
+        self.assertIn("ok    test/tooling/ok_test.py\n", run.output)
 
     def test_a_missing_external_dependency_is_skipped_not_failed(self) -> None:
         """The PyYAML shape: ci.yml installs it, a contributor may not have it."""
@@ -781,11 +878,16 @@ class _Run:
 
 
 def _snapshot(repo: Path) -> dict[str, str]:
-    """Every file under `repo`, by relative path, with its contents."""
+    """Every file under `repo`, by relative path, with its contents.
+
+    build/ is left out: CMake writes its trees there, and .gitignore already
+    excludes it. The question this answers is whether the run rewrote anything
+    a contributor actually has checked out.
+    """
     return {
         str(path.relative_to(repo)): path.read_text(encoding="utf-8", errors="replace")
         for path in sorted(repo.rglob("*"))
-        if path.is_file()
+        if path.is_file() and not path.relative_to(repo).parts[:1] == ("build",)
     }
 
 

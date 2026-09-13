@@ -158,6 +158,12 @@ cxx_compiler_available() {
   case "${CMAKE_GENERATOR:-}" in
     "Visual Studio"*|Xcode|"Green Hills MULTI") return 0 ;;
   esac
+  # A toolchain file names its own compiler, typically an absolute path to a
+  # cross toolchain that is not on PATH at all. `cmake --help-variable
+  # CMAKE_TOOLCHAIN_FILE` describes it as specifying "locations for compilers
+  # and toolchain utilities", and the environment variable initialises it for a
+  # new build tree, so a contributor who set one has already answered this.
+  [ -n "${CMAKE_TOOLCHAIN_FILE:-}" ] && return 0
   # The same applies when CMAKE_GENERATOR is unset on Windows, where CMake's
   # default is a Visual Studio generator: cl is not on a Git Bash PATH, and
   # cmake-generators(7) notes that "since the IDEs configure their own
@@ -171,6 +177,21 @@ cxx_compiler_available() {
     command -v "$candidate" >/dev/null 2>&1 && return 0
   done
   return 1
+}
+
+# ctest over one build directory.
+#
+# The workflows say `ctest --test-dir <dir>`, which needs CMake 3.20 or newer.
+# Both projects declare cmake_minimum_required(VERSION 3.16) and Ubuntu 20.04
+# still ships 3.16.3, so a contributor who meets the projects' own stated
+# minimum would watch every test leg die on an unknown argument. Running from
+# inside the directory is the older spelling of the same thing and works on
+# both, in a subshell so the cd cannot leak into the rest of the run.
+run_ctest() {
+  local build_dir="$1"
+  local build_type="$2"
+  shift 2
+  (cd "$build_dir" && ctest --output-on-failure -C "$build_type" "$@")
 }
 
 cpp_section() {
@@ -229,7 +250,7 @@ cpp_section() {
       # multi-config generator ctest without it reports every test as "Not
       # Run" and exits non-zero, which would read as a broken checkout.
       run_step "$project $build_type: ctest" \
-        ctest --test-dir "$build_dir" --output-on-failure -C "$build_type" \
+        run_ctest "$build_dir" "$build_type" \
         "${ctest_args[@]+"${ctest_args[@]}"}"
     done
   done
@@ -266,12 +287,24 @@ is_external_python_module() {
 # a contributor nothing about what they are about to push.
 run_python_test() {
   local path="$1"
-  local output status module
+  local output status module skipped
   output="$(python3 "$path" 2>&1)"
   status=$?
 
   if [ "$status" -eq 0 ]; then
     RAN=$((RAN + 1))
+    # A file can pass while skipping tests inside it: several of these guard a
+    # class on a tool beyond Python (check_pr_security_surface_test.py needs jq
+    # for its review-decision tests). unittest reports that as "OK (skipped=N)".
+    # CI has those tools and runs what this machine did not, so calling the run
+    # a clean pass would overstate what was actually checked.
+    skipped="$(printf '%s\n' "$output" |
+      sed -n 's/^OK (.*skipped=\([0-9][0-9]*\).*/\1/p' | head -1)"
+    if [ -n "$skipped" ]; then
+      printf '  ok    %s (%s test(s) skipped inside it)\n' "$path" "$skipped"
+      SKIPPED+=("python3 $path ($skipped test(s) skipped inside it)")
+      return 0
+    fi
     printf '  ok    %s\n' "$path"
     return 0
   fi
