@@ -976,6 +976,11 @@ Future<LinthraAudioHandler?> _attachMediaSession(
   DownloadRepository? downloads,
   MediaArtworkSource? artwork,
 }) async {
+  // The generation this attach belongs to. A reset moves it on, so an attach
+  // that was already in flight can tell it has been superseded and publish
+  // nothing — without it, a reset during an attach would be overwritten by the
+  // handler that finished afterwards.
+  final int generation = _attachGeneration;
   // A detached handler is never handed back: it forwards nothing, so returning
   // it would look like a live session and behave like none at all.
   _attachedHandler = null;
@@ -1037,6 +1042,14 @@ Future<LinthraAudioHandler?> _attachMediaSession(
         artDownscaleHeight: 256,
       ),
     );
+    if (generation != _attachGeneration) {
+      // Superseded while this attach was in flight. Publishing now would
+      // install a handler over whatever the reset left behind, so make this one
+      // inert instead and report no session.
+      await handler.dispose();
+      _log('media session attach superseded (handler discarded)');
+      return null;
+    }
     _attachedHandler = handler;
     _log('media session attached (Android Auto browser ready)');
     return handler;
@@ -1060,6 +1073,10 @@ LinthraAudioHandler? _attachedHandler;
 /// settles so a failed one can be retried.
 Future<LinthraAudioHandler?>? _attaching;
 
+/// Bumped by every [resetAttachedMediaSession], so an attach that is still in
+/// flight can recognise that it has been superseded and publish nothing.
+int _attachGeneration = 0;
+
 /// Detaches the attached session handler, so a later [connectMediaSession] can
 /// attach a fresh one.
 ///
@@ -1067,10 +1084,27 @@ Future<LinthraAudioHandler?>? _attaching;
 /// the app object (see `AudioServiceMediaSessionBinding`). Disposing the old
 /// handler is the point — it makes it inert, so a stale command can't reach a
 /// controller it no longer speaks for.
+///
+/// Settles completely: an attach that is still in flight is superseded (it
+/// publishes nothing and disposes what it built) and *awaited*, so this never
+/// returns while an `AudioService.init` is still running. Returning early would
+/// let the next [connectMediaSession] start a second init alongside the first
+/// and let the stale one publish its handler afterwards.
 @visibleForTesting
 Future<void> resetAttachedMediaSession() async {
+  _attachGeneration++;
+  final Future<LinthraAudioHandler?>? pending = _attaching;
   final LinthraAudioHandler? handler = _attachedHandler;
   _attachedHandler = null;
   _attaching = null;
   await handler?.dispose();
+  // Best-effort: the attach reports its own failures, and a reset must settle
+  // regardless of how the superseded one ended.
+  if (pending != null) {
+    try {
+      await pending;
+    } catch (_) {
+      // Already logged by the attach itself.
+    }
+  }
 }
