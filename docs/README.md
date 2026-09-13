@@ -27,6 +27,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | Music providers (overview) | [providers.md](./providers.md) |
 | Jellyfin setup | [jellyfin.md](./jellyfin.md) · [compatibility](./jellyfin-compatibility.md) · [sync](./jellyfin-sync.md) |
 | Plex setup | [plex.md](./plex.md) |
+| WebDAV / NAS provider (design) | [webdav.md](./webdav.md) |
 | Streaming, buffering & recovery | [streaming.md](./streaming.md) |
 | Queue / Up Next | [queue.md](./queue.md) |
 | Offline cache & downloads | [offline-cache.md](./offline-cache.md) |

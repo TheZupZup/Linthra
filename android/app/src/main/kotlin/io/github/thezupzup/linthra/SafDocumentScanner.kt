@@ -295,6 +295,7 @@ class SafDocumentScanner(
                                         "albumArtist" to metadata["albumArtist"],
                                         "album" to metadata["album"],
                                         "track" to metadata["track"],
+                                        "disc" to metadata["disc"],
                                         "durationMs" to metadata["durationMs"],
                                         "artworkUri" to metadata["artworkUri"],
                                     ),
@@ -347,8 +348,8 @@ class SafDocumentScanner(
      * Reads the audio tags for one document through [MediaMetadataRetriever],
      * which works on a content:// URI under the existing tree grant — no extra
      * permission, no broad storage access. Returns the raw tag strings (title,
-     * artist, album artist, album, track, duration in ms); the Dart side parses
-     * the track ("3/12") and duration values.
+     * artist, album artist, album, track, disc, duration in ms); the Dart side
+     * parses the track ("3/12"), disc ("1/2") and duration values.
      *
      * Deliberately total: any failure (a malformed file, an unreadable entry, a
      * codec the device can't open) returns an empty map so the walk keeps going
@@ -374,6 +375,14 @@ class SafDocumentScanner(
                 ),
                 "track" to retriever.extractMetadata(
                     MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER,
+                ),
+                // The disc number of a multi-disc album. One key covers the
+                // common tag forms, because the platform extractors map their
+                // own spelling onto it: ID3v2 TPOS, Vorbis/FLAC DISCNUMBER and
+                // MP4 "disk". The value keeps whatever the tagger wrote ("1",
+                // "1/2", "02"), and the Dart side parses it like "track".
+                "disc" to retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER,
                 ),
                 "durationMs" to retriever.extractMetadata(
                     MediaMetadataRetriever.METADATA_KEY_DURATION,

@@ -111,16 +111,16 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
 
   /// Builds the [LocalAudioMetadata] for one document [entry] from the optional
   /// tag fields the native walk attached (`title`, `artist`, `albumArtist`,
-  /// `album`, `albumId`, `track`, `durationMs`, `artworkUri`), or null when none
-  /// are present — an older native build, or a file the platform could not read
-  /// tags from.
+  /// `album`, `albumId`, `track`, `disc`, `durationMs`, `artworkUri`), or null
+  /// when none are present — an older native build, or a file the platform could
+  /// not read tags from.
   ///
   /// Pure and tolerant so it is unit-testable and never throws on a malformed or
-  /// partial reply: a non-string text field, a `track` like `"3/12"`, a
-  /// `durationMs` sent as either an int or a numeric string, and a malformed
-  /// `artworkUri` are all handled, and a blank or unparseable value simply drops
-  /// to null (the mapper then falls back to the file name, and the row keeps the
-  /// artwork placeholder).
+  /// partial reply: a non-string text field, a `track` like `"3/12"`, a `disc`
+  /// like `"1/2"` or `"02"`, a `durationMs` sent as either an int or a numeric
+  /// string, and a malformed `artworkUri` are all handled, and a blank or
+  /// unparseable value simply drops to null (the mapper then falls back to the
+  /// file name, and the row keeps the artwork placeholder).
   static LocalAudioMetadata? parseMetadata(Map<Object?, Object?> entry) {
     final String? title = _string(entry['title']);
     final String? artist = _string(entry['artist']);
@@ -128,6 +128,7 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
     final String? album = _string(entry['album']);
     final String? albumId = _string(entry['albumId']);
     final int? trackNumber = _trackNumber(entry['track']);
+    final int? discNumber = _discNumber(entry['disc']);
     final Duration? duration = _durationMs(entry['durationMs']);
     final Uri? artworkUri = _artworkUri(entry['artworkUri']);
     if (title == null &&
@@ -136,6 +137,7 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
         album == null &&
         albumId == null &&
         trackNumber == null &&
+        discNumber == null &&
         duration == null &&
         artworkUri == null) {
       return null;
@@ -147,6 +149,7 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
       album: album,
       albumId: albumId,
       trackNumber: trackNumber,
+      discNumber: discNumber,
       duration: duration,
       artworkUri: artworkUri,
     );
@@ -170,6 +173,31 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
     final int? parsed = int.tryParse(match.group(0)!);
     return (parsed != null && parsed > 0) ? parsed : null;
   }
+
+  /// The disc number of a multi-disc album, from the leading integer of the
+  /// native `disc` field. Taggers write it as `"1"`, `"1/2"` (disc/total) or a
+  /// zero-padded `"02"`, and the platform reports whichever form the file has,
+  /// so all three parse to the same number.
+  ///
+  /// Anchored at the start deliberately, unlike [_trackNumber]: a disc tag that
+  /// doesn't *begin* with a number (`"-1"`, `"/2"`, `"Disc"`) is malformed, and
+  /// taking some digit from the middle of it would invent an ordering the file
+  /// never claimed. Zero, negative and unparseable values are null — a disc
+  /// number is 1-based, and null simply means "no disc info", which is also what
+  /// a single-disc album reports.
+  static int? _discNumber(Object? value) {
+    if (value is int) return value > 0 ? value : null;
+    if (value is! String) return null;
+    final RegExpMatch? match = _leadingInteger.firstMatch(value.trim());
+    if (match == null) return null;
+    final int? parsed = int.tryParse(match.group(1)!);
+    return (parsed != null && parsed > 0) ? parsed : null;
+  }
+
+  /// The run of digits a string starts with, if it starts with one. Matches a
+  /// zero-padded value too (`"02"`), and an absurdly long run simply fails
+  /// [int.tryParse] and drops to null rather than throwing.
+  static final RegExp _leadingInteger = RegExp(r'^(\d+)');
 
   /// A duration from a milliseconds value sent as an int or a numeric string.
   /// Zero/negative/unparseable maps to null (unknown), so the mapper leaves the
