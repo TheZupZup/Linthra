@@ -1,0 +1,254 @@
+import 'dart:async';
+
+import '../../models/playback_state.dart';
+import '../../models/track.dart';
+import 'desktop_notifier.dart';
+
+/// Turns a track into the notification that announces it. Injected so the
+/// content rules (and the artwork filter behind them) stay in
+/// `now_playing_notification.dart` and this class stays about *when* to notify.
+typedef DesktopNotificationBuilder = DesktopNotification Function(Track track);
+
+/// Watches the playback state stream and announces the track that is actually
+/// playing now (issue #400).
+///
+/// A pure observer, the same shape as `PlaybackHistoryRecorder`: it never
+/// touches the queue, the controller or the audio engine, and it emits nothing
+/// back into playback. Switching it off (which is what the preference does)
+/// changes nothing except whether a toast appears.
+///
+/// **Why the state stream.** A track change is not an event the controller
+/// raises; it is a state. Reading the stream sees a skip, a natural advance and
+/// a queue jump identically, for every controller implementation, without the
+/// playback seam growing a callback for the benefit of a desktop toast.
+///
+/// **What counts as a track change.** The stream carries a state several times
+/// a second while playing, and almost none of those are news. Three rules
+/// between them reduce it to real transitions:
+///
+///  * the track's logical identity ([Track.uri]) has to differ from the last
+///    one announced, so position ticks, a pause, a resume, a volume change, a
+///    seek, a reconnect and a queue rebuild all say nothing. Repeat-one, which
+///    starts the *same* song again, is deliberately included in that: it is
+///    not a new song;
+///  * something has to actually be playing. A queue restored paused at launch,
+///    a track loaded but not started, and a load that errored are all "nothing
+///    is playing", and announcing one would be a claim Linthra cannot back;
+///  * at most one notification per [minInterval]. Holding the button down
+///    through twenty tracks must not put twenty notifications on the bus. See
+///    below for why the last one still wins.
+///
+/// **Rapid skipping.** A burst is coalesced rather than dropped: the newest
+/// eligible track replaces whatever was waiting, one timer covers the whole
+/// burst, and when it fires the track the listener actually landed on is the
+/// one announced. Dropping instead would either announce the first track of a
+/// burst (the one they skipped away from) or nothing at all. A waiting
+/// announcement is only ever made if it is still true when the window closes:
+/// skipping to a track and back inside it, or pausing inside it, drops the
+/// announcement rather than naming a track the listener has left.
+///
+/// The window is measured on a monotonic clock, not a wall clock, so a time
+/// correction cannot turn the gap since the last notification negative and
+/// silence the next one for the length of the correction.
+///
+/// **Failure.** Every delivery is guarded and unawaited. A missing daemon, a
+/// refused call or a bus that went away costs one absent toast and nothing
+/// else; playback never waits for a notification and never sees it fail.
+class TrackChangeNotifier {
+  TrackChangeNotifier({
+    required Stream<PlaybackState> states,
+    required DesktopNotifier notifier,
+    required bool Function() enabled,
+    required DesktopNotificationBuilder build,
+    Duration minInterval = defaultMinInterval,
+    Duration Function()? elapsed,
+    Timer Function(Duration, void Function())? createTimer,
+  })  : _states = states,
+        _notifier = notifier,
+        _enabled = enabled,
+        _build = build,
+        _minInterval = minInterval,
+        _elapsed = elapsed ?? _monotonicElapsed(),
+        _createTimer = createTimer ?? _scheduleTimer;
+
+  /// The shortest gap between two notifications.
+  ///
+  /// Long enough that a listener stepping through a few tracks produces one
+  /// notification rather than one per track; short enough that ordinary
+  /// listening, where a track change is minutes apart, is never delayed by
+  /// it at all.
+  static const Duration defaultMinInterval = Duration(seconds: 5);
+
+  final Stream<PlaybackState> _states;
+  final DesktopNotifier _notifier;
+
+  /// Read live, on every candidate, so turning the preference off silences the
+  /// next track change (and a burst still waiting on its timer) at once.
+  final bool Function() _enabled;
+
+  final DesktopNotificationBuilder _build;
+  final Duration _minInterval;
+
+  /// How long this notifier has been running, from a *monotonic* source.
+  ///
+  /// The rate limit measures an interval, and a wall clock is the wrong
+  /// instrument for that: it can move backwards (an NTP correction, a manual
+  /// change, a resume from suspend). Measured with `DateTime.now`, one
+  /// backwards jump makes the gap since the last notification negative and
+  /// pushes the next one out by the whole adjustment, so an hour's correction
+  /// would buy an hour of silence while tracks kept changing.
+  final Duration Function() _elapsed;
+
+  final Timer Function(Duration, void Function()) _createTimer;
+
+  StreamSubscription<PlaybackState>? _subscription;
+
+  /// The identity of the track the listener has already been told about.
+  ///
+  /// Updated even while the preference is off, so switching notifications on
+  /// mid-track stays quiet until the *next* real change instead of announcing
+  /// a song that has been playing for two minutes.
+  String? _announced;
+
+  /// The reading of [_elapsed] when the last notification was handed to the
+  /// notifier.
+  Duration? _lastAt;
+
+  /// The newest eligible track seen inside the rate-limit window.
+  Track? _pending;
+  Timer? _timer;
+
+  static Timer _scheduleTimer(Duration delay, void Function() callback) =>
+      Timer(delay, callback);
+
+  /// A monotonic elapsed-time source for one notifier. See [_elapsed].
+  static Duration Function() _monotonicElapsed() {
+    final Stopwatch stopwatch = Stopwatch()..start();
+    return () => stopwatch.elapsed;
+  }
+
+  /// Begins observing. Idempotent: calling it twice never adds a second
+  /// listener, which is what keeps one track change from notifying twice.
+  void start() {
+    _subscription ??= _states.listen(onState);
+  }
+
+  /// Feeds one state in. Public so the transition and rate-limit rules can be
+  /// exercised without a stream, and used by [start] as the listener.
+  void onState(PlaybackState state) {
+    // Nothing to talk to (every platform but Linux): no state to keep either.
+    if (!_notifier.isSupported) return;
+
+    // Before any of the rules below can return early, this state is the newest
+    // truth about what is playing, and a waiting announcement it contradicts
+    // has to go.
+    _dropStalePending(state);
+
+    final Track? track = state.currentTrack;
+    if (track == null) return;
+    if (!_isPlayingSomething(state)) return;
+    if (track.uri == _announced) return;
+
+    if (!_enabled()) {
+      _announced = track.uri;
+      return;
+    }
+
+    final Duration at = _elapsed();
+    final Duration? last = _lastAt;
+    // A reading behind the last one is treated as a window that has passed,
+    // not as a negative gap. [_elapsed] is monotonic, so this cannot happen
+    // from the default source; the guard is here so that a source which does
+    // go backwards costs an early notification rather than a silent one
+    // delayed by the whole jump.
+    final Duration since = last == null || at < last ? _minInterval : at - last;
+    if (since >= _minInterval) {
+      _announce(track, at);
+      return;
+    }
+
+    // Inside the window. Remember the newest track and let the one armed timer
+    // announce whatever is newest when the window closes.
+    _pending = track;
+    _timer ??= _createTimer(_minInterval - since, _announcePending);
+  }
+
+  /// Whether [state] is a claim that audio is on this track.
+  ///
+  /// Buffering and reconnecting count: both mean the engine is working toward
+  /// sound on the current track, and both are what `PlaybackStatus` reports
+  /// mid-stream rather than a reason to stay silent. Loading, paused, idle,
+  /// completed and error do not.
+  static bool _isPlayingSomething(PlaybackState state) =>
+      state.isPlaying || state.isBuffering;
+
+  /// Forgets a pending announcement that [state] has made untrue.
+  ///
+  /// A track waiting out the rate limit is only worth announcing while it is
+  /// still the one playing. Skip to it and straight back, or pause inside that
+  /// window, and the waiting announcement now describes a track the listener
+  /// has left: announcing it would name the song they skipped away from, or
+  /// claim something is playing when nothing is.
+  ///
+  /// The timer is deliberately left armed. It is what closes the window for
+  /// whatever the burst lands on next, and firing with nothing pending does
+  /// nothing, so one timer still covers a whole burst instead of being
+  /// cancelled and re-armed per skip.
+  void _dropStalePending(PlaybackState state) {
+    final Track? pending = _pending;
+    if (pending == null) return;
+    if (state.currentTrack?.uri == pending.uri && _isPlayingSomething(state)) {
+      return;
+    }
+    _pending = null;
+  }
+
+  void _announce(Track track, Duration at) {
+    _announced = track.uri;
+    _lastAt = at;
+    _pending = null;
+    _timer?.cancel();
+    _timer = null;
+    unawaited(_deliver(track));
+  }
+
+  /// Announces whatever the burst landed on, if it is still worth announcing.
+  void _announcePending() {
+    _timer = null;
+    final Track? track = _pending;
+    _pending = null;
+    if (track == null) return;
+    // Already announced by something else while the window ran.
+    if (track.uri == _announced) return;
+    if (!_enabled()) {
+      // Turned off while the window ran. Recorded as observed anyway, exactly
+      // as the disabled path in [onState] does: the track was playing while
+      // the preference was off, so switching it back on has to stay quiet
+      // until the next real change rather than announce a song that has been
+      // playing for two minutes.
+      _announced = track.uri;
+      return;
+    }
+    _announce(track, _elapsed());
+  }
+
+  Future<void> _deliver(Track track) async {
+    try {
+      await _notifier.show(_build(track));
+    } catch (_) {
+      // Best-effort by contract. A notification backend that throws (a daemon
+      // that vanished, a bus that refused the call) must never surface as an
+      // unhandled error on the playback stream's listener.
+    }
+  }
+
+  /// Stops observing and drops a pending announcement. Idempotent.
+  Future<void> dispose() async {
+    _timer?.cancel();
+    _timer = null;
+    _pending = null;
+    final StreamSubscription<PlaybackState>? subscription = _subscription;
+    _subscription = null;
+    await subscription?.cancel();
+  }
+}
