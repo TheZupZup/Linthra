@@ -76,7 +76,7 @@ class _FakeTimer implements Timer {
 void main() {
   late _RecordingNotifier notifier;
   late List<_FakeTimer> timers;
-  late DateTime clock;
+  late Duration clock;
   late bool enabled;
   late TrackChangeNotifier observer;
 
@@ -99,7 +99,7 @@ void main() {
         body: track.artistName ?? '',
       ),
       minInterval: minInterval,
-      now: () => clock,
+      elapsed: () => clock,
       createTimer: (Duration delay, void Function() callback) {
         final _FakeTimer timer = _FakeTimer(delay, callback);
         timers.add(timer);
@@ -110,7 +110,7 @@ void main() {
 
   setUp(() {
     timers = <_FakeTimer>[];
-    clock = DateTime.utc(2026, 1, 1);
+    clock = Duration.zero;
     enabled = true;
     build();
   });
@@ -127,7 +127,7 @@ void main() {
 
     test('announces the next track when it starts playing', () {
       observer.onState(_state(_track('1')));
-      clock = clock.add(const Duration(minutes: 3));
+      clock += const Duration(minutes: 3);
       observer.onState(_state(_track('2')));
 
       expect(announced(), <String>['Song 1', 'Song 2']);
@@ -136,7 +136,7 @@ void main() {
     test('position updates on the same track say nothing', () {
       observer.onState(_state(_track('1')));
       for (int second = 1; second <= 30; second++) {
-        clock = clock.add(const Duration(seconds: 1));
+        clock += const Duration(seconds: 1);
         observer.onState(
           _state(_track('1'), position: Duration(seconds: second)),
         );
@@ -148,9 +148,9 @@ void main() {
     test('a pause and a resume say nothing', () {
       final Track track = _track('1');
       observer.onState(_state(track));
-      clock = clock.add(const Duration(minutes: 1));
+      clock += const Duration(minutes: 1);
       observer.onState(_state(track, status: PlaybackStatus.paused));
-      clock = clock.add(const Duration(minutes: 1));
+      clock += const Duration(minutes: 1);
       observer.onState(_state(track));
 
       expect(announced(), <String>['Song 1']);
@@ -160,7 +160,7 @@ void main() {
       final PlaybackState state = _state(_track('1'));
       observer.onState(state);
       observer.onState(state);
-      clock = clock.add(const Duration(minutes: 3));
+      clock += const Duration(minutes: 3);
       observer.onState(state);
 
       expect(announced(), <String>['Song 1']);
@@ -170,7 +170,7 @@ void main() {
       // A fresh Track object for the same song: what a re-queue, a favourite
       // toggle or a catalog refresh produces.
       observer.onState(_state(_track('1')));
-      clock = clock.add(const Duration(minutes: 1));
+      clock += const Duration(minutes: 1);
       observer.onState(_state(_track('1')));
 
       expect(announced(), <String>['Song 1']);
@@ -179,7 +179,7 @@ void main() {
     test('repeat-one starting the same song again says nothing', () {
       final Track track = _track('1');
       observer.onState(_state(track, position: const Duration(minutes: 2)));
-      clock = clock.add(const Duration(minutes: 1));
+      clock += const Duration(minutes: 1);
       // The replay: same track, back at the beginning.
       observer.onState(_state(track));
 
@@ -197,7 +197,7 @@ void main() {
     test('a reconnect mid-stream says nothing', () {
       final Track track = _track('1');
       observer.onState(_state(track));
-      clock = clock.add(const Duration(minutes: 1));
+      clock += const Duration(minutes: 1);
       observer.onState(
         _state(track, status: PlaybackStatus.reconnecting),
       );
@@ -236,7 +236,7 @@ void main() {
     test('off announces nothing at all', () {
       enabled = false;
       observer.onState(_state(_track('1')));
-      clock = clock.add(const Duration(minutes: 3));
+      clock += const Duration(minutes: 3);
       observer.onState(_state(_track('2')));
 
       expect(announced(), isEmpty);
@@ -247,7 +247,7 @@ void main() {
       enabled = false;
       observer.onState(_state(_track('1')));
       enabled = true;
-      clock = clock.add(const Duration(seconds: 30));
+      clock += const Duration(seconds: 30);
       // Still the same song, just a later position.
       observer.onState(
         _state(_track('1'), position: const Duration(seconds: 30)),
@@ -255,14 +255,14 @@ void main() {
 
       expect(announced(), isEmpty);
 
-      clock = clock.add(const Duration(minutes: 3));
+      clock += const Duration(minutes: 3);
       observer.onState(_state(_track('2')));
       expect(announced(), <String>['Song 2']);
     });
 
     test('turning it off while a burst waits cancels the pending one', () {
       observer.onState(_state(_track('1')));
-      clock = clock.add(const Duration(seconds: 1));
+      clock += const Duration(seconds: 1);
       observer.onState(_state(_track('2')));
       enabled = false;
       timers.single.fire();
@@ -275,7 +275,7 @@ void main() {
     test('a burst produces one notification, for the track landed on', () {
       observer.onState(_state(_track('1')));
       for (final String id in <String>['2', '3', '4', '5']) {
-        clock = clock.add(const Duration(milliseconds: 400));
+        clock += const Duration(milliseconds: 400);
         observer.onState(_state(_track(id)));
       }
 
@@ -290,7 +290,7 @@ void main() {
 
     test('the wait is only the rest of the window', () {
       observer.onState(_state(_track('1')));
-      clock = clock.add(const Duration(seconds: 4));
+      clock += const Duration(seconds: 4);
       observer.onState(_state(_track('2')));
 
       expect(timers.single.delay, const Duration(seconds: 1));
@@ -298,7 +298,7 @@ void main() {
 
     test('a change past the window announces immediately', () {
       observer.onState(_state(_track('1')));
-      clock = clock.add(const Duration(seconds: 5));
+      clock += const Duration(seconds: 5);
       observer.onState(_state(_track('2')));
 
       expect(announced(), <String>['Song 1', 'Song 2']);
@@ -307,21 +307,89 @@ void main() {
 
     test('the window restarts from the coalesced notification', () {
       observer.onState(_state(_track('1')));
-      clock = clock.add(const Duration(seconds: 1));
+      clock += const Duration(seconds: 1);
       observer.onState(_state(_track('2')));
       timers.single.fire();
       expect(announced(), <String>['Song 1', 'Song 2']);
 
       // One second after the coalesced one: still inside the window.
-      clock = clock.add(const Duration(seconds: 1));
+      clock += const Duration(seconds: 1);
       observer.onState(_state(_track('3')));
       expect(announced(), <String>['Song 1', 'Song 2']);
       expect(timers, hasLength(2));
     });
 
+    test('skipping back to the announced track drops the waiting one', () {
+      observer.onState(_state(_track('1')));
+      clock += const Duration(seconds: 1);
+      observer.onState(_state(_track('2')));
+      // Straight back to the song they were already told about.
+      clock += const Duration(seconds: 1);
+      observer.onState(_state(_track('1')));
+      timers.single.fire();
+
+      // Announcing "Song 2" here would name the track they skipped away from.
+      expect(announced(), <String>['Song 1']);
+    });
+
+    test('pausing inside the window drops the waiting announcement', () {
+      observer.onState(_state(_track('1')));
+      clock += const Duration(seconds: 1);
+      observer.onState(_state(_track('2')));
+      clock += const Duration(seconds: 1);
+      observer.onState(_state(_track('2'), status: PlaybackStatus.paused));
+      timers.single.fire();
+
+      expect(announced(), <String>['Song 1']);
+
+      // Still announced properly once it really is playing again.
+      clock += const Duration(seconds: 10);
+      observer.onState(_state(_track('2')));
+      expect(announced(), <String>['Song 1', 'Song 2']);
+    });
+
+    test('the queue emptying inside the window drops it too', () {
+      observer.onState(_state(_track('1')));
+      clock += const Duration(seconds: 1);
+      observer.onState(_state(_track('2')));
+      clock += const Duration(seconds: 1);
+      observer.onState(_state(null, status: PlaybackStatus.idle));
+      timers.single.fire();
+
+      expect(announced(), <String>['Song 1']);
+    });
+
+    test('a track still playing when the window closes is announced', () {
+      observer.onState(_state(_track('1')));
+      clock += const Duration(seconds: 1);
+      observer.onState(_state(_track('2')));
+      // Ordinary position ticks on the pending track keep it valid.
+      for (int second = 2; second <= 4; second++) {
+        clock += const Duration(seconds: 1);
+        observer.onState(
+          _state(_track('2'), position: Duration(seconds: second)),
+        );
+      }
+      timers.single.fire();
+
+      expect(announced(), <String>['Song 1', 'Song 2']);
+    });
+
+    test('a clock that jumps backwards never buys silence', () {
+      observer.onState(_state(_track('1')));
+      // What a wall clock does on an NTP correction. The real source is
+      // monotonic, so this is the guard rather than the normal path: the
+      // window must read as passed, not as an hour of negative gap.
+      clock -= const Duration(hours: 1);
+      observer.onState(_state(_track('2')));
+
+      expect(announced(), <String>['Song 1', 'Song 2']);
+      expect(timers, isEmpty);
+    });
+
     test('dispose drops a pending announcement', () async {
       observer.onState(_state(_track('1')));
-      clock = clock.add(const Duration(seconds: 1));
+      clock += const Duration(seconds: 1);
       observer.onState(_state(_track('2')));
 
       await observer.dispose();
@@ -338,7 +406,7 @@ void main() {
       build(recording: _RecordingNotifier(failWith: StateError('no daemon')));
 
       expect(() => observer.onState(_state(_track('1'))), returnsNormally);
-      clock = clock.add(const Duration(minutes: 3));
+      clock += const Duration(minutes: 3);
       expect(() => observer.onState(_state(_track('2'))), returnsNormally);
 
       // Both were attempted; both failures were swallowed.
@@ -357,14 +425,14 @@ void main() {
         notifier: failing,
         enabled: () => true,
         build: (Track track) => DesktopNotification(title: track.title),
-        now: () => clock,
+        elapsed: () => clock,
       );
       addTearDown(live.dispose);
       live.start();
 
       states.add(_state(_track('1')));
       await Future<void>.delayed(Duration.zero);
-      clock = clock.add(const Duration(minutes: 3));
+      clock += const Duration(minutes: 3);
       states.add(_state(_track('2')));
       await Future<void>.delayed(Duration.zero);
 
@@ -380,7 +448,7 @@ void main() {
       build(recording: _RecordingNotifier(isSupported: false));
 
       observer.onState(_state(_track('1')));
-      clock = clock.add(const Duration(minutes: 3));
+      clock += const Duration(minutes: 3);
       observer.onState(_state(_track('2')));
 
       expect(announced(), isEmpty);
@@ -398,7 +466,7 @@ void main() {
         notifier: recording,
         enabled: () => true,
         build: (Track track) => DesktopNotification(title: track.title),
-        now: () => clock,
+        elapsed: () => clock,
       );
       addTearDown(live.dispose);
       live.start();

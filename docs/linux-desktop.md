@@ -1033,6 +1033,13 @@ real transitions:
   whole burst, and the track the listener actually landed on is the one
   announced. Ordinary listening never meets this limit at all.
 
+  A waiting announcement is only made if it is still true when the window
+  closes. Skip to a track and back inside those five seconds, or pause inside
+  them, and it is dropped rather than naming a track the listener has left.
+  The window is measured on a monotonic clock, so a time correction (NTP, a
+  manual change) cannot make the gap since the last notification negative and
+  silence the next one for the length of the correction.
+
 Turning the preference off is read live, so it silences the next track change
 immediately, including one already waiting out that window.
 
@@ -1064,6 +1071,14 @@ for a consumer that opens files rather than fetching URLs:
   nothing on a Linux desktop can open it.
 
 A track with no title at all reads as "Unknown track", never as its path.
+
+One escaping detail, because the metadata comes from a server the listener
+configured rather than from Linthra: the freedesktop spec's `body` is
+markup-capable, so the subtitle is escaped for that route. Without it an
+ordinary `&` in a name is invalid markup a daemon may drop, and a server could
+put formatting or a link in an artist name and have the desktop render it. The
+portal's `body` is literal text by contract (markup lives behind a separate
+key it is never sent), so it takes the text as it is.
 
 ### How it reaches the desktop
 
@@ -1101,8 +1116,10 @@ Failure is silent and total: a missing daemon, a refused call, a bus that went
 away, a cover evicted between being cached and being sent. Every delivery is
 guarded and never awaited by playback, so the worst case is a notification that
 did not appear. Each call is also given a five-second deadline, because nothing
-awaits it: a wedged notification service must not leave a pending call behind
-for every track change of the session.
+awaits it. A deadline alone is not enough there: Dart's `Future.timeout` ends
+the wait, not the D-Bus call underneath it, so a timeout also drops the
+connection, which is what abandons the outstanding call and stops it landing a
+stale notification later. The next track change opens a fresh one.
 
 Automated coverage:
 `test/core/services/notifications/track_change_notifier_test.dart`,

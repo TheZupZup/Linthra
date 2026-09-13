@@ -159,6 +159,23 @@ void main() {
       expect(body['priority'], const DBusString('low'));
     });
 
+    test('takes the body literally, since the portal is not markup', () async {
+      final _FakeBus bus = _FakeBus(portalVersion: 1);
+      final DBusDesktopNotifier notifier = notifierFor(bus);
+      addTearDown(notifier.dispose);
+
+      await notifier.show(
+        const DesktopNotification(title: 'Trouble', body: 'Sparks & friends'),
+      );
+
+      // Escaping here would put a visible "&amp;" in the notification: the
+      // portal's `body` is literal text, with markup behind its own key.
+      expect(
+        _portalBody(bus.callsTo('AddNotification').single)['body'],
+        const DBusString('Sparks & friends'),
+      );
+    });
+
     test('reuses one id, so the shell keeps one entry', () async {
       final _FakeBus bus = _FakeBus(portalVersion: 1);
       final DBusDesktopNotifier notifier = notifierFor(bus);
@@ -277,6 +294,31 @@ void main() {
       expect(_hints(bus.callsTo('Notify').single)['image-path'], isNull);
     });
 
+    test('makes the markup characters in a name literal', () async {
+      final _FakeBus bus = _FakeBus();
+      final DBusDesktopNotifier notifier = notifierFor(bus);
+      addTearDown(notifier.dispose);
+
+      await notifier.show(
+        const DesktopNotification(
+          title: 'Fish & Chips',
+          body: 'Sparks & <unknown> • 4 > 3',
+        ),
+      );
+
+      final _Call call = bus.callsTo('Notify').single;
+      // The spec's body is markup-capable, so an ordinary ampersand in a name
+      // would otherwise be invalid markup, and a server could put a link in
+      // one.
+      expect(
+        (call.values[4] as DBusString).value,
+        'Sparks &amp; &lt;unknown&gt; • 4 &gt; 3',
+      );
+      // The summary is not markup in the spec, so it is left as the app shows
+      // it.
+      expect((call.values[3] as DBusString).value, 'Fish & Chips');
+    });
+
     test('replaces the previous notification instead of stacking', () async {
       final _FakeBus bus = _FakeBus();
       final DBusDesktopNotifier notifier = notifierFor(bus);
@@ -352,6 +394,32 @@ void main() {
       // outstanding per track change for the rest of the session.
       await expectLater(notifier.show(plain), completes);
       expect(notifier.transport, isNull);
+    });
+
+    test('a timed-out call is abandoned with its connection', () async {
+      // Dart's `Future.timeout` ends the wait, not the D-Bus call: the call
+      // stays outstanding and could still land a stale notification. Closing
+      // the connection is what actually abandons it.
+      final _FakeBus wedged = _FakeBus(hangs: true);
+      final _FakeBus fresh = _FakeBus(portalVersion: 1);
+      final List<_FakeBus> buses = <_FakeBus>[wedged, fresh];
+      final DBusDesktopNotifier notifier = DBusDesktopNotifier(
+        clientFactory: () => buses.removeAt(0),
+        readImage: (Uri _) async => null,
+        callDeadline: const Duration(milliseconds: 20),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.show(plain);
+      expect(wedged.closeCalls, 1);
+      // Only one call went out: a second route on a connection that is being
+      // thrown away would buy nothing.
+      expect(wedged.callsTo('Notify'), isEmpty);
+
+      // The next track change opens a fresh connection and works.
+      await notifier.show(plain);
+      expect(notifier.transport, NotificationTransport.portal);
+      expect(fresh.callsTo('AddNotification'), hasLength(1));
     });
 
     test('a bus that cannot even be opened is not an error', () async {

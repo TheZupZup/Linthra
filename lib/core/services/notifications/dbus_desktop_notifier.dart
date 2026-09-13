@@ -22,6 +22,13 @@ enum NotificationTransport {
   freedesktop,
 }
 
+/// What one attempt at one route came to.
+///
+/// A refusal and a silence are handled differently: a refusal means "ask the
+/// other route", a silence means the connection is carrying a call that will
+/// never come back and has to be given up.
+enum _SendOutcome { delivered, refused, timedOut }
+
 /// Shows Linux desktop notifications over D-Bus (issue #400).
 ///
 /// D-Bus is what a desktop notification *is*: a method call to the session's
@@ -91,9 +98,12 @@ class DBusDesktopNotifier implements DesktopNotifier {
   /// How long one notification may take before it is given up on.
   ///
   /// A notification service is local and answers in milliseconds, so a call
-  /// still outstanding after this was never coming back. It is bounded because
-  /// nothing awaits these: without a deadline a wedged daemon would leave a
-  /// pending call behind for every track change of the session.
+  /// still outstanding after this was never coming back. `Future.timeout`
+  /// only ends the *wait*, though, not the D-Bus call underneath it: that call
+  /// stays outstanding, and could still land a stale notification later. So a
+  /// timeout also drops the connection (see [_discardClient]), which is what
+  /// actually abandons the call, and leaves the rest to the next track change
+  /// rather than piling a second call onto a service that is not answering.
   static const Duration defaultCallDeadline = Duration(seconds: 5);
 
   static const String _portalDestination = 'org.freedesktop.portal.Desktop';
@@ -138,9 +148,22 @@ class DBusDesktopNotifier implements DesktopNotifier {
     if (client == null) return;
 
     for (final NotificationTransport route in _routes) {
-      if (await _send(client, route, notification)) {
-        _transport = route;
-        return;
+      switch (await _send(client, route, notification)) {
+        case _SendOutcome.delivered:
+          _transport = route;
+          return;
+        case _SendOutcome.refused:
+          // Not on the bus, or it said no. Try the other route on the same
+          // connection.
+          continue;
+        case _SendOutcome.timedOut:
+          // A service that took the call and went quiet. The call is still
+          // outstanding, so give up the connection it is on rather than
+          // leaving it to land a stale notification later, and stop here: a
+          // second call to something that is not answering buys nothing.
+          await _discardClient();
+          _transport = null;
+          return;
       }
     }
     // Nothing answered. Forget the route rather than pinning one that is not
@@ -173,24 +196,46 @@ class DBusDesktopNotifier implements DesktopNotifier {
     }
   }
 
-  Future<bool> _send(
+  Future<_SendOutcome> _send(
     DBusClient client,
     NotificationTransport route,
     DesktopNotification notification,
   ) async {
     try {
+      final bool delivered;
       switch (route) {
         case NotificationTransport.portal:
-          return await _sendPortal(client, notification).timeout(callDeadline);
+          delivered =
+              await _sendPortal(client, notification).timeout(callDeadline);
         case NotificationTransport.freedesktop:
-          return await _sendFreedesktop(client, notification)
+          delivered = await _sendFreedesktop(client, notification)
               .timeout(callDeadline);
       }
+      return delivered ? _SendOutcome.delivered : _SendOutcome.refused;
+    } on TimeoutException {
+      return _SendOutcome.timedOut;
     } catch (_) {
-      // A service that is not on the bus, a refused call, a reply that never
-      // came: all of them mean "try the other route", never an error the
-      // caller has to handle.
-      return false;
+      // A service that is not on the bus, or one that refused the call: try
+      // the other route, never an error the caller has to handle.
+      return _SendOutcome.refused;
+    }
+  }
+
+  /// Closes and forgets the bus connection, so the next notification opens a
+  /// fresh one.
+  ///
+  /// What abandons a call that timed out: closing the connection takes the
+  /// outstanding call with it. The notification id is kept on purpose, since
+  /// it belongs to the daemon's id space rather than to this connection, so a
+  /// reconnect still replaces the notification already on screen.
+  Future<void> _discardClient() async {
+    final DBusClient? client = _client;
+    _client = null;
+    if (client == null) return;
+    try {
+      await client.close();
+    } catch (_) {
+      // Best-effort: a connection being thrown away cannot fail usefully.
     }
   }
 
@@ -287,7 +332,7 @@ class DBusDesktopNotifier implements DesktopNotifier {
         // entry's `Icon=` resolves through.
         const DBusString(desktopEntry),
         DBusString(notification.title),
-        DBusString(notification.body),
+        DBusString(_escapeBodyMarkup(notification.body)),
         // No actions. A notification with buttons would be a second transport
         // control, and the shell already has the MPRIS one.
         DBusArray.string(const <String>[]),
@@ -300,6 +345,27 @@ class DBusDesktopNotifier implements DesktopNotifier {
     if (id is DBusUint32) _replacesId = id.value;
     return true;
   }
+
+  /// The body with the spec's markup characters made literal.
+  ///
+  /// The freedesktop spec's `body` is markup-capable: a daemon advertising
+  /// `body-markup` parses a small HTML-like subset of it, links and formatting
+  /// included. A track's artist and album are whatever a tagger or a server
+  /// put there, so unescaped an ordinary `&` or `<` in a name makes invalid
+  /// markup, which is a subtitle a daemon is free to mangle or drop, and a
+  /// server could put formatting or a link in a name and have a desktop
+  /// render it. Escaping here keeps the subtitle exactly the text the app
+  /// shows.
+  ///
+  /// Only this route needs it. The portal's `body` is literal text by
+  /// contract (markup is a separate `markup-body` key, which Linthra does not
+  /// send), so escaping there would put a visible `&amp;` in a song's title.
+  /// The spec's `summary` is not markup either and is left alone for the same
+  /// reason.
+  static String _escapeBodyMarkup(String body) => body
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
 
   /// The cover's bytes, or null when there is no cover, it cannot be read, or
   /// it is larger than [maxImageBytes].

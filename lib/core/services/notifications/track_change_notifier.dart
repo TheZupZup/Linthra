@@ -42,7 +42,14 @@ typedef DesktopNotificationBuilder = DesktopNotification Function(Track track);
 /// eligible track replaces whatever was waiting, one timer covers the whole
 /// burst, and when it fires the track the listener actually landed on is the
 /// one announced. Dropping instead would either announce the first track of a
-/// burst (the one they skipped away from) or nothing at all.
+/// burst (the one they skipped away from) or nothing at all. A waiting
+/// announcement is only ever made if it is still true when the window closes:
+/// skipping to a track and back inside it, or pausing inside it, drops the
+/// announcement rather than naming a track the listener has left.
+///
+/// The window is measured on a monotonic clock, not a wall clock, so a time
+/// correction cannot turn the gap since the last notification negative and
+/// silence the next one for the length of the correction.
 ///
 /// **Failure.** Every delivery is guarded and unawaited. A missing daemon, a
 /// refused call or a bus that went away costs one absent toast and nothing
@@ -54,14 +61,14 @@ class TrackChangeNotifier {
     required bool Function() enabled,
     required DesktopNotificationBuilder build,
     Duration minInterval = defaultMinInterval,
-    DateTime Function()? now,
+    Duration Function()? elapsed,
     Timer Function(Duration, void Function())? createTimer,
   })  : _states = states,
         _notifier = notifier,
         _enabled = enabled,
         _build = build,
         _minInterval = minInterval,
-        _now = now ?? DateTime.now,
+        _elapsed = elapsed ?? _monotonicElapsed(),
         _createTimer = createTimer ?? _scheduleTimer;
 
   /// The shortest gap between two notifications.
@@ -81,7 +88,17 @@ class TrackChangeNotifier {
 
   final DesktopNotificationBuilder _build;
   final Duration _minInterval;
-  final DateTime Function() _now;
+
+  /// How long this notifier has been running, from a *monotonic* source.
+  ///
+  /// The rate limit measures an interval, and a wall clock is the wrong
+  /// instrument for that: it can move backwards (an NTP correction, a manual
+  /// change, a resume from suspend). Measured with `DateTime.now`, one
+  /// backwards jump makes the gap since the last notification negative and
+  /// pushes the next one out by the whole adjustment, so an hour's correction
+  /// would buy an hour of silence while tracks kept changing.
+  final Duration Function() _elapsed;
+
   final Timer Function(Duration, void Function()) _createTimer;
 
   StreamSubscription<PlaybackState>? _subscription;
@@ -93,8 +110,9 @@ class TrackChangeNotifier {
   /// a song that has been playing for two minutes.
   String? _announced;
 
-  /// When the last notification was handed to the notifier.
-  DateTime? _lastAt;
+  /// The reading of [_elapsed] when the last notification was handed to the
+  /// notifier.
+  Duration? _lastAt;
 
   /// The newest eligible track seen inside the rate-limit window.
   Track? _pending;
@@ -102,6 +120,12 @@ class TrackChangeNotifier {
 
   static Timer _scheduleTimer(Duration delay, void Function() callback) =>
       Timer(delay, callback);
+
+  /// A monotonic elapsed-time source for one notifier. See [_elapsed].
+  static Duration Function() _monotonicElapsed() {
+    final Stopwatch stopwatch = Stopwatch()..start();
+    return () => stopwatch.elapsed;
+  }
 
   /// Begins observing. Idempotent: calling it twice never adds a second
   /// listener, which is what keeps one track change from notifying twice.
@@ -115,6 +139,11 @@ class TrackChangeNotifier {
     // Nothing to talk to (every platform but Linux): no state to keep either.
     if (!_notifier.isSupported) return;
 
+    // Before any of the rules below can return early, this state is the newest
+    // truth about what is playing, and a waiting announcement it contradicts
+    // has to go.
+    _dropStalePending(state);
+
     final Track? track = state.currentTrack;
     if (track == null) return;
     if (!_isPlayingSomething(state)) return;
@@ -125,9 +154,14 @@ class TrackChangeNotifier {
       return;
     }
 
-    final DateTime at = _now();
-    final DateTime? last = _lastAt;
-    final Duration since = last == null ? _minInterval : at.difference(last);
+    final Duration at = _elapsed();
+    final Duration? last = _lastAt;
+    // A reading behind the last one is treated as a window that has passed,
+    // not as a negative gap. [_elapsed] is monotonic, so this cannot happen
+    // from the default source; the guard is here so that a source which does
+    // go backwards costs an early notification rather than a silent one
+    // delayed by the whole jump.
+    final Duration since = last == null || at < last ? _minInterval : at - last;
     if (since >= _minInterval) {
       _announce(track, at);
       return;
@@ -148,7 +182,28 @@ class TrackChangeNotifier {
   static bool _isPlayingSomething(PlaybackState state) =>
       state.isPlaying || state.isBuffering;
 
-  void _announce(Track track, DateTime at) {
+  /// Forgets a pending announcement that [state] has made untrue.
+  ///
+  /// A track waiting out the rate limit is only worth announcing while it is
+  /// still the one playing. Skip to it and straight back, or pause inside that
+  /// window, and the waiting announcement now describes a track the listener
+  /// has left: announcing it would name the song they skipped away from, or
+  /// claim something is playing when nothing is.
+  ///
+  /// The timer is deliberately left armed. It is what closes the window for
+  /// whatever the burst lands on next, and firing with nothing pending does
+  /// nothing, so one timer still covers a whole burst instead of being
+  /// cancelled and re-armed per skip.
+  void _dropStalePending(PlaybackState state) {
+    final Track? pending = _pending;
+    if (pending == null) return;
+    if (state.currentTrack?.uri == pending.uri && _isPlayingSomething(state)) {
+      return;
+    }
+    _pending = null;
+  }
+
+  void _announce(Track track, Duration at) {
     _announced = track.uri;
     _lastAt = at;
     _pending = null;
@@ -165,7 +220,7 @@ class TrackChangeNotifier {
     if (track == null) return;
     // Turned off, or already announced by something else, while the window ran.
     if (!_enabled() || track.uri == _announced) return;
-    _announce(track, _now());
+    _announce(track, _elapsed());
   }
 
   Future<void> _deliver(Track track) async {
