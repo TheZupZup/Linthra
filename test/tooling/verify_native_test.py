@@ -77,6 +77,16 @@ for arg in "$@"; do
 done
 printf '\\n' >> "$LINTHRA_STUB_LOG"
 
+if [ "$name" = "cmake" ] && [ -n "${LINTHRA_STUB_NO_COMPILER:-}" ]; then
+  for arg in "$@"; do
+    if [ "$arg" = "-S" ]; then
+      echo "CMake Error at CMakeLists.txt:2 (project):" >&2
+      echo "  No CMAKE_CXX_COMPILER could be found." >&2
+      exit 1
+    fi
+  done
+fi
+
 case " ${LINTHRA_STUB_FAIL:-} " in
   *" $key "*)
     printf '%s: stubbed failure\\n' "$key" >&2
@@ -91,6 +101,30 @@ for arg in "$@"; do
   [ "$previous" = "-B" ] && mkdir -p -- "$arg"
   previous="$arg"
 done
+exit 0
+"""
+
+# Answers the two questions the Python section asks an interpreter before it
+# runs anything: which version are you, and can you import this module. Anything
+# else (running a test file) succeeds, since these scenarios stop before that.
+PYTHON_STUB = """#!/usr/bin/env bash
+version="${LINTHRA_STUB_PYTHON_VERSION:-3.11}"
+case "${1:-}" in
+  --version) printf 'Python %s.0\\n' "$version"; exit 0 ;;
+  -c)
+    case "$2" in
+      *version_info*) printf '%s\\n' "$version"; exit 0 ;;
+      "import "*)
+        module="${2#import }"
+        case " ${LINTHRA_STUB_MISSING_MODULES:-} " in
+          *" $module "*) printf 'ModuleNotFoundError\\n' >&2; exit 1 ;;
+        esac
+        exit 0
+        ;;
+    esac
+    exit 0
+    ;;
+esac
 exit 0
 """
 
@@ -263,34 +297,20 @@ class AgreementWithCI(unittest.TestCase):
             script_text(),
         )
 
-    def test_the_compiler_gate_is_no_narrower_than_CMake_s_detection(self) -> None:
-        """Missing a compiler CMake would find drops coverage silently.
+    def test_the_script_does_not_try_to_predict_CMake_s_compiler_choice(
+        self,
+    ) -> None:
+        """CMake is the authority on whether a compiler exists.
 
-        The gate only chooses between running the C++ checks and skipping
-        them, so it should err wide: a compiler that turns out not to work
-        costs a configure error, which is reported as a failure, while one the
-        gate fails to see costs the whole section with nothing said.
+        Four review rounds each found another discovery path a shell-side
+        guess did not cover (CXX with options, CMake's wider candidate list,
+        IDE generators, CMAKE_TOOLCHAIN_FILE). The section asks CMake instead,
+        so there is no list here to fall behind.
         """
-        # CMakeDetermineCXXCompiler.cmake's candidates.
-        for candidate in (
-            "c++",
-            "CC",
-            "g++",
-            "aCC",
-            "cl",
-            "bcc",
-            "xlC",
-            "icpx",
-            "icx",
-            "clang++",
-        ):
-            self.assertIn(
-                candidate,
-                script_text().split("CXX_CANDIDATES=(")[1].split(")")[0].split(),
-            )
-        # An IDE generator supplies its own toolchain rather than taking one
-        # from PATH, so nothing has to be found for the build to work.
-        self.assertIn('"Visual Studio"*', script_text())
+        text = script_text()
+        self.assertNotIn("CXX_CANDIDATES", text)
+        self.assertNotIn("cxx_compiler_available", text)
+        self.assertIn("No CMAKE_CXX_COMPILER could be found", text)
 
     def test_the_ruff_paths_are_the_ones_the_workflow_passes(self) -> None:
         """ruff.toml sets the rules, not the scope: the paths are the scope."""
@@ -351,6 +371,8 @@ class StubHarness(unittest.TestCase):
         fail: tuple[str, ...] = (),
         tooling_tests: dict[str, str] | None = None,
         env: dict[str, str] | None = None,
+        no_python: bool = False,
+        python_stub: bool = False,
     ) -> "_Run":
         """Run verify_native.sh with exactly `tools` available on PATH.
 
@@ -382,6 +404,7 @@ class StubHarness(unittest.TestCase):
             (repo / "native" / project / "CMakeLists.txt").write_text(
                 "project({})\n".format(project), encoding="utf-8"
             )
+        (repo / "ruff.toml").write_text('target-version = "py311"\n', encoding="utf-8")
         (repo / "test" / "tooling").mkdir(parents=True)
         if tooling_tests is None:
             tooling_tests = {"example_test.py": PASSING_TEST}
@@ -389,9 +412,15 @@ class StubHarness(unittest.TestCase):
             (repo / "test" / "tooling" / name).write_text(body, encoding="utf-8")
 
         for name in PASSTHROUGH_TOOLS:
+            if name == "python3" and (no_python or python_stub):
+                continue
             real = shutil.which(name)
             if real is not None:
                 (bin_dir / name).symlink_to(real)
+        if python_stub:
+            stub = bin_dir / "python3"
+            stub.write_text(PYTHON_STUB, encoding="utf-8")
+            stub.chmod(0o755)
         for name in tools:
             stub = bin_dir / name
             stub.write_text(STUB, encoding="utf-8")
@@ -694,76 +723,42 @@ class MissingToolsAreSkips(StubHarness):
         run = self._run(tools=("cargo", "ruff"))
         self.assertEqual(run.process.returncode, 0, msg=run.output)
         self.assertIn("SKIPPED: C++ checks", run.output)
-        self.assertIn("cmake", run.output)
-        self.assertIn("C++17 compiler", run.output)
+        self.assertIn("missing cmake, ctest", run.output)
+        # The compiler is CMake's business now, so a missing CMake says nothing
+        # about one.
+        self.assertNotIn("C++17 compiler", run.output)
 
-    def test_a_CXX_carrying_required_options_still_counts_as_a_compiler(self) -> None:
-        """cmake-env-variables(7) permits options in CXX, so the gate must too.
+    def test_CMake_finding_no_compiler_skips_the_section(self) -> None:
+        """Whatever satisfies CMake works, and nothing else has to be guessed."""
+        run = self._run(env={"LINTHRA_STUB_NO_COMPILER": "1"})
+        self.assertEqual(run.process.returncode, 0, msg=run.output)
+        self.assertIn("SKIPPED: C++ checks, CMake found no C++ compiler", run.output)
+        self.assertIn("CMAKE_TOOLCHAIN_FILE", run.output)
+        # It stops at the first project rather than repeating itself four times.
+        self.assertEqual(
+            run.output.count("CMake found no C++ compiler"), 2, msg=run.output
+        )
 
-        Looking the whole value up as one command name rejects a cross
-        toolchain CMake would configure happily, and on a machine without
-        c++/g++/clang++ that skipped every C++ check.
+    def test_ruff_runs_even_with_no_python3(self) -> None:
+        """Ruff is a standalone binary and never runs the interpreter.
+
+        Skipping it alongside the tooling tests meant a machine with Ruff but
+        no python3 heard nothing about lint or formatting errors Ruff would
+        have caught.
         """
         run = self._run(
-            tools=("cargo", "cmake", "ctest", "ruff", "custom-compiler"),
-            env={"CXX": "custom-compiler --sysroot=/sdk"},
+            tools=("cargo", "cmake", "ctest", "c++", "ruff"), no_python=True
         )
-        self.assertEqual(run.process.returncode, 0, msg=run.output)
-        self.assertNotIn("SKIPPED: C++ checks", run.output)
-        self.assertTrue([c for c in run.calls if c[0] == "ctest"], msg=run.output)
-
-    def test_a_compiler_only_CMake_would_have_named_still_counts(self) -> None:
-        """`cl`, `icpx` and friends are compilers too, not an absent toolchain."""
-        for compiler in ("cl", "icpx", "CC"):
-            with self.subTest(compiler=compiler):
-                run = self._run(tools=("cargo", "cmake", "ctest", "ruff", compiler))
-                self.assertEqual(run.process.returncode, 0, msg=run.output)
-                self.assertNotIn("SKIPPED: C++ checks", run.output)
-
-    def test_an_IDE_generator_supplies_its_own_toolchain(self) -> None:
-        run = self._run(
-            tools=("cargo", "cmake", "ctest", "ruff"),
-            env={"CMAKE_GENERATOR": "Visual Studio 17 2022"},
+        ruff = [" ".join(call) for call in self._calls(run, "ruff")]
+        self.assertEqual(
+            ruff,
+            [
+                "ruff check scripts tool tools",
+                "ruff format --check scripts tool tools",
+            ],
+            msg=run.output,
         )
-        self.assertEqual(run.process.returncode, 0, msg=run.output)
-        self.assertNotIn("SKIPPED: C++ checks", run.output)
-
-    def test_windows_defaults_to_an_IDE_generator_with_no_compiler_on_PATH(
-        self,
-    ) -> None:
-        """CMake's default generator on Windows supplies its own toolchain.
-
-        cl is not on a Git Bash PATH and CMAKE_GENERATOR need not be set for
-        CMake to find the Visual Studio toolchain, so nothing visible from the
-        script can confirm a compiler there. Skipping the section on that
-        basis would drop the C++ checks on a machine where they would run.
-        """
-        run = self._run(
-            tools=("cargo", "cmake", "ctest", "ruff"),
-            env={"OSTYPE": "msys"},
-        )
-        self.assertEqual(run.process.returncode, 0, msg=run.output)
-        self.assertNotIn("SKIPPED: C++ checks", run.output)
-        self.assertTrue([c for c in run.calls if c[0] == "ctest"], msg=run.output)
-
-    def test_a_unix_machine_with_no_compiler_still_skips(self) -> None:
-        """The exemption above must not become a blanket pass."""
-        run = self._run(
-            tools=("cargo", "cmake", "ctest", "ruff"),
-            env={"OSTYPE": "linux-gnu"},
-        )
-        self.assertIn("SKIPPED: C++ checks", run.output)
-        self.assertIn("C++17 compiler", run.output)
-
-    def test_a_cmake_toolchain_file_answers_the_compiler_question(self) -> None:
-        """A toolchain file names its own compiler, often off PATH entirely."""
-        run = self._run(
-            tools=("cargo", "cmake", "ctest", "ruff"),
-            env={"CMAKE_TOOLCHAIN_FILE": "/opt/sdk/arm-linux.cmake"},
-        )
-        self.assertEqual(run.process.returncode, 0, msg=run.output)
-        self.assertNotIn("SKIPPED: C++ checks", run.output)
-        self.assertTrue([c for c in run.calls if c[0] == "ctest"], msg=run.output)
+        self.assertIn("SKIPPED: Python tooling tests, python3 not found", run.output)
 
     def test_no_ruff_still_runs_the_python_tooling_tests(self) -> None:
         run = self._run(tools=("cargo", "cmake", "ctest", "c++"))
@@ -797,6 +792,40 @@ class MissingToolsAreSkips(StubHarness):
         )
         # A file with nothing skipped stays a plain ok.
         self.assertIn("ok    test/tooling/ok_test.py\n", run.output)
+
+    def test_an_interpreter_older_than_the_tooling_target_is_a_skip(self) -> None:
+        """3.9 fails these tests on language features, not on the change.
+
+        tools/large_library/memory_report.py uses zip(strict=...), which is
+        3.10 and later, and ruff.toml declares the target the tooling is
+        written for.
+        """
+        run = self._run(python_stub=True, env={"LINTHRA_STUB_PYTHON_VERSION": "3.9"})
+        self.assertEqual(run.process.returncode, 0, msg=run.output)
+        self.assertIn(
+            "SKIPPED: Python tooling tests, python3 is 3.9, the tooling targets 3.11",
+            run.output,
+        )
+
+    def test_an_interpreter_at_the_tooling_target_runs_the_tests(self) -> None:
+        """The version gate must not turn into a blanket skip."""
+        run = self._run(python_stub=True, env={"LINTHRA_STUB_PYTHON_VERSION": "3.12"})
+        self.assertEqual(run.process.returncode, 0, msg=run.output)
+        self.assertNotIn("SKIPPED: Python tooling tests", run.output)
+
+    def test_a_module_CI_installs_is_named_before_the_tests_run(self) -> None:
+        """Its absence arrives as ordinary failures, so say so in advance.
+
+        Some tooling tests shell out to scripts that import PyYAML, so without
+        it they fail inside the suite rather than failing to import, which is
+        not something the per-file classification can see.
+        """
+        run = self._run(python_stub=True, env={"LINTHRA_STUB_MISSING_MODULES": "yaml"})
+        self.assertIn("The yaml Python module is not installed.", run.output)
+        self.assertIn(
+            "the yaml Python module is missing (some tooling tests need it)",
+            _summary_items(run.output, "Skipped"),
+        )
 
     def test_a_missing_external_dependency_is_skipped_not_failed(self) -> None:
         """The PyYAML shape: ci.yml installs it, a contributor may not have it."""

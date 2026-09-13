@@ -131,52 +131,34 @@ rust_section() {
     --bin benchmark_200k
 }
 
-# CMake finds the compiler on its own (CXX first, then c++/g++/clang++ on PATH).
-# This asks the same question up front so a machine without one reads as
-# "install a compiler" rather than as a CMake configure error.
+# Whether CMake found a C++ compiler, set by configure_cpp below.
 #
-# CXX may carry required options, not just a program name: cmake-env-variables(7)
-# documents `CXX="custom-compiler --sysroot=/sdk"`, and looking the whole string
-# up as one command would reject a cross toolchain CMake is perfectly happy
-# with. Only the first word names a program. A compiler path that itself
-# contains spaces is indistinguishable from a path plus options here, which is
-# a limitation CMake shares.
-#
-# The candidate list is CMake's own, from CMakeDetermineCXXCompiler.cmake. A
-# shorter list would be the wrong kind of wrong: this gate only decides whether
-# to run the C++ checks or skip them, so missing a compiler CMake would have
-# found drops real coverage silently, while guessing one that turns out not to
-# work costs nothing but a configure error, which is reported as a failure.
-CXX_CANDIDATES=(c++ CC g++ aCC cl bcc xlC icpx icx clang++)
+# There is deliberately no preflight for this any more. CMake resolves a
+# compiler from CXX (options and all), CMAKE_TOOLCHAIN_FILE, an IDE generator's
+# own environment, and its own candidate list, and four rounds of review found
+# four separate paths a shell-side guess did not cover. CMake is the authority,
+# so the section asks it and reads the answer: "no compiler here" is a skip with
+# something to install, anything else is a real failure.
+CPP_NO_COMPILER=0
 
-cxx_compiler_available() {
-  if [ -n "${CXX:-}" ] && command -v "${CXX%% *}" >/dev/null 2>&1; then
-    return 0
+# Configure one project, echoing CMake's output and remembering whether it
+# failed for want of a compiler. The two messages matched below are what CMake
+# prints when it cannot resolve one, whether that is an empty PATH or a CXX
+# pointing at nothing.
+configure_cpp() {
+  local build_dir="$1"
+  local source_dir="$2"
+  local build_type="$3"
+  local output status
+  output="$(cmake -S "$source_dir" -B "$build_dir" \
+    -DCMAKE_BUILD_TYPE="$build_type" 2>&1)"
+  status=$?
+  printf '%s\n' "$output"
+  if [ "$status" -ne 0 ] && printf '%s\n' "$output" | grep -qE \
+    'No CMAKE_CXX_COMPILER could be found|CMAKE_CXX_COMPILER not set, after EnableLanguage'; then
+    CPP_NO_COMPILER=1
   fi
-  # An IDE generator brings its own toolchain instead of taking one from PATH,
-  # so nothing needs to be found here for the build to work.
-  case "${CMAKE_GENERATOR:-}" in
-    "Visual Studio"*|Xcode|"Green Hills MULTI") return 0 ;;
-  esac
-  # A toolchain file names its own compiler, typically an absolute path to a
-  # cross toolchain that is not on PATH at all. `cmake --help-variable
-  # CMAKE_TOOLCHAIN_FILE` describes it as specifying "locations for compilers
-  # and toolchain utilities", and the environment variable initialises it for a
-  # new build tree, so a contributor who set one has already answered this.
-  [ -n "${CMAKE_TOOLCHAIN_FILE:-}" ] && return 0
-  # The same applies when CMAKE_GENERATOR is unset on Windows, where CMake's
-  # default is a Visual Studio generator: cl is not on a Git Bash PATH, and
-  # cmake-generators(7) notes that "since the IDEs configure their own
-  # environment one may launch CMake from any environment". Nothing visible
-  # from here can confirm that toolchain, so do not skip the section over it.
-  case "${OSTYPE:-}" in
-    msys*|cygwin*|win32*) return 0 ;;
-  esac
-  local candidate
-  for candidate in "${CXX_CANDIDATES[@]}"; do
-    command -v "$candidate" >/dev/null 2>&1 && return 0
-  done
-  return 1
+  return "$status"
 }
 
 # ctest over one build directory.
@@ -202,7 +184,6 @@ cpp_section() {
   for tool in cmake ctest; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
   done
-  cxx_compiler_available || missing+=("a C++17 compiler (g++ or clang++)")
 
   if [ "${#missing[@]}" -gt 0 ]; then
     # Joined by hand rather than with printf: an entry can contain spaces, so the
@@ -211,8 +192,7 @@ cpp_section() {
     list="$(IFS=','; printf '%s' "${missing[*]}")"
     skip "C++ checks" "missing ${list//,/, }" \
       "Both projects are plain CMake, with no other dependencies: install" \
-      "CMake (which provides ctest) and a C++17 compiler from your" \
-      "distribution's packages."
+      "CMake, which provides ctest, from your distribution's packages."
     return
   fi
   cmake --version 2>/dev/null | head -1 || true
@@ -227,9 +207,21 @@ cpp_section() {
       # reconfiguring in place and rebuilding everything on every switch.
       build_dir="build/$project/$build_type"
 
-      run_step "$project $build_type: cmake configure" \
-        cmake -S "native/$project" -B "$build_dir" \
-        -DCMAKE_BUILD_TYPE="$build_type" || continue
+      info "$project $build_type: cmake configure"
+      if ! configure_cpp "$build_dir" "native/$project" "$build_type"; then
+        if [ "$CPP_NO_COMPILER" -eq 1 ]; then
+          skip "C++ checks" "CMake found no C++ compiler" \
+            "Install a C++17 compiler (g++ or clang++) from your" \
+            "distribution's packages, or point CXX or CMAKE_TOOLCHAIN_FILE at" \
+            "one. CMake decides this, so whatever satisfies CMake works here."
+          return
+        fi
+        warn "FAILED: $project $build_type: cmake configure"
+        FAILED+=("$project $build_type: cmake configure")
+        RAN=$((RAN + 1))
+        continue
+      fi
+      RAN=$((RAN + 1))
       # --config goes beyond the workflow's command line on purpose. CI's
       # runner uses a single-config generator, where CMAKE_BUILD_TYPE above
       # decides everything; a contributor with CMAKE_GENERATOR set to a
@@ -374,17 +366,27 @@ python_tooling_tests() {
   done
 }
 
+# The Python version the tooling is written for, read from ruff.toml so there is
+# one source of truth rather than a number repeated here. "py311" means 3.11.
+required_python_version() {
+  sed -n 's/^target-version *= *"py\([0-9]\)\([0-9][0-9]*\)".*/\1.\2/p' \
+    ruff.toml 2>/dev/null | head -1
+}
+
+# True when $1 is an older version than $2.
+older_version() {
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ] &&
+    [ "$1" != "$2" ]
+}
+
 python_section() {
   section "Python: scripts/, tool/, tools/ and test/tooling/"
 
-  if ! command -v python3 >/dev/null 2>&1; then
-    skip "Python checks" "python3 not found" \
-      "Install Python 3 from your distribution's packages."
-    return
-  fi
-  python3 --version 2>/dev/null | head -1 || true
-
-  # The two commands python-lint.yml runs, with the three paths it passes.
+  # Ruff first, and on its own: it is a standalone binary that never runs the
+  # interpreter, so a machine with Ruff but no python3 can still be told that
+  # its lint and formatting are wrong rather than hearing nothing at all.
+  #
+  # The two commands are python-lint.yml's, with the three paths it passes.
   # ruff.toml only adds excludes, it does not set the scope, so a bare
   # `ruff check .` is a different check (ruff.toml explains this at length).
   # --check on the formatter is the point rather than a detail: this script
@@ -400,6 +402,45 @@ python_section() {
       "CI pins an exact version; .github/workflows/python-lint.yml has it," \
       "and matching it locally avoids disagreeing about formatting."
   fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    skip "Python tooling tests" "python3 not found" \
+      "Install Python 3 from your distribution's packages."
+    return
+  fi
+  python3 --version 2>/dev/null | head -1 || true
+
+  # An interpreter older than the tooling targets fails these tests for reasons
+  # that have nothing to do with the change being checked:
+  # tools/large_library/memory_report.py uses zip(strict=...), which is 3.10 and
+  # later. Reporting that as a verdict on the change would be a lie.
+  local want have
+  want="$(required_python_version)"
+  have="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null)"
+  if [ -n "$want" ] && [ -n "$have" ] && older_version "$have" "$want"; then
+    skip "Python tooling tests" "python3 is $have, the tooling targets $want" \
+      "ruff.toml sets that target and CI installs the same version." \
+      "An older interpreter fails these tests on syntax and library features," \
+      "which says nothing about your change."
+    return
+  fi
+
+  # Name a module CI installs that is missing here, before the tests run. Some
+  # of them shell out to scripts that import it, so its absence arrives as
+  # ordinary test failures rather than as an import error that can be
+  # classified. Saying so up front is the difference between a baffling red run
+  # and an obvious one command fix.
+  local module
+  for module in "${PYTHON_EXTERNAL_MODULES[@]}"; do
+    if ! python3 -c "import $module" >/dev/null 2>&1; then
+      warn "The $module Python module is not installed."
+      warn "CI installs it before running these tests (see the pip install"
+      warn "steps in .github/workflows/), and some of them shell out to"
+      warn "scripts that import it, so expect failures below that are about"
+      warn "the missing module rather than about your change."
+      SKIPPED+=("the $module Python module is missing (some tooling tests need it)")
+    fi
+  done
 
   python_tooling_tests
 }

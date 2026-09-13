@@ -92,16 +92,20 @@ else
   line "  ctest:" "none (it ships with CMake)"
 fi
 
-# Same order CMake itself resolves a compiler in: $CXX, then what is on PATH.
-# CXX may carry required options as well as a program name (cmake-env-variables(7)
-# documents `CXX="custom-compiler --sysroot=/sdk"`), so only its first word is a
-# command to look for. Kept in step with cxx_compiler_available() in
-# scripts/verify_native.sh, which gates the C++ checks on the same question.
+# A best-effort look, not a verdict. CMake resolves a compiler from CXX, a
+# toolchain file, an IDE generator's own environment and its own candidate list,
+# and scripts/verify_native.sh deliberately stopped trying to predict that: it
+# asks CMake and reads the answer. So this reports what is plainly visible and
+# says so when it finds nothing, rather than telling anyone their setup is
+# broken.
+#
+# CXX may carry required options as well as a program name
+# (cmake-env-variables(7) documents `CXX="custom-compiler --sysroot=/sdk"`), so
+# only its first word is a command to look for.
 CXX_FOUND="${CXX:-}"
 CXX_FOUND="${CXX_FOUND%% *}"
 if [ -z "$CXX_FOUND" ]; then
-  # CMake's own candidate list, from CMakeDetermineCXXCompiler.cmake, so this
-  # report does not call a compiler missing that CMake would have found.
+  # CMake's own candidate list, from CMakeDetermineCXXCompiler.cmake.
   for candidate in c++ CC g++ aCC cl bcc xlC icpx icx clang++; do
     if command -v "$candidate" >/dev/null 2>&1; then
       CXX_FOUND="$candidate"
@@ -111,8 +115,12 @@ if [ -z "$CXX_FOUND" ]; then
 fi
 if [ -n "$CXX_FOUND" ] && command -v "$CXX_FOUND" >/dev/null 2>&1; then
   line "C++ compiler:" "$(command -v "$CXX_FOUND")"
+elif [ -n "${CMAKE_TOOLCHAIN_FILE:-}" ]; then
+  line "C++ compiler:" "from CMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE"
+elif [ -n "${CMAKE_GENERATOR:-}" ]; then
+  line "C++ compiler:" "expected from generator $CMAKE_GENERATOR"
 else
-  line "C++ compiler:" "none (install g++ or clang++)"
+  line "C++ compiler:" "none on PATH (CMake may still find one)"
 fi
 
 if command -v python3 >/dev/null 2>&1; then
