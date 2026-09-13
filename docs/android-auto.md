@@ -99,13 +99,42 @@ repeat stay consistent however you press a button.
   a head unit that caches the capability set when it connects keeps its
   Next / Previous and queue-row buttons live regardless of where you are in the
   queue.
+- While a track change is **opening** the next track, the session reports
+  `AudioProcessingState.buffering` — never `loading`. That distinction is not
+  cosmetic: `loading` is the one value `audio_service` maps to
+  `PlaybackStateCompat.STATE_CONNECTING`, which the platform defines as "this
+  session is connecting to a new destination". Android Auto reads it that way —
+  it shows its connecting placeholder, drops the progress it was drawing, and
+  **stops dispatching transport presses** — so a Next pressed during the change
+  was acknowledged by the car and never reached Linthra. Since Linthra enters
+  the controller's `loading` state on *every* track change (it publishes it
+  while resolving the next track's playable URI, a network round trip on a
+  remote source), that window covered most of the time a listener actually
+  presses Next, which is what made the car's Next/Previous look unreliable
+  (#638). Buffering is also simply the truthful state — the item is being
+  prepared — and the session keeps reporting `playing` through the change, so
+  the foreground service is held exactly as before. Bluetooth/headset and
+  notification buttons never regressed with it: those arrive as media-button
+  intents the session dispatches whatever state it is in.
 - The **visible** notification / lock-screen buttons are still gated: the
   `skipToPrevious` button only appears once a previous track exists and
   `skipToNext` only while one is queued, so no dead button is ever shown.
 - At a queue boundary (Next on the last track, Previous on the first) the action
   is a safe no-op — the queue and the now-playing state are left untouched.
 - Previous always steps to the previous track (it does not restart the current
-  track first); there is no "double-press to go back" behaviour.
+  track first); there is no "double-press to go back" behaviour. The car gets
+  the *shared* policy: `LinthraAudioHandler.skipToPrevious` calls
+  `PlaybackController.skipToPrevious` and nothing else, so if that policy ever
+  changes the car follows it without a second implementation to keep in step.
+- One press is one navigation. The controller moves its queue pointer
+  synchronously before it awaits anything, so two quick presses advance twice
+  and one press can never advance twice.
+- The session handler is attached **once per process**
+  (`connectMediaSession`). A second attach reuses the live handler rather than
+  initialising `audio_service` again, which would leave two handlers mirroring
+  into the same session, and a handler that is detached is inert — a command
+  still in flight across a reconnect can't drive a controller it no longer
+  speaks for.
 
 ### Browse tree
 
@@ -217,6 +246,27 @@ You should see, in order:
 - `play: album-track resolved=true` — a selection resolved to something
   playable. `resolved=false` means a stale id resolved to nothing.
 
+Transport commands are breadcrumbed separately, under the `linthra.stability`
+tag:
+
+```sh
+adb logcat | grep linthra.stability
+```
+
+Those logcat lines are **debug builds only**. In a release build the same
+breadcrumbs are still recorded, in the bounded in-memory event log the "Report a
+bug" flow can attach — so a listener's report can carry them without a laptop.
+
+- `skip command: next` / `skip command: previous` — a Next/Previous arrived
+  through the media session. Android routes the car's on-screen control, a
+  steering-wheel or Bluetooth button, a wired headset and the notification all
+  through the one session, so the specific transport isn't distinguishable —
+  what matters is that the command reached the app at all.
+- `play command: media-session` / `pause command: media-session` — the same for
+  play/pause.
+
+These are secret-free: a fixed label, never a track, id, URL or token.
+
 ## Build / install
 
 ```sh
@@ -259,7 +309,10 @@ Reference: <https://developer.android.com/training/cars/testing/dhu>
 ### B) Real car / head unit
 
 Use the [manual checklist](#manual-checklist) below. You still need Developer
-mode → **Add unknown sources** enabled for a sideloaded build.
+mode → **Add unknown sources** enabled for a sideloaded build. If you only have
+five minutes, run the
+[track navigation smoke test](#track-navigation-smoke-test) instead — it is the
+one that catches a broken Next/Previous.
 
 ## Manual checklist
 
@@ -282,7 +335,10 @@ mode → **Add unknown sources** enabled for a sideloaded build.
 12. Browse **Offline** and play a downloaded track (if you have any) — confirm it
     plays (ideally with the phone offline, to prove no network is needed).
 13. Press the car / head-unit **Next** / **Previous** — confirm Linthra skips
-    correctly (Previous steps back; it does not restart the current track first).
+    correctly (Previous steps back; it does not restart the current track
+    first). The [track navigation smoke test](#track-navigation-smoke-test)
+    below covers this properly; run it on anything that touches the media
+    session, the playback controller, or the queue.
 14. Open the car's **Up Next** list and tap a row — confirm playback jumps to it.
 15. Test **shuffle / repeat** and **Play / Pause** — confirm both stay in sync.
 16. **Lock the phone screen** and press car **Next** — confirm music keeps
@@ -296,6 +352,46 @@ mode → **Add unknown sources** enabled for a sideloaded build.
     ever shown (only titles, artists, albums).
 20. Skim `adb logcat | grep Linthra.AndroidAuto` — confirm **no tokens or
     authenticated stream URLs** appear (only category labels and counts).
+
+## Track navigation smoke test
+
+The short run to make on any build that touches the media session, playback
+controller, or queue. It is the check that would have caught #638, where the
+car's Next/Previous stopped reliably changing the song in v0.2.6.
+
+Takes about five minutes on a real head unit or the DHU.
+
+**Setup.** Install the build, open Linthra once on the phone, and start an album
+or playlist with **at least 3 tracks**. Leave a `adb logcat | grep -E
+"Linthra.AndroidAuto|linthra.stability"` running if you can — it is what turns a
+"nothing happened" into a diagnosis.
+
+| # | Do this | Expect |
+| - | ------- | ------ |
+| 1 | Connect Android Auto and open Linthra's now-playing screen. | The current track, its artist/album, artwork, and a **running progress bar**. |
+| 2 | Press **Next** once. | Exactly **one** track forward. Title, artist, artwork and progress all follow within a second or so. |
+| 3 | Press **Next** three more times, roughly one press per second. | Three tracks forward — not two, not five. Every press lands even though each one starts a new track opening. |
+| 4 | Press **Previous** twice. | Two tracks back. Previous steps back; it does **not** restart the current track first. |
+| 5 | Pause, then press **Next**. | The track changes while still paused, and the card updates. It does not start playing on its own. |
+| 6 | Lock the phone, press **Next** on the head unit. | Music keeps playing and skips cleanly, with no drop-out across the change. |
+| 7 | Go to the **first** track and press **Previous**; go to the **last** and press **Next**. | Both are quiet no-ops. Nothing restarts, nothing jumps to the other end of the queue, and the buttons stay live. |
+| 8 | Turn **shuffle** on, press Next a few times; then **repeat-all**, then **repeat-one**. | Navigation follows the same order the phone shows. Repeat/shuffle state stays in sync between the car and the app. |
+| 9 | Disconnect Android Auto, wait a few seconds, reconnect, press **Next**. | One track forward. Not two — a reconnect must not leave a second handler taking the same press. |
+| 10 | Disconnect Android Auto. Start playback from the phone, **then** connect. Press **Next**. | One track forward, with the session showing the track that was already playing. |
+| 11 | Open the car's **Up Next** list and tap a row. | Playback jumps to that row and the highlight moves to it. |
+| 12 | Back on the phone: use the **notification** Next/Previous, then a **Bluetooth/headset** button. | Both still work, and the car stays in sync with them. |
+| 13 | Reopen Linthra on the phone. | It shows the track the car ended on, and there is no second, duplicate playback. |
+
+**Reading the log when a press seems to do nothing.** Every navigation command
+that reaches the app records a `skip command: next` / `skip command: previous`
+breadcrumb. That is what separates the two very different causes:
+
+- **No breadcrumb** — the press never reached Linthra. The head unit swallowed
+  it, which is the #638 shape: check that the session is not sitting in
+  `STATE_CONNECTING` (i.e. that a track change reports *buffering*, not
+  *loading*).
+- **A breadcrumb, but no track change** — the command arrived and was a
+  legitimate no-op: you are at a queue boundary, or the queue holds one track.
 
 ## Troubleshooting
 
@@ -338,6 +434,34 @@ mode → **Add unknown sources** enabled for a sideloaded build.
 - On Android 13+, the media notification (and some controls) require the
   `POST_NOTIFICATIONS` runtime permission — grant it when prompted on first
   launch, or in system app settings.
+
+### Next / Previous doesn't change the song
+
+Work it in this order — the first step tells you which half of the path is at
+fault, and they need completely different fixes.
+
+1. **Did the command reach the app?** On a debug build,
+   `adb logcat | grep linthra.stability` and press Next; a `skip command: next`
+   line means it did. On a release build, ask for the same breadcrumbs through
+   "Report a bug" with recent app events included.
+2. **No line at all** — the head unit never dispatched the press. That is the
+   #638 failure: the session was reporting `PlaybackStateCompat.STATE_CONNECTING`
+   (from `AudioProcessingState.loading`) for the whole of every track change,
+   and Android Auto suspends its transport row in that state. A track change
+   must report *buffering*. The notification and Bluetooth buttons keep working
+   while this is broken, because a media-button intent is dispatched whatever
+   state the session is in — so "the car is broken but my headphones aren't" is
+   the signature, not a coincidence.
+3. **A line, but no track change** — the command arrived and the controller made
+   it a no-op. Check where you are in the queue: Next on the last track and
+   Previous on the first are deliberate no-ops, and a one-track queue has
+   nowhere to go. Next does not wrap even with repeat-all on; only auto-advance
+   at the end of a track does.
+4. **Two track changes for one press** — something attached the session twice.
+   `connectMediaSession` attaches once per process and logs
+   `media session already attached (reusing the live handler)` if it is asked
+   again; a second `AudioService.init` would leave two handlers mirroring into
+   one session.
 
 ### Cast vs Android Auto
 

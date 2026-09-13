@@ -145,5 +145,27 @@ void main() {
         'pause: media-session',
       ]);
     });
+
+    test('skip commands record which direction was pressed', () {
+      // The breadcrumb that tells "the car's Next never reached the app" apart
+      // from "it reached the app and was a queue-boundary no-op" (#638).
+      StabilityDiagnostics.skipCommand('next');
+      StabilityDiagnostics.skipCommand('previous');
+      expect(SafeEventLog.instance.lines, <String>[
+        'skip: next',
+        'skip: previous',
+      ]);
+      expect(StabilityDiagnostics.describeSkipCommand('next'),
+          'skip command: next');
+    });
+
+    test('a skip breadcrumb carries no track, id, path or URL', () {
+      StabilityDiagnostics.skipCommand('next');
+      for (final String line in SafeEventLog.instance.lines) {
+        expect(line, isNot(contains('http')));
+        expect(line, isNot(contains('/')));
+        expect(line, isNot(contains('token')));
+      }
+    });
   });
 }

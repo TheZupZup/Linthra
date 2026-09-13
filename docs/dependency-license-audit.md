@@ -200,6 +200,7 @@ listed for completeness.
 | `flutter_test`  | (SDK)        | flutter.dev | BSD-3-Clause | Test framework. |
 | `drift_dev`     | `^2.18.0`    | simonbinder.eu | MIT       | Drift code generation. |
 | `build_runner`  | `^2.4.13`    | dart.dev  | BSD-3-Clause   | Runs the code generators. |
+| `audio_service_platform_interface` | `^0.1.3` | ryanheise.com | MIT | Test-only: the Android media-session boundary test. Already in the graph under `audio_service`. |
 
 ## 5. Native / bundled components
 
