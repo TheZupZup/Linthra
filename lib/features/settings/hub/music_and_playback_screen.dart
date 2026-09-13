@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/dimens.dart';
 import '../../../core/platform/host_platform.dart';
 import '../../../data/repositories/host_platform_provider.dart';
+import '../desktop/desktop_notifications_section.dart';
 import '../desktop/desktop_window_section.dart';
 import '../playback/audio_output_settings_section.dart';
 import '../playback/playback_settings_section.dart';
@@ -23,6 +24,10 @@ import 'settings_detail_scaffold.dart';
 /// closing the window does is a playback choice there, since the answer is
 /// whether the music keeps going. Android never shows it, because closing a
 /// window is not something Android does.
+///
+/// The same goes for desktop notifications (#400), the opt-in toast when the
+/// track changes: on Android that notification is the media session's, drawn
+/// by the system, so there is nothing there to offer a switch for.
 class MusicAndPlaybackScreen extends ConsumerWidget {
   const MusicAndPlaybackScreen({super.key});
 
@@ -43,6 +48,10 @@ class MusicAndPlaybackScreen extends ConsumerWidget {
         if (host.isDesktop) ...<Widget>[
           const SizedBox(height: AppSpacing.md),
           const DesktopWindowSettingsSection(),
+          // Renders nothing where notifications belong to the system, so a
+          // desktop platform without a notification seam shows no card.
+          const SizedBox(height: AppSpacing.md),
+          const DesktopNotificationsSettingsSection(),
         ],
       ],
     );

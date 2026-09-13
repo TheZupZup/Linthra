@@ -9,6 +9,8 @@ import '../data/repositories/audiobookshelf_session_store_provider.dart';
 import '../data/repositories/cast_receiver_pin_store_provider.dart';
 import '../data/repositories/default_provider_store_provider.dart';
 import '../data/repositories/desktop_density_store_provider.dart';
+import '../data/repositories/desktop_notification_preferences_provider.dart';
+import '../data/repositories/desktop_notifier_provider.dart';
 import '../data/repositories/desktop_window_controller_provider.dart';
 import '../data/repositories/desktop_window_preferences_provider.dart';
 import '../data/repositories/download_repository_provider.dart';
@@ -66,6 +68,7 @@ List<Override> productionApplicationOverrides({
     sharedPreferencesDownloadPreferencesOverride,
     sharedPreferencesPlaybackPreferencesOverride,
     sharedPreferencesDesktopWindowPreferencesOverride,
+    sharedPreferencesDesktopNotificationPreferencesOverride,
     if (resolvedHost == HostPlatform.linux) ...<Override>[
       sharedPreferencesPlaybackSessionStoreOverride,
       // The window-lifecycle channel is Linthra's own GTK runner (#401), so
@@ -106,6 +109,7 @@ List<Override> productionApplicationOverrides({
     platformLauncherIconServiceOverride,
     platformShareServiceOverride,
     platformAudioOutputDeviceServiceOverride,
+    platformDesktopNotifierOverride,
     lyricsServiceOverride,
     // Casting is withheld from production builds by the security
     // containment; see [CastContainment].
