@@ -124,7 +124,10 @@ Future<void> main() async {
 /// broke rather than reporting that the whole lifecycle "did not work".
 Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
   // initialize: constructing the controller is what registers media_kit and
-  // brings libmpv into the process.
+  // brings libmpv into the process. It does not throw when that fails (#404:
+  // a broken runtime is reported to the listener with a Retry rather than
+  // taking the app down), so the proof that libmpv really loaded is
+  // _checkLoadedLibmpv below, after the first load.
   final LinuxPlaybackController controller = LinuxPlaybackController();
   try {
     // load: playTrack resolves the URI and starts the engine on it.

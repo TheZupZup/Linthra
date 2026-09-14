@@ -224,6 +224,72 @@ fallback path. The rules (which recoveries are valid for which failure, the
 bounded attempt budget, what happens to the queue) are in
 [streaming.md](streaming.md#when-a-track-cant-play-at-all).
 
+### When the audio engine itself won't start
+
+Linux is the only platform where the audio engine is somebody else's package.
+Android ships its engine inside the app, so if the app runs, the engine is
+there. On Linux, libmpv is loaded from the system at startup, and it can be
+absent, unreadable, or the wrong build entirely. All three used to surface as
+whatever generic per-track error the failure happened to reach, which told a
+listener to check their network for a problem that was a missing package
+([issue #404](https://github.com/TheZupZup/Linthra/issues/404)).
+
+So the runtime is now a failure kind of its own,
+`PlaybackFailureKind.playbackEngineUnavailable`, and it says what it is:
+
+| What is wrong | What the player says |
+| --- | --- |
+| No libmpv on the system | Install the distribution's libmpv package (`libmpv2` on Debian/Ubuntu, `mpv-libs` on Fedora, `mpv` on Arch), then Retry |
+| libmpv is there and will not load | Reinstall the distribution's libmpv package, then Retry |
+| libmpv is there and does not match this build | Update it through the package manager, then Retry |
+| The backend would not start for some other reason | Check that libmpv is installed and working, then Retry |
+
+Inside a Flatpak the wording changes, because a Flatpak bundles its own libmpv
+and never loads the host's ([flatpak-development.md](./flatpak-development.md)):
+the fix there is reinstalling Linthra from Flathub, and an `apt install` line
+would send the listener to repair a library the app does not use.
+
+Four decisions are worth knowing about:
+
+* **It is the engine's failure, not the track's.** One engine plays everything,
+  so "Try another source" and "Skip" are not offered: both would go through the
+  same dead engine. Retry is the only button, and it is not subject to the
+  bounded per-track attempt budget, because the recovery happens on the machine
+  and taking the button away after three taps would leave a dead player with
+  nothing to press.
+* **Retry really re-initializes.** `LinuxPlaybackBackendInitializer` marks
+  itself ready only after registration returns, so every playback attempt that
+  finds it unready tries again. Install the package, press Retry, and the music
+  starts: no restart of Linthra, and certainly none of the machine.
+* **Normal failures are untouched.** Only an error that actually names the
+  native runtime (`libmpv`, an mpv symbol, the dynamic loader, an ELF header) is
+  classified this way. A codec libmpv was not built with, a NAS that is asleep,
+  an expired Jellyfin session and a stream that came back as a login page all
+  keep the wording and the recovery they already had.
+* **A bug stays a bug.** An error the classifier does not recognise is rethrown
+  untouched rather than relabelled "install libmpv", which would send everyone
+  who hit it to reinstall a package that was never the problem.
+
+The distinction between "missing" and "present but unusable" cannot come from
+media_kit: it swallows each individual load failure and reports one fixed
+"cannot find libmpv" for all of them. Linthra asks the dynamic loader itself,
+for the same three names in the same order (`libmpv.so`, `libmpv.so.2`,
+`libmpv.so.1`), and reads *its* answers, which is also exactly what
+`scripts/verify_linux.sh` probes before it runs the audio smoke.
+
+The loader's own message is kept for developers, with absolute paths and URLs
+removed and the whole thing bounded onto one line, and it goes to the debug log
+only. The copyable diagnostics report carries the closed-enum verdict instead
+(`Backend runtime: libmpv not found`), so the report's "no free-form strings"
+promise still holds.
+
+| Piece | File |
+| --- | --- |
+| Classification, wording, sanitising | `lib/core/services/linux_playback_runtime.dart` |
+| The loader probe | `lib/core/services/linux_native_library_probe.dart` |
+| Registration and retry | `LinuxPlaybackBackendInitializer`, `lib/core/services/linux_playback_controller.dart` |
+| The shared seams it plugs into | `engineUnavailableFailure` / `loadFailureFor`, `lib/core/services/just_audio_playback_controller.dart` |
+
 ### Volume
 
 Desktop needs its own volume control: there are no hardware volume keys bound to
@@ -468,9 +534,22 @@ Playback state: playing
 Recent playback failures: load ×2
 ```
 
+On a machine whose audio runtime is broken the report opens with the verdict
+instead, so a bug report says which part of the stack is at fault before it
+says anything else:
+
+```
+Linthra Linux playback diagnostics
+Backend: media_kit / libmpv (just_audio_media_kit)
+Backend runtime: libmpv not found
+libmpv: not probed (nothing playing)
+...
+```
+
 | Piece | File |
 | --- | --- |
 | The snapshot + renderer | `lib/core/diagnostics/linux_playback_diagnostics.dart` |
+| Runtime classification | `lib/core/services/linux_playback_runtime.dart` |
 | libmpv probe | `lib/core/services/linux_mpv_probe.dart` |
 | Collector | `lib/features/settings/diagnostics/linux_playback_diagnostics_collector.dart` |
 | The card | `lib/features/settings/diagnostics/linux_playback_diagnostics_section.dart` |
@@ -550,13 +629,14 @@ loaded:
 | Open the card with nothing playing | `libmpv: not probed`, and no sound is produced (no player is created to answer). |
 | Start a track, then open the card | `libmpv: available` with a real version line, and the selected output's driver/kind matching the Audio output card. |
 | Play something that fails (a server that is down), then open the card | The failure appears under `Recent playback failures` as a kind and a count, never as an error message or a URL. |
+| Move libmpv out of the loader's path (or run with `LD_LIBRARY_PATH` pointing at an empty directory), start Linthra, press play | The player says libmpv is not installed and offers only Retry; the report shows `Backend runtime: libmpv not found`. Put libmpv back, press Retry, and the track plays without restarting the app. |
 | Narrow the window to its 420 px minimum, or raise the desktop's text scale | The card's two actions stack instead of sharing a row, and the labels stay readable. |
 
 ## Remaining Linux limitations
 
 | Area | State | Why |
 | --- | --- | --- |
-| **Audio playback** | Supported | media_kit/libmpv through `LinuxPlaybackController`; local files and resolved Jellyfin, Navidrome/Subsonic, and Plex HTTP(S) streams share one backend. |
+| **Audio playback** | Supported | media_kit/libmpv through `LinuxPlaybackController`; local files and resolved Jellyfin, Navidrome/Subsonic, and Plex HTTP(S) streams share one backend. A libmpv that is missing, unloadable or incompatible is reported as such and retried in place ([issue #404](https://github.com/TheZupZup/Linthra/issues/404)), not as a track that would not play. See [When the audio engine itself won't start](#when-the-audio-engine-itself-wont-start). |
 | **Suspend / resume** | Supported (app side); real device/sink timing varies | Lifecycle `paused`→`resumed` arms a bounded Linux-only reload of an actively playing track after a short backoff ([issue #466](https://github.com/TheZupZup/Linthra/issues/466)). See [Suspend / resume (manual matrix)](#suspend--resume-manual-matrix). |
 | **Light/Dark/System theme** | Supported (app side); the native brightness bridge itself is Flutter's, not independently verified here | Settings → Appearance's System/Light/Dark choice ([issue #459](https://github.com/TheZupZup/Linthra/issues/459)) is the same shared `ThemeModePreference`/`ThemeModeController` Android uses, mapped onto `MaterialApp`'s own `themeMode` — no `gsettings`/D-Bus/GNOME/KDE-specific code in Linthra itself, and no separate Linux theme path (`test/app/theme_mode_test.dart` proves that). *Supplying* System's brightness on Linux is Flutter's GTK embedder (via the XDG desktop portal or a GNOME GSettings fallback); that native bridge is outside Linthra's code and isn't exercised by `flutter test`, which runs on the Dart VM and injects brightness straight into Flutter's test `PlatformDispatcher`. Reproducing the real bridge deterministically in CI would need a running portal daemon or GNOME schemas — exactly the DE-specific setup this app avoids adding — so it stays untested here and is a known gap, not a claimed guarantee. |
 | Media session / MPRIS | Supported | `PlatformMediaSessionBinding` routes Linux to `MprisMediaSessionBinding`, which exports `/org/mpris/MediaPlayer2` and owns `org.mpris.MediaPlayer2.linthra` ([issue #397](https://github.com/TheZupZup/Linthra/issues/397)). Shells get PlaybackStatus, Metadata, Position and the transport methods; media keys work through the same interface. `Volume` is read/write, so a shell's own volume slider drives Linthra's level (and reads zero while muted); `Rate` stays honestly read-only. `Raise` and `Quit` are answered too, so a listener whose window is hidden by background mode can bring Linthra back or shut it down from the shell's media widget (#401). `audio_service` is still never initialised on Linux — it stays the Android delegate. A machine with no session bus simply gets no desktop controls. |

@@ -42,6 +42,34 @@ void main() {
       expect(PlaybackFailureKind.sourceSignInRequired.isWorthRetrying, isFalse);
       expect(PlaybackFailureKind.unplayableMedia.isWorthRetrying, isFalse);
     });
+
+    test('so can a machine whose audio runtime has been repaired', () {
+      expect(
+        PlaybackFailureKind.playbackEngineUnavailable.isWorthRetrying,
+        isTrue,
+      );
+    });
+  });
+
+  group('an engine failure is not a track failure', () {
+    test('exactly one kind is about the engine', () {
+      expect(
+        <PlaybackFailureKind>[
+          for (final PlaybackFailureKind kind in PlaybackFailureKind.values)
+            if (kind.isEngineFailure) kind,
+        ],
+        <PlaybackFailureKind>[PlaybackFailureKind.playbackEngineUnavailable],
+      );
+    });
+
+    test('every kind has its own short label for the mini-player', () {
+      final Set<String> labels = <String>{
+        for (final PlaybackFailureKind kind in PlaybackFailureKind.values)
+          kind.shortLabel,
+      };
+
+      expect(labels, hasLength(PlaybackFailureKind.values.length));
+    });
   });
 
   group('classifying the failures playback already has', () {
@@ -64,6 +92,8 @@ void main() {
             PlaybackFailureKind.localFileUnavailable,
         PlaybackResolutionErrorKind.mediaUnsupported:
             PlaybackFailureKind.unplayableMedia,
+        PlaybackResolutionErrorKind.playbackEngineUnavailable:
+            PlaybackFailureKind.playbackEngineUnavailable,
       };
 
       // Every kind is covered, so a new one cannot slip through untested.

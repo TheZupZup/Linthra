@@ -169,6 +169,9 @@ class _PlaybackErrorNoticeState extends ConsumerState<PlaybackErrorNotice> {
         PlaybackFailureKind.localFileUnavailable => Icons.folder_off,
         PlaybackFailureKind.sourceSignInRequired => Icons.lock_outline,
         PlaybackFailureKind.unplayableMedia => Icons.music_off,
+        // Not a music icon on purpose: nothing here is about the song, and the
+        // panel's one Retry is a retry of the machine, not of the track.
+        PlaybackFailureKind.playbackEngineUnavailable => Icons.extension_off,
       };
 
   static IconData _actionIconFor(PlaybackRecoveryAction action) =>

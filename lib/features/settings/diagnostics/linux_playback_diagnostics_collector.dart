@@ -6,6 +6,7 @@ import '../../../core/diagnostics/safe_event_log.dart';
 import '../../../core/models/audio_output_device.dart';
 import '../../../core/platform/host_platform.dart';
 import '../../../core/services/linux_mpv_probe.dart';
+import '../../../core/services/linux_playback_controller.dart';
 import '../../../data/repositories/audio_output_device_service_provider.dart';
 import '../../../data/repositories/host_platform_provider.dart';
 import '../../player/player_providers.dart';
@@ -28,6 +29,20 @@ final linuxMpvProbeProvider = Provider<LinuxMpvProbe>((ref) {
 /// Where the collector reads the applied libmpv properties from.
 final linuxMpvPropertiesProvider = Provider<LinuxMpvPropertiesReader>((ref) {
   return () => JustAudioMediaKit.mpvProperties;
+});
+
+/// Reads what stopped the Linux audio backend coming up, if anything did.
+///
+/// A seam like [linuxMpvPropertiesProvider], for the same reason: the
+/// production answer comes from the process-wide backend initializer, which a
+/// test host has never run.
+typedef LinuxPlaybackRuntimeProblemReader = LinuxPlaybackRuntimeProblem?
+    Function();
+
+/// Where the collector reads the backend's runtime problem from.
+final linuxPlaybackRuntimeProblemProvider =
+    Provider<LinuxPlaybackRuntimeProblemReader>((ref) {
+  return () => LinuxPlaybackController.backendRuntimeFailure?.problem;
 });
 
 /// Gathers the Linux playback stack into a [LinuxPlaybackDiagnosticsData].
@@ -69,6 +84,11 @@ class LinuxPlaybackDiagnosticsCollector {
 
     return LinuxPlaybackDiagnosticsData(
       backend: LinuxPlaybackBackend.mediaKitLibmpv,
+      // The one line that says "nothing on this machine can play, and here is
+      // which part of the runtime is at fault". A closed enum, so it adds a
+      // fact without adding a free-form string to a report whose whole promise
+      // is that it has none.
+      runtimeProblem: _ref.read(linuxPlaybackRuntimeProblemProvider)(),
       libmpv: probe.availability,
       libmpvVersion: LinuxPlaybackDiagnostics.sanitizeVersion(probe.version),
       mpvProperties: LinuxPlaybackDiagnostics.filterMpvProperties(
