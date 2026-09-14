@@ -986,6 +986,14 @@ that can scroll sideways to the surface's own `Scrollable`, and stops claiming
 once the row is at that end so the wheel carries on down the page instead of
 the shelf swallowing it.
 
+Only a **mouse** gets its vertical scrolling borrowed. A wheel has one axis and
+no way to ask for the other; a trackpad has both, so a deliberate vertical
+two-finger swipe over the row means vertical and is passed on rather than
+turned sideways. On Linux the embedder may report a trackpad's scrolling as a
+mouse's, in which case that rule changes nothing in practice there — it is
+still the right rule to write down, and it is what makes the behaviour correct
+wherever the two can be told apart.
+
 Where the shelf is nested *inside* a scrolling page that last part needs no
 help: the page is an ancestor, so an unclaimed signal reaches it on the way
 out. The audiobook browser is not that shape — its chip row and its book list
@@ -1022,6 +1030,13 @@ seconds) on the seek bar, which `WavySeekBar.seekStepFor` owns for both. A
 trackpad's forty small deltas are the same physical gesture as one wheel click
 and are worth one step, not forty — stepping per event is what used to take a
 two-finger flick from half volume to silence.
+
+A partial notch is carried so that slow scrolling still gets somewhere, but
+only within one gesture. A trackpad has no "I let go" in a scroll event —
+fingers lifting look exactly like a pause — so `WheelNotches.gestureGap` (half
+a second, measured on the events' own clock) ends one: long enough that
+deliberate slow scrolling keeps adding up, short enough that a small swipe is
+never completed by an unrelated one later.
 
 **Fractional scaling.** A notch is measured in logical pixels, and the
 framework divides the engine's physical delta by the device pixel ratio before

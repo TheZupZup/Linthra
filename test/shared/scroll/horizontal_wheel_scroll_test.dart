@@ -155,6 +155,36 @@ void main() {
     expect(state.shelf!.offset, 0);
   });
 
+  group('only a wheel gets its vertical scrolling borrowed', () {
+    testWidgets('a trackpad swiping vertically over the row scrolls the list',
+        (tester) async {
+      // A wheel has one axis and no way to ask for the other. A trackpad has
+      // both, so a deliberate vertical swipe means vertical — turning it
+      // sideways would leave the list unreachable from the strip above it.
+      final _SiblingHarnessState state = await _pumpSiblings(tester);
+
+      await _scrollOver(
+        tester,
+        find.byKey(_shelf),
+        const Offset(0, 53),
+        kind: PointerDeviceKind.trackpad,
+      );
+
+      expect(state.list.offset, 53);
+      expect(state.shelf!.offset, 0, reason: 'the row was not asked to move');
+    });
+
+    testWidgets('a wheel over the same row still walks it sideways',
+        (tester) async {
+      final _SiblingHarnessState state = await _pumpSiblings(tester);
+
+      await _scrollOver(tester, find.byKey(_shelf), const Offset(0, 53));
+
+      expect(state.shelf!.offset, 53);
+      expect(state.list.offset, 0);
+    });
+  });
+
   group('a shelf that is a sibling of its list', () {
     testWidgets('hands a notch at the end of the row to the list',
         (tester) async {

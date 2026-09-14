@@ -21,10 +21,11 @@ Future<void> _scrollOver(
   Finder target,
   Offset delta, {
   PointerDeviceKind kind = PointerDeviceKind.mouse,
+  Duration at = Duration.zero,
 }) async {
   final TestPointer pointer = TestPointer(1, kind);
   pointer.hover(tester.getCenter(target));
-  await tester.sendEventToBinding(pointer.scroll(delta));
+  await tester.sendEventToBinding(pointer.scroll(delta, timeStamp: at));
   await tester.pump();
 }
 
@@ -131,6 +132,30 @@ void main() {
       reason: 'one gesture the size of one notch is one step',
     );
     expect(state.page.offset, 0);
+  });
+
+  testWidgets('two separate trackpad swipes do not add up into one step',
+      (tester) async {
+    // Fingers lifting from a trackpad look exactly like a pause, so a swipe
+    // that stopped short of a notch must not be completed by an unrelated one
+    // later — the first would appear to do nothing and the second to overshoot.
+    final _HarnessState state = await _pump(tester);
+
+    const Offset third = Offset(0, wheelNotchExtent / 3);
+    await _scrollOver(tester, find.byKey(_control), third,
+        kind: PointerDeviceKind.trackpad);
+    await _scrollOver(tester, find.byKey(_control), third,
+        kind: PointerDeviceKind.trackpad, at: const Duration(milliseconds: 16));
+    expect(state.notches, isEmpty, reason: 'two thirds is not a notch yet');
+
+    // Long enough later to be a gesture of its own.
+    await _scrollOver(tester, find.byKey(_control), third,
+        kind: PointerDeviceKind.trackpad, at: WheelNotches.gestureGap * 2);
+    expect(
+      state.notches,
+      isEmpty,
+      reason: 'the earlier swipe is over; this one is a third of a notch',
+    );
   });
 
   testWidgets('the page still scrolls everywhere else on it', (tester) async {

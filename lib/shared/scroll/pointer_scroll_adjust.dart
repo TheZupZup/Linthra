@@ -114,7 +114,7 @@ class _PointerScrollAdjustState extends State<PointerScrollAdjust> {
         : scroll.scrollDelta.dx;
     // Scrolling up and scrolling left both mean "more": up is louder and later
     // everywhere, and a horizontal slider reads left to right.
-    final int notches = _notches.take(-delta);
+    final int notches = _notches.take(-delta, at: scroll.timeStamp);
     if (notches != 0) widget.onNotch(notches);
   }
 

@@ -17,11 +17,18 @@ import 'pointer_scroll_policy.dart';
 /// cannot reach the far end of such a row — the content is there, and the only
 /// input the user has does nothing.
 ///
-/// Two rules keep it from taking input it has no claim on:
+/// Three rules keep it from taking input it has no claim on:
 ///
 /// * a signal that already carries horizontal movement is left alone, because
 ///   the device could say "sideways" itself and the surface's own [Scrollable]
 ///   has already handled it;
+/// * only a mouse gets its vertical scrolling borrowed at all. A wheel has one
+///   axis and no way to ask for the other; a trackpad has both, so a vertical
+///   two-finger swipe over the row means vertical and is chained on rather
+///   than turned sideways. (On Linux the embedder may report a trackpad's
+///   scrolling as a mouse's, in which case this changes nothing there — it is
+///   still the right rule to write, and it is what makes the behaviour correct
+///   wherever the two are distinguishable.)
 /// * a signal that would not move the surface — it is at that end already — is
 ///   not claimed, so something else can have it. That is the same chaining
 ///   Flutter does between nested scrollables, and it is what keeps a shelf
@@ -79,7 +86,14 @@ class _HorizontalWheelScrollState extends State<HorizontalWheelScroll> {
     // direction: what is further along in Arabic is to the left, and it is
     // still what a wheel pulled towards the user should reveal.
     final double delta = scrollDeltaAlong(Axis.vertical, event.scrollDelta);
-    final ScrollPosition? target = _positionFor(delta);
+    // A wheel may borrow this row; anything that could have said "sideways"
+    // and didn't goes straight to the list, if there is one to go to.
+    final ScrollPosition? target = _firstThatMoves(
+      delta,
+      event.kind == PointerDeviceKind.mouse
+          ? <ScrollController?>[_controller, widget.chainTo]
+          : <ScrollController?>[widget.chainTo],
+    );
     if (target == null) return;
     GestureBinding.instance.pointerSignalResolver.register(
       event,
@@ -87,14 +101,14 @@ class _HorizontalWheelScrollState extends State<HorizontalWheelScroll> {
     );
   }
 
-  /// The surface that should take [delta]: the row while it has room, then the
-  /// list it belongs to, then nobody — in which case the signal is left alone
-  /// for whatever the framework would have done with it.
-  ScrollPosition? _positionFor(double delta) {
-    for (final ScrollController? controller in <ScrollController?>[
-      _controller,
-      widget.chainTo,
-    ]) {
+  /// The first of [candidates] that [delta] would actually move, or null — in
+  /// which case the signal is left alone for whatever the framework would have
+  /// done with it.
+  ScrollPosition? _firstThatMoves(
+    double delta,
+    List<ScrollController?> candidates,
+  ) {
+    for (final ScrollController? controller in candidates) {
       if (controller == null || !controller.hasClients) continue;
       final ScrollPosition position = controller.position;
       final double target = (position.pixels + delta)

@@ -93,5 +93,37 @@ void main() {
     test('nothing scrolled is no notches', () {
       expect(WheelNotches().take(0), 0);
     });
+
+    test('a pause long enough to be a new gesture drops the remainder', () {
+      // A trackpad has no "I let go" in a scroll event, so a swipe that
+      // stopped part of the way into a notch would otherwise keep that part
+      // forever — and a separate small swipe later would complete it.
+      final WheelNotches notches = WheelNotches(notchExtent: 10);
+      expect(notches.take(9, at: Duration.zero), 0);
+      expect(
+        notches.take(9, at: WheelNotches.gestureGap * 2),
+        0,
+        reason: 'a new gesture starts from zero, so 9 is still short',
+      );
+      expect(notches.take(1, at: WheelNotches.gestureGap * 2), 1);
+    });
+
+    test('a gap inside one gesture keeps adding up', () {
+      // Scrolling slowly on purpose is still one gesture; dropping the
+      // remainder here would mean the control never moves at all.
+      final WheelNotches notches = WheelNotches(notchExtent: 10);
+      expect(notches.take(6, at: Duration.zero), 0);
+      expect(
+        notches.take(6, at: const Duration(milliseconds: 200)),
+        1,
+        reason: '200ms is a pause in a gesture, not the end of one',
+      );
+    });
+
+    test('an untimed caller keeps the old behaviour', () {
+      final WheelNotches notches = WheelNotches(notchExtent: 10);
+      expect(notches.take(6), 0);
+      expect(notches.take(6), 1);
+    });
   });
 }

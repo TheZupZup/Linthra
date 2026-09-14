@@ -70,9 +70,11 @@ bool isCrossAxisOnly(Axis axis, Offset scrollDelta) {
 /// arrived in one event or in forty.
 ///
 /// The remainder is carried, so slow trackpad scrolling accumulates instead of
-/// being rounded away to nothing. A change of direction drops it: a carried
-/// half-notch upward must not eat the first notch of a downward scroll, which
-/// would read as the control ignoring the input.
+/// being rounded away to nothing. Three things drop it. A change of direction:
+/// a carried half-notch upward must not eat the first notch of a downward
+/// scroll, which would read as the control ignoring the input. A [reset] from
+/// the call site, when the pointer leaves. And a gap of [gestureGap] between
+/// events — see there for why a trackpad needs one.
 class WheelNotches {
   WheelNotches({this.notchExtent = wheelNotchExtent})
       : assert(notchExtent > 0, 'a notch has to have a size');
@@ -81,7 +83,23 @@ class WheelNotches {
   /// round numbers rather than in multiples of 53.
   final double notchExtent;
 
+  /// How long a gap between scroll events ends a gesture.
+  ///
+  /// A trackpad has no "I let go" in a scroll event: fingers lifting look
+  /// exactly like a pause. Without a boundary, a swipe that stopped a third of
+  /// the way into a notch keeps that third forever, and a separate small swipe
+  /// minutes later completes it — so the first gesture did nothing and the
+  /// second moved the control by something it had not earned.
+  ///
+  /// Half a second is the compromise. Long enough that scrolling slowly on
+  /// purpose — a few events a second while aiming at a level — keeps adding
+  /// up, short enough that two gestures a person would call separate always
+  /// are. A mouse is unaffected either way: every click is a whole notch, so
+  /// there is never a remainder to drop.
+  static const Duration gestureGap = Duration(milliseconds: 500);
+
   double _carried = 0.0;
+  Duration? _lastAt;
 
   /// Slack, in logical pixels, on "did that complete a notch".
   ///
@@ -94,8 +112,18 @@ class WheelNotches {
   /// The whole notches [delta] completes, signed the same way as [delta].
   ///
   /// Returns 0 while a gesture is still adding up to its first notch.
-  int take(double delta) {
+  ///
+  /// Pass the event's own timestamp as [at] wherever there is one: it is what
+  /// tells a paused gesture from a continuing one, and using the event's clock
+  /// rather than the wall's keeps that decision as reproducible as the rest of
+  /// the arithmetic here.
+  int take(double delta, {Duration? at}) {
     if (delta == 0.0) return 0;
+    if (at != null) {
+      final Duration? last = _lastAt;
+      if (last != null && at - last > gestureGap) _carried = 0.0;
+      _lastAt = at;
+    }
     if (_carried != 0.0 && delta.isNegative != _carried.isNegative) {
       _carried = 0.0;
     }
@@ -111,5 +139,8 @@ class WheelNotches {
   /// Forgets a partial notch. Call this when the gesture is over — the pointer
   /// left the control, or the control was let go — so the next one starts from
   /// zero rather than from someone else's leftovers.
-  void reset() => _carried = 0.0;
+  void reset() {
+    _carried = 0.0;
+    _lastAt = null;
+  }
 }
