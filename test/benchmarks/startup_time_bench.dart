@@ -158,8 +158,14 @@ class _Workload {
   final int tracks;
 
   /// 12 tracks to an album, the same shape the other large-library harnesses
-  /// use, so "50,000 tracks" also means a realistic number of albums to group.
+  /// use, so "20,000 tracks" also means a realistic number of albums to group.
   int get albums => tracks == 0 ? 0 : (tracks / _tracksPerAlbum).ceil();
+
+  /// 8 albums to an artist. Recorded for the same reason [albums] is: the
+  /// Library groups and sorts artists during startup, so the same rows spread
+  /// over a different number of artists is a different amount of work, and two
+  /// runs that disagree about it are not measuring the same thing.
+  int get artists => albums == 0 ? 0 : (albums / _albumsPerArtist).ceil();
 }
 
 const int _tracksPerAlbum = 12;
@@ -478,8 +484,13 @@ void main() {
 
       reported.add(<String, Object?>{
         'name': workload.name,
+        // The fixture's whole shape, not just its size. The reporter compares
+        // every one of these between two runs, so a change to the generator
+        // that alters what the Library has to group is refused rather than
+        // charged to the app.
         'tracks': workload.tracks,
         'albums': workload.albums,
+        'artists': workload.artists,
         'fixture_build_ms': setup.elapsedMicroseconds / 1000,
         'fixture_bytes': file.lengthSync(),
         'usable_signal': workload.tracks == 0

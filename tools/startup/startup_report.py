@@ -122,10 +122,34 @@ class Workload:
     name: str
     tracks: int
     albums: int
+    artists: int
     fixture_build_ms: float
     fixture_bytes: int
     usable_signal: str
     samples: tuple[Sample, ...]
+
+    @property
+    def shape(self) -> dict[str, object]:
+        """Everything about this workload that is not a timing.
+
+        Compared field by field between two runs, as a whole rather than as an
+        allowlist. Size is only part of it: the Library groups and sorts by
+        album and by artist during startup, so the same rows in a different
+        shape are a different amount of work, and the milestone itself can be
+        moved by changing what counts as usable. Each of those was found
+        separately, which is the argument for comparing the lot: a field added
+        here is covered without anybody remembering to extend a list.
+
+        Deliberately excluded: `fixture_build_ms` and `fixture_bytes`, which
+        are measurements of the generator and the disk rather than decisions
+        about the workload, and vary run to run on identical fixtures.
+        """
+        return {
+            "tracks": self.tracks,
+            "albums": self.albums,
+            "artists": self.artists,
+            "usable signal": self.usable_signal,
+        }
 
     def judged(self, warmup: int) -> tuple[Sample, ...]:
         """The launches a verdict may use.
@@ -267,6 +291,7 @@ def parse_workload(payload: dict[str, object]) -> Workload:
         name=name,
         tracks=tracks,
         albums=int(_number(payload, "albums")),
+        artists=int(_number(payload, "artists")),
         fixture_build_ms=_number(payload, "fixture_build_ms"),
         fixture_bytes=int(_number(payload, "fixture_bytes")),
         usable_signal=str(payload.get("usable_signal", "")),
@@ -509,21 +534,13 @@ def comparability_problem(baseline: Run, candidate: Run) -> str | None:
         mine = candidate.workload(name)
         theirs = baseline.workload(name)
         assert mine is not None and theirs is not None
-        if mine.tracks != theirs.tracks:
-            return (
-                f"workload {name!r} held {theirs.tracks:,} tracks in the "
-                f"baseline and {mine.tracks:,} here"
-            )
-        if mine.albums != theirs.albums:
-            # Same rows, different shape. The Library groups and renders by
-            # album, so 1,000 tracks in 84 albums and 1,000 tracks in 1,000
-            # albums are different amounts of work, and a fixture change
-            # between the two commits would be charged to the app.
-            return (
-                f"workload {name!r} grouped {theirs.tracks:,} tracks into "
-                f"{theirs.albums:,} albums in the baseline and {mine.albums:,} "
-                "here"
-            )
+        for field, value in mine.shape.items():
+            was = theirs.shape[field]
+            if value != was:
+                return (
+                    f"workload {name!r} has a different {field}: the baseline "
+                    f"recorded {was!r} and this run recorded {value!r}"
+                )
     return None
 
 

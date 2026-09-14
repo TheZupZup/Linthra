@@ -175,12 +175,22 @@ A workload is called slower when **either clock** says so:
 The reporter refuses outright to compare two runs that did not measure the same
 thing: a different build mode, a different window size, a different milestone,
 a different pump interval (which is the unit `awaited` is counted in, so
-changing it rescales that whole column), a workload holding a different number
-of tracks or grouping them into a different number of albums (the Library
-groups and renders by album, so the same rows in a different shape are a
-different amount of work), or a different *set* of workloads. That last one matters because `LINTHRA_STARTUP_WORKLOADS` makes a
-subset easy to produce, and a run-level verdict that quietly skipped the
-workload missing from one side would pass a regression nobody measured.
+changing it rescales that whole column), a different *set* of workloads, or any
+difference in a workload's recorded **shape**.
+
+The set matters because `LINTHRA_STARTUP_WORKLOADS` makes a subset easy to
+produce, and a run-level verdict that quietly skipped the workload missing from
+one side would pass a regression nobody measured.
+
+Shape is the whole of what the fixture decided, compared field by field rather
+than as an allowlist: track count, album count, artist count, and the signal
+the milestone is detected by. Size is only part of it. The Library groups and
+sorts by album and by artist during startup, so the same rows spread
+differently are a different amount of work; and moving the milestone itself
+(from a painted `TrackTile` to something earlier) makes every candidate faster
+for no reason the app is responsible for. Each of those was found separately,
+which is the argument for comparing the lot: a field added to the fixture is
+covered without anybody remembering to extend a list.
 Printing a number across any of those would be inventing a result rather than
 measuring one.
 

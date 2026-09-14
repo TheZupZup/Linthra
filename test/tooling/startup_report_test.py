@@ -58,10 +58,12 @@ def workload(
     **kwargs: object,
 ) -> dict[str, object]:
     rows = 0 if tracks == 0 else 13
+    albums = 0 if tracks == 0 else (tracks + 11) // 12
     return {
         "name": name,
         "tracks": tracks,
-        "albums": 0 if tracks == 0 else (tracks + 11) // 12,
+        "albums": albums,
+        "artists": 0 if albums == 0 else (albums + 7) // 8,
         "fixture_build_ms": 12.0,
         "fixture_bytes": 4096,
         "usable_signal": "first track row painted",
@@ -482,19 +484,49 @@ class IndeterminateExpectationTest(unittest.TestCase):
             self.assertIn("NOT ENOUGH DATA", result.stdout)
 
 
-class AlbumShapeTest(unittest.TestCase):
-    """Same rows, different grouping, is a different amount of work."""
+class WorkloadShapeTest(unittest.TestCase):
+    """Everything the fixture decided is compared, not an allowlist of it.
 
-    def test_a_different_album_count_is_refused(self) -> None:
-        base = startup_report.parse(
-            run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
-        )
-        regrouped = workload("small", 1000, [9000.0, 300.0, 300.0, 300.0])
-        regrouped["albums"] = 1000
-        cand = startup_report.parse(run_payload(regrouped))
+    Track count, album count, artist count and the milestone signal were each
+    found as a separate hole. Comparing the whole recorded shape is what stops
+    the next field being another one.
+    """
+
+    def refuses(self, field: str, value: object) -> str:
+        steady = [9000.0, 300.0, 300.0, 300.0]
+        base = startup_report.parse(run_payload(workload("small", 1000, steady)))
+        changed = workload("small", 1000, steady)
+        changed[field] = value
+        cand = startup_report.parse(run_payload(changed))
         with self.assertRaises(startup_report.InvalidReport) as raised:
             startup_report.compare(base, cand)
-        self.assertIn("albums", str(raised.exception))
+        return str(raised.exception)
+
+    def test_a_different_album_count_is_refused(self) -> None:
+        self.assertIn("different albums", self.refuses("albums", 1000))
+
+    def test_a_different_artist_count_is_refused(self) -> None:
+        """`_albumsPerArtist` moving changes what the Artists tab groups."""
+        self.assertIn("different artists", self.refuses("artists", 1000))
+
+    def test_a_different_milestone_signal_is_refused(self) -> None:
+        """Moving the finder earlier makes every candidate timing faster."""
+        message = self.refuses("usable_signal", "first library widget built")
+        self.assertIn("different usable signal", message)
+
+    def test_the_shape_covers_every_recorded_decision(self) -> None:
+        """A field added to the fixture is compared without editing a list."""
+        run = startup_report.parse(run_payload())
+        self.assertEqual(
+            sorted(run.workload("small").shape),
+            ["albums", "artists", "tracks", "usable signal"],
+        )
+
+    def test_generator_timings_are_not_part_of_the_shape(self) -> None:
+        """They measure the generator and the disk, and vary run to run."""
+        shape = startup_report.parse(run_payload()).workload("small").shape
+        self.assertNotIn("fixture_build_ms", shape)
+        self.assertNotIn("fixture_bytes", shape)
 
 
 class ComparabilityTest(unittest.TestCase):
@@ -527,7 +559,8 @@ class ComparabilityTest(unittest.TestCase):
                 workload("large", 50000, [4000.0] * 4),
             ]
         )
-        self.assertIn("50,000", message)
+        self.assertIn("different tracks", message)
+        self.assertIn("50000", message)
 
     def test_a_missing_workload_is_refused(self) -> None:
         """A run-level verdict has to cover every workload it claims to.

@@ -57,14 +57,31 @@ SMOKE=0
 # Forwarded verbatim to every startup_report.py comparison. Empty by default,
 # so the reporter's own defaults are the ones in force; the failure message a
 # disagreeing control prints names these, so they have to actually exist here.
+info() { printf '\n==> %s\n' "$*"; }
+die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+# Every numeric option reaches the harness as an environment variable, and the
+# harness falls back to its default on anything it cannot parse. So
+# `--large-tracks 20000.0` or `--small-tracks typo` would not fail: all three
+# scenarios would quietly measure a different library from the one asked for
+# and the run would pass, describing a workload that was never run. Checked
+# here instead, before anything is measured. (`set -e` is off in this script,
+# so a bad value would also survive a later arithmetic test.)
+require_count() {
+  local flag="$1" value="$2"
+  case "$value" in
+    ''|*[!0-9]*) die "$flag needs a whole number, got '$value'" ;;
+  esac
+}
+
 ALLOWANCES=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --iterations)   ITERATIONS="$2"; shift 2 ;;
-    --small-tracks) SMALL_TRACKS="$2"; shift 2 ;;
-    --large-tracks) LARGE_TRACKS="$2"; shift 2 ;;
-    --canary-ms)    CANARY_MS="$2"; shift 2 ;;
+    --iterations)   require_count "$1" "${2-}"; ITERATIONS="$2"; shift 2 ;;
+    --small-tracks) require_count "$1" "${2-}"; SMALL_TRACKS="$2"; shift 2 ;;
+    --large-tracks) require_count "$1" "${2-}"; LARGE_TRACKS="$2"; shift 2 ;;
+    --canary-ms)    require_count "$1" "${2-}"; CANARY_MS="$2"; shift 2 ;;
     --out)          OUT_DIR="$2"; shift 2 ;;
     --relative-allowance|--absolute-allowance-ms|--simulated-allowance-ms)
       ALLOWANCES+=("$1" "$2"); shift 2 ;;
@@ -73,9 +90,6 @@ while [ $# -gt 0 ]; do
     *) printf 'unknown argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
-
-info() { printf '\n==> %s\n' "$*"; }
-die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 LOCAL_FLUTTER="$REPO_ROOT/.tool/flutter/bin/flutter"
 if [ -x "$LOCAL_FLUTTER" ]; then
