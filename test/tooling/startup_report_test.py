@@ -1,0 +1,468 @@
+#!/usr/bin/env python3
+"""Unit tests for tools/startup/startup_report.py.
+
+The reporter is the half of the startup benchmark that makes a judgement, so it
+is the half that has to be tested against sample sets whose answer is known.
+Nothing here needs Flutter, a stopwatch or a quiet machine: it builds synthetic
+runs and checks what the reporter says about them, including the two ways a
+verdict can be wrong (calling an identical run a regression, and calling an
+injected slowdown fine).
+
+    python3 test/tooling/startup_report_test.py
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools" / "startup"))
+
+import startup_report  # noqa: E402
+
+SCRIPT = ROOT / "tools" / "startup" / "startup_report.py"
+
+
+def samples(
+    values_ms: list[float],
+    *,
+    warmup: int = 1,
+    rows: int = 13,
+    first_frame_ms: float = 20.0,
+) -> list[dict[str, object]]:
+    """Turns a list of first-usable-frame readings into recorded launches."""
+    return [
+        {
+            "iteration": index,
+            "warmup": index < warmup,
+            "first_frame_ms": first_frame_ms,
+            "first_usable_frame_ms": value,
+            "frames": 3,
+            "rows_rendered": rows,
+        }
+        for index, value in enumerate(values_ms)
+    ]
+
+
+def workload(
+    name: str,
+    tracks: int,
+    values_ms: list[float],
+    **kwargs: object,
+) -> dict[str, object]:
+    rows = 0 if tracks == 0 else 13
+    return {
+        "name": name,
+        "tracks": tracks,
+        "albums": 0 if tracks == 0 else (tracks + 11) // 12,
+        "fixture_build_ms": 12.0,
+        "fixture_bytes": 4096,
+        "usable_signal": "first track row painted",
+        "samples": samples(values_ms, rows=rows, **kwargs),  # type: ignore[arg-type]
+    }
+
+
+def run_payload(
+    *workloads: dict[str, object], **overrides: object
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema": startup_report.SCHEMA,
+        "label": "test",
+        "milestone": "first_usable_frame",
+        "build_mode": "debug",
+        "runtime": "flutter test (Dart VM, JIT)",
+        "dart_version": "3.12.2 (stable)",
+        "operating_system": "linux",
+        "cpu_cores": 8,
+        "iterations": 5,
+        "warmup": 1,
+        "window": {"width": 1600.0, "height": 1000.0, "device_pixel_ratio": 1.0},
+        "slow_catalog_ms": 0,
+        "network_sources": 0,
+        "workloads": list(workloads)
+        or [
+            workload("empty", 0, [100.0, 100.0, 100.0, 100.0]),
+            workload("small", 1000, [300.0, 310.0, 305.0, 300.0]),
+            workload("large", 20000, [4000.0, 4100.0, 4050.0, 4000.0]),
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+class ParsingTest(unittest.TestCase):
+    def test_a_complete_run_parses(self) -> None:
+        run = startup_report.parse(run_payload())
+        self.assertEqual([w.name for w in run.workloads], ["empty", "small", "large"])
+        self.assertEqual(run.build_mode, "debug")
+        self.assertEqual(run.workload("large").tracks, 20000)
+
+    def test_an_unknown_schema_is_refused(self) -> None:
+        payload = run_payload(schema="linthra.startup.v99")
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.parse(payload)
+        self.assertIn("v99", str(raised.exception))
+
+    def test_a_run_with_no_workloads_is_refused(self) -> None:
+        with self.assertRaises(startup_report.InvalidReport):
+            startup_report.parse(run_payload(workloads=[]))
+
+    def test_a_workload_with_no_launches_is_refused(self) -> None:
+        broken = workload("small", 1000, [])
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.parse(run_payload(broken))
+        self.assertIn("recorded no launches", str(raised.exception))
+
+    def test_a_duplicated_workload_is_refused(self) -> None:
+        """Two 'large' blocks would make workload(name) silently pick one."""
+        payload = run_payload(
+            workload("large", 20000, [4000.0] * 4),
+            workload("large", 50000, [9000.0] * 4),
+        )
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.parse(payload)
+        self.assertIn("recorded twice", str(raised.exception))
+
+    def test_a_usable_frame_before_the_first_frame_is_refused(self) -> None:
+        """Impossible by construction, so a file saying it is not trustworthy."""
+        broken = workload("small", 1000, [300.0] * 4, first_frame_ms=900.0)
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.parse(run_payload(broken))
+        self.assertIn("precedes", str(raised.exception))
+
+    def test_tracks_with_no_rows_painted_is_refused(self) -> None:
+        """The milestone for a non-empty library IS a painted row.
+
+        A run that reports timings for 1,000 tracks and never painted one
+        measured something else, and its numbers would compare against a real
+        run as an enormous, entirely fictional improvement.
+        """
+        broken = workload("small", 1000, [300.0] * 4)
+        for sample in broken["samples"]:  # type: ignore[index]
+            sample["rows_rendered"] = 0
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.parse(run_payload(broken))
+        self.assertIn("painted no rows", str(raised.exception))
+
+    def test_an_empty_library_is_allowed_to_paint_no_rows(self) -> None:
+        run = startup_report.parse(run_payload(workload("empty", 0, [90.0] * 4)))
+        self.assertEqual(run.workload("empty").tracks, 0)
+
+    def test_a_missing_window_is_refused(self) -> None:
+        payload = run_payload()
+        del payload["window"]
+        with self.assertRaises(startup_report.InvalidReport):
+            startup_report.parse(payload)
+
+    def test_a_non_numeric_timing_is_refused(self) -> None:
+        broken = workload("small", 1000, [300.0] * 4)
+        broken["samples"][0]["first_usable_frame_ms"] = "fast"  # type: ignore[index]
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.parse(run_payload(broken))
+        self.assertIn("not a number", str(raised.exception))
+
+
+class WarmUpTest(unittest.TestCase):
+    def test_the_harness_s_own_flags_win(self) -> None:
+        """The harness knows how many launches it warmed up; --warmup guesses."""
+        run = startup_report.parse(run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0])))
+        stats = startup_report.summarise(run.workload("small"), warmup=0)
+        self.assertEqual(stats.count, 3)
+        self.assertAlmostEqual(stats.median_ms, 300.0)
+
+    def test_unflagged_samples_fall_back_to_the_warmup_argument(self) -> None:
+        block = workload("small", 1000, [9000.0, 300.0, 300.0, 300.0], warmup=0)
+        run = startup_report.parse(run_payload(block))
+        self.assertEqual(startup_report.summarise(run.workload("small"), 0).count, 4)
+        self.assertEqual(startup_report.summarise(run.workload("small"), 1).count, 3)
+
+
+class StatsTest(unittest.TestCase):
+    def test_the_median_ignores_one_slow_launch(self) -> None:
+        block = workload("small", 1000, [9000.0, 300.0, 305.0, 310.0, 4000.0])
+        stats = startup_report.summarise(startup_report.parse(run_payload(block)).workload("small"), 1)
+        self.assertAlmostEqual(stats.median_ms, 307.5)
+
+    def test_spread_reports_how_much_the_machine_disagreed_with_itself(self) -> None:
+        block = workload("small", 1000, [9000.0, 100.0, 100.0, 200.0])
+        stats = startup_report.summarise(startup_report.parse(run_payload(block)).workload("small"), 1)
+        self.assertAlmostEqual(stats.spread, 1.0)
+        self.assertTrue(stats.noisy)
+
+    def test_a_steady_run_is_not_noisy(self) -> None:
+        block = workload("small", 1000, [9000.0, 300.0, 305.0, 310.0])
+        stats = startup_report.summarise(startup_report.parse(run_payload(block)).workload("small"), 1)
+        self.assertFalse(stats.noisy)
+
+    def test_too_few_launches_is_not_trustworthy(self) -> None:
+        block = workload("small", 1000, [9000.0, 300.0, 305.0])
+        stats = startup_report.summarise(startup_report.parse(run_payload(block)).workload("small"), 1)
+        self.assertEqual(stats.count, 2)
+        self.assertFalse(stats.trustworthy)
+
+
+def comparison(
+    baseline_ms: list[float], candidate_ms: list[float], **kwargs: float
+) -> startup_report.Comparison:
+    base = startup_report.parse(run_payload(workload("small", 1000, baseline_ms)))
+    cand = startup_report.parse(run_payload(workload("small", 1000, candidate_ms)))
+    return startup_report.compare(base, cand, warmup=1, **kwargs)  # type: ignore[arg-type]
+
+
+class ComparisonTest(unittest.TestCase):
+    def test_an_identical_run_is_not_a_regression(self) -> None:
+        steady = [9000.0, 300.0, 305.0, 300.0, 310.0]
+        self.assertFalse(comparison(steady, list(steady)).regressed)
+
+    def test_ordinary_jitter_is_not_a_regression(self) -> None:
+        base = [9000.0, 300.0, 305.0, 300.0, 310.0]
+        jittery = [9000.0, 318.0, 296.0, 330.0, 302.0]
+        self.assertFalse(comparison(base, jittery).regressed)
+
+    def test_a_real_slowdown_is_caught(self) -> None:
+        base = [9000.0, 300.0, 305.0, 300.0, 310.0]
+        slower = [9000.0, 550.0, 560.0, 545.0, 555.0]
+        result = comparison(base, slower)
+        self.assertTrue(result.regressed)
+        self.assertGreater(result.workloads[0].ratio, 1.7)
+
+    def test_a_large_ratio_on_a_tiny_number_is_not_a_regression(self) -> None:
+        """The absolute floor. 30 ms to 54 ms is 80% slower and is noise."""
+        result = comparison([9000.0, 30.0, 30.0, 30.0], [9000.0, 54.0, 54.0, 54.0])
+        self.assertGreater(result.workloads[0].ratio, 1.7)
+        self.assertFalse(result.regressed)
+
+    def test_a_large_absolute_delta_on_a_large_number_is_not_a_regression(self) -> None:
+        """The relative clause. 4,000 ms to 4,200 ms is 200 ms and is noise."""
+        base = [9000.0, 4000.0, 4000.0, 4000.0]
+        slower = [9000.0, 4200.0, 4200.0, 4200.0]
+        self.assertGreater(comparison(base, slower).workloads[0].delta_ms, 100)
+        self.assertFalse(comparison(base, slower).regressed)
+
+    def test_a_truncated_run_is_reported_as_a_regression(self) -> None:
+        """Never a clean bill of health on evidence that is not there."""
+        base = [9000.0, 300.0, 300.0, 300.0]
+        self.assertTrue(comparison(base, [9000.0, 300.0]).regressed)
+        self.assertTrue(comparison([9000.0, 300.0], base).regressed)
+
+    def test_one_slow_workload_regresses_the_run(self) -> None:
+        base = startup_report.parse(
+            run_payload(
+                workload("empty", 0, [9000.0, 100.0, 100.0, 100.0]),
+                workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]),
+            )
+        )
+        cand = startup_report.parse(
+            run_payload(
+                workload("empty", 0, [9000.0, 100.0, 100.0, 100.0]),
+                workload("small", 1000, [9000.0, 900.0, 900.0, 900.0]),
+            )
+        )
+        result = startup_report.compare(base, cand, warmup=1)
+        self.assertFalse(result.workloads[0].regressed)
+        self.assertTrue(result.workloads[1].regressed)
+        self.assertTrue(result.regressed)
+
+    def test_the_allowances_are_adjustable(self) -> None:
+        base = [9000.0, 300.0, 300.0, 300.0]
+        slower = [9000.0, 360.0, 360.0, 360.0]
+        self.assertFalse(comparison(base, slower).regressed)
+        self.assertTrue(
+            comparison(base, slower, relative_allowance=0.1).regressed
+        )
+
+
+class ComparabilityTest(unittest.TestCase):
+    """Two runs are only each other's control when they measured the same thing."""
+
+    def refuses(self, **overrides: object) -> str:
+        base = startup_report.parse(run_payload())
+        cand = startup_report.parse(run_payload(**overrides))
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.compare(base, cand, warmup=1)
+        return str(raised.exception)
+
+    def test_a_different_build_mode_is_refused(self) -> None:
+        self.assertIn("release build", self.refuses(build_mode="release"))
+
+    def test_a_different_milestone_is_refused(self) -> None:
+        self.assertIn("first_frame", self.refuses(milestone="first_frame"))
+
+    def test_a_different_window_is_refused(self) -> None:
+        message = self.refuses(
+            window={"width": 800.0, "height": 600.0, "device_pixel_ratio": 1.0}
+        )
+        self.assertIn("window", message)
+
+    def test_a_different_library_size_is_refused(self) -> None:
+        message = self.refuses(
+            workloads=[
+                {
+                    **workload("large", 50000, [4000.0] * 4),
+                }
+            ]
+        )
+        self.assertIn("50,000", message)
+
+    def test_no_shared_workload_is_refused(self) -> None:
+        message = self.refuses(
+            workloads=[workload("huge", 200000, [9000.0] * 4)]
+        )
+        self.assertIn("no workload in common", message)
+
+    def test_the_canary_stays_comparable_to_its_baseline(self) -> None:
+        """The armed run differs on purpose, and must still be comparable."""
+        base = startup_report.parse(run_payload())
+        cand = startup_report.parse(run_payload(slow_catalog_ms=250))
+        self.assertIsNone(startup_report.comparability_problem(base, cand))
+
+
+class BudgetTest(unittest.TestCase):
+    def test_a_run_inside_its_budget_reports_nothing(self) -> None:
+        run = startup_report.parse(run_payload())
+        self.assertEqual(startup_report.check_budgets(run, [("small", 500.0)], 1), [])
+
+    def test_a_run_over_its_budget_is_reported(self) -> None:
+        run = startup_report.parse(run_payload())
+        failures = startup_report.check_budgets(run, [("small", 100.0)], 1)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("over the", failures[0])
+
+    def test_a_budget_for_a_workload_that_is_not_there_is_a_failure(self) -> None:
+        run = startup_report.parse(run_payload())
+        failures = startup_report.check_budgets(run, [("gigantic", 100.0)], 1)
+        self.assertIn("no workload named", failures[0])
+
+
+class CommandLineTest(unittest.TestCase):
+    """Runs the real script, the way the runner script and CI run it."""
+
+    def write(self, path: Path, payload: dict[str, object]) -> Path:
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def run_script(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_it_reports_a_run_without_a_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", run_payload())
+            result = self.run_script(str(path))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("first_usable_frame", result.stdout)
+            self.assertIn("20,000", result.stdout)
+
+    def test_validate_accepts_a_complete_sample_set(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", run_payload())
+            result = self.run_script(str(path), "--validate")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("structure ok", result.stdout)
+
+    def test_validate_rejects_a_truncated_sample_set(self) -> None:
+        """What CI is really checking: that the harness still produced this."""
+        payload = run_payload()
+        payload["workloads"] = []
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", payload)
+            result = self.run_script(str(path), "--validate")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("no workloads", result.stderr)
+
+    def test_validate_rejects_a_file_that_is_not_a_sample_set(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "run.json"
+            path.write_text('{"hello": "world"}', encoding="utf-8")
+            result = self.run_script(str(path), "--validate")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("schema", result.stderr)
+
+    def test_an_expectation_needs_a_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", run_payload())
+            result = self.run_script(str(path), "--expect", "same")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("needs --baseline", result.stderr)
+
+    def test_expect_same_passes_on_a_repeat_of_the_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = self.write(Path(directory) / "base.json", run_payload())
+            result = self.run_script(str(base), "--baseline", str(base), "--expect", "same")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("NO REGRESSION", result.stdout)
+
+    def test_expect_same_fails_on_a_slowed_run(self) -> None:
+        slowed = run_payload(
+            workload("empty", 0, [9000.0, 400.0, 400.0, 400.0]),
+            workload("small", 1000, [9000.0, 700.0, 700.0, 700.0]),
+            workload("large", 20000, [9000.0, 4050.0, 4050.0, 4050.0]),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            base = self.write(Path(directory) / "base.json", run_payload())
+            after = self.write(Path(directory) / "after.json", slowed)
+            result = self.run_script(str(after), "--baseline", str(base), "--expect", "same")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("expected same, got regressed", result.stderr)
+
+    def test_expect_regressed_is_how_the_canary_proves_itself(self) -> None:
+        """If this ever passes on an unchanged run, the check detects nothing."""
+        slowed = run_payload(
+            workload("empty", 0, [9000.0, 400.0, 400.0, 400.0]),
+            workload("small", 1000, [9000.0, 700.0, 700.0, 700.0]),
+            workload("large", 20000, [9000.0, 4050.0, 4050.0, 4050.0]),
+            slow_catalog_ms=250,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            base = self.write(Path(directory) / "base.json", run_payload())
+            canary = self.write(Path(directory) / "canary.json", slowed)
+            self.assertEqual(
+                self.run_script(str(canary), "--baseline", str(base), "--expect", "regressed").returncode,
+                0,
+            )
+            self.assertEqual(
+                self.run_script(str(base), "--baseline", str(base), "--expect", "regressed").returncode,
+                1,
+            )
+
+    def test_comparing_runs_that_measured_different_things_fails_loudly(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = self.write(Path(directory) / "base.json", run_payload())
+            other = self.write(
+                Path(directory) / "release.json", run_payload(build_mode="release")
+            )
+            result = self.run_script(str(other), "--baseline", str(base))
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("not comparable", result.stderr)
+
+    def test_a_budget_miss_fails_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", run_payload())
+            result = self.run_script(str(path), "--budget", "small=100")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("over the", result.stderr)
+
+    def test_a_budget_that_is_met_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", run_payload())
+            result = self.run_script(str(path), "--budget", "small=5000")
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_malformed_budget_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", run_payload())
+            result = self.run_script(str(path), "--budget", "small")
+            self.assertEqual(result.returncode, 2)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
