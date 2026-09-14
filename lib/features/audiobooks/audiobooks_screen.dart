@@ -9,6 +9,7 @@ import '../../app/routes.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/scroll/horizontal_wheel_scroll.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import 'audiobooks_library_controller.dart';
 import 'audiobooks_library_state.dart';
 
@@ -78,7 +79,7 @@ class _Body extends ConsumerWidget {
       return const _NotConnectedView();
     }
     if (state.isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const LoadingIndicator(label: 'Loading audiobooks');
     }
     // Nothing loaded and something went wrong: the error *is* the screen.
     // A failure with books already on it is reported under the list instead,

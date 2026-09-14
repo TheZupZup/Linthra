@@ -12,6 +12,7 @@ import '../../data/repositories/favorites_repository_provider.dart';
 import '../../data/repositories/playlist_repository_provider.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/reorder_focus_walk.dart';
 import '../../shared/widgets/reorder_handle.dart';
 import '../downloads/collection_download_actions.dart';
@@ -146,7 +147,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                 // mid-keyboard walk. Only the genuine first load shows the
                 // spinner.
                 skipLoadingOnReload: true,
-                loading: () => const Center(child: CircularProgressIndicator()),
+                loading: () =>
+                    const LoadingIndicator(label: 'Loading playlist'),
                 error: (_, __) => const EmptyState(
                   icon: Icons.error_outline,
                   title: "Couldn't load this playlist",
