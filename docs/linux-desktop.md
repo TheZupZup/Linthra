@@ -907,6 +907,9 @@ both themes and relayouts every screen at once, with no restart.
   Shift+F10), and `TrackSelection` reads Ctrl/Cmd and Shift off the hardware
   keyboard at tap time. Nothing is gated on a platform, so a keyboard case on a
   tablet gets both for free and a bare touch tap is unchanged.
+* **Scrolling** — the wheel, the trackpad and the sliders they land on, in one
+  shared policy rather than a Linux check per list. See
+  [Mouse wheel and trackpad](#mouse-wheel-and-trackpad).
 
 ### Context menus and multi-select
 
@@ -994,6 +997,115 @@ as it did before.
 Configurable shortcuts are a separate job
 ([#391](https://github.com/TheZupZup/Linthra/issues/391)); what is bound today
 is in the row above.
+
+### Mouse wheel and trackpad
+
+Scrolling is the part of a desktop app nobody notices until it is wrong
+([#396](https://github.com/TheZupZup/Linthra/issues/396)). The rule is the one
+the rest of the desktop work follows: **no widget branches on Linux**. There is
+one scroll policy for the app and three small shared widgets, all of them keyed
+on the *input signal* rather than on the host, so an Android phone is unchanged
+by construction.
+
+`lib/shared/scroll/`:
+
+| Piece | What it does |
+| --- | --- |
+| `AppScrollBehavior` | the app's single `ScrollConfiguration`, installed on `MaterialApp` so it reaches every list, grid, sheet, pane and dialog at once |
+| `pointer_scroll_policy.dart` | the arithmetic: what one wheel notch is, which axis owns which delta, and `WheelNotches`, which counts a trackpad's stream of small deltas into whole notches |
+| `PointerScrollAdjust` | makes a control answer the wheel — and *take* it, so the page behind it stays put |
+| `HorizontalWheelScroll` | lets a plain vertical wheel move a surface that only goes sideways |
+
+**What `AppScrollBehavior` settles.** A pointer host clamps at the ends of a
+list and draws no overscroll glow or stretch: that decoration answers "your
+finger is still dragging, the list is not", and a wheel notch asks no such
+question. Android keeps the physics and the stretch it always had, and Apple's
+platforms keep their rubber band, which is native there rather than a mobile
+import. A mouse is deliberately **not** a drag device: press-and-move with a
+mouse means selecting, or dragging a row to a playlist, and a list that
+scrolled out from under that would make both unusable. Touch, both stylus kinds
+and the trackpad all still drag, which is what keeps a two-finger pan one smooth
+gesture. Two of those three answers are what Material gives today; they are
+written down anyway, so a stray `ThemeData.platform` or a future default cannot
+quietly move them.
+
+**Which axis owns which input.** A surface reads only the axis it scrolls
+along, which is Flutter's own rule and the reason a sideways trackpad flick over
+the songs list does nothing at all. The single exception is a genuinely
+horizontal surface — today the Audiobookshelf library picker — where a mouse
+with one wheel would otherwise have no way to reach the far end of the row.
+`HorizontalWheelScroll` claims a *vertical-only* signal there, leaves a device
+that can scroll sideways to the surface's own `Scrollable`, and stops claiming
+once the row is at that end so the wheel carries on down the page instead of
+the shelf swallowing it.
+
+Only a **mouse** gets its vertical scrolling borrowed. A wheel has one axis and
+no way to ask for the other; a trackpad has both, so a deliberate vertical
+two-finger swipe over the row means vertical and is passed on rather than
+turned sideways. On Linux the embedder may report a trackpad's scrolling as a
+mouse's, in which case that rule changes nothing in practice there — it is
+still the right rule to write down, and it is what makes the behaviour correct
+wherever the two can be told apart.
+
+Where the shelf is nested *inside* a scrolling page that last part needs no
+help: the page is an ancestor, so an unclaimed signal reaches it on the way
+out. The audiobook browser is not that shape — its chip row and its book list
+are siblings in a column, and an unclaimed signal there reaches nothing at all,
+because the list is not on the pointer's hit-test path. That is what
+`HorizontalWheelScroll.chainTo` is for: hand it the list's controller and a
+notch at the end of the row scrolls the books, the way the same strip behaves
+in every other desktop app.
+
+**Sliders.** Reading a scroll signal is not the same as taking it: a `Listener`
+that answers the wheel still lets the ancestor `Scrollable` scroll as well, so
+one notch over the volume slider used to change the volume *and* scroll the
+library out from under the pointer. `PointerScrollAdjust` registers with the
+`PointerSignalResolver` first — signals are dispatched from the innermost hit
+target outwards, and the first registration wins — which is also what a real
+toolkit does: a GTK scale answers the wheel and the window behind it stays
+where it was. While a slider is actually being held it goes further and
+swallows every scroll signal in the app, because mid-drag the pointer wanders
+off a 14 px seek line easily and a notch that lands anywhere else would scroll
+whatever is underneath.
+
+That shield is the most destructive thing in this directory — a stuck one
+would stop the whole app scrolling — so it is not left to a control
+remembering to say when it is done. It needs a pointer that went down on the
+control and has not come back up, and the pointer's own up or cancel (Flutter
+guarantees one or the other) is what takes it away. A control whose drag state
+gets stuck can still be wrong about itself; it cannot stop the rest of the app
+scrolling. A keyboard or assistive adjustment installs no shield at all: it is
+over the instant it happens.
+
+One notch does what one arrow-key press does, so the wheel and the keyboard
+agree: 5% of the range on volume, and 5% of the track (never less than five
+seconds) on the seek bar, which `WavySeekBar.seekStepFor` owns for both. A
+trackpad's forty small deltas are the same physical gesture as one wheel click
+and are worth one step, not forty — stepping per event is what used to take a
+two-finger flick from half volume to silence.
+
+A partial notch is carried so that slow scrolling still gets somewhere, but
+only within one gesture. A trackpad has no "I let go" in a scroll event —
+fingers lifting look exactly like a pause — so `WheelNotches.gestureGap` (half
+a second, measured on the events' own clock) ends one: long enough that
+deliberate slow scrolling keeps adding up, short enough that a small swipe is
+never completed by an unrelated one later.
+
+**Fractional scaling.** A notch is measured in logical pixels, and the
+framework divides the engine's physical delta by the device pixel ratio before
+a widget sees it, so the same physical wheel click is the same step at 100%,
+125%, 150% and 200%. Nothing here applies a correction factor, which is the
+point: there is none to get wrong.
+
+Tests: `test/shared/scroll/` covers the arithmetic, the behaviour's answers per
+platform (including that Android resolves exactly what Material would give it),
+the claim, the shield and the two ways it goes away, the horizontal shelf and
+both shapes of chaining, and one step per notch at four display scales. `test/app/desktop_scroll_test.dart` is
+the audit — the songs list, the albums and artists grids, an album and an
+artist page beside their panes, playlists, the settings hub, the queue sheet
+and a dialog each get one notch and have to move exactly one surface by exactly
+one notch, plus the seek bar taking the wheel off the page, and Android still
+dragging with a finger and still stretching at the end.
 
 ### Quick search (Ctrl+K)
 

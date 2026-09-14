@@ -14,6 +14,7 @@ import 'package:linthra/features/player/mini_player.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/player_screen.dart';
 import 'package:linthra/features/player/widgets/volume_controls.dart';
+import 'package:linthra/shared/scroll/pointer_scroll_policy.dart';
 
 import 'cast/fake_cast_service.dart';
 import 'fake_playback_controller.dart';
@@ -163,14 +164,82 @@ void main() {
       final TestPointer pointer = TestPointer(1, PointerDeviceKind.mouse);
       pointer.hover(over);
       await tester.sendEventToBinding(
-        pointer.scroll(const Offset(0, -20)),
+        pointer.scroll(const Offset(0, -wheelNotchExtent)),
       );
       await tester.pumpAndSettle();
       expect(controller.state.volume, closeTo(0.5 + volumeStep, 0.0001));
 
-      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 20)));
+      await tester.sendEventToBinding(
+        pointer.scroll(const Offset(0, wheelNotchExtent)),
+      );
       await tester.pumpAndSettle();
       expect(controller.state.volume, closeTo(0.5, 0.0001));
+    });
+
+    testWidgets('a trackpad moves the level one step, not one per event',
+        (tester) async {
+      // The same physical gesture as one wheel click, delivered the way a
+      // trackpad delivers it. Stepping per event took a two-finger flick from
+      // half volume to silence in a handful of frames.
+      final controller = await _pumpControls(tester);
+      controller.setVolume(0.5);
+      await tester.pumpAndSettle();
+
+      final TestPointer pointer = TestPointer(1, PointerDeviceKind.trackpad);
+      pointer.hover(tester.getCenter(find.byType(Slider)));
+      for (int i = 0; i < 10; i++) {
+        await tester.sendEventToBinding(
+          pointer.scroll(const Offset(0, -wheelNotchExtent / 10)),
+        );
+      }
+      await tester.pumpAndSettle();
+
+      expect(controller.state.volume, closeTo(0.5 + volumeStep, 0.0001));
+    });
+
+    testWidgets('the page behind the control stays where it was',
+        (tester) async {
+      // The bug this control had: the wheel changed the volume *and* scrolled
+      // whatever it was sitting on, because reading a scroll signal is not the
+      // same as taking it.
+      final FakePlaybackController controller =
+          FakePlaybackController(initial: _playing());
+      addTearDown(controller.dispose);
+      final ScrollController page = ScrollController();
+      addTearDown(page.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            playbackControllerProvider.overrideWithValue(controller),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: ListView(
+                controller: page,
+                children: <Widget>[
+                  const VolumeControls(),
+                  for (int i = 0; i < 30; i++)
+                    SizedBox(height: 80, child: Text('row $i')),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      controller.setVolume(0.5);
+      await tester.pumpAndSettle();
+
+      final TestPointer pointer = TestPointer(1, PointerDeviceKind.mouse);
+      pointer.hover(tester.getCenter(find.byType(Slider)));
+      await tester.sendEventToBinding(
+        pointer.scroll(const Offset(0, wheelNotchExtent)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(controller.state.volume, closeTo(0.5 - volumeStep, 0.0001));
+      expect(page.offset, 0);
     });
 
     testWidgets('scrolling down while muted keeps the level to come back to',
@@ -183,7 +252,9 @@ void main() {
       final Offset over = tester.getCenter(find.byType(Slider));
       final TestPointer pointer = TestPointer(1, PointerDeviceKind.mouse);
       pointer.hover(over);
-      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 20)));
+      await tester.sendEventToBinding(
+        pointer.scroll(const Offset(0, wheelNotchExtent)),
+      );
       await tester.pumpAndSettle();
 
       expect(controller.state.volume, 0.6);

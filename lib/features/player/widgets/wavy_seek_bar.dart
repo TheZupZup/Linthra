@@ -76,6 +76,7 @@ class WavySeekBar extends StatelessWidget {
     required this.onChanged,
     required this.onChangeEnd,
     required this.semanticFormatter,
+    this.onCancel,
     this.playing = false,
     this.density = WavySeekBarDensity.standard,
     super.key,
@@ -98,6 +99,15 @@ class WavySeekBar extends StatelessWidget {
 
   /// Renders a millisecond position as the `m:ss` text screen readers announce.
   final String Function(double milliseconds) semanticFormatter;
+
+  /// Called when a gesture that had already previewed a position ends without
+  /// seeking — the pointer was cancelled by the OS, or another recognizer (a
+  /// list scrolling under the bar) won the arena.
+  ///
+  /// Without it the preview set by [onChanged] is never taken back: the bar
+  /// keeps showing a position playback never went to, and anything keyed on
+  /// "a drag is in progress" stays armed for the life of the widget.
+  final VoidCallback? onCancel;
 
   /// Whether playback is actively playing. The wave rides at full amplitude
   /// while it is, and eases down to a calmer, shallower wave when paused.
@@ -204,6 +214,9 @@ class WavySeekBar extends StatelessWidget {
               ? (details) =>
                   onChangeEnd?.call(positionAt(details.localPosition.dx))
               : null,
+          // A tap that is defeated rather than completed still previewed a
+          // position on the way down.
+          onTapCancel: _enabled ? onCancel : null,
           onHorizontalDragStart: _enabled
               ? (details) {
                   node.requestFocus();
@@ -215,6 +228,7 @@ class WavySeekBar extends StatelessWidget {
               : null,
           onHorizontalDragEnd:
               _enabled ? (details) => onChangeEnd?.call(value) : null,
+          onHorizontalDragCancel: _enabled ? onCancel : null,
           child: Container(
             height: density.hitHeight,
             width: double.infinity,
@@ -296,7 +310,15 @@ class WavySeekBar extends StatelessWidget {
     );
   }
 
-  double get _semanticStep {
+  double get _semanticStep => seekStepFor(max);
+
+  /// How far one step moves a bar that runs to [max] milliseconds.
+  ///
+  /// The arrow keys, the assistive increase/decrease actions and a mouse-wheel
+  /// notch over the bar ([PlaybackProgressBar]) all use this one number, so a
+  /// listener who learns what a nudge is worth in one of them has learnt it
+  /// for all three.
+  static double seekStepFor(double max) {
     final double proportional = max * _semanticStepFraction;
     final double floor = _minSemanticStep.inMilliseconds.toDouble();
     return proportional > floor ? proportional : floor;

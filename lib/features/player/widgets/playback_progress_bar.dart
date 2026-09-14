@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
+import '../../../shared/scroll/pointer_scroll_adjust.dart';
 import 'wavy_seek_bar.dart';
 
 /// How the seekable progress bar is drawn.
@@ -151,6 +152,45 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
     });
   }
 
+  /// A wheel notch over the bar seeks by exactly what one arrow-key press
+  /// seeks by, and never reaches the page behind it.
+  ///
+  /// That is what a pointer expects from a control on a desktop: a GTK scale
+  /// answers the wheel, and the window under it stays where it was. Before
+  /// this, a notch aimed at the now-playing bar's seek line did nothing to the
+  /// track and scrolled the library instead — see [PointerScrollAdjust], which
+  /// claims the signal and counts a trackpad's small deltas into whole
+  /// notches.
+  void _onNotch(int notches) {
+    // Resolved now rather than captured from the build that installed this
+    // callback, so a fast wheel spin steps off the notch before it instead of
+    // landing on the same place several times.
+    final double totalMs = widget.duration.inMilliseconds.toDouble();
+    if (totalMs <= 0) return;
+    final double from = _displayedMs(totalMs);
+    final double step = WavySeekBar.seekStepFor(totalMs);
+    _onChangeEnd((from + notches * step).clamp(0.0, totalMs));
+  }
+
+  /// Where the bar is showing playback to be: the finger first, then a seek
+  /// playback has not caught up with, then the truth.
+  double _displayedMs(double totalMs) {
+    return _dragMs ??
+        _pendingSeekMs?.clamp(0.0, totalMs) ??
+        widget.position.inMilliseconds.clamp(0, totalMs.round()).toDouble();
+  }
+
+  /// A gesture that previewed a position and then went away without seeking.
+  ///
+  /// The preview has to be taken back, or the bar reads a position playback
+  /// never went to for as long as the widget lives — and, since an in-progress
+  /// drag is what holds the scroll shield open, the wheel would stop working
+  /// everywhere else too.
+  void _onCancel() {
+    if (_dragMs == null) return;
+    setState(() => _dragMs = null);
+  }
+
   void _onChangeEnd(double value) {
     widget.onSeek?.call(Duration(milliseconds: value.round()));
     _pendingSeekExpiry?.cancel();
@@ -174,15 +214,10 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
     final bool hasDuration = totalMs > 0;
     final bool canSeek = hasDuration && widget.onSeek != null;
 
-    final int posMs = hasDuration
-        ? widget.position.inMilliseconds.clamp(0, totalMs).toInt()
-        : 0;
     // The finger first, then a seek playback hasn't caught up with, then the
     // truth. Each is only ever the *most current* thing known about where
     // playback is meant to be.
-    final double barValue = _dragMs ??
-        _pendingSeekMs?.clamp(0, totalMs.toDouble()) ??
-        posMs.toDouble();
+    final double barValue = hasDuration ? _displayedMs(totalMs.toDouble()) : 0;
 
     // Both renderers answer to the density: a call site that has only a few
     // pixels (the mini player) must not sprout a full-size control if
@@ -198,46 +233,54 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
 
     return Column(
       children: [
-        switch (widget.style) {
-          PlaybackProgressStyle.wave => WavySeekBar(
-              value: barValue,
-              max: hasDuration ? totalMs.toDouble() : 0.0,
-              onChanged: canSeek ? _onChanged : null,
-              onChangeEnd: canSeek ? _onChangeEnd : null,
-              semanticFormatter: _formatMs,
-              playing: widget.playing,
-              density: widget.density,
-            ),
-          PlaybackProgressStyle.slider => SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: compact ? 2 : 4,
-                // The slider's height is its overlay's, so shrinking that is
-                // what keeps the fallback inside a bar sized for the wave.
-                overlayShape: RoundSliderOverlayShape(
-                  overlayRadius: compact ? 6 : 12,
-                ),
-                thumbShape: RoundSliderThumbShape(
-                  enabledThumbRadius: compact ? 3 : 6,
-                ),
-                inactiveTrackColor:
-                    theme.colorScheme.onSurface.withValues(alpha: 0.15),
-              ),
-              child: Slider(
+        PointerScrollAdjust(
+          enabled: canSeek,
+          // Held mid-drag, so a notch — or a trackpad still coasting — cannot
+          // scroll the page out from under a seek in progress.
+          adjusting: _dragMs != null,
+          onNotch: _onNotch,
+          child: switch (widget.style) {
+            PlaybackProgressStyle.wave => WavySeekBar(
                 value: barValue,
-                max: hasDuration ? totalMs.toDouble() : 1.0,
+                max: hasDuration ? totalMs.toDouble() : 0.0,
                 onChanged: canSeek ? _onChanged : null,
                 onChangeEnd: canSeek ? _onChangeEnd : null,
-                // The wave path names itself (see [WavySeekBar]); without this
-                // the Material fallback would announce a bare percentage with
-                // nothing saying what it measures. `label` is semantics-only
-                // here: the value indicator it can also drive is shown
-                // `onlyForDiscrete`, and this slider is continuous.
-                label: _positionLabel,
-                semanticFormatterCallback: (double value) =>
-                    _semanticValue(value, hasDuration ? totalMs : 0),
+                onCancel: canSeek ? _onCancel : null,
+                semanticFormatter: _formatMs,
+                playing: widget.playing,
+                density: widget.density,
               ),
-            ),
-        },
+            PlaybackProgressStyle.slider => SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: compact ? 2 : 4,
+                  // The slider's height is its overlay's, so shrinking that is
+                  // what keeps the fallback inside a bar sized for the wave.
+                  overlayShape: RoundSliderOverlayShape(
+                    overlayRadius: compact ? 6 : 12,
+                  ),
+                  thumbShape: RoundSliderThumbShape(
+                    enabledThumbRadius: compact ? 3 : 6,
+                  ),
+                  inactiveTrackColor:
+                      theme.colorScheme.onSurface.withValues(alpha: 0.15),
+                ),
+                child: Slider(
+                  value: barValue,
+                  max: hasDuration ? totalMs.toDouble() : 1.0,
+                  onChanged: canSeek ? _onChanged : null,
+                  onChangeEnd: canSeek ? _onChangeEnd : null,
+                  // The wave path names itself (see [WavySeekBar]); without this
+                  // the Material fallback would announce a bare percentage with
+                  // nothing saying what it measures. `label` is semantics-only
+                  // here: the value indicator it can also drive is shown
+                  // `onlyForDiscrete`, and this slider is continuous.
+                  label: _positionLabel,
+                  semanticFormatterCallback: (double value) =>
+                      _semanticValue(value, hasDuration ? totalMs : 0),
+                ),
+              ),
+          },
+        ),
         // Snug under the track and aligned to its ends, so the times read as a
         // caption for the bar rather than a separate, floating row.
         if (widget.showTimeLabels)

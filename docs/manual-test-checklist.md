@@ -468,6 +468,30 @@ steps live in [hidpi-and-scaling.md](./hidpi-and-scaling.md); the short version:
 - ☐ On an ultrawide, content stays centred and capped rather than stretching a
   track row across the whole panel.
 
+### Desktop mouse wheel & trackpad (Linux)
+
+Which surface takes a notch is covered by widget tests; this pass is about how
+it feels against a real mouse and a real touchpad. What each piece does is in
+[linux-desktop.md](./linux-desktop.md#mouse-wheel-and-trackpad).
+
+- ☐ Wheel over the Songs list, the Albums and Artists grids, a playlist, the
+  queue and Settings: each scrolls at a steady, predictable rate and stops dead
+  at its ends — no glow, no stretch, no bounce.
+- ☐ Two-finger trackpad scrolling on the same surfaces is smooth rather than
+  stepped, including slow scrolling of a few pixels at a time.
+- ☐ Wheel over the volume slider and over the seek bar: the control moves by
+  one step per click and the page behind it does not move at all. A trackpad
+  flick over the volume moves it at the same rate a wheel does, not to an end.
+- ☐ Hold the seek bar down and spin the wheel, letting the pointer drift off
+  the bar: nothing on the page scrolls until the button is released.
+- ☐ With the queue column or a detail pane open, wheel over each of the two
+  columns in turn: only the one under the pointer moves.
+- ☐ A sideways two-finger flick over a vertical list does nothing; over the
+  Audiobookshelf library picker the wheel walks the row of libraries, and
+  scrolls the book list under it once the row is at its end.
+- ☐ Repeat the volume and seek checks at 150% display scale: one click is still
+  one step.
+
 ---
 
 ## Reporting a bug (for testers and users)
