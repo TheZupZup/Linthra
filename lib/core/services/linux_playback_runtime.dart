@@ -6,26 +6,6 @@ import 'package:flutter/services.dart' show MissingPluginException;
 import '../diagnostics/linux_playback_diagnostics.dart';
 import 'playable_uri_resolver.dart';
 
-/// Reads a libmpv soname the way the backend does and reports what the dynamic
-/// loader said when it would not open.
-///
-/// Returns null when the library loaded, and the loader's own message when it
-/// did not. A seam, so the classification below can be exercised without a
-/// libmpv (or a `dart:ffi` call) on the machine running the tests.
-typedef LinuxNativeLibraryProbe = String? Function(String soname);
-
-/// The libmpv library names the backend tries, in the order it tries them.
-///
-/// Kept in step with media_kit 1.2.6 (`lib/src/player/native/core/
-/// native_library.dart`) and with the same list `scripts/verify_linux.sh`
-/// probes, so the app's own answer and the verification script's cannot drift
-/// apart.
-const List<String> libmpvSonames = <String>[
-  'libmpv.so',
-  'libmpv.so.2',
-  'libmpv.so.1',
-];
-
 /// A classified Linux playback-runtime failure: what is wrong with the native
 /// audio runtime, what to tell the listener about it, and the loader's own
 /// account of it reduced to something safe to keep.
@@ -123,11 +103,14 @@ abstract final class LinuxPlaybackRuntime {
     'incompatible',
   ];
 
-  /// Words that mean nothing answered to the name at all.
+  /// Words that mean no usable libmpv answered.
   ///
   /// Deliberately *not* "cannot open shared object file": the loader says that
   /// for a library it refused as well as for one that is not there, and only
-  /// the "no such file" half means absent.
+  /// the "no such file" half means absent. The backend's own wording
+  /// ("cannot find libmpv") covers both, which is why
+  /// [LinuxPlaybackRuntimeProblem.libraryMissing]'s message advises installing
+  /// *or reinstalling* the package rather than assuming which it is.
   static const List<String> missingMarkers = <String>[
     'cannot find libmpv',
     'no such file or directory',
@@ -165,46 +148,6 @@ abstract final class LinuxPlaybackRuntime {
     return LinuxPlaybackRuntimeProblem.libraryUnloadable;
   }
 
-  /// Sharpens [initial] by asking the dynamic loader directly.
-  ///
-  /// media_kit swallows each individual `DynamicLibrary.open` failure and
-  /// reports one fixed "cannot find libmpv" for all of them, so its message
-  /// cannot tell "not installed" from "installed and refused". Asking the
-  /// loader for the same names it tried, and reading *its* answers, can. Only
-  /// [LinuxPlaybackRuntimeProblem.libraryMissing] is refined, because that is
-  /// the only verdict media_kit's wording forces.
-  ///
-  /// [probe] is called once per name in [libmpvSonames]. A name that loads
-  /// contributes nothing; if every name loads, the library is fine and the
-  /// backend failed for another reason.
-  static LinuxPlaybackRuntimeProblem refine(
-    LinuxPlaybackRuntimeProblem initial,
-    LinuxNativeLibraryProbe probe,
-  ) {
-    if (initial != LinuxPlaybackRuntimeProblem.libraryMissing) return initial;
-    final List<String> refusals = <String>[
-      for (final String soname in libmpvSonames)
-        if (probe(soname) case final String error) error,
-    ];
-    if (refusals.isEmpty) {
-      return LinuxPlaybackRuntimeProblem.backendInitializationFailed;
-    }
-    final List<LinuxPlaybackRuntimeProblem> verdicts =
-        <LinuxPlaybackRuntimeProblem>[
-      for (final String refusal in refusals)
-        recogniseText(refusal) ?? LinuxPlaybackRuntimeProblem.libraryUnloadable,
-    ];
-    // Most specific wins: one name refused for a version or ABI reason says
-    // more about this machine than two others that simply are not there.
-    if (verdicts.contains(LinuxPlaybackRuntimeProblem.libraryIncompatible)) {
-      return LinuxPlaybackRuntimeProblem.libraryIncompatible;
-    }
-    if (verdicts.contains(LinuxPlaybackRuntimeProblem.libraryUnloadable)) {
-      return LinuxPlaybackRuntimeProblem.libraryUnloadable;
-    }
-    return LinuxPlaybackRuntimeProblem.libraryMissing;
-  }
-
   /// The text the listener sees for [problem].
   ///
   /// Two wordings per problem, because the fix is genuinely different: a
@@ -238,10 +181,10 @@ abstract final class LinuxPlaybackRuntime {
     }
     return switch (problem) {
       LinuxPlaybackRuntimeProblem.libraryMissing =>
-        'Linthra plays audio through libmpv, and this system does not have '
-            "it. Install your distribution's libmpv package (libmpv2 on "
-            'Debian and Ubuntu, mpv-libs on Fedora, mpv on Arch), then choose '
-            'Retry.',
+        'Linthra plays audio through libmpv, and this system does not have a '
+            "copy it can use. Install or reinstall your distribution's libmpv "
+            'package (libmpv2 on Debian and Ubuntu, mpv-libs on Fedora, mpv '
+            'on Arch), then choose Retry.',
       LinuxPlaybackRuntimeProblem.libraryUnloadable =>
         'Linthra found libmpv on this system but could not load it, so '
             "nothing can play. Reinstalling your distribution's libmpv "

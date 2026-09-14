@@ -19,11 +19,6 @@ const String _cannotFindLibmpv =
     'available globally. On Debian or Ubuntu based systems, you can install '
     'it with: apt install libmpv-dev.';
 
-/// What the dynamic loader says for a name that is simply not installed.
-const String _notInstalled =
-    "Invalid argument(s): Failed to load dynamic library 'libmpv.so.2': "
-    'libmpv.so.2: cannot open shared object file: No such file or directory';
-
 /// What a libmpv that loads but is not the right one fails with, at the first
 /// symbol rather than at registration.
 const String _wrongLibrary =
@@ -126,12 +121,10 @@ Track _track(String id) => Track(id: id, title: id, uri: 'jellyfin:$id');
 void main() {
   LinuxPlaybackBackendInitializer backendThat(
     _Registration registration, {
-    String loaderSays = _notInstalled,
     bool bundledRuntime = false,
   }) =>
       LinuxPlaybackBackendInitializer(
         registerBackend: registration.call,
-        probeLibrary: (String _) => loaderSays,
         bundledRuntime: bundledRuntime,
       );
 
@@ -259,24 +252,6 @@ void main() {
       expect(failure.diagnostic, isNot(contains('/home/ada')));
       // And none of it is what the listener is shown.
       expect(failure.message, isNot(contains('ELF')));
-    });
-
-    test('sharpens "cannot find libmpv" with what the loader actually says',
-        () {
-      // media_kit reports the same "cannot find libmpv" whether the library is
-      // absent or present and refused, so the loader is asked directly.
-      final LinuxPlaybackBackendInitializer backend = backendThat(
-        _Registration(error: Exception(_cannotFindLibmpv)),
-        loaderSays: "Invalid argument(s): Failed to load dynamic library "
-            "'libmpv.so.2': /usr/lib/libmpv.so.2: cannot open shared object "
-            'file: Permission denied',
-      );
-      build(backend);
-
-      expect(
-        backend.failure?.problem,
-        LinuxPlaybackRuntimeProblem.libraryUnloadable,
-      );
     });
   });
 

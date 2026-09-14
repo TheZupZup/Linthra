@@ -13,8 +13,8 @@ const String mediaKitMissingLibmpv =
     'available globally. On Debian or Ubuntu based systems, you can install '
     'it with: apt install libmpv-dev.';
 
-/// What the dynamic loader says for each of the three cases the app has to
-/// tell apart, in the shape Dart's `DynamicLibrary.open` reports them.
+/// What the dynamic loader says for each of the cases the app has to tell
+/// apart, in the shape Dart reports a failed library load.
 const String loaderNotThere =
     "Invalid argument(s): Failed to load dynamic library 'libmpv.so.2': "
     'libmpv.so.2: cannot open shared object file: No such file or directory';
@@ -28,9 +28,6 @@ const String loaderWrongClass =
 const String loaderMissingSymbol =
     "Invalid argument(s): Failed to lookup symbol 'mpv_create': "
     'undefined symbol: mpv_create';
-
-LinuxNativeLibraryProbe probeSaying(Map<String, String?> answers) =>
-    (String soname) => answers[soname];
 
 void main() {
   group('recognising a native-runtime failure', () {
@@ -125,78 +122,6 @@ void main() {
         ),
         isNull,
       );
-    });
-  });
-
-  group('sharpening a missing-library verdict with the loader', () {
-    test('every name absent stays missing', () {
-      expect(
-        LinuxPlaybackRuntime.refine(
-          LinuxPlaybackRuntimeProblem.libraryMissing,
-          probeSaying(<String, String?>{
-            for (final String soname in libmpvSonames) soname: loaderNotThere,
-          }),
-        ),
-        LinuxPlaybackRuntimeProblem.libraryMissing,
-      );
-    });
-
-    test('one name refused for permissions becomes unloadable', () {
-      expect(
-        LinuxPlaybackRuntime.refine(
-          LinuxPlaybackRuntimeProblem.libraryMissing,
-          probeSaying(<String, String?>{
-            'libmpv.so': loaderRefused,
-            'libmpv.so.2': loaderNotThere,
-            'libmpv.so.1': loaderNotThere,
-          }),
-        ),
-        LinuxPlaybackRuntimeProblem.libraryUnloadable,
-      );
-    });
-
-    test('one name of the wrong architecture becomes incompatible', () {
-      // Most specific wins: a 32-bit libmpv.so sitting next to two names that
-      // simply are not there is the fact worth reporting, because "install the
-      // package you already have" is not advice.
-      expect(
-        LinuxPlaybackRuntime.refine(
-          LinuxPlaybackRuntimeProblem.libraryMissing,
-          probeSaying(<String, String?>{
-            'libmpv.so': loaderNotThere,
-            'libmpv.so.2': loaderWrongClass,
-            'libmpv.so.1': loaderRefused,
-          }),
-        ),
-        LinuxPlaybackRuntimeProblem.libraryIncompatible,
-      );
-    });
-
-    test(
-        'a library that loads fine means the backend failed for some other '
-        'reason', () {
-      expect(
-        LinuxPlaybackRuntime.refine(
-          LinuxPlaybackRuntimeProblem.libraryMissing,
-          probeSaying(const <String, String?>{}),
-        ),
-        LinuxPlaybackRuntimeProblem.backendInitializationFailed,
-      );
-    });
-
-    test('a verdict that is already specific is never second-guessed', () {
-      var probes = 0;
-      expect(
-        LinuxPlaybackRuntime.refine(
-          LinuxPlaybackRuntimeProblem.libraryIncompatible,
-          (String _) {
-            probes++;
-            return loaderNotThere;
-          },
-        ),
-        LinuxPlaybackRuntimeProblem.libraryIncompatible,
-      );
-      expect(probes, 0);
     });
   });
 

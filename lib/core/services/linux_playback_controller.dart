@@ -8,7 +8,6 @@ import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import '../diagnostics/linux_playback_diagnostics.dart';
 import '../models/playback_source.dart';
 import 'just_audio_playback_controller.dart';
-import 'linux_native_library_probe.dart';
 import 'linux_playback_runtime.dart';
 import 'local_playable_uri_resolver.dart';
 import 'playable_uri_resolver.dart';
@@ -86,14 +85,11 @@ bool runsInFlatpak() =>
 class LinuxPlaybackBackendInitializer {
   LinuxPlaybackBackendInitializer({
     LinuxPlaybackBackendRegistration? registerBackend,
-    LinuxNativeLibraryProbe? probeLibrary,
     bool? bundledRuntime,
   })  : _registerBackend = registerBackend ?? _registerDefaultBackend,
-        _probeLibrary = probeLibrary ?? probeNativeLibrary,
         _bundledRuntime = bundledRuntime ?? runsInFlatpak();
 
   final LinuxPlaybackBackendRegistration _registerBackend;
-  final LinuxNativeLibraryProbe _probeLibrary;
   final bool _bundledRuntime;
 
   bool _initialized = false;
@@ -150,18 +146,15 @@ class LinuxPlaybackBackendInitializer {
   LinuxPlaybackRuntimeFailure _classify(
     LinuxPlaybackRuntimeProblem problem,
     Object error,
-  ) {
-    final LinuxPlaybackRuntimeProblem refined =
-        LinuxPlaybackRuntime.refine(problem, _probeLibrary);
-    return LinuxPlaybackRuntimeFailure(
-      problem: refined,
-      message: LinuxPlaybackRuntime.messageFor(
-        refined,
-        bundledRuntime: _bundledRuntime,
-      ),
-      diagnostic: LinuxPlaybackRuntime.sanitizeRuntimeDiagnostic(error),
-    );
-  }
+  ) =>
+      LinuxPlaybackRuntimeFailure(
+        problem: problem,
+        message: LinuxPlaybackRuntime.messageFor(
+          problem,
+          bundledRuntime: _bundledRuntime,
+        ),
+        diagnostic: LinuxPlaybackRuntime.sanitizeRuntimeDiagnostic(error),
+      );
 
   static void _registerDefaultBackend() {
     JustAudioMediaKit.title = 'Linthra';

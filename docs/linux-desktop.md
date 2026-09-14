@@ -270,12 +270,20 @@ Four decisions are worth knowing about:
   untouched rather than relabelled "install libmpv", which would send everyone
   who hit it to reinstall a package that was never the problem.
 
-The distinction between "missing" and "present but unusable" cannot come from
-media_kit: it swallows each individual load failure and reports one fixed
-"cannot find libmpv" for all of them. Linthra asks the dynamic loader itself,
-for the same three names in the same order (`libmpv.so`, `libmpv.so.2`,
-`libmpv.so.1`), and reads *its* answers, which is also exactly what
-`scripts/verify_linux.sh` probes before it runs the audio smoke.
+One limit is worth writing down. media_kit swallows each individual library
+load failure and reports one fixed "cannot find libmpv" for all of them, so at
+*registration* time a libmpv that is absent and one that is present and
+refused are indistinguishable. Linthra could tell them apart by loading the
+library itself, and deliberately does not: `scripts/check_pr_security_surface.py`
+blocks runtime FFI outright, and a sharper error message is not worth an
+exception to that rule. The missing-library wording therefore says "install or
+reinstall", which is the right advice either way.
+
+Nothing is lost for the case that actually bites. A libmpv that is present and
+wrong gets through registration (the loader binds symbols lazily) and fails at
+the first symbol it needs, and *that* error carries the real reason, so it is
+classified as incompatible from the message itself with no library loading of
+Linthra's own.
 
 The loader's own message is kept for developers, with absolute paths and URLs
 removed and the whole thing bounded onto one line, and it goes to the debug log
@@ -286,7 +294,6 @@ promise still holds.
 | Piece | File |
 | --- | --- |
 | Classification, wording, sanitising | `lib/core/services/linux_playback_runtime.dart` |
-| The loader probe | `lib/core/services/linux_native_library_probe.dart` |
 | Registration and retry | `LinuxPlaybackBackendInitializer`, `lib/core/services/linux_playback_controller.dart` |
 | The shared seams it plugs into | `engineUnavailableFailure` / `loadFailureFor`, `lib/core/services/just_audio_playback_controller.dart` |
 
