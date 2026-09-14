@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/routes.dart';
 import '../../core/models/smart_playlist.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import 'smart_mix_providers.dart';
 
 /// The "Smart mixes" section: automatic, Made-by-Linthra collections built from
@@ -20,7 +21,7 @@ class SmartMixesScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Smart mixes')),
       body: mixes.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const LoadingIndicator(label: 'Loading smart mixes'),
         error: (_, __) => const EmptyState(
           icon: Icons.error_outline,
           title: "Couldn't build your mixes",

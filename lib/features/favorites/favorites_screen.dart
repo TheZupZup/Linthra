@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/dimens.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import '../library/widgets/alphabet_track_list.dart';
 import 'favorites_controller.dart';
 
@@ -20,7 +21,7 @@ class FavoritesScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Favorites')),
       body: favorites.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const LoadingIndicator(label: 'Loading favourites'),
         error: (_, __) => const _FavoritesError(),
         data: (tracks) => tracks.isEmpty
             ? const EmptyState(

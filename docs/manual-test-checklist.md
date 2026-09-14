@@ -451,6 +451,18 @@ cache's knowledge survives a restart; it never holds a URL or token.
 - ☐ (Optional) Confirm via *Developer options ▸ Show refresh rate* that the rate
   rises to the panel's max with Linthra in the foreground.
 
+### TalkBack
+
+The full pass, with the setup steps and what is worth failing on, is in
+[accessibility.md](./accessibility.md#real-device-talkback-smoke-checklist).
+The short version, for a release pass:
+
+- ☐ Every destination, row and icon-only button announces something.
+- ☐ Nothing announces the same words twice in a row.
+- ☐ Shuffle, repeat and favourite sound different on and off.
+- ☐ A loading screen says it is loading rather than being silent.
+- ☐ No token, password or full server URL is ever spoken.
+
 ### Desktop HiDPI & fractional scaling (Linux)
 
 The scale matrix is covered by widget tests, so this pass is only about what a

@@ -499,7 +499,19 @@ class _SourceCardState extends State<_SourceCard> {
     return Semantics(
       button: true,
       enabled: widget.enabled,
-      label: '${widget.title}. ${widget.subtitle}',
+      // The card's own title and subtitle are already inside this label, so
+      // the subtree is excluded: without it a screen reader read the name and
+      // the description, then read both again off the Text widgets underneath.
+      excludeSemantics: true,
+      // Excluding the subtree also drops the InkWell's tap action, which would
+      // leave a button that announces itself and cannot be pressed.
+      onTap: widget.enabled ? widget.onTap : null,
+      label: widget.busy
+          // Every card reports disabled while one of them is working, so
+          // without this the card actually doing the work is indistinguishable
+          // from the three that are merely waiting on it.
+          ? '${widget.title}. ${widget.subtitle}. Setting up'
+          : '${widget.title}. ${widget.subtitle}',
       child: AnimatedScale(
         scale: _pressed ? .985 : 1,
         duration: duration,

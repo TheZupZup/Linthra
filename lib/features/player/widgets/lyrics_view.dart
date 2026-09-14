@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/dimens.dart';
 import '../../../core/models/lyrics.dart';
 import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/loading_indicator.dart';
 import '../lyrics_providers.dart';
 import 'lyrics/lyrics_viewport.dart';
 
@@ -32,7 +33,7 @@ class LyricsView extends ConsumerWidget {
     final AsyncValue<Lyrics?> lyrics = ref.watch(currentTrackLyricsProvider);
 
     return lyrics.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => const LoadingIndicator(label: 'Loading lyrics'),
       // Never surface raw error text (it can carry transport detail); show one
       // calm, friendly line instead.
       error: (_, __) => const _LyricsPlaceholder(

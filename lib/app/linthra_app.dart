@@ -249,7 +249,12 @@ class _BootstrapSurface extends StatelessWidget {
             SizedBox(height: 24),
             SizedBox.square(
               dimension: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              // The first thing Linthra ever shows. Silent, it was a logo and
+              // nothing else to a screen reader while install state resolved.
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                semanticsLabel: 'Starting Linthra',
+              ),
             ),
           ],
         ),
