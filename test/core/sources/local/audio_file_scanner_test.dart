@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
 
 /// The selected folder is no longer there once the walk is done: what an
 /// unplugged drive looks like to the check at the end of the walk.
@@ -11,7 +12,7 @@ class _Gone implements DirectoryReadability {
   const _Gone();
 
   @override
-  Future<bool> canList(String path) async => false;
+  Future<LocalRootFault?> inspect(String path) async => LocalRootFault.missing;
 }
 
 void main() {

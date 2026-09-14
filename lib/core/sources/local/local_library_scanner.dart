@@ -5,6 +5,7 @@ import 'folder_scan_exception.dart';
 import 'local_catalog_reconciliation.dart';
 import 'local_music_roots.dart';
 import 'local_music_source.dart';
+import 'local_root_fault.dart';
 import 'local_scan_report.dart';
 
 /// Scans one selected folder. [LocalMusicSource] is the production
@@ -18,6 +19,7 @@ class LocalRootOutcome {
     required this.root,
     required this.importedTracks,
     this.error,
+    this.fault,
     this.message,
   });
 
@@ -30,6 +32,15 @@ class LocalRootOutcome {
 
   /// Why the folder could not be read, or null when it was read fine.
   final LocalScanError? error;
+
+  /// The same failure in the shape the recovery UI needs: is the folder gone,
+  /// is it unreadable, or is the storage behind it not answering? Null when the
+  /// folder was read fine, and on a failure that named no kind.
+  ///
+  /// [error] says which *screen* recovers this (a folder chooser, Android's
+  /// permission page); this says what to tell the user and which of Retry,
+  /// Reselect and Remove leads the way out.
+  final LocalRootFault? fault;
 
   /// The scanner's own user-facing explanation for the failure, when it had
   /// one. Shown as-is; it is not recorded in diagnostics, where only the
@@ -107,6 +118,15 @@ class LocalLibraryScan {
         for (final LocalRootOutcome outcome in roots)
           if (!outcome.available) outcome.root,
       ];
+
+  /// The folders that could not be read, each with why. What availability
+  /// tracking adopts, so the state the UI reads carries the diagnosis the scan
+  /// already made instead of re-probing to guess at it.
+  Map<String, LocalRootFault> get rootFaults => <String, LocalRootFault>{
+        for (final LocalRootOutcome outcome in roots)
+          if (!outcome.available)
+            outcome.root: outcome.fault ?? LocalRootFault.unknown,
+      };
 
   /// Whether writing [tracks] to the catalog is safe. A scan where nothing
   /// could be read, or where an unreachable folder's tracks could not be
@@ -198,6 +218,7 @@ class LocalLibraryScanner {
         );
       } catch (error) {
         final LocalScanError classified = classifyRootError(root, error);
+        final LocalRootFault fault = classifyRootFault(error);
         if (previousTracks == null) {
           retentionUnavailable = true;
           outcomes.add(
@@ -205,6 +226,7 @@ class LocalLibraryScanner {
               root: root,
               importedTracks: 0,
               error: classified,
+              fault: fault,
               message: error is FolderScanException ? error.message : null,
             ),
           );
@@ -226,6 +248,7 @@ class LocalLibraryScanner {
             root: root,
             importedTracks: retained,
             error: classified,
+            fault: fault,
             message: error is FolderScanException ? error.message : null,
           ),
         );
@@ -235,6 +258,15 @@ class LocalLibraryScanner {
     final int unavailable =
         outcomes.where((LocalRootOutcome o) => !o.available).length;
     final bool everyRootFailed = unavailable == outcomes.length;
+    // The first folder that could not be read. Its kind is what the diagnostics
+    // line records, so a bug report says "permission_denied" rather than only
+    // "the local scan failed".
+    LocalRootFault? firstFault;
+    for (final LocalRootOutcome outcome in outcomes) {
+      if (outcome.available) continue;
+      firstFault = outcome.fault;
+      break;
+    }
     final List<StampedTrack> tracks = merged.values.toList(growable: false);
     final List<Track> plainTracks = <Track>[
       for (final StampedTrack stamped in tracks) stamped.track,
@@ -251,6 +283,7 @@ class LocalLibraryScanner {
         error: everyRootFailed
             ? outcomes.first.error ?? LocalScanError.unexpected
             : null,
+        fault: firstFault,
       ),
       roots: outcomes,
       retentionUnavailable: retentionUnavailable,
@@ -285,5 +318,21 @@ class LocalLibraryScanner {
     return location.isContentUri
         ? LocalScanError.safTraversal
         : LocalScanError.folderUnavailable;
+  }
+
+  /// Turns a folder's scan failure into the recovery *state* the UI shows for
+  /// that folder: gone, not permitted, or storage not answering.
+  ///
+  /// The scanner already classified it (a [FolderScanException] raised for a
+  /// root carries the kind on its [FolderScanException.code]), so this is a
+  /// lookup, not a second diagnosis, and the two can never disagree. A raw
+  /// `dart:io` failure that reached here unwrapped is classified from its
+  /// errno; anything else is [LocalRootFault.unknown], which is honest about
+  /// the app not knowing rather than guessing.
+  static LocalRootFault classifyRootFault(Object error) {
+    if (error is FolderScanException) {
+      return LocalRootFault.fromCode(error.code) ?? LocalRootFault.unknown;
+    }
+    return classifyFilesystemFault(error);
   }
 }

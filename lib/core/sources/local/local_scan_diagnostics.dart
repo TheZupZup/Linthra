@@ -59,6 +59,10 @@ abstract final class LocalScanDiagnostics {
       'readFailures=${report.readFailures}',
       'recursive=${report.recursive ? 'yes' : 'no'}',
       if (report.error != null) 'error=${report.error!.name}',
+      // The finer "why" behind an unreadable folder, when the scan could name
+      // it. Another enum name, so a bug report can say a drive was unmounted
+      // rather than that a folder was merely "unavailable".
+      if (report.fault != null) 'fault=${report.fault!.name}',
     ].join(' ');
   }
 

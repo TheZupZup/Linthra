@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/lifecycle/app_visibility.dart';
 import '../../core/sources/local/local_root_availability.dart';
 import '../../core/sources/local/local_root_availability_monitor.dart';
+import '../../core/sources/local/local_root_fault.dart';
 import '../../core/sources/local/local_root_probe.dart';
 import '../../data/repositories/host_platform_provider.dart';
 import 'library_controller.dart';
@@ -106,12 +107,19 @@ class LocalRootAvailabilityController
     });
     monitor.setPollingEnabled(ref.read(appVisibilityProvider));
 
-    // Off the build, so the notifier never writes state while building.
-    final List<String> roots =
-        ref.read(selectedFolderControllerProvider).valueOrNull ??
-            const <String>[];
+    // The seed for the listener above, which only fires on *changes*. Off the
+    // build, so the notifier never writes state while building. The
+    // selection is read inside the microtask rather than captured before it,
+    // because a stored selection that resolves in between would otherwise be
+    // overwritten here by the empty list this build saw while it was loading.
     scheduleMicrotask(() {
-      if (!_disposed) unawaited(monitor.syncRoots(roots));
+      if (_disposed) return;
+      unawaited(
+        monitor.syncRoots(
+          ref.read(selectedFolderControllerProvider).valueOrNull ??
+              const <String>[],
+        ),
+      );
     });
     return monitor.availability;
   }
@@ -129,7 +137,7 @@ class LocalRootAvailabilityController
   /// found a drive missing is reflected without waiting for a probe.
   void noteScanOutcome({
     required Iterable<String> readRoots,
-    required Iterable<String> unreadableRoots,
+    required Map<String, LocalRootFault> unreadableRoots,
   }) {
     _monitor?.noteScanOutcome(
       readRoots: readRoots,

@@ -10,6 +10,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/local/local_root_availability.dart';
 import 'package:linthra/core/sources/local/local_root_availability_monitor.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/local_root_probe.dart';
 
 /// A [LocalRootProbe] backed by a set of paths, so a test can unplug a drive by
@@ -18,11 +19,17 @@ class _FakeRootProbe implements LocalRootProbe {
   _FakeRootProbe({
     Set<String>? present,
     Set<String>? unanswerable,
+    this.fault = LocalRootFault.missing,
   })  : present = present ?? <String>{},
         unanswerable = unanswerable ?? <String>{};
 
   /// The paths that are reachable right now.
   Set<String> present;
+
+  /// What an absent path reports. A drive that was unplugged and one whose
+  /// permissions changed are both "not reachable" to this state machine, and
+  /// the kind simply rides along to the UI.
+  LocalRootFault fault;
 
   /// The paths this platform cannot speak for at all (a SAF grant off Android,
   /// a raw path where paths are not read). Answered with null, never a guess.
@@ -33,10 +40,12 @@ class _FakeRootProbe implements LocalRootProbe {
   final List<String> asked = <String>[];
 
   @override
-  Future<bool?> isAvailable(String root) async {
+  Future<LocalRootReading?> inspect(String root) async {
     asked.add(root);
     if (unanswerable.contains(root)) return null;
-    return present.contains(root);
+    return present.contains(root)
+        ? const LocalRootReading.available()
+        : LocalRootReading.blocked(fault);
   }
 }
 
@@ -256,7 +265,9 @@ void main() {
 
         monitor.noteScanOutcome(
           readRoots: <String>[_internal],
-          unreadableRoots: <String>[_usb],
+          unreadableRoots: <String, LocalRootFault>{
+            _usb: LocalRootFault.missing,
+          },
         );
 
         expect(monitor.availability.isUnavailable(_usb), isTrue);
@@ -279,7 +290,7 @@ void main() {
 
         monitor.noteScanOutcome(
           readRoots: <String>[_usb],
-          unreadableRoots: const <String>[],
+          unreadableRoots: const <String, LocalRootFault>{},
         );
 
         expect(monitor.availability.isAvailable(_usb), isTrue);
@@ -295,10 +306,86 @@ void main() {
 
         monitor.noteScanOutcome(
           readRoots: <String>[_usb],
-          unreadableRoots: const <String>[],
+          unreadableRoots: const <String, LocalRootFault>{},
         );
 
         expect(monitor.availability.stateFor(_usb), isNull);
+      });
+    });
+
+    group('why a folder is away', () {
+      test('rides along with the state, per folder', () async {
+        // Availability answers "is it reachable?"; this is the follow-up the
+        // user actually needs, and it is kept per folder because two drives can
+        // be away for two different reasons at once (#414).
+        final probe = _FakeRootProbe(
+          present: <String>{_internal},
+          fault: LocalRootFault.permissionDenied,
+        );
+        final monitor = LocalRootAvailabilityMonitor(probe: probe);
+        addTearDown(monitor.dispose);
+
+        await monitor.syncRoots(<String>[_usb, _internal]);
+
+        expect(
+          monitor.availability.faultFor(_usb),
+          LocalRootFault.permissionDenied,
+        );
+        expect(monitor.availability.faultFor(_internal), isNull);
+        expect(monitor.availability.faults, <String, LocalRootFault>{
+          _usb: LocalRootFault.permissionDenied,
+        });
+      });
+
+      test('a scan hands over what it learned rather than a bare "no"',
+          () async {
+        // The scan walked the folder, so it knows more than a probe can, and
+        // it knows *which* problem it hit, which is the thing the recovery UI
+        // branches on.
+        final probe = _FakeRootProbe(present: <String>{_usb, _internal});
+        final monitor = LocalRootAvailabilityMonitor(probe: probe);
+        addTearDown(monitor.dispose);
+        await monitor.syncRoots(<String>[_usb, _internal]);
+
+        monitor.noteScanOutcome(
+          readRoots: <String>[_internal],
+          unreadableRoots: <String, LocalRootFault>{
+            _usb: LocalRootFault.unavailable,
+          },
+        );
+
+        expect(
+          monitor.availability.faultFor(_usb),
+          LocalRootFault.unavailable,
+        );
+      });
+
+      test('a folder that comes back stops having one', () async {
+        final probe = _FakeRootProbe(fault: LocalRootFault.missing);
+        final monitor = LocalRootAvailabilityMonitor(probe: probe);
+        addTearDown(monitor.dispose);
+        await monitor.syncRoots(<String>[_usb]);
+        expect(monitor.availability.faultFor(_usb), LocalRootFault.missing);
+
+        probe.present = <String>{_usb};
+        await monitor.refresh();
+
+        expect(monitor.availability.faultFor(_usb), isNull);
+        expect(monitor.availability.faults, isEmpty);
+      });
+
+      test('a folder nothing has answered for yet has no fault to show',
+          () async {
+        // "We have not looked" must never be presented as a diagnosis.
+        final probe = _FakeRootProbe(present: <String>{_usb});
+        final monitor = LocalRootAvailabilityMonitor(probe: probe);
+        addTearDown(monitor.dispose);
+
+        expect(
+          const LocalRootState.checking(_usb).fault,
+          isNull,
+        );
+        expect(monitor.availability.faults, isEmpty);
       });
     });
 

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'local_music_roots.dart';
 import 'local_root_availability.dart';
+import 'local_root_fault.dart';
 import 'local_root_probe.dart';
 
 /// Tracks whether each configured local music folder is reachable, and notices
@@ -146,15 +147,16 @@ class LocalRootAvailabilityMonitor {
   /// same folder twice.
   void noteScanOutcome({
     required Iterable<String> readRoots,
-    required Iterable<String> unreadableRoots,
+    required Map<String, LocalRootFault> unreadableRoots,
   }) {
     if (_disposed) return;
     bool changed = false;
     for (final String root in readRoots) {
-      changed |= _settle(root, available: true);
+      changed |= _settle(root, fault: null);
     }
-    for (final String root in unreadableRoots) {
-      changed |= _settle(root, available: false);
+    for (final MapEntry<String, LocalRootFault> entry
+        in unreadableRoots.entries) {
+      changed |= _settle(entry.key, fault: entry.value);
     }
     if (!changed) return;
     _publish();
@@ -204,7 +206,7 @@ class LocalRootAvailabilityMonitor {
     final List<String> returned = <String>[];
     bool changed = false;
     for (final String root in roots) {
-      final bool? answer = await _probe.isAvailable(root);
+      final LocalRootReading? answer = await _probe.inspect(root);
       if (_disposed) return const <String>[];
       if (answer == null) {
         // This platform cannot speak for this root. Forget it rather than
@@ -213,9 +215,9 @@ class LocalRootAvailabilityMonitor {
         continue;
       }
       final bool wasUnavailable = _roots[root]?.isUnavailable ?? false;
-      final bool settled = _settle(root, available: answer);
+      final bool settled = _settle(root, fault: answer.fault);
       changed |= settled;
-      if (settled && answer && wasUnavailable) returned.add(root);
+      if (settled && answer.isAvailable && wasUnavailable) returned.add(root);
     }
     if (changed) _publish();
     return returned;
@@ -234,12 +236,13 @@ class LocalRootAvailabilityMonitor {
   }
 
   /// Records one probe answer for [root]. Returns whether anything changed.
-  bool _settle(String root, {required bool available}) {
+  ///
+  /// A null [fault] is the folder answering; anything else is why it did not.
+  bool _settle(String root, {required LocalRootFault? fault}) {
     final String canonical = LocalMusicRoots.canonicalize(root);
     final LocalRootState? current = _roots[canonical];
     if (current == null) return false;
-    final LocalRootState next =
-        current.settled(available: available, at: _now());
+    final LocalRootState next = current.settled(fault: fault, at: _now());
     if (next == current) return false;
     _roots[canonical] = next;
     return true;

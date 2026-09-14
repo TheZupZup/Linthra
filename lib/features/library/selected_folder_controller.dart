@@ -45,6 +45,48 @@ class SelectedFolderController extends AsyncNotifier<List<String>> {
     return picked;
   }
 
+  /// Opens the folder picker and puts the chosen folder where [previous] was,
+  /// keeping the rest of the selection and its order. Returns null when the
+  /// user cancelled, in which case nothing changed at all.
+  ///
+  /// This is how a folder that cannot be read is pointed somewhere else, and it
+  /// is deliberately the *only* way a configured path ever changes: the user
+  /// picks it, in the system chooser, every time. Linthra never looks for where
+  /// a drive went and never adopts a path on the user's behalf: it has no way
+  /// to prove a folder at a new mount point holds the same music, and guessing
+  /// would aim the library at somebody else's files.
+  Future<String?> pickAndReplace(String previous) async {
+    final picked = await ref.read(folderPickerServiceProvider).pickFolder();
+    if (picked == null || picked.isEmpty) {
+      return null;
+    }
+    await replaceAndPersist(previous, picked);
+    return picked;
+  }
+
+  /// Swaps [previous] for [replacement] in place, leaving every other folder
+  /// exactly where it is. A [previous] that is not selected adds nothing: this
+  /// only ever edits the entry the user pointed at.
+  Future<void> replaceAndPersist(String previous, String replacement) async {
+    if (replacement.isEmpty) return;
+    final List<String> current = state.valueOrNull ?? <String>[];
+    final String target = LocalMusicRoots.canonicalize(previous);
+    if (!current.any(
+      (String folder) => LocalMusicRoots.canonicalize(folder) == target,
+    )) {
+      return;
+    }
+    await _persist(
+      LocalMusicRoots.normalize(<String>[
+        for (final String folder in current)
+          if (LocalMusicRoots.canonicalize(folder) == target)
+            replacement
+          else
+            folder,
+      ]),
+    );
+  }
+
   /// Persists a known local-library location as the only selection, without
   /// opening the folder picker. Used by Android's explicit device-wide
   /// MediaStore mode.

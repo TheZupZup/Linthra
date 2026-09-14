@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/folder_location.dart';
 import 'package:linthra/core/sources/local/local_file_stat.dart';
 import 'package:linthra/core/sources/local/local_metadata_reader.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
+import 'package:linthra/data/repositories/host_platform_provider.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
@@ -201,5 +205,82 @@ void main() {
           findsNothing);
       expect(find.textContaining('mediastore://'), findsNothing);
     });
+
+    testWidgets('a folder it cannot read is explained, not shown as empty', (
+      tester,
+    ) async {
+      // The heart of #414. An empty library and an unplugged drive look
+      // identical until somebody says which it is, and the fixes are different.
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            selectedMusicFolderRepositoryProvider.overrideWithValue(
+              InMemorySelectedMusicFolderRepository(
+                initialFolder: '/media/usb/Music',
+              ),
+            ),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+            directoryReadabilityProvider
+                .overrideWithValue(const _Unreadable(LocalRootFault.missing)),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text("Your music folder isn't available"), findsOneWidget);
+      expect(find.text('Folder not found'), findsOneWidget);
+      expect(find.text('/media/usb/Music'), findsOneWidget);
+      // The two non-destructive fixes are here; the one that throws a source
+      // away stays on the Settings card.
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Select folder again'), findsOneWidget);
+      expect(find.text('Remove folder'), findsNothing);
+      // And none of the "you have no music" wording.
+      expect(find.text('No music found'), findsNothing);
+      expect(find.text('No music folder selected'), findsNothing);
+    });
+
+    testWidgets('a permission problem is not described as a missing folder', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            selectedMusicFolderRepositoryProvider.overrideWithValue(
+              InMemorySelectedMusicFolderRepository(
+                initialFolder: '/home/me/Music',
+              ),
+            ),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+            directoryReadabilityProvider.overrideWithValue(
+              const _Unreadable(LocalRootFault.permissionDenied),
+            ),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Permission denied'), findsOneWidget);
+      expect(find.text('Folder not found'), findsNothing);
+    });
   });
+}
+
+/// Reports every folder as unreadable for one fixed reason, so the screen's
+/// recovery state can be staged without a drive to unplug.
+class _Unreadable implements DirectoryReadability {
+  const _Unreadable(this.fault);
+
+  final LocalRootFault fault;
+
+  @override
+  Future<LocalRootFault?> inspect(String path) async => fault;
 }

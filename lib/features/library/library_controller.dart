@@ -283,6 +283,9 @@ class LibraryController extends Notifier<LibraryState> {
         error: LocalScanError.unexpected,
         rootsScanned: roots.length,
         rootsUnavailable: roots.length,
+        // Deliberately unset: this is a failure *outside* the folder walk (a
+        // catalog write, most likely), so naming a filesystem fault for it
+        // would tell the user to reconnect a drive that is sitting right there.
       );
       ref.read(localScanReportProvider.notifier).record(report);
       _loadGeneration++;
@@ -306,10 +309,10 @@ class LibraryController extends Notifier<LibraryState> {
         for (final LocalRootOutcome outcome in scan.roots)
           if (outcome.available) outcome.root,
       ],
-      unreadableRoots: <String>[
-        for (final LocalRootOutcome outcome in scan.roots)
-          if (!outcome.available) outcome.root,
-      ],
+      // With the reason attached, so the card explains an unmounted drive and a
+      // permission problem differently without probing the folder a second time
+      // to find out which it was.
+      unreadableRoots: scan.rootFaults,
     );
   }
 
