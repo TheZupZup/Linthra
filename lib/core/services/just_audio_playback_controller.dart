@@ -141,6 +141,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// per track and is returned in full the moment anything actually plays.
   static const int maxRecoveryAttemptsPerTrack = 3;
 
+  /// The [SafeEventLog] breadcrumb recorded when playback stopped at the audio
+  /// engine rather than at the track. A fixed structural label, like every
+  /// other one: it names the shape of the failure, never the error.
+  static const String engineUnavailableBreadcrumb = 'engine-unavailable';
+
   /// Pause before the bounded mid-stream retry so a brief glitch can clear and
   /// we never hammer the server on every drop. Zero in tests.
   static const Duration _defaultStreamRetryBackoff =
@@ -891,6 +896,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _state.status != PlaybackStatus.reconnecting) {
       return;
     }
+    // An engine that has stopped being usable is not a stream that dropped.
+    // The bounded reconnect and the walk through sibling copies below would
+    // both go back through the same engine, so a platform whose engine is a
+    // system package gets to say so before any of that starts.
+    final PlaybackResolutionException? engineFailure =
+        engineUnavailableFrom(error);
+    if (engineFailure != null) {
+      StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
+      final Track? track = _queue.current;
+      if (track != null) _emitError(track, _failureFrom(track, engineFailure));
+      return;
+    }
     _handleStreamFailure(classifyEngineError(error));
   }
 
@@ -1243,7 +1260,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (_state.status != PlaybackStatus.error) return;
     final Track? track = _queue.current;
     if (track == null) return;
-    if (!_claimRecoveryAttempt(track)) return;
+    // An engine failure is outside the per-track budget, for the reason
+    // [PlaybackFailureKindRecovery.isEngineFailure] gives: the listener fixing
+    // their machine is the recovery, and three taps is not a sensible ration
+    // of attempts at that. Every other failure still spends one.
+    final bool engineFailure = _state.failure?.kind.isEngineFailure ?? false;
+    if (!engineFailure && !_claimRecoveryAttempt(track)) return;
     // A deliberate retry is a fresh start for the automatic mid-stream budget
     // too, exactly as pressing play on a failed track already is.
     _retriesForCurrent = 0;
@@ -1631,6 +1653,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     List<Track> candidates,
     int generation,
   ) async {
+    // One audio engine serves every candidate, so an engine that cannot take a
+    // source at all is settled here, before anything is resolved: no network
+    // round trip, no second copy of the song, one classified failure.
+    final PlaybackResolutionException? unavailable = engineUnavailableFailure();
+    if (unavailable != null) {
+      StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
+      throw unavailable;
+    }
     final List<PlaybackResolutionException> failures =
         <PlaybackResolutionException>[];
     for (final Track candidate in candidates) {
@@ -1667,6 +1697,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       } catch (error) {
         // Resolved (and, for streams, probed) OK but the engine couldn't open
         // it: a start failure. Word it for the source.
+        final PlaybackResolutionException failure =
+            loadFailureFor(error, resolved.source);
+        // An engine that turned out to be unusable only once it was handed
+        // bytes ends the pass here. The streaming fallback below and every
+        // remaining candidate go through the same engine, so both would fail
+        // identically, and proving it costs the listener a network round trip
+        // and reads as "this song is broken" rather than "this machine is".
+        if (failure.kind ==
+            PlaybackResolutionErrorKind.playbackEngineUnavailable) {
+          StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
+          throw failure;
+        }
         StabilityDiagnostics.playbackError('load');
         // A cached file that won't open (reclaimed after the existence check,
         // corrupt, or an unreadable codec) must not strand a single-source
@@ -1679,7 +1721,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         // stale transition rather than recording a failure on a track the user
         // has already moved past.
         if (generation != _playbackGeneration) return null;
-        failures.add(_loadFailureFor(error, resolved.source));
+        failures.add(failure);
         continue;
       }
     }
@@ -1708,7 +1750,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// default / tests), the failed load was *not* a cache hit (a stream that
   /// won't open is a real source failure handled by the normal candidate
   /// fallback), a newer transition superseded [generation], or the stream
-  /// itself can't resolve or open.
+  /// itself can't resolve or open. The one failure it does *not* absorb is an
+  /// unavailable engine: that is thrown, because it is true of every source
+  /// rather than of this one.
   Future<({Track track, ResolvedPlayable resolved})?> _retryFromStream(
     Track candidate,
     ResolvedPlayable failed,
@@ -1734,11 +1778,49 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     try {
       await _player.setUrl(streamed.uri.toString());
       return (track: candidate, resolved: streamed);
-    } catch (_) {
+    } catch (error) {
+      // The cache miss is this track's problem; an engine that cannot take a
+      // source is every track's. Swallowing the second as "the stream didn't
+      // open either" would report the cached copy's failure, walk on through
+      // the remaining candidates, and never show the engine recovery, so it
+      // is classified here too and thrown rather than returned.
+      final PlaybackResolutionException failure =
+          loadFailureFor(error, streamed.source);
+      if (failure.kind ==
+          PlaybackResolutionErrorKind.playbackEngineUnavailable) {
+        StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
+        throw failure;
+      }
       StabilityDiagnostics.playbackError('load');
       return null;
     }
   }
+
+  /// Whether the audio engine can take a source at all, checked before one is
+  /// resolved for it.
+  ///
+  /// Null means yes, and that is the answer on every platform that ships its
+  /// engine inside the app: the engine is there because the app is. A platform
+  /// whose engine is a system package can override this to answer with the
+  /// failure to record instead (Linux, where libmpv is installed by the
+  /// distribution and can be absent, broken or incompatible). Keeping the
+  /// check here rather than in each play method means every path that loads a
+  /// track (play, restore, retry, the automatic fallback) is covered by one
+  /// hook.
+  @protected
+  PlaybackResolutionException? engineUnavailableFailure() => null;
+
+  /// Whether [error] says the *engine* has become unusable rather than this
+  /// stream or these bytes, or null when it says no such thing.
+  ///
+  /// The companion to [engineUnavailableFailure] for errors that arrive with
+  /// something to read: a failed load, and an error the engine raises
+  /// mid-playback. Null on every platform that ships its engine in the app,
+  /// so nothing here changes for them; a platform whose engine is a system
+  /// package overrides it and every path into the engine gets the same
+  /// verdict.
+  @protected
+  PlaybackResolutionException? engineUnavailableFrom(Object error) => null;
 
   /// The failure to record when the engine cannot open an already-resolved
   /// source.
@@ -1749,7 +1831,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// recoveries (another copy of the song vs. trying again), so the error UI
   /// needs them apart. Anything the classifier can't place keeps the previous
   /// wording and kind, so only a recognised decode failure changes behaviour.
-  static PlaybackResolutionException _loadFailureFor(
+  ///
+  /// Overridable for the same reason [engineUnavailableFailure] exists: a
+  /// native runtime that loads but is the wrong one fails here, at the first
+  /// source, rather than at registration, and that is a verdict on the engine
+  /// rather than on the track.
+  @protected
+  PlaybackResolutionException loadFailureFor(
     Object error,
     PlaybackSource source,
   ) {
@@ -1814,13 +1902,19 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     required PlaybackFailureKind kind,
   }) {
     final bool hasAttemptsLeft = _recoveryAttemptsLeftFor(track) > 0;
+    // An engine that cannot play anything fails every other copy of this song
+    // and every other track in the queue exactly as it failed this one, so it
+    // offers only Retry, and offers it for as long as the listener keeps
+    // needing it.
+    final bool engineFailure = kind.isEngineFailure;
     return PlaybackFailure(
       kind: kind,
       message: message,
-      canRetry: hasAttemptsLeft && kind.isWorthRetrying,
-      canTryAnotherSource:
-          hasAttemptsLeft && _alternateSourcesFor(track).isNotEmpty,
-      canSkip: _queue.hasNext,
+      canRetry: kind.isWorthRetrying && (engineFailure || hasAttemptsLeft),
+      canTryAnotherSource: !engineFailure &&
+          hasAttemptsLeft &&
+          _alternateSourcesFor(track).isNotEmpty,
+      canSkip: !engineFailure && _queue.hasNext,
     );
   }
 

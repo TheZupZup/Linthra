@@ -33,6 +33,36 @@ enum LibmpvAvailability {
   final String label;
 }
 
+/// Why the Linux playback backend could not be brought up, when it could not.
+///
+/// A closed enum, deliberately: this is the one thing a broken Linux audio
+/// runtime has to be able to say, and saying it as a constant means the report
+/// (and the failure the player shows) can name the problem without carrying the
+/// loader's own text, which is where a library path would be.
+enum LinuxPlaybackRuntimeProblem {
+  /// No libmpv on this system: nothing answered any of the names the backend
+  /// loads it by.
+  libraryMissing('libmpv not found'),
+
+  /// A libmpv is there and the loader refused it for a reason that is not a
+  /// version or ABI mismatch (permissions, a truncated file, a dependency of
+  /// its own it cannot find).
+  libraryUnloadable('libmpv could not be loaded'),
+
+  /// A libmpv is there and does not match this build: the wrong architecture,
+  /// a missing symbol, or a runtime dependency at a version it was not built
+  /// against.
+  libraryIncompatible('libmpv is not compatible'),
+
+  /// libmpv itself is fine as far as the loader is concerned, and the backend
+  /// still did not come up.
+  backendInitializationFailed('backend did not start');
+
+  const LinuxPlaybackRuntimeProblem(this.label);
+
+  final String label;
+}
+
 /// Which audio subsystem an output device belongs to.
 ///
 /// Derived from the driver prefix of libmpv's device name (`pipewire/…`,
@@ -170,6 +200,7 @@ class LinuxPlaybackFailure {
 class LinuxPlaybackDiagnosticsData {
   const LinuxPlaybackDiagnosticsData({
     required this.backend,
+    this.runtimeProblem,
     this.libmpv = LibmpvAvailability.notProbed,
     this.libmpvVersion,
     this.mpvProperties = const <String, String>{},
@@ -188,6 +219,13 @@ class LinuxPlaybackDiagnosticsData {
   });
 
   final LinuxPlaybackBackend backend;
+
+  /// What stopped the backend from coming up, when something did. Null is the
+  /// normal answer: the backend registered, so there is no runtime problem to
+  /// report. A closed enum, so this line can name the problem while the
+  /// loader's own text (the part that holds a library path) stays out of the
+  /// report entirely.
+  final LinuxPlaybackRuntimeProblem? runtimeProblem;
 
   final LibmpvAvailability libmpv;
 
@@ -338,6 +376,8 @@ abstract final class LinuxPlaybackDiagnostics {
     final List<String> lines = <String>[
       'Linthra Linux playback diagnostics',
       'Backend: ${data.backend.label}',
+      if (data.runtimeProblem != null)
+        'Backend runtime: ${data.runtimeProblem!.label}',
       'libmpv: ${data.libmpv.label}',
       if (data.libmpvVersion != null) 'libmpv version: ${data.libmpvVersion}',
       for (final MapEntry<String, String> entry

@@ -151,6 +151,36 @@ void main() {
       expect(find.byType(TextButton), findsNothing);
     });
 
+    testWidgets(
+        'an unusable audio engine reads as a machine problem, with '
+        'Retry as the only way out', (WidgetTester tester) async {
+      // The Linux case behind #404: libmpv is missing, so the engine is what
+      // failed. The panel is the shared one, so nothing here is Linux-specific
+      // except the message the controller put in it.
+      final FakePlaybackController controller = FakePlaybackController(
+        initial: _errorState(
+          const PlaybackFailure(
+            kind: PlaybackFailureKind.playbackEngineUnavailable,
+            message: 'Linthra plays audio through libmpv, and this system '
+                'does not have it. Install it, then choose Retry.',
+            canRetry: true,
+          ),
+          upNext: <Track>[_sibling],
+        ),
+      );
+      await _pumpPlayer(tester, controller);
+
+      expect(
+        find.textContaining('this system does not have it'),
+        findsOneWidget,
+      );
+      expect(find.text('Retry'), findsOneWidget);
+      // Another copy of the song and the next track go through the same dead
+      // engine, so neither is offered.
+      expect(find.text('Try another source'), findsNothing);
+      expect(find.text('Skip'), findsNothing);
+    });
+
     testWidgets('leaves the rest of the player usable: it is not a dialog',
         (WidgetTester tester) async {
       final FakePlaybackController controller = FakePlaybackController(
@@ -370,6 +400,23 @@ void main() {
 
       expect(find.text('Playback problem'), findsNothing);
       expect(find.textContaining('Navidrome'), findsOneWidget);
+    });
+
+    testWidgets('names the audio engine when that is what is broken',
+        (WidgetTester tester) async {
+      final FakePlaybackController controller = FakePlaybackController(
+        initial: _errorState(const PlaybackFailure(
+          kind: PlaybackFailureKind.playbackEngineUnavailable,
+          message: 'Linthra plays audio through libmpv, and this system does '
+              'not have it.',
+          canRetry: true,
+        )),
+      );
+      await _pumpMiniPlayer(tester, controller);
+
+      // One line, so it says which *kind* of problem it is and leaves the
+      // instructions to the now-playing panel.
+      expect(find.text('Audio engine unavailable'), findsOneWidget);
     });
   });
 }

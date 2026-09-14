@@ -231,6 +231,44 @@ void main() {
       _expectNoSecrets(report);
     });
 
+    test('names a broken audio runtime, without naming a library path', () {
+      final String report = LinuxPlaybackDiagnostics.report(
+        const LinuxPlaybackDiagnosticsData(
+          backend: LinuxPlaybackBackend.mediaKitLibmpv,
+          runtimeProblem: LinuxPlaybackRuntimeProblem.libraryMissing,
+          libmpv: LibmpvAvailability.notProbed,
+        ),
+      );
+      expect(report, contains('Backend runtime: libmpv not found'));
+      _expectNoSecrets(report);
+    });
+
+    test('a healthy backend has no runtime line at all', () {
+      final String report = LinuxPlaybackDiagnostics.report(
+        const LinuxPlaybackDiagnosticsData(
+          backend: LinuxPlaybackBackend.mediaKitLibmpv,
+          libmpv: LibmpvAvailability.available,
+        ),
+      );
+      expect(report, isNot(contains('Backend runtime')));
+    });
+
+    test('every runtime problem renders as one readable line', () {
+      for (final LinuxPlaybackRuntimeProblem problem
+          in LinuxPlaybackRuntimeProblem.values) {
+        final String report = LinuxPlaybackDiagnostics.report(
+          LinuxPlaybackDiagnosticsData(
+            backend: LinuxPlaybackBackend.mediaKitLibmpv,
+            runtimeProblem: problem,
+          ),
+        );
+        expect(report, contains('Backend runtime: ${problem.label}'),
+            reason: problem.name);
+        expect(problem.label, isNot(contains('\n')), reason: problem.name);
+        _expectNoSecrets(report);
+      }
+    });
+
     test('missing optional information never fails the report', () {
       final String report = LinuxPlaybackDiagnostics.report(
         const LinuxPlaybackDiagnosticsData(

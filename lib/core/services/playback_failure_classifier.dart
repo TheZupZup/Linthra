@@ -29,6 +29,12 @@ PlaybackFailureKind playbackFailureKindForResolution(
     case PlaybackResolutionErrorKind.mediaUnsupported:
       return PlaybackFailureKind.unplayableMedia;
 
+    // There is no working backend to hand anything to. Kept apart from
+    // [mediaUnsupported] because the recovery is different in kind: not
+    // another copy of the song, but the machine's audio runtime.
+    case PlaybackResolutionErrorKind.playbackEngineUnavailable:
+      return PlaybackFailureKind.playbackEngineUnavailable;
+
     // Everything else is the source misbehaving rather than the music being
     // unplayable: unreachable, a challenge/login page, a non-audio answer, or
     // no stream right now. All of them can be fine on the next attempt.

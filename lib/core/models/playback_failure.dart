@@ -3,10 +3,11 @@ import 'package:flutter/foundation.dart';
 /// What broadly stopped a track from playing, in the terms a listener can act
 /// on, not in the terms the backend failed in.
 ///
-/// The four cases exist because each one has a *different* useful recovery:
-/// waiting/retrying, reconnecting a drive, signing in again, or moving on. A
-/// failure Linthra cannot place lands on [temporarySource], the kind whose
-/// recovery (try again) is the least likely to waste the listener's time.
+/// The cases exist because each one has a *different* useful recovery:
+/// waiting/retrying, reconnecting a drive, signing in again, moving on, or
+/// fixing the machine's audio runtime. A failure Linthra cannot place lands on
+/// [temporarySource], the kind whose recovery (try again) is the least likely
+/// to waste the listener's time.
 enum PlaybackFailureKind {
   /// A network or provider problem that may well clear on its own: the server
   /// is unreachable, the connection dropped, the stream came back as something
@@ -25,6 +26,18 @@ enum PlaybackFailureKind {
   /// codec, a corrupt file, a decoder the platform doesn't have, or, on a host
   /// with no audio engine at all, nothing to play them with.
   unplayableMedia,
+
+  /// The audio engine itself is not usable on this machine: the native runtime
+  /// it plays through is missing, cannot be loaded, or would not start.
+  ///
+  /// The odd one out, and deliberately so. Every other kind is about *this
+  /// track*, so the queue still means something and another copy of the song
+  /// or the next track is worth a try. This one is about the engine every
+  /// track shares, so nothing else in the queue would play either and the fix
+  /// is outside the app. Raised on Linux, where the runtime is a system
+  /// package (see `LinuxPlaybackRuntime`); Android ships its engine inside the
+  /// app and never produces it.
+  playbackEngineUnavailable,
 }
 
 /// A recovery the listener can take from a failed track.
@@ -56,7 +69,24 @@ extension PlaybackFailureKindRecovery on PlaybackFailureKind {
         PlaybackFailureKind.localFileUnavailable => true,
         PlaybackFailureKind.sourceSignInRequired => false,
         PlaybackFailureKind.unplayableMedia => false,
+        // The retry here is the listener saying "I fixed it": installing the
+        // runtime package and trying again is the whole recovery, and it is
+        // the only one on offer.
+        PlaybackFailureKind.playbackEngineUnavailable => true,
       };
+
+  /// Whether this failure is the *engine's* rather than this track's.
+  ///
+  /// It changes what the error panel may offer. One audio engine plays every
+  /// track, so when the engine is what failed, another copy of the song and
+  /// the next track in the queue fail identically: offering either would be
+  /// offering a button that cannot work. It also lifts the bounded attempt
+  /// budget, because that budget exists to stop a listener tapping Retry at a
+  /// source with a fixed answer, and here the answer changes the moment they
+  /// fix their machine. Taking the only button away after three taps would
+  /// leave a dead player and nothing to press.
+  bool get isEngineFailure =>
+      this == PlaybackFailureKind.playbackEngineUnavailable;
 
   /// A few words for a surface with one line to spare (the mini-player), where
   /// the full [PlaybackFailure.message] would be cut off mid-sentence.
@@ -65,6 +95,8 @@ extension PlaybackFailureKindRecovery on PlaybackFailureKind {
         PlaybackFailureKind.localFileUnavailable => 'File unavailable',
         PlaybackFailureKind.sourceSignInRequired => 'Sign-in needed',
         PlaybackFailureKind.unplayableMedia => "Can't play this track",
+        PlaybackFailureKind.playbackEngineUnavailable =>
+          'Audio engine unavailable',
       };
 }
 

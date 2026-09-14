@@ -1,9 +1,14 @@
+import 'dart:io' show Platform;
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 
+import '../diagnostics/linux_playback_diagnostics.dart';
+import '../models/playback_source.dart';
 import 'just_audio_playback_controller.dart';
+import 'linux_playback_runtime.dart';
 import 'local_playable_uri_resolver.dart';
 import 'playable_uri_resolver.dart';
 import 'playback_candidate_source.dart';
@@ -45,24 +50,157 @@ const Map<String, String> linuxMpvProperties = <String, String>{
 Map<String, String> resolveLinuxMpvProperties(Map<String, String> configured) =>
     <String, String>{...linuxMpvProperties, ...configured};
 
-/// Registers just_audio's Linux implementation once for this process.
+/// Whether this process is a Flatpak, where libmpv is bundled in the image.
+///
+/// Read once from the environment the sandbox always sets
+/// (`docs/flatpak-development.md`). It changes only what a runtime failure
+/// *advises*: a distribution build plays through the machine's libmpv, so the
+/// fix is the machine's package manager, while a Flatpak never loads the
+/// host's libmpv at all and telling its user to `apt install` something would
+/// send them to fix a library the app does not use.
+bool runsInFlatpak() =>
+    (Platform.environment['FLATPAK_ID'] ?? '').trim().isNotEmpty;
+
+/// Registers just_audio's Linux implementation once for this process, and says
+/// what stopped it when it cannot.
 ///
 /// Registration is synchronous, so the success flag cannot race another call
-/// in the same isolate. It is deliberately set after registration returns: if
-/// native setup throws, the next controller construction can retry.
+/// in the same isolate. It is deliberately set only after registration returns,
+/// which is what makes the whole retry story work: the runtime is re-examined
+/// on every attempt until one succeeds, so a listener who installs the missing
+/// package and presses Retry gets audio without restarting Linthra, let alone
+/// the machine.
+///
+/// Two kinds of failure leave here by two different doors, and keeping them
+/// apart is the point of this class:
+///
+///  * An environment problem (no libmpv, a libmpv that will not load, one that
+///    does not match this build) is *returned* as a classified
+///    [LinuxPlaybackRuntimeFailure]. The app stays up, playback reports a
+///    Linux runtime problem instead of an opaque track error, and a later
+///    attempt can still succeed.
+///  * Anything else is *rethrown* untouched. A bug in this registration path
+///    is a bug, and dressing it up as "install libmpv" would send everyone who
+///    hits it to reinstall a package that was never the problem.
 class LinuxPlaybackBackendInitializer {
   LinuxPlaybackBackendInitializer({
     LinuxPlaybackBackendRegistration? registerBackend,
-  }) : _registerBackend = registerBackend ?? _registerDefaultBackend;
+    bool? bundledRuntime,
+  })  : _registerBackend = registerBackend ?? _registerDefaultBackend,
+        _bundledRuntime = bundledRuntime ?? runsInFlatpak();
 
   final LinuxPlaybackBackendRegistration _registerBackend;
+  final bool _bundledRuntime;
+
   bool _initialized = false;
 
-  void ensureInitialized() {
-    if (_initialized) return;
-    _registerBackend();
+  /// What stopped *registration*, kept only while registration has not since
+  /// succeeded.
+  LinuxPlaybackRuntimeFailure? _registrationFailure;
+
+  /// A runtime failure the engine only revealed once it was handed a source.
+  ///
+  /// Registration succeeded, so [_initialized] is true and re-running it
+  /// would keep saying the backend is fine. Without a latch the next play
+  /// would sail through the preflight, resolve a stream (a network round trip
+  /// on a machine that has already proven it cannot play a note) and fail at
+  /// the same symbol. Latched, the preflight answers immediately with the
+  /// verdict it already has.
+  LinuxPlaybackRuntimeFailure? _loadTimeFailure;
+
+  /// Whether the backend is registered and the native runtime is loaded.
+  bool get isReady => _initialized;
+
+  /// What is wrong with the backend right now, or null when nothing is.
+  ///
+  /// Derived rather than stored, because the two ways it can go wrong expire
+  /// differently and a stale verdict here would be published: the diagnostics
+  /// report reads this, and telling someone their libmpv is broken while
+  /// music is playing is worse than saying nothing. A load-time verdict holds
+  /// until an attempt clears it; a registration verdict holds until
+  /// registration succeeds; once neither applies, the honest answer is that
+  /// there is no known problem.
+  LinuxPlaybackRuntimeFailure? get failure =>
+      _loadTimeFailure ?? (_initialized ? null : _registrationFailure);
+
+  /// Registers the backend if it is not registered yet.
+  ///
+  /// Returns null when the backend is ready and a classified failure when it
+  /// is not. Cheap to call on every playback attempt: once it has succeeded it
+  /// short-circuits, and until then the work is one library load.
+  LinuxPlaybackRuntimeFailure? ensureInitialized() {
+    final LinuxPlaybackRuntimeFailure? loadTime = _loadTimeFailure;
+    if (loadTime != null) return loadTime;
+    if (_initialized) return null;
+    try {
+      _registerBackend();
+    } catch (error) {
+      final LinuxPlaybackRuntimeProblem? problem =
+          LinuxPlaybackRuntime.recognise(error);
+      // Not a native-runtime problem: a real bug, and it leaves as one.
+      if (problem == null) rethrow;
+      final LinuxPlaybackRuntimeFailure failure = _classify(problem, error);
+      _registrationFailure = failure;
+      LinuxPlaybackRuntime.logFailure(failure);
+      return failure;
+    }
     _initialized = true;
+    _registrationFailure = null;
+    _loadTimeFailure = null;
+    return null;
   }
+
+  /// Classifies a failure the engine only reached once it was handed a source.
+  ///
+  /// A libmpv that opens but is not the libmpv this build needs gets through
+  /// registration (the loader binds lazily) and fails at the first symbol, so
+  /// the load path needs the same classification the registration path has.
+  /// Returns null for everything that is not about the native runtime, which
+  /// is how an ordinary codec, network or provider failure keeps the wording
+  /// and the recovery it already had.
+  LinuxPlaybackRuntimeFailure? classifyEngineFailure(Object error) {
+    final LinuxPlaybackRuntimeProblem? problem =
+        LinuxPlaybackRuntime.recognise(error);
+    if (problem == null) return null;
+    final LinuxPlaybackRuntimeFailure failure =
+        _classify(problem, error, alreadyLoaded: true);
+    _loadTimeFailure = failure;
+    LinuxPlaybackRuntime.logFailure(failure);
+    return failure;
+  }
+
+  /// Gives the engine one more genuine attempt after a load-time verdict.
+  ///
+  /// Called when the listener presses Retry. The latch exists to stop
+  /// *automatic* attempts walking into a known-broken engine, not to refuse
+  /// the one attempt that was asked for, so a deliberate retry clears it and
+  /// the next load really reaches libmpv again.
+  ///
+  /// What it cannot do is reload the library. A shared object is mapped into
+  /// the process on first use and media_kit resolves libmpv exactly once per
+  /// process, so a listener who replaces the file on disk needs Linthra to
+  /// start again before the new copy is used. That is what the load-time
+  /// wording tells them ([LinuxPlaybackRuntime.restartTail]); this attempt is
+  /// still worth making, because not every failure the engine reports after
+  /// loading is the library's ABI.
+  void allowAnotherAttempt() {
+    _loadTimeFailure = null;
+  }
+
+  LinuxPlaybackRuntimeFailure _classify(
+    LinuxPlaybackRuntimeProblem problem,
+    Object error, {
+    bool alreadyLoaded = false,
+  }) =>
+      LinuxPlaybackRuntimeFailure(
+        problem: problem,
+        message: LinuxPlaybackRuntime.messageFor(
+          problem,
+          bundledRuntime: _bundledRuntime,
+          alreadyLoaded: alreadyLoaded,
+        ),
+        diagnostic: LinuxPlaybackRuntime.sanitizeRuntimeDiagnostic(error),
+      );
 
   static void _registerDefaultBackend() {
     JustAudioMediaKit.title = 'Linthra';
@@ -77,13 +215,20 @@ class LinuxPlaybackBackendInitializer {
 /// The transport, queue, resolver fallback and completion behaviour deliberately
 /// stay in [JustAudioPlaybackController]. This class only registers the Linux
 /// federated implementation before that controller creates its [AudioPlayer],
-/// and enables post-suspend recovery so a system sleep/wake can re-prime the
-/// audio device and re-resolve remote streams without duplicating playback.
-/// Android never constructs this type and therefore keeps just_audio's native
-/// ExoPlayer implementation and its existing audio-service/audio-focus path.
+/// reports a broken native runtime as a Linux runtime problem rather than as a
+/// track that will not play, and enables post-suspend recovery so a system
+/// sleep/wake can re-prime the audio device and re-resolve remote streams
+/// without duplicating playback. Android never constructs this type and
+/// therefore keeps just_audio's native ExoPlayer implementation and its
+/// existing audio-service/audio-focus path.
 class LinuxPlaybackController extends JustAudioPlaybackController {
   static final LinuxPlaybackBackendInitializer _backendInitializer =
       LinuxPlaybackBackendInitializer();
+
+  /// What is wrong with this process's Linux audio runtime, for the Linux
+  /// playback diagnostics report. Null when the backend came up.
+  static LinuxPlaybackRuntimeFailure? get backendRuntimeFailure =>
+      _backendInitializer.failure;
 
   factory LinuxPlaybackController({
     AudioPlayer? player,
@@ -92,11 +237,23 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
     PlayableUriResolver? streamingFallbackResolver,
     Random? random,
     TrackCompletionCallback? onTrackCompleted,
+    LinuxPlaybackBackendInitializer? backend,
   }) {
-    // Tests inject an AudioPlayer explicitly. The production path registers
-    // media_kit before the superclass can construct its AudioPlayer.
-    if (player == null) _backendInitializer.ensureInitialized();
+    // The production path registers media_kit before the superclass can
+    // construct its AudioPlayer. Tests inject an AudioPlayer instead, which is
+    // not media_kit's: nothing on that path loads libmpv, so there is no
+    // native runtime to bring up or to guard, and a test that wants one says
+    // so by passing a [backend].
+    //
+    // A runtime failure here is deliberately not fatal: it is recorded on the
+    // initializer and reported at the first playback attempt, where the
+    // listener is looking and where Retry can put it right. A bug still
+    // throws.
+    final LinuxPlaybackBackendInitializer? initializer =
+        backend ?? (player == null ? _backendInitializer : null);
+    initializer?.ensureInitialized();
     return LinuxPlaybackController._(
+      backend: initializer,
       player: player,
       resolver: resolver,
       candidates: candidates,
@@ -107,11 +264,67 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
   }
 
   LinuxPlaybackController._({
+    required LinuxPlaybackBackendInitializer? backend,
     super.player,
     required super.resolver,
     required super.candidates,
     super.streamingFallbackResolver,
     super.random,
     super.onTrackCompleted,
-  }) : super(recoverPlaybackAfterSuspend: true);
+  })  : _backend = backend,
+        super(recoverPlaybackAfterSuspend: true);
+
+  /// The backend this controller is responsible for, or null when it was
+  /// handed an engine and therefore never brings one up.
+  final LinuxPlaybackBackendInitializer? _backend;
+
+  /// Re-examines the native runtime before a source is resolved for it.
+  ///
+  /// This is both the guard and the retry. Nothing is handed to an engine that
+  /// cannot take it (which is what used to turn "libmpv is not installed" into
+  /// an opaque per-track failure somewhere deeper), and because the check is a
+  /// fresh registration attempt every time it has not succeeded yet, the
+  /// listener can install the package, press Retry and have music, with no
+  /// restart of Linthra and certainly none of the machine.
+  @override
+  @protected
+  PlaybackResolutionException? engineUnavailableFailure() =>
+      _backend?.ensureInitialized()?.asResolutionException();
+
+  /// Lets a deliberate Retry reach the engine again.
+  ///
+  /// A runtime failure discovered at load time is latched, so ordinary play
+  /// attempts are refused at the preflight rather than resolving a stream for
+  /// an engine that has already failed. Retry is the one case that should get
+  /// through: it is the listener saying the machine is fixed, and the only
+  /// way to find out is to ask libmpv.
+  @override
+  Future<void> retryCurrentTrack() {
+    _backend?.allowAnotherAttempt();
+    return super.retryCurrentTrack();
+  }
+
+  /// Classifies an engine error that is really the native runtime's.
+  ///
+  /// Deliberately narrow. A libmpv that loads but is the wrong one fails at
+  /// the first symbol rather than at registration, and that is worth saying
+  /// plainly. Everything else, a codec libmpv was not built with, a server
+  /// that stopped answering, a provider's expired session, is not recognised
+  /// here and keeps the classification the shared controller already gives it.
+  ///
+  /// This is the single entry point for both ways such an error can arrive,
+  /// a failed load and an error raised mid-playback, so the two cannot drift
+  /// into disagreeing about the same message.
+  @override
+  @protected
+  PlaybackResolutionException? engineUnavailableFrom(Object error) =>
+      _backend?.classifyEngineFailure(error)?.asResolutionException();
+
+  @override
+  @protected
+  PlaybackResolutionException loadFailureFor(
+    Object error,
+    PlaybackSource source,
+  ) =>
+      engineUnavailableFrom(error) ?? super.loadFailureFor(error, source);
 }

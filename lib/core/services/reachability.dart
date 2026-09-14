@@ -96,6 +96,11 @@ ReachabilityStatus? reachabilityFromPlaybackError(
     // Nor does one track the backend couldn't decode: the server delivered the
     // bytes it was asked for, so the next track may well play fine.
     case PlaybackResolutionErrorKind.mediaUnsupported:
+    // And an audio engine that will not start says nothing about any server at
+    // all: no request was made. Recording an outage off it would suppress
+    // perfectly healthy providers for as long as the machine's runtime is
+    // broken.
+    case PlaybackResolutionErrorKind.playbackEngineUnavailable:
       return null;
   }
 }

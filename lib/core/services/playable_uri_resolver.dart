@@ -61,6 +61,17 @@ enum PlaybackResolutionErrorKind {
   /// stopped answering, because the two have different recoveries. Retrying the
   /// same bytes cannot fix a decode, but another copy of the song might play.
   mediaUnsupported,
+
+  /// Nothing was wrong with this track: the audio engine itself cannot accept
+  /// a source, because the native runtime it plays through is missing, could
+  /// not be loaded, or would not start.
+  ///
+  /// Distinct from [mediaUnsupported], which is a verdict on these particular
+  /// bytes by an engine that is working. This one is a verdict on the engine,
+  /// so it applies to every track equally and the fix is on the machine rather
+  /// than in the library. Only the Linux backend raises it, where libmpv is a
+  /// system package rather than something the app ships.
+  playbackEngineUnavailable,
 }
 
 /// A typed, user-facing failure raised while resolving a [Track] to a URI the
