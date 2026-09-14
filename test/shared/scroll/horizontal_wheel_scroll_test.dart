@@ -155,6 +155,41 @@ void main() {
     expect(state.shelf!.offset, 0);
   });
 
+  group('a shelf that is a sibling of its list', () {
+    testWidgets('hands a notch at the end of the row to the list',
+        (tester) async {
+      // The audiobook browser's shape: the chip row and the list are siblings
+      // in a column, so an unclaimed signal has no ancestor to fall through
+      // to — the list is simply not on the pointer's hit-test path.
+      final _SiblingHarnessState state = await _pumpSiblings(tester);
+
+      state.shelf!.jumpTo(state.shelf!.position.maxScrollExtent);
+      await tester.pump();
+
+      await _scrollOver(tester, find.byKey(_shelf), const Offset(0, 53));
+
+      expect(state.list.offset, 53);
+    });
+
+    testWidgets('leaves the row alone while it still has room', (tester) async {
+      final _SiblingHarnessState state = await _pumpSiblings(tester);
+
+      await _scrollOver(tester, find.byKey(_shelf), const Offset(0, 53));
+
+      expect(state.shelf!.offset, 53);
+      expect(state.list.offset, 0, reason: 'the row had somewhere to go');
+    });
+
+    testWidgets('a row with nothing to scroll passes it straight on',
+        (tester) async {
+      final _SiblingHarnessState state = await _pumpSiblings(tester, chips: 1);
+
+      await _scrollOver(tester, find.byKey(_shelf), const Offset(0, 53));
+
+      expect(state.list.offset, 53);
+    });
+  });
+
   testWidgets('a touch drag along the shelf is unchanged', (tester) async {
     final _HarnessState state = await _pump(tester);
 
@@ -164,4 +199,78 @@ void main() {
     expect(state.shelf!.offset, greaterThan(0));
     expect(state.page.offset, 0);
   });
+}
+
+/// The sibling shape: a chip row above a list, not inside one.
+class _SiblingHarness extends StatefulWidget {
+  const _SiblingHarness({required this.chips});
+
+  final int chips;
+
+  @override
+  State<_SiblingHarness> createState() => _SiblingHarnessState();
+}
+
+class _SiblingHarnessState extends State<_SiblingHarness> {
+  final ScrollController list = ScrollController();
+  ScrollController? shelf;
+
+  @override
+  void dispose() {
+    list.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: <Widget>[
+          SizedBox(
+            height: 60,
+            child: HorizontalWheelScroll(
+              chainTo: list,
+              builder: (BuildContext context, ScrollController controller) {
+                shelf = controller;
+                return SingleChildScrollView(
+                  key: _shelf,
+                  controller: controller,
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: <Widget>[
+                      for (int i = 0; i < widget.chips; i++)
+                        SizedBox(width: 200, child: Text('chip $i')),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              controller: list,
+              children: <Widget>[
+                for (int i = 0; i < 30; i++)
+                  SizedBox(height: 100, child: Text('book $i')),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<_SiblingHarnessState> _pumpSiblings(
+  WidgetTester tester, {
+  int chips = 20,
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      scrollBehavior: const AppScrollBehavior(),
+      home: _SiblingHarness(chips: chips),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return tester.state<_SiblingHarnessState>(find.byType(_SiblingHarness));
 }

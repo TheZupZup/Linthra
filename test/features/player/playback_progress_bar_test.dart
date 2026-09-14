@@ -501,6 +501,31 @@ void main() {
     });
   });
 
+  group('a gesture that goes away without seeking', () {
+    testWidgets('gives the position back instead of holding the preview',
+        (tester) async {
+      // A press previews where it landed. If the OS cancels the pointer, or a
+      // list under the bar wins the gesture, nothing else takes that preview
+      // back — the bar would read a position playback never went to for as
+      // long as it lives.
+      final seeks =
+          await _pumpBar(tester, position: const Duration(minutes: 1));
+
+      final Rect bar = tester.getRect(find.byType(WavySeekBar));
+      final TestGesture gesture =
+          await tester.startGesture(bar.centerLeft + const Offset(30, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('0:20'), findsOneWidget, reason: 'the press previews');
+
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+
+      expect(find.text('1:00'), findsOneWidget);
+      expect(find.text('0:20'), findsNothing);
+      expect(seeks, isEmpty, reason: 'a cancelled gesture never seeks');
+    });
+  });
+
   group('the mouse wheel over the bar', () {
     testWidgets('seeks by the same step an arrow key does', (tester) async {
       final seeks =

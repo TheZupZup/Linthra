@@ -155,6 +155,12 @@ void main() {
       (tester) async {
     final _HarnessState state = await _pump(tester);
 
+    // A real hold is a pointer down on the control plus the control saying it
+    // is being adjusted; the shield needs both.
+    final TestGesture hold = await tester.startGesture(
+      tester.getCenter(find.byKey(_control)),
+      kind: PointerDeviceKind.mouse,
+    );
     state.setAdjusting(true);
     await tester.pump();
     await tester.pump();
@@ -164,6 +170,7 @@ void main() {
     await _scrollOver(tester, find.byKey(_elsewhere), const Offset(0, 53));
     expect(state.page.offset, 0);
 
+    await hold.up();
     state.setAdjusting(false);
     await tester.pump();
     await tester.pump();
@@ -174,6 +181,65 @@ void main() {
       53,
       reason: 'letting go hands the wheel back to the page',
     );
+  });
+
+  testWidgets('a control that never says it let go cannot keep the shield',
+      (tester) async {
+    // The shield is the most destructive thing this widget does, so it is not
+    // left to a control remembering to clear its own drag state. The pointer's
+    // up is what takes it away.
+    final _HarnessState state = await _pump(tester);
+
+    final TestGesture hold = await tester.startGesture(
+      tester.getCenter(find.byKey(_control)),
+      kind: PointerDeviceKind.mouse,
+    );
+    state.setAdjusting(true);
+    await tester.pump();
+    await tester.pump();
+
+    await hold.up();
+    await tester.pump();
+    await tester.pump();
+
+    // `adjusting` is deliberately still set — the control is wrong about
+    // itself — and the page must scroll anyway.
+    expect(state.adjusting, isTrue);
+    await _scrollOver(tester, find.byKey(_elsewhere), const Offset(0, 53));
+    expect(state.page.offset, 53);
+  });
+
+  testWidgets('a cancelled press takes the shield with it', (tester) async {
+    final _HarnessState state = await _pump(tester);
+
+    final TestGesture hold = await tester.startGesture(
+      tester.getCenter(find.byKey(_control)),
+      kind: PointerDeviceKind.mouse,
+    );
+    state.setAdjusting(true);
+    await tester.pump();
+    await tester.pump();
+
+    await hold.cancel();
+    await tester.pump();
+    await tester.pump();
+
+    await _scrollOver(tester, find.byKey(_elsewhere), const Offset(0, 53));
+    expect(state.page.offset, 53);
+  });
+
+  testWidgets('a keyboard adjustment never installs one', (tester) async {
+    // An arrow key is over the instant it happens: there is no drag for a
+    // stray notch to land in the middle of, and a shield installed for one
+    // would have nothing to take it away.
+    final _HarnessState state = await _pump(tester);
+
+    state.setAdjusting(true);
+    await tester.pump();
+    await tester.pump();
+
+    await _scrollOver(tester, find.byKey(_elsewhere), const Offset(0, 53));
+    expect(state.page.offset, 53);
   });
 
   testWidgets('a touch drag over the control still scrolls the page',

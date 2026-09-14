@@ -80,7 +80,16 @@ class AppScrollBehavior extends MaterialScrollBehavior {
     }
     // Android already gets this from Material; naming it here means a desktop
     // window cannot inherit a bounce from anywhere else either.
-    return const ClampingScrollPhysics();
+    //
+    // The parent matters as much as the physics: Material composes its
+    // clamping default over `RangeMaintainingScrollPhysics`, which is what
+    // holds a list's offset steady when the content shrinks or the window is
+    // resized under it. Returning a bare `ClampingScrollPhysics` would drop
+    // that on every platform, which is a jump on a resize rather than a
+    // desktop improvement.
+    return const ClampingScrollPhysics(
+      parent: RangeMaintainingScrollPhysics(),
+    );
   }
 
   @override

@@ -983,8 +983,17 @@ horizontal surface — today the Audiobookshelf library picker — where a mouse
 with one wheel would otherwise have no way to reach the far end of the row.
 `HorizontalWheelScroll` claims a *vertical-only* signal there, leaves a device
 that can scroll sideways to the surface's own `Scrollable`, and stops claiming
-once the row is at that end, so the page carries on scrolling instead of the
-shelf swallowing the wheel.
+once the row is at that end so the wheel carries on down the page instead of
+the shelf swallowing it.
+
+Where the shelf is nested *inside* a scrolling page that last part needs no
+help: the page is an ancestor, so an unclaimed signal reaches it on the way
+out. The audiobook browser is not that shape — its chip row and its book list
+are siblings in a column, and an unclaimed signal there reaches nothing at all,
+because the list is not on the pointer's hit-test path. That is what
+`HorizontalWheelScroll.chainTo` is for: hand it the list's controller and a
+notch at the end of the row scrolls the books, the way the same strip behaves
+in every other desktop app.
 
 **Sliders.** Reading a scroll signal is not the same as taking it: a `Listener`
 that answers the wheel still lets the ancestor `Scrollable` scroll as well, so
@@ -997,6 +1006,15 @@ where it was. While a slider is actually being held it goes further and
 swallows every scroll signal in the app, because mid-drag the pointer wanders
 off a 14 px seek line easily and a notch that lands anywhere else would scroll
 whatever is underneath.
+
+That shield is the most destructive thing in this directory — a stuck one
+would stop the whole app scrolling — so it is not left to a control
+remembering to say when it is done. It needs a pointer that went down on the
+control and has not come back up, and the pointer's own up or cancel (Flutter
+guarantees one or the other) is what takes it away. A control whose drag state
+gets stuck can still be wrong about itself; it cannot stop the rest of the app
+scrolling. A keyboard or assistive adjustment installs no shield at all: it is
+over the instant it happens.
 
 One notch does what one arrow-key press does, so the wheel and the keyboard
 agree: 5% of the range on volume, and 5% of the track (never less than five
@@ -1012,8 +1030,9 @@ a widget sees it, so the same physical wheel click is the same step at 100%,
 point: there is none to get wrong.
 
 Tests: `test/shared/scroll/` covers the arithmetic, the behaviour's answers per
-platform, the claim, the shield, the horizontal shelf and its chaining, and one
-step per notch at four display scales. `test/app/desktop_scroll_test.dart` is
+platform (including that Android resolves exactly what Material would give it),
+the claim, the shield and the two ways it goes away, the horizontal shelf and
+both shapes of chaining, and one step per notch at four display scales. `test/app/desktop_scroll_test.dart` is
 the audit — the songs list, the albums and artists grids, an album and an
 artist page beside their panes, playlists, the settings hub, the queue sheet
 and a dialog each get one notch and have to move exactly one surface by exactly

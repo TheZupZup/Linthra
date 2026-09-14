@@ -19,9 +19,18 @@ import 'pointer_scroll_policy.dart';
 ///   answers the wheel and the window behind it stays put.
 /// * **The page moves while the control is being held.** Mid-drag the pointer
 ///   wanders off a 14 px seek line easily, and a notch that lands anywhere
-///   else scrolls whatever is underneath. While [adjusting] is set, every
-///   scroll signal in the app is swallowed instead, so a drag that started on
-///   a control ends on that control and nothing else moves.
+///   else scrolls whatever is underneath. While [adjusting] is set *and* the
+///   pointer that started it is still down, every scroll signal in the app is
+///   swallowed instead, so a drag that started on a control ends on that
+///   control and nothing else moves.
+///
+///   Both halves of that condition are deliberate. Swallowing the app's wheel
+///   is the most destructive thing this widget can do, so it is not left to a
+///   control remembering to say when it is finished: the pointer's own up or
+///   cancel always arrives — Flutter guarantees one or the other for a pointer
+///   that went down — and that is what takes the shield away. A control whose
+///   drag state got stuck can then still be wrong about itself, but it cannot
+///   stop the rest of the app scrolling.
 ///
 /// Steps are counted in whole wheel notches ([WheelNotches]) rather than per
 /// event, so a trackpad's stream of small deltas moves a control at the same
@@ -54,6 +63,10 @@ class PointerScrollAdjust extends StatefulWidget {
   final bool enabled;
 
   /// Whether the control is being held right now — a drag in progress.
+  ///
+  /// Only ever *narrowed* by this widget: it shields nothing unless a pointer
+  /// is genuinely down on the control as well, so a keyboard or assistive
+  /// adjustment (which is over the instant it happens) never installs one.
   final bool adjusting;
 
   final Widget child;
@@ -64,6 +77,23 @@ class PointerScrollAdjust extends StatefulWidget {
 
 class _PointerScrollAdjustState extends State<PointerScrollAdjust> {
   final WheelNotches _notches = WheelNotches();
+
+  /// Pointers that went down on this control and have not come back up.
+  ///
+  /// A set rather than a flag: a second finger on a touch build must not end
+  /// the first one's gesture when it lifts.
+  final Set<int> _pointersDown = <int>{};
+
+  void _onPointerDown(PointerDownEvent event) {
+    if (_pointersDown.add(event.pointer)) setState(() {});
+  }
+
+  /// Up and cancel are the same answer: this pointer is no longer holding the
+  /// control. The route was established when it went down, so this arrives
+  /// wherever on screen the pointer has wandered to by then.
+  void _onPointerReleased(PointerEvent event) {
+    if (_pointersDown.remove(event.pointer)) setState(() {});
+  }
 
   void _onPointerSignal(PointerSignalEvent event) {
     if (!widget.enabled || event is! PointerScrollEvent) return;
@@ -91,7 +121,7 @@ class _PointerScrollAdjustState extends State<PointerScrollAdjust> {
   @override
   Widget build(BuildContext context) {
     return _ScrollSignalShield(
-      active: widget.enabled && widget.adjusting,
+      active: widget.enabled && widget.adjusting && _pointersDown.isNotEmpty,
       child: MouseRegion(
         // A partial notch belongs to the gesture that started it. Leaving the
         // control ends that gesture, so the next one starts from zero.
@@ -99,6 +129,9 @@ class _PointerScrollAdjustState extends State<PointerScrollAdjust> {
         onExit: (PointerExitEvent _) => _notches.reset(),
         child: Listener(
           onPointerSignal: _onPointerSignal,
+          onPointerDown: _onPointerDown,
+          onPointerUp: _onPointerReleased,
+          onPointerCancel: _onPointerReleased,
           child: widget.child,
         ),
       ),

@@ -17,7 +17,9 @@ import 'package:linthra/features/library/artist_detail_screen.dart';
 import 'package:linthra/features/library/library_screen.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/player_screen.dart';
+import 'package:linthra/features/player/widgets/playback_progress_bar.dart';
 import 'package:linthra/features/player/widgets/queue_sheet.dart';
+import 'package:linthra/features/player/widgets/wavy_seek_bar.dart';
 import 'package:linthra/features/playlists/playlists_screen.dart';
 import 'package:linthra/features/settings/settings_screen.dart';
 import 'package:linthra/shared/scroll/app_scroll_behavior.dart';
@@ -371,6 +373,55 @@ void main() {
         await _wheelOver(tester, find.text('option 1')),
         'a dialog over a page',
       );
+    });
+  });
+
+  group('a seek that goes away leaves the app scrolling', () {
+    testWidgets('a cancelled press on the bar does not swallow the wheel',
+        (tester) async {
+      // Holding a slider stops the page scrolling under it, which is the
+      // point; a hold that never ends would stop the *app* scrolling, which
+      // is a far worse bug than the one it fixes.
+      _sizeWindow(tester, size: const Size(900, 600));
+      final ScrollController page = ScrollController();
+      addTearDown(page.dispose);
+
+      await _pump(
+        tester,
+        Scaffold(
+          body: Column(
+            children: <Widget>[
+              SizedBox(
+                width: 300,
+                child: PlaybackProgressBar(
+                  position: const Duration(minutes: 1),
+                  duration: const Duration(minutes: 4),
+                  onSeek: (_) {},
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  controller: page,
+                  children: <Widget>[
+                    for (int i = 0; i < 30; i++)
+                      SizedBox(height: 80, child: Text('row $i')),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(find.byType(WavySeekBar)),
+      );
+      await tester.pumpAndSettle();
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+
+      await _wheelOver(tester, find.text('row 2'));
+      expect(page.offset, wheelNotchExtent);
     });
   });
 

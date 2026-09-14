@@ -23,20 +23,41 @@ import 'pointer_scroll_policy.dart';
 ///   the device could say "sideways" itself and the surface's own [Scrollable]
 ///   has already handled it;
 /// * a signal that would not move the surface — it is at that end already — is
-///   not claimed, so the page scrolls instead. That is the same chaining
+///   not claimed, so something else can have it. That is the same chaining
 ///   Flutter does between nested scrollables, and it is what keeps a shelf
 ///   from swallowing the wheel on a page that still has somewhere to go.
 ///
-/// The controller is owned here and handed to [builder] rather than taken as a
-/// parameter, so the surface this scrolls and the surface it is wrapped around
-/// cannot be two different things.
+/// Where the shelf is *nested* in a scrolling page, that second rule needs no
+/// help: the page is an ancestor, so an unclaimed signal reaches it on the way
+/// out. A shelf that is a **sibling** of the list it belongs to — a row of
+/// filter chips above a `ListView`, which is how the audiobook browser is
+/// built — has no such ancestor, and an unclaimed signal reaches nothing at
+/// all: the list is elsewhere on screen and simply is not on the pointer's
+/// hit-test path. [chainTo] is that case. Give it the list's controller and a
+/// notch at the end of the row carries on down the page, which is what the
+/// same strip does in every other desktop app.
+///
+/// The shelf's own controller is owned here and handed to [builder] rather
+/// than taken as a parameter, so the surface this scrolls and the surface it
+/// is wrapped around cannot be two different things.
 class HorizontalWheelScroll extends StatefulWidget {
-  const HorizontalWheelScroll({required this.builder, super.key});
+  const HorizontalWheelScroll({
+    required this.builder,
+    this.chainTo,
+    super.key,
+  });
 
   /// Builds the horizontal surface, which must attach [ScrollController] to
   /// itself.
   final Widget Function(BuildContext context, ScrollController controller)
       builder;
+
+  /// The vertical surface a notch falls through to once the row has no more
+  /// room, when that surface is a sibling rather than an ancestor.
+  ///
+  /// Leave it null wherever the shelf sits inside the page it should chain to;
+  /// the framework already does that part.
+  final ScrollController? chainTo;
 
   @override
   State<HorizontalWheelScroll> createState() => _HorizontalWheelScrollState();
@@ -54,19 +75,33 @@ class _HorizontalWheelScrollState extends State<HorizontalWheelScroll> {
   void _onPointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
     if (!isCrossAxisOnly(Axis.horizontal, event.scrollDelta)) return;
-    if (!_controller.hasClients) return;
-    final ScrollPosition position = _controller.position;
     // Down and right both mean "further along the row", in either text
     // direction: what is further along in Arabic is to the left, and it is
     // still what a wheel pulled towards the user should reveal.
     final double delta = scrollDeltaAlong(Axis.vertical, event.scrollDelta);
-    final double target = (position.pixels + delta)
-        .clamp(position.minScrollExtent, position.maxScrollExtent);
-    if (target == position.pixels) return;
+    final ScrollPosition? target = _positionFor(delta);
+    if (target == null) return;
     GestureBinding.instance.pointerSignalResolver.register(
       event,
-      (PointerEvent _) => position.pointerScroll(delta),
+      (PointerEvent _) => target.pointerScroll(delta),
     );
+  }
+
+  /// The surface that should take [delta]: the row while it has room, then the
+  /// list it belongs to, then nobody — in which case the signal is left alone
+  /// for whatever the framework would have done with it.
+  ScrollPosition? _positionFor(double delta) {
+    for (final ScrollController? controller in <ScrollController?>[
+      _controller,
+      widget.chainTo,
+    ]) {
+      if (controller == null || !controller.hasClients) continue;
+      final ScrollPosition position = controller.position;
+      final double target = (position.pixels + delta)
+          .clamp(position.minScrollExtent, position.maxScrollExtent);
+      if (target != position.pixels) return position;
+    }
+    return null;
   }
 
   @override

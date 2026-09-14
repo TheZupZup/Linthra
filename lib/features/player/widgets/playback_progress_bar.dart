@@ -180,6 +180,17 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
         widget.position.inMilliseconds.clamp(0, totalMs.round()).toDouble();
   }
 
+  /// A gesture that previewed a position and then went away without seeking.
+  ///
+  /// The preview has to be taken back, or the bar reads a position playback
+  /// never went to for as long as the widget lives — and, since an in-progress
+  /// drag is what holds the scroll shield open, the wheel would stop working
+  /// everywhere else too.
+  void _onCancel() {
+    if (_dragMs == null) return;
+    setState(() => _dragMs = null);
+  }
+
   void _onChangeEnd(double value) {
     widget.onSeek?.call(Duration(milliseconds: value.round()));
     _pendingSeekExpiry?.cancel();
@@ -234,6 +245,7 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
                 max: hasDuration ? totalMs.toDouble() : 0.0,
                 onChanged: canSeek ? _onChanged : null,
                 onChangeEnd: canSeek ? _onChangeEnd : null,
+                onCancel: canSeek ? _onCancel : null,
                 semanticFormatter: _formatMs,
                 playing: widget.playing,
                 density: widget.density,

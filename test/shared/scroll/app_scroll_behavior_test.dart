@@ -63,6 +63,47 @@ void main() {
     );
   });
 
+  testWidgets('and still keeps its offset when the content shrinks',
+      (tester) async {
+    // Material composes its clamping default over RangeMaintainingScrollPhysics,
+    // which is what holds a list's offset steady when content is removed or the
+    // window is resized. Naming the physics without its parent would drop that
+    // everywhere — a jump on resize rather than a desktop improvement.
+    for (final TargetPlatform platform in <TargetPlatform>[
+      TargetPlatform.linux,
+      TargetPlatform.android,
+    ]) {
+      final result = await _resolve(tester, platform);
+      expect(
+        result.physics.parent,
+        isA<RangeMaintainingScrollPhysics>(),
+        reason: 'clamping physics on $platform lost its range-maintaining '
+            'parent',
+      );
+    }
+  });
+
+  testWidgets('Android resolves exactly the physics Material would give it',
+      (tester) async {
+    // The whole promise of this behaviour off desktop: a phone is unchanged.
+    late ScrollPhysics material;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.android),
+        home: Builder(
+          builder: (BuildContext context) {
+            material = const MaterialScrollBehavior().getScrollPhysics(context);
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final result = await _resolve(tester, TargetPlatform.android);
+    expect(result.physics.toString(), material.toString());
+  });
+
   testWidgets('a desktop list draws no overscroll glow or stretch',
       (tester) async {
     final result = await _resolve(tester, TargetPlatform.linux);

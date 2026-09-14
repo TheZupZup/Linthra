@@ -487,8 +487,8 @@ it feels against a real mouse and a real touchpad. What each piece does is in
 - ☐ With the queue column or a detail pane open, wheel over each of the two
   columns in turn: only the one under the pointer moves.
 - ☐ A sideways two-finger flick over a vertical list does nothing; over the
-  Audiobookshelf library picker the wheel walks the row of libraries, and keeps
-  scrolling the page once the row is at its end.
+  Audiobookshelf library picker the wheel walks the row of libraries, and
+  scrolls the book list under it once the row is at its end.
 - ☐ Repeat the volume and seek checks at 150% display scale: one click is still
   one step.
 
