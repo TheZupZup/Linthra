@@ -160,7 +160,7 @@ abstract final class LinuxPlaybackRuntime {
     return LinuxPlaybackRuntimeProblem.libraryUnloadable;
   }
 
-  /// The text the listener sees for [problem].
+  /// What to do about [problem], as the listener is told it.
   ///
   /// Two wordings per problem, because the fix is genuinely different: a
   /// distribution build plays through the libmpv the machine has, while a
@@ -172,6 +172,31 @@ abstract final class LinuxPlaybackRuntime {
   /// Fixed strings, all of them. Nothing here is built from an error, a path
   /// or an environment value.
   static String messageFor(
+    LinuxPlaybackRuntimeProblem problem, {
+    required bool bundledRuntime,
+    bool alreadyLoaded = false,
+  }) =>
+      '${_diagnosisFor(problem, bundledRuntime: bundledRuntime)}'
+      '${alreadyLoaded ? restartTail : retryTail}';
+
+  /// How a listener gets playback back when libmpv was never loaded.
+  ///
+  /// Registration is re-attempted on every playback attempt until one works,
+  /// so this really is the whole recovery.
+  static const String retryTail = ' Then choose Retry.';
+
+  /// How a listener gets playback back when libmpv *was* loaded and then
+  /// turned out to be the wrong one.
+  ///
+  /// A shared library is mapped into the process on first use and media_kit
+  /// resolves it exactly once per process, so replacing the file on disk
+  /// changes nothing until Linthra starts again. Promising Retry here would
+  /// be promising something the process cannot do.
+  static const String restartTail =
+      ' Then restart Linthra: it has already loaded a copy of libmpv and '
+      'will not pick up a new one until it starts again.';
+
+  static String _diagnosisFor(
     LinuxPlaybackRuntimeProblem problem, {
     required bool bundledRuntime,
   }) {
@@ -187,8 +212,7 @@ abstract final class LinuxPlaybackRuntime {
               'play. Reinstalling Linthra from Flathub usually fixes this.',
         LinuxPlaybackRuntimeProblem.backendInitializationFailed =>
           "Linthra's audio engine did not start, so nothing can play. "
-              'Restarting Linthra, or reinstalling it from Flathub, usually '
-              'fixes this.',
+              'Reinstalling Linthra from Flathub usually fixes this.',
       };
     }
     return switch (problem) {
@@ -196,18 +220,17 @@ abstract final class LinuxPlaybackRuntime {
         'Linthra plays audio through libmpv, and this system does not have a '
             "copy it can use. Install or reinstall your distribution's libmpv "
             'package (libmpv2 on Debian and Ubuntu, mpv-libs on Fedora, mpv '
-            'on Arch), then choose Retry.',
+            'on Arch).',
       LinuxPlaybackRuntimeProblem.libraryUnloadable =>
         'Linthra found libmpv on this system but could not load it, so '
             "nothing can play. Reinstalling your distribution's libmpv "
-            'package usually fixes this. Choose Retry once it is done.',
+            'package usually fixes this.',
       LinuxPlaybackRuntimeProblem.libraryIncompatible =>
         "This system's libmpv is not compatible with Linthra, so nothing can "
-            'play. Updating it through your package manager should fix it, '
-            'then choose Retry.',
+            'play. Updating it through your package manager should fix it.',
       LinuxPlaybackRuntimeProblem.backendInitializationFailed =>
         "Linthra's audio engine did not start, so nothing can play. Check "
-            'that libmpv is installed and working, then choose Retry.',
+            'that libmpv is installed and working.',
     };
   }
 

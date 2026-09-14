@@ -93,7 +93,10 @@ class LinuxPlaybackBackendInitializer {
   final bool _bundledRuntime;
 
   bool _initialized = false;
-  LinuxPlaybackRuntimeFailure? _failure;
+
+  /// What stopped *registration*, kept only while registration has not since
+  /// succeeded.
+  LinuxPlaybackRuntimeFailure? _registrationFailure;
 
   /// A runtime failure the engine only revealed once it was handed a source.
   ///
@@ -108,9 +111,17 @@ class LinuxPlaybackBackendInitializer {
   /// Whether the backend is registered and the native runtime is loaded.
   bool get isReady => _initialized;
 
-  /// What stopped the backend coming up on the most recent attempt, or null
-  /// when it is up (or has not been asked yet).
-  LinuxPlaybackRuntimeFailure? get failure => _failure;
+  /// What is wrong with the backend right now, or null when nothing is.
+  ///
+  /// Derived rather than stored, because the two ways it can go wrong expire
+  /// differently and a stale verdict here would be published: the diagnostics
+  /// report reads this, and telling someone their libmpv is broken while
+  /// music is playing is worse than saying nothing. A load-time verdict holds
+  /// until an attempt clears it; a registration verdict holds until
+  /// registration succeeds; once neither applies, the honest answer is that
+  /// there is no known problem.
+  LinuxPlaybackRuntimeFailure? get failure =>
+      _loadTimeFailure ?? (_initialized ? null : _registrationFailure);
 
   /// Registers the backend if it is not registered yet.
   ///
@@ -128,12 +139,13 @@ class LinuxPlaybackBackendInitializer {
           LinuxPlaybackRuntime.recognise(error);
       // Not a native-runtime problem: a real bug, and it leaves as one.
       if (problem == null) rethrow;
-      _failure = _classify(problem, error);
-      LinuxPlaybackRuntime.logFailure(_failure!);
-      return _failure;
+      final LinuxPlaybackRuntimeFailure failure = _classify(problem, error);
+      _registrationFailure = failure;
+      LinuxPlaybackRuntime.logFailure(failure);
+      return failure;
     }
     _initialized = true;
-    _failure = null;
+    _registrationFailure = null;
     _loadTimeFailure = null;
     return null;
   }
@@ -150,8 +162,8 @@ class LinuxPlaybackBackendInitializer {
     final LinuxPlaybackRuntimeProblem? problem =
         LinuxPlaybackRuntime.recognise(error);
     if (problem == null) return null;
-    final LinuxPlaybackRuntimeFailure failure = _classify(problem, error);
-    _failure = failure;
+    final LinuxPlaybackRuntimeFailure failure =
+        _classify(problem, error, alreadyLoaded: true);
     _loadTimeFailure = failure;
     LinuxPlaybackRuntime.logFailure(failure);
     return failure;
@@ -159,24 +171,33 @@ class LinuxPlaybackBackendInitializer {
 
   /// Gives the engine one more genuine attempt after a load-time verdict.
   ///
-  /// Called when the listener presses Retry, which is them saying they have
-  /// fixed the machine. The latch exists to stop *automatic* attempts walking
-  /// into a known-broken engine, not to refuse the one attempt that was asked
-  /// for, so a deliberate retry clears it and the next load really reaches
-  /// libmpv again.
+  /// Called when the listener presses Retry. The latch exists to stop
+  /// *automatic* attempts walking into a known-broken engine, not to refuse
+  /// the one attempt that was asked for, so a deliberate retry clears it and
+  /// the next load really reaches libmpv again.
+  ///
+  /// What it cannot do is reload the library. A shared object is mapped into
+  /// the process on first use and media_kit resolves libmpv exactly once per
+  /// process, so a listener who replaces the file on disk needs Linthra to
+  /// start again before the new copy is used. That is what the load-time
+  /// wording tells them ([LinuxPlaybackRuntime.restartTail]); this attempt is
+  /// still worth making, because not every failure the engine reports after
+  /// loading is the library's ABI.
   void allowAnotherAttempt() {
     _loadTimeFailure = null;
   }
 
   LinuxPlaybackRuntimeFailure _classify(
     LinuxPlaybackRuntimeProblem problem,
-    Object error,
-  ) =>
+    Object error, {
+    bool alreadyLoaded = false,
+  }) =>
       LinuxPlaybackRuntimeFailure(
         problem: problem,
         message: LinuxPlaybackRuntime.messageFor(
           problem,
           bundledRuntime: _bundledRuntime,
+          alreadyLoaded: alreadyLoaded,
         ),
         diagnostic: LinuxPlaybackRuntime.sanitizeRuntimeDiagnostic(error),
       );

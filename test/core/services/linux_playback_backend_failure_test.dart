@@ -509,6 +509,67 @@ void main() {
     });
   });
 
+  group('what the diagnostics report says afterwards', () {
+    test('a recovered engine stops reporting a problem', () async {
+      // The report reads this. Telling someone their libmpv is broken while
+      // music is playing is worse than saying nothing.
+      final LinuxPlaybackBackendInitializer backend = workingBackend();
+      final parts = build(backend);
+      parts.engine.openError = Exception(_wrongLibrary);
+      await parts.controller.playTrack(_track('a'));
+      expect(backend.failure, isNotNull);
+
+      parts.engine.openError = null;
+      await parts.controller.retryCurrentTrack();
+
+      expect(parts.controller.state.status, PlaybackStatus.playing);
+      expect(backend.failure, isNull);
+    });
+
+    test('a registration failure stops being reported once it registers', () {
+      final _Registration registration =
+          _Registration(error: Exception(_cannotFindLibmpv));
+      final LinuxPlaybackBackendInitializer backend = backendThat(registration);
+
+      expect(backend.ensureInitialized(), isNotNull);
+      expect(backend.failure, isNotNull);
+      registration.broken = false;
+      expect(backend.ensureInitialized(), isNull);
+
+      expect(backend.failure, isNull);
+    });
+  });
+
+  group('what the listener is told to do about it', () {
+    test('a libmpv that never loaded is fixed by Retry', () async {
+      final parts = build(
+        backendThat(_Registration(error: Exception(_cannotFindLibmpv))),
+      );
+
+      await parts.controller.playTrack(_track('a'));
+
+      expect(parts.controller.state.failure?.message, contains('Retry'));
+      expect(
+        parts.controller.state.failure?.message,
+        isNot(contains('restart')),
+      );
+    });
+
+    test('a libmpv already mapped into the process needs a restart', () async {
+      // The honest half: the library is loaded by now and media_kit resolves
+      // it once per process, so Retry alone cannot pick up a repaired copy.
+      final parts = build(workingBackend());
+      parts.engine.openError = Exception(_wrongLibrary);
+
+      await parts.controller.playTrack(_track('a'));
+
+      expect(
+        parts.controller.state.failure?.message,
+        contains('restart Linthra'),
+      );
+    });
+  });
+
   group('the streaming fallback', () {
     test('reports an unusable engine instead of the cached copy\'s failure',
         () async {

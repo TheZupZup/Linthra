@@ -239,10 +239,14 @@ So the runtime is now a failure kind of its own,
 
 | What is wrong | What the player says |
 | --- | --- |
-| No libmpv on the system | Install the distribution's libmpv package (`libmpv2` on Debian/Ubuntu, `mpv-libs` on Fedora, `mpv` on Arch), then Retry |
-| libmpv is there and will not load | Reinstall the distribution's libmpv package, then Retry |
-| libmpv is there and does not match this build | Update it through the package manager, then Retry |
-| The backend would not start for some other reason | Check that libmpv is installed and working, then Retry |
+| No usable libmpv on the system | Install or reinstall the distribution's libmpv package (`libmpv2` on Debian/Ubuntu, `mpv-libs` on Fedora, `mpv` on Arch) |
+| libmpv is there and will not load | Reinstall the distribution's libmpv package |
+| libmpv is there and does not match this build | Update it through the package manager |
+| The backend would not start for some other reason | Check that libmpv is installed and working |
+
+Each of those ends with the recovery that actually applies: "Then choose
+Retry." when libmpv was never loaded, and "Then restart Linthra" when it was
+(see the second bullet below for why the two differ).
 
 Inside a Flatpak the wording changes, because a Flatpak bundles its own libmpv
 and never loads the host's ([flatpak-development.md](./flatpak-development.md)):
@@ -257,10 +261,21 @@ Four decisions are worth knowing about:
   bounded per-track attempt budget, because the recovery happens on the machine
   and taking the button away after three taps would leave a dead player with
   nothing to press.
-* **Retry really re-initializes.** `LinuxPlaybackBackendInitializer` marks
+* **Retry re-initializes, up to a point, and says which.** A libmpv that was
+  never loaded is the recoverable case: `LinuxPlaybackBackendInitializer` marks
   itself ready only after registration returns, so every playback attempt that
   finds it unready tries again. Install the package, press Retry, and the music
-  starts: no restart of Linthra, and certainly none of the machine.
+  starts, with no restart of Linthra and certainly none of the machine.
+
+  A libmpv that *did* load and then turned out to be the wrong one is not
+  recoverable in the same process: a shared object is mapped in on first use
+  and media_kit resolves libmpv exactly once per process, so replacing the file
+  on disk changes nothing until Linthra starts again. That verdict is latched
+  (so later plays are answered from the preflight instead of resolving a stream
+  for an engine that has already failed) and its message says to restart
+  Linthra rather than promising Retry will do it. Retry still makes one real
+  attempt, because not every failure the engine reports after loading is the
+  library's ABI.
 * **Normal failures are untouched.** Only an error that actually names the
   native runtime (`libmpv`, an mpv symbol, the dynamic loader, an ELF header) is
   classified this way. A codec libmpv was not built with, a NAS that is asleep,
