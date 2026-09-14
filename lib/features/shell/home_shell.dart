@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../shared/focus/focus_handoff.dart';
 import '../player/mini_player.dart';
 import '../player/widgets/queue_side_panel.dart';
 import 'playlist_drag_spring.dart';
@@ -87,6 +88,25 @@ class _HomeShellState extends State<HomeShell> {
   /// closed: the column costs the page a whole column's width, and that is the
   /// listener's call to make, not a default to wake up to.
   bool _queuePanelOpen = false;
+
+  /// The mini-player queue button's focus node, owned here rather than by the
+  /// button (#390).
+  ///
+  /// Closing the column disposes every control in it, the ✕ the user just
+  /// pressed included, so without somewhere to put the keyboard it unwinds to
+  /// the page and the next Tab restarts from the top. Handing it back to the
+  /// button that reopens the column keeps the user exactly where they were, and
+  /// the node has to outlive the panel to be handed anything, which is why the
+  /// shell holds it.
+  final FocusNode _queueToggleFocus = FocusNode(
+    debugLabel: 'queue panel toggle',
+  );
+
+  @override
+  void dispose() {
+    _queueToggleFocus.dispose();
+    super.dispose();
+  }
 
   void _toggleQueuePanel() {
     setState(() => _queuePanelOpen = !_queuePanelOpen);
@@ -236,10 +256,13 @@ class _HomeShellState extends State<HomeShell> {
     return FocusTraversalOrder(
       order: const NumericFocusOrder(2),
       child: FocusTraversalGroup(
-        child: SafeArea(
-          left: false,
-          bottom: false,
-          child: QueueSidePanel(onClose: _toggleQueuePanel),
+        child: FocusHandoff(
+          returnFocusTo: () => _queueToggleFocus,
+          child: SafeArea(
+            left: false,
+            bottom: false,
+            child: QueueSidePanel(onClose: _toggleQueuePanel),
+          ),
         ),
       ),
     );
@@ -275,6 +298,7 @@ class _HomeShellState extends State<HomeShell> {
             available: queuePanelAvailable,
             visible: queuePanelOpen,
             onToggle: _toggleQueuePanel,
+            toggleFocusNode: _queueToggleFocus,
             child: Scaffold(
               body: FocusTraversalGroup(
                 policy: OrderedTraversalPolicy(),

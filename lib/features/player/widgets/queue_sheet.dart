@@ -9,6 +9,7 @@ import '../../../core/models/track.dart';
 import '../../../core/repositories/playlist_repository.dart';
 import '../../../data/repositories/host_platform_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
+import '../../../shared/focus/list_keyboard_navigation.dart';
 import '../../../shared/widgets/now_playing_indicator.dart';
 import '../../../shared/widgets/reorder_focus_walk.dart';
 import '../../../shared/widgets/reorder_handle.dart';
@@ -168,49 +169,54 @@ class QueueSheet extends ConsumerWidget {
         Flexible(
           child: current == null
               ? const _EmptyQueue()
-              : CustomScrollView(
-                  slivers: <Widget>[
-                    if (!showRecentHistory && history.isNotEmpty) ...<Widget>[
-                      const _SectionLabel(label: 'Previously played'),
-                      SliverList.builder(
-                        itemCount: history.length,
-                        itemBuilder: (context, index) => _HistoryTile(
-                          track: history[index],
-                          onTap: () => ref
-                              .read(playbackControllerProvider)
-                              .playFromHistory(index),
-                        ),
-                      ),
-                    ],
-                    const _SectionLabel(label: 'Now playing'),
-                    SliverToBoxAdapter(
-                      child: _CurrentTile(track: current),
-                    ),
-                    const _SectionLabel(label: 'Up next'),
-                    if (upNext.isEmpty)
-                      const SliverToBoxAdapter(child: _NothingUpNext())
-                    else
-                      _UpNextList(tracks: upNext),
-                    if (showRecentHistory && recent.isNotEmpty) ...<Widget>[
-                      const _SectionLabel(label: 'Recently played'),
-                      SliverList.builder(
-                        itemCount: recent.length,
-                        itemBuilder: (context, index) => _RecentlyPlayedTile(
-                          entry: recent.entries[index],
-                          onTap: () => playFromRecentHistory(
-                            ref,
-                            recent.entries[index].track,
+              // Home and End reach the ends of a long queue without a pointer;
+              // the arrow keys already walk it, and Ctrl+↑/↓ on a row's handle
+              // still reorders (#388, #390).
+              : ListKeyboardNavigation(
+                  child: CustomScrollView(
+                    slivers: <Widget>[
+                      if (!showRecentHistory && history.isNotEmpty) ...<Widget>[
+                        const _SectionLabel(label: 'Previously played'),
+                        SliverList.builder(
+                          itemCount: history.length,
+                          itemBuilder: (context, index) => _HistoryTile(
+                            track: history[index],
+                            onTap: () => ref
+                                .read(playbackControllerProvider)
+                                .playFromHistory(index),
                           ),
                         ),
-                      ),
+                      ],
+                      const _SectionLabel(label: 'Now playing'),
                       SliverToBoxAdapter(
-                        child: _RecentHistoryFootnote(limit: recent.limit),
+                        child: _CurrentTile(track: current),
+                      ),
+                      const _SectionLabel(label: 'Up next'),
+                      if (upNext.isEmpty)
+                        const SliverToBoxAdapter(child: _NothingUpNext())
+                      else
+                        _UpNextList(tracks: upNext),
+                      if (showRecentHistory && recent.isNotEmpty) ...<Widget>[
+                        const _SectionLabel(label: 'Recently played'),
+                        SliverList.builder(
+                          itemCount: recent.length,
+                          itemBuilder: (context, index) => _RecentlyPlayedTile(
+                            entry: recent.entries[index],
+                            onTap: () => playFromRecentHistory(
+                              ref,
+                              recent.entries[index].track,
+                            ),
+                          ),
+                        ),
+                        SliverToBoxAdapter(
+                          child: _RecentHistoryFootnote(limit: recent.limit),
+                        ),
+                      ],
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: AppSpacing.md),
                       ),
                     ],
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: AppSpacing.md),
-                    ),
-                  ],
+                  ),
                 ),
         ),
       ],

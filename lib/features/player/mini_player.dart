@@ -558,6 +558,12 @@ class _QueueButton extends StatelessWidget {
     final QueueSidePanelScope? panel = QueueSidePanelScope.maybeOf(context);
     if (panel == null || !panel.available) {
       return IconButton(
+        // The same node as the toggle below, so a window narrowed until the
+        // column no longer fits still has somewhere to hand the keyboard back
+        // to: this is the same button in the same place, opening the queue the
+        // only way that width can. Null off the shell, where nothing hands
+        // focus anywhere.
+        focusNode: panel?.toggleFocusNode,
         onPressed: () => showQueueSheet(context),
         icon: const Icon(Icons.queue_music_outlined),
         iconSize: 22,
@@ -566,6 +572,10 @@ class _QueueButton extends StatelessWidget {
       );
     }
     return IconButton(
+      // The column hands the keyboard back to this button when it closes, so
+      // the node has to be the shell's rather than one this button makes and
+      // throws away on every rebuild.
+      focusNode: panel.toggleFocusNode,
       onPressed: panel.onToggle,
       isSelected: panel.visible,
       icon: const Icon(Icons.queue_music_outlined),

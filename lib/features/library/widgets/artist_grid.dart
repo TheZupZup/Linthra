@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
 import '../../../core/models/artist.dart';
+import '../../../shared/focus/list_keyboard_navigation.dart';
 import 'artist_tile.dart';
 
 /// Narrowest an artist row may get before the grid drops a column. Below this
@@ -81,30 +82,36 @@ class ArtistGrid extends StatelessWidget {
       builder: (BuildContext context, BoxConstraints constraints) {
         final int columns = artistGridColumnCount(constraints.maxWidth);
         final bool single = columns == 1;
-        return GridView.builder(
-          key: const Key('library_artist_list'),
-          // A single column keeps the edge-to-edge list look phones already
-          // have; only the multi-column desktop layout needs gutters.
-          padding: single
-              ? EdgeInsets.zero
-              : const EdgeInsets.symmetric(
-                  horizontal: _gridPadding,
-                  vertical: _gridPadding,
-                ),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: single ? 0 : _gridGutter,
-            mainAxisSpacing: 0,
-            mainAxisExtent: extent,
+        // ← / → only mean "the next artist" once there is more than one
+        // column: in the single-column list a phone gets, a row break is the
+        // list itself, not a layout artefact to walk through (#390).
+        return ListKeyboardNavigation(
+          wrapRows: !single,
+          child: GridView.builder(
+            key: const Key('library_artist_list'),
+            // A single column keeps the edge-to-edge list look phones already
+            // have; only the multi-column desktop layout needs gutters.
+            padding: single
+                ? EdgeInsets.zero
+                : const EdgeInsets.symmetric(
+                    horizontal: _gridPadding,
+                    vertical: _gridPadding,
+                  ),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              crossAxisSpacing: single ? 0 : _gridGutter,
+              mainAxisSpacing: 0,
+              mainAxisExtent: extent,
+            ),
+            itemCount: artists.length,
+            itemBuilder: (BuildContext context, int index) {
+              final Artist artist = artists[index];
+              return ArtistTile(
+                artist: artist,
+                onTap: () => onOpen(artist),
+              );
+            },
           ),
-          itemCount: artists.length,
-          itemBuilder: (BuildContext context, int index) {
-            final Artist artist = artists[index];
-            return ArtistTile(
-              artist: artist,
-              onTap: () => onOpen(artist),
-            );
-          },
         );
       },
     );

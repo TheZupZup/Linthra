@@ -165,6 +165,31 @@ bool _focusedInside<T extends Widget>() {
   return context != null && context.findAncestorWidgetOfExactType<T>() != null;
 }
 
+/// The icon button behind a tooltip. `find.byTooltip` lands on the [Tooltip]
+/// the button builds, which is one step below the button itself.
+IconButton _button(WidgetTester tester, String tooltip) {
+  return tester.widget<IconButton>(
+    find
+        .ancestor(
+          of: find.byTooltip(tooltip),
+          matching: find.byType(IconButton),
+        )
+        .first,
+  );
+}
+
+/// Puts the keyboard on the control behind [tooltip], the way Tab would.
+void _focusButton(WidgetTester tester, String tooltip) {
+  Focus.of(
+    tester.element(
+      find.descendant(
+        of: find.byTooltip(tooltip),
+        matching: find.byType(Icon),
+      ),
+    ),
+  ).requestFocus();
+}
+
 void main() {
   testWidgets('a wide desktop window can keep the queue beside the page',
       (WidgetTester tester) async {
@@ -324,5 +349,79 @@ void main() {
     expect(panelStop, isNonNegative, reason: 'the column is never reached');
     expect(railStop, isNonNegative, reason: 'the rail is never reached');
     expect(panelStop, lessThan(railStop));
+  });
+
+  group('closing the column keeps the keyboard (#390)', () {
+    testWidgets('the ✕ hands focus back to the button that reopens it',
+        (WidgetTester tester) async {
+      await _pumpShell(
+        tester,
+        platform: TargetPlatform.linux,
+        size: _wideWindow,
+      );
+      await tester.tap(find.byTooltip('Show queue'));
+      await tester.pumpAndSettle();
+
+      // Reach the ✕ the way a keyboard user would, then press it.
+      _focusButton(tester, 'Close queue');
+      await tester.pump();
+      expect(_focusedInside<QueueSidePanel>(), isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(QueueSidePanel), findsNothing);
+      // Not nowhere, and not back at the top of the page: the control that
+      // opens the column again, which is where the user is standing.
+      expect(find.byTooltip('Show queue'), findsOneWidget);
+      expect(
+        FocusManager.instance.primaryFocus,
+        _button(tester, 'Show queue').focusNode,
+      );
+    });
+
+    testWidgets('narrowing the window past the column does the same',
+        (WidgetTester tester) async {
+      await _pumpShell(
+        tester,
+        platform: TargetPlatform.linux,
+        size: _wideWindow,
+      );
+      await tester.tap(find.byTooltip('Show queue'));
+      await tester.pumpAndSettle();
+      _focusButton(tester, 'Close queue');
+      await tester.pump();
+
+      // A resize is not something the user thought of as leaving the column,
+      // so it must not be what loses their place in the frame.
+      await _resize(tester, _narrowDesktopWindow);
+
+      expect(find.byType(QueueSidePanel), findsNothing);
+      expect(
+        FocusManager.instance.primaryFocus,
+        _button(tester, 'Queue').focusNode,
+      );
+    });
+
+    testWidgets('opening it leaves focus on the button', (tester) async {
+      await _pumpShell(
+        tester,
+        platform: TargetPlatform.linux,
+        size: _wideWindow,
+      );
+      _focusButton(tester, 'Show queue');
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(QueueSidePanel), findsOneWidget);
+      // Opening a pane is not a reason to move the keyboard into it: the next
+      // Tab walks into the column, which is the ordinary way in.
+      expect(
+        FocusManager.instance.primaryFocus,
+        _button(tester, 'Hide queue').focusNode,
+      );
+    });
   });
 }

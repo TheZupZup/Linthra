@@ -99,6 +99,50 @@ void main() {
     expect(Focus.of(tester.element(find.text('Cancel'))).hasFocus, isTrue);
   });
 
+  testWidgets('Tab never escapes the dialog while it is open', (tester) async {
+    await pumpButton(tester, onResult: (_) {});
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    final Set<String> visited = <String>{};
+    for (int i = 0; i < 6; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final BuildContext? context = FocusManager.instance.primaryFocus?.context;
+      final Finder label = find.descendant(
+        of: find.byWidget(context!.widget),
+        matching: find.byType(Text),
+      );
+      if (label.evaluate().isNotEmpty) {
+        visited.add((label.evaluate().first.widget as Text).data!);
+      }
+    }
+
+    // Only the dialog's own two actions, however long Tab is held: a modal that
+    // leaks focus to the page under it is a keyboard user typing into
+    // something they cannot see.
+    expect(visited, <String>{'Cancel', 'Delete'});
+  });
+
+  testWidgets('closing it puts the keyboard back where it came from',
+      (tester) async {
+    await pumpButton(tester, onResult: (_) {});
+    Focus.of(tester.element(find.text('open'))).requestFocus();
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(find.text('Delete 12 files?'), findsOneWidget);
+    expect(Focus.of(tester.element(find.text('Cancel'))).hasFocus, isTrue);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    // Back on the control that opened it, not at the top of the page.
+    expect(find.text('Delete 12 files?'), findsNothing);
+    expect(Focus.of(tester.element(find.text('open'))).hasFocus, isTrue);
+  });
+
   testWidgets('a non-destructive dialog focuses the action instead',
       (tester) async {
     await tester.pumpWidget(

@@ -5,6 +5,7 @@ import '../../../app/dimens.dart';
 import '../../../core/catalog/library_grouping.dart';
 import '../../../core/models/album.dart';
 import '../../../core/models/track.dart';
+import '../../../shared/focus/focus_ring.dart';
 import '../../../shared/widgets/context_menu_region.dart';
 import '../../../shared/widgets/hover_highlight.dart';
 import '../../player/widgets/album_artwork.dart';
@@ -71,51 +72,58 @@ class AlbumGridCard extends ConsumerWidget {
           action,
           _tracks(ref),
         ),
-        child: InkWell(
+        // The focus ring wraps the whole card, artwork included: the InkWell's
+        // focus overlay is painted on the Material behind the cover, so a
+        // keyboard user would otherwise see the highlight only on the label
+        // strip, the same blind spot [HoverArtworkVeil] answers for the mouse.
+        child: FocusRing(
           borderRadius: const BorderRadius.all(Radius.circular(AppRadii.md)),
-          onTap: onTap,
-          onLongPress: () => _addAllToPlaylist(context, ref),
-          // The InkWell's own hover overlay is painted on the Material behind the
-          // card, so the cover hides it and a mouse user gets feedback on the
-          // labels and none on the artwork they are pointing at. The veil is that
-          // same hover colour, drawn where it can be seen.
-          child: HoverHighlight(
-            builder: (BuildContext context, bool hovered) => Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Flexible(
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: HoverArtworkVeil(
-                      hovered: hovered,
-                      borderRadius: BorderRadius.circular(AppRadii.md),
-                      child: AlbumArtwork(artworkUri: album.artworkUri),
+          child: InkWell(
+            borderRadius: const BorderRadius.all(Radius.circular(AppRadii.md)),
+            onTap: onTap,
+            onLongPress: () => _addAllToPlaylist(context, ref),
+            // The InkWell's own hover overlay is painted on the Material behind the
+            // card, so the cover hides it and a mouse user gets feedback on the
+            // labels and none on the artwork they are pointing at. The veil is that
+            // same hover colour, drawn where it can be seen.
+            child: HoverHighlight(
+              builder: (BuildContext context, bool hovered) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Flexible(
+                    child: AspectRatio(
+                      aspectRatio: 1,
+                      child: HoverArtworkVeil(
+                        hovered: hovered,
+                        borderRadius: BorderRadius.circular(AppRadii.md),
+                        child: AlbumArtwork(artworkUri: album.artworkUri),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  album.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    height: _lineHeight,
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    album.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      height: _lineHeight,
+                    ),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  album.artistName?.isNotEmpty == true
-                      ? album.artistName!
-                      : kUnknownArtist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    height: _lineHeight,
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    album.artistName?.isNotEmpty == true
+                        ? album.artistName!
+                        : kUnknownArtist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      height: _lineHeight,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

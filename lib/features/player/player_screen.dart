@@ -6,6 +6,7 @@ import '../../core/models/playback_failure.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
 import '../../data/repositories/host_platform_provider.dart';
+import '../../shared/focus/focus_handoff.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/widgets/empty_state.dart';
 import 'cast/cast_button.dart';
@@ -159,6 +160,21 @@ class _NowPlayingState extends State<_NowPlaying> {
   /// rather than closed.
   bool _showQueue = false;
 
+  /// The queue button's focus node (#390).
+  ///
+  /// Held by the screen rather than by the button so it outlives the pane: when
+  /// the pane closes (by the button, or because the window narrowed past
+  /// [_queuePaneMinWidth]) the keyboard goes back to the control that opens it
+  /// again instead of unwinding to the page.
+  final FocusNode _queueButtonFocus =
+      FocusNode(debugLabel: 'now playing queue');
+
+  @override
+  void dispose() {
+    _queueButtonFocus.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AdaptiveLayoutBuilder(
@@ -244,6 +260,7 @@ class _NowPlayingState extends State<_NowPlaying> {
                     // so the queue is never unreachable at any window size.
                     queueVisible: queueOpen,
                     onToggleQueue: canHostQueue ? _toggleQueue : null,
+                    queueButtonFocusNode: _queueButtonFocus,
                   ),
                 ],
               ),
@@ -254,9 +271,12 @@ class _NowPlayingState extends State<_NowPlaying> {
               // rows, and rows have a width that reads well. Letting it grow
               // with the window would only pull each title away from its
               // handle, and would take the space from the cover.
-              const SizedBox(
-                width: _queuePaneWidth,
-                child: QueueSheet(embedded: true),
+              FocusHandoff(
+                returnFocusTo: () => _queueButtonFocus,
+                child: const SizedBox(
+                  width: _queuePaneWidth,
+                  child: QueueSheet(embedded: true),
+                ),
               ),
             ],
           ],
@@ -308,6 +328,12 @@ class _NowPlayingState extends State<_NowPlaying> {
           track: track,
           lyricsVisible: _showLyrics,
           onToggleLyrics: _toggleLyrics,
+          // The same node the wide layout's bar carries. A window narrowed
+          // past the two-column breakpoint rebuilds the screen as this one and
+          // takes the queue pane with it, and the handoff has to find the
+          // button on the far side of that change: it is the same control in
+          // the same place, opening the queue the only way this width can.
+          queueButtonFocusNode: _queueButtonFocus,
         ),
       ],
     );
@@ -339,6 +365,7 @@ class _ActionsBar extends ConsumerWidget {
     required this.onToggleLyrics,
     this.queueVisible = false,
     this.onToggleQueue,
+    this.queueButtonFocusNode,
   });
 
   final Track track;
@@ -351,6 +378,10 @@ class _ActionsBar extends ConsumerWidget {
   final bool queueVisible;
   final VoidCallback? onToggleQueue;
 
+  /// The queue button's focus node, so the screen can hand the keyboard back
+  /// to it when the pane it opened closes (#390).
+  final FocusNode? queueButtonFocusNode;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final Widget actions = NowPlayingActions(
@@ -359,6 +390,7 @@ class _ActionsBar extends ConsumerWidget {
       onToggleLyrics: onToggleLyrics,
       queueVisible: queueVisible,
       onToggleQueue: onToggleQueue,
+      queueButtonFocusNode: queueButtonFocusNode,
     );
     // Falls back to the service's own state until the first stream event, the
     // same way the source/casting line does.
