@@ -135,9 +135,16 @@ run_scenario() {
   # controls comparing a file against itself both pass, which is the worst
   # possible failure: it looks like success.
   rm -f "$out"
+  # LINTHRA_STARTUP_WORKLOADS is set, not inherited. A caller who exported it
+  # would otherwise narrow all three scenarios at once, and because the
+  # comparison only requires the two sides to *match*, both controls would
+  # pass over a run that never measured `small` or `large` while the script
+  # claimed it had. Every scenario measures the full set; the reporter is told
+  # the same list again below.
   LINTHRA_STARTUP_OUT="$out" \
   LINTHRA_STARTUP_LABEL="$name" \
   LINTHRA_STARTUP_ITERATIONS="$ITERATIONS" \
+  LINTHRA_STARTUP_WORKLOADS="$REQUIRED_WORKLOADS" \
   LINTHRA_STARTUP_SMALL_TRACKS="$SMALL_TRACKS" \
   LINTHRA_STARTUP_LARGE_TRACKS="$LARGE_TRACKS" \
   LINTHRA_STARTUP_SLOW_CATALOG_MS="$slow_ms" \
@@ -145,6 +152,10 @@ run_scenario() {
     || die "the $name run failed; see $OUT_DIR/$name.log"
   [ -s "$out" ] \
     || die "the $name run reported success but wrote no samples to $out"
+  # And checked rather than assumed: the harness could have been changed to
+  # ignore the variable.
+  python3 "$REPORT" "$out" --validate --require-workloads "$REQUIRED_WORKLOADS" \
+    > /dev/null || die "the $name run did not measure $REQUIRED_WORKLOADS"
 }
 
 if [ "$SMOKE" -eq 1 ]; then

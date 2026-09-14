@@ -250,11 +250,24 @@ class ComparisonTest(unittest.TestCase):
         self.assertGreater(comparison(base, slower).workloads[0].delta_ms, 100)
         self.assertFalse(comparison(base, slower).regressed)
 
-    def test_a_truncated_run_is_reported_as_a_regression(self) -> None:
-        """Never a clean bill of health on evidence that is not there."""
+    def test_a_truncated_run_is_indeterminate_rather_than_regressed(self) -> None:
+        """Missing evidence is its own answer, in neither direction.
+
+        Calling it a regression looks like a fail-safe and is only safe one
+        way: it does keep a truncated run from passing `--expect same`, but it
+        also lets a canary whose samples went missing satisfy `--expect
+        regressed` without having detected anything.
+        """
         base = [9000.0, 300.0, 300.0, 300.0]
-        self.assertTrue(comparison(base, [9000.0, 300.0]).regressed)
-        self.assertTrue(comparison([9000.0, 300.0], base).regressed)
+        for short in (comparison(base, [9000.0, 300.0]), comparison([9000.0, 300.0], base)):
+            self.assertTrue(short.indeterminate)
+            self.assertEqual(short.unjudgeable, ("small",))
+            self.assertFalse(short.regressed)
+            self.assertFalse(short.regressed_everywhere)
+
+    def test_a_complete_comparison_is_determinate(self) -> None:
+        steady = [9000.0, 300.0, 305.0, 300.0]
+        self.assertFalse(comparison(steady, list(steady)).indeterminate)
 
     def test_one_slow_workload_regresses_the_run(self) -> None:
         base = startup_report.parse(
@@ -428,6 +441,60 @@ class CompletenessTest(unittest.TestCase):
         problems = startup_report.completeness_problems(run, 1)
         self.assertEqual(len(problems), 1)
         self.assertIn("nothing was actually measured", problems[0])
+
+
+class IndeterminateExpectationTest(unittest.TestCase):
+    """No expectation is answerable when a side has too little evidence."""
+
+    def write(self, path: Path, payload: dict[str, object]) -> Path:
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def run_script(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_every_expectation_refuses_a_truncated_candidate(self) -> None:
+        full = run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
+        short = run_payload(workload("small", 1000, [9000.0, 300.0]), iterations=2)
+        with tempfile.TemporaryDirectory() as directory:
+            base = self.write(Path(directory) / "base.json", full)
+            cut = self.write(Path(directory) / "cut.json", short)
+            for expectation in ("same", "regressed", "regressed-everywhere"):
+                result = self.run_script(
+                    str(cut), "--baseline", str(base), "--expect", expectation
+                )
+                self.assertEqual(result.returncode, 1, expectation)
+                self.assertIn("cannot judge", result.stderr)
+
+    def test_the_report_says_so_rather_than_inventing_a_verdict(self) -> None:
+        full = run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
+        short = run_payload(workload("small", 1000, [9000.0, 300.0]), iterations=2)
+        with tempfile.TemporaryDirectory() as directory:
+            base = self.write(Path(directory) / "base.json", full)
+            cut = self.write(Path(directory) / "cut.json", short)
+            result = self.run_script(str(cut), "--baseline", str(base))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("NOT ENOUGH DATA", result.stdout)
+
+
+class AlbumShapeTest(unittest.TestCase):
+    """Same rows, different grouping, is a different amount of work."""
+
+    def test_a_different_album_count_is_refused(self) -> None:
+        base = startup_report.parse(
+            run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
+        )
+        regrouped = workload("small", 1000, [9000.0, 300.0, 300.0, 300.0])
+        regrouped["albums"] = 1000
+        cand = startup_report.parse(run_payload(regrouped))
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.compare(base, cand)
+        self.assertIn("albums", str(raised.exception))
 
 
 class ComparabilityTest(unittest.TestCase):
@@ -609,6 +676,15 @@ class BudgetTest(unittest.TestCase):
         failures = startup_report.check_budgets(run, [("small", 100.0)], 1)
         self.assertEqual(len(failures), 1)
         self.assertIn("over the", failures[0])
+
+    def test_a_budget_cannot_pass_on_a_workload_nothing_measured(self) -> None:
+        """A median of zero is under any budget, and means nothing happened."""
+        run = startup_report.parse(
+            run_payload(workload("small", 1000, [9000.0], warmup=1), iterations=1)
+        )
+        failures = startup_report.check_budgets(run, [("small", 5000.0)], 1)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("no judged launch", failures[0])
 
     def test_a_budget_for_a_workload_that_is_not_there_is_a_failure(self) -> None:
         run = startup_report.parse(run_payload())

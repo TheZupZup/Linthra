@@ -176,7 +176,9 @@ The reporter refuses outright to compare two runs that did not measure the same
 thing: a different build mode, a different window size, a different milestone,
 a different pump interval (which is the unit `awaited` is counted in, so
 changing it rescales that whole column), a workload holding a different number
-of tracks, or a different *set* of workloads. That last one matters because `LINTHRA_STARTUP_WORKLOADS` makes a
+of tracks or grouping them into a different number of albums (the Library
+groups and renders by album, so the same rows in a different shape are a
+different amount of work), or a different *set* of workloads. That last one matters because `LINTHRA_STARTUP_WORKLOADS` makes a
 subset easy to produce, and a run-level verdict that quietly skipped the
 workload missing from one side would pass a regression nobody measured.
 Printing a number across any of those would be inventing a result rather than
@@ -205,6 +207,12 @@ both ways of being wrong are part of the run:
   that two thirds of the check stopped working, and `any()` would print "both
   controls passed" over it. `--expect regressed-everywhere` is what the runner
   holds it to.
+
+The runner also *sets* `LINTHRA_STARTUP_WORKLOADS` for every scenario rather
+than inheriting it, and re-validates each scenario's output against the full
+list. A caller who had exported a narrower one would otherwise shrink all three
+runs at once, and because a comparison only requires the two sides to match,
+both controls would pass over a run that never measured `small` or `large`.
 
 The slowdown is injected through a provider override from the test side. No
 production code knows it exists, and neither does any other part of this.
@@ -302,9 +310,12 @@ workload      tracks   first frame  first usable   awaited      min      max  sp
   launch needs, and it stays at 8 ms whatever the library size, because nothing
   in a healthy startup waits on a timer. A number that climbs here is an await
   that was not there before.
-- **fewer than three judged launches** makes a comparison report a regression
-  rather than a pass. A truncated run must never read as a clean bill of
-  health.
+- **fewer than three judged launches** makes a comparison answer `NOT ENOUGH
+  DATA`, and every `--expect` fails on it. Not "regression": that reads like a
+  fail-safe and is only safe in one direction, because it keeps a truncated run
+  from passing `--expect same` while letting a canary whose samples went
+  missing satisfy `--expect regressed` without having detected anything.
+  Missing evidence is refused rather than answered.
 
 ## Limitations
 

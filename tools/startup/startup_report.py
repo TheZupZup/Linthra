@@ -394,18 +394,27 @@ class WorkloadComparison:
         return self.simulated_delta_ms > self.simulated_allowance_ms
 
     @property
+    def comparable(self) -> bool:
+        """Whether both sides have enough judged launches to be compared."""
+        return self.baseline.trustworthy and self.candidate.trustworthy
+
+    @property
     def regressed(self) -> bool:
         """Whether this workload now reaches a usable library later.
 
         Either clock is enough. A regression is a regression whether the app
         got there late because it did more work or because it waited longer,
         and a check that only watched one of them would wave the other through.
+
+        Missing evidence is **not** a regression. Calling it one reads as a
+        sensible fail-safe and is only safe in one direction: it does keep a
+        truncated run from passing `--expect same`, but it also lets a canary
+        whose samples went missing satisfy `--expect regressed`, so the
+        false-negative control could be met by a file with nothing in it.
+        Too little evidence is [comparable] instead, and every expectation
+        refuses to answer on it.
         """
-        if not (self.baseline.trustworthy and self.candidate.trustworthy):
-            # Not enough launches on one side to have an opinion. Reported as a
-            # regression so a truncated run is never mistaken for a pass.
-            return True
-        return self.worked_longer or self.waited_longer
+        return self.comparable and (self.worked_longer or self.waited_longer)
 
 
 @dataclass(frozen=True)
@@ -413,6 +422,22 @@ class Comparison:
     baseline: Run
     candidate: Run
     workloads: tuple[WorkloadComparison, ...]
+
+    @property
+    def indeterminate(self) -> bool:
+        """Whether any workload lacks the evidence to be judged at all.
+
+        A verdict over a run containing one of these means nothing, in either
+        direction, so the caller is told to fix the measurement rather than
+        given an answer.
+        """
+        return not self.workloads or any(
+            not entry.comparable for entry in self.workloads
+        )
+
+    @property
+    def unjudgeable(self) -> tuple[str, ...]:
+        return tuple(entry.name for entry in self.workloads if not entry.comparable)
 
     @property
     def regressed(self) -> bool:
@@ -488,6 +513,16 @@ def comparability_problem(baseline: Run, candidate: Run) -> str | None:
             return (
                 f"workload {name!r} held {theirs.tracks:,} tracks in the "
                 f"baseline and {mine.tracks:,} here"
+            )
+        if mine.albums != theirs.albums:
+            # Same rows, different shape. The Library groups and renders by
+            # album, so 1,000 tracks in 84 albums and 1,000 tracks in 1,000
+            # albums are different amounts of work, and a fixture change
+            # between the two commits would be charged to the app.
+            return (
+                f"workload {name!r} grouped {theirs.tracks:,} tracks into "
+                f"{theirs.albums:,} albums in the baseline and {mine.albums:,} "
+                "here"
             )
     return None
 
@@ -624,14 +659,14 @@ def render_comparison(comparison: Comparison) -> str:
         "workload      baseline      this run       delta   ratio   awaited  verdict",
     ]
     for entry in comparison.workloads:
-        if entry.worked_longer and entry.waited_longer:
+        if not entry.comparable:
+            verdict = "NOT ENOUGH DATA"
+        elif entry.worked_longer and entry.waited_longer:
             verdict = "SLOWER (work + wait)"
         elif entry.worked_longer:
             verdict = "SLOWER (more work)"
         elif entry.waited_longer:
             verdict = "SLOWER (waits longer)"
-        elif entry.regressed:
-            verdict = "TOO FEW LAUNCHES"
         else:
             verdict = "ok"
         lines.append(
@@ -656,9 +691,16 @@ def render_comparison(comparison: Comparison) -> str:
         )
     else:
         lines.append("  the two runs share no workload")
-    lines.append(
-        f"  verdict:   {'REGRESSION' if comparison.regressed else 'NO REGRESSION'}"
-    )
+    if comparison.indeterminate:
+        lines.append(
+            "  verdict:   NOT ENOUGH DATA ("
+            + ", ".join(comparison.unjudgeable or ("no shared workload",))
+            + ")"
+        )
+    else:
+        lines.append(
+            f"  verdict:   {'REGRESSION' if comparison.regressed else 'NO REGRESSION'}"
+        )
     return "\n".join(lines)
 
 
@@ -704,6 +746,16 @@ def check_budgets(run: Run, budgets: list[tuple[str, float]], warmup: int) -> li
             failures.append(f"no workload named {name!r} in this run")
             continue
         stats = summarise(workload, warmup)
+        if stats.count < 1:
+            # A workload whose every launch was warm-up summarises to a median
+            # of zero, which is under any budget anyone would set. Passing a
+            # budget on a measurement that did not happen is worse than having
+            # no budget, and `--budget` does not imply `--validate`.
+            failures.append(
+                f"{name}: no judged launch, so there is nothing to hold to a "
+                f"{limit:.1f} ms budget"
+            )
+            continue
         if stats.median_ms > limit:
             failures.append(
                 f"{name}: {stats.median_ms:.1f} ms median is over the "
@@ -872,6 +924,23 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.expect is not None:
         assert comparison is not None
+        if comparison.indeterminate:
+            # Refused rather than answered, in either direction. The old
+            # behaviour called this a regression, which kept a truncated run
+            # from passing `--expect same` but let a truncated canary satisfy
+            # `--expect regressed` without measuring anything.
+            print(
+                "\nERROR: cannot judge "
+                + (
+                    ", ".join(comparison.unjudgeable)
+                    if comparison.unjudgeable
+                    else "a comparison with no shared workload"
+                )
+                + f": fewer than {MINIMUM_SAMPLES} judged launches on one "
+                "side. Re-measure rather than trusting this run.",
+                file=sys.stderr,
+            )
+            return 1
         if args.expect == "regressed-everywhere":
             met = comparison.regressed_everywhere
             actual = (
