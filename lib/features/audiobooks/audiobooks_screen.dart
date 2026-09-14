@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../shared/layout/adaptive_layout.dart';
+import '../../shared/scroll/horizontal_wheel_scroll.dart';
 import '../../shared/widgets/empty_state.dart';
 import 'audiobooks_library_controller.dart';
 import 'audiobooks_library_state.dart';
@@ -98,11 +99,43 @@ class _Body extends ConsumerWidget {
       );
     }
 
+    return _LibraryView(state: state);
+  }
+}
+
+/// The library picker and the book list, sharing one scroll controller.
+///
+/// The list's controller is held here rather than inside [_BookList] because
+/// the chip row above it has to reach it. The two are siblings in a column, so
+/// a wheel notch that the row cannot use has nothing to fall through to on its
+/// own — see [HorizontalWheelScroll.chainTo], which is what carries it down to
+/// the books instead of it doing nothing at all.
+class _LibraryView extends StatefulWidget {
+  const _LibraryView({required this.state});
+
+  final AudiobooksLibraryState state;
+
+  @override
+  State<_LibraryView> createState() => _LibraryViewState();
+}
+
+class _LibraryViewState extends State<_LibraryView> {
+  final ScrollController _books = ScrollController();
+
+  @override
+  void dispose() {
+    _books.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       children: <Widget>[
         // Only worth the row when there is a choice to make.
-        if (state.libraries.length > 1) _LibraryPicker(state: state),
-        Expanded(child: _BookList(state: state)),
+        if (widget.state.libraries.length > 1)
+          _LibraryPicker(state: widget.state, chainTo: _books),
+        Expanded(child: _BookList(state: widget.state, controller: _books)),
       ],
     );
   }
@@ -178,9 +211,13 @@ class _ErrorView extends StatelessWidget {
 
 /// Which library is being browsed, when the account can see more than one.
 class _LibraryPicker extends ConsumerWidget {
-  const _LibraryPicker({required this.state});
+  const _LibraryPicker({required this.state, required this.chainTo});
 
   final AudiobooksLibraryState state;
+
+  /// The book list under this row, which takes a wheel notch once the row
+  /// itself has run out of libraries to show.
+  final ScrollController chainTo;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -191,27 +228,35 @@ class _LibraryPicker extends ConsumerWidget {
         AppSpacing.md,
         0,
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: <Widget>[
-            for (final AudiobookLibrarySummary library in state.libraries)
-              Padding(
-                padding: const EdgeInsets.only(right: AppSpacing.sm),
-                child: ChoiceChip(
-                  label: Text(library.name),
-                  selected: library.id == state.selectedLibraryId,
-                  onSelected: (bool selected) {
-                    if (!selected) return;
-                    unawaited(
-                      ref
-                          .read(audiobooksLibraryControllerProvider.notifier)
-                          .selectLibrary(library.id),
-                    );
-                  },
+      // The one genuinely horizontal surface in the app, and the only place a
+      // vertical wheel is allowed to mean "sideways": a mouse with one wheel
+      // could otherwise never reach the libraries past the right edge (#396).
+      child: HorizontalWheelScroll(
+        chainTo: chainTo,
+        builder: (BuildContext context, ScrollController controller) =>
+            SingleChildScrollView(
+          controller: controller,
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: <Widget>[
+              for (final AudiobookLibrarySummary library in state.libraries)
+                Padding(
+                  padding: const EdgeInsets.only(right: AppSpacing.sm),
+                  child: ChoiceChip(
+                    label: Text(library.name),
+                    selected: library.id == state.selectedLibraryId,
+                    onSelected: (bool selected) {
+                      if (!selected) return;
+                      unawaited(
+                        ref
+                            .read(audiobooksLibraryControllerProvider.notifier)
+                            .selectLibrary(library.id),
+                      );
+                    },
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -219,9 +264,12 @@ class _LibraryPicker extends ConsumerWidget {
 }
 
 class _BookList extends ConsumerWidget {
-  const _BookList({required this.state});
+  const _BookList({required this.state, required this.controller});
 
   final AudiobooksLibraryState state;
+
+  /// Owned by [_LibraryView], so the picker above can scroll this list.
+  final ScrollController controller;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -243,6 +291,7 @@ class _BookList extends ConsumerWidget {
       onRefresh: () =>
           ref.read(audiobooksLibraryControllerProvider.notifier).refresh(),
       child: ListView.builder(
+        controller: controller,
         itemCount: state.books.length + (hasFooter ? 1 : 0),
         itemBuilder: (BuildContext context, int index) {
           if (index >= state.books.length) {

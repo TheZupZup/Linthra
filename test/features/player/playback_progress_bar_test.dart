@@ -1,8 +1,10 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/features/player/widgets/playback_progress_bar.dart';
 import 'package:linthra/features/player/widgets/wavy_seek_bar.dart';
+import 'package:linthra/shared/scroll/pointer_scroll_policy.dart';
 
 /// The bar is pumped at a fixed 300dp so the tap/drag maths below are exact:
 /// the painter insets the track by the marker radius (6) at each end, leaving a
@@ -64,6 +66,21 @@ Future<void> _dragTo(WidgetTester tester, double fraction) async {
   await tester.pump();
   await gesture.up();
   await tester.pump();
+}
+
+/// Spins the wheel [notches] clicks over the bar. Positive is scrolling up,
+/// which means later in the track.
+Future<void> _wheelOverBar(WidgetTester tester, int notches) async {
+  final TestPointer pointer = TestPointer(1, PointerDeviceKind.mouse);
+  pointer.hover(tester.getCenter(find.byType(WavySeekBar)));
+  for (int i = 0; i < notches.abs(); i++) {
+    await tester.sendEventToBinding(
+      pointer.scroll(
+        Offset(0, notches.isNegative ? wheelNotchExtent : -wheelNotchExtent),
+      ),
+    );
+    await tester.pump();
+  }
 }
 
 void main() {
@@ -481,6 +498,77 @@ void main() {
       );
       await tester.pump();
       expect(seeks, hasLength(1));
+    });
+  });
+
+  group('a gesture that goes away without seeking', () {
+    testWidgets('gives the position back instead of holding the preview',
+        (tester) async {
+      // A press previews where it landed. If the OS cancels the pointer, or a
+      // list under the bar wins the gesture, nothing else takes that preview
+      // back — the bar would read a position playback never went to for as
+      // long as it lives.
+      final seeks =
+          await _pumpBar(tester, position: const Duration(minutes: 1));
+
+      final Rect bar = tester.getRect(find.byType(WavySeekBar));
+      final TestGesture gesture =
+          await tester.startGesture(bar.centerLeft + const Offset(30, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('0:20'), findsOneWidget, reason: 'the press previews');
+
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+
+      expect(find.text('1:00'), findsOneWidget);
+      expect(find.text('0:20'), findsNothing);
+      expect(seeks, isEmpty, reason: 'a cancelled gesture never seeks');
+    });
+  });
+
+  group('the mouse wheel over the bar', () {
+    testWidgets('seeks by the same step an arrow key does', (tester) async {
+      final seeks =
+          await _pumpBar(tester, position: const Duration(minutes: 1));
+
+      // 5% of a four-minute track is 12s, the same step the arrow keys and the
+      // assistive increase/decrease actions use.
+      await _wheelOverBar(tester, 1);
+      expect(seeks.single, const Duration(seconds: 72));
+
+      seeks.clear();
+      await _wheelOverBar(tester, -1);
+      expect(seeks.single, const Duration(minutes: 1));
+    });
+
+    testWidgets('a spin of several clicks compounds', (tester) async {
+      // Every notch steps off the one before it, not off the position the
+      // coalesced stream last reported.
+      final seeks =
+          await _pumpBar(tester, position: const Duration(minutes: 1));
+
+      await _wheelOverBar(tester, 3);
+
+      expect(
+        seeks,
+        <Duration>[
+          const Duration(seconds: 72),
+          const Duration(seconds: 84),
+          const Duration(seconds: 96),
+        ],
+      );
+    });
+
+    testWidgets('a bar with no duration to seek in ignores it', (tester) async {
+      final seeks = await _pumpBar(tester, duration: Duration.zero);
+      await _wheelOverBar(tester, 1);
+      expect(seeks, isEmpty);
+    });
+
+    testWidgets('a read-only bar ignores it too', (tester) async {
+      final seeks = await _pumpBar(tester, seekable: false);
+      await _wheelOverBar(tester, 1);
+      expect(seeks, isEmpty);
     });
   });
 }

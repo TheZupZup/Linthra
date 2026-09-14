@@ -24,6 +24,7 @@ import '../features/settings/desktop/desktop_window_providers.dart';
 import '../features/settings/jellyfin/jellyfin_availability_controller.dart';
 import '../features/support/support_actions_provider.dart';
 import '../features/support/supporter_entitlement.dart';
+import '../shared/scroll/app_scroll_behavior.dart';
 import 'application_lifecycle.dart';
 import 'brand_theme.dart';
 import 'router.dart';
@@ -205,6 +206,7 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
         theme: lightTheme,
         darkTheme: darkTheme,
         themeMode: themeMode.materialThemeMode,
+        scrollBehavior: const AppScrollBehavior(),
         home: const _BootstrapSurface(),
       );
     }
@@ -221,6 +223,11 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: themeMode.materialThemeMode,
+      // One scroll policy for the whole app, routes and dialogs included:
+      // every `Scrollable` resolves its physics and its overscroll decoration
+      // through the `ScrollConfiguration` this installs, so none of them needs
+      // a desktop check of its own (#396).
+      scrollBehavior: const AppScrollBehavior(),
       routerConfig: router,
       // Keyboard shortcuts wrap the router rather than living inside the
       // navigation shell. Key events travel up from whatever holds focus, so a

@@ -1,9 +1,9 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/playback_state.dart';
 import '../../../core/services/playback_controller.dart';
+import '../../../shared/scroll/pointer_scroll_adjust.dart';
 import '../player_providers.dart';
 
 /// How far one scroll notch moves the level. Small enough to fine-tune, large
@@ -53,27 +53,27 @@ class _VolumeControlsState extends ConsumerState<VolumeControls> {
   }
 
   /// Scroll wheel over the control: up is louder, down is quieter.
-  void _onPointerSignal(
-    PointerSignalEvent event, {
-    required double volume,
-    required bool muted,
-  }) {
-    if (event is! PointerScrollEvent) return;
-    // Both axes count: a horizontal wheel or a trackpad's sideways flick over a
-    // horizontal slider means the same thing as a vertical one.
-    final double delta = event.scrollDelta.dy != 0
-        ? -event.scrollDelta.dy
-        : -event.scrollDelta.dx;
-    if (delta == 0) return;
-    final bool louder = delta > 0;
+  ///
+  /// One notch is one [volumeStep], however the notch arrived — a wheel click
+  /// or the dozens of small deltas a trackpad sends for the same gesture,
+  /// which [PointerScrollAdjust] has already counted into whole notches by the
+  /// time this runs. Stepping per *event* instead is what used to take a
+  /// two-finger flick from half volume to silence.
+  void _onNotch(int notches) {
+    // Read the level now rather than from the build that installed this
+    // callback: a fast wheel spin delivers several events before a frame, and
+    // each of them has to step off the one before.
+    final PlaybackState state = _controller.state;
+    final bool muted = state.muted;
+    final bool louder = notches > 0;
     // Scrolling down while muted is already what it asks for. Ignoring it keeps
     // the level mute has to come back to, instead of quietly grinding it to
     // zero behind a muted icon.
     if (muted && !louder) return;
     // Muted, scrolling up: step off the silence rather than off the remembered
     // level, so one notch is one notch of what you can hear.
-    final double current = muted ? 0.0 : volume;
-    _controller.setVolume(current + (louder ? volumeStep : -volumeStep));
+    final double current = muted ? 0.0 : state.volume;
+    _controller.setVolume(current + notches * volumeStep);
   }
 
   @override
@@ -91,12 +91,11 @@ class _VolumeControlsState extends ConsumerState<VolumeControls> {
     final double sliderValue = _dragValue ?? effective;
     final bool silent = effective <= 0.0;
 
-    return Listener(
-      onPointerSignal: (PointerSignalEvent event) => _onPointerSignal(
-        event,
-        volume: level.volume,
-        muted: level.muted,
-      ),
+    return PointerScrollAdjust(
+      onNotch: _onNotch,
+      // A wheel notch while the slider is being dragged must not scroll the
+      // page the control sits on, wherever the pointer has wandered to.
+      adjusting: _dragValue != null,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
