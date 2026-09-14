@@ -109,10 +109,29 @@ const String _emptyStateTitle = 'No music folder selected';
 const Size _windowSize = Size(1600, 1000);
 const double _devicePixelRatio = 1.0;
 
+/// Simulated frame interval for the pump loop, and the unit of the second
+/// clock the harness records.
+///
+/// `testWidgets` drives time itself: `tester.pump(d)` advances the binding's
+/// *fake* clock by `d` and runs one frame, it does not wait `d` of real time.
+/// That splits startup cost in two, and both halves matter:
+///
+///  * work the CPU actually does (the SQLite query, the row mapping, building
+///    the widgets) costs real time, and the stopwatch sees it;
+///  * time the app spends *awaiting* something (a timer, a delayed future, a
+///    retry backoff) costs simulated time, and the stopwatch does not see it
+///    at all: it only shows up as more trips round the pump loop.
+///
+/// So the harness records both, and the reporter judges both. A regression
+/// that adds a 250 ms await is invisible to a wall clock here and obvious in
+/// simulated time; a regression that adds real work is the other way round.
+const int _pumpIntervalMs = 4;
+
 /// How many frames a single launch may take before the harness gives up.
 ///
 /// A launch that never reaches the milestone is a bug worth failing on, not a
-/// number worth recording. At 4 ms of simulated frame time this is generous.
+/// number worth recording. At [_pumpIntervalMs] of simulated frame time this
+/// is 80 seconds of simulated waiting, which is generous.
 const int _frameBudget = 20000;
 
 const bool _isProduct = bool.fromEnvironment('dart.vm.product');
@@ -165,11 +184,21 @@ class _Launch {
   final int frames;
   final int rowsRendered;
 
+  /// Simulated time between the first frame and the first usable one.
+  ///
+  /// The pump loop advances the binding's clock by [_pumpIntervalMs] a frame,
+  /// so this is what the app spent *waiting* rather than working: awaited
+  /// timers and delayed futures, which a wall clock in a widget test cannot
+  /// see. Derived rather than read off the binding so it stays exactly the
+  /// quantity the reporter compares.
+  double get simulatedMs => (frames - 1) * _pumpIntervalMs.toDouble();
+
   Map<String, Object?> toJson() => <String, Object?>{
         'iteration': iteration,
         'warmup': warmup,
         'first_frame_ms': firstFrameMs,
         'first_usable_frame_ms': firstUsableFrameMs,
+        'simulated_ms': simulatedMs,
         'frames': frames,
         'rows_rendered': rowsRendered,
       };
@@ -286,6 +315,25 @@ Future<File> _buildFixture(Directory dir, _Workload workload) async {
 /// this is the same repository stack the app really starts with; only the
 /// database file is the harness's. With the canary armed, the same stack is
 /// wrapped so reads are slow.
+///
+/// **The one place this is not production's shape**: production opens SQLite
+/// with `NativeDatabase.createInBackground` (see `linthra_database.dart`),
+/// which runs the database on its own isolate; this opens it in-process.
+/// That is forced rather than chosen. `createInBackground` waits on a message
+/// from that isolate, and the widget-test binding drives the clock and the
+/// event loop itself, so under `testWidgets` the open never completes and the
+/// test hangs until it times out (`TimeoutException ...
+/// _RawReceivePort._handleMessage`) rather than measuring anything.
+///
+/// What it costs the measurement, in both directions:
+///  * the isolate spawn and the message round-trip per query are real startup
+///    costs a user pays and this does not measure;
+///  * the query itself runs on the UI isolate here and off it in production,
+///    so the catalog's share of the number is a conservative *upper* bound.
+///
+/// It is why this benchmark compares a commit against a commit rather than
+/// predicting what a user sees. A number for the real thing needs a profile
+/// build and a clock outside the process; see tools/startup/README.md.
 List<Override> _overrides(File file) {
   return <Override>[
     ...completedOnboardingOverrides(),
@@ -355,7 +403,7 @@ Future<_Launch> _launch(
         'finder no longer matches the Library screen.',
       );
     }
-    await tester.pump(const Duration(milliseconds: 4));
+    await tester.pump(const Duration(milliseconds: _pumpIntervalMs));
     frames++;
   }
   final int usableUs = clock.elapsedMicroseconds;
@@ -456,6 +504,9 @@ void main() {
         'cpu_cores': Platform.numberOfProcessors,
         'iterations': _iterations,
         'warmup': _warmup,
+        // The unit of `simulated_ms`, so a reader (and the reporter) can tell
+        // how finely awaited time was resolved.
+        'pump_interval_ms': _pumpIntervalMs,
         'window': <String, Object?>{
           'width': _windowSize.width,
           'height': _windowSize.height,

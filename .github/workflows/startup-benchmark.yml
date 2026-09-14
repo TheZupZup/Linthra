@@ -23,27 +23,24 @@ name: Linux startup benchmark
 #      quietly stopped matching the Library screen fails here rather than the
 #      next time somebody tries to use it.
 #
-# Path-filtered like large-library-sql.yml: the benchmark's own files, plus the
-# startup path it measures, because a change to `main()` or the app shell is
-# exactly what can break the harness without touching it.
+# Deliberately NOT path-filtered, unlike large-library-sql.yml.
+#
+# The harness launches the real app and finds the milestone with ordinary test
+# finders, so what breaks it is a change to any of the code it walks through:
+# `main()`, the app shell, the router, the Library screen, `TrackTile`, the
+# library controller and providers, the Drift repository and database, the
+# Track model. An allowlist of those paths is a list that has to be kept
+# correct forever, and the first thing it misses is the first thing that
+# retires the check: a rename of `TrackTile` makes `_usable()` time out, and
+# `flutter test` will not catch it either because the harness is deliberately
+# named `_bench.dart`.
+#
+# So it runs on everything. The job is under a minute, which is a cheap price
+# for a guard that cannot be silently bypassed.
 on:
   pull_request:
-    paths:
-      - 'test/benchmarks/startup_time_bench.dart'
-      - 'test/tooling/startup_report_test.py'
-      - 'tools/startup/**'
-      - '.github/workflows/startup-benchmark.yml'
-      - 'lib/main.dart'
-      - 'lib/app/**'
   push:
     branches: [main]
-    paths:
-      - 'test/benchmarks/startup_time_bench.dart'
-      - 'test/tooling/startup_report_test.py'
-      - 'tools/startup/**'
-      - '.github/workflows/startup-benchmark.yml'
-      - 'lib/main.dart'
-      - 'lib/app/**'
 
 permissions:
   contents: read

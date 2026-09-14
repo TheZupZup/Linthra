@@ -47,6 +47,32 @@ schema.
 it barely moves with library size; the gap between the two columns is the
 catalog work.
 
+### Two clocks, because one of them is blind
+
+`flutter test` drives time itself. `tester.pump(d)` advances the binding's
+*fake* clock by `d` and runs a frame; it does not wait `d` of real time. That
+splits startup into two quantities, and a check that watched only one of them
+would wave the other through:
+
+| Clock | What it sees | Column |
+| --- | --- | --- |
+| wall clock | work the CPU actually did: the query, the mapping, building the widgets | `first usable` |
+| simulated | time the app spent **awaiting** something: a timer, a delayed future, a retry backoff | `awaited` |
+
+A regression that adds 250 ms of awaiting costs no measurable wall time here,
+and a regression that adds real work costs no simulated time. The reporter
+compares both and calls either one a regression, naming which fired.
+
+The measured shape of that, from the canary run below: a clean launch takes
+3 frames on every workload, and one with 250 ms injected into each catalog read
+takes 65, which is 256 ms of simulated time: the delay almost exactly. On the
+large workload the same run came out at **0.90x** on the wall clock, which is
+to say *faster* than the baseline it was slowing down, because a busy machine
+moved a 12-second number more than the delay did. A wall clock alone would have
+called that one fine. The simulated clock put it at +248 ms like every other
+workload, and being quantized and machine-independent it does the same on a
+quiet machine and a fast one.
+
 ## What is **not** measured
 
 Worth reading before quoting a number at anybody.
@@ -55,6 +81,15 @@ Worth reading before quoting a number at anybody.
   Dart VM, the Flutter engine, the GTK window, the GPU surface and font loading
   are all already up before the clock starts. A real `linthra` launch pays all
   of that first. This measures the app, not the platform.
+- **The database's background isolate.** Production opens SQLite with
+  `NativeDatabase.createInBackground`, which runs it on its own isolate; the
+  harness opens the same file in-process. That is forced, not chosen:
+  `createInBackground` waits on a message from that isolate, and the
+  widget-test binding owns the clock and the event loop, so under `testWidgets`
+  the open never completes and the test hangs until it times out. The isolate
+  spawn and the per-query message round-trip are therefore missing, and the
+  query runs on the UI isolate here rather than off it, which makes the
+  catalog's share of the number a conservative *upper* bound.
 - **A release build.** `flutter test` is the JIT VM, so these are debug
   numbers: several times slower than what a user of a `--release` build sees,
   and slower in a way that is not a constant factor. The build mode is recorded
@@ -115,19 +150,32 @@ python3 tools/startup/startup_report.py /tmp/after.json \
   --baseline /tmp/before.json --expect same
 ```
 
-A workload is called slower only when it exceeds **both** allowances: more than
-25 ms slower *and* more than 30% slower. Two clauses, because one alone gets it
-wrong in one direction or the other. Timing noise scales with the number being
-measured, so a fixed millisecond band is far too tight on the large workload
-and far too loose on the empty one; and a ratio on a small number is mostly
-rounding, where a single scheduling hiccup on a 100 ms measurement is 40% and
-no kind of regression. `--relative-allowance` and `--absolute-allowance-ms`
-move them.
+A workload is called slower when **either clock** says so:
+
+- **it worked longer.** The wall clock exceeds *both* allowances: more than
+  25 ms slower *and* more than 30% slower. Two clauses, because one alone gets
+  it wrong in one direction or the other. Timing noise scales with the number
+  being measured, so a fixed millisecond band is far too tight on the large
+  workload and far too loose on the empty one; and a ratio on a small number is
+  mostly rounding, where a single scheduling hiccup on a 100 ms measurement is
+  40% and no kind of regression.
+- **it waited longer.** More than 16 ms of extra simulated time. One allowance
+  and no ratio, because this number is quantized to whole frames and identical
+  between machines: a few frames is the whole of the noise, and a percentage of
+  it would mean nothing.
+
+`--relative-allowance`, `--absolute-allowance-ms` and
+`--simulated-allowance-ms` move them, on the reporter and on
+`run_startup_benchmark.sh` alike.
 
 The reporter refuses outright to compare two runs that did not measure the same
 thing: a different build mode, a different window size, a different milestone,
-or a workload holding a different number of tracks. Printing a ratio across any
-of those would be inventing a result rather than measuring one.
+a workload holding a different number of tracks, or a different *set* of
+workloads. That last one matters because `LINTHRA_STARTUP_WORKLOADS` makes a
+subset easy to produce, and a run-level verdict that quietly skipped the
+workload missing from one side would pass a regression nobody measured.
+Printing a number across any of those would be inventing a result rather than
+measuring one.
 
 ## Why the runner measures three times
 
@@ -153,21 +201,27 @@ production code knows it exists, and neither does any other part of this.
 Both allowances come from that run rather than from taste. One machine, one
 sitting, five launches per workload:
 
-| comparison | empty | small | large | verdict |
-| --- | --- | --- | --- | --- |
-| control vs baseline | 0.97x | 1.06x | 1.02x | no regression |
-| canary (+250 ms a read) vs baseline | 6.47x | 2.69x | 1.10x | regression |
+| comparison | empty | small | large | awaited | verdict |
+| --- | --- | --- | --- | --- | --- |
+| control vs baseline | 0.96x | 1.01x | 1.00x | +0 ms | no regression |
+| canary (+250 ms a read) vs baseline | 6.48x | 2.65x | 0.90x | +248 ms | regression |
 
-Two identical runs stayed inside 6% of each other, and inside 131 ms even on
-the large workload; the injected delay landed at 2.7x and 6.5x. A 30% band with
-a 25 ms floor sits between the two with room on both sides. Re-measure before
-trusting it on very different hardware.
+Two identical runs landed within 1% of each other on every workload and moved
+the simulated clock not at all; the injected delay landed at 2.7x and 6.5x on
+the wall clock, and at +248 ms of simulated time on all three. A 30% band with
+a 25 ms floor sits between the two on the wall clock, and 16 ms does the same
+on the simulated one. Re-measure before trusting them on very different
+hardware.
 
-That table also shows why the run-level verdict is "**any** workload
-regressed" rather than "all of them". A fixed 250 ms delay is enormous next to
-a 117 ms empty-library startup and nearly invisible next to an 8-second one, so
-a rule that needed every workload to agree would have missed a regression the
-empty workload was shouting about.
+The `large` column is why both clocks are there. A fixed 250 ms delay is
+enormous next to a 113 ms empty-library startup and lost in the noise of a
+12-second one: that run came out at **0.90x**, faster than the baseline it was
+slowing down, and a wall clock alone would have passed it. The simulated clock
+reported the same +248 ms there as everywhere else, because it measures the
+await itself rather than what the await happened to cost in CPU.
+
+It is also why the run-level verdict is "**any** workload regressed" rather
+than "all of them": one workload seeing a change is a change.
 
 ## Budgets
 
@@ -182,15 +236,25 @@ else it is a future muted check.
 
 `.github/workflows/startup-benchmark.yml` runs the reporter's unit tests, then
 a **smoke** run of the harness: small libraries, two launches each, and a
-structure check. It times nothing and asserts no duration.
+completeness check. It times nothing and asserts no duration.
 
-That is deliberate. A GitHub runner is a shared machine of unknown load; a
-millisecond figure taken on one says more about its neighbours that minute than
-about Linthra. What CI *can* prove is that the benchmark still works: that it
-still launches the app, still reaches a usable frame on all three workloads,
-and still writes a sample set the reporter can read. A harness that has quietly
-stopped matching the Library screen fails there rather than the next time
-somebody needs it.
+It runs on every pull request, with no path filter. The harness walks `main()`,
+the app shell, the router, the Library screen, `TrackTile`, the library
+controller and providers, the Drift repository and the database, so an
+allowlist of those paths is a list that has to stay correct forever and the
+first thing it misses is the first thing that retires the check. A rename of
+`TrackTile` makes the milestone unreachable, and `flutter test` will not catch
+that either, because the harness is deliberately not a test. The job is under a
+minute.
+
+Timing nothing is deliberate. A GitHub runner is a shared machine of unknown
+load; a millisecond figure taken on one says more about its neighbours that
+minute than about Linthra. What CI *can* prove is that the benchmark still
+works: that it still launches the app, still reaches a usable frame on all
+three workloads, and still writes a sample set that is complete. `--validate`
+checks the run against its own metadata rather than merely parsing it, so a
+harness that dies after its warm-up launch, or writes one workload short,
+fails instead of printing `structure ok` over nothing.
 
 ```bash
 ./tools/startup/run_startup_benchmark.sh --smoke   # the same thing, locally
@@ -206,11 +270,11 @@ startup to first_usable_frame  (run: baseline)
   launches:         5 per workload (1 warm-up, ignored)
   network sources:  0
 
-workload      tracks     first frame   first usable      min      max   spread
-  empty            0            23.9          117.3     99.3    143.7      38%
-  small        1,000            17.0          308.4    253.4    344.0      29%
-  large       20,000            12.2         7794.1   7620.0  11507.9      50%
+workload      tracks   first frame  first usable   awaited      min      max  spread
+  empty            0          31.0         112.9         8    104.9    194.7     79%
       spread is wide: this machine was busy, so read the medians with care
+  small        1,000          16.7         344.6         8    259.8    385.2     36%
+  large       20,000          15.7       12542.4         8  10250.8  16159.2     47%
 ```
 
 - **median, not mean.** One launch that lands on a garbage collection or a
@@ -221,6 +285,10 @@ workload      tracks     first frame   first usable      min      max   spread
 - **spread** is `(max - min) / median`: how much the machine disagreed with
   itself. It is reported, never enforced. A wide spread is the report telling
   you to close what is running before believing anything else in it.
+- **awaited** is the simulated clock: 8 ms is the two extra frames a healthy
+  launch needs, and it stays at 8 ms whatever the library size, because nothing
+  in a healthy startup waits on a timer. A number that climbs here is an await
+  that was not there before.
 - **fewer than three judged launches** makes a comparison report a regression
   rather than a pass. A truncated run must never read as a clean bill of
   health.

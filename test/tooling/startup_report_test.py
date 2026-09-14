@@ -34,6 +34,7 @@ def samples(
     warmup: int = 1,
     rows: int = 13,
     first_frame_ms: float = 20.0,
+    simulated_ms: float = 8.0,
 ) -> list[dict[str, object]]:
     """Turns a list of first-usable-frame readings into recorded launches."""
     return [
@@ -42,7 +43,8 @@ def samples(
             "warmup": index < warmup,
             "first_frame_ms": first_frame_ms,
             "first_usable_frame_ms": value,
-            "frames": 3,
+            "simulated_ms": simulated_ms,
+            "frames": int(simulated_ms / 4) + 1,
             "rows_rendered": rows,
         }
         for index, value in enumerate(values_ms)
@@ -79,8 +81,9 @@ def run_payload(
         "dart_version": "3.12.2 (stable)",
         "operating_system": "linux",
         "cpu_cores": 8,
-        "iterations": 5,
+        "iterations": 4,
         "warmup": 1,
+        "pump_interval_ms": 4,
         "window": {"width": 1600.0, "height": 1000.0, "device_pixel_ratio": 1.0},
         "slow_catalog_ms": 0,
         "network_sources": 0,
@@ -168,14 +171,17 @@ class ParsingTest(unittest.TestCase):
 
 
 class WarmUpTest(unittest.TestCase):
-    def test_the_harness_s_own_flags_win(self) -> None:
-        """The harness knows how many launches it warmed up; --warmup guesses."""
-        run = startup_report.parse(run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0])))
-        stats = startup_report.summarise(run.workload("small"), warmup=0)
+    """Both filters apply: the leading count, and the harness's own flags."""
+
+    def test_a_flagged_launch_is_dropped_whatever_the_count_says(self) -> None:
+        run = startup_report.parse(
+            run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
+        )
+        stats = startup_report.summarise(run.workload("small"), 0)
         self.assertEqual(stats.count, 3)
         self.assertAlmostEqual(stats.median_ms, 300.0)
 
-    def test_unflagged_samples_fall_back_to_the_warmup_argument(self) -> None:
+    def test_the_count_drops_leading_launches_that_carry_no_flag(self) -> None:
         block = workload("small", 1000, [9000.0, 300.0, 300.0, 300.0], warmup=0)
         run = startup_report.parse(run_payload(block))
         self.assertEqual(startup_report.summarise(run.workload("small"), 0).count, 4)
@@ -277,6 +283,153 @@ class ComparisonTest(unittest.TestCase):
         )
 
 
+class SimulatedClockTest(unittest.TestCase):
+    """The clock a wall clock in a widget test cannot see.
+
+    `tester.pump(d)` advances the binding's fake clock instead of waiting, so a
+    regression that adds an awaited timer costs no measurable wall time and
+    shows up only as more trips round the pump loop. Measured on the real
+    harness: a clean launch takes 3 frames on every workload, and the canary's
+    250 ms delay takes 65, while the large workload's wall clock moved 1.10x.
+    A check watching only the stopwatch would have called that fine.
+    """
+
+    def runs(
+        self, baseline_sim: float, candidate_sim: float
+    ) -> startup_report.Comparison:
+        steady = [9000.0, 300.0, 305.0, 300.0]
+        base = startup_report.parse(
+            run_payload(
+                {
+                    **workload("small", 1000, steady),
+                    "samples": samples(steady, simulated_ms=baseline_sim),
+                }
+            )
+        )
+        cand = startup_report.parse(
+            run_payload(
+                {
+                    **workload("small", 1000, steady),
+                    "samples": samples(steady, simulated_ms=candidate_sim),
+                }
+            )
+        )
+        return startup_report.compare(base, cand)
+
+    def test_an_added_await_is_caught_with_no_extra_wall_time(self) -> None:
+        result = self.runs(8.0, 256.0)
+        self.assertAlmostEqual(result.workloads[0].delta_ms, 0.0)
+        self.assertFalse(result.workloads[0].worked_longer)
+        self.assertTrue(result.workloads[0].waited_longer)
+        self.assertTrue(result.regressed)
+
+    def test_the_same_awaited_time_is_not_a_regression(self) -> None:
+        self.assertFalse(self.runs(8.0, 8.0).regressed)
+
+    def test_a_frame_or_two_of_difference_is_noise(self) -> None:
+        self.assertFalse(self.runs(8.0, 16.0).regressed)
+
+    def test_the_allowance_is_adjustable(self) -> None:
+        steady = [9000.0, 300.0, 300.0, 300.0]
+        base = startup_report.parse(
+            run_payload(
+                {
+                    **workload("small", 1000, steady),
+                    "samples": samples(steady, simulated_ms=8.0),
+                }
+            )
+        )
+        cand = startup_report.parse(
+            run_payload(
+                {
+                    **workload("small", 1000, steady),
+                    "samples": samples(steady, simulated_ms=20.0),
+                }
+            )
+        )
+        self.assertFalse(startup_report.compare(base, cand).regressed)
+        self.assertTrue(
+            startup_report.compare(
+                base, cand, simulated_allowance_ms=4.0
+            ).regressed
+        )
+
+    def test_a_sample_set_with_no_simulated_time_is_refused(self) -> None:
+        broken = workload("small", 1000, [9000.0, 300.0, 300.0, 300.0])
+        for sample in broken["samples"]:  # type: ignore[index]
+            del sample["simulated_ms"]
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.parse(run_payload(broken))
+        self.assertIn("simulated_ms", str(raised.exception))
+
+
+class RecordedWarmUpTest(unittest.TestCase):
+    """The run's own warm-up count is the authority, including when it is 0."""
+
+    def test_a_run_that_warmed_up_nothing_keeps_its_first_launch(self) -> None:
+        block = workload("small", 1000, [300.0, 305.0, 310.0, 300.0], warmup=0)
+        run = startup_report.parse(run_payload(block, warmup=0))
+        self.assertEqual(startup_report.effective_warmup(run, None), 0)
+        self.assertEqual(
+            startup_report.summarise(run.workload("small"), 0).count, 4
+        )
+
+    def test_a_run_that_warmed_up_two_drops_two(self) -> None:
+        block = workload("small", 1000, [9000.0, 8000.0, 300.0, 305.0], warmup=2)
+        run = startup_report.parse(run_payload(block, warmup=2))
+        self.assertEqual(startup_report.effective_warmup(run, None), 2)
+        self.assertEqual(
+            startup_report.summarise(run.workload("small"), 2).count, 2
+        )
+
+    def test_an_explicit_override_still_wins(self) -> None:
+        run = startup_report.parse(run_payload(warmup=0))
+        self.assertEqual(startup_report.effective_warmup(run, 2), 2)
+
+    def test_the_two_sides_use_their_own_counts(self) -> None:
+        steady = [300.0, 300.0, 300.0, 300.0]
+        base = startup_report.parse(
+            run_payload(workload("small", 1000, steady, warmup=0), warmup=0)
+        )
+        cand = startup_report.parse(
+            run_payload(
+                workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]), warmup=1
+            )
+        )
+        result = startup_report.compare(base, cand)
+        self.assertEqual(result.workloads[0].baseline.count, 4)
+        self.assertEqual(result.workloads[0].candidate.count, 3)
+        self.assertFalse(result.regressed)
+
+
+class CompletenessTest(unittest.TestCase):
+    """What --validate is really for: proving the harness measured something."""
+
+    def test_a_complete_run_has_no_problems(self) -> None:
+        run = startup_report.parse(run_payload())
+        self.assertEqual(startup_report.completeness_problems(run, 1), [])
+
+    def test_a_truncated_workload_is_a_problem(self) -> None:
+        run = startup_report.parse(
+            run_payload(
+                workload("small", 1000, [9000.0, 300.0]),
+                iterations=4,
+            )
+        )
+        problems = startup_report.completeness_problems(run, 1)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("recorded 2 launch(es)", problems[0])
+
+    def test_a_run_of_nothing_but_warm_up_is_a_problem(self) -> None:
+        """The shape the smoke run would take if the harness died early."""
+        run = startup_report.parse(
+            run_payload(workload("small", 1000, [9000.0]), iterations=1)
+        )
+        problems = startup_report.completeness_problems(run, 1)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("nothing was actually measured", problems[0])
+
+
 class ComparabilityTest(unittest.TestCase):
     """Two runs are only each other's control when they measured the same thing."""
 
@@ -302,18 +455,43 @@ class ComparabilityTest(unittest.TestCase):
     def test_a_different_library_size_is_refused(self) -> None:
         message = self.refuses(
             workloads=[
-                {
-                    **workload("large", 50000, [4000.0] * 4),
-                }
+                workload("empty", 0, [100.0] * 4),
+                workload("small", 1000, [300.0] * 4),
+                workload("large", 50000, [4000.0] * 4),
             ]
         )
         self.assertIn("50,000", message)
 
-    def test_no_shared_workload_is_refused(self) -> None:
+    def test_a_missing_workload_is_refused(self) -> None:
+        """A run-level verdict has to cover every workload it claims to.
+
+        LINTHRA_STARTUP_WORKLOADS makes a subset easy to produce, and silently
+        skipping the one that is missing would let `--expect same` pass a
+        candidate whose large workload was never measured.
+        """
         message = self.refuses(
-            workloads=[workload("huge", 200000, [9000.0] * 4)]
+            workloads=[
+                workload("empty", 0, [100.0] * 4),
+                workload("small", 1000, [300.0] * 4),
+            ]
         )
-        self.assertIn("no workload in common", message)
+        self.assertIn("different workloads", message)
+        self.assertIn("large", message)
+
+    def test_an_extra_workload_is_refused(self) -> None:
+        message = self.refuses(
+            workloads=[
+                workload("empty", 0, [100.0] * 4),
+                workload("small", 1000, [300.0] * 4),
+                workload("large", 20000, [4000.0] * 4),
+                workload("huge", 200000, [9000.0] * 4),
+            ]
+        )
+        self.assertIn("baseline is missing huge", message)
+
+    def test_no_shared_workload_is_refused(self) -> None:
+        message = self.refuses(workloads=[workload("huge", 200000, [9000.0] * 4)])
+        self.assertIn("different workloads", message)
 
     def test_the_canary_stays_comparable_to_its_baseline(self) -> None:
         """The armed run differs on purpose, and must still be comparable."""
@@ -378,6 +556,41 @@ class CommandLineTest(unittest.TestCase):
             result = self.run_script(str(path), "--validate")
             self.assertEqual(result.returncode, 1)
             self.assertIn("no workloads", result.stderr)
+
+    def test_validate_rejects_a_truncated_workload(self) -> None:
+        """The check CI leans on: declared four launches, recorded two."""
+        payload = run_payload(
+            workload("empty", 0, [100.0] * 4),
+            workload("small", 1000, [300.0] * 4),
+            workload("large", 20000, [9000.0, 4000.0]),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", payload)
+            result = self.run_script(str(path), "--validate")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("recorded 2 launch(es)", result.stderr)
+
+    def test_validate_rejects_a_run_that_only_warmed_up(self) -> None:
+        payload = run_payload(
+            workload("small", 1000, [9000.0]),
+            iterations=1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", payload)
+            result = self.run_script(str(path), "--validate")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("nothing was actually measured", result.stderr)
+
+    def test_a_zero_warm_up_run_keeps_every_launch(self) -> None:
+        payload = run_payload(
+            workload("small", 1000, [300.0, 300.0, 300.0, 300.0], warmup=0),
+            warmup=0,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", payload)
+            result = self.run_script(str(path), "--validate")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("4 judged", result.stdout)
 
     def test_validate_rejects_a_file_that_is_not_a_sample_set(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -37,14 +37,16 @@ from pathlib import Path
 
 SCHEMA = "linthra.startup.v1"
 
-# Launches to ignore before judging, when the samples do not say.
+# Launches to ignore before judging, when the run does not say.
 #
 # The first launch in a process is not a startup measurement, it is a
 # measurement of the Dart VM compiling the widget tree it has never run before.
 # On a JIT run that first launch is routinely several times the ones after it,
-# and averaging it in would drown the thing being measured. The harness records
-# a `warmup` flag per sample; this is only the fallback for a file that has
-# none.
+# and averaging it in would drown the thing being measured.
+#
+# Every run records the count it actually used, and that is the authority: a
+# run that deliberately warmed up zero times must not have its first launch
+# discarded anyway. This is only the fallback for a file with no count at all.
 DEFAULT_WARMUP = 1
 
 # The smallest number of judged launches a comparison is willing to trust.
@@ -79,6 +81,22 @@ DEFAULT_ABSOLUTE_ALLOWANCE_MS = 25.0
 # here before it says anything misleading anywhere else.
 NOISY_SPREAD = 0.5
 
+# How much more simulated time a run may take before it counts as a regression,
+# in milliseconds.
+#
+# The second clock, and the one that catches a regression a wall clock in a
+# widget test cannot see. `tester.pump(d)` advances the binding's *fake* clock
+# rather than waiting, so time the app spends awaiting a timer or a delayed
+# future costs no wall time at all here: it shows up only as more trips round
+# the pump loop. A change that adds a 250 ms await is therefore invisible to
+# the stopwatch and unmissable here.
+#
+# The allowance is small because this clock is quantized and deterministic
+# rather than noisy: every clean launch of a given workload takes the same
+# number of frames on any machine, so anything beyond a few frames of
+# difference is an await that was not there before, not measurement noise.
+DEFAULT_SIMULATED_ALLOWANCE_MS = 16.0
+
 
 class InvalidReport(ValueError):
     """The sample file is not something this reporter can read."""
@@ -92,6 +110,7 @@ class Sample:
     warmup: bool
     first_frame_ms: float
     first_usable_frame_ms: float
+    simulated_ms: float
     frames: int
     rows_rendered: int
 
@@ -111,14 +130,15 @@ class Workload:
     def judged(self, warmup: int) -> tuple[Sample, ...]:
         """The launches a verdict may use.
 
-        The harness marks its own warm-up launches, and when it has, that is
-        the authority: it is the thing that knows how many it ran and in what
-        order. ``warmup`` is the fallback for a file that carries no flags at
-        all, which is the only case where this has to guess.
+        ``warmup`` is a *count*, normally the one the run recorded, and both
+        filters apply: the leading ``warmup`` launches are dropped, and so is
+        anything the harness marked as warm-up itself. Counting rather than
+        sniffing the flags is what makes ``LINTHRA_STARTUP_WARMUP=0`` mean
+        zero: a run that warmed up no launches writes ``warmup: false`` on all
+        of them, and reading that as "no flags, so guess" silently threw away
+        the first real measurement.
         """
-        if any(sample.warmup for sample in self.samples):
-            return tuple(s for s in self.samples if not s.warmup)
-        return self.samples[warmup:]
+        return tuple(s for s in self.samples[warmup:] if not s.warmup)
 
 
 @dataclass(frozen=True)
@@ -134,6 +154,7 @@ class Run:
     cpu_cores: int
     iterations: int
     warmup: int
+    pump_interval_ms: float
     window: tuple[float, float, float]
     slow_catalog_ms: int
     network_sources: int
@@ -155,6 +176,7 @@ class Stats:
     min_ms: float
     max_ms: float
     first_frame_median_ms: float
+    simulated_median_ms: float
 
     @property
     def spread(self) -> float:
@@ -209,12 +231,21 @@ def parse_sample(payload: dict[str, object]) -> Sample:
                 usable, first_frame
             )
         )
+    frames = int(_number(payload, "frames"))
+    simulated = payload.get("simulated_ms")
+    if simulated is None:
+        raise InvalidReport("missing 'simulated_ms'")
+    if not isinstance(simulated, (int, float)) or isinstance(simulated, bool):
+        raise InvalidReport(f"'simulated_ms' is not a number: {simulated!r}")
+    if simulated < 0:
+        raise InvalidReport("simulated time cannot be negative")
     return Sample(
         iteration=int(_number(payload, "iteration")),
         warmup=bool(payload.get("warmup", False)),
         first_frame_ms=first_frame,
         first_usable_frame_ms=usable,
-        frames=int(_number(payload, "frames")),
+        simulated_ms=float(simulated),
+        frames=frames,
         rows_rendered=int(_number(payload, "rows_rendered")),
     )
 
@@ -269,6 +300,7 @@ def parse(payload: object) -> Run:
         cpu_cores=int(_number(payload, "cpu_cores")),
         iterations=int(_number(payload, "iterations")),
         warmup=int(_number(payload, "warmup")),
+        pump_interval_ms=float(payload.get("pump_interval_ms", 0) or 0),
         window=(
             _number(window, "width"),
             _number(window, "height"),
@@ -289,13 +321,28 @@ def summarise(workload: Workload, warmup: int) -> Stats:
     judged = workload.judged(warmup)
     usable = [sample.first_usable_frame_ms for sample in judged]
     first = [sample.first_frame_ms for sample in judged]
+    simulated = [sample.simulated_ms for sample in judged]
     return Stats(
         count=len(judged),
         median_ms=median(usable),
         min_ms=min(usable) if usable else 0.0,
         max_ms=max(usable) if usable else 0.0,
         first_frame_median_ms=median(first),
+        simulated_median_ms=median(simulated),
     )
+
+
+def effective_warmup(run: Run, override: int | None) -> int:
+    """How many leading launches to drop for [run].
+
+    The run's own count wins, because it is the only thing that knows what the
+    harness actually did; ``--warmup`` is an explicit override for a reader who
+    wants to discard more, and DEFAULT_WARMUP is the last resort for a file
+    that records no count at all.
+    """
+    if override is not None:
+        return override
+    return run.warmup if run.warmup >= 0 else DEFAULT_WARMUP
 
 
 @dataclass(frozen=True)
@@ -307,6 +354,7 @@ class WorkloadComparison:
     candidate: Stats
     relative_allowance: float
     absolute_allowance_ms: float
+    simulated_allowance_ms: float
 
     @property
     def delta_ms(self) -> float:
@@ -319,20 +367,45 @@ class WorkloadComparison:
         return self.candidate.median_ms / self.baseline.median_ms
 
     @property
-    def regressed(self) -> bool:
-        """Whether this workload now reaches a usable library later.
+    def simulated_delta_ms(self) -> float:
+        return self.candidate.simulated_median_ms - self.baseline.simulated_median_ms
+
+    @property
+    def worked_longer(self) -> bool:
+        """Whether the CPU did measurably more before the library was usable.
 
         Both allowances have to be exceeded. A run that is 40% slower but only
         3 ms slower is a scheduling hiccup on a small number; one that is 200 ms
         slower but 5% slower is the large workload behaving normally.
         """
+        if self.delta_ms <= self.absolute_allowance_ms:
+            return False
+        return self.ratio > 1.0 + self.relative_allowance
+
+    @property
+    def waited_longer(self) -> bool:
+        """Whether the app spent measurably longer awaiting something.
+
+        The clock the stopwatch cannot see. One allowance and no ratio: this
+        number is quantized to whole frames and identical between machines, so
+        a few frames is the whole of the noise and a percentage of it would
+        mean nothing.
+        """
+        return self.simulated_delta_ms > self.simulated_allowance_ms
+
+    @property
+    def regressed(self) -> bool:
+        """Whether this workload now reaches a usable library later.
+
+        Either clock is enough. A regression is a regression whether the app
+        got there late because it did more work or because it waited longer,
+        and a check that only watched one of them would wave the other through.
+        """
         if not (self.baseline.trustworthy and self.candidate.trustworthy):
             # Not enough launches on one side to have an opinion. Reported as a
             # regression so a truncated run is never mistaken for a pass.
             return True
-        if self.delta_ms <= self.absolute_allowance_ms:
-            return False
-        return self.ratio > 1.0 + self.relative_allowance
+        return self.worked_longer or self.waited_longer
 
 
 @dataclass(frozen=True)
@@ -370,10 +443,23 @@ def comparability_problem(baseline: Run, candidate: Run) -> str | None:
             f"the baseline used a {baseline.window} window and this run used "
             f"{candidate.window}"
         )
-    shared = [w.name for w in candidate.workloads if baseline.workload(w.name)]
-    if not shared:
-        return "the two runs have no workload in common"
-    for name in shared:
+    mine_names = {w.name for w in candidate.workloads}
+    their_names = {w.name for w in baseline.workloads}
+    if mine_names != their_names:
+        # Not "enough in common to say something": a run-level verdict covers
+        # every workload, so one that is missing from either side is a workload
+        # nobody checked, and LINTHRA_STARTUP_WORKLOADS makes producing such a
+        # subset easy. An `--expect same` that quietly skipped the large
+        # workload would pass a regression that only the large workload shows.
+        missing = sorted(their_names - mine_names)
+        extra = sorted(mine_names - their_names)
+        parts = []
+        if missing:
+            parts.append(f"this run is missing {', '.join(missing)}")
+        if extra:
+            parts.append(f"the baseline is missing {', '.join(extra)}")
+        return "the two runs measured different workloads: " + "; ".join(parts)
+    for name in sorted(mine_names):
         mine = candidate.workload(name)
         theirs = baseline.workload(name)
         assert mine is not None and theirs is not None
@@ -389,13 +475,18 @@ def compare(
     baseline: Run,
     candidate: Run,
     *,
-    warmup: int,
+    warmup: int | None = None,
     relative_allowance: float = DEFAULT_RELATIVE_ALLOWANCE,
     absolute_allowance_ms: float = DEFAULT_ABSOLUTE_ALLOWANCE_MS,
+    simulated_allowance_ms: float = DEFAULT_SIMULATED_ALLOWANCE_MS,
 ) -> Comparison:
     problem = comparability_problem(baseline, candidate)
     if problem is not None:
         raise InvalidReport(f"these runs are not comparable: {problem}")
+    # Each side is warmed up by its own recorded count, because the two runs
+    # are allowed to have used different ones.
+    base_warmup = effective_warmup(baseline, warmup)
+    cand_warmup = effective_warmup(candidate, warmup)
     entries: list[WorkloadComparison] = []
     for workload in candidate.workloads:
         other = baseline.workload(workload.name)
@@ -404,13 +495,38 @@ def compare(
         entries.append(
             WorkloadComparison(
                 name=workload.name,
-                baseline=summarise(other, warmup),
-                candidate=summarise(workload, warmup),
+                baseline=summarise(other, base_warmup),
+                candidate=summarise(workload, cand_warmup),
                 relative_allowance=relative_allowance,
                 absolute_allowance_ms=absolute_allowance_ms,
+                simulated_allowance_ms=simulated_allowance_ms,
             )
         )
     return Comparison(baseline=baseline, candidate=candidate, workloads=tuple(entries))
+
+
+def completeness_problems(run: Run, warmup: int) -> list[str]:
+    """Ways the sample set is not the one the run says it is.
+
+    This is what CI actually enforces, so "well-formed" is not enough: a
+    harness that dies after its warm-up launch, or that writes one workload
+    short, still produces a file every field of which parses. The run's own
+    metadata is the thing to hold it to.
+    """
+    problems: list[str] = []
+    for workload in run.workloads:
+        recorded = len(workload.samples)
+        if recorded != run.iterations:
+            problems.append(
+                f"workload {workload.name!r} recorded {recorded} launch(es) "
+                f"but the run declares {run.iterations}"
+            )
+        if len(workload.judged(warmup)) < 1:
+            problems.append(
+                f"workload {workload.name!r} has no launch left after "
+                f"{warmup} warm-up(s): nothing was actually measured"
+            )
+    return problems
 
 
 def render(run: Run, warmup: int) -> str:
@@ -431,16 +547,18 @@ def render(run: Run, warmup: int) -> str:
         )
     lines.append("")
     lines.append(
-        "workload      tracks     first frame   first usable      min      max   spread"
+        "workload      tracks   first frame  first usable   awaited"
+        "      min      max  spread"
     )
     for workload in run.workloads:
         stats = summarise(workload, warmup)
         lines.append(
             f"  {workload.name:<11}{workload.tracks:>7,}"
-            f"{stats.first_frame_median_ms:>16.1f}"
-            f"{stats.median_ms:>15.1f}"
+            f"{stats.first_frame_median_ms:>14.1f}"
+            f"{stats.median_ms:>14.1f}"
+            f"{stats.simulated_median_ms:>10.0f}"
             f"{stats.min_ms:>9.1f}{stats.max_ms:>9.1f}"
-            f"{stats.spread:>9.0%}"
+            f"{stats.spread:>8.0%}"
         )
         if not stats.trustworthy:
             lines.append(
@@ -454,6 +572,10 @@ def render(run: Run, warmup: int) -> str:
             )
     lines.append("")
     lines.append("  all times in milliseconds, median of the judged launches")
+    lines.append("  'awaited' is simulated time: what the app spent waiting on timers")
+    lines.append(
+        "  rather than working, which a wall clock in a widget test cannot see"
+    )
     lines.append("  generating a library is setup, not startup, and is in none of the")
     lines.append(
         "  numbers above: "
@@ -466,23 +588,38 @@ def render_comparison(comparison: Comparison) -> str:
     lines = [
         "",
         f"against the baseline ({comparison.baseline.label})",
-        "workload       baseline       this run        delta    ratio  verdict",
+        "workload      baseline      this run       delta   ratio   awaited  verdict",
     ]
     for entry in comparison.workloads:
+        if entry.worked_longer and entry.waited_longer:
+            verdict = "SLOWER (work + wait)"
+        elif entry.worked_longer:
+            verdict = "SLOWER (more work)"
+        elif entry.waited_longer:
+            verdict = "SLOWER (waits longer)"
+        elif entry.regressed:
+            verdict = "TOO FEW LAUNCHES"
+        else:
+            verdict = "ok"
         lines.append(
-            f"  {entry.name:<11}{entry.baseline.median_ms:>13.1f}"
-            f"{entry.candidate.median_ms:>15.1f}"
-            f"{entry.delta_ms:>+13.1f}"
-            f"{entry.ratio:>9.2f}x"
-            f"  {'SLOWER' if entry.regressed else 'ok'}"
+            f"  {entry.name:<11}{entry.baseline.median_ms:>11.1f}"
+            f"{entry.candidate.median_ms:>14.1f}"
+            f"{entry.delta_ms:>+12.1f}"
+            f"{entry.ratio:>8.2f}x"
+            f"{entry.simulated_delta_ms:>+10.0f}"
+            f"  {verdict}"
         )
     lines.append("")
     if comparison.workloads:
         first = comparison.workloads[0]
         lines.append(
-            "  allowance: slower by more than "
+            "  allowance: work, slower by more than "
             f"{first.absolute_allowance_ms:.0f} ms *and* by more than "
             f"{first.relative_allowance:.0%}"
+        )
+        lines.append(
+            "             wait, more than "
+            f"{first.simulated_allowance_ms:.0f} ms of extra simulated time"
         )
     else:
         lines.append("  the two runs share no workload")
@@ -496,6 +633,7 @@ def render_validation(run: Run, warmup: int) -> str:
     lines = [
         f"structure ok: {SCHEMA}",
         f"  run:        {run.label} ({run.build_mode}, {run.milestone})",
+        f"  declared:   {run.iterations} launch(es) per workload, {run.warmup} warm-up",
         f"  workloads:  {', '.join(w.name for w in run.workloads)}",
     ]
     for workload in run.workloads:
@@ -555,11 +693,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--warmup",
         type=int,
-        default=DEFAULT_WARMUP,
+        default=None,
         help=(
-            "leading launches to ignore. Only consulted when the samples carry "
-            "no warm-up flags of their own; when they do, the harness's own "
-            "marking wins"
+            "leading launches to ignore, overriding the count the run recorded "
+            "for itself. Leave it alone unless you want to discard more than "
+            "the harness did"
         ),
     )
     parser.add_argument(
@@ -573,6 +711,16 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=DEFAULT_ABSOLUTE_ALLOWANCE_MS,
         help="milliseconds a run may be slower before the ratio is consulted",
+    )
+    parser.add_argument(
+        "--simulated-allowance-ms",
+        type=float,
+        default=DEFAULT_SIMULATED_ALLOWANCE_MS,
+        help=(
+            "extra simulated (awaited) time that is still noise. This is the "
+            "clock that sees an added timer, which a wall clock in a widget "
+            "test cannot"
+        ),
     )
     parser.add_argument(
         "--budget",
@@ -602,7 +750,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.warmup < 0:
+    if args.warmup is not None and args.warmup < 0:
         parser.error("--warmup must not be negative")
     if args.expect is not None and args.baseline is None:
         parser.error(f"--expect {args.expect} needs --baseline")
@@ -613,11 +761,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {args.samples}: {error}", file=sys.stderr)
         return 1
 
+    warmup = effective_warmup(run, args.warmup)
+
     if args.validate:
-        print(render_validation(run, args.warmup))
+        problems = completeness_problems(run, warmup)
+        if problems:
+            for problem in problems:
+                print(f"ERROR: {args.samples}: {problem}", file=sys.stderr)
+            return 1
+        print(render_validation(run, warmup))
         return 0
 
-    print(render(run, args.warmup))
+    print(render(run, warmup))
 
     comparison: Comparison | None = None
     if args.baseline is not None:
@@ -629,13 +784,14 @@ def main(argv: list[str] | None = None) -> int:
                 warmup=args.warmup,
                 relative_allowance=args.relative_allowance,
                 absolute_allowance_ms=args.absolute_allowance_ms,
+                simulated_allowance_ms=args.simulated_allowance_ms,
             )
         except InvalidReport as error:
             print(f"ERROR: {error}", file=sys.stderr)
             return 1
         print(render_comparison(comparison))
 
-    failures = check_budgets(run, args.budget, args.warmup)
+    failures = check_budgets(run, args.budget, warmup)
     for failure in failures:
         print(f"\nERROR: {failure}", file=sys.stderr)
 
