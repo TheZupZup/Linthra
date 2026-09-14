@@ -500,6 +500,105 @@ class ComparabilityTest(unittest.TestCase):
         self.assertIsNone(startup_report.comparability_problem(base, cand))
 
 
+class PumpIntervalTest(unittest.TestCase):
+    """The awaited clock's unit is part of what makes two runs comparable."""
+
+    def test_a_different_pump_interval_is_refused(self) -> None:
+        base = startup_report.parse(run_payload())
+        cand = startup_report.parse(run_payload(pump_interval_ms=16))
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.compare(base, cand)
+        self.assertIn("ms a frame", str(raised.exception))
+
+    def test_the_same_interval_compares(self) -> None:
+        base = startup_report.parse(run_payload())
+        cand = startup_report.parse(run_payload())
+        self.assertIsNone(startup_report.comparability_problem(base, cand))
+
+
+class RequiredWorkloadsTest(unittest.TestCase):
+    """--validate can only speak for what is in the file unless told what to expect."""
+
+    def test_a_complete_run_is_missing_nothing(self) -> None:
+        run = startup_report.parse(run_payload())
+        self.assertEqual(
+            startup_report.missing_workloads(run, ["empty", "small", "large"]), []
+        )
+
+    def test_a_subset_names_what_is_absent(self) -> None:
+        run = startup_report.parse(
+            run_payload(
+                workload("empty", 0, [100.0] * 4),
+                workload("small", 1000, [300.0] * 4),
+            )
+        )
+        self.assertEqual(
+            startup_report.missing_workloads(run, ["empty", "small", "large"]),
+            ["large"],
+        )
+
+
+class CanaryScopeTest(unittest.TestCase):
+    """The canary delays every read, so every workload has to see it.
+
+    An `any()` policy would pass a canary that still fires on `empty` and has
+    stopped firing on the other two, which is two thirds of the check silently
+    retiring.
+    """
+
+    def comparison_of(
+        self, candidate_ms: dict[str, list[float]]
+    ) -> startup_report.Comparison:
+        steady = {
+            "empty": [9000.0, 100.0, 100.0, 100.0],
+            "small": [9000.0, 300.0, 300.0, 300.0],
+            "large": [9000.0, 4000.0, 4000.0, 4000.0],
+        }
+        tracks = {"empty": 0, "small": 1000, "large": 20000}
+        base = startup_report.parse(
+            run_payload(*(workload(n, tracks[n], v) for n, v in steady.items()))
+        )
+        cand = startup_report.parse(
+            run_payload(
+                *(workload(n, tracks[n], candidate_ms[n]) for n in steady)
+            )
+        )
+        return startup_report.compare(base, cand)
+
+    def test_every_workload_slower_satisfies_both(self) -> None:
+        result = self.comparison_of(
+            {
+                "empty": [9000.0, 700.0, 700.0, 700.0],
+                "small": [9000.0, 900.0, 900.0, 900.0],
+                "large": [9000.0, 9000.0, 9000.0, 9000.0],
+            }
+        )
+        self.assertTrue(result.regressed)
+        self.assertTrue(result.regressed_everywhere)
+
+    def test_one_workload_slower_is_not_everywhere(self) -> None:
+        result = self.comparison_of(
+            {
+                "empty": [9000.0, 700.0, 700.0, 700.0],
+                "small": [9000.0, 300.0, 300.0, 300.0],
+                "large": [9000.0, 4000.0, 4000.0, 4000.0],
+            }
+        )
+        self.assertTrue(result.regressed)
+        self.assertFalse(result.regressed_everywhere)
+
+    def test_nothing_slower_is_neither(self) -> None:
+        result = self.comparison_of(
+            {
+                "empty": [9000.0, 100.0, 100.0, 100.0],
+                "small": [9000.0, 300.0, 300.0, 300.0],
+                "large": [9000.0, 4000.0, 4000.0, 4000.0],
+            }
+        )
+        self.assertFalse(result.regressed)
+        self.assertFalse(result.regressed_everywhere)
+
+
 class BudgetTest(unittest.TestCase):
     def test_a_run_inside_its_budget_reports_nothing(self) -> None:
         run = startup_report.parse(run_payload())
@@ -656,6 +755,87 @@ class CommandLineTest(unittest.TestCase):
             result = self.run_script(str(other), "--baseline", str(base))
             self.assertEqual(result.returncode, 1)
             self.assertIn("not comparable", result.stderr)
+
+    def test_validate_rejects_a_run_missing_a_required_workload(self) -> None:
+        payload = run_payload(
+            workload("empty", 0, [100.0] * 4),
+            workload("small", 1000, [300.0] * 4),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", payload)
+            result = self.run_script(
+                str(path), "--validate", "--require-workloads", "empty,small,large"
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("required workload 'large'", result.stderr)
+
+    def test_require_workloads_needs_validate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", run_payload())
+            result = self.run_script(str(path), "--require-workloads", "empty")
+            self.assertEqual(result.returncode, 2)
+
+    def test_expect_regressed_everywhere_needs_every_workload(self) -> None:
+        """What the canary is held to."""
+        one_slow = run_payload(
+            workload("empty", 0, [9000.0, 700.0, 700.0, 700.0]),
+            workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]),
+            workload("large", 20000, [9000.0, 4000.0, 4000.0, 4000.0]),
+        )
+        all_slow = run_payload(
+            workload("empty", 0, [9000.0, 700.0, 700.0, 700.0]),
+            workload("small", 1000, [9000.0, 900.0, 900.0, 900.0]),
+            workload("large", 20000, [9000.0, 9000.0, 9000.0, 9000.0]),
+        )
+        base = run_payload(
+            workload("empty", 0, [9000.0, 100.0, 100.0, 100.0]),
+            workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]),
+            workload("large", 20000, [9000.0, 4000.0, 4000.0, 4000.0]),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            b = self.write(Path(directory) / "base.json", base)
+            one = self.write(Path(directory) / "one.json", one_slow)
+            every = self.write(Path(directory) / "every.json", all_slow)
+            # The ordinary policy is happy with one, the canary's is not.
+            self.assertEqual(
+                self.run_script(
+                    str(one), "--baseline", str(b), "--expect", "regressed"
+                ).returncode,
+                0,
+            )
+            partial = self.run_script(
+                str(one), "--baseline", str(b), "--expect", "regressed-everywhere"
+            )
+            self.assertEqual(partial.returncode, 1)
+            self.assertIn("regressed somewhere: empty", partial.stderr)
+            self.assertEqual(
+                self.run_script(
+                    str(every),
+                    "--baseline",
+                    str(b),
+                    "--expect",
+                    "regressed-everywhere",
+                ).returncode,
+                0,
+            )
+
+    def test_comparing_across_pump_intervals_fails_loudly(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = self.write(Path(directory) / "base.json", run_payload())
+            other = self.write(
+                Path(directory) / "coarse.json", run_payload(pump_interval_ms=16)
+            )
+            result = self.run_script(str(other), "--baseline", str(base))
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("not comparable", result.stderr)
+
+    def test_it_reports_the_minimum_a_comparison_needs(self) -> None:
+        """The runner asks for this instead of hardcoding it."""
+        result = self.run_script("--minimum-samples")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            int(result.stdout.strip()), startup_report.MINIMUM_SAMPLES
+        )
 
     def test_a_budget_miss_fails_the_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -11,7 +11,11 @@ That is the whole command. It runs the benchmark three times (a baseline, an
 identical control, and one with a deliberate slowdown injected) and tells you
 whether the comparison between them behaved. Five to ten minutes depending on
 the machine; `--iterations`, `--small-tracks` and `--large-tracks` make it
-smaller.
+smaller. `--iterations` has a floor: a comparison ignores the warm-up launch
+and will not judge fewer than three, so too small a number would make the
+control fail however identical the timings are. The runner asks the reporter
+what that minimum is and refuses before running anything rather than after
+three scenarios.
 
 Nothing here needs a Jellyfin, Plex or Navidrome server, a network, or a music
 collection. The libraries are generated locally into real SQLite catalogs, and
@@ -170,8 +174,9 @@ A workload is called slower when **either clock** says so:
 
 The reporter refuses outright to compare two runs that did not measure the same
 thing: a different build mode, a different window size, a different milestone,
-a workload holding a different number of tracks, or a different *set* of
-workloads. That last one matters because `LINTHRA_STARTUP_WORKLOADS` makes a
+a different pump interval (which is the unit `awaited` is counted in, so
+changing it rescales that whole column), a workload holding a different number
+of tracks, or a different *set* of workloads. That last one matters because `LINTHRA_STARTUP_WORKLOADS` makes a
 subset easy to produce, and a run-level verdict that quietly skipped the
 workload missing from one side would pass a regression nobody measured.
 Printing a number across any of those would be inventing a result rather than
@@ -186,14 +191,20 @@ both ways of being wrong are part of the run:
   runs that disagree mean this machine is too noisy today, and any red result
   from the canary below would prove nothing. This is the false-positive
   control.
-- **canary against baseline** must come back `REGRESSION`. The canary run sets
-  `LINTHRA_STARTUP_SLOW_CATALOG_MS=250`, which wraps the real repository so
-  every catalog read takes a quarter second longer. A slow catalog read is the
-  most likely real startup regression there is. A check that only ever says
-  "fine" is
-  indistinguishable from one that has quietly stopped measuring, and handing it
-  something it *must* catch is the only way to tell those apart. This is the
-  false-negative control.
+- **canary against baseline** must come back `REGRESSION` **on every
+  workload**. The canary run sets `LINTHRA_STARTUP_SLOW_CATALOG_MS=250`, which
+  wraps the real repository so every catalog read takes a quarter second
+  longer. A slow catalog read is the most likely real startup regression there
+  is. A check that only ever says "fine" is indistinguishable from one that has
+  quietly stopped measuring, and handing it something it *must* catch is the
+  only way to tell those apart. This is the false-negative control.
+
+  Every workload, not just one, and this is the one place the ordinary
+  any-workload policy is not enough: the delay goes into *every* read, so a
+  canary that still fires on `empty` and no longer fires on `large` has shown
+  that two thirds of the check stopped working, and `any()` would print "both
+  controls passed" over it. `--expect regressed-everywhere` is what the runner
+  holds it to.
 
 The slowdown is injected through a provider override from the test side. No
 production code knows it exists, and neither does any other part of this.
@@ -253,8 +264,10 @@ minute than about Linthra. What CI *can* prove is that the benchmark still
 works: that it still launches the app, still reaches a usable frame on all
 three workloads, and still writes a sample set that is complete. `--validate`
 checks the run against its own metadata rather than merely parsing it, so a
-harness that dies after its warm-up launch, or writes one workload short,
-fails instead of printing `structure ok` over nothing.
+harness that dies after its warm-up launch fails instead of printing
+`structure ok` over nothing, and `--require-workloads empty,small,large` makes
+the smoke assert the set rather than vouching only for whichever workloads the
+file happens to contain.
 
 ```bash
 ./tools/startup/run_startup_benchmark.sh --smoke   # the same thing, locally

@@ -89,6 +89,11 @@ fi
 BENCH="test/benchmarks/startup_time_bench.dart"
 REPORT="$SCRIPT_DIR/startup_report.py"
 
+# The workloads a run has to contain. The point of the whole exercise is that
+# all three library sizes still start, so a run that quietly measured two of
+# them is not a pass however well-formed it is.
+REQUIRED_WORKLOADS="empty,small,large"
+
 # Resolved against the *caller's* directory, before the cd below changes what a
 # relative path means. Without this, `--out out/` from outside the repository
 # created the directory beside the caller and then wrote to `<repo>/out/`,
@@ -105,6 +110,19 @@ if [ "$SMOKE" -eq 1 ]; then
   ITERATIONS=2
   SMALL_TRACKS=200
   LARGE_TRACKS=2000
+else
+  # A comparison ignores the harness's warm-up launch and refuses to judge
+  # fewer than the reporter's minimum, so too small an --iterations makes the
+  # control come back "regressed" however identical the timings are, and the
+  # run can never pass. Asked of the reporter rather than hardcoded, so the
+  # number lives in one place.
+  MINIMUM_SAMPLES="$(python3 "$REPORT" --minimum-samples)" \
+    || die "cannot ask $REPORT for its minimum sample count"
+  HARNESS_WARMUP=1
+  MINIMUM_ITERATIONS=$((MINIMUM_SAMPLES + HARNESS_WARMUP))
+  if [ "$ITERATIONS" -lt "$MINIMUM_ITERATIONS" ]; then
+    die "--iterations $ITERATIONS leaves $((ITERATIONS - HARNESS_WARMUP)) judged launch(es) after the warm-up, and a comparison needs $MINIMUM_SAMPLES. Use --iterations $MINIMUM_ITERATIONS or more."
+  fi
 fi
 
 run_scenario() {
@@ -132,7 +150,8 @@ run_scenario() {
 if [ "$SMOKE" -eq 1 ]; then
   run_scenario smoke 0
   info "checking the sample set is complete and well-formed"
-  python3 "$REPORT" "$OUT_DIR/smoke.json" --validate || exit 1
+  python3 "$REPORT" "$OUT_DIR/smoke.json" --validate \
+    --require-workloads "$REQUIRED_WORKLOADS" || exit 1
   printf '\nSmoke run ok: %s\n' "$OUT_DIR/smoke.json"
   exit 0
 fi
@@ -155,12 +174,17 @@ python3 "$REPORT" "$OUT_DIR/control.json" \
   status=1
 }
 
-info "canary against baseline (expect REGRESSION)"
+# Every workload, not just one. The canary delays *every* catalog read, so a
+# run where it still fires on `empty` and has stopped firing on `large` has
+# shown that two thirds of the check no longer detects the delay, and the
+# ordinary any-workload policy would print "both controls passed" over it.
+info "canary against baseline (expect REGRESSION on every workload)"
 python3 "$REPORT" "$OUT_DIR/canary.json" \
-  --baseline "$OUT_DIR/baseline.json" "${ALLOWANCES[@]}" --expect regressed || {
-  printf '\nA deliberate %s ms delay in every catalog read was NOT detected.\n' "$CANARY_MS"
-  printf 'The check is not measuring what it thinks it is; do not trust a\n'
-  printf 'clean result until this passes.\n'
+  --baseline "$OUT_DIR/baseline.json" "${ALLOWANCES[@]}" \
+  --expect regressed-everywhere || {
+  printf '\nA deliberate %s ms delay in every catalog read was NOT detected on\n' "$CANARY_MS"
+  printf 'every workload. The check is not measuring what it thinks it is; do\n'
+  printf 'not trust a clean result until this passes.\n'
   status=1
 }
 

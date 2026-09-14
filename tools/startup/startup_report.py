@@ -418,6 +418,17 @@ class Comparison:
     def regressed(self) -> bool:
         return any(entry.regressed for entry in self.workloads)
 
+    @property
+    def regressed_everywhere(self) -> bool:
+        """Whether *every* workload got slower.
+
+        What the canary has to satisfy. It delays every catalog read, so every
+        workload must see it; a canary that only still fires on `empty` has
+        proved that the check stopped detecting the delay on the other two,
+        and `any()` would call that a pass.
+        """
+        return bool(self.workloads) and all(entry.regressed for entry in self.workloads)
+
 
 def comparability_problem(baseline: Run, candidate: Run) -> str | None:
     """Why these two runs cannot be compared, or None when they can.
@@ -442,6 +453,16 @@ def comparability_problem(baseline: Run, candidate: Run) -> str | None:
         return (
             f"the baseline used a {baseline.window} window and this run used "
             f"{candidate.window}"
+        )
+    if baseline.pump_interval_ms != candidate.pump_interval_ms:
+        # `simulated_ms` is frames times this interval, so changing it rescales
+        # the whole awaited clock: an unchanged three-frame startup reads 8 ms
+        # at 4 ms a pump and 32 ms at 16, which clears the default allowance
+        # and invents a regression. The reverse hides a real one.
+        return (
+            f"the baseline pumped {baseline.pump_interval_ms:g} ms a frame and "
+            f"this run pumped {candidate.pump_interval_ms:g} ms, so their "
+            "awaited times are not the same unit"
         )
     mine_names = {w.name for w in candidate.workloads}
     their_names = {w.name for w in baseline.workloads}
@@ -503,6 +524,18 @@ def compare(
             )
         )
     return Comparison(baseline=baseline, candidate=candidate, workloads=tuple(entries))
+
+
+def missing_workloads(run: Run, required: list[str]) -> list[str]:
+    """Which of [required] this run does not contain.
+
+    `--validate` on its own can only check what is in the file, and
+    `LINTHRA_STARTUP_WORKLOADS` makes a subset easy to produce, so "every
+    workload present is well-formed" is not the same claim as "all three paths
+    still work". The caller that cares about the second says which it wants.
+    """
+    present = {workload.name for workload in run.workloads}
+    return [name for name in required if name not in present]
 
 
 def completeness_problems(run: Run, warmup: int) -> list[str]:
@@ -681,7 +714,11 @@ def check_budgets(run: Run, budgets: list[tuple[str, float]], warmup: int) -> li
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("samples", type=Path, help="JSON written by the harness")
+    # Optional only so `--minimum-samples` can answer without a file; every
+    # other path still requires it, checked below.
+    parser.add_argument(
+        "samples", type=Path, nargs="?", help="JSON written by the harness"
+    )
     parser.add_argument(
         "--baseline",
         type=Path,
@@ -736,8 +773,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--expect",
-        choices=("same", "regressed"),
-        help="fail unless the comparison says this. Needs --baseline",
+        choices=("same", "regressed", "regressed-everywhere"),
+        help=(
+            "fail unless the comparison says this. Needs --baseline. "
+            "'regressed' is the ordinary run-level policy (any workload); "
+            "'regressed-everywhere' is what the canary needs, because a "
+            "delay injected into every read must be seen on every workload"
+        ),
+    )
+    parser.add_argument(
+        "--require-workloads",
+        metavar="NAMES",
+        help=(
+            "comma-separated workload names that must be present, checked "
+            "with --validate. Without it, validation can only speak for the "
+            "workloads the file happens to contain"
+        ),
+    )
+    parser.add_argument(
+        "--minimum-samples",
+        action="store_true",
+        help=(
+            "print the fewest judged launches a comparison will trust, and "
+            "exit. Lets a caller size its run without hardcoding the number"
+        ),
     )
     parser.add_argument(
         "--validate",
@@ -750,10 +809,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.minimum_samples:
+        print(MINIMUM_SAMPLES)
+        return 0
+    if args.samples is None:
+        parser.error("the samples file is required")
     if args.warmup is not None and args.warmup < 0:
         parser.error("--warmup must not be negative")
     if args.expect is not None and args.baseline is None:
         parser.error(f"--expect {args.expect} needs --baseline")
+    if args.require_workloads and not args.validate:
+        parser.error("--require-workloads only applies with --validate")
 
     try:
         run = load(args.samples)
@@ -764,7 +830,16 @@ def main(argv: list[str] | None = None) -> int:
     warmup = effective_warmup(run, args.warmup)
 
     if args.validate:
-        problems = completeness_problems(run, warmup)
+        required = [
+            name.strip()
+            for name in (args.require_workloads or "").split(",")
+            if name.strip()
+        ]
+        problems = [
+            f"required workload {name!r} is not in this run"
+            for name in missing_workloads(run, required)
+        ]
+        problems += completeness_problems(run, warmup)
         if problems:
             for problem in problems:
                 print(f"ERROR: {args.samples}: {problem}", file=sys.stderr)
@@ -797,8 +872,24 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.expect is not None:
         assert comparison is not None
-        actual = "regressed" if comparison.regressed else "same"
-        if actual != args.expect:
+        if args.expect == "regressed-everywhere":
+            met = comparison.regressed_everywhere
+            actual = (
+                "regressed everywhere"
+                if met
+                else (
+                    "regressed somewhere: "
+                    + ", ".join(
+                        entry.name for entry in comparison.workloads if entry.regressed
+                    )
+                    if comparison.regressed
+                    else "same"
+                )
+            )
+        else:
+            met = ("regressed" if comparison.regressed else "same") == args.expect
+            actual = "regressed" if comparison.regressed else "same"
+        if not met:
             print(
                 f"\nERROR: expected {args.expect}, got {actual}",
                 file=sys.stderr,
