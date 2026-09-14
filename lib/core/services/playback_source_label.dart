@@ -39,10 +39,15 @@ abstract final class PlaybackSourceLabel {
     }
   }
 
-  /// The safe name of the server that owns [trackUri], for a live stream.
-  static String _serverName(String? trackUri) {
-    if (trackUri == null) return unknown;
-    switch (MusicProviders.forTrackUri(trackUri).sourceId) {
+  /// The safe display name for a provider's [sourceId] (`MusicProvider.
+  /// sourceId`), without a track to go through.
+  ///
+  /// Same vocabulary as [of], exposed for the surfaces that talk about a
+  /// *source* rather than about the audio currently playing — the desktop
+  /// sidebar's status indicators above all. Sharing the switch is the point:
+  /// a sidebar and a now-playing line must never call one server by two names.
+  static String forSourceId(String sourceId) {
+    switch (sourceId) {
       case 'jellyfin':
         return jellyfin;
       case 'subsonic':
@@ -50,12 +55,19 @@ abstract final class PlaybackSourceLabel {
       case 'plex':
         return plex;
       case 'local':
-        // An on-device file should resolve as localFile, not streamingDirect;
-        // reaching here means an unexpected pairing, so stay vague but safe.
         return local;
       default:
         return unknown;
     }
+  }
+
+  /// The safe name of the server that owns [trackUri], for a live stream.
+  static String _serverName(String? trackUri) {
+    if (trackUri == null) return unknown;
+    final String sourceId = MusicProviders.forTrackUri(trackUri).sourceId;
+    // An on-device file should resolve as localFile, not streamingDirect;
+    // reaching here means an unexpected pairing, so stay vague but safe.
+    return forSourceId(sourceId);
   }
 
   /// "Playing from X" — the full phrase the indicator shows.

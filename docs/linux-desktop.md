@@ -792,6 +792,59 @@ Both breakpoints in the app agree by construction: the shell swaps its bottom
 bar for the navigation rail at 900 px of window, and a feature screen inside it
 only reaches `expanded` once the space left over is 1000 px wide.
 
+### Source status in the sidebar
+
+Under the rail's destinations, each **configured** self-hosted source (Jellyfin,
+Navidrome/Subsonic, Plex) carries a small indicator: a glyph, the server's safe
+name, and a tooltip. It answers the question the rail could not — *is my music
+actually going to play?* — without a trip to Settings.
+
+Four states, sharing their words and their glyphs with the library row's
+`TrackStatusGlyph` so a row and the sidebar can never tell you different
+stories about one server:
+
+| State | Reads as | Tone |
+| --- | --- | --- |
+| `available` | "Jellyfin connected" | muted — a working server is not news |
+| `checking` | "Checking Jellyfin" | muted |
+| `unreachable` | "Jellyfin unavailable" | error colour |
+| `authenticationError` | "Jellyfin sign-in needed" | error colour |
+
+Activating a row opens the existing **Connections** screen (`go`, not `push`, so
+the rail is not left highlighting Library while a Settings page is on screen).
+
+What makes it safe to have on screen all the time:
+
+* **Derived, never probed.** Everything comes from
+  `configuredSourceStatusesProvider`, which reads the availability the probe
+  controllers already publish and the sessions the settings controllers already
+  hold. No row owns a timer, a client or a request, so a second row costs
+  nothing again. Rendering the strip issues no network call — there is a test
+  that counts.
+* **No flicker.** The probe controllers publish `checking` only when nothing is
+  known yet (a cold start, a fresh sign-in) and never on an ordinary re-probe,
+  which writes its settled answer directly. A server that is merely being polled
+  stays "connected" instead of blinking through a spinner every 45 seconds.
+* **Isolated.** Each row resolves from its own source's state alone, so Jellyfin
+  going away cannot mark Plex offline.
+* **Quiet when healthy.** Nothing configured means no strip at all, and a
+  healthy source sits in the same muted tone as the rest of the rail's chrome.
+  Only a source that needs you takes the error colour.
+* **Secret-free.** The only source-identifying text that reaches the widget is
+  the fixed name from `PlaybackSourceLabel` ("Jellyfin", "Navidrome", "Plex").
+  There is no field a server URL, hostname, username, token or raw exception
+  string could travel in.
+* **Desktop chrome.** It lives in the rail, so a phone never grows one and a
+  Linux window narrowed below 900 px loses it with the rail.
+
+A source that publishes no availability of its own yet (Navidrome and Plex
+today) falls back to "configured, and therefore assumed reachable" — what the
+rest of the app already assumes about it. When one adopts the probe the way
+Jellyfin did, its indicator becomes real with no change to the sidebar.
+
+Where the deeper connection-management view goes is #427; this is only the
+indicator and the route to what already exists.
+
 ### Pointer, not width
 
 Three things adapt on the **input** rather than on the window, because that is
