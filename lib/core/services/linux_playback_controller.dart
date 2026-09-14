@@ -304,19 +304,27 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
     return super.retryCurrentTrack();
   }
 
-  /// Classifies a load failure that is really the native runtime's.
+  /// Classifies an engine error that is really the native runtime's.
   ///
   /// Deliberately narrow. A libmpv that loads but is the wrong one fails at
   /// the first symbol rather than at registration, and that is worth saying
   /// plainly. Everything else, a codec libmpv was not built with, a server
   /// that stopped answering, a provider's expired session, is not recognised
   /// here and keeps the classification the shared controller already gives it.
+  ///
+  /// This is the single entry point for both ways such an error can arrive,
+  /// a failed load and an error raised mid-playback, so the two cannot drift
+  /// into disagreeing about the same message.
+  @override
+  @protected
+  PlaybackResolutionException? engineUnavailableFrom(Object error) =>
+      _backend?.classifyEngineFailure(error)?.asResolutionException();
+
   @override
   @protected
   PlaybackResolutionException loadFailureFor(
     Object error,
     PlaybackSource source,
   ) =>
-      _backend?.classifyEngineFailure(error)?.asResolutionException() ??
-      super.loadFailureFor(error, source);
+      engineUnavailableFrom(error) ?? super.loadFailureFor(error, source);
 }

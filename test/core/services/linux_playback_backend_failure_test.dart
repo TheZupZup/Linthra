@@ -601,6 +601,44 @@ void main() {
     });
   });
 
+  group('a runtime failure raised mid-playback', () {
+    test('reads as an engine problem, not as a dropped stream', () async {
+      final parts = build(workingBackend());
+      await parts.controller.playTrack(_track('a'));
+      expect(parts.controller.state.status, PlaybackStatus.playing);
+      final int resolvesSoFar = parts.resolver.calls;
+
+      // The engine goes wrong while the track is playing. A bounded reconnect
+      // and a walk through sibling copies would both go back through the same
+      // engine, so neither should start.
+      parts.engine.events.addError(Exception(_wrongLibrary));
+      await pumpEventQueue();
+
+      expect(
+        parts.controller.state.failure?.kind,
+        PlaybackFailureKind.playbackEngineUnavailable,
+      );
+      expect(parts.controller.state.failure?.canSkip, isFalse);
+      expect(parts.resolver.calls, resolvesSoFar);
+    });
+
+    test('an ordinary mid-stream drop still reconnects', () async {
+      // The other side of the same branch: nothing about the runtime, so the
+      // existing recovery is untouched.
+      final parts = build(workingBackend())
+        ..controller.streamRetryBackoff = Duration.zero;
+      await parts.controller.playTrack(_track('a'));
+
+      parts.engine.events.addError(Exception('connection reset by peer'));
+      await pumpEventQueue();
+
+      expect(
+        parts.controller.state.failure?.kind,
+        isNot(PlaybackFailureKind.playbackEngineUnavailable),
+      );
+    });
+  });
+
   group('Android and the shared engine are untouched', () {
     test('the shared controller never produces an engine-unavailable failure',
         () async {

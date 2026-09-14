@@ -96,12 +96,18 @@ abstract final class LinuxPlaybackRuntime {
     'undefined symbol',
     'lookup symbol',
     'symbol not found',
-    'file too short',
     'not found (required by',
     'wrong architecture',
     'unsupported version',
     'incompatible',
   ];
+
+  /// Note what is deliberately *absent*: `file too short`. A truncated
+  /// library is corrupt rather than mismatched, and
+  /// [LinuxPlaybackRuntimeProblem.libraryUnloadable] (the fallback, which
+  /// advises reinstalling) is where the enum itself puts it. Calling it
+  /// incompatible would advise an update, and updating to the same version
+  /// the machine already has is a no-op that leaves playback broken.
 
   /// Words that mean no usable libmpv answered.
   ///
@@ -258,9 +264,40 @@ abstract final class LinuxPlaybackRuntime {
   /// tokenized stream URL, and [recogniseText] must not read a track's own
   /// location as evidence about the audio runtime. URLs go first, so a
   /// scheme's `//` cannot survive into the path pass.
-  static String redactLocations(String text) => text
-      .replaceAll(RegExp(r'[a-zA-Z][a-zA-Z0-9+.-]*://\S*'), '<url>')
-      .replaceAll(RegExp(r'(?:/[\w.+@%-]+)+/?'), '<path>');
+  static String redactLocations(String text) =>
+      text.replaceAll(_url, '<url>').replaceAll(_path, '<path>');
+
+  /// Everything from here to whatever genuinely ends a location inside an
+  /// error message: a quote, a bracket, a comma or semicolon, a newline, or
+  /// the `: ` that separates a location from the reason it was rejected.
+  ///
+  /// Spaces are deliberately *inside* a location rather than ending one. A
+  /// Linux path may contain them, and a `file://` URI echoed back by libmpv
+  /// may carry them undecoded, so stopping at the first space is what leaves
+  /// `Lovelace` behind in `/home/Ada Lovelace/…`.
+  static const String _untilDelimiter =
+      r'''(?:(?!:\s)[^'"`,;()\[\]{}<>\n\r\t])*''';
+
+  /// A URL, run to its delimiter rather than to its first space.
+  static final RegExp _url =
+      RegExp(r'[a-zA-Z][a-zA-Z0-9+.-]*://' + _untilDelimiter);
+
+  /// A filesystem path, run to its delimiter rather than to the first
+  /// character that does not look path-ish.
+  ///
+  /// An allowlist of path characters is the wrong shape for this: Linux paths
+  /// legitimately contain spaces and whatever non-ASCII the user's locale
+  /// allows, so `/home/Ada Lovelace/lib/libmpv.so` would be redacted as far as
+  /// `/home/Ada` and leave the surname behind in a line that claims to carry
+  /// no paths.
+  ///
+  /// Both of these over-match prose containing a slash, and that is the right
+  /// way to be wrong here. Over-redaction costs a word of context in a debug
+  /// line and, in [recogniseText], can only lose a marker, so a runtime
+  /// failure reads as an ordinary one: the safe direction. Under-redaction
+  /// leaks somebody's name.
+  static final RegExp _path =
+      RegExp(r'''/(?:(?!:\s)[^'"`,;()\[\]{}<>\s])''' + _untilDelimiter);
 
   /// Records [failure] where a developer can see it, and nowhere else.
   ///

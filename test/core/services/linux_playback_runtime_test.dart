@@ -71,6 +71,29 @@ void main() {
       );
     });
 
+    test('a truncated library reads as unloadable, not incompatible', () {
+      // Reinstall is the fix for a corrupt file. "Update the package" would be
+      // a no-op for anyone already on the current version.
+      expect(
+        LinuxPlaybackRuntime.recogniseText(
+          "Invalid argument(s): Failed to load dynamic library 'libmpv.so.2': "
+          '/lib/libmpv.so.2: file too short',
+        ),
+        LinuxPlaybackRuntimeProblem.libraryUnloadable,
+      );
+    });
+
+    test('a dependency at the wrong version reads as incompatible', () {
+      expect(
+        LinuxPlaybackRuntime.recogniseText(
+          "Invalid argument(s): Failed to load dynamic library 'libmpv.so.2': "
+          "/lib/libmpv.so.2: version `GLIBC_2.38' not found "
+          '(required by /lib/libmpv.so.2)',
+        ),
+        LinuxPlaybackRuntimeProblem.libraryIncompatible,
+      );
+    });
+
     test('a missing Linux plugin reads as a backend that did not start', () {
       expect(
         LinuxPlaybackRuntime.recognise(
@@ -234,6 +257,32 @@ void main() {
       expect(diagnostic, contains('<path>'));
       // The reason itself survives, which is the whole point of keeping it.
       expect(diagnostic, contains('wrong ELF class'));
+    });
+
+    test('drops a whole path, not just the part that looks path-shaped', () {
+      // A Linux path may contain spaces, so an allowlist of "path characters"
+      // stops at the first one and leaves the rest of somebody's name in a
+      // line that claims to carry no paths.
+      final String diagnostic = LinuxPlaybackRuntime.sanitizeRuntimeDiagnostic(
+        Exception(
+          "Failed to load dynamic library 'libmpv.so.2': "
+          '/home/Ada Lovelace/lib/libmpv.so.2: wrong ELF class',
+        ),
+      );
+
+      expect(diagnostic, isNot(contains('Ada')));
+      expect(diagnostic, isNot(contains('Lovelace')));
+      expect(diagnostic, contains('<path>'));
+      expect(diagnostic, contains('wrong ELF class'));
+    });
+
+    test('drops a whole URI, not just the part before a space', () {
+      final String diagnostic = LinuxPlaybackRuntime.sanitizeRuntimeDiagnostic(
+        Exception('Failed to open file:///music/Ada Lovelace/track.flac.'),
+      );
+
+      expect(diagnostic, isNot(contains('Lovelace')));
+      expect(diagnostic, contains('<url>'));
     });
 
     test('drops URLs', () {

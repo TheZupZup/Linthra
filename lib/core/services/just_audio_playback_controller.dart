@@ -896,6 +896,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _state.status != PlaybackStatus.reconnecting) {
       return;
     }
+    // An engine that has stopped being usable is not a stream that dropped.
+    // The bounded reconnect and the walk through sibling copies below would
+    // both go back through the same engine, so a platform whose engine is a
+    // system package gets to say so before any of that starts.
+    final PlaybackResolutionException? engineFailure =
+        engineUnavailableFrom(error);
+    if (engineFailure != null) {
+      StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
+      final Track? track = _queue.current;
+      if (track != null) _emitError(track, _failureFrom(track, engineFailure));
+      return;
+    }
     _handleStreamFailure(classifyEngineError(error));
   }
 
@@ -1797,6 +1809,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// hook.
   @protected
   PlaybackResolutionException? engineUnavailableFailure() => null;
+
+  /// Whether [error] says the *engine* has become unusable rather than this
+  /// stream or these bytes, or null when it says no such thing.
+  ///
+  /// The companion to [engineUnavailableFailure] for errors that arrive with
+  /// something to read: a failed load, and an error the engine raises
+  /// mid-playback. Null on every platform that ships its engine in the app,
+  /// so nothing here changes for them; a platform whose engine is a system
+  /// package overrides it and every path into the engine gets the same
+  /// verdict.
+  @protected
+  PlaybackResolutionException? engineUnavailableFrom(Object error) => null;
 
   /// The failure to record when the engine cannot open an already-resolved
   /// source.
