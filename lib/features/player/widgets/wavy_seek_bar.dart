@@ -296,7 +296,15 @@ class WavySeekBar extends StatelessWidget {
     );
   }
 
-  double get _semanticStep {
+  double get _semanticStep => seekStepFor(max);
+
+  /// How far one step moves a bar that runs to [max] milliseconds.
+  ///
+  /// The arrow keys, the assistive increase/decrease actions and a mouse-wheel
+  /// notch over the bar ([PlaybackProgressBar]) all use this one number, so a
+  /// listener who learns what a nudge is worth in one of them has learnt it
+  /// for all three.
+  static double seekStepFor(double max) {
     final double proportional = max * _semanticStepFraction;
     final double floor = _minSemanticStep.inMilliseconds.toDouble();
     return proportional > floor ? proportional : floor;

@@ -7,7 +7,9 @@ import '../../../app/dimens.dart';
 import '../../../core/models/cast_state.dart';
 import '../../../core/services/cast/cast_service.dart';
 import '../../../data/repositories/cast_receiver_pin_store_provider.dart';
+import '../../../shared/scroll/pointer_scroll_adjust.dart';
 import '../../../shared/widgets/empty_state.dart';
+import '../widgets/volume_controls.dart';
 import 'cast_providers.dart';
 
 /// The cast target picker, opened from the now-playing [CastButton].
@@ -397,6 +399,19 @@ class _CastVolumeControlsState extends State<CastVolumeControls> {
     setState(() => _dragValue = null);
   }
 
+  /// The same wheel behaviour the local volume control has, for the same
+  /// reason: the pointer is on a slider, so the sheet behind it must not
+  /// scroll. One notch is one [volumeStep].
+  void _onNotch(int notches) {
+    final double from =
+        _dragValue ?? (widget.state.muted ? 0.0 : widget.state.volume ?? 0.0);
+    unawaited(
+      widget.service.setVolume(
+        (from + notches * volumeStep).clamp(0.0, 1.0),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -441,17 +456,22 @@ class _CastVolumeControlsState extends State<CastVolumeControls> {
                 tooltip: muted ? 'Unmute' : 'Mute',
               ),
               Expanded(
-                child: Slider(
-                  value: sliderValue,
-                  onChanged: supported ? _onChanged : null,
-                  onChangeEnd: supported ? _onChangeEnd : null,
-                  // Names the slider for anyone who lands on it directly
-                  // instead of reading the heading above it first. Semantics
-                  // only: the value indicator `label` can also drive is shown
-                  // `onlyForDiscrete`, and this slider is continuous.
-                  label: 'Cast volume',
-                  semanticFormatterCallback: (double value) =>
-                      '${(value * 100).round()}%',
+                child: PointerScrollAdjust(
+                  enabled: supported,
+                  adjusting: _dragValue != null,
+                  onNotch: _onNotch,
+                  child: Slider(
+                    value: sliderValue,
+                    onChanged: supported ? _onChanged : null,
+                    onChangeEnd: supported ? _onChangeEnd : null,
+                    // Names the slider for anyone who lands on it directly
+                    // instead of reading the heading above it first. Semantics
+                    // only: the value indicator `label` can also drive is shown
+                    // `onlyForDiscrete`, and this slider is continuous.
+                    label: 'Cast volume',
+                    semanticFormatterCallback: (double value) =>
+                        '${(value * 100).round()}%',
+                  ),
                 ),
               ),
             ],

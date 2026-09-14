@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../shared/layout/adaptive_layout.dart';
+import '../../shared/scroll/horizontal_wheel_scroll.dart';
 import '../../shared/widgets/empty_state.dart';
 import 'audiobooks_library_controller.dart';
 import 'audiobooks_library_state.dart';
@@ -191,27 +192,34 @@ class _LibraryPicker extends ConsumerWidget {
         AppSpacing.md,
         0,
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: <Widget>[
-            for (final AudiobookLibrarySummary library in state.libraries)
-              Padding(
-                padding: const EdgeInsets.only(right: AppSpacing.sm),
-                child: ChoiceChip(
-                  label: Text(library.name),
-                  selected: library.id == state.selectedLibraryId,
-                  onSelected: (bool selected) {
-                    if (!selected) return;
-                    unawaited(
-                      ref
-                          .read(audiobooksLibraryControllerProvider.notifier)
-                          .selectLibrary(library.id),
-                    );
-                  },
+      // The one genuinely horizontal surface in the app, and the only place a
+      // vertical wheel is allowed to mean "sideways": a mouse with one wheel
+      // could otherwise never reach the libraries past the right edge (#396).
+      child: HorizontalWheelScroll(
+        builder: (BuildContext context, ScrollController controller) =>
+            SingleChildScrollView(
+          controller: controller,
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: <Widget>[
+              for (final AudiobookLibrarySummary library in state.libraries)
+                Padding(
+                  padding: const EdgeInsets.only(right: AppSpacing.sm),
+                  child: ChoiceChip(
+                    label: Text(library.name),
+                    selected: library.id == state.selectedLibraryId,
+                    onSelected: (bool selected) {
+                      if (!selected) return;
+                      unawaited(
+                        ref
+                            .read(audiobooksLibraryControllerProvider.notifier)
+                            .selectLibrary(library.id),
+                      );
+                    },
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
