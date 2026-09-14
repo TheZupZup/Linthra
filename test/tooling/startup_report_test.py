@@ -401,20 +401,40 @@ class RecordedWarmUpTest(unittest.TestCase):
         run = startup_report.parse(run_payload(warmup=0))
         self.assertEqual(startup_report.effective_warmup(run, 2), 2)
 
-    def test_the_two_sides_use_their_own_counts(self) -> None:
+    def test_each_run_reads_with_its_own_count(self) -> None:
+        """Read alone, a run is summarised by the count it recorded."""
         steady = [300.0, 300.0, 300.0, 300.0]
-        base = startup_report.parse(
+        zero = startup_report.parse(
             run_payload(workload("small", 1000, steady, warmup=0), warmup=0)
         )
-        cand = startup_report.parse(
-            run_payload(
-                workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]), warmup=1
-            )
+        one = startup_report.parse(
+            run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
         )
-        result = startup_report.compare(base, cand)
-        self.assertEqual(result.workloads[0].baseline.count, 4)
-        self.assertEqual(result.workloads[0].candidate.count, 3)
-        self.assertFalse(result.regressed)
+        self.assertEqual(
+            startup_report.summarise(
+                zero.workload("small"), startup_report.effective_warmup(zero, None)
+            ).count,
+            4,
+        )
+        self.assertEqual(
+            startup_report.summarise(
+                one.workload("small"), startup_report.effective_warmup(one, None)
+            ).count,
+            3,
+        )
+
+    def test_but_two_runs_with_different_counts_are_not_compared(self) -> None:
+        """Their judged launches sit at different levels of JIT warming."""
+        steady = [300.0, 300.0, 300.0, 300.0]
+        zero = startup_report.parse(
+            run_payload(workload("small", 1000, steady, warmup=0), warmup=0)
+        )
+        one = startup_report.parse(
+            run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
+        )
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.compare(zero, one)
+        self.assertIn("warm-up count", str(raised.exception))
 
 
 class CompletenessTest(unittest.TestCase):
@@ -540,7 +560,7 @@ class ComparabilityTest(unittest.TestCase):
         return str(raised.exception)
 
     def test_a_different_build_mode_is_refused(self) -> None:
-        self.assertIn("release build", self.refuses(build_mode="release"))
+        self.assertIn("build mode", self.refuses(build_mode="release"))
 
     def test_a_different_milestone_is_refused(self) -> None:
         self.assertIn("first_frame", self.refuses(milestone="first_frame"))
@@ -600,17 +620,8 @@ class ComparabilityTest(unittest.TestCase):
         self.assertIsNone(startup_report.comparability_problem(base, cand))
 
 
-class PumpIntervalTest(unittest.TestCase):
-    """The awaited clock's unit is part of what makes two runs comparable."""
-
-    def test_a_different_pump_interval_is_refused(self) -> None:
-        base = startup_report.parse(run_payload())
-        cand = startup_report.parse(run_payload(pump_interval_ms=16))
-        with self.assertRaises(startup_report.InvalidReport) as raised:
-            startup_report.compare(base, cand)
-        self.assertIn("ms a frame", str(raised.exception))
-
-    def test_the_same_interval_compares(self) -> None:
+class ComparableRunsTest(unittest.TestCase):
+    def test_two_runs_of_the_same_protocol_compare(self) -> None:
         base = startup_report.parse(run_payload())
         cand = startup_report.parse(run_payload())
         self.assertIsNone(startup_report.comparability_problem(base, cand))
@@ -697,6 +708,96 @@ class CanaryScopeTest(unittest.TestCase):
         )
         self.assertFalse(result.regressed)
         self.assertFalse(result.regressed_everywhere)
+
+
+class MilestoneRowTest(unittest.TestCase):
+    """The milestone for a non-empty library IS a painted row."""
+
+    def test_a_launch_that_painted_nothing_is_refused(self) -> None:
+        """Not just "all of them": the judged launches are what is used."""
+        broken = workload("small", 1000, [9000.0, 300.0, 300.0, 300.0])
+        for sample in broken["samples"][1:]:  # type: ignore[index]
+            sample["rows_rendered"] = 0
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.parse(run_payload(broken))
+        self.assertIn("painted no rows", str(raised.exception))
+        self.assertIn("[1, 2, 3]", str(raised.exception))
+
+    def test_a_warm_up_that_painted_nothing_is_refused_too(self) -> None:
+        broken = workload("small", 1000, [9000.0, 300.0, 300.0, 300.0])
+        broken["samples"][0]["rows_rendered"] = 0  # type: ignore[index]
+        with self.assertRaises(startup_report.InvalidReport):
+            startup_report.parse(run_payload(broken))
+
+
+class ProtocolTest(unittest.TestCase):
+    """How a run measured is compared as a whole, like the workload's shape."""
+
+    def refuses(self, **overrides: object) -> str:
+        base = startup_report.parse(run_payload())
+        cand = startup_report.parse(run_payload(**overrides))
+        with self.assertRaises(startup_report.InvalidReport) as raised:
+            startup_report.compare(base, cand)
+        return str(raised.exception)
+
+    def test_a_different_warm_up_count_is_refused(self) -> None:
+        """Judged launches would sit at different levels of JIT warming."""
+        self.assertIn("warm-up count", self.refuses(warmup=2))
+
+    def test_a_different_pump_interval_is_refused(self) -> None:
+        self.assertIn("pump interval", self.refuses(pump_interval_ms=16))
+
+    def test_a_different_build_mode_is_refused(self) -> None:
+        self.assertIn("build mode", self.refuses(build_mode="release"))
+
+    def test_the_protocol_covers_every_measurement_decision(self) -> None:
+        run = startup_report.parse(run_payload())
+        self.assertEqual(
+            sorted(run.protocol),
+            ["build mode", "milestone", "pump interval", "warm-up count", "window"],
+        )
+
+    def test_the_canary_s_own_differences_are_not_part_of_it(self) -> None:
+        """It differs by label and injected delay on purpose."""
+        protocol = startup_report.parse(run_payload()).protocol
+        for excluded in ("label", "slow_catalog_ms", "iterations"):
+            self.assertNotIn(excluded, protocol)
+
+
+class TwoSidedControlTest(unittest.TestCase):
+    """An identical re-run has to agree, not merely fail to be slower."""
+
+    def comparison_of(self, candidate_ms: list[float]) -> startup_report.Comparison:
+        base = startup_report.parse(
+            run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
+        )
+        cand = startup_report.parse(
+            run_payload(workload("small", 1000, candidate_ms))
+        )
+        return startup_report.compare(base, cand)
+
+    def test_an_identical_run_has_not_diverged(self) -> None:
+        self.assertFalse(
+            self.comparison_of([9000.0, 300.0, 305.0, 300.0]).diverged
+        )
+
+    def test_a_much_faster_control_has_diverged(self) -> None:
+        """`same` passes it; the control's `equivalent` does not."""
+        result = self.comparison_of([9000.0, 100.0, 100.0, 100.0])
+        self.assertFalse(result.regressed)
+        self.assertTrue(result.diverged)
+        self.assertEqual(result.divergent, ("small",))
+
+    def test_a_slower_control_has_diverged_as_well(self) -> None:
+        result = self.comparison_of([9000.0, 900.0, 900.0, 900.0])
+        self.assertTrue(result.regressed)
+        self.assertTrue(result.diverged)
+
+    def test_a_small_absolute_speed_up_is_still_noise(self) -> None:
+        """The floor applies in both directions."""
+        self.assertFalse(
+            self.comparison_of([9000.0, 285.0, 285.0, 285.0]).diverged
+        )
 
 
 class BudgetTest(unittest.TestCase):
@@ -958,6 +1059,31 @@ class CommandLineTest(unittest.TestCase):
             path = self.write(Path(directory) / "run.json", run_payload())
             result = self.run_script(str(path), "--budget", "small=5000")
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_expect_equivalent_is_two_sided(self) -> None:
+        base = run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
+        faster = run_payload(workload("small", 1000, [9000.0, 100.0, 100.0, 100.0]))
+        with tempfile.TemporaryDirectory() as directory:
+            b = self.write(Path(directory) / "base.json", base)
+            f = self.write(Path(directory) / "fast.json", faster)
+            # A real change that got faster is a pass.
+            self.assertEqual(
+                self.run_script(str(f), "--baseline", str(b), "--expect", "same").returncode,
+                0,
+            )
+            # The same numbers from an identical re-run are not.
+            result = self.run_script(
+                str(f), "--baseline", str(b), "--expect", "equivalent"
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("moved on small", result.stderr)
+
+    def test_a_budget_that_could_never_fail_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", run_payload())
+            for value in ("nan", "inf", "-1"):
+                result = self.run_script(str(path), "--budget", f"small={value}")
+                self.assertEqual(result.returncode, 2, value)
 
     def test_a_malformed_budget_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

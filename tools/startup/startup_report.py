@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -184,6 +185,37 @@ class Run:
     network_sources: int
     workloads: tuple[Workload, ...]
 
+    @property
+    def protocol(self) -> dict[str, object]:
+        """Everything about *how* this run measured, as opposed to what it got.
+
+        Compared as a whole between two runs, for the same reason
+        [Workload.shape] is: each of these was found separately as a way for
+        two runs to be accepted as each other's control while having measured
+        under different conditions. A field added to the harness's method is
+        covered without anybody remembering to extend a list.
+
+        Deliberately excluded: `label` and `slow_catalog_ms`, which are how the
+        canary differs from its baseline on purpose; `iterations`, since two
+        runs of different lengths still produce comparable medians; and the
+        host, which the docs warn about rather than refuse, because the whole
+        point is to compare two commits on one machine.
+        """
+        return {
+            "build mode": self.build_mode,
+            "milestone": self.milestone,
+            "window": self.window,
+            # `simulated_ms` is frames times this, so changing it rescales the
+            # whole awaited clock: an unchanged three-frame startup reads 8 ms
+            # at 4 ms a pump and 32 ms at 16.
+            "pump interval": self.pump_interval_ms,
+            # Different warm-up counts mean the judged launches sit at
+            # different levels of JIT and cache warming, so a two-warm-up
+            # candidate can look unchanged against a zero-warm-up baseline
+            # while its actual startup work regressed.
+            "warm-up count": self.warmup,
+        }
+
     def workload(self, name: str) -> Workload | None:
         for workload in self.workloads:
             if workload.name == name:
@@ -282,11 +314,18 @@ def parse_workload(payload: dict[str, object]) -> Workload:
     tracks = int(_number(payload, "tracks"))
     rendered = [parse_sample(entry) for entry in raw]
     # A workload with tracks that never painted a row did not reach the
-    # milestone it claims to have measured, whatever its timings say.
-    if tracks > 0 and all(sample.rows_rendered == 0 for sample in rendered):
-        raise InvalidReport(
-            f"workload {name!r} has {tracks} tracks but painted no rows"
-        )
+    # milestone it claims to have measured, whatever its timings say. Every
+    # launch, not just one of them: the milestone for a non-empty library *is*
+    # a painted row, so a launch reporting none did not reach it, and `all()`
+    # here let a file through whose only good launch was the warm-up one the
+    # verdict then discards.
+    if tracks > 0:
+        blank = [s.iteration for s in rendered if s.rows_rendered == 0]
+        if blank:
+            raise InvalidReport(
+                f"workload {name!r} has {tracks} tracks but launch(es) "
+                f"{blank} painted no rows"
+            )
     return Workload(
         name=name,
         tracks=tracks,
@@ -424,6 +463,33 @@ class WorkloadComparison:
         return self.baseline.trustworthy and self.candidate.trustworthy
 
     @property
+    def worked_less(self) -> bool:
+        """Whether the CPU did measurably *less*, by the same allowances.
+
+        Only the identical control cares. For a real change a faster run is
+        good news, but two runs of the same commit minutes apart should agree,
+        and one that came back 3x quicker says the baseline caught the machine
+        at a bad moment rather than that anything improved.
+        """
+        if -self.delta_ms <= self.absolute_allowance_ms:
+            return False
+        return self.ratio < 1.0 / (1.0 + self.relative_allowance)
+
+    @property
+    def waited_less(self) -> bool:
+        return -self.simulated_delta_ms > self.simulated_allowance_ms
+
+    @property
+    def diverged(self) -> bool:
+        """Whether the two runs differ measurably in *either* direction."""
+        return self.comparable and (
+            self.worked_longer
+            or self.waited_longer
+            or self.worked_less
+            or self.waited_less
+        )
+
+    @property
     def regressed(self) -> bool:
         """Whether this workload now reaches a usable library later.
 
@@ -469,6 +535,22 @@ class Comparison:
         return any(entry.regressed for entry in self.workloads)
 
     @property
+    def diverged(self) -> bool:
+        """Whether any workload moved measurably, faster or slower.
+
+        What an identical re-run is held to. "Not slower" is the right test
+        for a change, and the wrong one for a control: a control that comes
+        back far *faster* than its baseline has not shown the two agree, it
+        has shown the baseline was measured on a machine that was busy, and
+        every number taken against that baseline is worth less than it looks.
+        """
+        return any(entry.diverged for entry in self.workloads)
+
+    @property
+    def divergent(self) -> tuple[str, ...]:
+        return tuple(entry.name for entry in self.workloads if entry.diverged)
+
+    @property
     def regressed_everywhere(self) -> bool:
         """Whether *every* workload got slower.
 
@@ -489,31 +571,13 @@ def comparability_problem(baseline: Run, candidate: Run) -> str | None:
     large enough to swamp any change being looked for, and reporting a ratio
     across them would be inventing a result rather than measuring one.
     """
-    if baseline.milestone != candidate.milestone:
-        return (
-            f"the baseline measured {baseline.milestone!r} and this run "
-            f"measured {candidate.milestone!r}"
-        )
-    if baseline.build_mode != candidate.build_mode:
-        return (
-            f"the baseline is a {baseline.build_mode} build and this run is a "
-            f"{candidate.build_mode} build"
-        )
-    if baseline.window != candidate.window:
-        return (
-            f"the baseline used a {baseline.window} window and this run used "
-            f"{candidate.window}"
-        )
-    if baseline.pump_interval_ms != candidate.pump_interval_ms:
-        # `simulated_ms` is frames times this interval, so changing it rescales
-        # the whole awaited clock: an unchanged three-frame startup reads 8 ms
-        # at 4 ms a pump and 32 ms at 16, which clears the default allowance
-        # and invents a regression. The reverse hides a real one.
-        return (
-            f"the baseline pumped {baseline.pump_interval_ms:g} ms a frame and "
-            f"this run pumped {candidate.pump_interval_ms:g} ms, so their "
-            "awaited times are not the same unit"
-        )
+    for field, value in candidate.protocol.items():
+        was = baseline.protocol[field]
+        if value != was:
+            return (
+                f"a different {field}: the baseline recorded {was!r} and "
+                f"this run recorded {value!r}"
+            )
     mine_names = {w.name for w in candidate.workloads}
     their_names = {w.name for w in baseline.workloads}
     if mine_names != their_names:
@@ -744,9 +808,22 @@ def _budget(raw: str) -> tuple[str, float]:
     if not name or not value:
         raise argparse.ArgumentTypeError(f"expected WORKLOAD=MILLISECONDS, got {raw!r}")
     try:
-        return name, float(value)
+        limit = float(value)
     except ValueError:
         raise argparse.ArgumentTypeError(f"{value!r} is not a number") from None
+    # `float("nan")` parses, and every comparison against it is false, so a
+    # budget of nan is a gate that was explicitly asked for and silently does
+    # nothing. Infinity is the same gate with a friendlier spelling, and a
+    # negative budget can never be met.
+    if math.isnan(limit) or math.isinf(limit):
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a usable budget: it would never fail"
+        )
+    if limit < 0:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is negative, so nothing could ever meet it"
+        )
+    return name, limit
 
 
 def check_budgets(run: Run, budgets: list[tuple[str, float]], warmup: int) -> list[str]:
@@ -842,9 +919,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--expect",
-        choices=("same", "regressed", "regressed-everywhere"),
+        choices=("same", "equivalent", "regressed", "regressed-everywhere"),
         help=(
             "fail unless the comparison says this. Needs --baseline. "
+            "'same' is one-sided (not slower) and is what you want when "
+            "checking a change, because a genuine speed-up should pass. "
+            "'equivalent' is two-sided and is what an identical re-run is "
+            "held to, since a control that came back much faster has shown "
+            "the baseline was noisy rather than that anything improved. "
             "'regressed' is the ordinary run-level policy (any workload); "
             "'regressed-everywhere' is what the canary needs, because a "
             "delay injected into every read must be seen on every workload"
@@ -958,7 +1040,12 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        if args.expect == "regressed-everywhere":
+        if args.expect == "equivalent":
+            met = not comparison.diverged
+            actual = (
+                "equivalent" if met else "moved on " + ", ".join(comparison.divergent)
+            )
+        elif args.expect == "regressed-everywhere":
             met = comparison.regressed_everywhere
             actual = (
                 "regressed everywhere"

@@ -173,10 +173,18 @@ A workload is called slower when **either clock** says so:
 `run_startup_benchmark.sh` alike.
 
 The reporter refuses outright to compare two runs that did not measure the same
-thing: a different build mode, a different window size, a different milestone,
-a different pump interval (which is the unit `awaited` is counted in, so
-changing it rescales that whole column), a different *set* of workloads, or any
-difference in a workload's recorded **shape**.
+thing: any difference in the run's **protocol**, a different *set* of
+workloads, or any difference in a workload's recorded **shape**.
+
+Protocol is how the run measured: build mode, milestone, window size, pump
+interval (the unit `awaited` is counted in, so changing it rescales that whole
+column) and warm-up count (different counts leave the judged launches at
+different levels of JIT and cache warming, so a two-warm-up candidate can look
+unchanged against a zero-warm-up baseline while its startup work regressed).
+Compared as a whole rather than as an allowlist, like shape below. The canary's
+own differences, its label and injected delay, are deliberately not part of it,
+and neither is the iteration count: two runs of different lengths still produce
+comparable medians.
 
 The set matters because `LINTHRA_STARTUP_WORKLOADS` makes a subset easy to
 produce, and a run-level verdict that quietly skipped the workload missing from
@@ -199,10 +207,18 @@ measuring one.
 A timing check nobody has tested is a timing check nobody should believe, so
 both ways of being wrong are part of the run:
 
-- **control against baseline** must come back `NO REGRESSION`. Two identical
-  runs that disagree mean this machine is too noisy today, and any red result
-  from the canary below would prove nothing. This is the false-positive
-  control.
+- **control against baseline** must come back `EQUIVALENT`, which is checked
+  in **both** directions. Two identical runs that disagree mean this machine is
+  too noisy today, and any red result from the canary below would prove
+  nothing. This is the false-positive control.
+
+  Two-sided on purpose, and this is the one place it is. `--expect same` means
+  "not slower", which is right when you are checking a change (a genuine
+  speed-up should pass) and wrong for two runs of the same commit: a control
+  that came back three times faster has not shown the two agree, it has shown
+  the baseline was measured while the machine was busy, and every number taken
+  against that baseline is worth less than it looks. `--expect equivalent` is
+  what the runner holds it to.
 - **canary against baseline** must come back `REGRESSION` **on every
   workload**. The canary run sets `LINTHRA_STARTUP_SLOW_CATALOG_MS=250`, which
   wraps the real repository so every catalog read takes a quarter second
@@ -255,7 +271,10 @@ than "all of them": one workload seeing a change is a change.
 ## Budgets
 
 `--budget large=15000` fails the run if a workload's median is over that many
-milliseconds. It is off by default and CI never sets one, because a budget is
+milliseconds. A budget has to be a number that could actually be missed:
+`nan` parses and then compares false against everything, which is a gate you
+asked for that silently does nothing, so it is rejected along with infinity and
+negative values. It is off by default and CI never sets one, because a budget is
 the one check here that does not travel: it encodes what one particular machine
 can do. On a machine you own and keep quiet (a dedicated perf box, or your own
 laptop with a number you measured yourself) it is a useful tripwire. Anywhere

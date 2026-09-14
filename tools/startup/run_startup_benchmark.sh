@@ -190,9 +190,15 @@ python3 "$REPORT" "$OUT_DIR/baseline.json" || exit 1
 
 status=0
 
-info "control against baseline (expect NO REGRESSION)"
+# Two-sided, unlike a real comparison. `--expect same` means "not slower",
+# which is right for a change (a genuine speed-up should pass) and wrong for
+# two runs of the same commit: a control that came back far *faster* has not
+# shown the two agree, it has shown the baseline was measured while the
+# machine was busy, and every number taken against that baseline is worth less
+# than it looks.
+info "control against baseline (expect EQUIVALENT, in both directions)"
 python3 "$REPORT" "$OUT_DIR/control.json" \
-  --baseline "$OUT_DIR/baseline.json" "${ALLOWANCES[@]}" --expect same || {
+  --baseline "$OUT_DIR/baseline.json" "${ALLOWANCES[@]}" --expect equivalent || {
   printf '\nTwo identical runs disagreed. This machine is too noisy right now\n'
   printf 'for the comparison to mean anything: close what is running, or raise\n'
   printf 'the allowance with --relative-allowance and re-measure.\n'
