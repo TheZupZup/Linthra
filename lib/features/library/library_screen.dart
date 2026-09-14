@@ -44,6 +44,12 @@ import 'widgets/selection_escape_scope.dart';
 /// [FoldersScreen] destination, so it keeps its place in the tree when you
 /// leave it.
 ///
+/// Managing the local library's folders is not here either. This screen is for
+/// browsing and searching music, so the header carries no folder action:
+/// Folders owns adding a music folder, next to the folders already configured.
+/// The empty state still offers the pick-and-scan flow, because a library with
+/// nothing in it is exactly where that step is the obvious next one.
+///
 /// Songs keeps the long-press multi-select and the A–Z fast-scroller from
 /// before. Switching tabs clears the query, so a search meant for one tab never
 /// silently hides another's contents. Search only filters what is shown — it
@@ -285,13 +291,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               ? _selectionAppBar(selected)
               : AppBar(
                   title: const Text('Library'),
-                  actions: <Widget>[
-                    IconButton(
-                      icon: const Icon(Icons.create_new_folder_outlined),
-                      tooltip: 'Select music folder',
-                      onPressed: _pickAndScan,
-                    ),
-                  ],
                   bottom: browsing ? _tabBar() : null,
                 ),
           body: browsing
