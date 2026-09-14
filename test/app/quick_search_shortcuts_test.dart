@@ -3,8 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:linthra/app/quick_search_shortcuts.dart';
 import 'package:linthra/app/router.dart';
+import 'package:linthra/app/shortcuts/linthra_shortcuts.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/shell/home_shell.dart';
@@ -12,6 +12,11 @@ import 'package:linthra/features/shell/home_shell.dart';
 import '../features/library/fake_music_library_repository.dart';
 import '../features/player/fake_playback_controller.dart';
 
+/// Quick search's own bindings, kept passing across the move to the
+/// configurable registry (#391). Ctrl+K and Ctrl+F must still reach the overlay
+/// from anywhere, including from inside a text field — that is where people
+/// press them.
+///
 /// A branch screen with a text field, so the shortcut is exercised in the state
 /// it actually has to survive: a user who is already typing somewhere.
 class _BranchScreen extends StatelessWidget {
@@ -127,8 +132,7 @@ Future<void> _pumpApp(WidgetTester tester) async {
               ref.watch(rootNavigatorKeyProvider);
           return MaterialApp.router(
             routerConfig: _router(rootKey, branchKeys),
-            builder: (BuildContext context, Widget? child) =>
-                QuickSearchShortcuts(
+            builder: (BuildContext context, Widget? child) => LinthraShortcuts(
               navigatorKey: rootKey,
               child: child ?? const SizedBox.shrink(),
             ),

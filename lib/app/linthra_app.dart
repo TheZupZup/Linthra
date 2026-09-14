@@ -26,8 +26,8 @@ import '../features/support/support_actions_provider.dart';
 import '../features/support/supporter_entitlement.dart';
 import 'application_lifecycle.dart';
 import 'brand_theme.dart';
-import 'quick_search_shortcuts.dart';
 import 'router.dart';
+import 'shortcuts/linthra_shortcuts.dart';
 import 'theme.dart';
 
 /// The notification-permission seam the app asks through after onboarding.
@@ -227,7 +227,7 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       // binding under the shell would be invisible to routes pushed over it —
       // Now Playing above all, which is where opening a song from quick search
       // lands you. Here every route is a descendant.
-      builder: (BuildContext context, Widget? child) => QuickSearchShortcuts(
+      builder: (BuildContext context, Widget? child) => LinthraShortcuts(
         navigatorKey: ref.watch(rootNavigatorKeyProvider),
         child: child ?? const SizedBox.shrink(),
       ),

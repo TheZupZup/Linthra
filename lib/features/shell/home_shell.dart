@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/shortcuts/shortcut_intents.dart';
 import '../../shared/focus/focus_handoff.dart';
 import '../player/mini_player.dart';
+import '../player/widgets/queue_sheet.dart';
 import '../player/widgets/queue_side_panel.dart';
 import 'playlist_drag_spring.dart';
 
@@ -299,54 +303,77 @@ class _HomeShellState extends State<HomeShell> {
             visible: queuePanelOpen,
             onToggle: _toggleQueuePanel,
             toggleFocusNode: _queueToggleFocus,
-            child: Scaffold(
-              body: FocusTraversalGroup(
-                policy: OrderedTraversalPolicy(),
-                child: Column(
-                  children: <Widget>[
-                    Expanded(
-                      child: Row(
-                        children: <Widget>[
-                          if (desktop)
-                            _buildNavigationRail()
-                          else
-                            const SizedBox.shrink(),
-                          if (desktop)
-                            const VerticalDivider(width: 1)
-                          else
-                            const SizedBox.shrink(),
-                          Expanded(
-                            child: FocusTraversalOrder(
-                              order: const NumericFocusOrder(1),
-                              child: FocusTraversalGroup(
-                                child: widget.navigationShell,
+            child: Actions(
+              // The frame answers the queue shortcut (#391) because it is the
+              // only thing that knows whether this window has a column to
+              // show. `Actions` is resolved from whatever holds focus upward,
+              // so anything inside the shell reaches this before the app-level
+              // fallback, and a route pushed over the shell — Now Playing —
+              // falls through to that fallback's sheet.
+              //
+              // Same rule the now-playing bar's queue button uses, for the
+              // same reason: one queue, and whichever host this width has.
+              actions: <Type, Action<Intent>>{
+                ToggleQueueIntent: CallbackAction<ToggleQueueIntent>(
+                  onInvoke: (_) {
+                    if (queuePanelAvailable) {
+                      _toggleQueuePanel();
+                    } else {
+                      unawaited(showQueueSheet(context));
+                    }
+                    return null;
+                  },
+                ),
+              },
+              child: Scaffold(
+                body: FocusTraversalGroup(
+                  policy: OrderedTraversalPolicy(),
+                  child: Column(
+                    children: <Widget>[
+                      Expanded(
+                        child: Row(
+                          children: <Widget>[
+                            if (desktop)
+                              _buildNavigationRail()
+                            else
+                              const SizedBox.shrink(),
+                            if (desktop)
+                              const VerticalDivider(width: 1)
+                            else
+                              const SizedBox.shrink(),
+                            Expanded(
+                              child: FocusTraversalOrder(
+                                order: const NumericFocusOrder(1),
+                                child: FocusTraversalGroup(
+                                  child: widget.navigationShell,
+                                ),
                               ),
                             ),
-                          ),
-                          if (queuePanelOpen)
-                            const VerticalDivider(width: 1)
-                          else
-                            const SizedBox.shrink(),
-                          if (queuePanelOpen)
-                            _buildQueuePanel()
-                          else
-                            const SizedBox.shrink(),
-                        ],
+                            if (queuePanelOpen)
+                              const VerticalDivider(width: 1)
+                            else
+                              const SizedBox.shrink(),
+                            if (queuePanelOpen)
+                              _buildQueuePanel()
+                            else
+                              const SizedBox.shrink(),
+                          ],
+                        ),
                       ),
-                    ),
-                    // Last in the reading order: the bar spans everything above
-                    // it, so a keyboard user reaches it after both the page and
-                    // the destinations, not between them.
-                    FocusTraversalOrder(
-                      order: const NumericFocusOrder(4),
-                      child: FocusTraversalGroup(
-                        child: const MiniPlayer(),
+                      // Last in the reading order: the bar spans everything above
+                      // it, so a keyboard user reaches it after both the page and
+                      // the destinations, not between them.
+                      FocusTraversalOrder(
+                        order: const NumericFocusOrder(4),
+                        child: FocusTraversalGroup(
+                          child: const MiniPlayer(),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
+                bottomNavigationBar: desktop ? null : _buildNavigationBar(),
               ),
-              bottomNavigationBar: desktop ? null : _buildNavigationBar(),
             ),
           );
         },

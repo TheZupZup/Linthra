@@ -951,12 +951,11 @@ underneath keeps its state — it is a dialog on the root navigator, not a
 navigation — and opening a result goes through the app's existing routes and
 playback actions.
 
-Like the layout, it is **not** gated on `HostPlatform`: the binding
-([`quick_search_shortcuts.dart`](../lib/app/quick_search_shortcuts.dart)) wraps
-the router, above every route, and can only fire when a real keyboard sends the
-chord — so a phone is unaffected while an Android tablet with a keyboard case
-gets it for free. What it searches and how it ranks is documented in
-[library.md](./library.md#quick-search-ctrlk).
+Like the layout, it is **not** gated on `HostPlatform`: the binding lives in the
+shortcut registry below, which wraps the router above every route and can only
+fire when a real keyboard sends the chord — so a phone is unaffected while an
+Android tablet with a keyboard case gets it for free. What it searches and how
+it ranks is documented in [library.md](./library.md#quick-search-ctrlk).
 
 Tests: `test/shared/layout/adaptive_layout_test.dart`,
 `test/features/library/album_grid_test.dart`,
@@ -965,6 +964,89 @@ Tests: `test/shared/layout/adaptive_layout_test.dart`,
 `test/features/player/player_desktop_layout_test.dart` — each covers the phone
 width alongside 1280, 1920, 2560 and ultrawide, so a change that only looks
 right on one monitor fails.
+
+### Keyboard shortcuts
+
+Seven actions are bound out of the box, and every one of them can be remapped
+in **Settings → Music & playback → Keyboard shortcuts**:
+
+| Action | Default | What it does |
+| --- | --- | --- |
+| Play / pause | `Ctrl+Space` | Start or pause what is loaded |
+| Next track | `Ctrl+→` | Skip forward in the queue |
+| Previous track | `Ctrl+←` | Go back |
+| Search | `Ctrl+K` (also `Ctrl+F`) | Open quick search |
+| Library | `Ctrl+L` | Go to the Library tab |
+| Queue | `Ctrl+U` | Show or hide what is up next |
+| Now Playing | `Ctrl+P` | Open the full-screen player |
+
+`Ctrl+F` is a fixed alias rather than a second binding: Linthra has always
+answered it, so remapping search does not take it away, and nothing else can be
+bound over it.
+
+**One registry.** `lib/app/shortcuts/shortcut_action.dart` holds the actions,
+their names, their descriptions and their defaults. The dispatcher installs it,
+the settings card edits it, storage keys off it, and the help window planned in
+#392 reads the same table — so a shortcut cannot be documented as one thing and
+bound as another.
+
+**No new playback logic.** Every action forwards to the `PlaybackController`,
+router or overlay the buttons already use. The queue shortcut is the clearest
+case: the frame answers it with the side column when the window is wide enough
+and the app-level fallback opens the same sheet the phone uses otherwise —
+whichever host this width has, which is the rule the now-playing bar's queue
+button already follows. `Actions` resolves from the focused widget upward, so
+the frame gets first refusal and a route pushed over it falls through.
+
+**Media keys are not here.** `XF86AudioPlay` and friends reach Linthra through
+MPRIS (#398), which works while the window is not focused. Binding one here
+would be a second, worse path, so [`ShortcutBinding`](../lib/app/shortcuts/shortcut_binding.dart)
+refuses a media key outright and says why.
+
+**Typing wins.** A shortcut stands down while the keyboard is in a text field
+*if the field would have wanted that key* — the caret keys, Home/End,
+Backspace/Delete, Space, and the clipboard and undo letters. It is deliberately
+not "no shortcuts while typing": `Ctrl+K` opens search from inside a search
+field, which is where people press it. The rule is one predicate,
+`conflictsWithTextEditing`, and the action is *disabled* rather than silently
+swallowing the key, so the keystroke carries on to the field and the character
+is typed.
+
+**What cannot be bound**, each with a sentence saying what to do instead:
+
+* a bare printable key, or Shift plus one — `Shift+K` is a capital K, and
+  binding it app-wide would eat typing;
+* `Escape` and `Tab`, which the app needs for closing things and moving around,
+  and bare arrows, Enter, Space, Home/End, Page Up/Down, Backspace and Delete;
+* a media key, as above;
+* a combination another action already has, including a fixed alias — the
+  refusal names the action that has it.
+
+Function keys are allowed bare: no text field produces one.
+
+**Repeats fire once.** Every activator is built with `includeRepeats: false`, so
+holding `Ctrl+→` skips one track rather than the whole queue.
+
+**Persistence.** Only *overrides* are stored, one flat key per action in
+`shared_preferences` (`keyboard_shortcut.play_pause`). An action the user never
+touched has no row, so changing a default in a later release reaches everyone
+who never disagreed with it and nobody who did; typing the original combination
+back removes the override rather than pinning it. An override that no longer
+parses, or that today's rules would refuse, is dropped on read and the action
+keeps its default — a preferences file from a newer build, or one edited by
+hand, degrades to stock behaviour rather than to a broken keyboard.
+
+**Ctrl, not Cmd.** The desktop target is Linux, so the defaults are Ctrl. The
+binding model carries a `meta` flag anyway, so a user can bind Super+key today
+and a macOS build could default to Command without the storage format changing
+under existing installs.
+
+Tests: `test/app/shortcuts/` covers the binding rules and storage round trip,
+the registry's own consistency, remapping/conflict/reset/persistence, and
+dispatch — including a held key firing once, a text field keeping `Ctrl+→`, and
+`Ctrl+K` still working inside one.
+`test/features/settings/desktop/keyboard_shortcuts_section_test.dart` covers
+recording a chord and being refused one.
 
 ## Window state
 
