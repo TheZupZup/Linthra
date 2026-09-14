@@ -1,3 +1,5 @@
+import 'local_root_fault.dart';
+
 /// Why the most recent local-folder scan ended the way it did, recorded as a
 /// failure *kind* (an enum name) — never a raw error string that could carry a
 /// folder path, file name, or device detail.
@@ -38,6 +40,7 @@ class LocalScanReport {
     this.rootsScanned = 1,
     this.rootsUnavailable = 0,
     this.error,
+    this.fault,
   }) : assert(
           !(isContentUri && isDeviceLibrary),
           'a scan reads either a SAF tree or the device library, never both',
@@ -52,6 +55,7 @@ class LocalScanReport {
     this.isDeviceLibrary = false,
     this.rootsScanned = 1,
     this.rootsUnavailable = 1,
+    this.fault,
   })  : filesVisited = 0,
         foldersVisited = 0,
         audioCandidates = 0,
@@ -79,6 +83,7 @@ class LocalScanReport {
     required int rootsScanned,
     required int rootsUnavailable,
     LocalScanError? error,
+    LocalRootFault? fault,
   }) {
     int sum(int Function(LocalScanReport report) field) =>
         reports.fold(0, (int total, LocalScanReport r) => total + field(r));
@@ -100,6 +105,7 @@ class LocalScanReport {
       rootsScanned: rootsScanned,
       rootsUnavailable: rootsUnavailable,
       error: error,
+      fault: fault,
     );
   }
 
@@ -143,6 +149,15 @@ class LocalScanReport {
   final int rootsUnavailable;
 
   final LocalScanError? error;
+
+  /// What was wrong with the first folder this scan could not read, when it
+  /// could name it: gone, not permitted, or storage not answering.
+  ///
+  /// Set for a partial scan as well as a failed one (a scan that read three
+  /// folders and lost one still knows why it lost that one), so it is *not* a
+  /// synonym for [error]. Another failure kind, so it is as safe to record as
+  /// the rest of this report: no path, no file name, no OS string.
+  final LocalRootFault? fault;
 
   bool get hadError => error != null;
 

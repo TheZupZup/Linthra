@@ -2,26 +2,38 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/services/folder_picker_service.dart';
+import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/folder_location.dart';
+import 'package:linthra/core/sources/local/local_metadata_reader.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/core/sources/local/local_scan_report.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
+import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
+import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/selected_music_folder_repository_provider.dart';
 import 'package:linthra/features/library/library_providers.dart';
 import 'package:linthra/features/settings/source/local_music_settings_section.dart';
+
+import '../../library/fake_audio_file_scanner.dart';
 
 /// Reports one fixed answer for "can this folder still be listed?", standing in
 /// for the real `dart:io` probe so the desktop lost-access state can be driven
 /// without a disk.
 class _FixedReadability implements DirectoryReadability {
-  const _FixedReadability(this.readable);
+  const _FixedReadability(this.readable, {this.fault = LocalRootFault.missing});
 
   final bool readable;
 
+  /// Why an unreadable folder is unreadable: the distinction the card's
+  /// recovery panel is built on (#414).
+  final LocalRootFault fault;
+
   @override
-  Future<bool> canList(String path) async => readable;
+  Future<LocalRootFault?> inspect(String path) async => readable ? null : fault;
 }
 
 /// Reports only the named folders as gone, so a test can unplug one drive and
@@ -32,7 +44,23 @@ class _MissingFolders implements DirectoryReadability {
   final Set<String> missing;
 
   @override
-  Future<bool> canList(String path) async => !missing.contains(path);
+  Future<LocalRootFault?> inspect(String path) async =>
+      missing.contains(path) ? LocalRootFault.missing : null;
+}
+
+/// A picker whose answer the test sets, so "the user chose that folder" is
+/// reachable from a tap.
+class _StagedPicker implements FolderPickerService {
+  _StagedPicker(this.folder);
+
+  final String? folder;
+  int pickCount = 0;
+
+  @override
+  Future<String?> pickFolder() async {
+    pickCount++;
+    return folder;
+  }
 }
 
 const String _safFolder =
@@ -53,6 +81,9 @@ Future<void> _pump(
   LocalScanReport? report,
   HostPlatform? host,
   DirectoryReadability? readability,
+  FolderPickerService? picker,
+  InMemorySelectedMusicFolderRepository? folderRepo,
+  AudioFileScanner? scanner,
 }) async {
   // The card reads the last scan reactively from localScanReportProvider, which
   // seeds itself from LocalScanDiagnostics.last — so recording here is how a
@@ -64,14 +95,27 @@ Future<void> _pump(
     ProviderScope(
       overrides: <Override>[
         selectedMusicFolderRepositoryProvider.overrideWithValue(
-          InMemorySelectedMusicFolderRepository(
-            initialFolder: initialFolder,
-            initialFolders: initialFolders,
-          ),
+          folderRepo ??
+              InMemorySelectedMusicFolderRepository(
+                initialFolder: initialFolder,
+                initialFolders: initialFolders,
+              ),
         ),
+        musicLibraryRepositoryProvider
+            .overrideWithValue(InMemoryMusicLibraryRepository()),
         if (host != null) hostPlatformProvider.overrideWithValue(host),
         if (readability != null)
           directoryReadabilityProvider.overrideWithValue(readability),
+        if (picker != null)
+          folderPickerServiceProvider.overrideWithValue(picker),
+        if (scanner != null) ...<Override>[
+          audioFileScannerProvider.overrideWithValue(scanner),
+          // A scan driven from a widget test runs on fake async time, so the
+          // real tag reader's disk work would outlive pumpAndSettle's clock.
+          // The tags are not what these tests are about.
+          localMetadataReaderProvider
+              .overrideWithValue(const UnsupportedLocalMetadataReader()),
+        ],
       ],
       child: const MaterialApp(
         // The card ships inside the scrollable provider sheet, so scroll here
@@ -107,15 +151,166 @@ void main() {
         readability: const _FixedReadability(false),
       );
 
+      expect(find.text('Folder not found'), findsOneWidget);
       expect(
-        find.textContaining('Linthra can no longer reach this folder'),
+        find.textContaining('Its music stays in your library'),
         findsOneWidget,
       );
-      // Recoverable, not destructive: reselecting is the fix, and the actions
-      // to do it are still on the card.
+      // Recoverable, not destructive: all three ways out are on the row, and
+      // the card's own actions are untouched.
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Select folder again'), findsOneWidget);
+      expect(find.text('Remove folder'), findsOneWidget);
       expect(find.text('Add a folder'), findsOneWidget);
-      expect(find.byTooltip('Remove this folder'), findsOneWidget);
       expect(find.text('Forget local music'), findsOneWidget);
+    });
+
+    testWidgets('a folder whose permissions changed is not called missing', (
+      tester,
+    ) async {
+      // The three ways a folder stops being readable have three different
+      // fixes, and telling them apart is what #414 is for. This one is still
+      // exactly where it was, and telling the user to reconnect a drive would
+      // send them looking for a problem they do not have.
+      await _pump(
+        tester,
+        initialFolder: '/home/me/Music',
+        host: HostPlatform.linux,
+        readability: const _FixedReadability(
+          false,
+          fault: LocalRootFault.permissionDenied,
+        ),
+      );
+
+      expect(find.text('Permission denied'), findsOneWidget);
+      expect(find.text('Folder not found'), findsNothing);
+      expect(find.textContaining('permissions'), findsWidgets);
+    });
+
+    testWidgets('a drive that stopped answering reads as temporary', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        initialFolder: '/media/usb/Music',
+        host: HostPlatform.linux,
+        readability: const _FixedReadability(
+          false,
+          fault: LocalRootFault.unavailable,
+        ),
+      );
+
+      expect(find.text("Storage isn't responding"), findsOneWidget);
+      expect(
+        find.textContaining('Nothing about your setup changed'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the recovery panel never shows a raw OS error', (
+      tester,
+    ) async {
+      // Diagnostics stay internal; what reaches the card is a kind and the
+      // words written for it.
+      await _pump(
+        tester,
+        initialFolder: '/home/me/Music',
+        host: HostPlatform.linux,
+        readability: const _FixedReadability(
+          false,
+          fault: LocalRootFault.unknown,
+        ),
+      );
+
+      final Iterable<String> rendered = _renderedText(tester);
+      expect(rendered.any((String text) => text.contains('errno')), isFalse);
+      expect(
+        rendered.any((String text) => text.contains('OS Error')),
+        isFalse,
+      );
+      expect(
+        rendered.any((String text) => text.contains('FileSystemException')),
+        isFalse,
+      );
+      expect(find.text("Folder can't be read"), findsOneWidget);
+    });
+
+    testWidgets('Select folder again opens the chooser for that folder', (
+      tester,
+    ) async {
+      // Reselect is the one way a configured path ever changes, and it always
+      // goes through the system chooser: nothing picks a folder on the user's
+      // behalf.
+      final picker = _StagedPicker('/media/usb2/Music');
+      final folderRepo = InMemorySelectedMusicFolderRepository(
+        initialFolders: <String>['/home/me/Music', '/media/usb/Music'],
+      );
+      await _pump(
+        tester,
+        folderRepo: folderRepo,
+        host: HostPlatform.linux,
+        readability: const _MissingFolders(<String>{'/media/usb/Music'}),
+        picker: picker,
+        scanner: FakeAudioFileScanner(
+          unavailable: <String>{'/media/usb/Music'},
+        ),
+      );
+
+      await tester.tap(find.text('Select folder again'));
+      await tester.pumpAndSettle();
+
+      expect(picker.pickCount, 1);
+      // Only the folder the panel belonged to moved.
+      expect(await folderRepo.getSelectedFolders(), <String>[
+        '/home/me/Music',
+        '/media/usb2/Music',
+      ]);
+    });
+
+    testWidgets('Remove folder takes out only that folder, and no files', (
+      tester,
+    ) async {
+      final folderRepo = InMemorySelectedMusicFolderRepository(
+        initialFolders: <String>['/home/me/Music', '/media/usb/Music'],
+      );
+      await _pump(
+        tester,
+        folderRepo: folderRepo,
+        host: HostPlatform.linux,
+        readability: const _MissingFolders(<String>{'/media/usb/Music'}),
+        scanner: FakeAudioFileScanner(
+          unavailable: <String>{'/media/usb/Music'},
+        ),
+      );
+
+      // Said before the tap, because "Remove" next to a folder that just broke
+      // is exactly where a user fears the worst.
+      expect(
+        find.textContaining('Your files are\nnever deleted.'),
+        findsNothing,
+      );
+      expect(
+        find.textContaining('Your files are never deleted'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Remove folder'));
+      await tester.pumpAndSettle();
+
+      expect(await folderRepo.getSelectedFolders(), <String>['/home/me/Music']);
+    });
+
+    testWidgets('Retry is offered for every kind of problem', (tester) async {
+      for (final LocalRootFault fault in LocalRootFault.values) {
+        await _pump(
+          tester,
+          initialFolder: '/home/me/Music',
+          host: HostPlatform.linux,
+          readability: _FixedReadability(false, fault: fault),
+        );
+
+        expect(find.text('Retry'), findsOneWidget, reason: '$fault');
+      }
     });
 
     testWidgets('on Linux, a reachable folder says nothing about access', (
@@ -130,7 +325,7 @@ void main() {
 
       expect(find.text('/home/me/Music'), findsOneWidget);
       expect(
-        find.textContaining('Linthra can no longer reach this folder'),
+        find.textContaining('Its music stays in your library'),
         findsNothing,
       );
     });
@@ -548,12 +743,11 @@ void main() {
         readability: const _MissingFolders(<String>{'/media/usb'}),
       );
 
-      // One message, attached to the folder it is about — the rest of the
-      // library is fine.
-      expect(
-        find.textContaining('Linthra can no longer reach this folder'),
-        findsOneWidget,
-      );
+      // One recovery panel, attached to the folder it is about — the rest of
+      // the library is fine, and its row keeps the plain remove affordance.
+      expect(find.text('Folder not found'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.byTooltip('Remove this folder'), findsOneWidget);
     });
 
     testWidgets('a partial scan says the offline folder kept its music',

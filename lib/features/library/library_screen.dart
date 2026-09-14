@@ -13,12 +13,14 @@ import '../../core/models/track.dart';
 import '../../core/repositories/library_tab_store.dart';
 import '../../core/services/bulk_track_actions.dart';
 import '../../core/sources/local/folder_location.dart';
+import '../../core/sources/local/local_root_fault.dart';
 import '../../data/repositories/host_platform_provider.dart';
 import '../../data/repositories/library_tab_store_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
+import '../settings/source/local_music_controller.dart';
 import 'album_detail_screen.dart';
 import 'artist_detail_screen.dart';
 import 'folder_browser_providers.dart';
@@ -27,6 +29,7 @@ import 'library_controller.dart';
 import 'library_search.dart';
 import 'library_state.dart';
 import 'library_sync_activity.dart';
+import 'local_root_problem.dart';
 import 'selected_folder_controller.dart';
 import 'song_actions.dart';
 import 'track_selection.dart';
@@ -35,6 +38,7 @@ import 'widgets/album_grid.dart';
 import 'widgets/alphabet_track_list.dart';
 import 'widgets/artist_grid.dart';
 import 'widgets/library_search_field.dart';
+import 'widgets/local_root_problem_panel.dart';
 import 'widgets/selection_escape_scope.dart';
 
 /// Browse the de-duplicated catalog across Songs, Albums and Artists.
@@ -349,7 +353,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       case LibraryStatus.error:
         return _LibraryError(
           message: state.errorMessage,
-          onRetry: () => ref.read(libraryControllerProvider.notifier).refresh(),
+          // With folders configured, Retry means "ask the folders again": a
+          // reload of a catalog that is empty for a drive that is unplugged
+          // would never recover. With none, there is nothing to walk and the
+          // plain reload is the whole of it.
+          onRetry: selectedFolders.isEmpty
+              ? () => ref.read(libraryControllerProvider.notifier).refresh()
+              : () => _rescan(selectedFolders),
         );
       case LibraryStatus.loaded:
         // A first sync in flight — from any connected server — takes precedence
@@ -359,6 +369,23 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         final String? headline = syncingHeadline(syncingSources);
         if (headline != null) {
           return _LibrarySyncing(headline: headline);
+        }
+        // A folder that cannot be read is the difference between "you have no
+        // music" and "your music is on a drive that is not here". Said before
+        // the empty-library prompt, because it is the reason the library looks
+        // empty and because the fix is a different one.
+        final Map<String, LocalRootFault> faults =
+            ref.watch(localRootFaultsProvider);
+        if (faults.isNotEmpty) {
+          return _LibraryRootsUnavailable(
+            faults: faults,
+            onRetry: (String folder) => ref
+                .read(localMusicControllerProvider.notifier)
+                .retryFolder(folder),
+            onReselect: (String folder) => ref
+                .read(localMusicControllerProvider.notifier)
+                .reselectFolder(folder),
+          );
         }
         return _LibraryEmpty(
           selectedFolders: selectedFolders,
@@ -747,6 +774,70 @@ class _LibrarySyncing extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// What the Library shows instead of "no music found" when the reason it has
+/// nothing to show is a folder it cannot read.
+///
+/// An empty library and an unplugged drive look identical until somebody says
+/// which it is, and the difference matters: one is solved by adding music, the
+/// other by plugging something back in. So this names the problem per folder
+/// and offers the two fixes that keep everything: Retry, and picking the
+/// folder again. Removing a folder is deliberately *not* offered here: this screen is
+/// where a worried user lands, and the one action that throws a source away
+/// belongs on the Settings card, next to the sentence promising their files are
+/// safe.
+class _LibraryRootsUnavailable extends StatelessWidget {
+  const _LibraryRootsUnavailable({
+    required this.faults,
+    required this.onRetry,
+    required this.onReselect,
+  });
+
+  final Map<String, LocalRootFault> faults;
+  final void Function(String folder) onRetry;
+  final void Function(String folder) onReselect;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return ListView(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      children: <Widget>[
+        Text(
+          faults.length == 1
+              ? "Your music folder isn't available"
+              : "${faults.length} of your music folders aren't available",
+          style: theme.textTheme.titleMedium,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        for (final MapEntry<String, LocalRootFault> entry in faults.entries)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  FolderLocation.parse(entry.key).displayLabel,
+                  style: theme.textTheme.bodyMedium,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                LocalRootProblemPanel(
+                  presentation: localRootProblemPresentation(
+                    entry.value,
+                    location: FolderLocation.parse(entry.key),
+                  ),
+                  onRetry: () => onRetry(entry.key),
+                  onReselect: () => onReselect(entry.key),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

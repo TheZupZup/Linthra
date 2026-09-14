@@ -21,6 +21,7 @@ import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 import 'package:linthra/core/sources/local/local_directory_watch.dart';
 import 'package:linthra/core/sources/local/local_root_availability.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
@@ -52,6 +53,11 @@ class _FakeFilesystem
     implements AudioFileScanner, DirectoryReadability, DirectoryWatchFactory {
   final Map<String, List<String>> _files = <String, List<String>>{};
   final Set<String> _connected = <String>{};
+
+  /// What a disconnected folder reports. Unplugging a drive makes its path stop
+  /// resolving, which is [LocalRootFault.missing]; a test that wants the
+  /// permission or unresponsive-storage case sets this instead.
+  LocalRootFault fault = LocalRootFault.missing;
   final Map<String, StreamController<LocalDirectoryChange>> _watches =
       <String, StreamController<LocalDirectoryChange>>{};
 
@@ -85,7 +91,8 @@ class _FakeFilesystem
   }
 
   @override
-  Future<bool> canList(String path) async => _connected.contains(path);
+  Future<LocalRootFault?> inspect(String path) async =>
+      _connected.contains(path) ? null : fault;
 
   @override
   Stream<LocalDirectoryChange> watch(String root) {
