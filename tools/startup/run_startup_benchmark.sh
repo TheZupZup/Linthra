@@ -54,6 +54,14 @@ CANARY_MS=250
 OUT_DIR="$REPO_ROOT/build/startup"
 SMOKE=0
 
+# The warm-up count every scenario runs with. Pinned rather than inherited,
+# and the same number the iteration check below sizes the run against: a
+# caller who exported LINTHRA_STARTUP_WARMUP would otherwise discard a
+# different prefix than that check assumed, leaving too few judged launches
+# and making all three measurements run before both comparisons come back
+# indeterminate.
+HARNESS_WARMUP=1
+
 # Forwarded verbatim to every startup_report.py comparison. Empty by default,
 # so the reporter's own defaults are the ones in force; the failure message a
 # disagreeing control prints names these, so they have to actually exist here.
@@ -68,10 +76,18 @@ die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 # here instead, before anything is measured. (`set -e` is off in this script,
 # so a bad value would also survive a later arithmetic test.)
 require_count() {
-  local flag="$1" value="$2"
+  local flag="$1" value="$2" digits
   case "$value" in
     ''|*[!0-9]*) die "$flag needs a whole number, got '$value'" ;;
   esac
+  # Digits alone are not enough: `int.tryParse` returns null past Dart's 64-bit
+  # range, which lands in the same silent default as `typo` does. Compared by
+  # length after stripping leading zeros, because the shell's own arithmetic
+  # overflows on exactly the values being rejected.
+  digits="${value#"${value%%[!0]*}"}"
+  if [ "${#digits}" -gt 18 ]; then
+    die "$flag is too large to measure, got '$value'"
+  fi
 }
 
 ALLOWANCES=()
@@ -132,7 +148,6 @@ else
   # number lives in one place.
   MINIMUM_SAMPLES="$(python3 "$REPORT" --minimum-samples)" \
     || die "cannot ask $REPORT for its minimum sample count"
-  HARNESS_WARMUP=1
   MINIMUM_ITERATIONS=$((MINIMUM_SAMPLES + HARNESS_WARMUP))
   if [ "$ITERATIONS" -lt "$MINIMUM_ITERATIONS" ]; then
     die "--iterations $ITERATIONS leaves $((ITERATIONS - HARNESS_WARMUP)) judged launch(es) after the warm-up, and a comparison needs $MINIMUM_SAMPLES. Use --iterations $MINIMUM_ITERATIONS or more."
@@ -158,6 +173,7 @@ run_scenario() {
   LINTHRA_STARTUP_OUT="$out" \
   LINTHRA_STARTUP_LABEL="$name" \
   LINTHRA_STARTUP_ITERATIONS="$ITERATIONS" \
+  LINTHRA_STARTUP_WARMUP="$HARNESS_WARMUP" \
   LINTHRA_STARTUP_WORKLOADS="$REQUIRED_WORKLOADS" \
   LINTHRA_STARTUP_SMALL_TRACKS="$SMALL_TRACKS" \
   LINTHRA_STARTUP_LARGE_TRACKS="$LARGE_TRACKS" \

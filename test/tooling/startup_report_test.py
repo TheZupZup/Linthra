@@ -1136,6 +1136,28 @@ class CommandLineTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 2, extra)
                 self.assertIn("--validate does not check", result.stderr)
 
+    def test_a_non_finite_timing_is_refused(self) -> None:
+        """Python's JSON decoder accepts bare NaN, and every check below it is
+        false against NaN, so a poisoned file would reach a verdict of
+        NO REGRESSION over numbers that do not exist.
+        """
+        keys = ("first_frame_ms", "first_usable_frame_ms", "simulated_ms", "frames")
+        for key in keys:
+            for value in (float("nan"), float("inf"), float("-inf")):
+                payload = run_payload(
+                    workload("small", 1000, [9000.0, 300.0, 300.0, 300.0])
+                )
+                for sample in payload["workloads"][0]["samples"]:  # type: ignore[index]
+                    sample[key] = value
+                with tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory) / "run.json"
+                    # allow_nan writes the bare NaN / Infinity literals that
+                    # json.loads accepts on the way back in.
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+                    result = self.run_script(str(path), "--validate")
+                    self.assertEqual(result.returncode, 1, f"{key}={value}")
+                    self.assertIn("finite", result.stderr, f"{key}={value}")
+
     def test_validate_alone_still_works(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = self.write(Path(directory) / "run.json", run_payload())

@@ -270,6 +270,13 @@ def _number(payload: dict[str, object], key: str) -> float:
     value = _require(payload, key)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise InvalidReport(f"{key!r} is not a number: {value!r}")
+    # Python's JSON decoder accepts bare `NaN` and `Infinity`, which Dart's
+    # `jsonEncode` will not produce but a hand-edited or third-party file can
+    # carry. NaN survives every sanity check below (`nan < 0` is false, and so
+    # is `nan < first_frame`) and then poisons the medians, so `--expect same`
+    # prints NO REGRESSION over a run with no usable numbers in it at all.
+    if math.isnan(value) or math.isinf(value):
+        raise InvalidReport(f"{key!r} is not a finite number: {value!r}")
     return float(value)
 
 
@@ -293,6 +300,10 @@ def parse_sample(payload: dict[str, object]) -> Sample:
         raise InvalidReport("missing 'simulated_ms'")
     if not isinstance(simulated, (int, float)) or isinstance(simulated, bool):
         raise InvalidReport(f"'simulated_ms' is not a number: {simulated!r}")
+    if math.isnan(simulated) or math.isinf(simulated):
+        # Parsed here rather than through `_number` because it is optional-shaped,
+        # so it needs the same non-finite guard spelled out.
+        raise InvalidReport(f"'simulated_ms' is not a finite number: {simulated!r}")
     if simulated < 0:
         raise InvalidReport("simulated time cannot be negative")
     return Sample(
