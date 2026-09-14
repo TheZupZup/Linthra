@@ -146,6 +146,51 @@ void main() {
       expect(_focusedLabel(), 'cell 2');
     });
 
+    testWidgets('→ wraps even with something focusable beside the grid',
+        (tester) async {
+      // The shape the library has on a wide window: a grid with a detail pane
+      // next to it. The pane's own controls sit to the right of the last cell
+      // in every row, so a plain geometric move would leave the grid instead
+      // of wrapping, and the row break would be a dead end.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Row(
+              children: <Widget>[
+                SizedBox(
+                  height: 300,
+                  width: 400,
+                  child: ListKeyboardNavigation(
+                    wrapRows: true,
+                    child: GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 4,
+                        mainAxisExtent: 100,
+                      ),
+                      itemCount: 80,
+                      itemBuilder: (BuildContext context, int index) => InkWell(
+                        onTap: () {},
+                        child: Center(child: Text('cell $index')),
+                      ),
+                    ),
+                  ),
+                ),
+                TextButton(onPressed: () {}, child: const Text('in the pane')),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      Focus.of(tester.element(find.text('cell 3'))).requestFocus();
+      await tester.pump();
+
+      await _press(tester, LogicalKeyboardKey.arrowRight);
+
+      expect(_focusedLabel(), 'cell 4');
+    });
+
     testWidgets('a column of rows does not wrap', (tester) async {
       await _pumpGrid(tester, wrapRows: false);
       Focus.of(tester.element(find.text('cell 3'))).requestFocus();

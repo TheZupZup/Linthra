@@ -125,18 +125,19 @@ class _ListKeyboardNavigationState extends State<ListKeyboardNavigation> {
     return KeyEventResult.handled;
   }
 
-  /// ← / → in a grid: the cell the row break hid, one step away in reading
-  /// order.
+  /// ← / → in a grid: one cell along in reading order, which inside a row is
+  /// the neighbour and at a row's end is the next row's first cell.
   ///
-  /// Tried only once the ordinary geometric move has failed, so moving *within*
-  /// a row, and onto whatever controls a row carries, is untouched. Bounded to
-  /// this collection by construction: the candidates are its own descendants,
-  /// so the last cell of the grid cannot hand focus on to the page beyond it.
+  /// Walked over the collection's own cells rather than handed to the geometric
+  /// move, which is what keeps it *in* the grid. On a wide library window the
+  /// detail pane sits directly to the right of the last cell in every row, so a
+  /// geometric step would find a button over there and leave, and the row break
+  /// this exists for would stay a dead end.
+  ///
+  /// Focus on a control *inside* a cell is left alone: it is not one of the
+  /// cells, so the key falls through to the ordinary traversal, which is what
+  /// should move between a row's own controls.
   KeyEventResult _step(FocusNode focused, {required bool forward}) {
-    final TraversalDirection direction =
-        forward ? TraversalDirection.right : TraversalDirection.left;
-    if (focused.focusInDirection(direction)) return KeyEventResult.handled;
-
     final List<FocusNode> cells = _rowsInOrder();
     final int index = cells.indexOf(focused);
     if (index < 0) return KeyEventResult.ignored;

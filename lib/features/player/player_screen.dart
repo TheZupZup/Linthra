@@ -328,6 +328,12 @@ class _NowPlayingState extends State<_NowPlaying> {
           track: track,
           lyricsVisible: _showLyrics,
           onToggleLyrics: _toggleLyrics,
+          // The same node the wide layout's bar carries. A window narrowed
+          // past the two-column breakpoint rebuilds the screen as this one and
+          // takes the queue pane with it, and the handoff has to find the
+          // button on the far side of that change: it is the same control in
+          // the same place, opening the queue the only way this width can.
+          queueButtonFocusNode: _queueButtonFocus,
         ),
       ],
     );

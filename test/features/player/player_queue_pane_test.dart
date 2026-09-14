@@ -78,6 +78,10 @@ const Size _paneWindow = Size(1400, 900);
 /// A desktop window that is wide enough for two columns but not three.
 const Size _twoColumnWindow = Size(1280, 800);
 
+/// Narrower than `expandedWindowWidth`, so the screen stacks the way a phone's
+/// does and the wide layout's action bar is gone entirely.
+const Size _phoneWindow = Size(420, 900);
+
 Future<void> _pumpPlayer(
   WidgetTester tester, {
   required Size size,
@@ -258,6 +262,26 @@ void main() {
       expect(
         FocusManager.instance.primaryFocus,
         _queueButton(tester, 'Show queue').focusNode,
+      );
+    });
+
+    testWidgets('narrowing all the way to the stacked layout does too',
+        (tester) async {
+      await _pumpPlayer(tester, size: _paneWindow);
+      await tester.tap(find.byTooltip('Show queue'));
+      await tester.pumpAndSettle();
+      Focus.of(tester.element(find.text('Song Two'))).requestFocus();
+      await tester.pump();
+
+      // Past the two-column breakpoint entirely, so the screen rebuilds as the
+      // stacked layout a phone gets. The queue button is still there, and it
+      // is still where the keyboard belongs.
+      await _resize(tester, _phoneWindow);
+
+      expect(find.byType(QueueSheet), findsNothing);
+      expect(
+        FocusManager.instance.primaryFocus,
+        _queueButton(tester, 'Queue').focusNode,
       );
     });
 
