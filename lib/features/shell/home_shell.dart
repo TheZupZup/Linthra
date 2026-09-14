@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/routes.dart';
 import '../../shared/focus/focus_handoff.dart';
 import '../player/mini_player.dart';
 import '../player/widgets/queue_side_panel.dart';
 import 'playlist_drag_spring.dart';
+import 'sidebar_source_status.dart';
 
 /// The persistent app frame: hosts the active tab and the app's primary
 /// navigation. Tab state is owned by go_router's [StatefulNavigationShell], so
@@ -151,6 +153,17 @@ class _HomeShellState extends State<HomeShell> {
         .goBranch(HomeShell.playlistsBranchIndex, initialLocation: true);
   }
 
+  /// Opens the existing Connections screen from a source-status indicator
+  /// (#425).
+  ///
+  /// `go` rather than `push`: Connections lives inside the Settings branch, so
+  /// this switches to that tab and lands on the page, leaving the user
+  /// somewhere the rail agrees with. Pushing it over the Library tab would
+  /// show a Settings page while the rail still highlighted Library.
+  void _openConnectionSettings() {
+    GoRouter.of(context).go(AppRoutes.settingsConnections);
+  }
+
   /// The rail, wrapped in the drag spring so a track dragged out of the
   /// library can reach the Playlists tab (#389).
   Widget _buildNavigationRail() {
@@ -167,6 +180,13 @@ class _HomeShellState extends State<HomeShell> {
                 onDestinationSelected: _onDestinationSelected,
                 labelType: NavigationRailLabelType.all,
                 groupAlignment: -1,
+                // Status for the configured servers (#425), under the
+                // destinations rather than among them: these are not places to
+                // go, and a rail whose selection could land on one would be
+                // lying about what it does.
+                trailing: SidebarSourceStatusStrip(
+                  onOpenConnections: _openConnectionSettings,
+                ),
                 destinations: <NavigationRailDestination>[
                   for (int i = 0; i < HomeShell._destinations.length; i++)
                     _railDestination(context, i, dragHovering: dragHovering),
