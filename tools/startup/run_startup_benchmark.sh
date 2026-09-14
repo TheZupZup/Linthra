@@ -228,7 +228,7 @@ python3 "$REPORT" "$OUT_DIR/control.json" \
 info "canary against baseline (expect REGRESSION on every workload)"
 python3 "$REPORT" "$OUT_DIR/canary.json" \
   --baseline "$OUT_DIR/baseline.json" "${ALLOWANCES[@]}" \
-  --expect regressed-everywhere || {
+  --expect delayed-everywhere || {
   printf '\nA deliberate %s ms delay in every catalog read was NOT detected on\n' "$CANARY_MS"
   printf 'every workload. The check is not measuring what it thinks it is; do\n'
   printf 'not trust a clean result until this passes.\n'

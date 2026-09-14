@@ -265,7 +265,7 @@ class ComparisonTest(unittest.TestCase):
             self.assertTrue(short.indeterminate)
             self.assertEqual(short.unjudgeable, ("small",))
             self.assertFalse(short.regressed)
-            self.assertFalse(short.regressed_everywhere)
+            self.assertFalse(short.delayed_everywhere)
 
     def test_a_complete_comparison_is_determinate(self) -> None:
         steady = [9000.0, 300.0, 305.0, 300.0]
@@ -486,7 +486,7 @@ class IndeterminateExpectationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             base = self.write(Path(directory) / "base.json", full)
             cut = self.write(Path(directory) / "cut.json", short)
-            for expectation in ("same", "regressed", "regressed-everywhere"):
+            for expectation in ("same", "regressed", "delayed-everywhere"):
                 result = self.run_script(
                     str(cut), "--baseline", str(base), "--expect", expectation
                 )
@@ -685,7 +685,9 @@ class CanaryScopeTest(unittest.TestCase):
             }
         )
         self.assertTrue(result.regressed)
-        self.assertTrue(result.regressed_everywhere)
+        # Slower on the wall clock everywhere, but nothing waited longer, so
+        # this is exactly the run the canary must NOT accept.
+        self.assertFalse(result.delayed_everywhere)
 
     def test_one_workload_slower_is_not_everywhere(self) -> None:
         result = self.comparison_of(
@@ -696,7 +698,7 @@ class CanaryScopeTest(unittest.TestCase):
             }
         )
         self.assertTrue(result.regressed)
-        self.assertFalse(result.regressed_everywhere)
+        self.assertFalse(result.delayed_everywhere)
 
     def test_nothing_slower_is_neither(self) -> None:
         result = self.comparison_of(
@@ -707,7 +709,7 @@ class CanaryScopeTest(unittest.TestCase):
             }
         )
         self.assertFalse(result.regressed)
-        self.assertFalse(result.regressed_everywhere)
+        self.assertFalse(result.delayed_everywhere)
 
 
 class MilestoneRowTest(unittest.TestCase):
@@ -985,48 +987,76 @@ class CommandLineTest(unittest.TestCase):
             result = self.run_script(str(path), "--require-workloads", "empty")
             self.assertEqual(result.returncode, 2)
 
-    def test_expect_regressed_everywhere_needs_every_workload(self) -> None:
-        """What the canary is held to."""
-        one_slow = run_payload(
-            workload("empty", 0, [9000.0, 700.0, 700.0, 700.0]),
-            workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]),
-            workload("large", 20000, [9000.0, 4000.0, 4000.0, 4000.0]),
-        )
-        all_slow = run_payload(
-            workload("empty", 0, [9000.0, 700.0, 700.0, 700.0]),
-            workload("small", 1000, [9000.0, 900.0, 900.0, 900.0]),
-            workload("large", 20000, [9000.0, 9000.0, 9000.0, 9000.0]),
-        )
+    def test_the_canary_expectation_needs_every_workload(self) -> None:
+        """What the canary is held to: every workload, on the awaited clock."""
         base = run_payload(
             workload("empty", 0, [9000.0, 100.0, 100.0, 100.0]),
             workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]),
             workload("large", 20000, [9000.0, 4000.0, 4000.0, 4000.0]),
         )
+        # A delay injected into every read: +248 ms awaited on all three.
+        every = run_payload(
+            workload("empty", 0, [9000.0, 700.0, 700.0, 700.0], simulated_ms=256.0),
+            workload("small", 1000, [9000.0, 900.0, 900.0, 900.0], simulated_ms=256.0),
+            workload(
+                "large", 20000, [9000.0, 3800.0, 3800.0, 3800.0], simulated_ms=256.0
+            ),
+        )
+        # The delay stopped being seen on `large`, which is the false negative
+        # this control exists to catch.
+        partial = run_payload(
+            workload("empty", 0, [9000.0, 700.0, 700.0, 700.0], simulated_ms=256.0),
+            workload("small", 1000, [9000.0, 900.0, 900.0, 900.0], simulated_ms=256.0),
+            workload("large", 20000, [9000.0, 4000.0, 4000.0, 4000.0]),
+        )
+        # Slower everywhere on the wall clock and nothing awaited: a busy
+        # machine, not a detected delay. The old "regressed everywhere" rule
+        # passed this.
+        busy = run_payload(
+            workload("empty", 0, [9000.0, 700.0, 700.0, 700.0]),
+            workload("small", 1000, [9000.0, 900.0, 900.0, 900.0]),
+            workload("large", 20000, [9000.0, 9000.0, 9000.0, 9000.0]),
+        )
         with tempfile.TemporaryDirectory() as directory:
             b = self.write(Path(directory) / "base.json", base)
-            one = self.write(Path(directory) / "one.json", one_slow)
-            every = self.write(Path(directory) / "every.json", all_slow)
-            # The ordinary policy is happy with one, the canary's is not.
+            for payload, name, code, needle in (
+                (every, "every", 0, None),
+                (partial, "partial", 1, "waited longer only on empty, small"),
+                (busy, "busy", 1, "no workload waited longer"),
+            ):
+                path = self.write(Path(directory) / f"{name}.json", payload)
+                result = self.run_script(
+                    str(path), "--baseline", str(b), "--expect", "delayed-everywhere"
+                )
+                self.assertEqual(result.returncode, code, f"{name}: {result.stderr}")
+                if needle is not None:
+                    self.assertIn(needle, result.stderr, name)
+            # The busy run is still a regression under the ordinary policy; it
+            # is only this control that refuses it.
             self.assertEqual(
                 self.run_script(
-                    str(one), "--baseline", str(b), "--expect", "regressed"
-                ).returncode,
-                0,
-            )
-            partial = self.run_script(
-                str(one), "--baseline", str(b), "--expect", "regressed-everywhere"
-            )
-            self.assertEqual(partial.returncode, 1)
-            self.assertIn("regressed somewhere: empty", partial.stderr)
-            self.assertEqual(
-                self.run_script(
-                    str(every),
+                    str(Path(directory) / "busy.json"),
                     "--baseline",
                     str(b),
                     "--expect",
-                    "regressed-everywhere",
+                    "regressed",
                 ).returncode,
                 0,
+            )
+
+    def test_a_budget_counts_awaited_time(self) -> None:
+        """A budget limits how long startup takes, and waiting is startup."""
+        payload = run_payload(
+            workload("small", 1000, [9000.0, 300.0, 300.0, 300.0], simulated_ms=10000.0)
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", payload)
+            over = self.run_script(str(path), "--budget", "small=1000")
+            self.assertEqual(over.returncode, 1)
+            self.assertIn("300.0 working", over.stderr)
+            self.assertIn("10000 awaited", over.stderr)
+            self.assertEqual(
+                self.run_script(str(path), "--budget", "small=11000").returncode, 0
             )
 
     def test_comparing_across_pump_intervals_fails_loudly(self) -> None:

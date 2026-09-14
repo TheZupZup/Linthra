@@ -562,15 +562,26 @@ class Comparison:
         return tuple(entry.name for entry in self.workloads if entry.diverged)
 
     @property
-    def regressed_everywhere(self) -> bool:
-        """Whether *every* workload got slower.
+    def delayed_everywhere(self) -> bool:
+        """Whether *every* workload waited longer.
 
-        What the canary has to satisfy. It delays every catalog read, so every
-        workload must see it; a canary that only still fires on `empty` has
-        proved that the check stopped detecting the delay on the other two,
-        and `any()` would call that a pass.
+        What the canary has to satisfy, and deliberately narrower than "every
+        workload got slower". The canary injects a `Future.delayed` into every
+        catalog read, and the whole reason the simulated clock exists is that a
+        wall clock in a widget test cannot see one: six runs in, the `large`
+        workload has come back *faster* than its baseline on the wall clock
+        every single time while the simulated clock read +248 ms.
+
+        So "slower on either clock, everywhere" would let this control pass on
+        a run where the machine happened to be busy enough to move all three
+        wall-clock medians while the injected delay went unseen. That is the
+        exact failure the canary exists to catch, so it is the awaited clock
+        that has to fire, on every workload. (Waiting longer is itself a
+        regression, so this implies the run-level verdict too.)
         """
-        return bool(self.workloads) and all(entry.regressed for entry in self.workloads)
+        return bool(self.workloads) and all(
+            entry.comparable and entry.waited_longer for entry in self.workloads
+        )
 
 
 def comparability_problem(baseline: Run, candidate: Run) -> str | None:
@@ -885,11 +896,22 @@ def check_budgets(run: Run, budgets: list[tuple[str, float]], warmup: int) -> li
                 f"{limit:.1f} ms budget"
             )
             continue
-        if stats.median_ms > limit:
-            failures.append(
-                f"{name}: {stats.median_ms:.1f} ms median is over the "
-                f"{limit:.1f} ms budget"
+        # Both clocks, because a budget is a limit on how long startup takes
+        # and the fake clock is where awaiting shows up. Wall time alone would
+        # let a workload with a 300 ms median and ten seconds of injected
+        # waiting pass `--budget 1000`, which is the same blindness the
+        # comparison already refuses to have.
+        total = stats.median_ms + stats.simulated_median_ms
+        if total > limit:
+            detail = (
+                f"{stats.median_ms:.1f} ms"
+                if stats.simulated_median_ms <= 0
+                else (
+                    f"{total:.1f} ms ({stats.median_ms:.1f} working, "
+                    f"{stats.simulated_median_ms:.0f} awaited)"
+                )
             )
+            failures.append(f"{name}: {detail} is over the {limit:.1f} ms budget")
     return failures
 
 
@@ -954,7 +976,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--expect",
-        choices=("same", "equivalent", "regressed", "regressed-everywhere"),
+        choices=("same", "equivalent", "regressed", "delayed-everywhere"),
         help=(
             "fail unless the comparison says this. Needs --baseline. "
             "'same' is one-sided (not slower) and is what you want when "
@@ -963,8 +985,9 @@ def main(argv: list[str] | None = None) -> int:
             "held to, since a control that came back much faster has shown "
             "the baseline was noisy rather than that anything improved. "
             "'regressed' is the ordinary run-level policy (any workload); "
-            "'regressed-everywhere' is what the canary needs, because a "
-            "delay injected into every read must be seen on every workload"
+            "'delayed-everywhere' is what the canary needs: a delay injected "
+            "into every read has to show up as extra *awaited* time on every "
+            "workload, which is the clock a wall clock cannot stand in for"
         ),
     )
     parser.add_argument(
@@ -1102,18 +1125,20 @@ def main(argv: list[str] | None = None) -> int:
             actual = (
                 "equivalent" if met else "moved on " + ", ".join(comparison.divergent)
             )
-        elif args.expect == "regressed-everywhere":
-            met = comparison.regressed_everywhere
+        elif args.expect == "delayed-everywhere":
+            met = comparison.delayed_everywhere
+            waited = [
+                entry.name
+                for entry in comparison.workloads
+                if entry.comparable and entry.waited_longer
+            ]
             actual = (
-                "regressed everywhere"
+                "waited longer everywhere"
                 if met
                 else (
-                    "regressed somewhere: "
-                    + ", ".join(
-                        entry.name for entry in comparison.workloads if entry.regressed
-                    )
-                    if comparison.regressed
-                    else "same"
+                    "waited longer only on " + ", ".join(waited)
+                    if waited
+                    else "no workload waited longer"
                 )
             )
         else:

@@ -238,12 +238,16 @@ both ways of being wrong are part of the run:
   quietly stopped measuring, and handing it something it *must* catch is the
   only way to tell those apart. This is the false-negative control.
 
-  Every workload, not just one, and this is the one place the ordinary
-  any-workload policy is not enough: the delay goes into *every* read, so a
-  canary that still fires on `empty` and no longer fires on `large` has shown
-  that two thirds of the check stopped working, and `any()` would print "both
-  controls passed" over it. `--expect regressed-everywhere` is what the runner
-  holds it to.
+  Every workload, not just one, and on the awaited clock specifically. This
+  is the one place the ordinary any-workload, either-clock policy is not
+  enough. The delay goes into *every* read, so a canary that still fires on
+  `empty` and no longer fires on `large` has shown that two thirds of the
+  check stopped working, and `any()` would print "both controls passed" over
+  it. And the delay *is* awaited time: on a machine busy enough to move all
+  three wall-clock medians, "slower on either clock" would pass this control
+  while the injected delay went entirely unseen, which is the failure it
+  exists to catch. `--expect delayed-everywhere` is what the runner holds it
+  to.
 
 The runner also *sets* `LINTHRA_STARTUP_WORKLOADS` for every scenario rather
 than inheriting it, and re-validates each scenario's output against the full
@@ -281,8 +285,11 @@ than "all of them": one workload seeing a change is a change.
 
 ## Budgets
 
-`--budget large=15000` fails the run if a workload's median is over that many
-milliseconds. A budget has to be a number that could actually be missed:
+`--budget large=15000` fails the run if a workload's startup is over that many
+milliseconds, counting **both clocks**: the working median plus the awaited
+median, because a budget is a limit on how long starting up takes and a
+workload with a 300 ms median and ten seconds of injected waiting has not met a
+one-second budget. A budget has to be a number that could actually be missed:
 `nan` parses and then compares false against everything, which is a gate you
 asked for that silently does nothing, so it is rejected along with infinity and
 negative values. It is off by default and CI never sets one, because a budget is

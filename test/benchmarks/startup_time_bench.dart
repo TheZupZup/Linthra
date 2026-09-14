@@ -471,10 +471,10 @@ List<_Workload> _selectedWorkloads() {
   if (requested == null || requested.trim().isEmpty) {
     return all.values.toList();
   }
-  return <_Workload>[
+  final Set<String> wanted = <String>{
     for (final String raw in requested.split(','))
-      if (all[raw.trim()] case final _Workload workload)
-        workload
+      if (all.containsKey(raw.trim()))
+        raw.trim()
       else
         // A typo here would silently measure fewer workloads than asked for,
         // and the report would look complete. Fail instead.
@@ -482,6 +482,16 @@ List<_Workload> _selectedWorkloads() {
           'unknown workload "${raw.trim()}" in LINTHRA_STARTUP_WORKLOADS; '
           'expected one of ${all.keys.join(", ")}',
         ),
+  };
+  // Declaration order, not the order asked for. These run one after another in
+  // a single VM, so whichever goes first pays the JIT and page-cache warming
+  // the rest then inherit. Honouring the requested order would make
+  // `large,small,empty` and `empty,small,large` two different measurements
+  // that the reporter has no way to tell apart, so the order is simply not a
+  // variable: the same set always runs the same way round.
+  return <_Workload>[
+    for (final MapEntry<String, _Workload> entry in all.entries)
+      if (wanted.contains(entry.key)) entry.value,
   ];
 }
 
