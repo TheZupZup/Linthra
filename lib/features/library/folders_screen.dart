@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/dimens.dart';
 import '../../core/models/music_folder.dart';
 import '../../core/services/folder_browsable_music_source.dart';
+import '../../core/sources/local/folder_location.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../settings/source/local_music_controller.dart';
 import 'folder_browser_providers.dart';
+import 'selected_folder_controller.dart';
 import 'widgets/track_tile.dart';
 
 /// Browses the real directory hierarchy exposed by Jellyfin and
@@ -22,6 +25,13 @@ import 'widgets/track_tile.dart';
 ///
 /// Android's system Back first walks up the folder trail; only at the roots
 /// does it leave the screen.
+///
+/// This is also where the local library's folders are managed from. The music
+/// folders you configured are listed above the servers, and **Add folder** in
+/// the header runs the same `LocalMusicController.addFolder` command that
+/// Settings ▸ Local music does, so there is one folder picker, one selection,
+/// and one scan, whichever of the two you reach for. Library is left to
+/// browsing and searching music.
 class FoldersScreen extends ConsumerStatefulWidget {
   const FoldersScreen({super.key});
 
@@ -36,11 +46,45 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
   Widget build(BuildContext context) {
     final List<FolderBrowsableMusicSource> sources =
         ref.watch(folderBrowsableSourcesProvider);
+    // A pick or a scan already running is the reason to grey the action out,
+    // and that is the local-music controller's own state rather than a second
+    // copy of it kept here.
+    final bool busy =
+        ref.watch(localMusicControllerProvider.select((state) => state.busy));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Folders')),
+      appBar: AppBar(
+        title: const Text('Folders'),
+        actions: <Widget>[
+          IconButton(
+            key: const Key('folders_add_folder'),
+            icon: const Icon(Icons.create_new_folder_outlined),
+            // Icon-only, so this label is the only name the action has, for
+            // a pointer hovering it and for a screen reader alike.
+            tooltip: 'Add music folder',
+            onPressed: busy ? null : _addFolder,
+          ),
+        ],
+      ),
       body: _body(sources),
     );
+  }
+
+  /// Adds a music folder to the local library: the one command behind both the
+  /// header action and the empty state.
+  ///
+  /// It delegates to [LocalMusicController], which owns picking, persisting and
+  /// scanning, including Android's single-grant rule, where adding a folder
+  /// replaces the grant instead of extending it. Nothing about folder state or
+  /// scanning is decided here; this screen only reports the outcome.
+  Future<void> _addFolder() async {
+    await ref.read(localMusicControllerProvider.notifier).addFolder();
+    if (!mounted) return;
+    final String? message = ref.read(localMusicControllerProvider).message;
+    if (message == null) return;
+    ScaffoldMessenger.of(context)
+      ..removeCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _body(List<FolderBrowsableMusicSource> sources) {
@@ -58,7 +102,11 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
     if (_trail.isEmpty) {
       // Nothing to intercept at the roots, so no listener is registered and
       // Back behaves exactly as it does on the other top-level destinations.
-      return _FolderRoots(sources: sources, onOpen: _openRoot);
+      return _FolderRoots(
+        sources: sources,
+        onOpen: _openRoot,
+        onAddFolder: _addFolder,
+      );
     }
 
     // BackButtonListener talks directly to the Router used by go_router, and
@@ -124,20 +172,40 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
 }
 
 class _FolderRoots extends ConsumerWidget {
-  const _FolderRoots({required this.sources, required this.onOpen});
+  const _FolderRoots({
+    required this.sources,
+    required this.onOpen,
+    required this.onAddFolder,
+  });
 
   final List<FolderBrowsableMusicSource> sources;
   final void Function(FolderBrowsableMusicSource source, MusicFolder folder)
       onOpen;
+  final VoidCallback onAddFolder;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (sources.isEmpty) {
-      return const EmptyState(
+    // The selection itself, read from the controller that owns it. Adding a
+    // folder therefore shows up here on its own, with no second copy of the
+    // list to keep in step.
+    final List<String> localFolders =
+        ref.watch(selectedFolderControllerProvider).valueOrNull ??
+            const <String>[];
+
+    if (sources.isEmpty && localFolders.isEmpty) {
+      return EmptyState(
         icon: Icons.folder_off_outlined,
-        title: 'No server folders available',
-        message: 'Connect Jellyfin or Navidrome / Subsonic to browse its '
-            'folder hierarchy.',
+        title: 'No music folders yet',
+        message: 'Add a folder from this device, or connect Jellyfin or '
+            'Navidrome / Subsonic to browse its folder hierarchy.',
+        // The same command as the header action: one way to add a folder, so
+        // whichever one the user finds first behaves identically.
+        action: FilledButton.icon(
+          key: const Key('folders_empty_add_folder'),
+          onPressed: onAddFolder,
+          icon: const Icon(Icons.create_new_folder_outlined),
+          label: const Text('Add folder'),
+        ),
       );
     }
 
@@ -152,6 +220,8 @@ class _FolderRoots extends ConsumerWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(bottom: AppSpacing.xl),
         children: <Widget>[
+          if (localFolders.isNotEmpty)
+            _LocalFoldersSection(folders: localFolders),
           for (final FolderBrowsableMusicSource source in sources)
             _SourceRootsSection(
               key: ValueKey<String>('folder_source_${source.id}'),
@@ -159,6 +229,89 @@ class _FolderRoots extends ConsumerWidget {
               onOpen: (folder) => onOpen(source, folder),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The music folders configured on this device, listed above the servers.
+///
+/// Read-only on purpose: it says what the local library is made of and where a
+/// folder just added landed, while removing one, rescanning and forgetting the
+/// source stay in Settings ▸ Local music rather than being reimplemented here.
+/// Server folders open into a hierarchy; a local root does not, because nothing
+/// on this screen fetches local directory levels.
+class _LocalFoldersSection extends StatelessWidget {
+  const _LocalFoldersSection({required this.folders});
+
+  final List<String> folders;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+            child: Text(
+              'On this device',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          for (final String folder in folders)
+            _LocalFolderTile(
+              key: ValueKey<String>('local_folder_$folder'),
+              location: FolderLocation.parse(folder),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.xs,
+              AppSpacing.md,
+              0,
+            ),
+            child: Text(
+              'Rescan, remove or forget these in Settings ▸ Local music.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocalFolderTile extends StatelessWidget {
+  const _LocalFolderTile({required this.location, super.key});
+
+  final FolderLocation location;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(
+        // Android's device-wide library is a mode, not a directory, so it does
+        // not get to wear a folder icon.
+        location.isAndroidMediaStore
+            ? Icons.library_music_outlined
+            : Icons.folder_outlined,
+      ),
+      title: Text(
+        location.displayLabel,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }
