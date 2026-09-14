@@ -112,6 +112,58 @@ void main() {
       });
     }
 
+    test('a track whose own URI contains "libmpv" is still a track failure',
+        () {
+      // libmpv reports an unplayable track as `Failed to open <uri>` and the
+      // vendored backend passes that text through verbatim, so without
+      // redacting the URI first this song would cost the listener Skip, "Try
+      // another source", and a pointless trip to their package manager.
+      expect(
+        LinuxPlaybackRuntime.recognise(
+          Exception('Failed to open file:///music/libmpv-demo.flac.'),
+        ),
+        isNull,
+      );
+    });
+
+    test('a stream URL mentioning the runtime is left alone too', () {
+      expect(
+        LinuxPlaybackRuntime.recognise(
+          Exception(
+            'Failed to open https://music.example/stream/mpv_session?x=1.',
+          ),
+        ),
+        isNull,
+      );
+    });
+
+    test('a bare path to a track named after the runtime is left alone', () {
+      expect(
+        LinuxPlaybackRuntime.recognise(
+          Exception('Failed to open /music/libmpv.so.flac.'),
+        ),
+        isNull,
+      );
+    });
+
+    test('redaction does not blind the classifier to a real loader error', () {
+      // The half that must keep working: what identifies a loader complaint
+      // (the quoted soname, "cannot open shared object file", the ELF class)
+      // does not live inside the path that gets taken out.
+      expect(
+        LinuxPlaybackRuntime.recogniseText(loaderWrongClass),
+        LinuxPlaybackRuntimeProblem.libraryIncompatible,
+      );
+      expect(
+        LinuxPlaybackRuntime.recogniseText(loaderRefused),
+        LinuxPlaybackRuntimeProblem.libraryUnloadable,
+      );
+      expect(
+        LinuxPlaybackRuntime.recogniseText(loaderNotThere),
+        LinuxPlaybackRuntimeProblem.libraryMissing,
+      );
+    });
+
     test('an error that merely says "unsupported" is left alone', () {
       // "unsupported version" is one of the incompatible markers; on its own,
       // with nothing about the native runtime, the gate has to reject it

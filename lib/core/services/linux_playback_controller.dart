@@ -95,6 +95,16 @@ class LinuxPlaybackBackendInitializer {
   bool _initialized = false;
   LinuxPlaybackRuntimeFailure? _failure;
 
+  /// A runtime failure the engine only revealed once it was handed a source.
+  ///
+  /// Registration succeeded, so [_initialized] is true and re-running it
+  /// would keep saying the backend is fine. Without a latch the next play
+  /// would sail through the preflight, resolve a stream (a network round trip
+  /// on a machine that has already proven it cannot play a note) and fail at
+  /// the same symbol. Latched, the preflight answers immediately with the
+  /// verdict it already has.
+  LinuxPlaybackRuntimeFailure? _loadTimeFailure;
+
   /// Whether the backend is registered and the native runtime is loaded.
   bool get isReady => _initialized;
 
@@ -108,6 +118,8 @@ class LinuxPlaybackBackendInitializer {
   /// is not. Cheap to call on every playback attempt: once it has succeeded it
   /// short-circuits, and until then the work is one library load.
   LinuxPlaybackRuntimeFailure? ensureInitialized() {
+    final LinuxPlaybackRuntimeFailure? loadTime = _loadTimeFailure;
+    if (loadTime != null) return loadTime;
     if (_initialized) return null;
     try {
       _registerBackend();
@@ -122,6 +134,7 @@ class LinuxPlaybackBackendInitializer {
     }
     _initialized = true;
     _failure = null;
+    _loadTimeFailure = null;
     return null;
   }
 
@@ -139,8 +152,20 @@ class LinuxPlaybackBackendInitializer {
     if (problem == null) return null;
     final LinuxPlaybackRuntimeFailure failure = _classify(problem, error);
     _failure = failure;
+    _loadTimeFailure = failure;
     LinuxPlaybackRuntime.logFailure(failure);
     return failure;
+  }
+
+  /// Gives the engine one more genuine attempt after a load-time verdict.
+  ///
+  /// Called when the listener presses Retry, which is them saying they have
+  /// fixed the machine. The latch exists to stop *automatic* attempts walking
+  /// into a known-broken engine, not to refuse the one attempt that was asked
+  /// for, so a deliberate retry clears it and the next load really reaches
+  /// libmpv again.
+  void allowAnotherAttempt() {
+    _loadTimeFailure = null;
   }
 
   LinuxPlaybackRuntimeFailure _classify(
@@ -244,6 +269,19 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
   @protected
   PlaybackResolutionException? engineUnavailableFailure() =>
       _backend?.ensureInitialized()?.asResolutionException();
+
+  /// Lets a deliberate Retry reach the engine again.
+  ///
+  /// A runtime failure discovered at load time is latched, so ordinary play
+  /// attempts are refused at the preflight rather than resolving a stream for
+  /// an engine that has already failed. Retry is the one case that should get
+  /// through: it is the listener saying the machine is fixed, and the only
+  /// way to find out is to ask libmpv.
+  @override
+  Future<void> retryCurrentTrack() {
+    _backend?.allowAnotherAttempt();
+    return super.retryCurrentTrack();
+  }
 
   /// Classifies a load failure that is really the native runtime's.
   ///

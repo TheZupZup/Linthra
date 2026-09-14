@@ -1738,7 +1738,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// default / tests), the failed load was *not* a cache hit (a stream that
   /// won't open is a real source failure handled by the normal candidate
   /// fallback), a newer transition superseded [generation], or the stream
-  /// itself can't resolve or open.
+  /// itself can't resolve or open. The one failure it does *not* absorb is an
+  /// unavailable engine: that is thrown, because it is true of every source
+  /// rather than of this one.
   Future<({Track track, ResolvedPlayable resolved})?> _retryFromStream(
     Track candidate,
     ResolvedPlayable failed,
@@ -1764,7 +1766,19 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     try {
       await _player.setUrl(streamed.uri.toString());
       return (track: candidate, resolved: streamed);
-    } catch (_) {
+    } catch (error) {
+      // The cache miss is this track's problem; an engine that cannot take a
+      // source is every track's. Swallowing the second as "the stream didn't
+      // open either" would report the cached copy's failure, walk on through
+      // the remaining candidates, and never show the engine recovery, so it
+      // is classified here too and thrown rather than returned.
+      final PlaybackResolutionException failure =
+          loadFailureFor(error, streamed.source);
+      if (failure.kind ==
+          PlaybackResolutionErrorKind.playbackEngineUnavailable) {
+        StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
+        throw failure;
+      }
       StabilityDiagnostics.playbackError('load');
       return null;
     }

@@ -132,8 +132,20 @@ abstract final class LinuxPlaybackRuntime {
 
   /// [recognise] for something that is already just text: one line the dynamic
   /// loader refused a name with.
+  ///
+  /// The URI is taken out **before** the markers are looked for, and that is
+  /// load-bearing rather than tidiness. libmpv reports an unplayable track as
+  /// `Failed to open <uri>` and the vendored backend passes that text straight
+  /// through (`third_party/just_audio_media_kit/lib/mediakit_player.dart`), so
+  /// a perfectly ordinary song at `…/libmpv-demo.flac` would otherwise match
+  /// `libmpv` and be called a broken audio engine: the listener would lose
+  /// Skip and "Try another source" and be told to reinstall a system package
+  /// over one file. A loader's own complaint survives the redaction, because
+  /// what identifies it (`cannot open shared object file`, `wrong ELF class`,
+  /// `undefined symbol: mpv_create`, the soname in quotes) is not inside a
+  /// path.
   static LinuxPlaybackRuntimeProblem? recogniseText(String message) {
-    final String text = message.toLowerCase();
+    final String text = redactLocations(message).toLowerCase();
     if (!_mentions(text, runtimeMarkers)) return null;
     // A version or ABI mismatch reads as "found it, cannot use it", so it is
     // decided before "cannot find it": a wrong-architecture libmpv.so sitting
@@ -208,16 +220,24 @@ abstract final class LinuxPlaybackRuntime {
   /// error cannot smuggle a second line past a reader, then the whole thing is
   /// bounded.
   static String sanitizeRuntimeDiagnostic(Object error) {
-    final String collapsed = error
-        .toString()
-        .replaceAll(RegExp(r'[a-zA-Z][a-zA-Z0-9+.-]*://\S+'), '<url>')
-        .replaceAll(RegExp(r'(/[\w.+@-]+){2,}/?'), '<path>')
+    final String collapsed = redactLocations(error.toString())
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     return collapsed.length <= maxDiagnosticLength
         ? collapsed
         : '${collapsed.substring(0, maxDiagnosticLength)}…';
   }
+
+  /// Replaces every URL and filesystem path in [text] with a fixed token.
+  ///
+  /// Used for two different reasons that happen to want the same thing: a
+  /// retained diagnostic must not carry somebody's home directory or a
+  /// tokenized stream URL, and [recogniseText] must not read a track's own
+  /// location as evidence about the audio runtime. URLs go first, so a
+  /// scheme's `//` cannot survive into the path pass.
+  static String redactLocations(String text) => text
+      .replaceAll(RegExp(r'[a-zA-Z][a-zA-Z0-9+.-]*://\S*'), '<url>')
+      .replaceAll(RegExp(r'(?:/[\w.+@%-]+)+/?'), '<path>');
 
   /// Records [failure] where a developer can see it, and nowhere else.
   ///

@@ -36,6 +36,10 @@ class _Engine extends Fake implements AudioPlayer {
   /// The error `setUrl` throws instead of opening, or null to open normally.
   Object? openError;
 
+  /// Per-URL variant of [openError], for the cache-then-stream path where the
+  /// two loads have to fail differently.
+  Object? Function(String url)? openErrorForUrl;
+
   @override
   Stream<PlayerState> get playerStateStream => states.stream;
   @override
@@ -54,7 +58,7 @@ class _Engine extends Fake implements AudioPlayer {
     dynamic tag,
   }) async {
     opened.add(url);
-    final Object? error = openError;
+    final Object? error = openErrorForUrl?.call(url) ?? openError;
     if (error != null) throw error;
     return const Duration(minutes: 4);
   }
@@ -99,6 +103,31 @@ class _Resolver implements PlayableUriResolver {
       PlaybackSource.streamingDirect,
     );
   }
+}
+
+/// Resolves to an offline-cache file, which is the only source the streaming
+/// fallback is allowed to rescue.
+class _CacheThenStreamResolver implements PlayableUriResolver {
+  @override
+  bool handles(Track track) => true;
+
+  @override
+  Future<ResolvedPlayable> resolve(Track track) async => ResolvedPlayable(
+        Uri.parse('file:///cache/${track.id}.flac'),
+        PlaybackSource.offlineCache,
+      );
+}
+
+/// The live stream the fallback re-resolves the same track to.
+class _StreamResolver implements PlayableUriResolver {
+  @override
+  bool handles(Track track) => true;
+
+  @override
+  Future<ResolvedPlayable> resolve(Track track) async => ResolvedPlayable(
+        Uri.parse('https://music.example/stream/${track.id}'),
+        PlaybackSource.streamingDirect,
+      );
 }
 
 /// A registration that throws while [broken] is set. Clearing it is what "the
@@ -421,6 +450,93 @@ void main() {
         PlaybackFailureKind.playbackEngineUnavailable,
       );
       expect(parts.controller.state.failure?.message, isNot(contains('/opt')));
+    });
+  });
+
+  group('a runtime failure found at load time is not re-walked into', () {
+    test('the next play is refused at the preflight, not at the engine',
+        () async {
+      final parts = build(workingBackend());
+      parts.engine.openError = Exception(_wrongLibrary);
+      await parts.controller.playTrack(_track('a'));
+      expect(
+        parts.controller.state.failure?.kind,
+        PlaybackFailureKind.playbackEngineUnavailable,
+      );
+      final int resolvesSoFar = parts.resolver.calls;
+      final int opensSoFar = parts.engine.opened.length;
+
+      await parts.controller.playTrack(_track('b'));
+
+      // Same verdict, and it cost nothing: no stream minted, no second walk
+      // into an engine that has already proven it cannot play.
+      expect(
+        parts.controller.state.failure?.kind,
+        PlaybackFailureKind.playbackEngineUnavailable,
+      );
+      expect(parts.resolver.calls, resolvesSoFar);
+      expect(parts.engine.opened, hasLength(opensSoFar));
+    });
+
+    test('Retry is the one attempt that reaches the engine again', () async {
+      final parts = build(workingBackend());
+      parts.engine.openError = Exception(_wrongLibrary);
+      await parts.controller.playTrack(_track('a'));
+      final int opensSoFar = parts.engine.opened.length;
+
+      // The listener says they fixed it, so libmpv gets asked rather than the
+      // latched verdict being repeated at them.
+      parts.engine.openError = null;
+      await parts.controller.retryCurrentTrack();
+
+      expect(parts.engine.opened.length, greaterThan(opensSoFar));
+      expect(parts.controller.state.status, PlaybackStatus.playing);
+      expect(parts.controller.state.failure, isNull);
+    });
+
+    test('a Retry that finds it still broken says so again', () async {
+      final parts = build(workingBackend());
+      parts.engine.openError = Exception(_wrongLibrary);
+      await parts.controller.playTrack(_track('a'));
+
+      await parts.controller.retryCurrentTrack();
+
+      expect(
+        parts.controller.state.failure?.kind,
+        PlaybackFailureKind.playbackEngineUnavailable,
+      );
+      expect(parts.controller.state.failure?.canRetry, isTrue);
+    });
+  });
+
+  group('the streaming fallback', () {
+    test('reports an unusable engine instead of the cached copy\'s failure',
+        () async {
+      // A cached file that will not open normally falls back to streaming the
+      // same track. When *that* load hits the native runtime, the engine is
+      // the story, not the cache.
+      final _Engine engine = _Engine();
+      final _CacheThenStreamResolver cache = _CacheThenStreamResolver();
+      final LinuxPlaybackController controller = LinuxPlaybackController(
+        player: engine,
+        resolver: cache,
+        streamingFallbackResolver: _StreamResolver(),
+        backend: workingBackend(),
+      );
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      engine.openErrorForUrl = (String url) => url.startsWith('file:')
+          ? Exception('unsupported codec in this container')
+          : Exception(_wrongLibrary);
+
+      await controller.playTrack(_track('a'));
+
+      expect(
+        controller.state.failure?.kind,
+        PlaybackFailureKind.playbackEngineUnavailable,
+      );
     });
   });
 
