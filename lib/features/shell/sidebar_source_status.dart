@@ -102,7 +102,19 @@ class SidebarSourceStatusTile extends StatelessWidget {
         child: InkWell(
           onTap: onOpenConnections,
           borderRadius: BorderRadius.circular(8),
-          child: Padding(
+          child: Container(
+            // A row sized to its own contents is a poor target: the glyph and
+            // its caption come to about 46 px tall, just under the 48 px a
+            // pointer or an accessibility tap is entitled to, and a short name
+            // like "Plex" left most of the rail's width inert beside it.
+            //
+            // A minimum rather than a stretch, because the rail is scrollable
+            // (see `HomeShell`) and hands the strip an unbounded width, which
+            // `CrossAxisAlignment.stretch` cannot resolve. 80 px is the width
+            // Material 3 gives a rail destination, so a source row ends up the
+            // same target size as the destinations above it.
+            constraints: const BoxConstraints(minWidth: 80, minHeight: 48),
+            alignment: Alignment.center,
             padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
             child: Column(
               mainAxisSize: MainAxisSize.min,

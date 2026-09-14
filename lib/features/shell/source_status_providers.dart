@@ -59,10 +59,30 @@ const List<MusicProvider> _selfHostedSources = <MusicProvider>[
 /// Whether each self-hosted source has a saved session, for the sources that
 /// publish no availability of their own.
 ///
-/// Read from the same settings controllers the Connections screen renders, so
-/// "configured" can never mean one thing in the sidebar and another in
-/// Settings.
+/// Each source is asked the same question its own `*MusicSourceProvider` asks,
+/// because that is what actually decides whether the source is serving music —
+/// and a sidebar row that disagrees with it is the row lying.
+///
+/// Jellyfin and Subsonic gate on the connected phase: their sign-in is a single
+/// synchronous step, so the phase and the session move together.
+///
+/// Plex does not, and this is the reason the rule is per-source rather than one
+/// `isConnected` for all three. `connectWithPlex` deliberately keeps the
+/// existing session while the user is away in the browser approving a new one,
+/// so a *reconnect* moves the phase to `linking` → `loadingUsers` →
+/// `pickingServer` while `session` stays put and `plexMusicSourceProvider`
+/// keeps serving. Reading the phase would have pulled the Plex row out of the
+/// sidebar for the whole flow and popped it back on cancel — while Plex was
+/// still playing.
 final _configuredSourceIdsProvider = Provider<Set<String>>((ref) {
+  // Watched for the rebuild, read for the session: the session lives on the
+  // notifier rather than in the state (it holds a token, and the state is
+  // deliberately secret-free), which is the same two-step
+  // `plexMusicSourceProvider` does.
+  ref.watch(plexSettingsControllerProvider);
+  final bool plexConfigured =
+      ref.read(plexSettingsControllerProvider.notifier).session != null;
+
   return <String>{
     if (ref.watch(
       jellyfinSettingsControllerProvider.select((s) => s.isConnected),
@@ -72,10 +92,7 @@ final _configuredSourceIdsProvider = Provider<Set<String>>((ref) {
       subsonicSettingsControllerProvider.select((s) => s.isConnected),
     ))
       MusicProviders.subsonic.sourceId,
-    if (ref.watch(
-      plexSettingsControllerProvider.select((s) => s.isConnected),
-    ))
-      MusicProviders.plex.sourceId,
+    if (plexConfigured) MusicProviders.plex.sourceId,
   };
 });
 

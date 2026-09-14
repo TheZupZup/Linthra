@@ -180,6 +180,13 @@ class _HomeShellState extends State<HomeShell> {
                 onDestinationSelected: _onDestinationSelected,
                 labelType: NavigationRailLabelType.all,
                 groupAlignment: -1,
+                // Five labelled destinations plus the status strip do not fit
+                // the 600 px minimum window height Linux supports, and a rail
+                // is not scrollable by default: the last source was simply
+                // painted past the bottom edge, with no overflow error to give
+                // it away. Scrolling keeps every destination and every source
+                // reachable at any height.
+                scrollable: true,
                 // Status for the configured servers (#425), under the
                 // destinations rather than among them: these are not places to
                 // go, and a rail whose selection could land on one would be

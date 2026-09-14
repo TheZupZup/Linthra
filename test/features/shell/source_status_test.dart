@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/plex_session.dart';
 import 'package:linthra/core/sources/music_provider.dart';
 import 'package:linthra/core/sources/source_availability.dart';
 import 'package:linthra/features/library/source_availability_providers.dart';
@@ -49,9 +50,23 @@ class _StubSubsonicSettings extends SubsonicSettingsController {
       );
 }
 
+/// Plex counts as configured when a *session* is retained, not when the phase
+/// reads connected: `connectWithPlex` deliberately keeps the session while the
+/// user is away in the browser, so the phase is the wrong question to ask.
 class _StubPlexSettings extends PlexSettingsController {
   _StubPlexSettings({required this.connected});
+
   final bool connected;
+
+  @override
+  PlexSession? get session => connected
+      ? const PlexSession(
+          baseUrl: 'https://plex.invalid:32400',
+          token: 'plex-token',
+          machineIdentifier: 'machine-1',
+        )
+      : null;
+
   @override
   PlexSettingsState build() => PlexSettingsState(
         phase: connected
