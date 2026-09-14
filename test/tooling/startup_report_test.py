@@ -1091,6 +1091,57 @@ class CommandLineTest(unittest.TestCase):
             result = self.run_script(str(path), "--budget", "small")
             self.assertEqual(result.returncode, 2)
 
+    def test_an_allowance_that_could_never_fail_is_rejected(self) -> None:
+        """`nan` and `inf` parse as floats and suppress every verdict."""
+        base = run_payload(workload("small", 1000, [9000.0, 100.0, 100.0, 100.0]))
+        slower = run_payload(workload("small", 1000, [9000.0, 1000.0, 1000.0, 1000.0]))
+        options = (
+            "--relative-allowance",
+            "--absolute-allowance-ms",
+            "--simulated-allowance-ms",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            b = self.write(Path(directory) / "base.json", base)
+            s = self.write(Path(directory) / "slow.json", slower)
+            for option in options:
+                for value in ("nan", "inf", "-1"):
+                    result = self.run_script(
+                        str(s),
+                        "--baseline",
+                        str(b),
+                        "--expect",
+                        "same",
+                        option,
+                        value,
+                    )
+                    self.assertEqual(result.returncode, 2, f"{option} {value}")
+            # The same 10x regression is still caught with usable allowances,
+            # so the guard is what rejected it above and not the comparison.
+            result = self.run_script(str(s), "--baseline", str(b), "--expect", "same")
+            self.assertEqual(result.returncode, 1)
+
+    def test_validate_refuses_to_swallow_a_gate(self) -> None:
+        """`--validate --expect same` must not exit 0 on a 10x regression."""
+        base = run_payload(workload("small", 1000, [9000.0, 100.0, 100.0, 100.0]))
+        slower = run_payload(workload("small", 1000, [9000.0, 1000.0, 1000.0, 1000.0]))
+        with tempfile.TemporaryDirectory() as directory:
+            b = self.write(Path(directory) / "base.json", base)
+            s = self.write(Path(directory) / "slow.json", slower)
+            for extra in (
+                ["--baseline", str(b), "--expect", "same"],
+                ["--baseline", str(b)],
+                ["--budget", "small=1"],
+            ):
+                result = self.run_script(str(s), "--validate", *extra)
+                self.assertEqual(result.returncode, 2, extra)
+                self.assertIn("--validate does not check", result.stderr)
+
+    def test_validate_alone_still_works(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(Path(directory) / "run.json", run_payload())
+            result = self.run_script(str(path), "--validate")
+            self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

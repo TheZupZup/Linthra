@@ -110,12 +110,20 @@ Worth reading before quoting a number at anybody.
 - **Library generation.** Each workload's catalog is written before the clock
   starts, and its cost is reported separately as `fixture_build_ms` so you can
   see it was not folded in.
+- **Schema creation and migrations.** Every fixture, `empty` included, is
+  opened and migrated during that setup, so each judged launch reopens a
+  database already at the current version. `onCreate` is paid once in
+  `fixture_build_ms`, which no verdict reads, and `onUpgrade` never runs at
+  all. So `empty` is an initialized empty catalog, not a first-ever launch, and
+  a migration that got slower will not show up here. It is a once-per-install
+  cost rather than a per-launch one, and folding it in would make the workload
+  measure two different things depending on whether the file already existed.
 
 ## The three workloads
 
 | Name | Tracks | What it stands for |
 | --- | --- | --- |
-| `empty` | 0 | a fresh install, nothing scanned yet |
+| `empty` | 0 | an initialized catalog, nothing scanned yet |
 | `small` | 1,000 | an ordinary personal collection |
 | `large` | 20,000 | a collection big enough to change the shape |
 
@@ -170,7 +178,10 @@ A workload is called slower when **either clock** says so:
 
 `--relative-allowance`, `--absolute-allowance-ms` and
 `--simulated-allowance-ms` move them, on the reporter and on
-`run_startup_benchmark.sh` alike.
+`run_startup_benchmark.sh` alike. Each has to be a finite, non-negative number:
+`nan` and `inf` are floats that parse fine and make every comparison pass, so a
+command line that looks like it asked for a check would silently assert
+nothing.
 
 The reporter refuses outright to compare two runs that did not measure the same
 thing: any difference in the run's **protocol**, a different *set* of
@@ -286,9 +297,10 @@ else it is a future muted check.
 a **smoke** run of the harness: small libraries, two launches each, and a
 completeness check. It times nothing and asserts no duration.
 
-It runs on every pull request, with no path filter. The harness walks `main()`,
-the app shell, the router, the Library screen, `TrackTile`, the library
-controller and providers, the Drift repository and the database, so an
+It runs on every pull request, with no path filter. The harness walks the app
+shell, the router, the Library screen, `TrackTile`, the library controller and
+providers, the Drift repository and the database (not `main()`, which it does
+not run: see *What is not measured*), so an
 allowlist of those paths is a list that has to stay correct forever and the
 first thing it misses is the first thing that retires the check. A rename of
 `TrackTile` makes the milestone unreachable, and `flutter test` will not catch
@@ -305,6 +317,10 @@ harness that dies after its warm-up launch fails instead of printing
 `structure ok` over nothing, and `--require-workloads empty,small,large` makes
 the smoke assert the set rather than vouching only for whichever workloads the
 file happens to contain.
+
+`--validate` reads no timings, so it refuses `--baseline`, `--expect` and
+`--budget` rather than accepting them and returning before it gets to them. The
+structural check and a comparison are two commands.
 
 ```bash
 ./tools/startup/run_startup_benchmark.sh --smoke   # the same thing, locally

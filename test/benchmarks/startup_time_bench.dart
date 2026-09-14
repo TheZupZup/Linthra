@@ -9,7 +9,7 @@
 //
 // Three workloads, one per library size that behaves differently:
 //
-//   empty  0 tracks       a fresh install, nothing scanned yet
+//   empty  0 tracks       an initialized catalog with nothing scanned yet
 //   small  1,000 tracks   an ordinary personal collection
 //   large  20,000 tracks  a collection large enough to change the shape
 //
@@ -64,6 +64,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/linthra_app.dart';
+import 'package:linthra/core/lifecycle/async_disposal_registry.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/track.dart';
@@ -94,8 +95,8 @@ final int _smallTracks = _envInt('LINTHRA_STARTUP_SMALL_TRACKS', 1000);
 final int _largeTracks = _envInt('LINTHRA_STARTUP_LARGE_TRACKS', 20000);
 final int _slowCatalogMs = _envInt('LINTHRA_STARTUP_SLOW_CATALOG_MS', 0);
 
-/// The empty state the Library shows on a fresh install, and the signal that an
-/// empty-catalog launch has finished starting. Asserted by
+/// The empty state the Library shows with nothing scanned, and the signal
+/// that an empty-catalog launch has finished starting. Asserted by
 /// test/app_smoke_test.dart too, so a reworded onboarding prompt breaks a test
 /// rather than silently making this harness measure the wrong frame.
 const String _emptyStateTitle = 'No music folder selected';
@@ -307,6 +308,15 @@ Future<File> _buildFixture(Directory dir, _Workload workload) async {
     } else {
       // Still open and migrate the file, so an empty catalog is a real empty
       // database rather than a missing one: the app pays the same open cost.
+      //
+      // This is why `empty` is an *initialized* empty catalog and not a
+      // first-ever launch. Creating the schema happens here, before any
+      // stopwatch starts, so every judged launch reopens a database that is
+      // already at the current version: `onCreate` lands in `fixture_build_ms`,
+      // which no verdict reads, and `onUpgrade` never runs at all. Migration
+      // cost is out of scope for a startup number that has to be comparable
+      // between runs (it is paid once per install, not once per launch), and
+      // the README lists it under what this does not measure.
       await db.select(db.tracks).get();
     }
   } finally {
@@ -373,7 +383,7 @@ List<Override> _overrides(File file) {
 ///    shows its tabs and its song list in the same frame, so the first frame
 ///    holding a [TrackTile] is the first frame a user could scroll or tap.
 ///  * an empty catalog is usable when the onboarding prompt is up, which is the
-///    whole of what a fresh install has to show.
+///    whole of what a library with nothing in it has to show.
 ///
 /// Both are read with ordinary finders against the real widget tree. Nothing in
 /// the app reports a milestone, so nothing in the app had to change to be
@@ -394,8 +404,17 @@ Future<_Launch> _launch(
 }) async {
   final Stopwatch clock = Stopwatch()..start();
 
+  // `UncontrolledProviderScope` rather than `ProviderScope` so this function
+  // owns the container: unmounting a `ProviderScope` disposes its container,
+  // which *starts* `db.close()` and returns, and there is then no handle left
+  // to await it through. Building the container is inside the timed region
+  // because `ProviderScope` builds its own there too; it allocates only, since
+  // providers build lazily on first read.
+  final ProviderContainer container = ProviderContainer(
+    overrides: _overrides(file),
+  );
   await tester.pumpWidget(
-    ProviderScope(overrides: _overrides(file), child: const LinthraApp()),
+    UncontrolledProviderScope(container: container, child: const LinthraApp()),
   );
   final int firstFrameUs = clock.elapsedMicroseconds;
 
@@ -417,10 +436,20 @@ Future<_Launch> _launch(
 
   final int rows = find.byType(TrackTile).evaluate().length;
 
-  // Unmount, so the provider container (and with it the SQLite connection this
-  // launch opened) is disposed before the next one opens the same file.
+  // Every launch opens the same SQLite file, so the previous connection has to
+  // be *closed*, not merely told to close, before the next one opens it. That
+  // is the race `linthraDatabaseProvider` registers its close with
+  // `onDisposeAsync` to avoid: `ProviderContainer.dispose()` runs the callback
+  // and returns, leaving `db.close()` in flight. Pumping does not help, because
+  // `tester.pump()` advances the fake clock rather than waiting on real work.
+  // So: unmount, dispose, then await the registry the container's own teardown
+  // parked that close in.
   await tester.pumpWidget(const SizedBox.shrink());
-  await tester.pump(const Duration(seconds: 1));
+  final AsyncDisposalRegistry disposals = container.read(
+    asyncDisposalRegistryProvider,
+  );
+  container.dispose();
+  await disposals.settle();
 
   return _Launch(
     iteration: iteration,

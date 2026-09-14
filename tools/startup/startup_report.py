@@ -803,6 +803,30 @@ def render_validation(run: Run, warmup: int) -> str:
     return "\n".join(lines)
 
 
+def _allowance(raw: str) -> float:
+    """An allowance that can actually hold, for `type=` on the option.
+
+    Bare `type=float` accepts `nan` and `inf`. Both parse and neither ever
+    fails: every `>` against nan is false, and nothing is above infinity, so
+    `--relative-allowance nan` turns a 10x regression into a pass while the
+    command line still reads like a check was asked for. A negative allowance
+    is the opposite failure, calling a run that got faster a regression.
+    """
+    try:
+        value = float(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{raw!r} is not a number") from None
+    if math.isnan(value) or math.isinf(value):
+        raise argparse.ArgumentTypeError(
+            f"{raw!r} is not a usable allowance: nothing would ever exceed it"
+        )
+    if value < 0:
+        raise argparse.ArgumentTypeError(
+            f"{raw!r} is negative, so a run that got faster would read as slower"
+        )
+    return value
+
+
 def _budget(raw: str) -> tuple[str, float]:
     name, _, value = raw.partition("=")
     if not name or not value:
@@ -885,19 +909,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--relative-allowance",
-        type=float,
+        type=_allowance,
         default=DEFAULT_RELATIVE_ALLOWANCE,
         help="how much slower than the baseline is still noise, as a fraction",
     )
     parser.add_argument(
         "--absolute-allowance-ms",
-        type=float,
+        type=_allowance,
         default=DEFAULT_ABSOLUTE_ALLOWANCE_MS,
         help="milliseconds a run may be slower before the ratio is consulted",
     )
     parser.add_argument(
         "--simulated-allowance-ms",
-        type=float,
+        type=_allowance,
         default=DEFAULT_SIMULATED_ALLOWANCE_MS,
         help=(
             "extra simulated (awaited) time that is still noise. This is the "
@@ -955,7 +979,8 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "check only that the harness produced a complete, well-formed "
             "sample set, and print what it contains. This is the part CI can "
-            "enforce without timing anything"
+            "enforce without timing anything. It reads no timings, so it "
+            "cannot be combined with --baseline, --expect or --budget"
         ),
     )
     args = parser.parse_args(argv)
@@ -971,6 +996,27 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"--expect {args.expect} needs --baseline")
     if args.require_workloads and not args.validate:
         parser.error("--require-workloads only applies with --validate")
+    # --validate answers "did the harness produce a usable sample set" and
+    # returns before any timing is read. Accepting a gate alongside it would
+    # let `--validate --expect same` exit 0 on a run that is ten times slower,
+    # which reads like the expectation was checked and is the most expensive
+    # kind of silence. The two are separate steps, as the runner runs them.
+    if args.validate:
+        gates = [
+            flag
+            for flag, given in (
+                ("--baseline", args.baseline is not None),
+                ("--expect", args.expect is not None),
+                ("--budget", bool(args.budget)),
+            )
+            if given
+        ]
+        if gates:
+            parser.error(
+                f"--validate does not check {', '.join(gates)}: it returns once "
+                "the sample set is known to be complete. Run the structural "
+                "check and the comparison as two commands"
+            )
 
     try:
         run = load(args.samples)
