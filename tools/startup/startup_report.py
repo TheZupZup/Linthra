@@ -196,10 +196,9 @@ class Run:
         covered without anybody remembering to extend a list.
 
         Deliberately excluded: `label` and `slow_catalog_ms`, which are how the
-        canary differs from its baseline on purpose; `iterations`, since two
-        runs of different lengths still produce comparable medians; and the
-        host, which the docs warn about rather than refuse, because the whole
-        point is to compare two commits on one machine.
+        canary differs from its baseline on purpose, and the host, which the
+        docs warn about rather than refuse, because the whole point is to
+        compare two commits on one machine.
         """
         return {
             "build mode": self.build_mode,
@@ -214,6 +213,14 @@ class Run:
             # candidate can look unchanged against a zero-warm-up baseline
             # while its actual startup work regressed.
             "warm-up count": self.warmup,
+            # And the same argument from the other end, which this record was
+            # missing: dropping one warm-up does not stop the warming. A real
+            # run's judged launches on `small` went 409.5, 364.8, 301.9, 277.0
+            # ms in order, still falling at the fourth, so a longer run's
+            # median sits lower for no reason the commit is responsible for.
+            # Longer runs also warm the VM further before the *next* workload
+            # starts, since these all measure sequentially in one VM.
+            "launch count": self.iterations,
         }
 
     def workload(self, name: str) -> Workload | None:

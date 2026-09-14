@@ -15,7 +15,9 @@ smaller. `--iterations` has a floor: a comparison ignores the warm-up launch
 and will not judge fewer than three, so too small a number would make the
 control fail however identical the timings are. The runner asks the reporter
 what that minimum is and refuses before running anything rather than after
-three scenarios.
+three scenarios. Use the same `--iterations` for a baseline and the run you
+compare it against: the count is part of the recorded protocol and two
+different ones are refused rather than compared (see below for why).
 
 Nothing here needs a Jellyfin, Plex or Navidrome server, a network, or a music
 collection. The libraries are generated locally into real SQLite catalogs, and
@@ -189,13 +191,14 @@ workloads, or any difference in a workload's recorded **shape**.
 
 Protocol is how the run measured: build mode, milestone, window size, pump
 interval (the unit `awaited` is counted in, so changing it rescales that whole
-column) and warm-up count (different counts leave the judged launches at
-different levels of JIT and cache warming, so a two-warm-up candidate can look
-unchanged against a zero-warm-up baseline while its startup work regressed).
-Compared as a whole rather than as an allowlist, like shape below. The canary's
-own differences, its label and injected delay, are deliberately not part of it,
-and neither is the iteration count: two runs of different lengths still produce
-comparable medians.
+column), and the warm-up and launch counts. Those last two are the same
+argument from both ends: dropping a warm-up does not stop the warming. In a
+real run, `small`'s four judged launches came in at 409.5, 364.8, 301.9 and
+277.0 ms, still falling at the fourth, so a longer run's median sits lower
+without the commit having done anything, and the workloads that run after it
+start from a warmer VM. Compared as a whole rather than as an allowlist, like
+shape below. The canary's own differences, its label and its injected delay,
+are deliberately not part of it.
 
 The set matters because `LINTHRA_STARTUP_WORKLOADS` makes a subset easy to
 produce, and a run-level verdict that quietly skipped the workload missing from

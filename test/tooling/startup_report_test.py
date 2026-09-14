@@ -480,9 +480,19 @@ class IndeterminateExpectationTest(unittest.TestCase):
             check=False,
         )
 
+    def truncated(self) -> dict[str, object]:
+        """A run that declared four launches and wrote two.
+
+        What a harness that died partway leaves behind, which is the case this
+        state exists for. The declared count stays at four on purpose: a run
+        that *asked* for two is a shorter run, and the protocol refuses to
+        compare that against a four-launch baseline before this ever matters.
+        """
+        return run_payload(workload("small", 1000, [9000.0, 300.0]))
+
     def test_every_expectation_refuses_a_truncated_candidate(self) -> None:
         full = run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
-        short = run_payload(workload("small", 1000, [9000.0, 300.0]), iterations=2)
+        short = self.truncated()
         with tempfile.TemporaryDirectory() as directory:
             base = self.write(Path(directory) / "base.json", full)
             cut = self.write(Path(directory) / "cut.json", short)
@@ -495,7 +505,7 @@ class IndeterminateExpectationTest(unittest.TestCase):
 
     def test_the_report_says_so_rather_than_inventing_a_verdict(self) -> None:
         full = run_payload(workload("small", 1000, [9000.0, 300.0, 300.0, 300.0]))
-        short = run_payload(workload("small", 1000, [9000.0, 300.0]), iterations=2)
+        short = self.truncated()
         with tempfile.TemporaryDirectory() as directory:
             base = self.write(Path(directory) / "base.json", full)
             cut = self.write(Path(directory) / "cut.json", short)
@@ -752,17 +762,33 @@ class ProtocolTest(unittest.TestCase):
     def test_a_different_build_mode_is_refused(self) -> None:
         self.assertIn("build mode", self.refuses(build_mode="release"))
 
+    def test_a_different_launch_count_is_refused(self) -> None:
+        """Dropping one warm-up does not stop the warming.
+
+        A real run's judged launches on `small` went 409.5, 364.8, 301.9,
+        277.0 ms in order, still falling at the fourth, so a longer run's
+        median sits lower without the commit having done anything.
+        """
+        self.assertIn("launch count", self.refuses(iterations=20))
+
     def test_the_protocol_covers_every_measurement_decision(self) -> None:
         run = startup_report.parse(run_payload())
         self.assertEqual(
             sorted(run.protocol),
-            ["build mode", "milestone", "pump interval", "warm-up count", "window"],
+            [
+                "build mode",
+                "launch count",
+                "milestone",
+                "pump interval",
+                "warm-up count",
+                "window",
+            ],
         )
 
     def test_the_canary_s_own_differences_are_not_part_of_it(self) -> None:
         """It differs by label and injected delay on purpose."""
         protocol = startup_report.parse(run_payload()).protocol
-        for excluded in ("label", "slow_catalog_ms", "iterations"):
+        for excluded in ("label", "slow_catalog_ms"):
             self.assertNotIn(excluded, protocol)
 
 
