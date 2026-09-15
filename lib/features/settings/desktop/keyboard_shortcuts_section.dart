@@ -296,6 +296,18 @@ class _RecordShortcutDialogState extends ConsumerState<_RecordShortcutDialog> {
 
   @override
   Widget build(BuildContext context) {
+    return PopScope(
+      // While the write is on its way to storage the binding has already been
+      // applied, so Escape and a tap on the scrim would close the dialog on a
+      // change that is going through anyway — a cancel that cancels nothing.
+      // `canPop` gates `maybePop`, which is what those two use; the successful
+      // path below pops the route directly and is unaffected.
+      canPop: !_saving,
+      child: _dialog(context),
+    );
+  }
+
+  Widget _dialog(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ShortcutBinding? recorded = _recorded;
     final bool canApply = recorded != null && _message == null && !_saving;
@@ -343,7 +355,7 @@ class _RecordShortcutDialogState extends ConsumerState<_RecordShortcutDialog> {
       ),
       actions: <Widget>[
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
         FilledButton(

@@ -1,15 +1,40 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/shortcuts/shortcut_action.dart';
 import 'package:linthra/app/shortcuts/shortcut_binding.dart';
+import 'package:linthra/core/repositories/keyboard_shortcut_preferences.dart';
 import 'package:linthra/data/repositories/in_memory_keyboard_shortcut_preferences.dart';
 import 'package:linthra/data/repositories/keyboard_shortcut_preferences_provider.dart';
 import 'package:linthra/features/settings/desktop/keyboard_shortcuts_section.dart';
 
 /// Remapping as a user does it (#391): open the row, press the keys, and be
 /// told plainly when the combination cannot be used.
+
+/// A store whose writes never finish until the test says so, which is the
+/// window the dialog has to hold the door shut for.
+class _SlowStore implements KeyboardShortcutPreferences {
+  final InMemoryKeyboardShortcutPreferences _inner =
+      InMemoryKeyboardShortcutPreferences();
+  final Completer<void> _write = Completer<void>();
+
+  void finishWrite() => _write.complete();
+
+  @override
+  Future<Map<String, String>> overrides() => _inner.overrides();
+
+  @override
+  Future<void> setOverride(String storageKey, String? binding) async {
+    await _write.future;
+    await _inner.setOverride(storageKey, binding);
+  }
+
+  @override
+  Future<void> clear() => _inner.clear();
+}
 
 Future<InMemoryKeyboardShortcutPreferences> _pumpCard(
   WidgetTester tester, {
@@ -276,6 +301,59 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(find.text('Press the keys you want to use'), findsNothing);
+    });
+
+    testWidgets('and no dismissal gets out from under a pending save',
+        (tester) async {
+      // The binding is applied the moment Save is pressed; only the write to
+      // storage is slow. A Cancel or an Escape in that window would look like
+      // it undid something it cannot undo.
+      final _SlowStore store = _SlowStore();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            keyboardShortcutPreferencesProvider.overrideWithValue(store),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: KeyboardShortcutsSettingsSection(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _record(tester, 'Library', LogicalKeyboardKey.keyG);
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<TextButton>(
+              find.ancestor(
+                of: find.text('Cancel'),
+                matching: find.byType(TextButton),
+              ),
+            )
+            .onPressed,
+        isNull,
+        reason: 'Cancel is off while the write is in flight',
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('Save'), findsOneWidget, reason: 'Escape is held too');
+
+      store.finishWrite();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Save'), findsNothing, reason: 'and then it closes');
+      expect(await store.overrides(), <String, String>{
+        'library': const ShortcutBinding(LogicalKeyboardKey.keyG, control: true)
+            .storageValue,
+      });
     });
 
     testWidgets('Save cannot be pressed twice', (tester) async {
