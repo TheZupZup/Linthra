@@ -1180,6 +1180,19 @@ MPRIS (#398), which works while the window is not focused. Binding one here
 would be a second, worse path, so [`ShortcutBinding`](../lib/app/shortcuts/shortcut_binding.dart)
 refuses a media key outright and says why.
 
+**The typing guard is checked against the real thing.**
+`test/app/shortcuts/text_editing_chords_test.dart` presses every bindable chord
+into a real `TextField` with the platform set to Linux and holds
+`conflictsWithTextEditing` to what the field actually did with it. A
+hand-written list of "keys a field owns" goes stale, and a Flutter release that
+added a chord to `DefaultTextEditingShortcuts` would otherwise turn one of the
+bindings into a key that quietly eats an edit. One-directional: a chord the
+field consumes must be one the guard stands down for, not the reverse, because
+the guard is deliberately wider than the framework's map. (For the record,
+Flutter's Linux map has no `Ctrl+U`, `Ctrl+D`, `Ctrl+H` or `Ctrl+W` — those are
+readline conventions a GTK entry has and a Flutter text field does not — so
+`Ctrl+U` is free to be the queue default.)
+
 **Typing wins.** A shortcut stands down while the keyboard is in a text field
 *if the field would have wanted that key* — the caret keys, Home/End,
 Backspace/Delete, Space, and the clipboard and undo letters. It is deliberately
