@@ -1195,6 +1195,12 @@ is typed.
   binding it app-wide would eat typing;
 * `Escape` and `Tab`, which the app needs for closing things and moving around,
   and bare arrows, Enter, Space, Home/End, Page Up/Down, Backspace and Delete;
+* a chord a focused control already answers: `Ctrl`/`Super` + `↑`/`↓` move a row
+  in a reorderable list and `Shift+F10` opens a row's menu (#390). Those sit in
+  a `Shortcuts` nearer the keyboard, so a global action bound to one would look
+  bound and then do nothing whenever such a row had focus. Refusing is the
+  better half of that trade: making the row controls stand aside instead would
+  take keyboard reordering away from whoever bound a shortcut next to it;
 * a media key, as above;
 * a combination another action already has, including a fixed alias — the
   refusal names the action that has it.
@@ -1215,6 +1221,13 @@ its initial location alone, with no redirect guard, so the whole map stands
 down until `onboardingControllerProvider` is true. A `Ctrl+L` out of onboarding
 would otherwise have landed in an unconfigured library and sent the user back
 to onboarding on the next launch.
+
+**The queue toggle closes its own sheet.** Not the top of the navigator: press
+Ctrl+U, then Ctrl+P, and the top is Now Playing. The shortcut tracks the sheet
+route it opened and pops it only while it is current, takes it out where it
+stands when something was pushed over it (and shows a fresh one, since the user
+cannot see the buried one), and forgets it before closing so a second press
+during the reverse animation opens rather than popping the page underneath.
 
 **Reset is a rebinding.** "Reset to default" goes through the same
 `setBinding`, so it is refused with the same wording when the default is no

@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/app/shortcuts/shortcut_action.dart';
 import 'package:linthra/app/shortcuts/shortcut_binding.dart';
 
 /// What a key combination is allowed to be (#391).
@@ -93,6 +94,55 @@ void main() {
           ShortcutBindingProblem.mediaKey,
           reason: 'a modifier does not make $key ours either',
         );
+      }
+    });
+
+    test('a chord a focused row already answers is refused', () {
+      // Ctrl/Super + arrow moves a row in a reorderable list, and Shift+F10
+      // opens a row's menu. Both are installed nearer the keyboard than the
+      // app-wide map, so binding one here would look bound and then do
+      // nothing whenever such a row had focus.
+      for (final ShortcutBinding claimed in <ShortcutBinding>[
+        const ShortcutBinding(LogicalKeyboardKey.arrowUp, control: true),
+        const ShortcutBinding(LogicalKeyboardKey.arrowDown, control: true),
+        const ShortcutBinding(LogicalKeyboardKey.arrowUp, meta: true),
+        const ShortcutBinding(LogicalKeyboardKey.arrowDown, meta: true),
+        const ShortcutBinding(LogicalKeyboardKey.f10, shift: true),
+      ]) {
+        expect(
+          claimed.problem,
+          ShortcutBindingProblem.claimedByControl,
+          reason: '${claimed.label} is a row control\'s',
+        );
+      }
+
+      // Only those exact combinations: the neighbours stay free.
+      expect(
+        const ShortcutBinding(LogicalKeyboardKey.arrowUp, alt: true).problem,
+        isNull,
+      );
+      expect(
+        const ShortcutBinding(
+          LogicalKeyboardKey.arrowUp,
+          control: true,
+          shift: true,
+        ).problem,
+        isNull,
+      );
+      expect(const ShortcutBinding(LogicalKeyboardKey.f10).problem, isNull);
+    });
+
+    test('no shipped default lands on one of those', () {
+      for (final ShortcutActionDefinition definition
+          in ShortcutActions.definitions) {
+        expect(
+          definition.defaultBinding.problem,
+          isNull,
+          reason: '${definition.label} ships with an unbindable chord',
+        );
+        for (final ShortcutBinding alias in definition.aliases) {
+          expect(alias.problem, isNull, reason: '${alias.label} is unbindable');
+        }
       }
     });
 

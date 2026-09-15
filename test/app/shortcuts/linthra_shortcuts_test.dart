@@ -425,6 +425,70 @@ void main() {
       expect(find.byType(QueueSheet), findsOneWidget);
     });
 
+    testWidgets('a route pushed over the sheet is not what the chord closes',
+        (tester) async {
+      // Regression: the toggle used to pop the top of the navigator, which
+      // after a Ctrl+P is Now Playing, not the sheet. The user pressed the
+      // queue chord and lost the player instead.
+      final _Harness app = await _pumpApp(
+        tester,
+        size: _phone,
+        platform: TargetPlatform.android,
+      );
+
+      await _pressCtrl(tester, LogicalKeyboardKey.keyU);
+      expect(find.byType(QueueSheet), findsOneWidget);
+      await _pressCtrl(tester, LogicalKeyboardKey.keyP);
+      expect(app.topRoute, '/player');
+
+      await _pressCtrl(tester, LogicalKeyboardKey.keyU);
+
+      expect(app.topRoute, '/player', reason: 'the player stays put');
+      expect(
+        find.byType(QueueSheet),
+        findsOneWidget,
+        reason: 'the buried sheet is replaced by one the user can see',
+      );
+      // And the stale one really was taken out, not left to surface again:
+      // close the visible sheet, leave the player, and there is nothing
+      // underneath.
+      await _pressCtrl(tester, LogicalKeyboardKey.keyU);
+      expect(find.byType(QueueSheet), findsNothing);
+      expect(app.topRoute, '/player');
+      app.router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(QueueSheet), findsNothing);
+    });
+
+    testWidgets('a second press while it is still closing takes nothing else',
+        (tester) async {
+      final _Harness app = await _pumpApp(
+        tester,
+        size: _phone,
+        platform: TargetPlatform.android,
+      );
+      await _pressCtrl(tester, LogicalKeyboardKey.keyU);
+      expect(find.byType(QueueSheet), findsOneWidget);
+
+      // Close it, then press again before it has finished leaving. The sheet
+      // is still on the navigator at this point, so a toggle that waited for
+      // the future to complete would have popped the page underneath.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyU);
+      await tester.pump(const Duration(milliseconds: 40));
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyU);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      expect(app.location, '/playlists');
+      expect(find.text('Playlists screen'), findsOneWidget);
+      expect(
+        find.byType(QueueSheet),
+        findsOneWidget,
+        reason: 'the second press is an open, the way a toggle reads',
+      );
+    });
+
     testWidgets('over Now Playing, where the frame is not an ancestor',
         (tester) async {
       await _pumpApp(tester);

@@ -28,6 +28,10 @@ enum ShortcutBindingProblem {
   /// not focused. Re-binding one here would create a second, worse path that
   /// only fires when the window happens to have focus.
   mediaKey,
+
+  /// A chord a control inside Linthra already answers. It would look bound and
+  /// then quietly do nothing whenever that control had the keyboard.
+  claimedByControl,
 }
 
 /// A short, plain sentence for [problem], for the settings screen to show
@@ -42,6 +46,8 @@ String describeShortcutProblem(ShortcutBindingProblem problem) {
       return 'Linthra uses this key to move around and close things.';
     case ShortcutBindingProblem.mediaKey:
       return 'Media keys already reach Linthra through your desktop.';
+    case ShortcutBindingProblem.claimedByControl:
+      return 'A focused row already uses this to reorder or to open its menu.';
   }
 }
 
@@ -82,6 +88,29 @@ final Set<LogicalKeyboardKey> _mediaKeys = <LogicalKeyboardKey>{
   LogicalKeyboardKey.audioVolumeUp,
   LogicalKeyboardKey.audioVolumeDown,
   LogicalKeyboardKey.audioVolumeMute,
+};
+
+/// Chords a control inside Linthra already answers, which are therefore not
+/// free to bind.
+///
+/// Unlike [_reservedBare] these are whole combinations, because the modifier is
+/// the point: `Ctrl+↑` and `Super+↑` move a row in a reorderable list
+/// (`ReorderHandle`) and `Shift+F10` opens a row's context menu
+/// (`ContextMenuRegion`) for keyboards with no menu key. Both are deliberate
+/// accessibility bindings from #390, installed in a `Shortcuts` nearer the
+/// keyboard than this one, so a global action bound here would simply never
+/// fire while such a row had focus.
+///
+/// Refusing is the right half of that trade to take. Making the row controls
+/// stand aside instead would take keyboard reordering away from whoever bound
+/// a shortcut next to it, and a shortcut that is refused with a reason is
+/// better than one that looks bound and does nothing.
+final Set<ShortcutBinding> _claimedByControls = <ShortcutBinding>{
+  const ShortcutBinding(LogicalKeyboardKey.arrowUp, control: true),
+  const ShortcutBinding(LogicalKeyboardKey.arrowDown, control: true),
+  const ShortcutBinding(LogicalKeyboardKey.arrowUp, meta: true),
+  const ShortcutBinding(LogicalKeyboardKey.arrowDown, meta: true),
+  const ShortcutBinding(LogicalKeyboardKey.f10, shift: true),
 };
 
 final Set<LogicalKeyboardKey> _modifierKeys = <LogicalKeyboardKey>{
@@ -249,6 +278,9 @@ class ShortcutBinding {
     if (_mediaKeys.contains(trigger)) return ShortcutBindingProblem.mediaKey;
     if (_reservedAlways.contains(trigger)) {
       return ShortcutBindingProblem.reservedKey;
+    }
+    if (_claimedByControls.contains(this)) {
+      return ShortcutBindingProblem.claimedByControl;
     }
     if (!hasPrimaryModifier) {
       if (_reservedBare.contains(trigger)) {

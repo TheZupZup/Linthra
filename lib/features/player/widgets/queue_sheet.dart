@@ -24,12 +24,30 @@ import 'album_artwork.dart';
 /// It's a sheet (not a route) so it floats over Now Playing without leaving it —
 /// browsing the queue never touches playback. The current track keeps playing
 /// while the listener reorders, removes, or jumps around the queue.
-Future<void> showQueueSheet(BuildContext context) {
+///
+/// [onRoute] is handed this sheet's own route as it builds, for the one caller
+/// that has to be able to take *this* sheet away again later: the keyboard
+/// toggle (#391). By the time the chord is pressed a second time something else
+/// may be sitting on top of the navigator, and a plain `pop` would take away
+/// the page the user is actually looking at.
+Future<void> showQueueSheet(
+  BuildContext context, {
+  ValueChanged<ModalRoute<void>>? onRoute,
+}) {
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
-    builder: (_) => const QueueSheet(),
+    builder: (BuildContext sheetContext) {
+      if (onRoute != null) {
+        final ModalRoute<Object?>? route = ModalRoute.of(sheetContext);
+        // Reported on every build rather than guarded: it is the same route
+        // each time, so assigning it again costs nothing and there is no
+        // "have I already" state to get wrong.
+        if (route is ModalRoute<void>) onRoute(route);
+      }
+      return const QueueSheet();
+    },
   );
 }
 

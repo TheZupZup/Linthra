@@ -307,6 +307,39 @@ void main() {
     });
   });
 
+  testWidgets('a long chord does not push the row off a narrow window',
+      (tester) async {
+    // 420 px is the narrowest window Linthra supports, and every modifier at
+    // once on a long key name is a combination the rules accept.
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(420, 900);
+    addTearDown(tester.view.reset);
+    await _pumpCard(
+      tester,
+      stored: <String, String>{
+        'library': const ShortcutBinding(
+          LogicalKeyboardKey.pageDown,
+          control: true,
+          shift: true,
+          alt: true,
+          meta: true,
+        ).storageValue,
+      },
+    );
+
+    expect(tester.takeException(), isNull);
+    // The controls have to stay reachable: a clipped reset button would trap
+    // the user on the very binding that caused the overflow.
+    for (final String tooltip in <String>[
+      'Change the Library shortcut',
+      'Reset Library to its default',
+    ]) {
+      final Rect rect = tester.getRect(find.byTooltip(tooltip));
+      expect(rect.right, lessThanOrEqualTo(420), reason: tooltip);
+      expect(rect.left, greaterThanOrEqualTo(0), reason: tooltip);
+    }
+  });
+
   testWidgets('a stored override is what the card shows', (tester) async {
     await _pumpCard(
       tester,

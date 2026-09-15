@@ -94,9 +94,10 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
   /// search chord again while the overlay already has focus must be a no-op.
   bool _searchShowing = false;
 
-  /// Whether this widget put a queue sheet on screen, so the same chord can
-  /// take it away again instead of opening a second one.
-  bool _queueSheetShowing = false;
+  /// The queue sheet this widget put on screen, so the chord can take *that*
+  /// sheet away rather than whatever happens to be on top of the navigator by
+  /// then. Null when there is none of ours up.
+  ModalRoute<void>? _queueSheetRoute;
 
   /// Null only before the navigator's first build, when there is nothing to act
   /// on yet; a dropped keystroke there is the right outcome.
@@ -155,17 +156,43 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
   void _openQueue() {
     final BuildContext? context = _navigatorContext;
     if (context == null) return;
+    final NavigatorState navigator = Navigator.of(context);
     // It is a *toggle*, so a second press has to put the sheet away rather
     // than stack another copy of it on top — which is what an unguarded
     // `showQueueSheet` did at phone widths and over any route outside the
-    // shell.
-    if (_queueSheetShowing) {
-      Navigator.of(context).pop();
-      return;
+    // shell. Which sheet, though, is the whole question: `pop` takes the top
+    // of the navigator, and that is not necessarily ours.
+    final ModalRoute<void>? open = _queueSheetRoute;
+    if (open != null) {
+      // Forgotten first, so a second press during the closing animation opens
+      // a fresh sheet instead of falling through to popping the page beneath
+      // the one already on its way out.
+      _queueSheetRoute = null;
+      if (open.isCurrent) {
+        navigator.pop();
+        return;
+      }
+      // Ours, but buried under something pushed after it — Ctrl+P puts Now
+      // Playing over an open sheet. The user cannot see the queue, so the
+      // chord should still bring it up; the stale sheet just has to come out
+      // where it stands rather than by popping what they are looking at.
+      if (open.isActive) navigator.removeRoute(open);
     }
-    _queueSheetShowing = true;
+
+    ModalRoute<void>? shown;
     unawaited(
-      showQueueSheet(context).whenComplete(() => _queueSheetShowing = false),
+      showQueueSheet(
+        context,
+        onRoute: (ModalRoute<void> route) {
+          shown = route;
+          _queueSheetRoute = route;
+        },
+      ).whenComplete(() {
+        // Only if it is still the one we are tracking: a sheet dismissed by
+        // the scrim completes after a newer one may already have taken its
+        // place, and clearing then would lose the new one.
+        if (identical(_queueSheetRoute, shown)) _queueSheetRoute = null;
+      }),
     );
   }
 

@@ -133,14 +133,25 @@ class _ShortcutRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       child: Row(
         children: <Widget>[
-          Expanded(child: Text(definition.label)),
+          // Both texts give way, and the chord gets the larger share: it is
+          // the longer of the two and the one that grows without bound. Every
+          // modifier at once on a long key name is a combination the rules
+          // accept, and at 420 px a fixed-width chord pushed the two controls
+          // clean off the window — including the reset that would have undone
+          // it.
+          Expanded(flex: 3, child: Text(definition.label)),
+          const SizedBox(width: AppSpacing.xs),
           // The combination reads as one thing, not as the row's label plus a
           // string of key names, so a screen reader says "Library, Ctrl + L,
           // change shortcut" rather than spelling out the chord twice.
-          Text(
-            binding.label,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+          Expanded(
+            flex: 4,
+            child: Text(
+              binding.label,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
             ),
           ),
           const SizedBox(width: AppSpacing.xs),
