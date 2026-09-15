@@ -1200,7 +1200,10 @@ is typed.
   a `Shortcuts` nearer the keyboard, so a global action bound to one would look
   bound and then do nothing whenever such a row had focus. Refusing is the
   better half of that trade: making the row controls stand aside instead would
-  take keyboard reordering away from whoever bound a shortcut next to it;
+  take keyboard reordering away from whoever bound a shortcut next to it. The
+  refusal is for those chords *exactly* — `Ctrl+Shift+↑` and `Alt+↑` are free —
+  which is why `ContextMenuRegion` now matches its two chords exactly too,
+  instead of taking F10 with Shift and anything else held;
 * a media key, as above;
 * a combination another action already has, including a fixed alias — the
   refusal names the action that has it.
@@ -1222,12 +1225,14 @@ down until `onboardingControllerProvider` is true. A `Ctrl+L` out of onboarding
 would otherwise have landed in an unconfigured library and sent the user back
 to onboarding on the next launch.
 
-**The queue toggle closes its own sheet.** Not the top of the navigator: press
-Ctrl+U, then Ctrl+P, and the top is Now Playing. The shortcut tracks the sheet
-route it opened and pops it only while it is current, takes it out where it
-stands when something was pushed over it (and shows a fresh one, since the user
-cannot see the buried one), and forgets it before closing so a second press
-during the reverse animation opens rather than popping the page underneath.
+**The queue sheet closes itself.** Not the shortcut, and not by popping the top
+of the navigator: press Ctrl+U, then Ctrl+P, and the top is Now Playing. The
+modal sheet claims the queue action through `ShortcutSurface` while it is up,
+so it acts on its own route — pop while it is current, come out where it stands
+when something was pushed over it (and let the fallback show a fresh one, since
+the buried one is invisible), stand aside otherwise. Registering it with the
+sheet rather than with the caller is what makes the chord able to close a sheet
+the *mini-player button* opened: one queue, however it was put there.
 
 **Reset is a rebinding.** "Reset to default" goes through the same
 `setBinding`, so it is refused with the same wording when the default is no
@@ -1240,9 +1245,13 @@ distinct, and a test holds them to it.
 `shared_preferences` (`keyboard_shortcut.play_pause`). An action the user never
 touched has no row, so changing a default in a later release reaches everyone
 who never disagreed with it and nobody who did; typing the original combination
-back removes the override rather than pinning it. An override that no longer
-parses, or that today's rules would refuse, is dropped on read and the action
-keeps its default — a preferences file from a newer build, or one edited by
+back removes the override rather than pinning it. The duplicate check runs over
+the composed table rather than one override at a time, because a *swap* (each
+action moving onto the chord the other is leaving) is something the settings
+screen legitimately writes, and checking one at a time would have undone both
+halves of it on the next launch. An override that no longer
+parses, that today's rules would refuse, or that would leave two actions on one
+chord is dropped on read and the action keeps its default — a preferences file from a newer build, or one edited by
 hand, degrades to stock behaviour rather than to a broken keyboard.
 
 **Ctrl, not Cmd.** The desktop target is Linux, so the defaults are Ctrl. The

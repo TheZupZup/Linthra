@@ -27,26 +27,39 @@ typedef ShortcutSurfaceHandler = bool Function();
 /// watched, so binding costs no rebuild and a surface can answer differently
 /// as its layout changes.
 class ShortcutSurface {
-  final Map<ShortcutAction, ShortcutSurfaceHandler> _handlers =
-      <ShortcutAction, ShortcutSurfaceHandler>{};
+  final Map<ShortcutAction, List<ShortcutSurfaceHandler>> _handlers =
+      <ShortcutAction, List<ShortcutSurfaceHandler>>{};
 
-  /// Offers [handler] for [action] until [unbind]. The most recent claim wins,
-  /// which is what makes a rebuild that replaces the surface safe: the new one
-  /// registers before the old one tears down.
+  /// Offers [handler] for [action] until [unbind].
+  ///
+  /// Claims stack rather than replace, because more than one surface can be on
+  /// screen at once and the innermost is the one that knows best: the queue
+  /// sheet sits over the navigation frame, and both have something to say
+  /// about the queue chord. It also makes a rebuild that swaps a surface safe
+  /// in either order, since the replacement's claim does not depend on the old
+  /// one having gone first.
   void bind(ShortcutAction action, ShortcutSurfaceHandler handler) {
-    _handlers[action] = handler;
+    _handlers
+        .putIfAbsent(action, () => <ShortcutSurfaceHandler>[])
+        .add(handler);
   }
 
-  /// Withdraws [handler], if it is still the one bound. Checking means a
-  /// surface leaving *after* its replacement arrived cannot take the
-  /// replacement's claim with it.
+  /// Withdraws [handler]. Withdrawing one nobody registered, or one already
+  /// gone, is a no-op: teardown order is not something a surface can see.
   void unbind(ShortcutAction action, ShortcutSurfaceHandler handler) {
-    if (_handlers[action] == handler) _handlers.remove(action);
+    final List<ShortcutSurfaceHandler>? claims = _handlers[action];
+    if (claims == null) return;
+    claims.remove(handler);
+    if (claims.isEmpty) _handlers.remove(action);
   }
 
-  /// Whoever claimed [action], or null when nobody has.
-  ShortcutSurfaceHandler? handlerFor(ShortcutAction action) =>
-      _handlers[action];
+  /// Everyone who has claimed [action], most recently bound first, which is
+  /// the order they should be offered the key in.
+  List<ShortcutSurfaceHandler> handlersFor(ShortcutAction action) {
+    final List<ShortcutSurfaceHandler>? claims = _handlers[action];
+    if (claims == null) return const <ShortcutSurfaceHandler>[];
+    return claims.reversed.toList(growable: false);
+  }
 }
 
 final shortcutSurfaceProvider = Provider<ShortcutSurface>((ref) {

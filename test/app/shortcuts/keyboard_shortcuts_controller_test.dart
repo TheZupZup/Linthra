@@ -39,6 +39,23 @@ Future<KeyboardShortcutsController> _ready(ProviderContainer container) async {
   return container.read(keyboardShortcutsControllerProvider.notifier);
 }
 
+/// No two actions may end up on the same combination, whatever storage said.
+void _expectNoDuplicates(Map<ShortcutAction, ShortcutBinding> table) {
+  expect(
+    table.values.toSet().length,
+    table.length,
+    reason: 'two actions share a chord: $table',
+  );
+  for (final MapEntry<ShortcutAction, ShortcutBinding> entry in table.entries) {
+    final ShortcutAction? alias = ShortcutActions.actionWithAlias(entry.value);
+    expect(
+      alias == null || alias == entry.key,
+      isTrue,
+      reason: '${entry.key} sits on $alias\'s fixed alias',
+    );
+  }
+}
+
 void main() {
   test('with nothing saved, every action is on its default', () async {
     final ProviderContainer container =
@@ -306,6 +323,89 @@ void main() {
   });
 
   group('storage that cannot be trusted', () {
+    test('an override that collides with a default is dropped', () async {
+      // Queue parked on Search's default. Nothing in the app writes this, but
+      // a hand-edited file or one from a newer build can, and the activator
+      // map would otherwise hand Ctrl+K to whichever came first and leave the
+      // other showing a chord that does nothing.
+      final KeyboardShortcutsController controller = await _ready(
+        _container(
+          InMemoryKeyboardShortcutPreferences(
+            initialOverrides: <String, String>{'queue': _ctrlK.storageValue},
+          ),
+        ),
+      );
+
+      expect(controller.current[ShortcutAction.search], _ctrlK);
+      expect(
+        controller.current[ShortcutAction.queue],
+        ShortcutActions.definitionFor(ShortcutAction.queue).defaultBinding,
+      );
+      _expectNoDuplicates(controller.current);
+    });
+
+    test('and one that collides with a fixed alias goes the same way',
+        () async {
+      final KeyboardShortcutsController controller = await _ready(
+        _container(
+          InMemoryKeyboardShortcutPreferences(
+            // Ctrl+F is Search's alias, so Queue can never really have it.
+            initialOverrides: <String, String>{'queue': _ctrlF.storageValue},
+          ),
+        ),
+      );
+
+      expect(
+        controller.current[ShortcutAction.queue],
+        ShortcutActions.definitionFor(ShortcutAction.queue).defaultBinding,
+      );
+    });
+
+    test('two overrides on one chord leave the first claimant holding it',
+        () async {
+      final KeyboardShortcutsController controller = await _ready(
+        _container(
+          InMemoryKeyboardShortcutPreferences(
+            initialOverrides: <String, String>{
+              'search': _ctrlG.storageValue,
+              'queue': _ctrlG.storageValue,
+            },
+          ),
+        ),
+      );
+
+      expect(controller.current[ShortcutAction.search], _ctrlG);
+      expect(
+        controller.current[ShortcutAction.queue],
+        ShortcutActions.definitionFor(ShortcutAction.queue).defaultBinding,
+      );
+      _expectNoDuplicates(controller.current);
+    });
+
+    test('a swap written by the settings screen survives intact', () async {
+      // Both halves move onto the chord the other is leaving. Checking one
+      // override at a time against the defaults would have refused both and
+      // quietly undone a configuration the user really made.
+      final ShortcutBinding searchDefault =
+          ShortcutActions.definitionFor(ShortcutAction.search).defaultBinding;
+      final ShortcutBinding queueDefault =
+          ShortcutActions.definitionFor(ShortcutAction.queue).defaultBinding;
+      final KeyboardShortcutsController controller = await _ready(
+        _container(
+          InMemoryKeyboardShortcutPreferences(
+            initialOverrides: <String, String>{
+              'search': queueDefault.storageValue,
+              'queue': searchDefault.storageValue,
+            },
+          ),
+        ),
+      );
+
+      expect(controller.current[ShortcutAction.search], queueDefault);
+      expect(controller.current[ShortcutAction.queue], searchDefault);
+      _expectNoDuplicates(controller.current);
+    });
+
     test('an unparseable override falls back to the default', () async {
       final KeyboardShortcutsController controller = await _ready(
         _container(

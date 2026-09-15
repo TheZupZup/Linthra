@@ -94,11 +94,6 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
   /// search chord again while the overlay already has focus must be a no-op.
   bool _searchShowing = false;
 
-  /// The queue sheet this widget put on screen, so the chord can take *that*
-  /// sheet away rather than whatever happens to be on top of the navigator by
-  /// then. Null when there is none of ours up.
-  ModalRoute<void>? _queueSheetRoute;
-
   /// Null only before the navigator's first build, when there is nothing to act
   /// on yet; a dropped keystroke there is the right outcome.
   BuildContext? get _navigatorContext => widget.navigatorKey.currentContext;
@@ -149,51 +144,19 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
   /// The app-wide fallback for the queue: the same sheet the phone opens and
   /// the same one the now-playing bar falls back to at narrow widths.
   ///
-  /// A wide desktop window answers [ToggleQueueIntent] before this ever runs:
-  /// the frame claims the action through [ShortcutSurface] whenever it is the
-  /// page on screen and has a column to show. This is what happens the rest of
-  /// the time, including on any route pushed over the frame.
+  /// Two surfaces answer [ToggleQueueIntent] before this ever runs, both
+  /// through [ShortcutSurface]: an open queue sheet, which closes itself, and
+  /// the navigation frame, which toggles the side column when this window has
+  /// one. This is what happens when neither does.
   void _openQueue() {
     final BuildContext? context = _navigatorContext;
     if (context == null) return;
-    final NavigatorState navigator = Navigator.of(context);
-    // It is a *toggle*, so a second press has to put the sheet away rather
-    // than stack another copy of it on top — which is what an unguarded
-    // `showQueueSheet` did at phone widths and over any route outside the
-    // shell. Which sheet, though, is the whole question: `pop` takes the top
-    // of the navigator, and that is not necessarily ours.
-    final ModalRoute<void>? open = _queueSheetRoute;
-    if (open != null) {
-      // Forgotten first, so a second press during the closing animation opens
-      // a fresh sheet instead of falling through to popping the page beneath
-      // the one already on its way out.
-      _queueSheetRoute = null;
-      if (open.isCurrent) {
-        navigator.pop();
-        return;
-      }
-      // Ours, but buried under something pushed after it — Ctrl+P puts Now
-      // Playing over an open sheet. The user cannot see the queue, so the
-      // chord should still bring it up; the stale sheet just has to come out
-      // where it stands rather than by popping what they are looking at.
-      if (open.isActive) navigator.removeRoute(open);
-    }
-
-    ModalRoute<void>? shown;
-    unawaited(
-      showQueueSheet(
-        context,
-        onRoute: (ModalRoute<void> route) {
-          shown = route;
-          _queueSheetRoute = route;
-        },
-      ).whenComplete(() {
-        // Only if it is still the one we are tracking: a sheet dismissed by
-        // the scrim completes after a newer one may already have taken its
-        // place, and clearing then would lose the new one.
-        if (identical(_queueSheetRoute, shown)) _queueSheetRoute = null;
-      }),
-    );
+    // Only ever an *open*. Closing is the sheet's own business: it claims the
+    // queue action through [ShortcutSurface] while it is up, so this runs only
+    // when there is no sheet on screen to take away. That is what lets the
+    // chord toggle a sheet the mini-player button opened, too — one queue,
+    // however it was put there.
+    unawaited(showQueueSheet(context));
   }
 
   void _openNowPlaying() {
@@ -239,12 +202,14 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
         binding: bindings[action] ??
             ShortcutActions.definitionFor(action).defaultBinding,
         run: () {
-          // A surface that is on screen and wants this key answers first; one
-          // that declines, or is not there, leaves it to the fallback. Read at
-          // press time, so the frame can change its mind as the window is
-          // resized or a route is pushed over it.
-          final ShortcutSurfaceHandler? claimed = surface.handlerFor(action);
-          if (claimed != null && claimed()) return;
+          // Surfaces that are on screen answer first, innermost outwards; one
+          // that declines, or is not there, leaves the key to the fallback.
+          // Read at press time, so a surface can change its mind as the window
+          // is resized or a route is pushed over it.
+          for (final ShortcutSurfaceHandler claimed
+              in surface.handlersFor(action)) {
+            if (claimed()) return;
+          }
           fallback();
         },
       );

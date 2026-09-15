@@ -489,6 +489,23 @@ void main() {
       );
     });
 
+    testWidgets('and closes a sheet a button opened, not a second one',
+        (tester) async {
+      // The sheet claims the chord itself while it is up, so it does not
+      // matter who opened it. Tracking only the sheets the shortcut opened
+      // meant a button-opened queue got a second sheet stacked on it.
+      // A desktop window wide enough for the rail but not for the column, so
+      // the mini-player's queue button is the sheet-opening one.
+      await _pumpApp(tester, size: const Size(1000, 900));
+      await tester.tap(find.byTooltip('Queue'));
+      await tester.pumpAndSettle();
+      expect(find.byType(QueueSheet), findsOneWidget);
+
+      await _pressCtrl(tester, LogicalKeyboardKey.keyU);
+
+      expect(find.byType(QueueSheet), findsNothing);
+    });
+
     testWidgets('over Now Playing, where the frame is not an ancestor',
         (tester) async {
       await _pumpApp(tester);

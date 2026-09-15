@@ -93,15 +93,61 @@ class KeyboardShortcutsController
   static Map<ShortcutAction, ShortcutBinding> _compose(
     Map<String, String> overrides,
   ) {
-    final Map<ShortcutAction, ShortcutBinding> bindings =
-        ShortcutActions.defaults;
+    // Parsed together, then applied together: the settings screen legitimately
+    // writes a *swap*, where each action moves onto the chord the other is
+    // leaving, and applying one at a time against the defaults would refuse
+    // both halves of it.
+    final Map<ShortcutAction, ShortcutBinding> stored =
+        <ShortcutAction, ShortcutBinding>{};
     for (final ShortcutActionDefinition definition
         in ShortcutActions.definitions) {
-      final ShortcutBinding? stored =
+      final ShortcutBinding? parsed =
           ShortcutBinding.parse(overrides[definition.storageKey]);
-      if (stored != null) bindings[definition.action] = stored;
+      if (parsed != null) stored[definition.action] = parsed;
     }
-    return bindings;
+
+    // What storage cannot be trusted about is the table as a whole. A file
+    // from a newer build, or one edited by hand, can name one chord twice, and
+    // the activator map would then silently hand it to whichever action comes
+    // first — leaving the other one displayed in settings and dead on the
+    // keyboard. The override is the untrusted half, so it is the half that
+    // goes; one at a time, because giving an action its default back can
+    // collide with the next override in turn.
+    while (true) {
+      final ShortcutAction? offender = _firstUnusableOverride(stored);
+      if (offender == null) break;
+      stored.remove(offender);
+    }
+
+    return ShortcutActions.defaults..addAll(stored);
+  }
+
+  /// The first override in registry order that wants a chord something else
+  /// already has, or null when the table is unambiguous.
+  ///
+  /// The *first* claim keeps the chord, so which override survives a duplicate
+  /// does not depend on how the file happened to be written. An action with no
+  /// override cannot be the offender: its default is the behaviour being
+  /// fallen back to.
+  static ShortcutAction? _firstUnusableOverride(
+    Map<ShortcutAction, ShortcutBinding> stored,
+  ) {
+    final Map<ShortcutAction, ShortcutBinding> table = ShortcutActions.defaults
+      ..addAll(stored);
+    final Map<ShortcutBinding, ShortcutAction> claimed =
+        <ShortcutBinding, ShortcutAction>{};
+    for (final ShortcutActionDefinition definition
+        in ShortcutActions.definitions) {
+      final ShortcutBinding binding = table[definition.action]!;
+      final ShortcutAction? owner =
+          claimed[binding] ?? ShortcutActions.actionWithAlias(binding);
+      if (owner != null && owner != definition.action) {
+        if (stored.containsKey(definition.action)) return definition.action;
+        if (stored.containsKey(owner)) return owner;
+      }
+      claimed.putIfAbsent(binding, () => definition.action);
+    }
+    return null;
   }
 
   /// The bindings as they stand, or the defaults while storage is still being
