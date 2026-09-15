@@ -59,8 +59,24 @@ class KeyboardShortcutsSettingsSection extends ConsumerWidget {
     }
 
     Future<void> reset(ShortcutActionDefinition definition) async {
-      final ShortcutUpdateResult result =
-          await controller.resetToDefault(definition.action);
+      final ShortcutUpdateResult result;
+      try {
+        result = await controller.resetToDefault(definition.action);
+      } catch (_) {
+        if (!context.mounted) return;
+        // The row already shows the default and its reset button has gone
+        // quiet with it, so without this the only clue would be the old
+        // override coming back on the next launch.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Reset ${definition.label} for now, but it could not be '
+              'written. Your old shortcut will come back when you restart.',
+            ),
+          ),
+        );
+        return;
+      }
       if (result.isApplied || !context.mounted) return;
       // A default can be occupied by whatever the user put there in the
       // meantime, and a reset button that quietly did nothing would be the

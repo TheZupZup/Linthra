@@ -259,6 +259,43 @@ void main() {
       );
     });
 
+    testWidgets('a row reset that cannot be written says so', (tester) async {
+      // Resetting a row is a write like any other: the default is already
+      // showing and the button has gone quiet with it, so a failure that went
+      // nowhere would only turn up as the old override after a restart.
+      final _SlowStore store = _SlowStore()..finishWrite();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            keyboardShortcutPreferencesProvider.overrideWithValue(store),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: KeyboardShortcutsSettingsSection(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _record(tester, 'Library', LogicalKeyboardKey.keyG);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      store.fail = true;
+
+      await tester.tap(find.byTooltip('Reset Library to its default'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('could not be written'),
+        findsOneWidget,
+        reason: 'the failure has to reach the user somehow',
+      );
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a reset-all that cannot be written says so', (tester) async {
       // The defaults are already showing and the button has gone quiet with
       // them, so without a message the only clue would be the overrides
