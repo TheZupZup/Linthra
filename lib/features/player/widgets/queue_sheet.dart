@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
+import '../../../app/shortcuts/shortcut_action.dart';
+import '../../../app/shortcuts/shortcut_surface.dart';
 import '../../../core/models/playback_history.dart';
 import '../../../core/models/playback_state.dart';
 import '../../../core/models/playlist.dart';
@@ -24,13 +26,72 @@ import 'album_artwork.dart';
 /// It's a sheet (not a route) so it floats over Now Playing without leaving it —
 /// browsing the queue never touches playback. The current track keeps playing
 /// while the listener reorders, removes, or jumps around the queue.
+///
+/// However it is opened, the sheet claims the queue shortcut while it is up
+/// (see [_ModalQueueSheet]), so the chord that shows it can also take it away.
 Future<void> showQueueSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
-    builder: (_) => const QueueSheet(),
+    builder: (_) => const _ModalQueueSheet(),
   );
+}
+
+/// The queue sheet, with the app's queue shortcut (#391) pointed at it.
+///
+/// The registration lives here, around the *modal* sheet, rather than with
+/// whoever called [showQueueSheet], so every way of opening it takes part: the
+/// mini-player button, the now-playing action and the keyboard all put up the
+/// same one queue, and the chord has to be able to close a sheet a button
+/// opened. The embedded pane is not this: the desktop column is the frame's,
+/// and the frame claims the action for itself.
+class _ModalQueueSheet extends ConsumerStatefulWidget {
+  const _ModalQueueSheet();
+
+  @override
+  ConsumerState<_ModalQueueSheet> createState() => _ModalQueueSheetState();
+}
+
+class _ModalQueueSheetState extends ConsumerState<_ModalQueueSheet> {
+  /// Held rather than read back in [dispose], where reading a provider is no
+  /// longer allowed.
+  late final ShortcutSurface _surface;
+
+  @override
+  void initState() {
+    super.initState();
+    _surface = ref.read(shortcutSurfaceProvider)
+      ..bind(ShortcutAction.queue, _handleQueueShortcut);
+  }
+
+  @override
+  void dispose() {
+    _surface.unbind(ShortcutAction.queue, _handleQueueShortcut);
+    super.dispose();
+  }
+
+  /// Closes this sheet, or stands aside.
+  ///
+  /// `pop` would be wrong on its own: it takes the top of the navigator, and
+  /// after a Ctrl+P that is Now Playing, not the queue. So the sheet acts on
+  /// its own route or not at all.
+  bool _handleQueueShortcut() {
+    final ModalRoute<Object?>? route = ModalRoute.of(context);
+    if (route == null || !route.isActive) return false;
+    if (route.isCurrent) {
+      Navigator.of(context).pop();
+      return true;
+    }
+    // Buried under a route pushed after it. The user cannot see this queue, so
+    // it comes out where it stands rather than by popping the page they are
+    // looking at, and the app-level fallback puts a fresh one on top.
+    Navigator.of(context).removeRoute(route);
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) => const QueueSheet();
 }
 
 /// The Queue / Up Next manager.

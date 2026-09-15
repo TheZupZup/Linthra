@@ -6,6 +6,7 @@ import '../../../core/platform/host_platform.dart';
 import '../../../data/repositories/host_platform_provider.dart';
 import '../desktop/desktop_notifications_section.dart';
 import '../desktop/desktop_window_section.dart';
+import '../desktop/keyboard_shortcuts_section.dart';
 import '../playback/audio_output_settings_section.dart';
 import '../playback/playback_settings_section.dart';
 import '../source/default_provider_section.dart';
@@ -28,6 +29,11 @@ import 'settings_detail_scaffold.dart';
 /// The same goes for desktop notifications (#400), the opt-in toast when the
 /// track changes: on Android that notification is the media session's, drawn
 /// by the system, so there is nothing there to offer a switch for.
+///
+/// And for remapping the keyboard shortcuts (#391). The shortcuts themselves
+/// work wherever a real keyboard sends the chord — an Android tablet with a
+/// keyboard case included — but a card for rebinding them is dead weight on a
+/// phone.
 class MusicAndPlaybackScreen extends ConsumerWidget {
   const MusicAndPlaybackScreen({super.key});
 
@@ -52,6 +58,8 @@ class MusicAndPlaybackScreen extends ConsumerWidget {
           // desktop platform without a notification seam shows no card.
           const SizedBox(height: AppSpacing.md),
           const DesktopNotificationsSettingsSection(),
+          const SizedBox(height: AppSpacing.md),
+          const KeyboardShortcutsSettingsSection(),
         ],
       ],
     );
