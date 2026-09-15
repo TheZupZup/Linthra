@@ -315,6 +315,34 @@ void main() {
       expect(find.text('Library screen'), findsOneWidget);
     });
 
+    testWidgets('and reaches past whatever is drawn over the frame',
+        (tester) async {
+      // A modal over the shell makes its route non-current, which used to make
+      // the frame decline and hand Ctrl+L to the `go` fallback — losing the
+      // very stack the frame was there to restore.
+      final _Harness app = await _pumpApp(
+        tester,
+        size: _phone,
+        platform: TargetPlatform.android,
+      );
+      app.router.go('/library/detail');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Playlists'));
+      await tester.pumpAndSettle();
+      await _pressCtrl(tester, LogicalKeyboardKey.keyU);
+      expect(find.byType(QueueSheet), findsOneWidget);
+
+      await _pressCtrl(tester, LogicalKeyboardKey.keyL);
+
+      expect(app.location, '/library/detail');
+      expect(find.text('Library detail'), findsOneWidget);
+      expect(
+        find.byType(QueueSheet),
+        findsNothing,
+        reason: 'a tab switch nobody can see is not a tab switch',
+      );
+    });
+
     testWidgets('Ctrl+Space stops a stream that is still buffering',
         (tester) async {
       final _Harness app = await _pumpApp(tester, playback: _paused);

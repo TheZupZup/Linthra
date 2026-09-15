@@ -1161,6 +1161,14 @@ case: the frame answers it with the side column when the window is wide enough
 and the app-level fallback opens the same sheet the phone uses otherwise, which
 is the rule the now-playing bar's queue button already follows.
 
+**Three surfaces answer the queue chord**, innermost first: an open queue
+sheet closes itself, the wide Now Playing screen toggles its own pane rather
+than stacking a sheet over it, and the navigation frame toggles the side column
+when this window has one. Each declines when it is not the right host, and the
+app-level fallback opens the sheet. Library is the odd one out: the frame
+claims it whatever is drawn on top, clearing the overlay first, because a tab
+switch nobody can see is not a tab switch.
+
 **How the frame gets first refusal.** Through
 [`ShortcutSurface`](../lib/app/shortcuts/shortcut_surface.dart), a tiny registry
 the navigation frame binds itself into while it is mounted, rather than through

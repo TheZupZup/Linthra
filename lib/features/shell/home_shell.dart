@@ -147,9 +147,9 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     super.dispose();
   }
 
-  /// Whether the frame is the page on screen rather than something pushed over
-  /// it. With Now Playing on top, a column the user cannot see is no answer to
-  /// anything, so the frame declines and the fallback takes the key.
+  /// Whether the frame is the page on screen rather than something drawn over
+  /// it. With Now Playing or a sheet on top, a queue column the user cannot
+  /// see is no answer, so the frame declines and the fallback takes the key.
   bool get _isShowing => ModalRoute.of(context)?.isCurrent ?? false;
 
   /// Toggles the queue column, or declines when this window has none.
@@ -166,8 +166,19 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   /// destination beside it cannot drift: coming from another tab restores
   /// whatever Library had on top, and pressing it while Library is already
   /// showing goes back to its root.
+  ///
+  /// Claimed whatever is drawn over the frame, unlike the queue. A queue
+  /// column the user cannot see is no answer, but a tab switch is: it just has
+  /// to be one they can see. So anything on top — Now Playing, a queue sheet,
+  /// a dialog — is cleared first, which is what the app-level `go` used to do
+  /// as a side effect of replacing the route stack, and then the branch is
+  /// switched so the tab keeps its own history.
   bool _handleLibraryShortcut() {
-    if (!_isShowing) return false;
+    final ModalRoute<Object?>? route = ModalRoute.of(context);
+    if (route == null || !route.isActive) return false;
+    if (!route.isCurrent) {
+      Navigator.of(context).popUntil((Route<dynamic> other) => other == route);
+    }
     _onDestinationSelected(HomeShell.libraryBranchIndex);
     return true;
   }
