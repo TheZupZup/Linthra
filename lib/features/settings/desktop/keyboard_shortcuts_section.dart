@@ -39,6 +39,25 @@ class KeyboardShortcutsSettingsSection extends ConsumerWidget {
     final bool anyOverridden =
         ShortcutAction.values.any(controller.isOverridden);
 
+    Future<void> resetEverything() async {
+      try {
+        await controller.resetAll();
+      } catch (_) {
+        if (!context.mounted) return;
+        // The defaults are already showing and the button has gone quiet with
+        // them, so without this the only clue would be the overrides coming
+        // back on the next launch.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Reset for now, but it could not be written. Your old shortcuts '
+              'will come back when you restart.',
+            ),
+          ),
+        );
+      }
+    }
+
     Future<void> reset(ShortcutActionDefinition definition) async {
       final ShortcutUpdateResult result =
           await controller.resetToDefault(definition.action);
@@ -97,7 +116,7 @@ class KeyboardShortcutsSettingsSection extends ConsumerWidget {
             Align(
               alignment: Alignment.centerRight,
               child: TextButton.icon(
-                onPressed: anyOverridden ? () => controller.resetAll() : null,
+                onPressed: anyOverridden ? resetEverything : null,
                 icon: const Icon(Icons.settings_backup_restore, size: 18),
                 label: const Text('Reset all to defaults'),
               ),

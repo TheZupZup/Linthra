@@ -1195,7 +1195,14 @@ readline conventions a GTK entry has and a Flutter text field does not — so
 
 **Typing wins.** A shortcut stands down while the keyboard is in a text field
 *if the field would have wanted that key* — the caret keys, Home/End,
-Backspace/Delete, Space, and the clipboard and undo letters. It is deliberately
+Backspace/Delete, Space, the clipboard and undo letters, and any chord that
+uses Alt on a printable key. That last one is AltGr: it is right Alt (and
+Ctrl+Alt on some layouts), and AltGr plus an ordinary key is how a great many
+layouts produce a character — `@` is AltGr+Q on a German keyboard. Flutter
+reports "alt" without saying which side, so such a chord cannot be told apart
+from somebody typing. It stands down inside a field rather than being refused
+outright: refusing would take a whole modifier's worth of combinations away
+from everyone to protect a case that only bites while typing. It is deliberately
 not "no shortcuts while typing": `Ctrl+K` opens search from inside a search
 field, which is where people press it. The rule is one predicate,
 `conflictsWithTextEditing`, and the action is *disabled* rather than silently
@@ -1217,6 +1224,11 @@ is typed.
   refusal is for those chords *exactly* — `Ctrl+Shift+↑` and `Alt+↑` are free —
   which is why `ContextMenuRegion` now matches its two chords exactly too,
   instead of taking F10 with Shift and anything else held;
+* `Alt+F4`, which never reaches the app: GTK turns it into the close request
+  `linux/runner/window_lifecycle_channel.cc` answers by hiding or quitting.
+  Only that one is listed — the rest of a desktop's own bindings are the user's
+  to configure and vary by compositor, and a chord the desktop grabs simply
+  does not arrive, the same way a media key does not;
 * a media key, as above;
 * a combination another action already has, including a fixed alias — the
   refusal names the action that has it.

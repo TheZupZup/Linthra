@@ -132,6 +132,27 @@ void main() {
       expect(const ShortcutBinding(LogicalKeyboardKey.f10).problem, isNull);
     });
 
+    test('a chord the desktop takes is refused', () {
+      // GTK turns Alt+F4 into the delete-event the Linux runner answers by
+      // hiding or quitting, so a shortcut bound to it would read as set and
+      // then close the window.
+      expect(
+        const ShortcutBinding(LogicalKeyboardKey.f4, alt: true).problem,
+        ShortcutBindingProblem.claimedByDesktop,
+      );
+      // Only that exact chord: F4 on its own and with other modifiers is ours.
+      expect(const ShortcutBinding(LogicalKeyboardKey.f4).problem, isNull);
+      expect(
+        const ShortcutBinding(LogicalKeyboardKey.f4, control: true).problem,
+        isNull,
+      );
+      expect(
+        const ShortcutBinding(LogicalKeyboardKey.f4, alt: true, shift: true)
+            .problem,
+        isNull,
+      );
+    });
+
     test('no shipped default lands on one of those', () {
       for (final ShortcutActionDefinition definition
           in ShortcutActions.definitions) {
@@ -152,6 +173,47 @@ void main() {
         final String message = describeShortcutProblem(problem);
         expect(message, isNotEmpty);
         expect(message.endsWith('.'), isTrue, reason: message);
+      }
+    });
+  });
+
+  group('AltGr', () {
+    test('an Alt chord on a printable key stands down inside a field', () {
+      // AltGr is right Alt, and AltGr+Q is @ on a German layout. Flutter does
+      // not say which Alt, so inside a field the chord has to give way.
+      for (final ShortcutBinding binding in <ShortcutBinding>[
+        const ShortcutBinding(LogicalKeyboardKey.keyQ, alt: true),
+        const ShortcutBinding(LogicalKeyboardKey.keyQ,
+            control: true, alt: true),
+        const ShortcutBinding(LogicalKeyboardKey.digit8, alt: true),
+        const ShortcutBinding(LogicalKeyboardKey.minus, alt: true),
+      ]) {
+        expect(
+          conflictsWithTextEditing(binding),
+          isTrue,
+          reason: '${binding.label} can be somebody typing a character',
+        );
+      }
+    });
+
+    test('but it is still a perfectly good binding away from a field', () {
+      expect(
+        const ShortcutBinding(LogicalKeyboardKey.keyQ, alt: true).problem,
+        isNull,
+        reason: 'standing down is the guard\'s job, not a refusal',
+      );
+    });
+
+    test('and a named key with Alt is unaffected', () {
+      for (final ShortcutBinding binding in <ShortcutBinding>[
+        const ShortcutBinding(LogicalKeyboardKey.f5, alt: true),
+        const ShortcutBinding(LogicalKeyboardKey.enter, alt: true),
+      ]) {
+        expect(
+          conflictsWithTextEditing(binding),
+          isFalse,
+          reason: 'no layout produces a character from ${binding.label}',
+        );
       }
     });
   });

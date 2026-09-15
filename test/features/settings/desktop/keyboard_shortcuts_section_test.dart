@@ -24,6 +24,9 @@ class _SlowStore implements KeyboardShortcutPreferences {
   /// When set, the held write fails instead of completing.
   bool fail = false;
 
+  /// When set, [clear] throws the way a failing preferences plugin would.
+  bool failClear = false;
+
   void finishWrite() => _write.complete();
 
   @override
@@ -37,7 +40,10 @@ class _SlowStore implements KeyboardShortcutPreferences {
   }
 
   @override
-  Future<void> clear() => _inner.clear();
+  Future<void> clear() async {
+    if (failClear) throw StateError('storage is unavailable');
+    await _inner.clear();
+  }
 }
 
 Future<InMemoryKeyboardShortcutPreferences> _pumpCard(
@@ -251,6 +257,44 @@ void main() {
         const ShortcutBinding(LogicalKeyboardKey.keyG, control: true)
             .storageValue,
       );
+    });
+
+    testWidgets('a reset-all that cannot be written says so', (tester) async {
+      // The defaults are already showing and the button has gone quiet with
+      // them, so without a message the only clue would be the overrides
+      // coming back on the next launch.
+      // The save itself has to go through; only the clear fails.
+      final _SlowStore store = _SlowStore()..finishWrite();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            keyboardShortcutPreferencesProvider.overrideWithValue(store),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: KeyboardShortcutsSettingsSection(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _record(tester, 'Library', LogicalKeyboardKey.keyG);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      store.failClear = true;
+
+      await tester.tap(find.text('Reset all to defaults'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('could not be written'),
+        findsOneWidget,
+        reason: 'the failure has to reach the user somehow',
+      );
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('reset all is offered only when something was changed',

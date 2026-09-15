@@ -32,6 +32,9 @@ enum ShortcutBindingProblem {
   /// A chord a control inside Linthra already answers. It would look bound and
   /// then quietly do nothing whenever that control had the keyboard.
   claimedByControl,
+
+  /// A chord the desktop itself takes before the app ever sees it.
+  claimedByDesktop,
 }
 
 /// A short, plain sentence for [problem], for the settings screen to show
@@ -48,6 +51,8 @@ String describeShortcutProblem(ShortcutBindingProblem problem) {
       return 'Media keys already reach Linthra through your desktop.';
     case ShortcutBindingProblem.claimedByControl:
       return 'A focused row already uses this to reorder or to open its menu.';
+    case ShortcutBindingProblem.claimedByDesktop:
+      return 'Your desktop uses this to close the window.';
   }
 }
 
@@ -113,6 +118,21 @@ final Set<ShortcutBinding> _claimedByControls = <ShortcutBinding>{
   const ShortcutBinding(LogicalKeyboardKey.f10, shift: true),
 };
 
+/// Chords the desktop takes before Linthra ever sees them.
+///
+/// Alt+F4 is a window-manager close request on every Linux desktop: GTK turns
+/// it into the `delete-event` that `linux/runner/window_lifecycle_channel.cc`
+/// answers by hiding or quitting. A shortcut bound to it would read as set in
+/// settings and then close the window instead of firing.
+///
+/// Only the one that Linthra's own runner takes part in. The rest of a
+/// desktop's bindings are the user's to configure and vary by compositor, so
+/// enumerating them here would be guesswork; a chord the desktop grabs simply
+/// never reaches the app, the same way a media key does not.
+final Set<ShortcutBinding> _claimedByDesktop = <ShortcutBinding>{
+  const ShortcutBinding(LogicalKeyboardKey.f4, alt: true),
+};
+
 final Set<LogicalKeyboardKey> _modifierKeys = <LogicalKeyboardKey>{
   LogicalKeyboardKey.control,
   LogicalKeyboardKey.controlLeft,
@@ -172,8 +192,29 @@ final Set<LogicalKeyboardKey> _textEditingKeys = <LogicalKeyboardKey>{
 /// search from inside a search field, which is exactly where people press it,
 /// and Linthra has always answered it there. Only the combinations a field
 /// itself would have used are given back.
-bool conflictsWithTextEditing(ShortcutBinding binding) =>
-    _textEditingKeys.contains(binding.trigger);
+bool conflictsWithTextEditing(ShortcutBinding binding) {
+  if (_textEditingKeys.contains(binding.trigger)) return true;
+  // AltGr is right Alt (and, on some layouts, Ctrl+Alt), and AltGr plus an
+  // ordinary key is how a great many layouts produce a character: @ on a
+  // German keyboard is AltGr+Q, \ is AltGr+ß. Flutter reports "alt" without
+  // saying which side, so a chord using Alt cannot be told apart from somebody
+  // typing one of those.
+  //
+  // Standing down inside a field rather than refusing the binding outright:
+  // refusing would take a whole modifier's worth of combinations away from
+  // everyone to protect a case that only bites while typing, and this is the
+  // exact trade the guard exists to make. Only printable triggers, so Alt+F5
+  // and Alt+→ are unaffected.
+  if (binding.alt && _isPrintable(binding.trigger)) return true;
+  return false;
+}
+
+/// Whether [key] is a character key rather than a named one. Flutter puts the
+/// printables in the Unicode plane and everything else (F-keys, arrows, Home)
+/// in planes of its own.
+bool _isPrintable(LogicalKeyboardKey key) =>
+    (key.keyId & LogicalKeyboardKey.planeMask) ==
+    LogicalKeyboardKey.unicodePlane;
 
 /// The chord the keyboard is holding right now, or `null` when it is not a
 /// chord this app could bind (nothing but modifiers, or several non-modifier
@@ -281,6 +322,9 @@ class ShortcutBinding {
     }
     if (_claimedByControls.contains(this)) {
       return ShortcutBindingProblem.claimedByControl;
+    }
+    if (_claimedByDesktop.contains(this)) {
+      return ShortcutBindingProblem.claimedByDesktop;
     }
     if (!hasPrimaryModifier) {
       if (_reservedBare.contains(trigger)) {
