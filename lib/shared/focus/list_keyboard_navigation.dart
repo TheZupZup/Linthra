@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'focus_reading_order.dart';
+import 'keyboard_modifiers.dart';
 import 'text_editing_focus.dart';
 
 /// The list and grid keys a desktop user expects, on top of the ones Flutter
@@ -82,6 +83,10 @@ class _ListKeyboardNavigationState extends State<ListKeyboardNavigation> {
     // Typing first, always: in a text field Home and End are the ends of the
     // line and the arrow keys move the caret.
     if (isEditingText(focusedContext)) return KeyEventResult.ignored;
+    // Held modifiers mean the key was meant for something else: Ctrl+End is
+    // the shell's business, and Ctrl+→ may be a shortcut the user bound
+    // (#391). Answering here would move focus *and* swallow the chord.
+    if (shortcutModifierPressed()) return KeyEventResult.ignored;
 
     final LogicalKeyboardKey key = event.logicalKey;
     if (key == LogicalKeyboardKey.home) return _jumpToEdge(focused, end: false);

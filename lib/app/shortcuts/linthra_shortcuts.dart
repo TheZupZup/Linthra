@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/models/playback_state.dart';
 import '../../core/services/playback_controller.dart';
 import '../../features/library/widgets/quick_search_overlay.dart';
+import '../../features/onboarding/onboarding_controller.dart';
 import '../../features/player/player_providers.dart';
 import '../../features/player/widgets/queue_sheet.dart';
 import '../../shared/focus/text_editing_focus.dart';
@@ -14,6 +16,7 @@ import 'keyboard_shortcuts_controller.dart';
 import 'shortcut_action.dart';
 import 'shortcut_binding.dart';
 import 'shortcut_intents.dart';
+import 'shortcut_surface.dart';
 
 /// The activators to install for [bindings], including the fixed aliases.
 ///
@@ -91,6 +94,10 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
   /// search chord again while the overlay already has focus must be a no-op.
   bool _searchShowing = false;
 
+  /// Whether this widget put a queue sheet on screen, so the same chord can
+  /// take it away again instead of opening a second one.
+  bool _queueSheetShowing = false;
+
   /// Null only before the navigator's first build, when there is nothing to act
   /// on yet; a dropped keystroke there is the right outcome.
   BuildContext? get _navigatorContext => widget.navigatorKey.currentContext;
@@ -109,11 +116,13 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
 
   void _togglePlayPause() {
     final PlaybackController controller = ref.read(playbackControllerProvider);
-    // The same call the now-playing bar's button makes, chosen off the same
-    // state — no second idea of what "play/pause" means.
-    unawaited(
-      controller.state.isPlaying ? controller.pause() : controller.play(),
-    );
+    // Buffering counts as the playing side, exactly as the transport's own
+    // button decides it (`playback_controls.dart`). A stalled stream is the
+    // moment you most want to stop it, and reading `isPlaying` alone made the
+    // shortcut call `play()` on something already trying to play.
+    final PlaybackState state = controller.state;
+    final bool playing = state.isPlaying || state.isBuffering;
+    unawaited(playing ? controller.pause() : controller.play());
   }
 
   void _skipToNext() {
@@ -124,6 +133,12 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
     unawaited(ref.read(playbackControllerProvider).skipToPrevious());
   }
 
+  /// The app-wide fallback for Library.
+  ///
+  /// A plain `go`, which resets the tab to its root and clears anything pushed
+  /// over the frame. That is the honest answer from up here: the frame claims
+  /// this action whenever it is the page on screen, precisely so the common
+  /// case switches branches and keeps the tab's own stack.
   void _openLibrary() {
     final BuildContext? context = _navigatorContext;
     if (context == null) return;
@@ -133,15 +148,25 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
   /// The app-wide fallback for the queue: the same sheet the phone opens and
   /// the same one the now-playing bar falls back to at narrow widths.
   ///
-  /// A wide desktop window answers [ToggleQueueIntent] before this ever runs —
-  /// `HomeShell` installs its own action for the side column, and `Actions` is
-  /// resolved from the focused widget upward. This is what happens when the
-  /// shell is not an ancestor of the keyboard, which is the case on any route
-  /// pushed over it.
+  /// A wide desktop window answers [ToggleQueueIntent] before this ever runs:
+  /// the frame claims the action through [ShortcutSurface] whenever it is the
+  /// page on screen and has a column to show. This is what happens the rest of
+  /// the time, including on any route pushed over the frame.
   void _openQueue() {
     final BuildContext? context = _navigatorContext;
     if (context == null) return;
-    unawaited(showQueueSheet(context));
+    // It is a *toggle*, so a second press has to put the sheet away rather
+    // than stack another copy of it on top — which is what an unguarded
+    // `showQueueSheet` did at phone widths and over any route outside the
+    // shell.
+    if (_queueSheetShowing) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _queueSheetShowing = true;
+    unawaited(
+      showQueueSheet(context).whenComplete(() => _queueSheetShowing = false),
+    );
   }
 
   void _openNowPlaying() {
@@ -166,17 +191,35 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
 
   @override
   Widget build(BuildContext context) {
+    // Nothing is bound until first-run setup is done. Onboarding is gated only
+    // by the router's `initialLocation` — there is no redirect guard — so a
+    // Ctrl+L from a focused onboarding control would have walked straight into
+    // the library with setup half-finished, and the next launch would have
+    // sent the user back to onboarding. None of these actions mean anything
+    // before there is a library, so the whole map stands down.
+    if (!ref.watch(onboardingControllerProvider)) return widget.child;
+
     final Map<ShortcutAction, ShortcutBinding> bindings =
         ref.watch(activeShortcutBindingsProvider);
 
+    final ShortcutSurface surface = ref.read(shortcutSurfaceProvider);
+
     Action<T> command<T extends Intent>(
       ShortcutAction action,
-      VoidCallback run,
+      VoidCallback fallback,
     ) {
       return _ShortcutCommand<T>(
         binding: bindings[action] ??
             ShortcutActions.definitionFor(action).defaultBinding,
-        run: run,
+        run: () {
+          // A surface that is on screen and wants this key answers first; one
+          // that declines, or is not there, leaves it to the fallback. Read at
+          // press time, so the frame can change its mind as the window is
+          // resized or a route is pushed over it.
+          final ShortcutSurfaceHandler? claimed = surface.handlerFor(action);
+          if (claimed != null && claimed()) return;
+          fallback();
+        },
       );
     }
 
@@ -243,8 +286,19 @@ class _ShortcutCommand<T extends Intent> extends Action<T> {
 
   @override
   bool isEnabled(T intent) {
-    if (!conflictsWithTextEditing(binding)) return true;
-    return !primaryFocusIsEditingText();
+    if (!primaryFocusIsEditingText()) return true;
+    // Judge the chord that actually fired, not the action's stored binding.
+    // One action can answer to several chords — search has the fixed Ctrl+F
+    // alias beside its remappable binding — and reading the binding alone
+    // switched Ctrl+F off inside a text field whenever search had been
+    // remapped onto something a field wanted, even though Ctrl+F is not a
+    // chord any field uses.
+    //
+    // `null` means the keyboard is not holding a chord this app could bind,
+    // which is what an `Actions.invoke` from a button looks like; the stored
+    // binding is the honest answer there.
+    final ShortcutBinding chord = pressedShortcutChord() ?? binding;
+    return !conflictsWithTextEditing(chord);
   }
 
   @override

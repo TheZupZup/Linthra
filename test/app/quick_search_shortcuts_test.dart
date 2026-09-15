@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:linthra/app/router.dart';
 import 'package:linthra/app/shortcuts/linthra_shortcuts.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/features/onboarding/onboarding_controller.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/shell/home_shell.dart';
 
@@ -121,6 +122,9 @@ Future<void> _pumpApp(WidgetTester tester) async {
         musicLibraryRepositoryProvider
             .overrideWithValue(FakeMusicLibraryRepository()),
         playbackControllerProvider.overrideWithValue(FakePlaybackController()),
+        // The dispatcher stands down until first-run setup is finished, so
+        // every dispatch test has to say that it is.
+        onboardingBootstrapProvider.overrideWith((ref) async => true),
       ],
       // Mirrors how LinthraApp mounts the binding: the same root navigator key
       // the router is built on, wrapped around the router's output by

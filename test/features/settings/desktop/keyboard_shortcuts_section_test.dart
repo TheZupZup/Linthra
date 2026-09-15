@@ -194,6 +194,36 @@ void main() {
       expect(await store.overrides(), isEmpty);
     });
 
+    testWidgets('a reset the user has made impossible says so instead',
+        (tester) async {
+      // Library off its default, then Queue parked on the chord Library used
+      // to have. Resetting Library now would put two actions on Ctrl+L.
+      final InMemoryKeyboardShortcutPreferences store = await _pumpCard(
+        tester,
+        stored: <String, String>{
+          'library':
+              const ShortcutBinding(LogicalKeyboardKey.keyG, control: true)
+                  .storageValue,
+          'queue': const ShortcutBinding(LogicalKeyboardKey.keyL, control: true)
+              .storageValue,
+        },
+      );
+
+      await tester.tap(find.byTooltip('Reset Library to its default'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Could not reset Library. Already used by Queue.'),
+        findsOneWidget,
+      );
+      expect(find.text('Ctrl + G'), findsOneWidget, reason: 'nothing moved');
+      expect(
+        (await store.overrides())['library'],
+        const ShortcutBinding(LogicalKeyboardKey.keyG, control: true)
+            .storageValue,
+      );
+    });
+
     testWidgets('reset all is offered only when something was changed',
         (tester) async {
       final InMemoryKeyboardShortcutPreferences store = await _pumpCard(tester);
@@ -218,6 +248,62 @@ void main() {
       for (final ShortcutActionDefinition d in ShortcutActions.definitions) {
         expect(find.text(d.defaultBinding.label), findsOneWidget);
       }
+    });
+  });
+
+  group('the recorder stays escapable', () {
+    testWidgets('Tab moves the keyboard on instead of being recorded',
+        (tester) async {
+      await _pumpCard(tester);
+      await tester.tap(find.byTooltip('Change the Library shortcut'));
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Press the keys you want to use'),
+        findsOneWidget,
+        reason: 'Tab is reserved, so recording it would only strand the user',
+      );
+      expect(
+        FocusManager.instance.primaryFocus?.context,
+        isNotNull,
+        reason: 'and the keyboard has to have gone somewhere',
+      );
+
+      // Escape still gets out, which is the other half of the same promise.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('Press the keys you want to use'), findsNothing);
+    });
+
+    testWidgets('Save cannot be pressed twice', (tester) async {
+      final InMemoryKeyboardShortcutPreferences store = await _pumpCard(tester);
+
+      await _record(tester, 'Library', LogicalKeyboardKey.keyG);
+      // Two taps inside one frame, the way an impatient double-click arrives.
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.ancestor(
+                of: find.text('Save'),
+                matching: find.byType(FilledButton),
+              ),
+            )
+            .onPressed,
+        isNull,
+        reason: 'the write is already on its way',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Save'), findsNothing, reason: 'the dialog closed');
+      expect(await store.overrides(), <String, String>{
+        'library': const ShortcutBinding(LogicalKeyboardKey.keyG, control: true)
+            .storageValue,
+      });
     });
   });
 

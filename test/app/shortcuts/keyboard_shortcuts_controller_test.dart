@@ -243,6 +243,53 @@ void main() {
       expect(await store.overrides(), isEmpty);
     });
 
+    test('a reset that would collide is refused, and names the blocker',
+        () async {
+      final InMemoryKeyboardShortcutPreferences store =
+          InMemoryKeyboardShortcutPreferences();
+      final KeyboardShortcutsController controller = await _ready(
+        _container(store),
+      );
+      final ShortcutBinding libraryDefault =
+          ShortcutActions.definitionFor(ShortcutAction.library).defaultBinding;
+
+      // Move Library off its default, then park Queue on the vacated chord.
+      await controller.setBinding(ShortcutAction.library, _ctrlG);
+      await controller.setBinding(ShortcutAction.queue, libraryDefault);
+
+      final ShortcutUpdateResult result =
+          await controller.resetToDefault(ShortcutAction.library);
+
+      expect(result.status, ShortcutUpdateStatus.conflict);
+      expect(result.conflictsWith, ShortcutAction.queue);
+      expect(result.message, 'Already used by Queue.');
+      // Nothing moved: two actions on one chord is the outcome being avoided.
+      expect(controller.current[ShortcutAction.library], _ctrlG);
+      expect(controller.current[ShortcutAction.queue], libraryDefault);
+    });
+
+    test('and goes through once the blocker moves away', () async {
+      final KeyboardShortcutsController controller = await _ready(
+        _container(InMemoryKeyboardShortcutPreferences()),
+      );
+      final ShortcutBinding libraryDefault =
+          ShortcutActions.definitionFor(ShortcutAction.library).defaultBinding;
+
+      await controller.setBinding(ShortcutAction.library, _ctrlG);
+      await controller.setBinding(ShortcutAction.queue, libraryDefault);
+      await controller.setBinding(
+        ShortcutAction.queue,
+        const ShortcutBinding(LogicalKeyboardKey.keyJ, control: true),
+      );
+
+      final ShortcutUpdateResult result =
+          await controller.resetToDefault(ShortcutAction.library);
+
+      expect(result.isApplied, isTrue);
+      expect(controller.current[ShortcutAction.library], libraryDefault);
+      expect(controller.isOverridden(ShortcutAction.library), isFalse);
+    });
+
     test('a reset survives a restart too', () async {
       final InMemoryKeyboardShortcutPreferences store =
           InMemoryKeyboardShortcutPreferences();

@@ -39,6 +39,22 @@ class KeyboardShortcutsSettingsSection extends ConsumerWidget {
     final bool anyOverridden =
         ShortcutAction.values.any(controller.isOverridden);
 
+    Future<void> reset(ShortcutActionDefinition definition) async {
+      final ShortcutUpdateResult result =
+          await controller.resetToDefault(definition.action);
+      if (result.isApplied || !context.mounted) return;
+      // A default can be occupied by whatever the user put there in the
+      // meantime, and a reset button that quietly did nothing would be the
+      // worst of the three possible outcomes.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not reset ${definition.label}. ${result.message}',
+          ),
+        ),
+      );
+    }
+
     Future<void> rebind(ShortcutActionDefinition definition) async {
       // Taps are ignored until the stored map has loaded, so a fast one cannot
       // be overwritten by a value still on its way in from storage.
@@ -76,7 +92,7 @@ class KeyboardShortcutsSettingsSection extends ConsumerWidget {
                     current[definition.action] ?? definition.defaultBinding,
                 isOverridden: controller.isOverridden(definition.action),
                 onChange: () => rebind(definition),
-                onReset: () => controller.resetToDefault(definition.action),
+                onReset: () => reset(definition),
               ),
             Align(
               alignment: Alignment.centerRight,
@@ -167,6 +183,11 @@ class _RecordShortcutDialogState extends ConsumerState<_RecordShortcutDialog> {
   ShortcutBinding? _recorded;
   String? _message;
 
+  /// Whether a save is already on its way to storage. Save is awaited, so
+  /// without this a second click (or a second Enter on the focused button)
+  /// started a second write before the first had popped the dialog.
+  bool _saving = false;
+
   @override
   void initState() {
     super.initState();
@@ -181,14 +202,13 @@ class _RecordShortcutDialogState extends ConsumerState<_RecordShortcutDialog> {
 
   /// Reads the chord off a key-down event.
   ///
-  /// Escape is let through untouched so the dialog can still be dismissed with
-  /// it — you cannot bind Escape anyway, and a recorder that swallowed it would
-  /// trap the user in a dialog whose whole purpose is pressing keys.
+  /// Escape and Tab are let through untouched: neither can be bound anyway
+  /// (both are reserved), and swallowing them would trap the user in a dialog
+  /// whose whole purpose is pressing keys — no way out with Escape, and no way
+  /// to reach Cancel or Save with the keyboard.
   KeyEventResult _record(FocusNode node, KeyEvent event) {
+    if (_passThrough(event.logicalKey)) return KeyEventResult.ignored;
     if (event is! KeyDownEvent) return KeyEventResult.handled;
-    if (event.logicalKey == LogicalKeyboardKey.escape) {
-      return KeyEventResult.ignored;
-    }
 
     final Set<LogicalKeyboardKey> held =
         HardwareKeyboard.instance.logicalKeysPressed;
@@ -238,9 +258,15 @@ class _RecordShortcutDialogState extends ConsumerState<_RecordShortcutDialog> {
     return KeyEventResult.handled;
   }
 
+  /// Keys the recorder must never eat, on the way down *or* up: a swallowed
+  /// key-up leaves the toolkit thinking the key is still held.
+  static bool _passThrough(LogicalKeyboardKey key) =>
+      key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.tab;
+
   Future<void> _apply() async {
     final ShortcutBinding? binding = _recorded;
-    if (binding == null) return;
+    if (binding == null || _saving) return;
+    setState(() => _saving = true);
     final ShortcutUpdateResult result = await ref
         .read(keyboardShortcutsControllerProvider.notifier)
         .setBinding(widget.definition.action, binding);
@@ -251,14 +277,17 @@ class _RecordShortcutDialogState extends ConsumerState<_RecordShortcutDialog> {
     }
     // Belt and braces: the recorder already checks, but the controller is the
     // authority and its wording is the one to show.
-    setState(() => _message = result.message);
+    setState(() {
+      _saving = false;
+      _message = result.message;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ShortcutBinding? recorded = _recorded;
-    final bool canApply = recorded != null && _message == null;
+    final bool canApply = recorded != null && _message == null && !_saving;
 
     return AlertDialog(
       title: Text(widget.definition.label),

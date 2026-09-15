@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../../app/dimens.dart';
 import '../../../shared/focus/focus_ring.dart';
+import '../../../shared/focus/keyboard_modifiers.dart';
 import '../../../shared/widgets/wavy_progress_indicator.dart';
 
 /// How much room a [WavySeekBar] is drawn to take.
@@ -161,6 +162,11 @@ class WavySeekBar extends StatelessWidget {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
+    // A modified arrow is somebody else's key. Ctrl+→ is a bindable chord
+    // (#391), and seeking on it here would both move the track and swallow
+    // the event, so the user's shortcut would be dead for as long as the bar
+    // held focus.
+    if (shortcutModifierPressed()) return KeyEventResult.ignored;
     final bool rtl = Directionality.of(context) == TextDirection.rtl;
     final bool forward;
     if (event.logicalKey == LogicalKeyboardKey.arrowRight) {

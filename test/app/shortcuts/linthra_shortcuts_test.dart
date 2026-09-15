@@ -13,6 +13,7 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/data/repositories/in_memory_keyboard_shortcut_preferences.dart';
 import 'package:linthra/data/repositories/keyboard_shortcut_preferences_provider.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/features/onboarding/onboarding_controller.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/widgets/queue_sheet.dart';
 import 'package:linthra/features/shell/home_shell.dart';
@@ -42,6 +43,13 @@ const PlaybackState _playing = PlaybackState(
 
 const PlaybackState _paused = PlaybackState(
   status: PlaybackStatus.paused,
+  currentTrack: _current,
+);
+
+/// A stalled stream. Not playing, not paused — and the moment you most want
+/// the play/pause key to stop it.
+const PlaybackState _buffering = PlaybackState(
+  status: PlaybackStatus.buffering,
   currentTrack: _current,
 );
 
@@ -110,6 +118,16 @@ GoRouter _router(
                 GoRoute(
                   path: paths[i],
                   builder: (_, __) => _BranchScreen(labels[i]),
+                  routes: <RouteBase>[
+                    // Somewhere inside the branch, so "switching tabs kept my
+                    // place" is a thing a test can see.
+                    GoRoute(
+                      path: 'detail',
+                      builder: (_, __) => Scaffold(
+                        body: Center(child: Text('${labels[i]} detail')),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -152,6 +170,7 @@ Future<_Harness> _pumpApp(
   Map<String, String> storedOverrides = const <String, String>{},
   Size size = _wideDesktop,
   TargetPlatform platform = TargetPlatform.linux,
+  bool onboardingCompleted = true,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -172,6 +191,10 @@ Future<_Harness> _pumpApp(
         musicLibraryRepositoryProvider
             .overrideWithValue(FakeMusicLibraryRepository()),
         playbackControllerProvider.overrideWithValue(controller),
+        // The dispatcher stands down until first-run setup is finished, so
+        // every dispatch test has to say that it is.
+        onboardingBootstrapProvider
+            .overrideWith((ref) async => onboardingCompleted),
         keyboardShortcutPreferencesProvider.overrideWithValue(
           InMemoryKeyboardShortcutPreferences(
             initialOverrides: storedOverrides,
@@ -251,6 +274,63 @@ void main() {
       expect(find.text('Library screen'), findsOneWidget);
     });
 
+    testWidgets('and brings back whatever Library had open', (tester) async {
+      final _Harness app = await _pumpApp(tester);
+      app.router.go('/library/detail');
+      await tester.pumpAndSettle();
+      expect(find.text('Library detail'), findsOneWidget);
+
+      // Away to another tab, the way a rail click goes...
+      await tester.tap(find.text('Playlists'));
+      await tester.pumpAndSettle();
+      expect(find.text('Playlists screen'), findsOneWidget);
+
+      await _pressCtrl(tester, LogicalKeyboardKey.keyL);
+
+      expect(
+        find.text('Library detail'),
+        findsOneWidget,
+        reason: 'the shortcut switches the branch, so the tab keeps its own '
+            'stack — a plain go() would have thrown the detail page away',
+      );
+      expect(app.location, '/library/detail');
+    });
+
+    testWidgets('and pressing it again goes back to the top of Library',
+        (tester) async {
+      final _Harness app = await _pumpApp(tester);
+      app.router.go('/library/detail');
+      await tester.pumpAndSettle();
+
+      // Already on Library: the same thing a second rail click does.
+      await _pressCtrl(tester, LogicalKeyboardKey.keyL);
+
+      expect(app.location, '/library');
+      expect(find.text('Library screen'), findsOneWidget);
+    });
+
+    testWidgets('Ctrl+Space stops a stream that is still buffering',
+        (tester) async {
+      final _Harness app = await _pumpApp(tester, playback: _paused);
+      // Pushed in after the first frame has settled: a buffering transport
+      // spins, and a spinner never lets pumpAndSettle finish.
+      app.playback.emit(_buffering);
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(
+        app.playback.pauseCount,
+        1,
+        reason: 'buffering is the playing side, exactly as the transport '
+            'button reads it',
+      );
+      expect(app.playback.playCount, 0);
+    });
+
     testWidgets('Ctrl+K opens quick search', (tester) async {
       await _pumpApp(tester);
 
@@ -310,6 +390,41 @@ void main() {
       expect(find.byType(QueueSheet), findsOneWidget);
     });
 
+    testWidgets('and a phone-sized window toggles that sheet back off',
+        (tester) async {
+      await _pumpApp(tester, size: _phone, platform: TargetPlatform.android);
+
+      await _pressCtrl(tester, LogicalKeyboardKey.keyU);
+      expect(find.byType(QueueSheet), findsOneWidget);
+
+      await _pressCtrl(tester, LogicalKeyboardKey.keyU);
+
+      expect(
+        find.byType(QueueSheet),
+        findsNothing,
+        reason: 'a toggle that stacked a second sheet would not be a toggle',
+      );
+    });
+
+    testWidgets('and still the column after the keyboard has wandered off',
+        (tester) async {
+      // Regression: the frame used to claim the queue through a nested
+      // `Actions`, which is resolved from wherever the focus happens to be.
+      // Leaving a tab that had a page pushed inside it parks the focus on the
+      // scope *above* the frame, and from there the frame stopped being found
+      // at all: a modal sheet appeared over a window that has a column.
+      final _Harness app = await _pumpApp(tester);
+      app.router.go('/library/detail');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Playlists'));
+      await tester.pumpAndSettle();
+
+      await _pressCtrl(tester, LogicalKeyboardKey.keyU);
+
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(QueueSheet), findsOneWidget);
+    });
+
     testWidgets('over Now Playing, where the frame is not an ancestor',
         (tester) async {
       await _pumpApp(tester);
@@ -320,6 +435,10 @@ void main() {
 
       // The shell cannot answer from up there, so the app-level fallback does.
       expect(find.byType(BottomSheet), findsOneWidget);
+
+      // The fallback is a toggle too.
+      await _pressCtrl(tester, LogicalKeyboardKey.keyU);
+      expect(find.byType(QueueSheet), findsNothing);
     });
   });
 
@@ -364,6 +483,52 @@ void main() {
         reason: 'the rule is not "no shortcuts while typing" — a field never '
             'wanted Ctrl+K',
       );
+    });
+
+    testWidgets('the frame\'s own queue action stands down too',
+        (tester) async {
+      // Ctrl+A is "select all" in a field. The shell answers the queue intent
+      // before the app-level command does, so it has to carry the same rule.
+      await _pumpApp(
+        tester,
+        storedOverrides: <String, String>{
+          'queue': const ShortcutBinding(LogicalKeyboardKey.keyA, control: true)
+              .storageValue,
+        },
+      );
+
+      await tester.tap(find.byKey(const Key('branch_field')));
+      await tester.pumpAndSettle();
+      await _pressCtrl(tester, LogicalKeyboardKey.keyA);
+
+      expect(find.byType(QueueSheet), findsNothing);
+
+      // And it is only standing down for the field: away from it, the remap
+      // works.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await _pressCtrl(tester, LogicalKeyboardKey.keyA);
+      expect(find.byType(QueueSheet), findsOneWidget);
+    });
+
+    testWidgets('a fixed alias keeps working when the remap would not',
+        (tester) async {
+      // Search moved onto a chord a field owns. Ctrl+F is not that chord, and
+      // no field wants it, so the alias must still answer from inside one.
+      await _pumpApp(
+        tester,
+        storedOverrides: <String, String>{
+          'search':
+              const ShortcutBinding(LogicalKeyboardKey.keyA, control: true)
+                  .storageValue,
+        },
+      );
+
+      await tester.tap(find.byKey(const Key('branch_field')));
+      await tester.pumpAndSettle();
+      await _pressCtrl(tester, LogicalKeyboardKey.keyF);
+
+      expect(find.byKey(const Key('quick_search_field')), findsOneWidget);
     });
 
     testWidgets('leaving the field gives the shortcut back', (tester) async {
@@ -471,6 +636,33 @@ void main() {
 
       expect(app.playback.skipCount, 1);
     });
+  });
+
+  group('first run', () {
+    testWidgets('nothing is bound until onboarding is finished',
+        (tester) async {
+      final _Harness app = await _pumpApp(tester, onboardingCompleted: false);
+
+      await _pressCtrl(tester, LogicalKeyboardKey.space);
+      await _pressCtrl(tester, LogicalKeyboardKey.keyL);
+
+      expect(app.playback.pauseCount, 0);
+      expect(
+        app.location,
+        '/playlists',
+        reason: 'the router gates onboarding on its initial location alone, '
+            'so a shortcut out of it would leave setup half-finished',
+      );
+    });
+  });
+
+  test('the frame agrees with the shortcut about which branch Library is', () {
+    // A const constructor cannot assert this, and getting it wrong would send
+    // Ctrl+L to Folders.
+    expect(
+      HomeShell.destinationLabels[HomeShell.libraryBranchIndex],
+      'Library',
+    );
   });
 
   test('the activator table is what the registry says it is', () {

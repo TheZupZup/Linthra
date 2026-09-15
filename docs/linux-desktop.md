@@ -1158,10 +1158,22 @@ bound as another.
 **No new playback logic.** Every action forwards to the `PlaybackController`,
 router or overlay the buttons already use. The queue shortcut is the clearest
 case: the frame answers it with the side column when the window is wide enough
-and the app-level fallback opens the same sheet the phone uses otherwise —
-whichever host this width has, which is the rule the now-playing bar's queue
-button already follows. `Actions` resolves from the focused widget upward, so
-the frame gets first refusal and a route pushed over it falls through.
+and the app-level fallback opens the same sheet the phone uses otherwise, which
+is the rule the now-playing bar's queue button already follows.
+
+**How the frame gets first refusal.** Through
+[`ShortcutSurface`](../lib/app/shortcuts/shortcut_surface.dart), a tiny registry
+the navigation frame binds itself into while it is mounted, rather than through
+a nested `Actions` inside it. `Shortcuts` resolves an intent from wherever the
+keyboard focus happens to sit, and focus is not something the frame controls:
+leave a tab that had a page pushed inside it and focus lands on the scope
+*above* the frame, at which point a nested `Actions` stops being found. The
+symptoms were a modal queue sheet over a window that has a queue column, and
+`Ctrl+L` flattening the Library stack it was meant to restore. A handler
+returning `false` means "not mine right now" and hands the key back, so the
+frame only describes the two cases it improves on — a visible queue column, and
+switching to the Library branch with `goBranch` so the tab keeps its own stack —
+and declines everywhere else, including under a route pushed over it.
 
 **Media keys are not here.** `XF86AudioPlay` and friends reach Linthra through
 MPRIS (#398), which works while the window is not focused. Binding one here
@@ -1192,6 +1204,25 @@ Function keys are allowed bare: no text field produces one.
 **Repeats fire once.** Every activator is built with `includeRepeats: false`, so
 holding `Ctrl+→` skips one track rather than the whole queue.
 
+**Nothing bare-key swallows a chord.** Widgets that answer a plain arrow — the
+seek bar, and a grid's row wrap in `ListKeyboardNavigation` — stand aside when
+Ctrl, Alt or Super is held (`shortcutModifierPressed`). Otherwise `Ctrl+→`
+would have seeked *and* been reported handled, leaving the binding dead for as
+long as that widget had focus.
+
+**Nothing is bound before setup is finished.** The router gates onboarding on
+its initial location alone, with no redirect guard, so the whole map stands
+down until `onboardingControllerProvider` is true. A `Ctrl+L` out of onboarding
+would otherwise have landed in an unconfigured library and sent the user back
+to onboarding on the next launch.
+
+**Reset is a rebinding.** "Reset to default" goes through the same
+`setBinding`, so it is refused with the same wording when the default is no
+longer free — remap Library off `Ctrl+L`, give `Ctrl+L` to Queue, and resetting
+Library would otherwise have put two actions on one chord with the activator
+map silently picking one. Reset-all needs no check: the shipped defaults are
+distinct, and a test holds them to it.
+
 **Persistence.** Only *overrides* are stored, one flat key per action in
 `shared_preferences` (`keyboard_shortcut.play_pause`). An action the user never
 touched has no row, so changing a default in a later release reaches everyone
@@ -1211,7 +1242,8 @@ the registry's own consistency, remapping/conflict/reset/persistence, and
 dispatch — including a held key firing once, a text field keeping `Ctrl+→`, and
 `Ctrl+K` still working inside one.
 `test/features/settings/desktop/keyboard_shortcuts_section_test.dart` covers
-recording a chord and being refused one.
+recording a chord, being refused one, and the recorder staying escapable with
+Tab and Escape.
 
 ## Window state
 

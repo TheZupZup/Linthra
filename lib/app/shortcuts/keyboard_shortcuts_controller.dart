@@ -160,15 +160,22 @@ class KeyboardShortcutsController
     return null;
   }
 
-  /// Returns one action to its default.
-  Future<void> resetToDefault(ShortcutAction action) async {
-    final ShortcutActionDefinition definition =
-        ShortcutActions.definitionFor(action);
-    final Map<ShortcutAction, ShortcutBinding> next =
-        Map<ShortcutAction, ShortcutBinding>.from(current)
-          ..[action] = definition.defaultBinding;
-    state = AsyncData<Map<ShortcutAction, ShortcutBinding>>(next);
-    await _store.setOverride(definition.storageKey, null);
+  /// Returns one action to its default, or explains why it cannot.
+  ///
+  /// It goes through [setBinding] rather than writing the default straight in,
+  /// because a default is not automatically free: remap Library off Ctrl+L,
+  /// give Ctrl+L to Queue, and resetting Library would have put two actions on
+  /// one chord, with the activator map silently handing it to whichever came
+  /// first in the registry. Refusing says which action is in the way, and the
+  /// user can move that one and try again.
+  ///
+  /// [resetAll] needs no such check: the shipped defaults are distinct by
+  /// construction, and a test holds them to it.
+  Future<ShortcutUpdateResult> resetToDefault(ShortcutAction action) {
+    return setBinding(
+      action,
+      ShortcutActions.definitionFor(action).defaultBinding,
+    );
   }
 
   /// Returns every action to its default, forgetting all overrides.

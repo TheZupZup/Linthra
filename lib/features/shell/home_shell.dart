@@ -1,13 +1,12 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/routes.dart';
-import '../../app/shortcuts/shortcut_intents.dart';
+import '../../app/shortcuts/shortcut_action.dart';
+import '../../app/shortcuts/shortcut_surface.dart';
 import '../../shared/focus/focus_handoff.dart';
 import '../player/mini_player.dart';
-import '../player/widgets/queue_sheet.dart';
 import '../player/widgets/queue_side_panel.dart';
 import 'playlist_drag_spring.dart';
 import 'sidebar_source_status.dart';
@@ -15,7 +14,7 @@ import 'sidebar_source_status.dart';
 /// The persistent app frame: hosts the active tab and the app's primary
 /// navigation. Tab state is owned by go_router's [StatefulNavigationShell], so
 /// each tab keeps its own stack and scroll position across switches.
-class HomeShell extends StatefulWidget {
+class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({
     required this.navigationShell,
     required this.rootNavigatorKey,
@@ -28,13 +27,19 @@ class HomeShell extends StatefulWidget {
   final List<GlobalKey<NavigatorState>> branchNavigatorKeys;
 
   @override
-  State<HomeShell> createState() => _HomeShellState();
+  ConsumerState<HomeShell> createState() => _HomeShellState();
 
   /// Wide Linux windows get a persistent desktop navigation region instead of
   /// the phone-oriented bottom navigation bar. Keeping the breakpoint here
   /// gives the shell one reusable presentation seam instead of scattering
   /// platform checks through feature screens.
   static const double desktopNavigationBreakpoint = 900;
+
+  /// Which branch the Library tab is, so the Library shortcut and the
+  /// destination list can never disagree about it. A const constructor cannot
+  /// assert it, so a test pins the two together, exactly as one does for
+  /// [playlistsBranchIndex].
+  static const int libraryBranchIndex = 0;
 
   /// Which branch the Playlists tab is, so the drag spring and the destination
   /// list can never disagree about it. A const constructor cannot assert
@@ -84,7 +89,7 @@ class HomeShell extends StatefulWidget {
 /// The frame's own state: which tab is showing is go_router's, but whether the
 /// desktop queue column is open is the frame's, and nothing below it needs to
 /// know.
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell> {
   /// Whether the queue column is open, when the window is wide enough to draw
   /// one.
   ///
@@ -108,10 +113,63 @@ class _HomeShellState extends State<HomeShell> {
     debugLabel: 'queue panel toggle',
   );
 
+  /// Whether this window is currently wide enough (and desktop enough) to draw
+  /// the queue column.
+  ///
+  /// Cached from the last layout because the keyboard asks the question later,
+  /// from outside the build: a shortcut is answered when it is pressed, not
+  /// when the frame was laid out.
+  bool _queuePanelAvailable = false;
+
+  /// Held rather than read back in [dispose], where reading a provider is no
+  /// longer allowed.
+  late final ShortcutSurface _shortcutSurface;
+
+  @override
+  void initState() {
+    super.initState();
+    // The frame is a better answer than the app-level fallback for these two
+    // while it is the page on screen: only it knows whether this window has a
+    // queue column, and only it can switch branches without flattening the
+    // tab's own stack. See [ShortcutSurface] for why this is a registration
+    // rather than a nested `Actions`.
+    _shortcutSurface = ref.read(shortcutSurfaceProvider)
+      ..bind(ShortcutAction.queue, _handleQueueShortcut)
+      ..bind(ShortcutAction.library, _handleLibraryShortcut);
+  }
+
   @override
   void dispose() {
+    _shortcutSurface
+      ..unbind(ShortcutAction.queue, _handleQueueShortcut)
+      ..unbind(ShortcutAction.library, _handleLibraryShortcut);
     _queueToggleFocus.dispose();
     super.dispose();
+  }
+
+  /// Whether the frame is the page on screen rather than something pushed over
+  /// it. With Now Playing on top, a column the user cannot see is no answer to
+  /// anything, so the frame declines and the fallback takes the key.
+  bool get _isShowing => ModalRoute.of(context)?.isCurrent ?? false;
+
+  /// Toggles the queue column, or declines when this window has none.
+  ///
+  /// Declining rather than opening the sheet itself keeps one sheet in the
+  /// app: the fallback already knows how to put its own sheet away again.
+  bool _handleQueueShortcut() {
+    if (!_isShowing || !_queuePanelAvailable) return false;
+    _toggleQueuePanel();
+    return true;
+  }
+
+  /// Goes to Library the way a rail click does, so the chord and the
+  /// destination beside it cannot drift: coming from another tab restores
+  /// whatever Library had on top, and pressing it while Library is already
+  /// showing goes back to its root.
+  bool _handleLibraryShortcut() {
+    if (!_isShowing) return false;
+    _onDestinationSelected(HomeShell.libraryBranchIndex);
+    return true;
   }
 
   void _toggleQueuePanel() {
@@ -313,6 +371,8 @@ class _HomeShellState extends State<HomeShell> {
           final bool queuePanelAvailable =
               desktop && constraints.maxWidth >= queueSidePanelMinWindowWidth;
           final bool queuePanelOpen = queuePanelAvailable && _queuePanelOpen;
+          // Remembered for the keyboard, which asks after the fact.
+          _queuePanelAvailable = queuePanelAvailable;
 
           // Keep StatefulNavigationShell at the same element position across
           // the 900 px breakpoint. Only the two chrome slots before it change
@@ -330,77 +390,54 @@ class _HomeShellState extends State<HomeShell> {
             visible: queuePanelOpen,
             onToggle: _toggleQueuePanel,
             toggleFocusNode: _queueToggleFocus,
-            child: Actions(
-              // The frame answers the queue shortcut (#391) because it is the
-              // only thing that knows whether this window has a column to
-              // show. `Actions` is resolved from whatever holds focus upward,
-              // so anything inside the shell reaches this before the app-level
-              // fallback, and a route pushed over the shell — Now Playing —
-              // falls through to that fallback's sheet.
-              //
-              // Same rule the now-playing bar's queue button uses, for the
-              // same reason: one queue, and whichever host this width has.
-              actions: <Type, Action<Intent>>{
-                ToggleQueueIntent: CallbackAction<ToggleQueueIntent>(
-                  onInvoke: (_) {
-                    if (queuePanelAvailable) {
-                      _toggleQueuePanel();
-                    } else {
-                      unawaited(showQueueSheet(context));
-                    }
-                    return null;
-                  },
-                ),
-              },
-              child: Scaffold(
-                body: FocusTraversalGroup(
-                  policy: OrderedTraversalPolicy(),
-                  child: Column(
-                    children: <Widget>[
-                      Expanded(
-                        child: Row(
-                          children: <Widget>[
-                            if (desktop)
-                              _buildNavigationRail()
-                            else
-                              const SizedBox.shrink(),
-                            if (desktop)
-                              const VerticalDivider(width: 1)
-                            else
-                              const SizedBox.shrink(),
-                            Expanded(
-                              child: FocusTraversalOrder(
-                                order: const NumericFocusOrder(1),
-                                child: FocusTraversalGroup(
-                                  child: widget.navigationShell,
-                                ),
+            child: Scaffold(
+              body: FocusTraversalGroup(
+                policy: OrderedTraversalPolicy(),
+                child: Column(
+                  children: <Widget>[
+                    Expanded(
+                      child: Row(
+                        children: <Widget>[
+                          if (desktop)
+                            _buildNavigationRail()
+                          else
+                            const SizedBox.shrink(),
+                          if (desktop)
+                            const VerticalDivider(width: 1)
+                          else
+                            const SizedBox.shrink(),
+                          Expanded(
+                            child: FocusTraversalOrder(
+                              order: const NumericFocusOrder(1),
+                              child: FocusTraversalGroup(
+                                child: widget.navigationShell,
                               ),
                             ),
-                            if (queuePanelOpen)
-                              const VerticalDivider(width: 1)
-                            else
-                              const SizedBox.shrink(),
-                            if (queuePanelOpen)
-                              _buildQueuePanel()
-                            else
-                              const SizedBox.shrink(),
-                          ],
-                        ),
+                          ),
+                          if (queuePanelOpen)
+                            const VerticalDivider(width: 1)
+                          else
+                            const SizedBox.shrink(),
+                          if (queuePanelOpen)
+                            _buildQueuePanel()
+                          else
+                            const SizedBox.shrink(),
+                        ],
                       ),
-                      // Last in the reading order: the bar spans everything above
-                      // it, so a keyboard user reaches it after both the page and
-                      // the destinations, not between them.
-                      FocusTraversalOrder(
-                        order: const NumericFocusOrder(4),
-                        child: FocusTraversalGroup(
-                          child: const MiniPlayer(),
-                        ),
+                    ),
+                    // Last in the reading order: the bar spans everything above
+                    // it, so a keyboard user reaches it after both the page and
+                    // the destinations, not between them.
+                    FocusTraversalOrder(
+                      order: const NumericFocusOrder(4),
+                      child: FocusTraversalGroup(
+                        child: const MiniPlayer(),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                bottomNavigationBar: desktop ? null : _buildNavigationBar(),
               ),
+              bottomNavigationBar: desktop ? null : _buildNavigationBar(),
             ),
           );
         },

@@ -146,6 +146,46 @@ final Set<LogicalKeyboardKey> _textEditingKeys = <LogicalKeyboardKey>{
 bool conflictsWithTextEditing(ShortcutBinding binding) =>
     _textEditingKeys.contains(binding.trigger);
 
+/// The chord the keyboard is holding right now, or `null` when it is not a
+/// chord this app could bind (nothing but modifiers, or several non-modifier
+/// keys at once).
+///
+/// Read during key handling, so the guard can ask about the combination that
+/// actually fired rather than about the action's stored binding. Those differ
+/// whenever one action answers to more than one chord: search is bound to
+/// Ctrl+K *and* the fixed Ctrl+F alias, and judging the alias by the primary's
+/// text-editing risk would switch off a chord no text field ever wanted.
+ShortcutBinding? pressedShortcutChord() {
+  final Set<LogicalKeyboardKey> held =
+      HardwareKeyboard.instance.logicalKeysPressed;
+  bool anyOf(List<LogicalKeyboardKey> keys) => keys.any(held.contains);
+
+  final List<LogicalKeyboardKey> triggers = held
+      .where((LogicalKeyboardKey key) => !_modifierKeys.contains(key))
+      .toList();
+  if (triggers.length != 1) return null;
+
+  return ShortcutBinding(
+    triggers.single,
+    control: anyOf(<LogicalKeyboardKey>[
+      LogicalKeyboardKey.controlLeft,
+      LogicalKeyboardKey.controlRight,
+    ]),
+    shift: anyOf(<LogicalKeyboardKey>[
+      LogicalKeyboardKey.shiftLeft,
+      LogicalKeyboardKey.shiftRight,
+    ]),
+    alt: anyOf(<LogicalKeyboardKey>[
+      LogicalKeyboardKey.altLeft,
+      LogicalKeyboardKey.altRight,
+    ]),
+    meta: anyOf(<LogicalKeyboardKey>[
+      LogicalKeyboardKey.metaLeft,
+      LogicalKeyboardKey.metaRight,
+    ]),
+  );
+}
+
 /// One key combination, as a value.
 ///
 /// A value type rather than a [SingleActivator] because the app needs to do
