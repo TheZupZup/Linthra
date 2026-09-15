@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +24,10 @@ const ShortcutBinding _ctrlF =
     ShortcutBinding(LogicalKeyboardKey.keyF, control: true);
 const ShortcutBinding _bareG = ShortcutBinding(LogicalKeyboardKey.keyG);
 
+/// A combination nothing ships with, for tests that just need a free one.
+const ShortcutBinding _ctrlJ =
+    ShortcutBinding(LogicalKeyboardKey.keyJ, control: true);
+
 /// A container over [store], so a test can build a *second* one on the same
 /// storage — which is what "survives a restart" actually means.
 ProviderContainer _container(KeyboardShortcutPreferences store) {
@@ -37,6 +43,49 @@ ProviderContainer _container(KeyboardShortcutPreferences store) {
 Future<KeyboardShortcutsController> _ready(ProviderContainer container) async {
   await container.read(keyboardShortcutsControllerProvider.future);
   return container.read(keyboardShortcutsControllerProvider.notifier);
+}
+
+/// A store that can be held mid-write, fail one, and say what order it saw.
+class _SlowStore implements KeyboardShortcutPreferences {
+  final InMemoryKeyboardShortcutPreferences _inner =
+      InMemoryKeyboardShortcutPreferences();
+  final List<String> order = <String>[];
+  Completer<void>? _gate;
+  bool failNextWrite = false;
+
+  set slow(bool value) => _gate = value ? Completer<void>() : null;
+
+  void release() {
+    final Completer<void>? gate = _gate;
+    _gate = null;
+    if (gate != null && !gate.isCompleted) gate.complete();
+  }
+
+  Future<void> _wait() async {
+    final Completer<void>? gate = _gate;
+    if (gate != null) await gate.future;
+  }
+
+  @override
+  Future<Map<String, String>> overrides() => _inner.overrides();
+
+  @override
+  Future<void> setOverride(String storageKey, String? binding) async {
+    await _wait();
+    order.add('set:$storageKey');
+    if (failNextWrite) {
+      failNextWrite = false;
+      throw StateError('storage is unavailable');
+    }
+    await _inner.setOverride(storageKey, binding);
+  }
+
+  @override
+  Future<void> clear() async {
+    await _wait();
+    order.add('clear');
+    await _inner.clear();
+  }
 }
 
 /// No two actions may end up on the same combination, whatever storage said.
@@ -322,7 +371,104 @@ void main() {
     });
   });
 
+  group('writes are serialized', () {
+    test('a rebinding started during reset-all is not erased by it', () async {
+      // The controller publishes before it writes, so both were in flight at
+      // once; `clear()` deletes the keys it snapshotted when it began, and a
+      // `setOverride` landing in the middle of one used to be deleted by it.
+      final _SlowStore store = _SlowStore();
+      final KeyboardShortcutsController controller = await _ready(
+        _container(store),
+      );
+      await controller.setBinding(ShortcutAction.library, _ctrlG);
+      store.order.clear();
+      store.slow = true;
+
+      final Future<void> reset = controller.resetAll();
+      final Future<ShortcutUpdateResult> rebind =
+          controller.setBinding(ShortcutAction.library, _ctrlJ);
+      store.release();
+      await Future.wait<void>(<Future<void>>[reset, rebind]);
+
+      expect(controller.current[ShortcutAction.library], _ctrlJ);
+      expect(
+        await store.overrides(),
+        <String, String>{'library': _ctrlJ.storageValue},
+        reason: 'the write the user made last is the one on disk',
+      );
+      expect(
+        store.order,
+        <String>['clear', 'set:library'],
+        reason: 'and the store saw them one at a time, in that order',
+      );
+    });
+
+    test('a failed write does not wedge the ones behind it', () async {
+      final _SlowStore store = _SlowStore()..failNextWrite = true;
+      final KeyboardShortcutsController controller = await _ready(
+        _container(store),
+      );
+
+      await expectLater(
+        controller.setBinding(ShortcutAction.library, _ctrlG),
+        throwsA(isA<StateError>()),
+      );
+      await controller.setBinding(ShortcutAction.library, _ctrlJ);
+
+      expect(
+        await store.overrides(),
+        <String, String>{'library': _ctrlJ.storageValue},
+      );
+    });
+  });
+
   group('storage that cannot be trusted', () {
+    test('a key with no Flutter constant survives a restart', () async {
+      // A character a non-US layout produces arrives as a Unicode-plane key
+      // that `findKeyByKeyId` does not know. It recorded and dispatched fine
+      // and then came back as the default on the next launch.
+      const LogicalKeyboardKey accented =
+          LogicalKeyboardKey(0xe9 | LogicalKeyboardKey.unicodePlane);
+      expect(
+        LogicalKeyboardKey.findKeyByKeyId(accented.keyId),
+        isNull,
+        reason: 'the premise: Flutter has no constant for this one',
+      );
+      const ShortcutBinding binding = ShortcutBinding(accented, control: true);
+      expect(binding.isValid, isTrue);
+
+      final InMemoryKeyboardShortcutPreferences store =
+          InMemoryKeyboardShortcutPreferences();
+      final KeyboardShortcutsController controller = await _ready(
+        _container(store),
+      );
+      await controller.setBinding(ShortcutAction.library, binding);
+
+      final KeyboardShortcutsController restarted =
+          await _ready(_container(store));
+      expect(restarted.current[ShortcutAction.library], binding);
+    });
+
+    test('an id from a plane this build knows nothing about is dropped',
+        () async {
+      final KeyboardShortcutsController controller = await _ready(
+        _container(
+          InMemoryKeyboardShortcutPreferences(
+            initialOverrides: <String, String>{
+              // Not a real key: a plane Flutter does not define, which is a
+              // value to fall back from rather than to guess at.
+              'library': 'ctrl+${0xfe00000000 | 0x41}',
+            },
+          ),
+        ),
+      );
+
+      expect(
+        controller.current[ShortcutAction.library],
+        ShortcutActions.definitionFor(ShortcutAction.library).defaultBinding,
+      );
+    });
+
     test('an override that collides with a default is dropped', () async {
       // Queue parked on Search's default. Nothing in the app writes this, but
       // a hand-edited file or one from a newer build can, and the activator

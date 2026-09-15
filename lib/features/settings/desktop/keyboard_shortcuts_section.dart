@@ -278,9 +278,25 @@ class _RecordShortcutDialogState extends ConsumerState<_RecordShortcutDialog> {
     final ShortcutBinding? binding = _recorded;
     if (binding == null || _saving) return;
     setState(() => _saving = true);
-    final ShortcutUpdateResult result = await ref
-        .read(keyboardShortcutsControllerProvider.notifier)
-        .setBinding(widget.definition.action, binding);
+    final ShortcutUpdateResult result;
+    try {
+      result = await ref
+          .read(keyboardShortcutsControllerProvider.notifier)
+          .setBinding(widget.definition.action, binding);
+    } catch (_) {
+      // A write that throws must not leave the dialog shut: Save and Cancel
+      // are both off while `_saving`, and the door is held against Escape, so
+      // an unhandled failure here would trap the user in the modal until they
+      // restarted the app. The binding itself is live for this session — the
+      // controller publishes before it writes — so the message says what did
+      // and did not happen rather than pretending nothing changed.
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _message = 'Could not save this. It will work until you restart.';
+      });
+      return;
+    }
     if (!mounted) return;
     if (result.isApplied) {
       Navigator.of(context).pop();

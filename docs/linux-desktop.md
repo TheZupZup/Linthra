@@ -1262,7 +1262,12 @@ back removes the override rather than pinning it. The duplicate check runs over
 the composed table rather than one override at a time, because a *swap* (each
 action moving onto the chord the other is leaving) is something the settings
 screen legitimately writes, and checking one at a time would have undone both
-halves of it on the next launch. An override that no longer
+halves of it on the next launch. Key ids from outside Flutter's
+registry are reconstructed when they are Unicode-plane characters, so a chord
+recorded on a non-US layout survives a restart; an id from a plane this build
+has no meaning for is not guessed at. Writes are chained, so a reset-all and a
+rebinding started on top of it reach storage one at a time in the order the
+user asked for. An override that no longer
 parses, that today's rules would refuse, or that would leave two actions on one
 chord is dropped on read and the action keeps its default — a preferences file from a newer build, or one edited by
 hand, degrades to stock behaviour rather than to a broken keyboard.

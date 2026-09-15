@@ -53,6 +53,12 @@ const PlaybackState _buffering = PlaybackState(
   currentTrack: _current,
 );
 
+/// The initial prepare: a track picked, its source not installed yet.
+const PlaybackState _loading = PlaybackState(
+  status: PlaybackStatus.loading,
+  currentTrack: _current,
+);
+
 /// A wide Linux window: the frame draws the rail and can host the queue column.
 const Size _wideDesktop = Size(1600, 900);
 
@@ -329,6 +335,27 @@ void main() {
             'button reads it',
       );
       expect(app.playback.playCount, 0);
+    });
+
+    testWidgets('but stands down while a track is still being prepared',
+        (tester) async {
+      final _Harness app = await _pumpApp(tester, playback: _paused);
+      app.playback.emit(_loading);
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(
+        app.playback.playCount,
+        0,
+        reason: 'no source is installed yet, so play() would resume whatever '
+            'was loaded before — which is why the transport button is '
+            'disabled here too',
+      );
+      expect(app.playback.pauseCount, 0);
     });
 
     testWidgets('Ctrl+K opens quick search', (tester) async {

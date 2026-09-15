@@ -85,6 +85,26 @@ class KeyboardShortcutsController
   KeyboardShortcutPreferences get _store =>
       ref.read(keyboardShortcutPreferencesProvider);
 
+  /// Storage writes, one after another.
+  ///
+  /// Every method here publishes its new state first and lets the write
+  /// follow, so two of them can be in flight at once: reset-all, and a
+  /// rebinding the user started before its clear had finished. The
+  /// `shared_preferences` store deletes the keys it snapshotted when its
+  /// `clear()` began, so a `setOverride` landing in the middle of one is
+  /// deleted by it — the session shows the new chord and the next launch does
+  /// not. Chaining means the store only ever sees one write at a time, in the
+  /// order the user asked for.
+  Future<void> _writes = Future<void>.value();
+
+  Future<void> _write(Future<void> Function() operation) {
+    final Future<void> next = _writes.then((_) => operation());
+    // The queue must survive a failed write, so the chain everything else
+    // waits on swallows the error; the caller still sees it through [next].
+    _writes = next.catchError((Object _) {});
+    return next;
+  }
+
   @override
   Future<Map<ShortcutAction, ShortcutBinding>> build() async {
     return _compose(await _store.overrides());
@@ -183,9 +203,11 @@ class KeyboardShortcutsController
     // remaps and then types the original combination back is left with no
     // override at all — and keeps following the default if a later release
     // changes it.
-    await _store.setOverride(
-      definition.storageKey,
-      binding == definition.defaultBinding ? null : binding.storageValue,
+    await _write(
+      () => _store.setOverride(
+        definition.storageKey,
+        binding == definition.defaultBinding ? null : binding.storageValue,
+      ),
     );
     return const ShortcutUpdateResult.applied();
   }
@@ -229,7 +251,7 @@ class KeyboardShortcutsController
     state = AsyncData<Map<ShortcutAction, ShortcutBinding>>(
       ShortcutActions.defaults,
     );
-    await _store.clear();
+    await _write(_store.clear);
   }
 
   /// Whether [action] is currently on something other than its default, so the

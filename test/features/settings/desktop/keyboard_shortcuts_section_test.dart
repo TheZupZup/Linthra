@@ -21,6 +21,9 @@ class _SlowStore implements KeyboardShortcutPreferences {
       InMemoryKeyboardShortcutPreferences();
   final Completer<void> _write = Completer<void>();
 
+  /// When set, the held write fails instead of completing.
+  bool fail = false;
+
   void finishWrite() => _write.complete();
 
   @override
@@ -29,6 +32,7 @@ class _SlowStore implements KeyboardShortcutPreferences {
   @override
   Future<void> setOverride(String storageKey, String? binding) async {
     await _write.future;
+    if (fail) throw StateError('storage is unavailable');
     await _inner.setOverride(storageKey, binding);
   }
 
@@ -354,6 +358,44 @@ void main() {
         'library': const ShortcutBinding(LogicalKeyboardKey.keyG, control: true)
             .storageValue,
       });
+    });
+
+    testWidgets('a write that fails lets the user out again', (tester) async {
+      // The door is held shut while `_saving`, so an unhandled failure would
+      // have trapped the user in the modal until they restarted the app.
+      final _SlowStore store = _SlowStore()..fail = true;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            keyboardShortcutPreferencesProvider.overrideWithValue(store),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: KeyboardShortcutsSettingsSection(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _record(tester, 'Library', LogicalKeyboardKey.keyG);
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      store.finishWrite();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Could not save this. It will work until you restart.'),
+        findsOneWidget,
+      );
+      // And the way out is open again, by either route.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('Save'), findsNothing);
+      // The binding is live for this session even though the write failed.
+      expect(find.text('Ctrl + G'), findsOneWidget);
     });
 
     testWidgets('Save cannot be pressed twice', (tester) async {

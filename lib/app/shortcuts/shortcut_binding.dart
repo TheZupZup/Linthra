@@ -295,6 +295,27 @@ class ShortcutBinding {
 
   bool get isValid => problem == null;
 
+  /// The key a stored id names, including one Flutter has no constant for.
+  ///
+  /// [LogicalKeyboardKey.findKeyByKeyId] only resolves the keys in Flutter's
+  /// generated registry, which covers US-layout printables and the named keys.
+  /// A character a non-US layout produces — é on a French keyboard, say —
+  /// arrives as a Unicode-plane key with no constant, so it recorded and
+  /// dispatched fine and then came back null on the next launch, quietly
+  /// putting the action back on its default.
+  ///
+  /// Reconstructed only for that plane. An id from another plane that the
+  /// registry does not know is a value this build has no meaning for, and
+  /// guessing at one would be worse than falling back to the default.
+  static LogicalKeyboardKey? _keyFromId(int keyId) {
+    final LogicalKeyboardKey? known = LogicalKeyboardKey.findKeyByKeyId(keyId);
+    if (known != null) return known;
+    if (keyId < 0) return null;
+    final bool unicode = (keyId & LogicalKeyboardKey.planeMask) ==
+        LogicalKeyboardKey.unicodePlane;
+    return unicode ? LogicalKeyboardKey(keyId) : null;
+  }
+
   static bool _isFunctionKey(LogicalKeyboardKey key) {
     return key.keyId >= LogicalKeyboardKey.f1.keyId &&
         key.keyId <= LogicalKeyboardKey.f12.keyId;
@@ -398,7 +419,7 @@ class ShortcutBinding {
     }
     final int? keyId = int.tryParse(parts.last);
     if (keyId == null) return null;
-    final LogicalKeyboardKey? key = LogicalKeyboardKey.findKeyByKeyId(keyId);
+    final LogicalKeyboardKey? key = _keyFromId(keyId);
     if (key == null) return null;
     final ShortcutBinding binding = ShortcutBinding(
       key,

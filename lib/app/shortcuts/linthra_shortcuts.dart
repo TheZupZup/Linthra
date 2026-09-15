@@ -112,11 +112,19 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
 
   void _togglePlayPause() {
     final PlaybackController controller = ref.read(playbackControllerProvider);
-    // Buffering counts as the playing side, exactly as the transport's own
-    // button decides it (`playback_controls.dart`). A stalled stream is the
-    // moment you most want to stop it, and reading `isPlaying` alone made the
-    // shortcut call `play()` on something already trying to play.
+    // Read exactly as the transport's own button reads it
+    // (`playback_controls.dart`), both halves of it.
+    //
+    // The initial prepare is nobody's: the engine has no source installed yet,
+    // so `play()` would resume whatever was loaded before the track the user
+    // just picked. That is why the button is disabled here rather than showing
+    // Play, and the chord has to stand down for the same reason.
+    //
+    // Buffering, on the other hand, counts as the playing side. A stalled
+    // stream is the moment you most want to stop it, and reading `isPlaying`
+    // alone made the shortcut call `play()` on something already trying to.
     final PlaybackState state = controller.state;
+    if (state.status == PlaybackStatus.loading) return;
     final bool playing = state.isPlaying || state.isBuffering;
     unawaited(playing ? controller.pause() : controller.play());
   }
