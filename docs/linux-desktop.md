@@ -1198,6 +1198,28 @@ there.
 alone. If someone re-runs `flutter create --platforms=linux .` anyway, the
 checker above is what catches the reverted title and the lost SQLite seam.
 
+## Startup performance
+
+How long Linthra takes to show you a usable library, and whether that changes,
+is measured rather than guessed:
+
+```bash
+./tools/startup/run_startup_benchmark.sh
+```
+
+It launches the real app over an empty, a small (1,000-track) and a large
+(20,000-track) synthetic catalog and records the time to the first frame that
+actually shows the library: real track rows, or the onboarding prompt for an
+empty one. No server, no network and no music collection are involved: the
+catalogs are generated locally into real SQLite files in the production schema.
+
+The verdict is a comparison against a baseline you record on the same machine,
+never a fixed millisecond limit, and CI deliberately times nothing; it only
+checks that the benchmark still runs and still produces a valid sample set.
+[tools/startup/README.md](../tools/startup/README.md) covers what is and is not
+measured, how to compare two runs, and why a debug number is not a release
+number.
+
 ## Desktop identity
 
 Everything Linthra installs on Linux is named `io.github.thezupzup.linthra`: the
