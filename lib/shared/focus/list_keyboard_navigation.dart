@@ -2,6 +2,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'focus_reading_order.dart';
+import 'keyboard_modifiers.dart';
+import 'text_editing_focus.dart';
 
 /// The list and grid keys a desktop user expects, on top of the ones Flutter
 /// already handles.
@@ -80,7 +82,11 @@ class _ListKeyboardNavigationState extends State<ListKeyboardNavigation> {
     }
     // Typing first, always: in a text field Home and End are the ends of the
     // line and the arrow keys move the caret.
-    if (_isEditingText(focusedContext)) return KeyEventResult.ignored;
+    if (isEditingText(focusedContext)) return KeyEventResult.ignored;
+    // Held modifiers mean the key was meant for something else: Ctrl+End is
+    // the shell's business, and Ctrl+→ may be a shortcut the user bound
+    // (#391). Answering here would move focus *and* swallow the chord.
+    if (shortcutModifierPressed()) return KeyEventResult.ignored;
 
     final LogicalKeyboardKey key = event.logicalKey;
     if (key == LogicalKeyboardKey.home) return _jumpToEdge(focused, end: false);
@@ -96,16 +102,6 @@ class _ListKeyboardNavigationState extends State<ListKeyboardNavigation> {
   }
 
   bool get _isRtl => Directionality.of(context) == TextDirection.rtl;
-
-  /// Whether the keyboard is in a text field rather than on a row.
-  ///
-  /// Checked through the ancestors as well as the focused widget itself: a
-  /// field's focus node is attached to the [Focus] inside its [EditableText],
-  /// so the widget directly under the node is one step below the thing the
-  /// question is actually about.
-  static bool _isEditingText(BuildContext context) =>
-      context.widget is EditableText ||
-      context.findAncestorWidgetOfExactType<EditableText>() != null;
 
   /// Home / End: scroll the collection to one end, then take its outermost row.
   KeyEventResult _jumpToEdge(FocusNode focused, {required bool end}) {

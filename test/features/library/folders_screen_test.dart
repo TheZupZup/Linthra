@@ -94,9 +94,15 @@ void main() {
       await _pump(tester);
 
       expect(find.widgetWithText(AppBar, 'Folders'), findsOneWidget);
-      expect(find.text('No server folders available'), findsOneWidget);
+      expect(find.text('No music folders yet'), findsOneWidget);
       expect(
-        find.textContaining('Connect Jellyfin or Navidrome'),
+        find.textContaining('Jellyfin or Navidrome'),
+        findsOneWidget,
+      );
+      // With nothing to browse, the one thing worth doing from here is adding
+      // a folder of your own (see folders_add_folder_test.dart).
+      expect(
+        find.byKey(const Key('folders_empty_add_folder')),
         findsOneWidget,
       );
     });
@@ -374,7 +380,7 @@ void main() {
           <FolderBrowsableMusicSource>[];
       await tester.pumpAndSettle();
 
-      expect(find.text('No server folders available'), findsOneWidget);
+      expect(find.text('No music folders yet'), findsOneWidget);
     });
   });
 }

@@ -136,9 +136,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('No music folder selected'), findsOneWidget);
 
-      // Tap the folder action: the fake picker returns '/music', which is then
-      // scanned.
-      await tester.tap(find.byTooltip('Select music folder'));
+      // Tap the empty state's own action: the fake picker returns '/music',
+      // which is then scanned. Adding a folder from a header action is the
+      // Folders screen's job now; what an empty Library still offers is the
+      // obvious next step out of having nothing.
+      await tester.tap(find.widgetWithText(FilledButton, 'Select a folder'));
       await tester.pumpAndSettle();
 
       expect(scanner.requestedFolder, '/music');
@@ -163,11 +165,31 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('Select music folder'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Select a folder'));
       await tester.pumpAndSettle();
 
       expect(picker.pickCount, 1);
       expect(find.text('No music folder selected'), findsOneWidget);
+    });
+
+    testWidgets('the header carries no folder action', (tester) async {
+      // Managing local music folders moved to Folders, which is what the
+      // action was always about; Library is for browsing and searching. The
+      // catalog is non-empty here so the tabs are showing: the
+      // Songs/Albums/Artists header, the one that used to carry it.
+      await _pumpScreen(
+        tester,
+        FakeMusicLibraryRepository(
+          tracks: <Track>[
+            const Track(id: '1', title: 'Song One', uri: 'file:///song1.mp3'),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Songs'), findsOneWidget);
+      expect(find.byTooltip('Select music folder'), findsNothing);
+      expect(find.byIcon(Icons.create_new_folder_outlined), findsNothing);
     });
 
     testWidgets('an empty device-wide library never points at a folder', (

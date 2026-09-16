@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../../app/dimens.dart';
 import '../../../core/diagnostics/app_diagnostics.dart';
 import '../../../core/diagnostics/bug_report.dart';
+import '../../../shared/widgets/loading_indicator.dart';
 import 'bug_report_providers.dart';
 
 /// The "Report a bug" screen.
@@ -128,7 +129,7 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Report a bug')),
       body: snapshot.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const LoadingIndicator(label: 'Building report'),
         error: (Object error, StackTrace _) => const Center(
           child: Padding(
             padding: EdgeInsets.all(AppSpacing.lg),

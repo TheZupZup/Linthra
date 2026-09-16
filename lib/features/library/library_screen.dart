@@ -19,6 +19,7 @@ import '../../data/repositories/library_tab_store_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
 import '../settings/source/local_music_controller.dart';
 import 'album_detail_screen.dart';
@@ -47,6 +48,12 @@ import 'widgets/selection_escape_scope.dart';
 /// server's real directory hierarchy is not here: it lives on its own top-level
 /// [FoldersScreen] destination, so it keeps its place in the tree when you
 /// leave it.
+///
+/// Managing the local library's folders is not here either. This screen is for
+/// browsing and searching music, so the header carries no folder action:
+/// Folders owns adding a music folder, next to the folders already configured.
+/// The empty state still offers the pick-and-scan flow, because a library with
+/// nothing in it is exactly where that step is the obvious next one.
 ///
 /// Songs keeps the long-press multi-select and the A–Z fast-scroller from
 /// before. Switching tabs clears the query, so a search meant for one tab never
@@ -289,13 +296,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               ? _selectionAppBar(selected)
               : AppBar(
                   title: const Text('Library'),
-                  actions: <Widget>[
-                    IconButton(
-                      icon: const Icon(Icons.create_new_folder_outlined),
-                      tooltip: 'Select music folder',
-                      onPressed: _pickAndScan,
-                    ),
-                  ],
                   bottom: browsing ? _tabBar() : null,
                 ),
           body: browsing
@@ -349,7 +349,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   ) {
     switch (state.status) {
       case LibraryStatus.loading:
-        return const Center(child: CircularProgressIndicator());
+        return const LoadingIndicator(label: 'Loading your library');
       case LibraryStatus.error:
         return _LibraryError(
           message: state.errorMessage,

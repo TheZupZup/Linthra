@@ -12,6 +12,7 @@ import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/artwork_image.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import '../player/player_providers.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
 import 'library_browse_providers.dart';
@@ -59,7 +60,7 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
     if (state.status == LibraryStatus.loading) {
       return Scaffold(
         appBar: AppBar(),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const LoadingIndicator(label: 'Loading artist'),
       );
     }
 

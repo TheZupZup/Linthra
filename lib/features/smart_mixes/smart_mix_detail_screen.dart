@@ -7,6 +7,7 @@ import '../../app/routes.dart';
 import '../../core/models/smart_playlist.dart';
 import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import '../library/widgets/track_tile.dart';
 import '../player/player_providers.dart';
 import 'smart_mix_providers.dart';
@@ -46,7 +47,7 @@ class SmartMixDetailScreen extends ConsumerWidget {
         title: Text(mix.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
       body: tracksAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const LoadingIndicator(label: 'Loading tracks'),
         error: (_, __) => const EmptyState(
           icon: Icons.error_outline,
           title: "Couldn't build this mix",

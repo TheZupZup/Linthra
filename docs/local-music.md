@@ -6,14 +6,20 @@ Jellyfin or Navidrome / Subsonic server.
 
 ## How to set it up
 
-There are two equivalent entry points; both end up at the same place:
+There are three equivalent entry points; they all end up at the same place:
 
+- **Folders ▸ Add folder**: the folder-shaped one, and where the folders you
+  already configured are listed. The **+** in the header opens the picker; with
+  nothing configured yet, the empty state offers the same **Add folder**.
 - **Settings ▸ Local music** — the primary home, grouped with the other music
   sources (Jellyfin, Navidrome / Subsonic). Choose a folder, **Rescan** it after
   you add files, **Add a folder** (desktop) or **Change** it (Android), remove a
   single folder with the ✕ beside it, or **Forget** the whole local source.
 - **Library ▸ (empty state) ▸ Select / Change folder** — the same pick-and-scan
   flow, offered where you first notice an empty library.
+
+Library itself has no folder action: it is for browsing and searching your
+music, and adding a music folder lives with the folders on Folders.
 
 When you pick a folder, the system's own folder chooser opens — Android's on a
 phone, the desktop's on Linux. Linthra keeps **only** the access you grant for

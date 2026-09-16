@@ -106,10 +106,10 @@ you.
 Code: `lib/features/library/quick_search.dart` (the pure ranking),
 `quick_search_providers.dart` (what it reads and whether it is all there),
 `widgets/quick_search_overlay.dart` (the overlay), and
-`lib/app/quick_search_shortcuts.dart` (the key bindings).
+`lib/app/shortcuts/` (the key bindings, shared with every other shortcut).
 Tests: `test/features/library/quick_search_test.dart`,
 `quick_search_overlay_test.dart`, `quick_search_availability_test.dart`, and
-`test/app/quick_search_shortcuts_test.dart`.
+`test/app/quick_search_shortcuts_test.dart` and `test/app/shortcuts/`.
 
 ### Fast-scroll rail
 

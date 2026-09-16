@@ -335,6 +335,28 @@ void main() {
       expect(find.text('Play next'), findsNothing);
     });
 
+    testWidgets('but only the exact chords: a modified one is somebody else\'s',
+        (tester) async {
+      // Both of these are bindable shortcuts (#391), and a row that swallowed
+      // one would make that binding dead whenever it had focus.
+      await pumpRegion(tester, opened: <String>[]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.f10);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.contextMenu);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Play next'), findsNothing);
+
+      // And the plain chord still works right after.
+      await tester.sendKeyEvent(LogicalKeyboardKey.contextMenu);
+      await tester.pumpAndSettle();
+      expect(find.text('Play next'), findsOneWidget);
+    });
+
     testWidgets('a disabled region offers nothing', (tester) async {
       await pumpRegion(tester, enabled: false, opened: <String>[]);
 
