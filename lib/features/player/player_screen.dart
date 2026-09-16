@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/dimens.dart';
+import '../../app/shortcuts/shortcut_action.dart';
+import '../../app/shortcuts/shortcut_surface.dart';
 import '../../core/models/playback_failure.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
@@ -124,16 +126,16 @@ class _EmptyNowPlaying extends StatelessWidget {
   }
 }
 
-class _NowPlaying extends StatefulWidget {
+class _NowPlaying extends ConsumerStatefulWidget {
   const _NowPlaying({required this.track});
 
   final Track track;
 
   @override
-  State<_NowPlaying> createState() => _NowPlayingState();
+  ConsumerState<_NowPlaying> createState() => _NowPlayingState();
 }
 
-class _NowPlayingState extends State<_NowPlaying> {
+class _NowPlayingState extends ConsumerState<_NowPlaying> {
   /// How wide a queue pane is drawn. Wide enough for a title, a duration and a
   /// drag handle without the title truncating on most songs.
   static const double _queuePaneWidth = 340;
@@ -169,10 +171,43 @@ class _NowPlayingState extends State<_NowPlaying> {
   final FocusNode _queueButtonFocus =
       FocusNode(debugLabel: 'now playing queue');
 
+  /// Whether this window is currently wide enough for the pane, cached from
+  /// the last layout because the keyboard asks the question later.
+  bool _canHostQueue = false;
+
+  /// Held rather than read back in [dispose], where reading a provider is no
+  /// longer allowed.
+  late final ShortcutSurface _shortcutSurface;
+
+  @override
+  void initState() {
+    super.initState();
+    // While Now Playing is up it is the better answer for the queue chord than
+    // the app-level sheet: this screen already has somewhere to put the queue,
+    // and pressing the chord over an open pane should close it rather than
+    // stack a sheet on top of it. Registered last, so it is offered the key
+    // before the navigation frame underneath (#391).
+    _shortcutSurface = ref.read(shortcutSurfaceProvider)
+      ..bind(ShortcutAction.queue, _handleQueueShortcut);
+  }
+
   @override
   void dispose() {
+    _shortcutSurface.unbind(ShortcutAction.queue, _handleQueueShortcut);
     _queueButtonFocus.dispose();
     super.dispose();
+  }
+
+  /// Toggles the pane, or stands aside.
+  ///
+  /// Declining below the pane width is what keeps the queue reachable at every
+  /// size: the app-level fallback opens the same sheet the button does there,
+  /// and it is the one that knows how to put its own sheet away again.
+  bool _handleQueueShortcut() {
+    final ModalRoute<Object?>? route = ModalRoute.of(context);
+    if (route == null || !route.isCurrent || !_canHostQueue) return false;
+    _toggleQueue();
+    return true;
   }
 
   @override
@@ -194,6 +229,8 @@ class _NowPlayingState extends State<_NowPlaying> {
         // that is one tap away as a sheet.
         final bool canHostQueue =
             wide && constraints.maxWidth >= _queuePaneMinWidth;
+        // Remembered for the keyboard, which asks after the fact.
+        _canHostQueue = canHostQueue;
         return Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.md,

@@ -465,6 +465,12 @@ class _ColorSwatch extends StatelessWidget {
       button: true,
       selected: selected,
       label: choice.label,
+      // The tooltip carries the same words, and on Android a tooltip becomes
+      // `tooltipText` beside the content description — the swatch announced
+      // its colour name twice. The tooltip stays for the mouse; the screen
+      // reader gets the label once.
+      excludeSemantics: true,
+      onTap: onTap,
       child: Tooltip(
         message: choice.label,
         child: InkResponse(

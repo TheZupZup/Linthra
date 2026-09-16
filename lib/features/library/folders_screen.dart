@@ -6,6 +6,7 @@ import '../../core/models/music_folder.dart';
 import '../../core/services/folder_browsable_music_source.dart';
 import '../../core/sources/local/folder_location.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import '../settings/source/local_music_controller.dart';
 import 'folder_browser_providers.dart';
 import 'selected_folder_controller.dart';
@@ -96,7 +97,7 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(_trail.clear);
       });
-      return const Center(child: CircularProgressIndicator());
+      return const LoadingIndicator(label: 'Loading folders');
     }
 
     if (_trail.isEmpty) {
@@ -378,7 +379,7 @@ class _SourceRootsSection extends ConsumerWidget {
           roots.when(
             loading: () => const Padding(
               padding: EdgeInsets.all(AppSpacing.lg),
-              child: Center(child: CircularProgressIndicator()),
+              child: LoadingIndicator(label: 'Loading folders'),
             ),
             error: (_, __) => _FolderError(
               message: 'Could not load folders from ${source.displayName}.',
@@ -480,7 +481,7 @@ class _FolderContents extends ConsumerWidget {
         ),
         Expanded(
           child: listing.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
+            loading: () => const LoadingIndicator(label: 'Loading folders'),
             error: (_, __) => _FolderError(
               message: 'Could not open this folder.',
               onRetry: () => ref.invalidate(folderListingProvider(request)),

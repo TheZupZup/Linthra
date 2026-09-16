@@ -12,6 +12,7 @@ import '../../core/services/offline_cache_manager.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import '../player/now_playing.dart';
 import '../player/widgets/track_artwork.dart';
 import '../settings/network/network_settings_section.dart';
@@ -180,7 +181,7 @@ class _DownloadsBody extends ConsumerWidget {
     return downloaded.when(
       // While the finished list loads, still show any in-flight work.
       loading: () => active.isEmpty
-          ? const Center(child: CircularProgressIndicator())
+          ? const LoadingIndicator(label: 'Loading downloads')
           : _DownloadsList(active: active, downloaded: const <Track>[]),
       // Never surface raw exception text (it can carry paths or store detail);
       // show one calm, friendly line instead (the same source feeds [active],

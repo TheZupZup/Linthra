@@ -299,9 +299,10 @@ builds and optional release signing live in separate workflows.
 
 ### Python tooling checks (Ruff)
 
-Linthra's Python — the release/toolchain scripts in `scripts/`, icon generation
-in `tool/branding/`, and the large-library fixtures and benchmarks in
-`tools/large_library/` — is linted and format-checked by
+Linthra's Python (the release/toolchain scripts in `scripts/`, icon generation
+in `tool/branding/`, the large-library fixtures and benchmarks in
+`tools/large_library/`, and the startup benchmark's reporter in
+`tools/startup/`) is linted and format-checked by
 [Ruff](https://docs.astral.sh/ruff/) in the **Python lint** workflow
 (`.github/workflows/python-lint.yml`), which runs on every PR that touches those
 files. Run the same two checks locally:

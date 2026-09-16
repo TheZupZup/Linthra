@@ -110,6 +110,33 @@ void main() {
     expect(seeks.last, 60000 - stepMs);
   });
 
+  testWidgets('a modified arrow belongs to whoever bound it', (tester) async {
+    // Ctrl+→ is a shortcut (#391). Seeking on it here would both move the
+    // track and swallow the chord, leaving the binding dead for as long as the
+    // bar held focus.
+    final List<double> seeks = await pumpBar(tester, value: 60000, max: maxMs);
+    barFocusNode(tester).requestFocus();
+    await tester.pump();
+
+    for (final LogicalKeyboardKey modifier in <LogicalKeyboardKey>[
+      LogicalKeyboardKey.controlLeft,
+      LogicalKeyboardKey.altLeft,
+      LogicalKeyboardKey.metaLeft,
+    ]) {
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyUpEvent(modifier);
+      await tester.pump();
+      expect(seeks, isEmpty, reason: '$modifier should have been left alone');
+    }
+
+    // Unmodified, it is the bar's key again.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(seeks.single, 60000 + stepMs);
+  });
+
   testWidgets('arrow keys are mirrored under right-to-left', (tester) async {
     final List<double> seeks = await pumpBar(
       tester,

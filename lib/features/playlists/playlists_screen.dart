@@ -10,6 +10,7 @@ import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../../shared/widgets/context_menu_region.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import '../library/remote_library_refresher.dart';
 import 'playlist_add.dart';
 import 'playlist_drag.dart';
@@ -86,7 +87,8 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen> {
             const Divider(height: 0),
             Expanded(
               child: playlists.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
+                loading: () =>
+                    const LoadingIndicator(label: 'Loading playlists'),
                 error: (_, __) => const _PlaylistsError(),
                 data: (List<Playlist> items) => items.isEmpty
                     ? _PlaylistsEmpty(serverConnected: serverConnected)

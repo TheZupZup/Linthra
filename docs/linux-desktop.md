@@ -685,7 +685,7 @@ loaded:
 | Content density | Supported | Compact by default, switchable to Comfortable in Settings → Appearance and remembered across restarts ([issue #395](https://github.com/thezupzup/linthra/issues/395)). Both are Material `VisualDensity` values, so the choice reaches every list row, grid and control at once. Touch builds are unaffected. See [Density (Compact / Comfortable)](#density-compact--comfortable). |
 | Pointer affordances | Supported | Compact content density, visible hover feedback, right-click context menus with a keyboard equivalent, and Ctrl/Shift multi-select in track lists — all keyed on the input rather than the window width. See [Pointer, not width](#pointer-not-width). |
 | Keyboard navigation | Supported | The whole UI is reachable without a pointer: predictable Tab/Shift+Tab order, a strong accent focus ring distinct from hover and selection, Enter/Space activation, arrow keys through lists and grids with Home/End at their ends, and panes and dialogs that hand focus back when they close ([issue #390](https://github.com/TheZupZup/Linthra/issues/390)). Shared helpers in `lib/shared/focus/`, keyed on the input device rather than the platform, so touch is untouched. See [Keyboard navigation](#keyboard-navigation). |
-| Keyboard shortcuts | Partial | Quick search is bound to **Ctrl+K** / **Ctrl+F** ([issue #393](https://github.com/TheZupZup/Linthra/issues/393)) — see [Quick search](#quick-search-ctrlk). The volume control takes the wheel and arrow keys when focused; global transport and volume shortcuts are still later work in #376. |
+| Keyboard shortcuts | Supported | App-wide transport and navigation chords, remappable in **Settings → Music & playback → Keyboard shortcuts** ([issue #391](https://github.com/TheZupZup/Linthra/issues/391)): play/pause, next, previous, quick search (**Ctrl+K**, with **Ctrl+F** as a fixed alias, [issue #393](https://github.com/TheZupZup/Linthra/issues/393)), library, queue and Now Playing. They stand down while a text field wants the key, and media keys stay with MPRIS rather than being bound a second time here. The volume control still takes the wheel and arrow keys only when focused; a global volume chord is not offered. See [Keyboard shortcuts](#keyboard-shortcuts) and [Quick search](#quick-search-ctrlk). |
 
 Nothing in that table is faked. Each one is an explicit implementation behind an
 existing interface, so it is visible in the code and covered by tests — with
@@ -1116,12 +1116,11 @@ underneath keeps its state — it is a dialog on the root navigator, not a
 navigation — and opening a result goes through the app's existing routes and
 playback actions.
 
-Like the layout, it is **not** gated on `HostPlatform`: the binding
-([`quick_search_shortcuts.dart`](../lib/app/quick_search_shortcuts.dart)) wraps
-the router, above every route, and can only fire when a real keyboard sends the
-chord — so a phone is unaffected while an Android tablet with a keyboard case
-gets it for free. What it searches and how it ranks is documented in
-[library.md](./library.md#quick-search-ctrlk).
+Like the layout, it is **not** gated on `HostPlatform`: the binding lives in the
+shortcut registry below, which wraps the router above every route and can only
+fire when a real keyboard sends the chord — so a phone is unaffected while an
+Android tablet with a keyboard case gets it for free. What it searches and how
+it ranks is documented in [library.md](./library.md#quick-search-ctrlk).
 
 Tests: `test/shared/layout/adaptive_layout_test.dart`,
 `test/features/library/album_grid_test.dart`,
@@ -1130,6 +1129,181 @@ Tests: `test/shared/layout/adaptive_layout_test.dart`,
 `test/features/player/player_desktop_layout_test.dart` — each covers the phone
 width alongside 1280, 1920, 2560 and ultrawide, so a change that only looks
 right on one monitor fails.
+
+### Keyboard shortcuts
+
+Seven actions are bound out of the box, and every one of them can be remapped
+in **Settings → Music & playback → Keyboard shortcuts**:
+
+| Action | Default | What it does |
+| --- | --- | --- |
+| Play / pause | `Ctrl+Space` | Start or pause what is loaded |
+| Next track | `Ctrl+→` | Skip forward in the queue |
+| Previous track | `Ctrl+←` | Go back |
+| Search | `Ctrl+K` (also `Ctrl+F`) | Open quick search |
+| Library | `Ctrl+L` | Go to the Library tab |
+| Queue | `Ctrl+U` | Show or hide what is up next |
+| Now Playing | `Ctrl+P` | Open the full-screen player |
+
+`Ctrl+F` is a fixed alias rather than a second binding: Linthra has always
+answered it, so remapping search does not take it away, and nothing else can be
+bound over it.
+
+**One registry.** `lib/app/shortcuts/shortcut_action.dart` holds the actions,
+their names, their descriptions and their defaults. The dispatcher installs it,
+the settings card edits it, storage keys off it, and the help window planned in
+#392 reads the same table — so a shortcut cannot be documented as one thing and
+bound as another.
+
+**No new playback logic.** Every action forwards to the `PlaybackController`,
+router or overlay the buttons already use. The queue shortcut is the clearest
+case: the frame answers it with the side column when the window is wide enough
+and the app-level fallback opens the same sheet the phone uses otherwise, which
+is the rule the now-playing bar's queue button already follows.
+
+**Three surfaces answer the queue chord**, innermost first: an open queue
+sheet closes itself, the wide Now Playing screen toggles its own pane rather
+than stacking a sheet over it, and the navigation frame toggles the side column
+when this window has one. Each declines when it is not the right host, and the
+app-level fallback opens the sheet. Library is the odd one out: the frame
+claims it whatever is drawn on top, clearing the overlay first, because a tab
+switch nobody can see is not a tab switch.
+
+**How the frame gets first refusal.** Through
+[`ShortcutSurface`](../lib/app/shortcuts/shortcut_surface.dart), a tiny registry
+the navigation frame binds itself into while it is mounted, rather than through
+a nested `Actions` inside it. `Shortcuts` resolves an intent from wherever the
+keyboard focus happens to sit, and focus is not something the frame controls:
+leave a tab that had a page pushed inside it and focus lands on the scope
+*above* the frame, at which point a nested `Actions` stops being found. The
+symptoms were a modal queue sheet over a window that has a queue column, and
+`Ctrl+L` flattening the Library stack it was meant to restore. A handler
+returning `false` means "not mine right now" and hands the key back, so the
+frame only describes the two cases it improves on — a visible queue column, and
+switching to the Library branch with `goBranch` so the tab keeps its own stack —
+and declines everywhere else, including under a route pushed over it.
+
+**Media keys are not here.** `XF86AudioPlay` and friends reach Linthra through
+MPRIS (#398), which works while the window is not focused. Binding one here
+would be a second, worse path, so [`ShortcutBinding`](../lib/app/shortcuts/shortcut_binding.dart)
+refuses a media key outright and says why.
+
+**The typing guard is checked against the real thing.**
+`test/app/shortcuts/text_editing_chords_test.dart` presses every bindable chord
+into a real `TextField` with the platform set to Linux and holds
+`conflictsWithTextEditing` to what the field actually did with it. A
+hand-written list of "keys a field owns" goes stale, and a Flutter release that
+added a chord to `DefaultTextEditingShortcuts` would otherwise turn one of the
+bindings into a key that quietly eats an edit. One-directional: a chord the
+field consumes must be one the guard stands down for, not the reverse, because
+the guard is deliberately wider than the framework's map. (For the record,
+Flutter's Linux map has no `Ctrl+U`, `Ctrl+D`, `Ctrl+H` or `Ctrl+W` — those are
+readline conventions a GTK entry has and a Flutter text field does not — so
+`Ctrl+U` is free to be the queue default.)
+
+**Typing wins.** A shortcut stands down while the keyboard is in a text field
+*if the field would have wanted that key* — the caret keys, Home/End,
+Backspace/Delete, Space, the clipboard and undo letters, and any chord that
+uses Alt on a printable key. That last one is AltGr: it is right Alt (and
+Ctrl+Alt on some layouts), and AltGr plus an ordinary key is how a great many
+layouts produce a character — `@` is AltGr+Q on a German keyboard. Flutter
+reports "alt" without saying which side, so such a chord cannot be told apart
+from somebody typing. It stands down inside a field rather than being refused
+outright: refusing would take a whole modifier's worth of combinations away
+from everyone to protect a case that only bites while typing. It is deliberately
+not "no shortcuts while typing": `Ctrl+K` opens search from inside a search
+field, which is where people press it. The rule is one predicate,
+`conflictsWithTextEditing`, and the action is *disabled* rather than silently
+swallowing the key, so the keystroke carries on to the field and the character
+is typed.
+
+**What cannot be bound**, each with a sentence saying what to do instead:
+
+* a bare printable key, or Shift plus one — `Shift+K` is a capital K, and
+  binding it app-wide would eat typing;
+* `Escape` and `Tab`, which the app needs for closing things and moving around,
+  and bare arrows, Enter, Space, Home/End, Page Up/Down, Backspace and Delete;
+* a chord a focused control already answers: `Ctrl`/`Super` + `↑`/`↓` move a row
+  in a reorderable list and `Shift+F10` opens a row's menu (#390). Those sit in
+  a `Shortcuts` nearer the keyboard, so a global action bound to one would look
+  bound and then do nothing whenever such a row had focus. Refusing is the
+  better half of that trade: making the row controls stand aside instead would
+  take keyboard reordering away from whoever bound a shortcut next to it. The
+  refusal is for those chords *exactly* — `Ctrl+Shift+↑` and `Alt+↑` are free —
+  which is why `ContextMenuRegion` now matches its two chords exactly too,
+  instead of taking F10 with Shift and anything else held;
+* `Alt+F4`, which never reaches the app: GTK turns it into the close request
+  `linux/runner/window_lifecycle_channel.cc` answers by hiding or quitting.
+  Only that one is listed — the rest of a desktop's own bindings are the user's
+  to configure and vary by compositor, and a chord the desktop grabs simply
+  does not arrive, the same way a media key does not;
+* a media key, as above;
+* a combination another action already has, including a fixed alias — the
+  refusal names the action that has it.
+
+Function keys are allowed bare: no text field produces one.
+
+**Repeats fire once.** Every activator is built with `includeRepeats: false`, so
+holding `Ctrl+→` skips one track rather than the whole queue.
+
+**Nothing bare-key swallows a chord.** Widgets that answer a plain arrow — the
+seek bar, and a grid's row wrap in `ListKeyboardNavigation` — stand aside when
+Ctrl, Alt or Super is held (`shortcutModifierPressed`). Otherwise `Ctrl+→`
+would have seeked *and* been reported handled, leaving the binding dead for as
+long as that widget had focus.
+
+**Nothing is bound before setup is finished.** The router gates onboarding on
+its initial location alone, with no redirect guard, so the whole map stands
+down until `onboardingControllerProvider` is true. A `Ctrl+L` out of onboarding
+would otherwise have landed in an unconfigured library and sent the user back
+to onboarding on the next launch.
+
+**The queue sheet closes itself.** Not the shortcut, and not by popping the top
+of the navigator: press Ctrl+U, then Ctrl+P, and the top is Now Playing. The
+modal sheet claims the queue action through `ShortcutSurface` while it is up,
+so it acts on its own route — pop while it is current, come out where it stands
+when something was pushed over it (and let the fallback show a fresh one, since
+the buried one is invisible), stand aside otherwise. Registering it with the
+sheet rather than with the caller is what makes the chord able to close a sheet
+the *mini-player button* opened: one queue, however it was put there.
+
+**Reset is a rebinding.** "Reset to default" goes through the same
+`setBinding`, so it is refused with the same wording when the default is no
+longer free — remap Library off `Ctrl+L`, give `Ctrl+L` to Queue, and resetting
+Library would otherwise have put two actions on one chord with the activator
+map silently picking one. Reset-all needs no check: the shipped defaults are
+distinct, and a test holds them to it.
+
+**Persistence.** Only *overrides* are stored, one flat key per action in
+`shared_preferences` (`keyboard_shortcut.play_pause`). An action the user never
+touched has no row, so changing a default in a later release reaches everyone
+who never disagreed with it and nobody who did; typing the original combination
+back removes the override rather than pinning it. The duplicate check runs over
+the composed table rather than one override at a time, because a *swap* (each
+action moving onto the chord the other is leaving) is something the settings
+screen legitimately writes, and checking one at a time would have undone both
+halves of it on the next launch. Key ids from outside Flutter's
+registry are reconstructed when they are Unicode-plane characters, so a chord
+recorded on a non-US layout survives a restart; an id from a plane this build
+has no meaning for is not guessed at. Writes are chained, so a reset-all and a
+rebinding started on top of it reach storage one at a time in the order the
+user asked for. An override that no longer
+parses, that today's rules would refuse, or that would leave two actions on one
+chord is dropped on read and the action keeps its default — a preferences file from a newer build, or one edited by
+hand, degrades to stock behaviour rather than to a broken keyboard.
+
+**Ctrl, not Cmd.** The desktop target is Linux, so the defaults are Ctrl. The
+binding model carries a `meta` flag anyway, so a user can bind Super+key today
+and a macOS build could default to Command without the storage format changing
+under existing installs.
+
+Tests: `test/app/shortcuts/` covers the binding rules and storage round trip,
+the registry's own consistency, remapping/conflict/reset/persistence, and
+dispatch — including a held key firing once, a text field keeping `Ctrl+→`, and
+`Ctrl+K` still working inside one.
+`test/features/settings/desktop/keyboard_shortcuts_section_test.dart` covers
+recording a chord, being refused one, and the recorder staying escapable with
+Tab and Escape.
 
 ## Window state
 
@@ -1197,6 +1371,28 @@ there.
 `unmanaged_files` in `.metadata`, so `flutter migrate` leaves Linthra's edits
 alone. If someone re-runs `flutter create --platforms=linux .` anyway, the
 checker above is what catches the reverted title and the lost SQLite seam.
+
+## Startup performance
+
+How long Linthra takes to show you a usable library, and whether that changes,
+is measured rather than guessed:
+
+```bash
+./tools/startup/run_startup_benchmark.sh
+```
+
+It launches the real app over an empty, a small (1,000-track) and a large
+(20,000-track) synthetic catalog and records the time to the first frame that
+actually shows the library: real track rows, or the onboarding prompt for an
+empty one. No server, no network and no music collection are involved: the
+catalogs are generated locally into real SQLite files in the production schema.
+
+The verdict is a comparison against a baseline you record on the same machine,
+never a fixed millisecond limit, and CI deliberately times nothing; it only
+checks that the benchmark still runs and still produces a valid sample set.
+[tools/startup/README.md](../tools/startup/README.md) covers what is and is not
+measured, how to compare two runs, and why a debug number is not a release
+number.
 
 ## Desktop identity
 

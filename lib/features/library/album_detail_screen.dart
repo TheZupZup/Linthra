@@ -11,6 +11,7 @@ import '../../data/repositories/download_repository_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import '../downloads/collection_download_actions.dart';
 import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
@@ -71,7 +72,7 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
     if (state.status == LibraryStatus.loading) {
       return Scaffold(
         appBar: AppBar(),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const LoadingIndicator(label: 'Loading album'),
       );
     }
 

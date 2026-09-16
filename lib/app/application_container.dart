@@ -17,6 +17,7 @@ import '../data/repositories/download_repository_provider.dart';
 import '../data/repositories/favorites_repository_provider.dart';
 import '../data/repositories/jellyfin_auto_sync_store_provider.dart';
 import '../data/repositories/jellyfin_session_store_provider.dart';
+import '../data/repositories/keyboard_shortcut_preferences_provider.dart';
 import '../data/repositories/launcher_icon_service_provider.dart';
 import '../data/repositories/library_added_store_provider.dart';
 import '../data/repositories/library_tab_store_provider.dart';
@@ -69,6 +70,7 @@ List<Override> productionApplicationOverrides({
     sharedPreferencesPlaybackPreferencesOverride,
     sharedPreferencesDesktopWindowPreferencesOverride,
     sharedPreferencesDesktopNotificationPreferencesOverride,
+    sharedPreferencesKeyboardShortcutPreferencesOverride,
     if (resolvedHost == HostPlatform.linux) ...<Override>[
       sharedPreferencesPlaybackSessionStoreOverride,
       // The window-lifecycle channel is Linthra's own GTK runner (#401), so
