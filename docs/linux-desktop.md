@@ -701,9 +701,13 @@ started on top of the first.
   back is what the return trip already refreshes, so Retry does not walk the
   selection a second time on top of it.
 * **Select folder again** opens the system chooser, and the folder it returns
-  is scanned before it is saved: a replacement that cannot be read leaves the
-  old folder, and the music indexed from it, exactly as they were. This is the
-  only way a configured path ever changes. Linthra never looks for where a drive went and
+  is asked whether it can be read *before* anything is scanned or saved: a
+  replacement that cannot be read leaves the old folder, and the music indexed
+  from it, exactly as they were. It is checked that early because a scan writes
+  the catalog for the folders it was given, so a replacement that fails beside a
+  folder that works would already have dropped the replaced folder's tracks by
+  the time the scan reported it. This is the only way a configured path ever
+  changes. Linthra never looks for where a drive went and
   never adopts a path on the user's behalf: it cannot prove a folder at a new
   mount point holds the same music, and guessing would aim the library at
   somebody else's files. Cancelling changes nothing.

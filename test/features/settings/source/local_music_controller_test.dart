@@ -331,6 +331,40 @@ void main() {
         return container;
       }
 
+      test('Retry on the device library never mentions folder permissions',
+          () async {
+        // MediaStore is not a folder: it has no permissions to check and no
+        // chooser to pick it in again, and the panel beside this message
+        // deliberately offers no Reselect. Telling that user to check folder
+        // permissions would be the same wrong advice this whole change is
+        // about, one layer down.
+        final container = androidContainer(
+          media: _FakeAndroidMediaLibrary(
+            status: AndroidMusicPermissionStatus.denied,
+          ),
+          folderRepo: InMemorySelectedMusicFolderRepository(
+            initialFolder: FolderLocation.androidMediaStoreAudio,
+          ),
+          libraryRepo: InMemoryMusicLibraryRepository(),
+        );
+        await container.read(selectedFolderControllerProvider.future);
+        container.read(localRootAvailabilityProvider);
+        await pumpEventQueue();
+
+        await container
+            .read(localMusicControllerProvider.notifier)
+            .retryFolder(FolderLocation.androidMediaStoreAudio);
+        await pumpEventQueue();
+
+        final String? message =
+            container.read(localMusicControllerProvider).message;
+
+        expect(message, isNotNull);
+        expect(message, contains('Android settings'));
+        expect(message, isNot(contains('folder again')));
+        expect(message, isNot(contains("folder's permissions")));
+      });
+
       test('a successful first scan persists the MediaStore selection',
           () async {
         final libraryRepo = InMemoryMusicLibraryRepository();

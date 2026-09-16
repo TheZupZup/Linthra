@@ -13,12 +13,15 @@
 // scanner merge, the real catalog writes, and the real Retry / Reselect / Remove
 // actions the card calls.
 
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/repositories/selected_music_folder_repository.dart';
 import 'package:linthra/core/services/folder_picker_service.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
@@ -115,6 +118,38 @@ class _StagedPicker implements FolderPickerService {
     pickCount++;
     return folder;
   }
+}
+
+/// A selection repository whose writes the test can hold open, so "the
+/// preferences write is still in flight" is a state the card can be looked at
+/// in.
+class _BlockingSelectionRepository implements SelectedMusicFolderRepository {
+  _BlockingSelectionRepository(this._inner);
+
+  final SelectedMusicFolderRepository _inner;
+  Completer<void>? _gate;
+  int pendingWrites = 0;
+
+  void block() => _gate = Completer<void>();
+
+  void release() => _gate?.complete();
+
+  @override
+  Future<List<String>> getSelectedFolders() => _inner.getSelectedFolders();
+
+  @override
+  Future<void> setSelectedFolders(List<String> pathsOrUris) async {
+    final Completer<void>? gate = _gate;
+    if (gate != null) {
+      pendingWrites++;
+      await gate.future;
+      pendingWrites--;
+    }
+    await _inner.setSelectedFolders(pathsOrUris);
+  }
+
+  @override
+  Future<void> clearSelectedFolders() => _inner.clearSelectedFolders();
 }
 
 Track _serverTrack(String id) => Track(
@@ -447,6 +482,80 @@ void main() {
       ]);
       expect(await catalogUris(), indexed);
       expect(c.read(localMusicControllerProvider).isError, isTrue);
+    });
+
+    test('a replacement that fails beside a folder that works takes nothing',
+        () async {
+      // The dangerous version of the same case. With another folder still
+      // readable the scan is writable, so by the time an aggregate report says
+      // "partly failed" the replaced folder's tracks are already out of the
+      // catalog, and neither committing nor backing out can bring them back.
+      // The replacement is asked before the scan for exactly this reason.
+      final ProviderContainer c = container();
+      await start(c);
+      fs.breakRoot(_usb, LocalRootFault.missing);
+      await rescan(c);
+
+      fs.breakRoot(_elsewhere, LocalRootFault.missing);
+      picker.folder = _elsewhere;
+      await c.read(localMusicControllerProvider.notifier).reselectFolder(_usb);
+      await pumpEventQueue();
+
+      expect(c.read(selectedFolderControllerProvider).value, <String>[
+        _internal,
+        _usb,
+      ]);
+      // The music of the folder that was going to be replaced is still here.
+      final Set<String> uris = await catalogUris();
+      expect(uris, contains(_usbTrack));
+      expect(uris, contains(_internalTrack));
+      expect(c.read(localMusicControllerProvider).isError, isTrue);
+      expect(
+        c.read(localMusicControllerProvider).message,
+        contains('left as it was'),
+      );
+    });
+
+    test('the card stays busy until the new selection is stored', () async {
+      // The scan publishes its result before the selection that result
+      // describes is written. Going un-busy there would put Retry, Reselect and
+      // Remove back on screen over the old selection, and a second command
+      // could read it and race the write that is still in flight.
+      final _BlockingSelectionRepository slow = _BlockingSelectionRepository(
+        InMemorySelectedMusicFolderRepository(
+          initialFolders: <String>[_internal, _usb],
+        ),
+      );
+      final ProviderContainer c = ProviderContainer(
+        overrides: <Override>[
+          folderPickerServiceProvider.overrideWithValue(picker),
+          selectedMusicFolderRepositoryProvider.overrideWithValue(slow),
+          musicLibraryRepositoryProvider.overrideWithValue(catalog),
+          audioFileScannerProvider.overrideWithValue(fs),
+          directoryReadabilityProvider.overrideWithValue(fs),
+          hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+        ],
+      );
+      addTearDown(c.dispose);
+      await c.read(selectedFolderControllerProvider.future);
+
+      picker.folder = _elsewhere;
+      slow.block();
+      final Future<void> reselect =
+          c.read(localMusicControllerProvider.notifier).reselectFolder(_usb);
+      await pumpEventQueue();
+
+      expect(slow.pendingWrites, 1);
+      expect(c.read(localMusicControllerProvider).busy, isTrue);
+
+      slow.release();
+      await reselect;
+
+      expect(c.read(localMusicControllerProvider).busy, isFalse);
+      expect(c.read(selectedFolderControllerProvider).value, <String>[
+        _internal,
+        _elsewhere,
+      ]);
     });
 
     test(

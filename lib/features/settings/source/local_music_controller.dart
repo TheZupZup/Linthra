@@ -131,7 +131,7 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     final LocalRootFault? fault = availability.faultFor(folder);
     if (fault != null) {
       state = LocalMusicActionState(
-        message: _stillUnreachable(fault),
+        message: _stillUnreachable(fault, FolderLocation.parse(folder)),
         isError: true,
       );
       return;
@@ -199,13 +199,35 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
       state = const LocalMusicActionState();
       return;
     }
+    // Ask the replacement itself before the scan, not only after it. A scan
+    // that could read some *other* folder writes the catalog for the roots it
+    // was given, which drops the replaced folder's tracks: by the time an
+    // aggregate report says "partly failed" the music is already gone, and
+    // neither committing nor backing out can bring it back. One probe up front
+    // is the only point where nothing has happened yet.
+    final LocalRootFault? unreadable =
+        (await ref.read(localRootProbeProvider).inspect(picked))?.fault;
+    if (unreadable != null) {
+      state = LocalMusicActionState(
+        message: _replacementUnreadable(unreadable),
+        isError: true,
+      );
+      return;
+    }
     // Picking the *same* folder again is a real fix, not a no-op: it is how a
     // revoked portal document is re-granted, so this scans either way.
     final LocalScanReport? report = await _scan(replaced);
     if (report == null || report.hadError) return;
+    // What the scan had to say, held back until the selection it describes is
+    // actually stored. Nothing renders in between: there is no await between
+    // reading it and going busy again, so no frame can catch the card offering
+    // Retry and Reselect over a selection that is still being written.
+    final LocalMusicActionState outcome = state;
+    state = const LocalMusicActionState(busy: true);
     await ref
         .read(selectedFolderControllerProvider.notifier)
         .replaceAndPersist(folder, picked);
+    state = outcome;
   }
 
   /// Opts into Android's device-wide shared music library.
@@ -355,7 +377,20 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   /// What Retry says when the folder is still away. Worded from the fault, so
   /// "put the drive back" and "fix the permissions" are never swapped, and
   /// never carrying an OS message, only the kind.
-  static String _stillUnreachable(LocalRootFault fault) {
+  static String _stillUnreachable(LocalRootFault fault, FolderLocation from) {
+    // Android's device-wide library is not a folder: it has no permissions to
+    // check and no chooser to be picked in again, and the panel beside this
+    // message deliberately offers no Reselect. Sending that user to a folder
+    // they do not have would be the same wrong advice this whole change is
+    // about, said one layer down.
+    if (from.isAndroidMediaStore) {
+      return fault == LocalRootFault.permissionDenied
+          ? "Linthra still isn't allowed to read this device's music library. "
+              'Re-enable music access in Android settings, or use a folder '
+              'instead.'
+          : "Linthra still couldn't read this device's music library. Try "
+              'again, or use a folder instead.';
+    }
     switch (fault) {
       case LocalRootFault.missing:
         return "That folder still isn't there. Reconnect the drive, or select "
@@ -369,6 +404,25 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
       case LocalRootFault.unknown:
         return "Linthra still couldn't read that folder. Try selecting it "
             'again.';
+    }
+  }
+
+  /// Why a folder the user just picked was not taken. Said before anything is
+  /// stored or written, so it promises nothing changed and means it.
+  static String _replacementUnreadable(LocalRootFault fault) {
+    switch (fault) {
+      case LocalRootFault.missing:
+        return "Linthra can't find that folder, so your library was left as it "
+            'was. Reconnect the drive, or pick another folder.';
+      case LocalRootFault.permissionDenied:
+        return "Linthra isn't allowed to read that folder, so your library was "
+            'left as it was. Check its permissions, or pick another folder.';
+      case LocalRootFault.unavailable:
+        return "That folder's storage isn't responding, so your library was "
+            'left as it was. Reconnect it, or pick another folder.';
+      case LocalRootFault.unknown:
+        return "Linthra couldn't read that folder, so your library was left as "
+            'it was. Try again, or pick another folder.';
     }
   }
 
