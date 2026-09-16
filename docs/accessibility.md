@@ -157,6 +157,7 @@ Roughly fifteen minutes end to end.
 | Onboarding | `test/features/onboarding/onboarding_semantics_test.dart` |
 | Accent swatches | `test/features/appearance/custom_theme_swatch_semantics_test.dart` |
 | Loading states | `test/shared/widgets/loading_indicator_test.dart` |
+| Folders ▸ Add folder | `test/features/library/folders_add_folder_test.dart` |
 | Provider cards | `test/features/settings/source/provider_summary_card_semantics_test.dart` |
 | Secrets, Plex | `test/features/settings/plex/plex_settings_secrets_semantics_test.dart` |
 | Secrets, Jellyfin & Navidrome | `test/features/settings/provider_secrets_semantics_test.dart` |

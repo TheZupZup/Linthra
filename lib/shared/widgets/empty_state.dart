@@ -9,12 +9,18 @@ class EmptyState extends StatelessWidget {
     required this.icon,
     required this.title,
     this.message,
+    this.action,
     super.key,
   });
 
   final IconData icon;
   final String title;
   final String? message;
+
+  /// The one thing to do from here, when the screen has one (e.g. Folders
+  /// offering to add a music folder). Optional, so every existing empty state
+  /// keeps rendering exactly as it did.
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +54,10 @@ class EmptyState extends StatelessWidget {
                 ),
                 textAlign: TextAlign.center,
               ),
+            ],
+            if (action != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              action!,
             ],
           ],
         ),
