@@ -67,7 +67,7 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
           ),
         ],
       ),
-      body: _body(sources),
+      body: _body(sources, busy: busy),
     );
   }
 
@@ -88,7 +88,10 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Widget _body(List<FolderBrowsableMusicSource> sources) {
+  Widget _body(
+    List<FolderBrowsableMusicSource> sources, {
+    required bool busy,
+  }) {
     if (_trail.isNotEmpty &&
         !sources.any((source) => source.id == _trail.last.sourceId)) {
       // A sign-out can happen while this screen is open. Return to roots on the
@@ -106,7 +109,12 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
       return _FolderRoots(
         sources: sources,
         onOpen: _openRoot,
-        onAddFolder: _addFolder,
+        // Null while a pick or scan is in flight, exactly like the header
+        // action: one command, so the two ways in also stop being tappable
+        // together. A second tap during the first pick would otherwise open a
+        // second folder dialog, and on Android the last one to answer would
+        // take the single grant.
+        onAddFolder: busy ? null : _addFolder,
       );
     }
 
@@ -182,7 +190,10 @@ class _FolderRoots extends ConsumerWidget {
   final List<FolderBrowsableMusicSource> sources;
   final void Function(FolderBrowsableMusicSource source, MusicFolder folder)
       onOpen;
-  final VoidCallback onAddFolder;
+
+  /// Null while the local-music command is already running, which disables the
+  /// empty state's button the same way it greys out the header action.
+  final VoidCallback? onAddFolder;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

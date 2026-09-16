@@ -82,6 +82,14 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
+IconButton _headerAction(WidgetTester tester) =>
+    tester.widget<IconButton>(find.byKey(const Key('folders_add_folder')));
+
+ButtonStyleButton _emptyStateAction(WidgetTester tester) =>
+    tester.widget<ButtonStyleButton>(
+      find.byKey(const Key('folders_empty_add_folder')),
+    );
+
 /// Settles the frame *and* lets the outcome snack bar time out, so no timer
 /// outlives the test.
 Future<void> _settleWithSnackBar(WidgetTester tester) async {
@@ -273,11 +281,13 @@ void main() {
       expect(find.text('No music folders yet'), findsNothing);
     });
 
-    testWidgets('the action is greyed out while a pick is in flight',
+    testWidgets('both ways in are greyed out while a pick is in flight',
         (tester) async {
       // One local-music command at a time, and "busy" is the controller's own
       // state rather than a second copy kept here, so a second tap cannot
-      // open a second folder dialog on top of the first.
+      // open a second folder dialog on top of the first. The empty state's
+      // button has to stop with the header action, not carry on alone: on
+      // Android the last picker to answer would take the single grant.
       final picker = _PendingFolderPicker();
       await _pump(
         tester,
@@ -288,22 +298,22 @@ void main() {
       await tester.tap(find.byKey(const Key('folders_add_folder')));
       await tester.pump();
 
-      expect(
-        tester
-            .widget<IconButton>(find.byKey(const Key('folders_add_folder')))
-            .onPressed,
-        isNull,
+      expect(_headerAction(tester).onPressed, isNull);
+      expect(_emptyStateAction(tester).onPressed, isNull);
+
+      // A tap on the disabled empty-state button is not a second pick.
+      await tester.tap(
+        find.byKey(const Key('folders_empty_add_folder')),
+        warnIfMissed: false,
       );
+      await tester.pump();
+      expect(picker.pickCount, 1);
 
       picker.pending.complete(null);
       await _settleWithSnackBar(tester);
 
-      expect(
-        tester
-            .widget<IconButton>(find.byKey(const Key('folders_add_folder')))
-            .onPressed,
-        isNotNull,
-      );
+      expect(_headerAction(tester).onPressed, isNotNull);
+      expect(_emptyStateAction(tester).onPressed, isNotNull);
     });
   });
 }
