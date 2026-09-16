@@ -317,6 +317,25 @@ void main() {
       expect(await folderRepo.getSelectedFolders(), <String>['/home/me/Music']);
     });
 
+    testWidgets('a folder stored with a trailing separator is still flagged', (
+      tester,
+    ) async {
+      // Availability keys by the canonical spelling; the selection is whatever
+      // was stored. Looking the fault up with the stored string has to find it,
+      // or a folder whose drive is out renders as a perfectly healthy one with
+      // none of the ways to fix it on screen.
+      await _pump(
+        tester,
+        initialFolder: '/media/usb/Music/',
+        host: HostPlatform.linux,
+        readability: const _FixedReadability(false),
+      );
+
+      expect(find.text('Folder not found'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Select folder again'), findsOneWidget);
+    });
+
     testWidgets('a command in flight takes the recovery actions with it', (
       tester,
     ) async {

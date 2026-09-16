@@ -5,6 +5,7 @@ import '../../../app/dimens.dart';
 import '../../../core/platform/host_platform.dart';
 import '../../../core/sources/local/android_media_library.dart';
 import '../../../core/sources/local/folder_location.dart';
+import '../../../core/sources/local/local_music_roots.dart';
 import '../../../core/sources/local/local_root_fault.dart';
 import '../../../core/sources/local/local_scan_report.dart';
 import '../../../data/repositories/host_platform_provider.dart';
@@ -311,7 +312,11 @@ class _SelectedFoldersView extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: AppSpacing.xs),
             child: _SelectedFolderRow(
               location: FolderLocation.parse(folder),
-              fault: faults[folder],
+              // Faults are keyed by the canonical spelling; the selection is
+              // whatever was stored. A folder saved as "/media/usb/Music/"
+              // would otherwise look perfectly healthy while its drive is out,
+              // with none of the ways to fix it on screen.
+              fault: faults[LocalMusicRoots.canonicalize(folder)],
               onRetry: onRetry == null ? null : () => onRetry!(folder),
               onReselect: onReselect == null ? null : () => onReselect!(folder),
               onRemove: onRemove == null ? null : () => onRemove!(folder),

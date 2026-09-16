@@ -85,6 +85,25 @@ const String _internal = '/home/me/Music';
 
 void main() {
   group('LocalRootAvailabilityMonitor', () {
+    test('a folder is found by the spelling the user stored it as', () async {
+      // States are keyed canonically; a stored selection is whatever was
+      // written. A folder saved with a trailing separator asking about itself
+      // must not come back "nothing is wrong with it" while its drive is out,
+      // because that is a broken folder rendered as a healthy one with no way
+      // to fix it.
+      final probe = _FakeRootProbe();
+      final monitor = LocalRootAvailabilityMonitor(probe: probe);
+      addTearDown(monitor.dispose);
+      await monitor.syncRoots(<String>['$_usb/']);
+
+      final LocalLibraryAvailability availability = monitor.availability;
+
+      expect(availability.isUnavailable('$_usb/'), isTrue);
+      expect(availability.faultFor('$_usb/'), LocalRootFault.missing);
+      expect(availability.isUnavailable(_usb), isTrue);
+      expect(availability.isAvailable('$_usb/'), isFalse);
+    });
+
     test('a recheck that lands mid-round still waits for its own answer',
         () async {
       // Retry reads the answer the moment this future completes. If a poll

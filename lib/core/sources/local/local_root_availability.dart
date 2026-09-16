@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'local_music_roots.dart';
 import 'local_root_fault.dart';
 
 /// Whether one configured local music root can be reached **right now**, as
@@ -155,19 +156,27 @@ class LocalLibraryAvailability {
 
   /// This root's state, or null when it is not tracked (not configured, or not
   /// answerable here).
-  LocalRootState? stateFor(String root) => roots[root];
+  ///
+  /// The key is canonicalized on the way in, because these are keyed by the
+  /// canonical spelling while a caller holds whatever the user's selection
+  /// says. A stored `/media/usb/Music/` asking about `/media/usb/Music` is the
+  /// same folder, and answering "nothing is wrong with it" because of a
+  /// trailing separator would show a drive that is out as perfectly healthy,
+  /// with no way to fix it.
+  LocalRootState? stateFor(String root) =>
+      roots[LocalMusicRoots.canonicalize(root)];
 
   /// Whether [root] was last found reachable. False for an untracked root: the
   /// caller asked about a folder nothing here can speak for.
-  bool isAvailable(String root) => roots[root]?.isAvailable ?? false;
+  bool isAvailable(String root) => stateFor(root)?.isAvailable ?? false;
 
   /// Whether [root] was proven unreachable. Only a settled probe says yes, so
   /// "not checked yet" never reads as "gone".
-  bool isUnavailable(String root) => roots[root]?.isUnavailable ?? false;
+  bool isUnavailable(String root) => stateFor(root)?.isUnavailable ?? false;
 
   /// Why [root] is unreachable, or null when it is fine, untracked, or nothing
   /// has answered for it yet.
-  LocalRootFault? faultFor(String root) => roots[root]?.fault;
+  LocalRootFault? faultFor(String root) => stateFor(root)?.fault;
 
   /// The unreachable roots and what is wrong with each, in the order they are
   /// tracked. What the recovery UI renders: one entry per folder that needs the

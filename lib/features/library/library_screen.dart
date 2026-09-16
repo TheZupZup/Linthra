@@ -374,13 +374,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         }
         return _LibraryError(
           message: state.errorMessage,
-          // With folders configured, Retry means "ask the folders again": a
-          // reload of a catalog that is empty for a drive that is unplugged
-          // would never recover. With none, there is nothing to walk and the
-          // plain reload is the whole of it.
-          onRetry: selectedFolders.isEmpty
-              ? () => ref.read(libraryControllerProvider.notifier).refresh()
-              : () => _rescan(selectedFolders),
+          // Retry what actually failed. A folder that could not be read is
+          // asked again, because reloading a catalog that is empty for an
+          // unplugged drive would never recover. Everything else is a catalog
+          // that would not load, and walking the whole library for that is
+          // both useless and a good way to replace the real error with an
+          // unrelated one.
+          onRetry: state.localRootsUnreadable && selectedFolders.isNotEmpty
+              ? () => _rescan(selectedFolders)
+              : () => ref.read(libraryControllerProvider.notifier).refresh(),
         );
       case LibraryStatus.loaded:
         // A first sync in flight — from any connected server — takes precedence

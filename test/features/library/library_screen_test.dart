@@ -336,6 +336,7 @@ void main() {
           fault: LocalRootFault.missing,
         ),
       );
+      final scanner = FakeAudioFileScanner();
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -350,6 +351,9 @@ void main() {
             hostPlatformProvider.overrideWithValue(HostPlatform.linux),
             directoryReadabilityProvider
                 .overrideWithValue(const _Unreadable(LocalRootFault.missing)),
+            audioFileScannerProvider.overrideWithValue(scanner),
+            localMetadataReaderProvider
+                .overrideWithValue(const UnsupportedLocalMetadataReader()),
           ],
           child: const MaterialApp(home: LibraryScreen()),
         ),
@@ -358,6 +362,15 @@ void main() {
 
       expect(find.text("Couldn't load your library"), findsOneWidget);
       expect(find.text('Folder not found'), findsNothing);
+
+      // And its Retry reloads the catalog, which is what failed. Walking the
+      // whole library would not fix a database that will not answer, and could
+      // replace this error with an unrelated one from a folder.
+      await tester.tap(find.widgetWithText(FilledButton, 'Retry'));
+      await tester.pumpAndSettle();
+
+      expect(scanner.requestedFolders, isEmpty);
+      expect(find.text("Couldn't load your library"), findsOneWidget);
     });
 
     testWidgets('a command in flight takes the screen\'s actions with it', (
