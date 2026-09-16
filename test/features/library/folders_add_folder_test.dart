@@ -5,6 +5,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/repositories/selected_music_folder_repository.dart';
 import 'package:linthra/core/services/folder_browsable_music_source.dart';
 import 'package:linthra/core/sources/local/local_file_stat.dart';
 import 'package:linthra/core/sources/local/local_metadata_reader.dart';
@@ -16,6 +17,7 @@ import 'package:linthra/data/repositories/selected_music_folder_repository_provi
 import 'package:linthra/features/library/folder_browser_providers.dart';
 import 'package:linthra/features/library/folders_screen.dart';
 import 'package:linthra/features/library/library_providers.dart';
+import 'package:linthra/shared/widgets/loading_indicator.dart';
 
 import 'fake_audio_file_scanner.dart';
 import 'fake_folder_picker_service.dart';
@@ -33,6 +35,29 @@ class _SequencedFolderPicker extends FakeFolderPickerService {
     if (_folders.isEmpty) return null;
     return _folders.removeAt(0);
   }
+}
+
+/// A stored selection that does not answer until the test lets it, standing in
+/// for the shared-preferences read on a cold start.
+class _PendingFolderRepository implements SelectedMusicFolderRepository {
+  _PendingFolderRepository(this._folders);
+
+  final Completer<void> readable = Completer<void>();
+  List<String> _folders;
+
+  @override
+  Future<List<String>> getSelectedFolders() async {
+    await readable.future;
+    return List<String>.of(_folders);
+  }
+
+  @override
+  Future<void> setSelectedFolders(List<String> pathsOrUris) async {
+    _folders = List<String>.of(pathsOrUris);
+  }
+
+  @override
+  Future<void> clearSelectedFolders() async => _folders = <String>[];
 }
 
 /// A picker that never answers until the test says so, standing in for a folder
@@ -53,6 +78,7 @@ Future<void> _pump(
   required InMemorySelectedMusicFolderRepository folderRepo,
   FakeAudioFileScanner? scanner,
   HostPlatform host = HostPlatform.linux,
+  Override? selectionOverride,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -61,7 +87,8 @@ Future<void> _pump(
         folderBrowsableSourcesProvider
             .overrideWithValue(const <FolderBrowsableMusicSource>[]),
         folderPickerServiceProvider.overrideWithValue(picker),
-        selectedMusicFolderRepositoryProvider.overrideWithValue(folderRepo),
+        selectionOverride ??
+            selectedMusicFolderRepositoryProvider.overrideWithValue(folderRepo),
         musicLibraryRepositoryProvider
             .overrideWithValue(InMemoryMusicLibraryRepository()),
         audioFileScannerProvider.overrideWithValue(
@@ -315,5 +342,74 @@ void main() {
       expect(_headerAction(tester).onPressed, isNotNull);
       expect(_emptyStateAction(tester).onPressed, isNotNull);
     });
+
+    testWidgets('a selection still loading is not "no folders yet"',
+        (tester) async {
+      // valueOrNull cannot tell "still reading" from "none", and the
+      // difference matters twice over: the empty state would claim a library
+      // is empty before knowing, and addAndPersist merges the pick into what
+      // it can read, so a folder chosen against an unresolved selection would
+      // be persisted alone and drop the roots already configured.
+      final folderRepo = _PendingFolderRepository(<String>['/music']);
+      final picker = FakeFolderPickerService(folder: '/media/usb');
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            folderBrowsableSourcesProvider
+                .overrideWithValue(const <FolderBrowsableMusicSource>[]),
+            folderPickerServiceProvider.overrideWithValue(picker),
+            selectedMusicFolderRepositoryProvider.overrideWithValue(folderRepo),
+            musicLibraryRepositoryProvider
+                .overrideWithValue(InMemoryMusicLibraryRepository()),
+            audioFileScannerProvider.overrideWithValue(FakeAudioFileScanner()),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+          ],
+          child: const MaterialApp(home: FoldersScreen()),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('No music folders yet'), findsNothing);
+      expect(find.byType(LoadingIndicator), findsOneWidget);
+      expect(_headerAction(tester).onPressed, isNull);
+      expect(picker.pickCount, 0);
+
+      folderRepo.readable.complete();
+      await tester.pumpAndSettle();
+
+      // Resolved: the folder that was always there is listed, and the action
+      // is live again.
+      expect(find.text('/music'), findsOneWidget);
+      expect(_headerAction(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('a selection that fails to load still lets you add',
+        (tester) async {
+      // The rest of the app reads this selection as "empty" when it cannot be
+      // read, so a dead button here would stand alone. It comes back.
+      final folderRepo = _FailingFolderRepository();
+      await _pump(
+        tester,
+        picker: FakeFolderPickerService(),
+        folderRepo: InMemorySelectedMusicFolderRepository(),
+        selectionOverride:
+            selectedMusicFolderRepositoryProvider.overrideWithValue(folderRepo),
+      );
+
+      expect(_headerAction(tester).onPressed, isNotNull);
+    });
   });
+}
+
+/// A stored selection whose read fails outright.
+class _FailingFolderRepository implements SelectedMusicFolderRepository {
+  @override
+  Future<List<String>> getSelectedFolders() async =>
+      throw StateError('preferences unavailable');
+
+  @override
+  Future<void> setSelectedFolders(List<String> pathsOrUris) async {}
+
+  @override
+  Future<void> clearSelectedFolders() async {}
 }

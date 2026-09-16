@@ -52,6 +52,26 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
     // copy of it kept here.
     final bool busy =
         ref.watch(localMusicControllerProvider.select((state) => state.busy));
+    // The stored selection, which is also the second reason to hold the action
+    // back. `addAndPersist` merges the chosen folder into whatever it can read
+    // at that moment, so a pick answered before the stored list has loaded
+    // would persist the new folder *alone* and drop the roots already
+    // configured. Waiting for it to resolve costs a few milliseconds of a
+    // shared-preferences read and removes that window entirely. An error
+    // releases the action too: the rest of the app reads this selection the
+    // same way, and leaving the button dead forever would be worse than
+    // matching them.
+    final AsyncValue<List<String>> selection =
+        ref.watch(selectedFolderControllerProvider);
+    // One notion of "resolved", so the action and the body can never disagree:
+    // null only while the read is genuinely in flight. A read that *failed*
+    // resolves to nothing rather than to a spinner that never stops, which is
+    // also how the rest of the app reads this selection.
+    final List<String>? localFolders = selection.hasValue || selection.hasError
+        ? selection.valueOrNull ?? const <String>[]
+        : null;
+    final VoidCallback? onAddFolder =
+        busy || localFolders == null ? null : _addFolder;
 
     return Scaffold(
       appBar: AppBar(
@@ -63,11 +83,15 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
             // Icon-only, so this label is the only name the action has, for
             // a pointer hovering it and for a screen reader alike.
             tooltip: 'Add music folder',
-            onPressed: busy ? null : _addFolder,
+            onPressed: onAddFolder,
           ),
         ],
       ),
-      body: _body(sources, busy: busy),
+      body: _body(
+        sources,
+        localFolders: localFolders,
+        onAddFolder: onAddFolder,
+      ),
     );
   }
 
@@ -90,7 +114,8 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
 
   Widget _body(
     List<FolderBrowsableMusicSource> sources, {
-    required bool busy,
+    required List<String>? localFolders,
+    required VoidCallback? onAddFolder,
   }) {
     if (_trail.isNotEmpty &&
         !sources.any((source) => source.id == _trail.last.sourceId)) {
@@ -108,13 +133,13 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
       // Back behaves exactly as it does on the other top-level destinations.
       return _FolderRoots(
         sources: sources,
+        localFolders: localFolders,
         onOpen: _openRoot,
-        // Null while a pick or scan is in flight, exactly like the header
-        // action: one command, so the two ways in also stop being tappable
-        // together. A second tap during the first pick would otherwise open a
-        // second folder dialog, and on Android the last one to answer would
-        // take the single grant.
-        onAddFolder: busy ? null : _addFolder,
+        // The same callback the header carries, null and all: one command, so
+        // the two ways in are tappable together or not at all. A second tap
+        // during the first pick would otherwise open a second folder dialog,
+        // and on Android the last one to answer would take the single grant.
+        onAddFolder: onAddFolder,
       );
     }
 
@@ -183,28 +208,38 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
 class _FolderRoots extends ConsumerWidget {
   const _FolderRoots({
     required this.sources,
+    required this.localFolders,
     required this.onOpen,
     required this.onAddFolder,
   });
 
   final List<FolderBrowsableMusicSource> sources;
+
+  /// The configured local roots, or null while the stored selection is still
+  /// being read. The two are not the same thing: "none yet" is a claim about
+  /// the user's library, and making it before the read lands would be a guess.
+  final List<String>? localFolders;
+
   final void Function(FolderBrowsableMusicSource source, MusicFolder folder)
       onOpen;
 
-  /// Null while the local-music command is already running, which disables the
-  /// empty state's button the same way it greys out the header action.
+  /// Null while the local-music command is running, or while the stored
+  /// selection has yet to resolve, which disables the empty state's button the
+  /// same way it greys out the header action.
   final VoidCallback? onAddFolder;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // The selection itself, read from the controller that owns it. Adding a
-    // folder therefore shows up here on its own, with no second copy of the
-    // list to keep in step.
-    final List<String> localFolders =
-        ref.watch(selectedFolderControllerProvider).valueOrNull ??
-            const <String>[];
+    final List<String>? localFolders = this.localFolders;
 
-    if (sources.isEmpty && localFolders.isEmpty) {
+    if (localFolders == null && sources.isEmpty) {
+      // Nothing to show yet and nothing true to say about it: a spinner that
+      // names itself beats an empty state that claims a library is empty when
+      // it may be about to list three folders.
+      return const LoadingIndicator(label: 'Loading folders');
+    }
+
+    if (sources.isEmpty && localFolders!.isEmpty) {
       return EmptyState(
         icon: Icons.folder_off_outlined,
         title: 'No music folders yet',
@@ -232,7 +267,7 @@ class _FolderRoots extends ConsumerWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(bottom: AppSpacing.xl),
         children: <Widget>[
-          if (localFolders.isNotEmpty)
+          if (localFolders != null && localFolders.isNotEmpty)
             _LocalFoldersSection(folders: localFolders),
           for (final FolderBrowsableMusicSource source in sources)
             _SourceRootsSection(
