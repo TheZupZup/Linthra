@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/services/folder_picker_service.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/folder_location.dart';
 import 'package:linthra/core/sources/local/local_file_stat.dart';
@@ -319,16 +322,18 @@ void main() {
       tester,
     ) async {
       // The other half of the rule. A folder being away somewhere in the
-      // library does not make every failure a folder problem: a scan that fell
-      // over outside the walk, or a catalog that will not load at all, leaves
-      // the scan report's fault unset on purpose. Answering that with
-      // "reconnect the drive" would send the user after a problem they do not
-      // have and bury the one they do.
+      // library does not make every failure a folder problem: the failure
+      // itself says whose it is. Staged at its worst, with a partial scan's
+      // report still carrying that folder's fault, so nothing can be inferred
+      // from the last report: the catalog is what would not load, and
+      // answering that with "reconnect the drive" would send the user after a
+      // problem they do not have and bury the one they do.
       LocalScanDiagnostics.record(
         const LocalScanReport.failure(
           folderSelected: true,
           isContentUri: false,
-          error: LocalScanError.unexpected,
+          error: LocalScanError.folderUnavailable,
+          fault: LocalRootFault.missing,
         ),
       );
       await tester.pumpWidget(
@@ -353,6 +358,50 @@ void main() {
 
       expect(find.text("Couldn't load your library"), findsOneWidget);
       expect(find.text('Folder not found'), findsNothing);
+    });
+
+    testWidgets('a command in flight takes the screen\'s actions with it', (
+      tester,
+    ) async {
+      // Same rule as the Settings card. A chooser the user is still looking at,
+      // or a probe on a mount that is not answering, leaves this screen up for
+      // seconds, and every extra tap would start another one.
+      final picker = _BlockingPicker();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            selectedMusicFolderRepositoryProvider.overrideWithValue(
+              InMemorySelectedMusicFolderRepository(
+                initialFolder: '/media/usb/Music',
+              ),
+            ),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+            folderPickerServiceProvider.overrideWithValue(picker),
+            directoryReadabilityProvider
+                .overrideWithValue(const _Unreadable(LocalRootFault.missing)),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Select folder again'));
+      await tester.pump();
+
+      expect(picker.pickCount, 1);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text('Folder not found'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+      expect(find.text('Select folder again'), findsNothing);
+
+      picker.answer(null);
+      await tester.pumpAndSettle();
+
+      expect(picker.pickCount, 1);
+      expect(find.text('Select folder again'), findsOneWidget);
     });
 
     testWidgets('a permission problem is not described as a missing folder', (
@@ -383,6 +432,21 @@ void main() {
       expect(find.text('Folder not found'), findsNothing);
     });
   });
+}
+
+/// A chooser that does not answer until the test says so, so the screen can be
+/// looked at while a recovery command is still running.
+class _BlockingPicker implements FolderPickerService {
+  final Completer<String?> _answer = Completer<String?>();
+  int pickCount = 0;
+
+  void answer(String? folder) => _answer.complete(folder);
+
+  @override
+  Future<String?> pickFolder() {
+    pickCount++;
+    return _answer.future;
+  }
 }
 
 /// Reports every folder as unreadable for one fixed reason, so the screen's

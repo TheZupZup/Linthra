@@ -105,18 +105,34 @@ void main() {
       }
     });
 
-    test('a SAF tree is a grant to restore, never a folder that went missing',
-        () {
-      // A content:// tree does not move and cannot be unplugged; what it loses
-      // is permission, and the way back is always the folder chooser.
+    test('a SAF tree that refuses access is a grant to restore', () {
+      // A content:// tree is a grant rather than a path, so access being
+      // refused means the grant went, and the way back is the chooser.
       final LocalRootProblemPresentation presentation =
           localRootProblemPresentation(
-        LocalRootFault.missing,
+        LocalRootFault.permissionDenied,
         location: FolderLocation.parse(_safTree),
       );
 
       expect(presentation.title, 'Folder access was revoked');
       expect(presentation.canReselect, isTrue);
+    });
+
+    test('a SAF tree that failed for some other reason is not called revoked',
+        () {
+      // A content:// tree can also fail because the provider behind it cannot
+      // be walked at all (a cloud or document provider), and that arrives with
+      // no diagnosis. The grant is fine, and picking the same provider again
+      // would change nothing, so promising it restores access would be a lie
+      // the user can follow twice.
+      final LocalRootProblemPresentation presentation =
+          localRootProblemPresentation(
+        LocalRootFault.unknown,
+        location: FolderLocation.parse(_safTree),
+      );
+
+      expect(presentation.title, "Folder can't be read");
+      expect(presentation.explanation, contains('stays in your library'));
     });
 
     test('the device library is never sent to a folder chooser', () {

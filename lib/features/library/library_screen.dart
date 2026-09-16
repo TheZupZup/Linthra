@@ -31,7 +31,6 @@ import 'library_search.dart';
 import 'library_state.dart';
 import 'library_sync_activity.dart';
 import 'local_root_problem.dart';
-import 'local_scan_report_provider.dart';
 import 'selected_folder_controller.dart';
 import 'song_actions.dart';
 import 'track_selection.dart';
@@ -361,19 +360,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     // "Couldn't load your library" and a Retry that cannot help.
     final Map<String, LocalRootFault> faults =
         ref.watch(localRootFaultsProvider);
-    // But only when the failure was the folder's. A scan that fell over
-    // *outside* the walk (a catalog write, most likely) leaves the report's
-    // fault unset on purpose, and a drive that is away somewhere else in the
-    // library does not make that error a folder problem: answering it with
-    // "reconnect the drive" would send the user after a problem they do not
-    // have, and bury the one they do.
-    final bool foldersAreTheFailure =
-        faults.isNotEmpty && ref.watch(localScanReportProvider)?.fault != null;
+    // But only when *this* failure was the folder's, which the scan that
+    // diagnosed it says on the state itself. A catalog that will not load while
+    // a drive happens to be out somewhere else in the library is not a folder
+    // problem: answering it with "reconnect the drive" would send the user
+    // after a problem they do not have, and bury the one they do.
     switch (state.status) {
       case LibraryStatus.loading:
         return const LoadingIndicator(label: 'Loading your library');
       case LibraryStatus.error:
-        if (foldersAreTheFailure) return _rootsUnavailable(faults);
+        if (state.localRootsUnreadable && faults.isNotEmpty) {
+          return _rootsUnavailable(faults);
+        }
         return _LibraryError(
           message: state.errorMessage,
           // With folders configured, Retry means "ask the folders again": a
@@ -408,8 +406,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   /// folder list lives and where the line about files never being deleted sits
   /// next to the button.
   Widget _rootsUnavailable(Map<String, LocalRootFault> faults) {
+    // One command at a time, the same rule the Settings card follows. A slow
+    // chooser or a probe on a mount that is not answering leaves this screen up
+    // for seconds, and every extra tap would start another one.
+    final bool busy = ref.watch(localMusicControllerProvider).busy;
     return _LibraryRootsUnavailable(
       faults: faults,
+      busy: busy,
       onRetry: (String folder) =>
           ref.read(localMusicControllerProvider.notifier).retryFolder(folder),
       onReselect: (String folder) => ref
@@ -816,11 +819,16 @@ class _LibraryRootsUnavailable extends StatelessWidget {
     required this.faults,
     required this.onRetry,
     required this.onReselect,
+    this.busy = false,
   });
 
   final Map<String, LocalRootFault> faults;
   final void Function(String folder) onRetry;
   final void Function(String folder) onReselect;
+
+  /// Whether a recovery command is already running. The actions stand down
+  /// while it is, and a spinner says why.
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -853,10 +861,17 @@ class _LibraryRootsUnavailable extends StatelessWidget {
                     entry.value,
                     location: FolderLocation.parse(entry.key),
                   ),
-                  onRetry: () => onRetry(entry.key),
-                  onReselect: () => onReselect(entry.key),
+                  onRetry: busy ? null : () => onRetry(entry.key),
+                  onReselect: busy ? null : () => onReselect(entry.key),
                 ),
               ],
+            ),
+          ),
+        if (busy)
+          const Center(
+            child: SizedBox.square(
+              dimension: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
             ),
           ),
       ],

@@ -353,6 +353,26 @@ void main() {
       ]);
     });
 
+    test('a folder that came back is walked once, not twice', () async {
+      // Coming back is what the return trip exists to notice, and noticing it
+      // already runs the incremental scan. A Retry that ran its own on top
+      // would read every configured folder a second time, which on a large
+      // library is the difference between Retry feeling instant and feeling
+      // broken.
+      final ProviderContainer c = container();
+      await start(c);
+      fs.breakRoot(_usb, LocalRootFault.missing);
+      await rescan(c);
+
+      fs.restore(_usb);
+      fs.walked.clear();
+      await c.read(localMusicControllerProvider.notifier).retryFolder(_usb);
+      await pumpEventQueue();
+
+      expect(faultFor(c, _usb), isNull);
+      expect(fs.walked, <String>[_internal, _usb]);
+    });
+
     test('its message matches the problem', () async {
       final ProviderContainer c = container();
       await start(c);

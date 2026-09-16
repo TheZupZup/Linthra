@@ -687,13 +687,19 @@ first two are repeated on the Library screen whenever a folder being away is the
 reason there is nothing to show, whether it went away after a scan or could not
 be read on the very first one (which leaves nothing indexed at all). Removing
 stays on the Settings card, next to the sentence that says what it does and does
-not do. While one of the three is running, all three stand down on that card, so
-a second chooser or a competing scan cannot be started on top of the first.
+not do. While one of the three is running they all stand down, on the Library
+screen as well as the card, so a second chooser or a competing scan cannot be
+started on top of the first.
 
-* **Retry** re-probes that folder. If it is still away, the card says so in the
-  words of that folder's problem and nothing is written. If it answered, the
-  ordinary incremental scan runs (the same one Rescan runs), so whatever
-  changed while the folder was gone lands in the catalog.
+* **Retry** re-probes that folder, and waits for that probe even when the
+  return-trip poll happened to be mid-round: reading the state from before the
+  question was asked would tell a user who just plugged their drive back in that
+  it is still gone. If it is still away, the card says so in the words of that
+  folder's problem and nothing is written. If it answered, the ordinary
+  incremental scan runs (the same one Rescan runs), so whatever changed while
+  the folder was gone lands in the catalog. That scan runs once: a folder coming
+  back is what the return trip already refreshes, so Retry does not walk the
+  selection a second time on top of it.
 * **Select folder again** opens the system chooser. This is the only way a
   configured path ever changes. Linthra never looks for where a drive went and
   never adopts a path on the user's behalf: it cannot prove a folder at a new

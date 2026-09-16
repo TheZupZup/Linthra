@@ -103,9 +103,15 @@ LocalRootProblemPresentation localRootProblemPresentation(
     );
   }
 
-  // A SAF tree is a grant rather than a path: it does not go missing, it stops
-  // being granted, and the way back is always the folder chooser.
-  if (location.isContentUri && fault != LocalRootFault.unavailable) {
+  // A SAF tree is a grant rather than a path, so access being refused means the
+  // grant went rather than the folder, and the way back is the chooser.
+  //
+  // Only when access was actually refused, though. A `content://` tree can also
+  // fail because the provider behind it cannot be walked at all (a cloud or
+  // document provider), and that arrives undiagnosed: the grant is fine, and
+  // picking the same provider again would change nothing. Those fall through to
+  // the honest wording below.
+  if (location.isContentUri && fault == LocalRootFault.permissionDenied) {
     return const LocalRootProblemPresentation(
       icon: Icons.lock_outline,
       title: 'Folder access was revoked',

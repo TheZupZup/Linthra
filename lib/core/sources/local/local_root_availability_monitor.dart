@@ -80,6 +80,11 @@ class LocalRootAvailabilityMonitor {
   Timer? _poll;
   bool _pollingEnabled = true;
   bool _probing = false;
+
+  /// Completes when the probe round now running has drained everything,
+  /// [_requeued] included. What a caller that arrived mid-round waits on, so
+  /// "re-probe this folder" never returns before that folder was asked.
+  Completer<void>? _idle;
   bool _disposed = false;
 
   /// How many probe rounds have run. The number a test reads to assert that a
@@ -131,6 +136,12 @@ class LocalRootAvailabilityMonitor {
   /// This is how a disconnect is noticed *immediately* rather than at the next
   /// poll: the filesystem watch on an unmounted folder dies, and that knows
   /// which folder it was watching. An untracked root is ignored.
+  ///
+  /// The future completes once this root has actually been asked, including
+  /// when a poll round was already running and took the request on. A caller
+  /// that reads the answer straight afterwards (Retry does) would otherwise
+  /// read the state from before it asked, and tell a user who just plugged
+  /// their drive back in that it is still gone.
   Future<void> recheck(String root) {
     final String canonical = LocalMusicRoots.canonicalize(root);
     if (!_roots.containsKey(canonical)) return Future<void>.value();
@@ -181,10 +192,14 @@ class LocalRootAvailabilityMonitor {
   Future<void> _probeRoots(List<String> roots) async {
     if (_disposed || roots.isEmpty) return;
     if (_probing) {
+      // The round in flight drains _requeued before it finishes, so waiting
+      // for it is waiting for these roots' own answers.
       _requeued.addAll(roots);
-      return;
+      return _idle?.future;
     }
     _probing = true;
+    final Completer<void> idle = Completer<void>();
+    _idle = idle;
     try {
       List<String> batch = roots;
       while (batch.isNotEmpty && !_disposed) {
@@ -196,7 +211,9 @@ class LocalRootAvailabilityMonitor {
       }
     } finally {
       _probing = false;
+      _idle = null;
       if (!_disposed) _syncPoll();
+      idle.complete();
     }
   }
 

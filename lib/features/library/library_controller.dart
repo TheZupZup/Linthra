@@ -208,6 +208,10 @@ class LibraryController extends Notifier<LibraryState> {
         // that case keeps the error state.
         await _showCatalogOrError(
           scan.firstFailureMessage ?? _scanFailedMessage,
+          // Only when the walk itself diagnosed a folder. A scan that read
+          // nothing for some other reason is not a folder problem, and the
+          // screen must not offer one's recovery for it.
+          localRootsUnreadable: scan.report.fault != null,
         );
         return scan.report;
       }
@@ -321,16 +325,22 @@ class LibraryController extends Notifier<LibraryState> {
   ///
   /// Used by the scans that write nothing. Every source is included, so a local
   /// drive going away cannot blank a Jellyfin or Navidrome library either.
-  Future<void> _showCatalogOrError(String message) async {
+  Future<void> _showCatalogOrError(
+    String message, {
+    bool localRootsUnreadable = false,
+  }) async {
     final int generation = ++_loadGeneration;
     try {
       final List<Track> tracks =
           await ref.read(musicLibraryRepositoryProvider).getAllTracks();
       if (generation != _loadGeneration) return;
       state = tracks.isEmpty
-          ? LibraryState.error(message)
+          ? LibraryState.error(message,
+              localRootsUnreadable: localRootsUnreadable)
           : LibraryState.loaded(tracks);
     } catch (_) {
+      // The catalog would not answer either. That failure is this one's, not
+      // the folder's, so it keeps its own message and its own retry.
       if (generation == _loadGeneration) state = LibraryState.error(message);
     }
   }

@@ -7,6 +7,8 @@
 // keeps its state; only the user removing it removes anything. And a folder is
 // only ever asked about at the path the user configured: there is no guessing
 // where a drive went.
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/local/local_root_availability.dart';
 import 'package:linthra/core/sources/local/local_root_availability_monitor.dart';
@@ -49,11 +51,72 @@ class _FakeRootProbe implements LocalRootProbe {
   }
 }
 
+/// A probe that blocks on the first path it is asked about until the test lets
+/// it answer, so a second request can arrive mid-round.
+class _BlockingRootProbe implements LocalRootProbe {
+  _BlockingRootProbe({Set<String>? present}) : present = present ?? <String>{};
+
+  Set<String> present;
+  final Completer<void> _firstAnswer = Completer<void>();
+  final List<String> asked = <String>[];
+  bool _blocked = false;
+
+  /// Completes once the monitor is actually inside the first probe.
+  final Completer<void> reached = Completer<void>();
+
+  void release() => _firstAnswer.complete();
+
+  @override
+  Future<LocalRootReading?> inspect(String root) async {
+    asked.add(root);
+    if (!_blocked) {
+      _blocked = true;
+      if (!reached.isCompleted) reached.complete();
+      await _firstAnswer.future;
+    }
+    return present.contains(root)
+        ? const LocalRootReading.available()
+        : const LocalRootReading.blocked(LocalRootFault.missing);
+  }
+}
+
 const String _usb = '/media/usb/Music';
 const String _internal = '/home/me/Music';
 
 void main() {
   group('LocalRootAvailabilityMonitor', () {
+    test('a recheck that lands mid-round still waits for its own answer',
+        () async {
+      // Retry reads the answer the moment this future completes. If a poll
+      // round happened to be in flight, the request is handed to that round,
+      // and returning early would have Retry read the state from *before* it
+      // asked: a user who just plugged their drive back in would be told it is
+      // still gone.
+      final probe = _BlockingRootProbe();
+      final monitor = LocalRootAvailabilityMonitor(probe: probe);
+      addTearDown(monitor.dispose);
+
+      final Future<void> sync = monitor.syncRoots(<String>[_usb]);
+      await probe.reached.future;
+
+      // The drive comes back while that first probe is still blocked.
+      probe.present.add(_usb);
+      bool settled = false;
+      final Future<void> retry =
+          monitor.recheck(_usb).then((_) => settled = true);
+      expect(settled, isFalse);
+
+      probe.release();
+      await sync;
+      await retry;
+
+      expect(settled, isTrue);
+      // Asked twice: the blocked round, then the requeued recheck.
+      expect(probe.asked, <String>[_usb, _usb]);
+      expect(monitor.availability.isAvailable(_usb), isTrue);
+      expect(monitor.availability.faultFor(_usb), isNull);
+    });
+
     test('a configured folder that is there reads as available', () async {
       final probe = _FakeRootProbe(present: <String>{_usb});
       final monitor = LocalRootAvailabilityMonitor(probe: probe);

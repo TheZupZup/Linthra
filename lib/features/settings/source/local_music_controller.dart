@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/sources/local/android_media_library.dart';
 import '../../../core/sources/local/folder_location.dart';
 import '../../../core/sources/local/local_music_roots.dart';
+import '../../../core/sources/local/local_root_availability.dart';
 import '../../../core/sources/local/local_root_fault.dart';
 import '../../../core/sources/local/local_scan_report.dart';
 import '../../../data/repositories/host_platform_provider.dart';
@@ -118,14 +119,29 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   /// path. The worst case is "still can't reach it", said plainly.
   Future<void> retryFolder(String folder) async {
     state = const LocalMusicActionState(busy: true);
+    // Asked before the probe, because a folder that was away and is now back is
+    // a folder availability tracking has *already* refreshed: coming back is
+    // what the return trip exists to notice, and it runs the same incremental
+    // scan this would.
+    final bool wasAway =
+        ref.read(localRootAvailabilityProvider).isUnavailable(folder);
     await ref.read(localRootAvailabilityProvider.notifier).recheck(folder);
-    final LocalRootFault? fault =
-        ref.read(localRootAvailabilityProvider).faultFor(folder);
+    final LocalLibraryAvailability availability =
+        ref.read(localRootAvailabilityProvider);
+    final LocalRootFault? fault = availability.faultFor(folder);
     if (fault != null) {
       state = LocalMusicActionState(
         message: _stillUnreachable(fault),
         isError: true,
       );
+      return;
+    }
+    if (wasAway && availability.isAvailable(folder)) {
+      // It came back, and the reconnect already walked the selection. Walking
+      // it again here would read every configured folder a second time for
+      // nothing, which on a large library is the difference between Retry
+      // feeling instant and feeling broken.
+      state = const LocalMusicActionState();
       return;
     }
     final List<String> folders = _selectedFolders();
