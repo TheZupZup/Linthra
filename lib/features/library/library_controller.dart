@@ -22,6 +22,7 @@ import 'library_providers.dart';
 import 'library_state.dart';
 import 'local_root_availability_controller.dart';
 import 'local_scan_report_provider.dart';
+import 'selected_folder_controller.dart';
 
 /// Drives the Library screen: loads tracks from the [MusicLibraryRepository]
 /// and exposes them as a [LibraryState].
@@ -208,10 +209,15 @@ class LibraryController extends Notifier<LibraryState> {
         // that case keeps the error state.
         await _showCatalogOrError(
           scan.firstFailureMessage ?? _scanFailedMessage,
-          // Only when the walk itself diagnosed a folder. A scan that read
-          // nothing for some other reason is not a folder problem, and the
-          // screen must not offer one's recovery for it.
-          localRootsUnreadable: scan.report.fault != null,
+          // Only when the walk itself diagnosed a folder, and only when the
+          // folders it walked are the ones the user has configured. A scan that
+          // read nothing for some other reason is not a folder problem, and a
+          // trial of a source that is not committed yet (device music, a
+          // replacement being checked before it is saved) is not the configured
+          // library's problem either: offering its recovery would retry
+          // something other than what failed.
+          localRootsUnreadable:
+              scan.report.fault != null && _isConfiguredSelection(roots),
         );
         return scan.report;
       }
@@ -318,6 +324,21 @@ class LibraryController extends Notifier<LibraryState> {
       // to find out which it was.
       unreadableRoots: scan.rootFaults,
     );
+  }
+
+  /// Whether [roots] is the selection the user has actually configured, rather
+  /// than a source being tried out before it is committed.
+  bool _isConfiguredSelection(List<String> roots) {
+    final List<String> selected = LocalMusicRoots.normalize(
+      ref.read(selectedFolderControllerProvider).valueOrNull ??
+          const <String>[],
+    );
+    final List<String> scanned = LocalMusicRoots.normalize(roots);
+    if (selected.length != scanned.length) return false;
+    for (int i = 0; i < selected.length; i++) {
+      if (selected[i] != scanned[i]) return false;
+    }
+    return true;
   }
 
   /// Publishes whatever the catalog holds, falling back to [message] only when

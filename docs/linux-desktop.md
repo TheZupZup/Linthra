@@ -700,8 +700,10 @@ started on top of the first.
   the folder was gone lands in the catalog. That scan runs once: a folder coming
   back is what the return trip already refreshes, so Retry does not walk the
   selection a second time on top of it.
-* **Select folder again** opens the system chooser. This is the only way a
-  configured path ever changes. Linthra never looks for where a drive went and
+* **Select folder again** opens the system chooser, and the folder it returns
+  is scanned before it is saved: a replacement that cannot be read leaves the
+  old folder, and the music indexed from it, exactly as they were. This is the
+  only way a configured path ever changes. Linthra never looks for where a drive went and
   never adopts a path on the user's behalf: it cannot prove a folder at a new
   mount point holds the same music, and guessing would aim the library at
   somebody else's files. Cancelling changes nothing.

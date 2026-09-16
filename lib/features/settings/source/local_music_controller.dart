@@ -160,28 +160,52 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   /// different mount point is a different path, Linthra cannot prove it is the
   /// same hardware, and adopting it silently would point a library at somebody
   /// else's files. Cancelling changes nothing at all.
+  ///
+  /// Transactional, the same way switching to device-wide music is: the
+  /// replacement is scanned first and saved only if that scan could read
+  /// something. A replacement that fails on its first walk (an unsupported SAF
+  /// provider, a network folder that dropped) writes nothing, so saving it
+  /// would leave the library holding the old folder's tracks while naming a
+  /// folder that never contributed any: music the app can no longer place, and
+  /// no way back to the folder it came from.
   Future<void> reselectFolder(String folder) async {
     state = const LocalMusicActionState(busy: true);
     final String? picked = await ref
         .read(selectedFolderControllerProvider.notifier)
-        .pickAndReplace(folder);
+        .pickReplacementFor(folder);
     if (picked == null || picked.isEmpty) {
       // Cancelled. The folder that could not be read is still selected, its
       // music is still indexed, and nothing was written.
       state = const LocalMusicActionState();
       return;
     }
-    final List<String> remaining = _selectedFolders();
-    if (remaining.isEmpty) {
+    final List<String>? replaced = ref
+        .read(selectedFolderControllerProvider.notifier)
+        .selectionReplacing(folder, picked);
+    if (replaced == null) {
+      // The folder stopped being selected while the chooser was open. Nothing
+      // to put anywhere, and nothing here may add a folder the user did not
+      // ask for.
+      state = const LocalMusicActionState();
+      return;
+    }
+    if (replaced.isEmpty) {
       // Only possible if the picked folder normalized away to nothing; there is
       // no local source left to scan, so clear the slice the way Remove does.
+      await ref
+          .read(selectedFolderControllerProvider.notifier)
+          .replaceAndPersist(folder, picked);
       await ref.read(libraryControllerProvider.notifier).clearLocalCatalog();
       state = const LocalMusicActionState();
       return;
     }
     // Picking the *same* folder again is a real fix, not a no-op: it is how a
     // revoked portal document is re-granted, so this scans either way.
-    await _scan(remaining);
+    final LocalScanReport? report = await _scan(replaced);
+    if (report == null || report.hadError) return;
+    await ref
+        .read(selectedFolderControllerProvider.notifier)
+        .replaceAndPersist(folder, picked);
   }
 
   /// Opts into Android's device-wide shared music library.

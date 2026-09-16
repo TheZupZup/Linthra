@@ -15,6 +15,8 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/album.dart';
+import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
 import 'package:linthra/core/services/folder_picker_service.dart';
@@ -416,6 +418,68 @@ void main() {
       expect(uris, contains(_elsewhereTrack));
       expect(uris, contains(_internalTrack));
       expect(uris, isNot(contains(_usbTrack)));
+    });
+
+    test('a replacement that cannot be read is not adopted', () async {
+      // The replacement is scanned before it is saved, the same way switching
+      // to device-wide music is. A scan that could read nothing writes nothing,
+      // so saving the new folder anyway would leave the library holding the old
+      // folder's tracks while naming a folder that never contributed any:
+      // music the app can no longer place, and no way back to where it came
+      // from.
+      final ProviderContainer c = container();
+      await start(c);
+      final Set<String> indexed = await catalogUris();
+
+      // Everything is away, so nothing the scan finds can be written.
+      fs.breakRoot(_usb, LocalRootFault.missing);
+      fs.breakRoot(_internal, LocalRootFault.missing);
+      await rescan(c);
+
+      fs.breakRoot(_elsewhere, LocalRootFault.permissionDenied);
+      picker.folder = _elsewhere;
+      await c.read(localMusicControllerProvider.notifier).reselectFolder(_usb);
+      await pumpEventQueue();
+
+      expect(c.read(selectedFolderControllerProvider).value, <String>[
+        _internal,
+        _usb,
+      ]);
+      expect(await catalogUris(), indexed);
+      expect(c.read(localMusicControllerProvider).isError, isTrue);
+    });
+
+    test(
+        'a scan of a source that is not configured is not the library\'s '
+        'failure', () async {
+      // Trying a source out before committing it (device-wide music, a
+      // replacement being checked) runs a scan over folders that are not the
+      // selection. Its failure is not the configured library's, and marking it
+      // as one would offer the configured folders' recovery for something else
+      // entirely.
+      final ProviderContainer c = container();
+      await start(c);
+
+      fs.breakRoot(_elsewhere, LocalRootFault.missing);
+      await c
+          .read(libraryControllerProvider.notifier)
+          .scanFoldersWithReport(<String>[_elsewhere]);
+      await pumpEventQueue();
+
+      expect(c.read(libraryControllerProvider).localRootsUnreadable, isFalse);
+
+      // The same failure on the folders the user actually configured is.
+      fs.breakRoot(_usb, LocalRootFault.missing);
+      fs.breakRoot(_internal, LocalRootFault.missing);
+      await catalog.upsertCatalog(
+        sourceId: 'local',
+        tracks: const <Track>[],
+        albums: const <Album>[],
+        artists: const <Artist>[],
+      );
+      await rescan(c);
+
+      expect(c.read(libraryControllerProvider).localRootsUnreadable, isTrue);
     });
 
     test('nothing stands in for the configured folder on its own', () async {
