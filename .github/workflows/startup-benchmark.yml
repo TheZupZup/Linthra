@@ -1,0 +1,90 @@
+name: Linux startup benchmark
+
+# The startup benchmark from #462, and the two things CI can honestly say about
+# it.
+#
+# What this job does NOT do is time anything. A GitHub runner is a shared
+# machine of unknown load, so a millisecond figure taken on one says more about
+# which neighbours it had that minute than about Linthra, and a threshold set
+# against it is either meaningless or permanently red. The benchmark's real
+# verdict is a ratio against a baseline recorded on the *same* machine, which is
+# why it is run by a human, on purpose:
+#
+#   ./tools/startup/run_startup_benchmark.sh
+#
+# What CI can enforce, and does here, is that the benchmark still works:
+#
+#   1. the reporter's own unit tests: pure Python over synthetic sample sets,
+#      no Flutter, no measurement, so the judgement half is covered on every
+#      change to it;
+#   2. a small smoke run of the real harness, which proves the thing still
+#      launches the app, still reaches a usable frame on all three workloads,
+#      and still writes a sample set the reporter can read. A harness that has
+#      quietly stopped matching the Library screen fails here rather than the
+#      next time somebody tries to use it.
+#
+# Deliberately NOT path-filtered, unlike large-library-sql.yml.
+#
+# The harness mounts the real widget tree and finds the milestone with ordinary
+# test finders, so what breaks it is a change to any of the code it walks
+# through: the app shell, the router, the Library screen, `TrackTile`, the
+# library controller and providers, the Drift repository and database, the
+# Track model. An allowlist of those paths is a list that has to be kept
+# correct forever, and the first thing it misses is the first thing that
+# retires the check: a rename of `TrackTile` makes `_usable()` time out, and
+# `flutter test` will not catch it either because the harness is deliberately
+# named `_bench.dart`.
+#
+# It does NOT run `main()`. The clock starts at the widget tree, so the work
+# `main()` does before `runApp` (reading the stored theme and density, building
+# the production container, `bootstrapApplication`) is neither measured nor
+# smoke-checked here; `test/app/linux_startup_test.dart` is what holds that
+# graph together, and it runs in the ordinary Flutter job.
+#
+# So it runs on everything. The job is under a minute, which is a cheap price
+# for a guard that cannot be silently bypassed.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  startup-smoke:
+    name: Startup benchmark smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Cheap and offline, so it runs before Flutter is installed: if the
+      # reporter is broken there is no point spending minutes producing samples
+      # for it. Local twin: `python3 test/tooling/startup_report_test.py`.
+      - name: Test the startup reporter
+        run: python3 test/tooling/startup_report_test.py
+
+      - name: Set up Flutter
+        uses: ./.github/actions/setup-flutter
+
+      - name: Install dependencies (lockfile-enforced)
+        run: flutter pub get --enforce-lockfile
+
+      # Small libraries and two launches each: this is a "does it still run"
+      # check, not a measurement. It fails if the harness cannot reach a usable
+      # frame, or if what it writes is not a complete sample set. Local twin:
+      # `./tools/startup/run_startup_benchmark.sh --smoke`.
+      - name: Run the startup benchmark (smoke, no timing assertions)
+        run: ./tools/startup/run_startup_benchmark.sh --smoke
+
+      # Kept so a maintainer can look at what the run actually produced without
+      # re-running it locally. Not compared against anything: see the note at
+      # the top of this file.
+      - name: Upload the sample set
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: startup-benchmark-smoke
+          path: build/startup/
+          if-no-files-found: ignore
+          retention-days: 7

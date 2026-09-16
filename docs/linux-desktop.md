@@ -685,7 +685,7 @@ loaded:
 | Content density | Supported | Compact by default, switchable to Comfortable in Settings → Appearance and remembered across restarts ([issue #395](https://github.com/thezupzup/linthra/issues/395)). Both are Material `VisualDensity` values, so the choice reaches every list row, grid and control at once. Touch builds are unaffected. See [Density (Compact / Comfortable)](#density-compact--comfortable). |
 | Pointer affordances | Supported | Compact content density, visible hover feedback, right-click context menus with a keyboard equivalent, and Ctrl/Shift multi-select in track lists — all keyed on the input rather than the window width. See [Pointer, not width](#pointer-not-width). |
 | Keyboard navigation | Supported | The whole UI is reachable without a pointer: predictable Tab/Shift+Tab order, a strong accent focus ring distinct from hover and selection, Enter/Space activation, arrow keys through lists and grids with Home/End at their ends, and panes and dialogs that hand focus back when they close ([issue #390](https://github.com/TheZupZup/Linthra/issues/390)). Shared helpers in `lib/shared/focus/`, keyed on the input device rather than the platform, so touch is untouched. See [Keyboard navigation](#keyboard-navigation). |
-| Keyboard shortcuts | Partial | Quick search is bound to **Ctrl+K** / **Ctrl+F** ([issue #393](https://github.com/TheZupZup/Linthra/issues/393)) — see [Quick search](#quick-search-ctrlk). The volume control takes the wheel and arrow keys when focused; global transport and volume shortcuts are still later work in #376. |
+| Keyboard shortcuts | Supported | App-wide transport and navigation chords, remappable in **Settings → Music & playback → Keyboard shortcuts** ([issue #391](https://github.com/TheZupZup/Linthra/issues/391)): play/pause, next, previous, quick search (**Ctrl+K**, with **Ctrl+F** as a fixed alias, [issue #393](https://github.com/TheZupZup/Linthra/issues/393)), library, queue and Now Playing. They stand down while a text field wants the key, and media keys stay with MPRIS rather than being bound a second time here. The volume control still takes the wheel and arrow keys only when focused; a global volume chord is not offered. See [Keyboard shortcuts](#keyboard-shortcuts) and [Quick search](#quick-search-ctrlk). |
 
 Nothing in that table is faked. Each one is an explicit implementation behind an
 existing interface, so it is visible in the code and covered by tests — with
@@ -792,6 +792,59 @@ Both breakpoints in the app agree by construction: the shell swaps its bottom
 bar for the navigation rail at 900 px of window, and a feature screen inside it
 only reaches `expanded` once the space left over is 1000 px wide.
 
+### Source status in the sidebar
+
+Under the rail's destinations, each **configured** self-hosted source (Jellyfin,
+Navidrome/Subsonic, Plex) carries a small indicator: a glyph, the server's safe
+name, and a tooltip. It answers the question the rail could not — *is my music
+actually going to play?* — without a trip to Settings.
+
+Four states, sharing their words and their glyphs with the library row's
+`TrackStatusGlyph` so a row and the sidebar can never tell you different
+stories about one server:
+
+| State | Reads as | Tone |
+| --- | --- | --- |
+| `available` | "Jellyfin connected" | muted — a working server is not news |
+| `checking` | "Checking Jellyfin" | muted |
+| `unreachable` | "Jellyfin unavailable" | error colour |
+| `authenticationError` | "Jellyfin sign-in needed" | error colour |
+
+Activating a row opens the existing **Connections** screen (`go`, not `push`, so
+the rail is not left highlighting Library while a Settings page is on screen).
+
+What makes it safe to have on screen all the time:
+
+* **Derived, never probed.** Everything comes from
+  `configuredSourceStatusesProvider`, which reads the availability the probe
+  controllers already publish and the sessions the settings controllers already
+  hold. No row owns a timer, a client or a request, so a second row costs
+  nothing again. Rendering the strip issues no network call — there is a test
+  that counts.
+* **No flicker.** The probe controllers publish `checking` only when nothing is
+  known yet (a cold start, a fresh sign-in) and never on an ordinary re-probe,
+  which writes its settled answer directly. A server that is merely being polled
+  stays "connected" instead of blinking through a spinner every 45 seconds.
+* **Isolated.** Each row resolves from its own source's state alone, so Jellyfin
+  going away cannot mark Plex offline.
+* **Quiet when healthy.** Nothing configured means no strip at all, and a
+  healthy source sits in the same muted tone as the rest of the rail's chrome.
+  Only a source that needs you takes the error colour.
+* **Secret-free.** The only source-identifying text that reaches the widget is
+  the fixed name from `PlaybackSourceLabel` ("Jellyfin", "Navidrome", "Plex").
+  There is no field a server URL, hostname, username, token or raw exception
+  string could travel in.
+* **Desktop chrome.** It lives in the rail, so a phone never grows one and a
+  Linux window narrowed below 900 px loses it with the rail.
+
+A source that publishes no availability of its own yet (Navidrome and Plex
+today) falls back to "configured, and therefore assumed reachable" — what the
+rest of the app already assumes about it. When one adopts the probe the way
+Jellyfin did, its indicator becomes real with no change to the sidebar.
+
+Where the deeper connection-management view goes is #427; this is only the
+indicator and the route to what already exists.
+
 ### Pointer, not width
 
 Three things adapt on the **input** rather than on the window, because that is
@@ -854,6 +907,9 @@ both themes and relayouts every screen at once, with no restart.
   Shift+F10), and `TrackSelection` reads Ctrl/Cmd and Shift off the hardware
   keyboard at tap time. Nothing is gated on a platform, so a keyboard case on a
   tablet gets both for free and a bare touch tap is unchanged.
+* **Scrolling** — the wheel, the trackpad and the sliders they land on, in one
+  shared policy rather than a Linux check per list. See
+  [Mouse wheel and trackpad](#mouse-wheel-and-trackpad).
 
 ### Context menus and multi-select
 
@@ -942,6 +998,115 @@ Configurable shortcuts are a separate job
 ([#391](https://github.com/TheZupZup/Linthra/issues/391)); what is bound today
 is in the row above.
 
+### Mouse wheel and trackpad
+
+Scrolling is the part of a desktop app nobody notices until it is wrong
+([#396](https://github.com/TheZupZup/Linthra/issues/396)). The rule is the one
+the rest of the desktop work follows: **no widget branches on Linux**. There is
+one scroll policy for the app and three small shared widgets, all of them keyed
+on the *input signal* rather than on the host, so an Android phone is unchanged
+by construction.
+
+`lib/shared/scroll/`:
+
+| Piece | What it does |
+| --- | --- |
+| `AppScrollBehavior` | the app's single `ScrollConfiguration`, installed on `MaterialApp` so it reaches every list, grid, sheet, pane and dialog at once |
+| `pointer_scroll_policy.dart` | the arithmetic: what one wheel notch is, which axis owns which delta, and `WheelNotches`, which counts a trackpad's stream of small deltas into whole notches |
+| `PointerScrollAdjust` | makes a control answer the wheel — and *take* it, so the page behind it stays put |
+| `HorizontalWheelScroll` | lets a plain vertical wheel move a surface that only goes sideways |
+
+**What `AppScrollBehavior` settles.** A pointer host clamps at the ends of a
+list and draws no overscroll glow or stretch: that decoration answers "your
+finger is still dragging, the list is not", and a wheel notch asks no such
+question. Android keeps the physics and the stretch it always had, and Apple's
+platforms keep their rubber band, which is native there rather than a mobile
+import. A mouse is deliberately **not** a drag device: press-and-move with a
+mouse means selecting, or dragging a row to a playlist, and a list that
+scrolled out from under that would make both unusable. Touch, both stylus kinds
+and the trackpad all still drag, which is what keeps a two-finger pan one smooth
+gesture. Two of those three answers are what Material gives today; they are
+written down anyway, so a stray `ThemeData.platform` or a future default cannot
+quietly move them.
+
+**Which axis owns which input.** A surface reads only the axis it scrolls
+along, which is Flutter's own rule and the reason a sideways trackpad flick over
+the songs list does nothing at all. The single exception is a genuinely
+horizontal surface — today the Audiobookshelf library picker — where a mouse
+with one wheel would otherwise have no way to reach the far end of the row.
+`HorizontalWheelScroll` claims a *vertical-only* signal there, leaves a device
+that can scroll sideways to the surface's own `Scrollable`, and stops claiming
+once the row is at that end so the wheel carries on down the page instead of
+the shelf swallowing it.
+
+Only a **mouse** gets its vertical scrolling borrowed. A wheel has one axis and
+no way to ask for the other; a trackpad has both, so a deliberate vertical
+two-finger swipe over the row means vertical and is passed on rather than
+turned sideways. On Linux the embedder may report a trackpad's scrolling as a
+mouse's, in which case that rule changes nothing in practice there — it is
+still the right rule to write down, and it is what makes the behaviour correct
+wherever the two can be told apart.
+
+Where the shelf is nested *inside* a scrolling page that last part needs no
+help: the page is an ancestor, so an unclaimed signal reaches it on the way
+out. The audiobook browser is not that shape — its chip row and its book list
+are siblings in a column, and an unclaimed signal there reaches nothing at all,
+because the list is not on the pointer's hit-test path. That is what
+`HorizontalWheelScroll.chainTo` is for: hand it the list's controller and a
+notch at the end of the row scrolls the books, the way the same strip behaves
+in every other desktop app.
+
+**Sliders.** Reading a scroll signal is not the same as taking it: a `Listener`
+that answers the wheel still lets the ancestor `Scrollable` scroll as well, so
+one notch over the volume slider used to change the volume *and* scroll the
+library out from under the pointer. `PointerScrollAdjust` registers with the
+`PointerSignalResolver` first — signals are dispatched from the innermost hit
+target outwards, and the first registration wins — which is also what a real
+toolkit does: a GTK scale answers the wheel and the window behind it stays
+where it was. While a slider is actually being held it goes further and
+swallows every scroll signal in the app, because mid-drag the pointer wanders
+off a 14 px seek line easily and a notch that lands anywhere else would scroll
+whatever is underneath.
+
+That shield is the most destructive thing in this directory — a stuck one
+would stop the whole app scrolling — so it is not left to a control
+remembering to say when it is done. It needs a pointer that went down on the
+control and has not come back up, and the pointer's own up or cancel (Flutter
+guarantees one or the other) is what takes it away. A control whose drag state
+gets stuck can still be wrong about itself; it cannot stop the rest of the app
+scrolling. A keyboard or assistive adjustment installs no shield at all: it is
+over the instant it happens.
+
+One notch does what one arrow-key press does, so the wheel and the keyboard
+agree: 5% of the range on volume, and 5% of the track (never less than five
+seconds) on the seek bar, which `WavySeekBar.seekStepFor` owns for both. A
+trackpad's forty small deltas are the same physical gesture as one wheel click
+and are worth one step, not forty — stepping per event is what used to take a
+two-finger flick from half volume to silence.
+
+A partial notch is carried so that slow scrolling still gets somewhere, but
+only within one gesture. A trackpad has no "I let go" in a scroll event —
+fingers lifting look exactly like a pause — so `WheelNotches.gestureGap` (half
+a second, measured on the events' own clock) ends one: long enough that
+deliberate slow scrolling keeps adding up, short enough that a small swipe is
+never completed by an unrelated one later.
+
+**Fractional scaling.** A notch is measured in logical pixels, and the
+framework divides the engine's physical delta by the device pixel ratio before
+a widget sees it, so the same physical wheel click is the same step at 100%,
+125%, 150% and 200%. Nothing here applies a correction factor, which is the
+point: there is none to get wrong.
+
+Tests: `test/shared/scroll/` covers the arithmetic, the behaviour's answers per
+platform (including that Android resolves exactly what Material would give it),
+the claim, the shield and the two ways it goes away, the horizontal shelf and
+both shapes of chaining, and one step per notch at four display scales. `test/app/desktop_scroll_test.dart` is
+the audit — the songs list, the albums and artists grids, an album and an
+artist page beside their panes, playlists, the settings hub, the queue sheet
+and a dialog each get one notch and have to move exactly one surface by exactly
+one notch, plus the seek bar taking the wheel off the page, and Android still
+dragging with a finger and still stretching at the end.
+
 ### Quick search (Ctrl+K)
 
 **Ctrl+K** (or **Ctrl+F**) opens a quick-search overlay over whatever is on
@@ -951,12 +1116,11 @@ underneath keeps its state — it is a dialog on the root navigator, not a
 navigation — and opening a result goes through the app's existing routes and
 playback actions.
 
-Like the layout, it is **not** gated on `HostPlatform`: the binding
-([`quick_search_shortcuts.dart`](../lib/app/quick_search_shortcuts.dart)) wraps
-the router, above every route, and can only fire when a real keyboard sends the
-chord — so a phone is unaffected while an Android tablet with a keyboard case
-gets it for free. What it searches and how it ranks is documented in
-[library.md](./library.md#quick-search-ctrlk).
+Like the layout, it is **not** gated on `HostPlatform`: the binding lives in the
+shortcut registry below, which wraps the router above every route and can only
+fire when a real keyboard sends the chord — so a phone is unaffected while an
+Android tablet with a keyboard case gets it for free. What it searches and how
+it ranks is documented in [library.md](./library.md#quick-search-ctrlk).
 
 Tests: `test/shared/layout/adaptive_layout_test.dart`,
 `test/features/library/album_grid_test.dart`,
@@ -965,6 +1129,181 @@ Tests: `test/shared/layout/adaptive_layout_test.dart`,
 `test/features/player/player_desktop_layout_test.dart` — each covers the phone
 width alongside 1280, 1920, 2560 and ultrawide, so a change that only looks
 right on one monitor fails.
+
+### Keyboard shortcuts
+
+Seven actions are bound out of the box, and every one of them can be remapped
+in **Settings → Music & playback → Keyboard shortcuts**:
+
+| Action | Default | What it does |
+| --- | --- | --- |
+| Play / pause | `Ctrl+Space` | Start or pause what is loaded |
+| Next track | `Ctrl+→` | Skip forward in the queue |
+| Previous track | `Ctrl+←` | Go back |
+| Search | `Ctrl+K` (also `Ctrl+F`) | Open quick search |
+| Library | `Ctrl+L` | Go to the Library tab |
+| Queue | `Ctrl+U` | Show or hide what is up next |
+| Now Playing | `Ctrl+P` | Open the full-screen player |
+
+`Ctrl+F` is a fixed alias rather than a second binding: Linthra has always
+answered it, so remapping search does not take it away, and nothing else can be
+bound over it.
+
+**One registry.** `lib/app/shortcuts/shortcut_action.dart` holds the actions,
+their names, their descriptions and their defaults. The dispatcher installs it,
+the settings card edits it, storage keys off it, and the help window planned in
+#392 reads the same table — so a shortcut cannot be documented as one thing and
+bound as another.
+
+**No new playback logic.** Every action forwards to the `PlaybackController`,
+router or overlay the buttons already use. The queue shortcut is the clearest
+case: the frame answers it with the side column when the window is wide enough
+and the app-level fallback opens the same sheet the phone uses otherwise, which
+is the rule the now-playing bar's queue button already follows.
+
+**Three surfaces answer the queue chord**, innermost first: an open queue
+sheet closes itself, the wide Now Playing screen toggles its own pane rather
+than stacking a sheet over it, and the navigation frame toggles the side column
+when this window has one. Each declines when it is not the right host, and the
+app-level fallback opens the sheet. Library is the odd one out: the frame
+claims it whatever is drawn on top, clearing the overlay first, because a tab
+switch nobody can see is not a tab switch.
+
+**How the frame gets first refusal.** Through
+[`ShortcutSurface`](../lib/app/shortcuts/shortcut_surface.dart), a tiny registry
+the navigation frame binds itself into while it is mounted, rather than through
+a nested `Actions` inside it. `Shortcuts` resolves an intent from wherever the
+keyboard focus happens to sit, and focus is not something the frame controls:
+leave a tab that had a page pushed inside it and focus lands on the scope
+*above* the frame, at which point a nested `Actions` stops being found. The
+symptoms were a modal queue sheet over a window that has a queue column, and
+`Ctrl+L` flattening the Library stack it was meant to restore. A handler
+returning `false` means "not mine right now" and hands the key back, so the
+frame only describes the two cases it improves on — a visible queue column, and
+switching to the Library branch with `goBranch` so the tab keeps its own stack —
+and declines everywhere else, including under a route pushed over it.
+
+**Media keys are not here.** `XF86AudioPlay` and friends reach Linthra through
+MPRIS (#398), which works while the window is not focused. Binding one here
+would be a second, worse path, so [`ShortcutBinding`](../lib/app/shortcuts/shortcut_binding.dart)
+refuses a media key outright and says why.
+
+**The typing guard is checked against the real thing.**
+`test/app/shortcuts/text_editing_chords_test.dart` presses every bindable chord
+into a real `TextField` with the platform set to Linux and holds
+`conflictsWithTextEditing` to what the field actually did with it. A
+hand-written list of "keys a field owns" goes stale, and a Flutter release that
+added a chord to `DefaultTextEditingShortcuts` would otherwise turn one of the
+bindings into a key that quietly eats an edit. One-directional: a chord the
+field consumes must be one the guard stands down for, not the reverse, because
+the guard is deliberately wider than the framework's map. (For the record,
+Flutter's Linux map has no `Ctrl+U`, `Ctrl+D`, `Ctrl+H` or `Ctrl+W` — those are
+readline conventions a GTK entry has and a Flutter text field does not — so
+`Ctrl+U` is free to be the queue default.)
+
+**Typing wins.** A shortcut stands down while the keyboard is in a text field
+*if the field would have wanted that key* — the caret keys, Home/End,
+Backspace/Delete, Space, the clipboard and undo letters, and any chord that
+uses Alt on a printable key. That last one is AltGr: it is right Alt (and
+Ctrl+Alt on some layouts), and AltGr plus an ordinary key is how a great many
+layouts produce a character — `@` is AltGr+Q on a German keyboard. Flutter
+reports "alt" without saying which side, so such a chord cannot be told apart
+from somebody typing. It stands down inside a field rather than being refused
+outright: refusing would take a whole modifier's worth of combinations away
+from everyone to protect a case that only bites while typing. It is deliberately
+not "no shortcuts while typing": `Ctrl+K` opens search from inside a search
+field, which is where people press it. The rule is one predicate,
+`conflictsWithTextEditing`, and the action is *disabled* rather than silently
+swallowing the key, so the keystroke carries on to the field and the character
+is typed.
+
+**What cannot be bound**, each with a sentence saying what to do instead:
+
+* a bare printable key, or Shift plus one — `Shift+K` is a capital K, and
+  binding it app-wide would eat typing;
+* `Escape` and `Tab`, which the app needs for closing things and moving around,
+  and bare arrows, Enter, Space, Home/End, Page Up/Down, Backspace and Delete;
+* a chord a focused control already answers: `Ctrl`/`Super` + `↑`/`↓` move a row
+  in a reorderable list and `Shift+F10` opens a row's menu (#390). Those sit in
+  a `Shortcuts` nearer the keyboard, so a global action bound to one would look
+  bound and then do nothing whenever such a row had focus. Refusing is the
+  better half of that trade: making the row controls stand aside instead would
+  take keyboard reordering away from whoever bound a shortcut next to it. The
+  refusal is for those chords *exactly* — `Ctrl+Shift+↑` and `Alt+↑` are free —
+  which is why `ContextMenuRegion` now matches its two chords exactly too,
+  instead of taking F10 with Shift and anything else held;
+* `Alt+F4`, which never reaches the app: GTK turns it into the close request
+  `linux/runner/window_lifecycle_channel.cc` answers by hiding or quitting.
+  Only that one is listed — the rest of a desktop's own bindings are the user's
+  to configure and vary by compositor, and a chord the desktop grabs simply
+  does not arrive, the same way a media key does not;
+* a media key, as above;
+* a combination another action already has, including a fixed alias — the
+  refusal names the action that has it.
+
+Function keys are allowed bare: no text field produces one.
+
+**Repeats fire once.** Every activator is built with `includeRepeats: false`, so
+holding `Ctrl+→` skips one track rather than the whole queue.
+
+**Nothing bare-key swallows a chord.** Widgets that answer a plain arrow — the
+seek bar, and a grid's row wrap in `ListKeyboardNavigation` — stand aside when
+Ctrl, Alt or Super is held (`shortcutModifierPressed`). Otherwise `Ctrl+→`
+would have seeked *and* been reported handled, leaving the binding dead for as
+long as that widget had focus.
+
+**Nothing is bound before setup is finished.** The router gates onboarding on
+its initial location alone, with no redirect guard, so the whole map stands
+down until `onboardingControllerProvider` is true. A `Ctrl+L` out of onboarding
+would otherwise have landed in an unconfigured library and sent the user back
+to onboarding on the next launch.
+
+**The queue sheet closes itself.** Not the shortcut, and not by popping the top
+of the navigator: press Ctrl+U, then Ctrl+P, and the top is Now Playing. The
+modal sheet claims the queue action through `ShortcutSurface` while it is up,
+so it acts on its own route — pop while it is current, come out where it stands
+when something was pushed over it (and let the fallback show a fresh one, since
+the buried one is invisible), stand aside otherwise. Registering it with the
+sheet rather than with the caller is what makes the chord able to close a sheet
+the *mini-player button* opened: one queue, however it was put there.
+
+**Reset is a rebinding.** "Reset to default" goes through the same
+`setBinding`, so it is refused with the same wording when the default is no
+longer free — remap Library off `Ctrl+L`, give `Ctrl+L` to Queue, and resetting
+Library would otherwise have put two actions on one chord with the activator
+map silently picking one. Reset-all needs no check: the shipped defaults are
+distinct, and a test holds them to it.
+
+**Persistence.** Only *overrides* are stored, one flat key per action in
+`shared_preferences` (`keyboard_shortcut.play_pause`). An action the user never
+touched has no row, so changing a default in a later release reaches everyone
+who never disagreed with it and nobody who did; typing the original combination
+back removes the override rather than pinning it. The duplicate check runs over
+the composed table rather than one override at a time, because a *swap* (each
+action moving onto the chord the other is leaving) is something the settings
+screen legitimately writes, and checking one at a time would have undone both
+halves of it on the next launch. Key ids from outside Flutter's
+registry are reconstructed when they are Unicode-plane characters, so a chord
+recorded on a non-US layout survives a restart; an id from a plane this build
+has no meaning for is not guessed at. Writes are chained, so a reset-all and a
+rebinding started on top of it reach storage one at a time in the order the
+user asked for. An override that no longer
+parses, that today's rules would refuse, or that would leave two actions on one
+chord is dropped on read and the action keeps its default — a preferences file from a newer build, or one edited by
+hand, degrades to stock behaviour rather than to a broken keyboard.
+
+**Ctrl, not Cmd.** The desktop target is Linux, so the defaults are Ctrl. The
+binding model carries a `meta` flag anyway, so a user can bind Super+key today
+and a macOS build could default to Command without the storage format changing
+under existing installs.
+
+Tests: `test/app/shortcuts/` covers the binding rules and storage round trip,
+the registry's own consistency, remapping/conflict/reset/persistence, and
+dispatch — including a held key firing once, a text field keeping `Ctrl+→`, and
+`Ctrl+K` still working inside one.
+`test/features/settings/desktop/keyboard_shortcuts_section_test.dart` covers
+recording a chord, being refused one, and the recorder staying escapable with
+Tab and Escape.
 
 ## Window state
 
@@ -1032,6 +1371,28 @@ there.
 `unmanaged_files` in `.metadata`, so `flutter migrate` leaves Linthra's edits
 alone. If someone re-runs `flutter create --platforms=linux .` anyway, the
 checker above is what catches the reverted title and the lost SQLite seam.
+
+## Startup performance
+
+How long Linthra takes to show you a usable library, and whether that changes,
+is measured rather than guessed:
+
+```bash
+./tools/startup/run_startup_benchmark.sh
+```
+
+It launches the real app over an empty, a small (1,000-track) and a large
+(20,000-track) synthetic catalog and records the time to the first frame that
+actually shows the library: real track rows, or the onboarding prompt for an
+empty one. No server, no network and no music collection are involved: the
+catalogs are generated locally into real SQLite files in the production schema.
+
+The verdict is a comparison against a baseline you record on the same machine,
+never a fixed millisecond limit, and CI deliberately times nothing; it only
+checks that the benchmark still runs and still produces a valid sample set.
+[tools/startup/README.md](../tools/startup/README.md) covers what is and is not
+measured, how to compare two runs, and why a debug number is not a release
+number.
 
 ## Desktop identity
 

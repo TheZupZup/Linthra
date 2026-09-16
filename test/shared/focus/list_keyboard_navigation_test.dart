@@ -191,6 +191,27 @@ void main() {
       expect(_focusedLabel(), 'cell 4');
     });
 
+    testWidgets('a modified arrow is left for whoever bound it',
+        (tester) async {
+      // Ctrl+→ is a shortcut (#391), and Ctrl+End belongs to the app. Moving
+      // focus on one would also swallow the chord.
+      await _pumpGrid(tester, wrapRows: true);
+      Focus.of(tester.element(find.text('cell 3'))).requestFocus();
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await _press(tester, LogicalKeyboardKey.arrowRight);
+      await _press(tester, LogicalKeyboardKey.end);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(_focusedLabel(), 'cell 3');
+
+      // And unmodified it is the grid's key again.
+      await _press(tester, LogicalKeyboardKey.arrowRight);
+      expect(_focusedLabel(), 'cell 4');
+    });
+
     testWidgets('a column of rows does not wrap', (tester) async {
       await _pumpGrid(tester, wrapRows: false);
       Focus.of(tester.element(find.text('cell 3'))).requestFocus();

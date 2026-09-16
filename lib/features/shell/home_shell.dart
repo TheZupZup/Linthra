@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/routes.dart';
+import '../../app/shortcuts/shortcut_action.dart';
+import '../../app/shortcuts/shortcut_surface.dart';
 import '../../shared/focus/focus_handoff.dart';
 import '../player/mini_player.dart';
 import '../player/widgets/queue_side_panel.dart';
 import 'playlist_drag_spring.dart';
+import 'sidebar_source_status.dart';
 
 /// The persistent app frame: hosts the active tab and the app's primary
 /// navigation. Tab state is owned by go_router's [StatefulNavigationShell], so
 /// each tab keeps its own stack and scroll position across switches.
-class HomeShell extends StatefulWidget {
+class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({
     required this.navigationShell,
     required this.rootNavigatorKey,
@@ -22,13 +27,19 @@ class HomeShell extends StatefulWidget {
   final List<GlobalKey<NavigatorState>> branchNavigatorKeys;
 
   @override
-  State<HomeShell> createState() => _HomeShellState();
+  ConsumerState<HomeShell> createState() => _HomeShellState();
 
   /// Wide Linux windows get a persistent desktop navigation region instead of
   /// the phone-oriented bottom navigation bar. Keeping the breakpoint here
   /// gives the shell one reusable presentation seam instead of scattering
   /// platform checks through feature screens.
   static const double desktopNavigationBreakpoint = 900;
+
+  /// Which branch the Library tab is, so the Library shortcut and the
+  /// destination list can never disagree about it. A const constructor cannot
+  /// assert it, so a test pins the two together, exactly as one does for
+  /// [playlistsBranchIndex].
+  static const int libraryBranchIndex = 0;
 
   /// Which branch the Playlists tab is, so the drag spring and the destination
   /// list can never disagree about it. A const constructor cannot assert
@@ -78,7 +89,7 @@ class HomeShell extends StatefulWidget {
 /// The frame's own state: which tab is showing is go_router's, but whether the
 /// desktop queue column is open is the frame's, and nothing below it needs to
 /// know.
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell> {
   /// Whether the queue column is open, when the window is wide enough to draw
   /// one.
   ///
@@ -102,10 +113,74 @@ class _HomeShellState extends State<HomeShell> {
     debugLabel: 'queue panel toggle',
   );
 
+  /// Whether this window is currently wide enough (and desktop enough) to draw
+  /// the queue column.
+  ///
+  /// Cached from the last layout because the keyboard asks the question later,
+  /// from outside the build: a shortcut is answered when it is pressed, not
+  /// when the frame was laid out.
+  bool _queuePanelAvailable = false;
+
+  /// Held rather than read back in [dispose], where reading a provider is no
+  /// longer allowed.
+  late final ShortcutSurface _shortcutSurface;
+
+  @override
+  void initState() {
+    super.initState();
+    // The frame is a better answer than the app-level fallback for these two
+    // while it is the page on screen: only it knows whether this window has a
+    // queue column, and only it can switch branches without flattening the
+    // tab's own stack. See [ShortcutSurface] for why this is a registration
+    // rather than a nested `Actions`.
+    _shortcutSurface = ref.read(shortcutSurfaceProvider)
+      ..bind(ShortcutAction.queue, _handleQueueShortcut)
+      ..bind(ShortcutAction.library, _handleLibraryShortcut);
+  }
+
   @override
   void dispose() {
+    _shortcutSurface
+      ..unbind(ShortcutAction.queue, _handleQueueShortcut)
+      ..unbind(ShortcutAction.library, _handleLibraryShortcut);
     _queueToggleFocus.dispose();
     super.dispose();
+  }
+
+  /// Whether the frame is the page on screen rather than something drawn over
+  /// it. With Now Playing or a sheet on top, a queue column the user cannot
+  /// see is no answer, so the frame declines and the fallback takes the key.
+  bool get _isShowing => ModalRoute.of(context)?.isCurrent ?? false;
+
+  /// Toggles the queue column, or declines when this window has none.
+  ///
+  /// Declining rather than opening the sheet itself keeps one sheet in the
+  /// app: the fallback already knows how to put its own sheet away again.
+  bool _handleQueueShortcut() {
+    if (!_isShowing || !_queuePanelAvailable) return false;
+    _toggleQueuePanel();
+    return true;
+  }
+
+  /// Goes to Library the way a rail click does, so the chord and the
+  /// destination beside it cannot drift: coming from another tab restores
+  /// whatever Library had on top, and pressing it while Library is already
+  /// showing goes back to its root.
+  ///
+  /// Claimed whatever is drawn over the frame, unlike the queue. A queue
+  /// column the user cannot see is no answer, but a tab switch is: it just has
+  /// to be one they can see. So anything on top — Now Playing, a queue sheet,
+  /// a dialog — is cleared first, which is what the app-level `go` used to do
+  /// as a side effect of replacing the route stack, and then the branch is
+  /// switched so the tab keeps its own history.
+  bool _handleLibraryShortcut() {
+    final ModalRoute<Object?>? route = ModalRoute.of(context);
+    if (route == null || !route.isActive) return false;
+    if (!route.isCurrent) {
+      Navigator.of(context).popUntil((Route<dynamic> other) => other == route);
+    }
+    _onDestinationSelected(HomeShell.libraryBranchIndex);
+    return true;
   }
 
   void _toggleQueuePanel() {
@@ -151,6 +226,17 @@ class _HomeShellState extends State<HomeShell> {
         .goBranch(HomeShell.playlistsBranchIndex, initialLocation: true);
   }
 
+  /// Opens the existing Connections screen from a source-status indicator
+  /// (#425).
+  ///
+  /// `go` rather than `push`: Connections lives inside the Settings branch, so
+  /// this switches to that tab and lands on the page, leaving the user
+  /// somewhere the rail agrees with. Pushing it over the Library tab would
+  /// show a Settings page while the rail still highlighted Library.
+  void _openConnectionSettings() {
+    GoRouter.of(context).go(AppRoutes.settingsConnections);
+  }
+
   /// The rail, wrapped in the drag spring so a track dragged out of the
   /// library can reach the Playlists tab (#389).
   Widget _buildNavigationRail() {
@@ -167,6 +253,20 @@ class _HomeShellState extends State<HomeShell> {
                 onDestinationSelected: _onDestinationSelected,
                 labelType: NavigationRailLabelType.all,
                 groupAlignment: -1,
+                // Five labelled destinations plus the status strip do not fit
+                // the 600 px minimum window height Linux supports, and a rail
+                // is not scrollable by default: the last source was simply
+                // painted past the bottom edge, with no overflow error to give
+                // it away. Scrolling keeps every destination and every source
+                // reachable at any height.
+                scrollable: true,
+                // Status for the configured servers (#425), under the
+                // destinations rather than among them: these are not places to
+                // go, and a rail whose selection could land on one would be
+                // lying about what it does.
+                trailing: SidebarSourceStatusStrip(
+                  onOpenConnections: _openConnectionSettings,
+                ),
                 destinations: <NavigationRailDestination>[
                   for (int i = 0; i < HomeShell._destinations.length; i++)
                     _railDestination(context, i, dragHovering: dragHovering),
@@ -282,6 +382,8 @@ class _HomeShellState extends State<HomeShell> {
           final bool queuePanelAvailable =
               desktop && constraints.maxWidth >= queueSidePanelMinWindowWidth;
           final bool queuePanelOpen = queuePanelAvailable && _queuePanelOpen;
+          // Remembered for the keyboard, which asks after the fact.
+          _queuePanelAvailable = queuePanelAvailable;
 
           // Keep StatefulNavigationShell at the same element position across
           // the 900 px breakpoint. Only the two chrome slots before it change
