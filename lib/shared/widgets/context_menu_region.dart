@@ -48,10 +48,22 @@ class ContextMenuRegion<T> extends StatelessWidget {
       skipTraversal: true,
       onKeyEvent: (FocusNode node, KeyEvent event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final bool isMenuKey =
-            event.logicalKey == LogicalKeyboardKey.contextMenu ||
-                (event.logicalKey == LogicalKeyboardKey.f10 &&
-                    HardwareKeyboard.instance.isShiftPressed);
+        // Exact chords only, the way a `SingleActivator` matches. Reading
+        // "F10 with Shift somewhere in the mix" also swallowed Ctrl+Shift+F10,
+        // and "the menu key whatever else is held" swallowed Ctrl+Menu —
+        // neither of which anybody presses to open a row menu, and both of
+        // which a user can bind as a shortcut (#391). A local handler that
+        // eats a chord it was not given is a binding that looks set and never
+        // fires.
+        final HardwareKeyboard keyboard = HardwareKeyboard.instance;
+        final bool otherModifier = keyboard.isControlPressed ||
+            keyboard.isAltPressed ||
+            keyboard.isMetaPressed;
+        final bool isMenuKey = !otherModifier &&
+            (event.logicalKey == LogicalKeyboardKey.contextMenu &&
+                    !keyboard.isShiftPressed ||
+                event.logicalKey == LogicalKeyboardKey.f10 &&
+                    keyboard.isShiftPressed);
         if (!isMenuKey) return KeyEventResult.ignored;
         _openAt(context, _centreOf(context));
         return KeyEventResult.handled;

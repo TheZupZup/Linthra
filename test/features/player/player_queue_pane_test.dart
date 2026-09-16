@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/app/shortcuts/linthra_shortcuts.dart';
 import 'package:linthra/core/models/lyrics.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/playlist.dart';
@@ -8,6 +10,7 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/lyrics_service.dart';
 import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
 import 'package:linthra/data/repositories/playlist_repository_provider.dart';
+import 'package:linthra/features/onboarding/onboarding_controller.dart';
 import 'package:linthra/features/player/lyrics_providers.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/player_screen.dart';
@@ -86,11 +89,14 @@ Future<void> _pumpPlayer(
   WidgetTester tester, {
   required Size size,
   InMemoryPlaylistStore? store,
+  bool withShortcuts = false,
 }) async {
   tester.view.devicePixelRatio = 1.0;
   tester.view.physicalSize = size;
   addTearDown(tester.view.reset);
 
+  final GlobalKey<NavigatorState> rootKey =
+      GlobalKey<NavigatorState>(debugLabel: 'root');
   await tester.pumpWidget(
     ProviderScope(
       overrides: <Override>[
@@ -104,11 +110,32 @@ Future<void> _pumpPlayer(
           ),
         ),
         lyricsServiceProvider.overrideWithValue(_FakeLyricsService(_lyrics)),
+        // The shortcut dispatcher stands down until first-run setup is done.
+        onboardingBootstrapProvider.overrideWith((ref) async => true),
         if (store != null) playlistStoreProvider.overrideWithValue(store),
       ],
-      child: const MaterialApp(home: PlayerScreen()),
+      child: MaterialApp(
+        navigatorKey: withShortcuts ? rootKey : null,
+        home: const PlayerScreen(),
+        // Mounted the way the app mounts it: above the routes, so a chord
+        // pressed on this screen travels the same path it would in the app.
+        builder: withShortcuts
+            ? (BuildContext context, Widget? child) => LinthraShortcuts(
+                  navigatorKey: rootKey,
+                  child: child ?? const SizedBox.shrink(),
+                )
+            : null,
+      ),
     ),
   );
+  await tester.pumpAndSettle();
+}
+
+/// The queue chord, as it ships.
+Future<void> _pressQueueChord(WidgetTester tester) async {
+  await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+  await tester.sendKeyEvent(LogicalKeyboardKey.keyU);
+  await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
   await tester.pumpAndSettle();
 }
 
@@ -136,6 +163,37 @@ void main() {
       );
       expect(find.text('Song Two'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the queue chord toggles the pane, not a sheet over it',
+        (tester) async {
+      // This screen already has somewhere to put the queue, so the chord has
+      // to follow the same pane-versus-sheet decision the button does (#391) —
+      // otherwise it stacked a modal sheet on top of a visible pane.
+      await _pumpPlayer(tester, size: _paneWindow, withShortcuts: true);
+      expect(find.byType(QueueSheet), findsNothing);
+
+      await _pressQueueChord(tester);
+
+      expect(find.byType(QueueSheet), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+
+      await _pressQueueChord(tester);
+
+      expect(find.byType(QueueSheet), findsNothing);
+    });
+
+    testWidgets('and keeps the sheet where there is no room for a pane',
+        (tester) async {
+      await _pumpPlayer(tester, size: _twoColumnWindow, withShortcuts: true);
+
+      await _pressQueueChord(tester);
+
+      expect(
+        find.byType(BottomSheet),
+        findsOneWidget,
+        reason: 'the queue stays reachable at every width',
+      );
     });
 
     testWidgets('lyrics and the queue sit side by side', (tester) async {
