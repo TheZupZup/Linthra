@@ -18,6 +18,7 @@ import '../../data/repositories/library_tab_store_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/loading_indicator.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
 import 'album_detail_screen.dart';
 import 'artist_detail_screen.dart';
@@ -345,7 +346,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   ) {
     switch (state.status) {
       case LibraryStatus.loading:
-        return const Center(child: CircularProgressIndicator());
+        return const LoadingIndicator(label: 'Loading your library');
       case LibraryStatus.error:
         return _LibraryError(
           message: state.errorMessage,

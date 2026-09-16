@@ -46,6 +46,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | --- | --- |
 | Reporting a bug | [reporting-bugs.md](./reporting-bugs.md) |
 | Manual QA checklist | [manual-test-checklist.md](./manual-test-checklist.md) |
+| Accessibility & TalkBack checklist | [accessibility.md](./accessibility.md) |
 | Desktop HiDPI & fractional scaling | [hidpi-and-scaling.md](./hidpi-and-scaling.md) |
 | Linux startup benchmark | [tools/startup/README.md](../tools/startup/README.md) |
 | Release process & signing | [release-process.md](./release-process.md) · [signing](./release-signing.md) · [artifact verification](./release-artifact-verification.md) |
