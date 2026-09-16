@@ -31,6 +31,7 @@ import 'library_search.dart';
 import 'library_state.dart';
 import 'library_sync_activity.dart';
 import 'local_root_problem.dart';
+import 'local_scan_report_provider.dart';
 import 'selected_folder_controller.dart';
 import 'song_actions.dart';
 import 'track_selection.dart';
@@ -347,10 +348,32 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     List<String> selectedFolders,
     List<String> syncingSources,
   ) {
+    // A folder that cannot be read is the difference between "you have no
+    // music" and "your music is on a drive that is not here". It outranks both
+    // the empty-library prompt and the generic failure page, because it is the
+    // reason the library looks the way it does and because its fix is a
+    // different one.
+    //
+    // The error state needs it just as much as the loaded one: a folder that
+    // is unreadable on its very first scan leaves nothing indexed, and nothing
+    // indexed is the one case that keeps the error state. That is the plainest
+    // version of this whole problem, so it is the last place to fall back to
+    // "Couldn't load your library" and a Retry that cannot help.
+    final Map<String, LocalRootFault> faults =
+        ref.watch(localRootFaultsProvider);
+    // But only when the failure was the folder's. A scan that fell over
+    // *outside* the walk (a catalog write, most likely) leaves the report's
+    // fault unset on purpose, and a drive that is away somewhere else in the
+    // library does not make that error a folder problem: answering it with
+    // "reconnect the drive" would send the user after a problem they do not
+    // have, and bury the one they do.
+    final bool foldersAreTheFailure =
+        faults.isNotEmpty && ref.watch(localScanReportProvider)?.fault != null;
     switch (state.status) {
       case LibraryStatus.loading:
         return const LoadingIndicator(label: 'Loading your library');
       case LibraryStatus.error:
+        if (foldersAreTheFailure) return _rootsUnavailable(faults);
         return _LibraryError(
           message: state.errorMessage,
           // With folders configured, Retry means "ask the folders again": a
@@ -370,23 +393,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         if (headline != null) {
           return _LibrarySyncing(headline: headline);
         }
-        // A folder that cannot be read is the difference between "you have no
-        // music" and "your music is on a drive that is not here". Said before
-        // the empty-library prompt, because it is the reason the library looks
-        // empty and because the fix is a different one.
-        final Map<String, LocalRootFault> faults =
-            ref.watch(localRootFaultsProvider);
-        if (faults.isNotEmpty) {
-          return _LibraryRootsUnavailable(
-            faults: faults,
-            onRetry: (String folder) => ref
-                .read(localMusicControllerProvider.notifier)
-                .retryFolder(folder),
-            onReselect: (String folder) => ref
-                .read(localMusicControllerProvider.notifier)
-                .reselectFolder(folder),
-          );
-        }
+        if (faults.isNotEmpty) return _rootsUnavailable(faults);
         return _LibraryEmpty(
           selectedFolders: selectedFolders,
           onPick: _pickAndScan,
@@ -394,6 +401,21 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               selectedFolders.isEmpty ? null : () => _rescan(selectedFolders),
         );
     }
+  }
+
+  /// What each unreadable folder's problem is, and the two fixes this screen
+  /// offers for it. Removing a source stays in Settings, where the rest of the
+  /// folder list lives and where the line about files never being deleted sits
+  /// next to the button.
+  Widget _rootsUnavailable(Map<String, LocalRootFault> faults) {
+    return _LibraryRootsUnavailable(
+      faults: faults,
+      onRetry: (String folder) =>
+          ref.read(localMusicControllerProvider.notifier).retryFolder(folder),
+      onReselect: (String folder) => ref
+          .read(localMusicControllerProvider.notifier)
+          .reselectFolder(folder),
+    );
   }
 
   /// Catalog search + the three browse tabs.

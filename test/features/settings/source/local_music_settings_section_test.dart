@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -60,6 +62,21 @@ class _StagedPicker implements FolderPickerService {
   Future<String?> pickFolder() async {
     pickCount++;
     return folder;
+  }
+}
+
+/// A chooser that does not answer until the test says so, so the card can be
+/// looked at while a recovery command is still running.
+class _BlockingPicker implements FolderPickerService {
+  final Completer<String?> _answer = Completer<String?>();
+  int pickCount = 0;
+
+  void answer(String? folder) => _answer.complete(folder);
+
+  @override
+  Future<String?> pickFolder() {
+    pickCount++;
+    return _answer.future;
   }
 }
 
@@ -298,6 +315,44 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(await folderRepo.getSelectedFolders(), <String>['/home/me/Music']);
+    });
+
+    testWidgets('a command in flight takes the recovery actions with it', (
+      tester,
+    ) async {
+      // The card already swaps its own actions for a spinner while something
+      // is running. The panel's have to go the same way: a second chooser, a
+      // second Retry or a Remove landing on top of the first would race it,
+      // and the loser would still be the one reporting.
+      final picker = _BlockingPicker();
+      await _pump(
+        tester,
+        initialFolder: '/media/usb/Music',
+        host: HostPlatform.linux,
+        readability: const _FixedReadability(false),
+        picker: picker,
+      );
+
+      expect(find.text('Select folder again'), findsOneWidget);
+
+      await tester.tap(find.text('Select folder again'));
+      await tester.pump();
+
+      expect(picker.pickCount, 1);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      // The problem is still described. Only the ways to act on it are gone,
+      // because one of them is already happening.
+      expect(find.text('Folder not found'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+      expect(find.text('Select folder again'), findsNothing);
+      expect(find.text('Remove folder'), findsNothing);
+
+      // Cancelled: the folder is still selected and the actions come back.
+      picker.answer(null);
+      await tester.pumpAndSettle();
+
+      expect(picker.pickCount, 1);
+      expect(find.text('Select folder again'), findsOneWidget);
     });
 
     testWidgets('Retry is offered for every kind of problem', (tester) async {

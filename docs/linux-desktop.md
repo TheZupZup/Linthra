@@ -683,9 +683,12 @@ chooser.
 ### Retry, Select folder again, Remove folder
 
 All three sit on the folder's own row in **Settings → Local music**, and the
-first two are repeated on the Library screen when a folder being away is the
-reason the library looks empty. Removing stays on the Settings card, next to the
-sentence that says what it does and does not do.
+first two are repeated on the Library screen whenever a folder being away is the
+reason there is nothing to show, whether it went away after a scan or could not
+be read on the very first one (which leaves nothing indexed at all). Removing
+stays on the Settings card, next to the sentence that says what it does and does
+not do. While one of the three is running, all three stand down on that card, so
+a second chooser or a competing scan cannot be started on top of the first.
 
 * **Retry** re-probes that folder. If it is still away, the card says so in the
   words of that folder's problem and nothing is written. If it answered, the

@@ -133,6 +133,34 @@ void main() {
       expect(presentation.guidance, contains('Android settings'));
     });
 
+    test('only a withdrawn permission sends the device library to settings',
+        () {
+      // MediaStore fails for reasons of its own: a null cursor, a platform
+      // channel that never answered. The scan calls those something other than
+      // a permission problem, and so must this. Sending that user to Android's
+      // permission screen would be wrong, and the scan summary right below
+      // would be saying something else.
+      final LocalRootProblemPresentation unknown = localRootProblemPresentation(
+        LocalRootFault.unknown,
+        location: FolderLocation.parse(FolderLocation.androidMediaStoreAudio),
+      );
+
+      expect(unknown.title, "Device music can't be read");
+      expect(unknown.guidance, isNot(contains('Android settings')));
+      expect(unknown.explanation, contains('stays in your library'));
+      expect(unknown.canReselect, isFalse);
+      expect(
+        unknown.title,
+        isNot(
+          localRootProblemPresentation(
+            LocalRootFault.permissionDenied,
+            location:
+                FolderLocation.parse(FolderLocation.androidMediaStoreAudio),
+          ).title,
+        ),
+      );
+    });
+
     test('the device library never describes itself as a missing folder', () {
       for (final LocalRootFault fault in LocalRootFault.values) {
         final LocalRootProblemPresentation presentation =

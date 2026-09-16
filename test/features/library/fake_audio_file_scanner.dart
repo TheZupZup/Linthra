@@ -1,5 +1,6 @@
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
 
 /// Returns a fixed list of file paths, or throws [error] when one is set, so a
 /// scan can be driven without a real file system.
@@ -13,6 +14,7 @@ class FakeAudioFileScanner implements AudioFileScanner {
     this.filesByFolder = const <String, List<String>>{},
     this.unavailable = const <String>{},
     this.error,
+    this.fault,
   });
 
   List<String> files;
@@ -21,6 +23,11 @@ class FakeAudioFileScanner implements AudioFileScanner {
   /// which is the whole shape of an add / delete / move test.
   Map<String, List<String>> filesByFolder;
   Set<String> unavailable;
+
+  /// Why an [unavailable] folder failed. Set it to reach the recovery state a
+  /// real scan would produce for that kind of failure; left null the failure
+  /// carries no diagnosis, the way an older scanner's would not.
+  LocalRootFault? fault;
   Object? error;
   String? requestedFolder;
 
@@ -33,6 +40,8 @@ class FakeAudioFileScanner implements AudioFileScanner {
     requestedFolders.add(folderPath);
     if (error != null) throw error!;
     if (unavailable.contains(folderPath)) {
+      final LocalRootFault? fault = this.fault;
+      if (fault != null) throw rootFaultException(folderPath, fault);
       throw FolderScanException(
         "Linthra couldn't find the selected folder.",
         folder: folderPath,

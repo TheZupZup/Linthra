@@ -72,18 +72,33 @@ LocalRootProblemPresentation localRootProblemPresentation(
   LocalRootFault fault, {
   required FolderLocation location,
 }) {
-  // Android's device-wide library is not a folder: it cannot be missing and it
-  // cannot be reselected, and every way it stops answering is the Music and
-  // audio permission being withdrawn. Answered first so no filesystem wording
-  // can reach it.
+  // Android's device-wide library is not a folder: it cannot be missing, it
+  // cannot be unplugged and it cannot be reselected. Answered first so no
+  // filesystem wording can reach it.
   if (location.isAndroidMediaStore) {
+    // Only a withdrawn permission sends anyone to Android settings. MediaStore
+    // can fail for its own reasons (a null cursor, a platform channel that did
+    // not answer), and the scan already calls those something other than a
+    // permission problem. Telling that user their music access is off would be
+    // both wrong and contradicted by the scan summary two lines away.
+    if (fault == LocalRootFault.permissionDenied) {
+      return const LocalRootProblemPresentation(
+        icon: Icons.lock_outline,
+        title: 'Device music access is off',
+        explanation: "Linthra can no longer read this device's music library. "
+            'The music it already indexed stays in your library.',
+        guidance: 'Re-enable music access in Android settings, then retry. You '
+            'can use a folder instead at any time.',
+        canReselect: false,
+      );
+    }
     return const LocalRootProblemPresentation(
-      icon: Icons.lock_outline,
-      title: 'Device music access is off',
-      explanation: "Linthra can no longer read this device's music library. "
-          'The music it already indexed stays in your library.',
-      guidance: 'Re-enable music access in Android settings, then retry. You '
-          'can use a folder instead at any time.',
+      icon: Icons.error_outline,
+      title: "Device music can't be read",
+      explanation: "Linthra couldn't read this device's music library, and "
+          "Android didn't say why. The music it already indexed stays in your "
+          'library.',
+      guidance: 'Retry. You can select a folder instead at any time.',
       canReselect: false,
     );
   }

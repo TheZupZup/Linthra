@@ -86,11 +86,18 @@ class LocalMusicSettingsSection extends ConsumerWidget {
                 faults: faults,
                 report: report,
                 host: host,
-                onRetry: controller.retryFolder,
-                onReselect: controller.reselectFolder,
+                // While a command is in flight the card's own actions are a
+                // spinner, and these must go the same way: a second Retry, a
+                // second folder chooser or a Remove landing on top of the
+                // first would race it, and the scan that lost the race would
+                // still be the one reporting.
+                onRetry: action.busy ? null : controller.retryFolder,
+                onReselect: action.busy ? null : controller.reselectFolder,
                 // Removing a folder is a desktop affordance: Android holds a
                 // single grant at a time, which "Forget local music" covers.
-                onRemove: host.isAndroid ? null : controller.removeFolder,
+                onRemove: host.isAndroid || action.busy
+                    ? null
+                    : controller.removeFolder,
               )
             else
               Text(
@@ -266,8 +273,8 @@ class _SelectedFoldersView extends StatelessWidget {
     required this.faults,
     required this.report,
     required this.host,
-    required this.onRetry,
-    required this.onReselect,
+    this.onRetry,
+    this.onReselect,
     this.onRemove,
   });
 
@@ -278,8 +285,12 @@ class _SelectedFoldersView extends StatelessWidget {
   final Map<String, LocalRootFault> faults;
   final LocalScanReport? report;
   final HostPlatform host;
-  final void Function(String folder) onRetry;
-  final void Function(String folder) onReselect;
+
+  /// The three ways out of a folder problem. Null while another local-music
+  /// command is running: the folder is being worked on, so it is not also
+  /// something to act on.
+  final void Function(String folder)? onRetry;
+  final void Function(String folder)? onReselect;
   final void Function(String folder)? onRemove;
 
   @override
@@ -301,8 +312,8 @@ class _SelectedFoldersView extends StatelessWidget {
             child: _SelectedFolderRow(
               location: FolderLocation.parse(folder),
               fault: faults[folder],
-              onRetry: () => onRetry(folder),
-              onReselect: () => onReselect(folder),
+              onRetry: onRetry == null ? null : () => onRetry!(folder),
+              onReselect: onReselect == null ? null : () => onReselect!(folder),
               onRemove: onRemove == null ? null : () => onRemove!(folder),
             ),
           ),
@@ -319,8 +330,8 @@ class _SelectedFolderRow extends StatelessWidget {
   const _SelectedFolderRow({
     required this.location,
     required this.fault,
-    required this.onRetry,
-    required this.onReselect,
+    this.onRetry,
+    this.onReselect,
     this.onRemove,
   });
 
@@ -328,8 +339,8 @@ class _SelectedFolderRow extends StatelessWidget {
 
   /// Why this folder cannot be read right now, or null when it can.
   final LocalRootFault? fault;
-  final VoidCallback onRetry;
-  final VoidCallback onReselect;
+  final VoidCallback? onRetry;
+  final VoidCallback? onReselect;
   final VoidCallback? onRemove;
 
   @override
