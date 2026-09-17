@@ -16,6 +16,7 @@ class Track {
     this.albumArtistName,
     this.duration = Duration.zero,
     this.trackNumber,
+    this.discNumber,
     this.artworkUri,
     this.replayGain = ReplayGain.none,
   });
@@ -46,6 +47,19 @@ class Track {
 
   final Duration duration;
   final int? trackNumber;
+
+  /// The 1-based disc this track sits on in a multi-disc release, when the
+  /// source reported a trustworthy one. Null for a single-disc album, for a
+  /// file with no disc tag, and for every source that does not carry the value
+  /// this far yet (all of them today, see #85), so outside tests this is
+  /// currently always null and album order is unchanged.
+  ///
+  /// Album ordering reads it first (`library_grouping.dart` sorts by disc, then
+  /// track), so the album surfaces and anything queueing from them fall into
+  /// disc order the moment a source starts populating it. Without it a
+  /// multi-disc album interleaves, because track numbers restart on each disc.
+  final int? discNumber;
+
   final Uri? artworkUri;
 
   /// Loudness metadata used for volume normalization. Defaults to
@@ -73,6 +87,7 @@ class Track {
     String? albumArtistName,
     Duration? duration,
     int? trackNumber,
+    int? discNumber,
     Uri? artworkUri,
     ReplayGain? replayGain,
   }) {
@@ -86,6 +101,7 @@ class Track {
       albumArtistName: albumArtistName ?? this.albumArtistName,
       duration: duration ?? this.duration,
       trackNumber: trackNumber ?? this.trackNumber,
+      discNumber: discNumber ?? this.discNumber,
       artworkUri: artworkUri ?? this.artworkUri,
       replayGain: replayGain ?? this.replayGain,
     );

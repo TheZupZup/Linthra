@@ -101,6 +101,14 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
   void addToQueue(Track track) => _refuse(track);
 
   @override
+  void playNextAll(List<Track> tracks) =>
+      _refuse(tracks.isEmpty ? null : tracks.first);
+
+  @override
+  void addAllToQueue(List<Track> tracks) =>
+      _refuse(tracks.isEmpty ? null : tracks.first);
+
+  @override
   Future<void> play() async => _refuse(null);
 
   @override

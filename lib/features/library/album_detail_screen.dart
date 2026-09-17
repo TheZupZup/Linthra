@@ -1,9 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/dimens.dart';
-import '../../app/routes.dart';
 import '../../core/catalog/library_grouping.dart';
 import '../../core/models/album.dart';
 import '../../core/models/track.dart';
@@ -13,7 +13,6 @@ import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../downloads/collection_download_actions.dart';
-import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
 import 'library_browse_providers.dart';
@@ -21,10 +20,12 @@ import 'library_controller.dart';
 import 'library_state.dart';
 import 'track_selection.dart';
 import 'unified_library_providers.dart';
+import 'widgets/collection_menu.dart';
 import 'widgets/selection_escape_scope.dart';
 import 'widgets/track_tile.dart';
 
-/// One album's tracks, in album order, with Play / Shuffle and tap-to-play.
+/// One album's tracks, in album order, with Play / Shuffle, the queue actions
+/// (#417) and tap-to-play.
 ///
 /// Reads the same derived grouping the Albums tab uses, so it stays in sync
 /// with the catalog: tapping a track plays it and queues the rest of *this
@@ -33,6 +34,13 @@ import 'widgets/track_tile.dart';
 /// action sends every album track through the shared bulk playlist flow.
 /// Long-pressing a track starts multi-select so any subset can use that same
 /// playlist flow.
+///
+/// Play, Shuffle, Play next and Add to queue all go through the one shared
+/// [runCollectionAction] the album rows and cards use, over the very list this
+/// page renders. So the page and its Albums-tab card do the same thing to the
+/// queue on every platform, and the queue receives the album exactly as shown:
+/// disc then track order, one entry per logical song, each carrying its
+/// provider fallbacks.
 class AlbumDetailScreen extends ConsumerStatefulWidget {
   const AlbumDetailScreen({
     required this.albumId,
@@ -188,8 +196,8 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
             child: _AlbumHeader(
               album: album,
               trackCount: tracks.length,
-              onPlay: () => _play(context, tracks),
-              onShuffle: () => _shuffle(context, tracks),
+              onAction: (CollectionAction action) =>
+                  _runAlbumAction(action, tracks),
             ),
           ),
         SliverList.builder(
@@ -212,8 +220,8 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
           album: album,
           trackCount: tracks.length,
           stacked: true,
-          onPlay: () => _play(context, tracks),
-          onShuffle: () => _shuffle(context, tracks),
+          onAction: (CollectionAction action) =>
+              _runAlbumAction(action, tracks),
         ),
       ),
       flexible: ListView.builder(
@@ -293,16 +301,15 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
     _exitSelection();
   }
 
-  void _play(BuildContext context, List<Track> tracks) {
-    ref.read(playbackControllerProvider).playTracks(tracks);
-    context.push(AppRoutes.player);
-  }
-
-  void _shuffle(BuildContext context, List<Track> tracks) {
-    final controller = ref.read(playbackControllerProvider);
-    controller.setShuffleEnabled(true);
-    controller.playTracks(tracks);
-    context.push(AppRoutes.player);
+  /// Runs one header action against [tracks]: this album, in the order the
+  /// list above is rendering it.
+  ///
+  /// Nothing is re-derived here: the same list the page built is the one the
+  /// queue gets, so what a listener sees is what plays. The shared runner owns
+  /// the rest, including doing nothing at all for an album with no playable
+  /// tracks.
+  void _runAlbumAction(CollectionAction action, List<Track> tracks) {
+    unawaited(runCollectionAction(context, ref, action, tracks));
   }
 }
 
@@ -310,15 +317,16 @@ class _AlbumHeader extends StatelessWidget {
   const _AlbumHeader({
     required this.album,
     required this.trackCount,
-    required this.onPlay,
-    required this.onShuffle,
+    required this.onAction,
     this.stacked = false,
   });
 
   final Album album;
   final int trackCount;
-  final VoidCallback onPlay;
-  final VoidCallback onShuffle;
+
+  /// Runs the chosen action against the album. One callback for all four, so
+  /// the buttons and the menu cannot drift apart into different commands.
+  final ValueChanged<CollectionAction> onAction;
 
   /// Cover above the text rather than beside it. Used by the desktop pane,
   /// which is tall and narrow — the reverse of the phone header's proportions
@@ -357,7 +365,7 @@ class _AlbumHeader extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: onPlay,
+                  onPressed: () => onAction(CollectionAction.play),
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Play'),
                 ),
@@ -365,10 +373,20 @@ class _AlbumHeader extends StatelessWidget {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: FilledButton.tonalIcon(
-                  onPressed: onShuffle,
+                  onPressed: () => onAction(CollectionAction.shuffle),
                   icon: const Icon(Icons.shuffle),
                   label: const Text('Shuffle'),
                 ),
+              ),
+              // Play and Shuffle replace the queue, so the two actions that
+              // extend it sit beside them rather than competing for the same
+              // prominence. Same entries and same commands as the album card's
+              // right-click menu, so the page and the card agree.
+              PopupMenuButton<CollectionAction>(
+                icon: const Icon(Icons.more_vert),
+                tooltip: 'More album actions',
+                itemBuilder: (BuildContext context) => queueMenuItems(),
+                onSelected: onAction,
               ),
             ],
           ),
