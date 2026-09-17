@@ -344,6 +344,138 @@ ABSOLUTE_PATH_PATTERN = re.compile(
 )
 
 
+# === The window's own title (#458) ===
+#
+# `gtk_window_set_title()` is the only call that puts a title on the display
+# server: X11's `_NET_WM_NAME`, Wayland's `xdg_toplevel.set_title`. A
+# `GtkHeaderBar` title is drawn in-process and reaches neither, so the Flutter
+# template's header-bar path left the window with no title at all, and every
+# desktop component that reads a window title rather than resolving an
+# application id (KDE Plasma's task manager and window switcher, GNOME Shell's
+# overview labels and window list, window rules matched on a caption, wmctrl,
+# a screen reader) had nothing to show.
+#
+# So the call is required, and required *before* the decoration decision, which
+# is what makes it unconditional: a title set inside one branch of the header
+# bar `if` is exactly the bug that was there.
+WINDOW_TITLE_CALL = "gtk_window_set_title"
+HEADER_BAR_DECISION = "use_header_bar"
+RUNNER_ACTIVATE_FUNCTION = "static void my_application_activate("
+
+# === Desktop-environment neutrality (#458) ===
+#
+# Linthra's Linux integrations go through desktop standards: portals for the
+# file chooser and notifications, MPRIS on the session bus for media controls
+# and media keys, the Secret Service for credentials, freedesktop window
+# properties for identity. None of those needs to know *which* desktop is
+# running, and a check that does know is how support quietly becomes
+# "works on the one desktop it was written on".
+#
+# Detection has two shapes and both are cheap to spot, because both end up as a
+# string literal in the runner: reading one of the environment variables a
+# session sets, or comparing against a desktop's name. So every string literal
+# under linux/ is scanned for either, with one grandfathered exception below.
+DESKTOP_SESSION_ENV_VARS = (
+    "XDG_CURRENT_DESKTOP",
+    "XDG_SESSION_DESKTOP",
+    "DESKTOP_SESSION",
+    "KDE_FULL_SESSION",
+    "KDE_SESSION_VERSION",
+    "GNOME_DESKTOP_SESSION_ID",
+)
+
+# Desktop and window-manager names, matched case-insensitively as whole words
+# inside a string literal, so `GDK_WINDOWING_X11` and a path component never
+# trip it. Names that are ordinary words too (MATE's "marco", Cinnamon's
+# "muffin") are left out: nothing would plausibly branch on them, and a list
+# that produces false positives is a list people start ignoring.
+# test/tooling/desktop_environment_neutrality_test.dart applies the same list to
+# the Dart side.
+DESKTOP_NAMES = (
+    "gnome",
+    "kde",
+    "plasma",
+    "kwin",
+    "mutter",
+    "xfce",
+    "xfwm4",
+    "cinnamon",
+    "budgie",
+    "lxqt",
+    "pantheon",
+    "deepin",
+)
+
+DESKTOP_NAME_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])(?:" + "|".join(DESKTOP_NAMES) + r")(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+# The one desktop-name check Linthra still carries, and why it is allowed to
+# stay: (file, literal) -> reason. The allowance covers exactly *one*
+# occurrence; a second comparison against the same literal in the same file is
+# a new desktop check wearing a grandfathered name, and is reported.
+#
+# It is X11-only (the Wayland path never reaches it), it decides nothing but
+# *who paints the title bar*, and GTK 3 implements no xdg-decoration protocol,
+# so there is no desktop standard to replace it with. Everything functional is
+# identical on both sides of it. Recorded here rather than silently skipped, so
+# adding a second one is a deliberate edit to this table with a reason attached,
+# not something that slips in.
+#
+# See docs/desktop-compatibility-matrix.md, "Differences Linthra does not
+# normalize".
+# (file, literal) -> (the whole statement it is excused in, reason). The
+# statement is what binds the allowance to *this* check rather than to the
+# name: counting occurrences stops a duplicate, but on its own it would still
+# excuse a different comparison that happens to be the only one left.
+#
+# It is matched whole, after collapsing runs of whitespace, rather than as a
+# substring, and each widening came from a way the narrower version was
+# satisfied by something that behaves differently:
+#
+#   g_strcmp0(wm_name, "GNOME Shell")       `== 0` matches it, and picks the
+#                                           opposite desktops
+#   ... != 0                                `!(... != 0)` contains it, and
+#                                           means the opposite again
+#   if (... != 0) {                         the condition is pinned, but the
+#                                           body is not, so the branch can grow
+#                                           a `gtk_window_set_keep_above()`
+#
+# So the entry is the `if` and its braces, and any edit inside them has to come
+# back through this table. That is the point: what is grandfathered is one
+# decoration choice, not a licence for the branch to do other things.
+GRANDFATHERED_DESKTOP_NAME_CHECKS = {
+    (
+        Path("linux") / "runner" / "my_application.cc",
+        "GNOME Shell",
+    ): (
+        'if (g_strcmp0(wm_name, "GNOME Shell") != 0) { use_header_bar = FALSE; }',
+        "X11-only title bar decoration style; GTK 3 has no xdg-decoration seam",
+    ),
+}
+
+# The committed sources the neutrality scan covers. The rest of linux/ is CMake,
+# packaging metadata and icons, none of which can branch at runtime.
+#
+# Every extension CMake compiles as C or C++, not just the ones the runner uses
+# today. An allow-list that tracks the current file set is a guardrail that
+# stops applying the moment someone adds a `.c`, and it fails silently when it
+# does.
+NEUTRALITY_SOURCE_SUFFIXES = (
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".c++",
+    ".h",
+    ".hh",
+    ".hpp",
+    ".hxx",
+    ".h++",
+)
+
+
 class CheckError(Exception):
     """A file could not be read or a required value could not be found."""
 
@@ -875,13 +1007,39 @@ def _blank(source: str, *, comments: bool = True, strings: bool = False) -> str:
     original. Blanking comments is what stops a call *described* in a comment
     from counting as a call; blanking strings is what lets the brace matcher
     below ignore a `"{"` inside a literal.
+
+    String literals, raw ones included, are recognised before comment
+    delimiters. That ordering is load-bearing: the body of a raw string can hold
+    a bare `"` and a bare `/*`, and reading it as an ordinary quoted string ends
+    the string early and then blanks everything after it as an unterminated
+    comment. Everything built on this function, the neutrality scan most of all,
+    would then be silently reading a truncated file.
     """
     out = list(source)
     index = 0
     length = len(source)
     while index < length:
         char = source[index]
-        if char == '"' or char == "'":
+        if source.startswith('R"', index):
+            # A C++ raw string, R"delim( ... )delim". Its body may contain a
+            # bare `"` and a bare `/*`, so reading it as an ordinary quoted
+            # string ends the string early and then treats the `/*` as an
+            # unterminated block comment, blanking the rest of the file. That is
+            # the same shape of blind spot the Dart guardrail had, and it hides
+            # exactly what this scan is looking for.
+            open_paren = source.find("(", index + 2)
+            if open_paren == -1:
+                index += 2
+                continue
+            closing = ")" + source[index + 2 : open_paren] + '"'
+            found = source.find(closing, open_paren + 1)
+            end = length if found == -1 else found + len(closing)
+            if strings:
+                for position in range(index, end):
+                    if out[position] != "\n":
+                        out[position] = " "
+            index = end
+        elif char == '"' or char == "'":
             end = index + 1
             while end < length and source[end] != char:
                 end += 2 if source[end] == "\\" else 1
@@ -909,6 +1067,160 @@ def _blank(source: str, *, comments: bool = True, strings: bool = False) -> str:
         else:
             index += 1
     return "".join(out)
+
+
+def _on_preprocessor_directive(code: str, offset: int) -> bool:
+    """Whether `offset` sits inside a preprocessor directive.
+
+    A directive is not one line. `#define SET_TITLE \\` continues onto the next
+    one, so a call written there has no `#` in front of it and reads as an
+    ordinary statement while still expanding nowhere. Walks back over the
+    continuation run and asks whether the line that started it is a directive.
+    """
+    start = code.rfind("\n", 0, offset) + 1
+    while start > 0:
+        previous_start = code.rfind("\n", 0, start - 1) + 1
+        if not code[previous_start : start - 1].rstrip().endswith("\\"):
+            break
+        start = previous_start
+    end = code.find("\n", start)
+    line = code[start:] if end == -1 else code[start:end]
+    return line.lstrip().startswith("#")
+
+
+def _statement_at(code: str, offset: int) -> str:
+    """The whole statement `offset` sits in, from the start of its line.
+
+    An allowance pinned to a condition says nothing about what the branch does,
+    and a branch excused for choosing a title bar style should not be able to
+    grow a `gtk_window_set_keep_above()` without anyone noticing. So the unit is
+    the whole `if`, brace style irrelevant: the statement runs to the first `;`,
+    or through the block when a `{` comes first, which covers both the brace on
+    the condition's line and the brace on the next one.
+
+    Braces and semicolons are read from source with strings *and* comments
+    blanked, because a `"}"` or a `";"` in a literal would otherwise end the
+    statement early and hand back half of it.
+    """
+    start = code.rfind("\n", 0, offset) + 1
+    end = code.find("\n", start)
+    end = len(code) if end == -1 else end
+    if _on_preprocessor_directive(code, offset):
+        # A directive has no statement to find; it ends with its own line, or
+        # with the last of its continuations.
+        while code[start:end].rstrip().endswith("\\"):
+            following = code.find("\n", end + 1)
+            end = len(code) if following == -1 else following
+        return code[start:end]
+
+    blanked = _blank(code, comments=True, strings=True)
+    depth = 0
+    for position in range(start, len(code)):
+        char = blanked[position]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return code[start : position + 1]
+        elif char == ";" and depth == 0:
+            return code[start : position + 1]
+    return code[start:end]
+
+
+def _collapse_spaces(text: str) -> str:
+    """`text` with every run of whitespace reduced to one space, and trimmed.
+
+    Used to compare a recorded allowance against the line it is recorded for,
+    so re-indenting the runner does not trip the guardrail while any change to
+    the tokens on that line does.
+    """
+    return " ".join(text.split())
+
+
+# A string literal's opening, encoding prefix included. C++ allows `u8`, `u`,
+# `U` and `L`, each optionally in front of a raw string's `R`. They matter here
+# because they sit *between* two adjacent literals: without them `u8"K" u8"DE"`
+# looks like two strings with `u8` in the gap rather than the one string `KDE`
+# the compiler builds.
+C_LITERAL_OPENING = re.compile(r'(?:u8|u|U|L)?R?"')
+
+
+def _string_literals(code: str) -> list[tuple[int, str]]:
+    """Every C++ string literal in `code`, as `(offset, body)`.
+
+    Raw strings are recognised exactly the way `_blank()` recognises them, and
+    yielded whole. Matching ordinary quotes alone is not enough and the failure
+    is silent: `R"({"desktop":"KDE"})"` splits at the quotes *inside* its body
+    into `({`, `:` and `})`, so the name the neutrality scan exists to find is
+    in none of the pieces while the code around it can still branch on it.
+
+    Literals separated only by whitespace are returned as one, at the offset of
+    the first, because that is what the compiler does with them: `"K" "DE"` is
+    the single string `KDE` by the time anything runs, and returning two bodies
+    would mean the scan looks for a name in neither of the halves it was split
+    into.
+
+    Character literals are stepped over rather than returned, matching the
+    scan's long-standing behaviour: `'x'` cannot hold a desktop name, and
+    C++14's digit separators (`1'000'000`) would otherwise read as literals.
+
+    `code` is expected to have had its comments blanked already, which is also
+    what makes the adjacency test above safe: a comment between two literals is
+    whitespace here, and it is whitespace to the compiler too.
+    """
+    pieces: list[tuple[int, int, str]] = []
+    index = 0
+    length = len(code)
+    while index < length:
+        opening = C_LITERAL_OPENING.match(code, index)
+        # A prefix is only a prefix at a token boundary. Without this, the `L`
+        # in an identifier like `kURL` in front of a literal would be read as
+        # one, moving the reported offset back into the identifier.
+        if opening is not None and opening.end() - index > 1:
+            before = code[index - 1] if index else " "
+            if before.isalnum() or before == "_":
+                opening = None
+        if opening is not None:
+            quote = opening.end() - 1
+            if code[quote - 1] == "R":
+                open_paren = code.find("(", quote + 1)
+                if open_paren == -1:
+                    index = quote + 1
+                    continue
+                closing = ")" + code[quote + 1 : open_paren] + '"'
+                found = code.find(closing, open_paren + 1)
+                body_end = length if found == -1 else found
+                end = length if found == -1 else found + len(closing)
+                pieces.append((index, end, code[open_paren + 1 : body_end]))
+            else:
+                close = quote + 1
+                while close < length and code[close] != '"':
+                    close += 2 if code[close] == "\\" else 1
+                # `close` is the closing quote, or the end of the file when
+                # there is none. The body stops there either way; the span runs
+                # past it only when it is really a quote.
+                end = min(close + 1, length)
+                pieces.append((index, end, code[quote + 1 : min(close, length)]))
+            index = end
+        elif code[index] == "'":
+            close = index + 1
+            while close < length and code[close] != "'":
+                close += 2 if code[close] == "\\" else 1
+            index = min(close + 1, length)
+        else:
+            index += 1
+
+    literals: list[tuple[int, str]] = []
+    previous_end = 0
+    for start, end, body in pieces:
+        if literals and code[previous_end:start].strip() == "":
+            offset, joined = literals[-1]
+            literals[-1] = (offset, joined + body)
+        else:
+            literals.append((start, body))
+        previous_end = end
+    return literals
 
 
 def _function_body(code: str, signature: str, where: Path) -> tuple[int, int]:
@@ -1054,6 +1366,273 @@ def runner_identity_problems(root: Path) -> list[str]:
     return problems
 
 
+def window_title_problems(root: Path) -> list[str]:
+    """The window's own title, set unconditionally (#458).
+
+    `gtk_header_bar_set_title()` draws a string; `gtk_window_set_title()` is
+    what tells X11 (`_NET_WM_NAME`) and Wayland (`xdg_toplevel.set_title`) what
+    the window is called. The Flutter template only called the second one on the
+    branch where it had *no* header bar, so on a header-bar desktop the window
+    carried no title at all and everything reading one showed a blank.
+
+    "Unconditional" is checked as what it actually means, in two parts,
+    because either alone has a hole:
+
+      * the call is inside `my_application_activate()` and at brace depth zero
+        within it, so it is not in a block; and
+      * the statement before it ends in `;`, `{` or `}`, so it is not the
+        unbraced body of a control statement.
+
+    The second is what rules out `if (cond) gtk_window_set_title(...);`, which
+    has brace depth zero and would otherwise pass while leaving one activation
+    path with no title. Comparing the call's position with the header-bar
+    decision catches neither, which is why that rule is last and weakest here.
+    """
+    text = _read(root, MY_APPLICATION)
+    # Strings blanked as well as comments. `_function_body()` documents that it
+    # needs both for its brace counting, and the depth check below needs it for
+    # the same reason: a `"}"` in a string literal would otherwise cancel a real
+    # opening brace and make a conditional call look top-level. Nothing here
+    # reads string contents, so there is no cost.
+    code = _blank(text, comments=True, strings=True)
+    problems: list[str] = []
+
+    pattern = re.compile(
+        rf"\b{re.escape(WINDOW_TITLE_CALL)}\s*\(\s*window\s*,"
+        rf"\s*{re.escape(APPLICATION_NAME_CONSTANT)}\s*\)"
+    )
+    matches = list(pattern.finditer(code))
+    if not matches:
+        problems.append(
+            f"{MY_APPLICATION}: no "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) call, so "
+            "the window reaches the display server with no title and every task "
+            "switcher, window list and screen reader that reads one shows a "
+            "blank"
+        )
+        return problems
+    if len(matches) > 1:
+        problems.append(
+            f"{MY_APPLICATION}: {len(matches)} "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) calls, "
+            "expected 1"
+        )
+        return problems
+
+    where = matches[0].start()
+
+    # A match inside a preprocessor directive is text, not a statement:
+    # `#define SET_TITLE gtk_window_set_title(window, kApplicationName)` sits
+    # inside the function, satisfies every rule below, and expands nowhere.
+    # Continuation lines count as part of the directive, or the same `#define`
+    # split across two lines reads as an ordinary call.
+    if _on_preprocessor_directive(code, where):
+        problems.append(
+            f"{MY_APPLICATION}: the only "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is inside "
+            "a preprocessor directive, so it is a macro body rather than a call "
+            "the runner makes"
+        )
+        return problems
+
+    body_start, body_end = _function_body(
+        code, RUNNER_ACTIVATE_FUNCTION, MY_APPLICATION
+    )
+    function = RUNNER_ACTIVATE_FUNCTION.split("(")[0].split()[-1]
+    if not body_start < where < body_end:
+        problems.append(
+            f"{MY_APPLICATION}: "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is not "
+            f"inside {function}(), which is where the window is built"
+        )
+        return problems
+
+    # Brace depth at the call, relative to the function body. Anything above
+    # zero means the call sits in a block, so some path through the function
+    # reaches the display server without a title.
+    between = code[body_start + 1 : where]
+    depth = between.count("{") - between.count("}")
+    if depth != 0:
+        problems.append(
+            f"{MY_APPLICATION}: "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is "
+            f"nested {depth} block(s) deep in {function}(), so it is "
+            "conditional; the window has to carry a title on every path"
+        )
+        return problems
+
+    # A call inside `#if 0`, or any build-time conditional, is not in the
+    # compiled runner at all, and dropping preprocessor lines to find the
+    # preceding statement would make it look unconditional. So the directives
+    # are counted before they are dropped.
+    conditional_depth = 0
+    for line in between.splitlines():
+        directive = line.lstrip()
+        if directive.startswith(("#if", "#ifdef", "#ifndef")):
+            conditional_depth += 1
+        elif directive.startswith("#endif"):
+            conditional_depth -= 1
+    if conditional_depth != 0:
+        problems.append(
+            f"{MY_APPLICATION}: "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is "
+            f"inside {conditional_depth} preprocessor conditional(s), so "
+            "whether the compiled runner sets a title at all depends on the "
+            "build; the window has to carry a title on every path"
+        )
+        return problems
+
+    # Brace depth zero is not enough on its own either: C++ lets a control
+    # statement take a single unbraced statement as its body, so
+    # `if (cond) gtk_window_set_title(...)` sits at depth zero and is still
+    # conditional. A statement that actually runs unconditionally follows the
+    # end of another one, so the last thing before it has to be `;`, `{` or `}`.
+    # Preprocessor lines are dropped for that look-back, now that the block
+    # above has established none of them is still open.
+    preceding = "\n".join(
+        "" if line.lstrip().startswith("#") else line for line in between.splitlines()
+    ).rstrip()
+    if preceding and preceding[-1] not in ";{}":
+        problems.append(
+            f"{MY_APPLICATION}: "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) does not "
+            "start a statement (the code before it ends in "
+            f"{preceding[-1]!r}, not ';', '{{' or '}}'), so it reads as the body "
+            "of a control statement and is conditional; the window has to carry "
+            "a title on every path"
+        )
+        return problems
+
+    decision = code.find(HEADER_BAR_DECISION, body_start, body_end)
+    if decision != -1 and where > decision:
+        problems.append(
+            f"{MY_APPLICATION}: "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) comes "
+            f"after the {HEADER_BAR_DECISION} decision; set the title before "
+            "that choice is made, so the two can never be read as related"
+        )
+    return problems
+
+
+def desktop_environment_checks(
+    root: Path,
+) -> list[tuple[Path, int, str, str, str]]:
+    """Desktop-environment detection in the committed Linux sources (#458).
+
+    Returns `(file, line, literal, what, expression)` for every string literal
+    that names a desktop environment or reads one of the environment variables a
+    session sets. `expression` is the *comment-stripped* statement the literal
+    sits in, braced body included, which is what lets an allowance be tied to
+    one check rather than to a name; taking it from the raw source would let a
+    comment quoting the expected statement satisfy the allowance for an
+    unrelated live check.
+    Grandfathered entries are filtered out by the caller, so this stays a plain
+    scan.
+
+    Comments are blanked first: this script and the runner both name GNOME and
+    KDE Plasma constantly, and prose is exactly the place that *should* name
+    them. It is a runtime branch on a desktop's name that is the problem.
+
+    Literals come from `_string_literals()` rather than a quote-matching regex,
+    so a raw string is read as one token instead of being split at the quotes
+    inside its body.
+    """
+    findings: list[tuple[Path, int, str, str, str]] = []
+    linux_dir = root / "linux"
+    for path in sorted(linux_dir.rglob("*")):
+        if not path.is_file() or path.suffix not in NEUTRALITY_SOURCE_SUFFIXES:
+            continue
+        if "ephemeral" in path.relative_to(linux_dir).parts:
+            continue
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        code = _blank(source, comments=True)
+        relative = path.relative_to(root)
+        for offset, literal in _string_literals(code):
+            line = code.count("\n", 0, offset) + 1
+            # From the *blanked* code rather than the raw source: a comment
+            # carrying the old statement would otherwise satisfy the
+            # allowance's test while the live comparison next to it is
+            # something else entirely.
+            expression = _statement_at(code, offset)
+            if literal in DESKTOP_SESSION_ENV_VARS:
+                findings.append(
+                    (
+                        relative,
+                        line,
+                        literal,
+                        "a desktop session environment variable",
+                        expression,
+                    )
+                )
+            elif DESKTOP_NAME_PATTERN.search(literal):
+                findings.append(
+                    (relative, line, literal, "a desktop environment name", expression)
+                )
+    return findings
+
+
+def desktop_neutrality_problems(root: Path) -> list[str]:
+    """The neutrality rule, minus the checks that are recorded as exceptions.
+
+    Every Linux integration Linthra has goes through a desktop standard, so a
+    new runtime branch on *which* desktop is running is a regression in support
+    rather than a feature: it is the shape that makes one desktop the tested one
+    and the other the one that breaks after release.
+    """
+    problems: list[str] = []
+    # Occurrences per (file, literal), so the allowance can excuse the one it
+    # was granted for and still report a second one. Keyed the same way the
+    # table is: a duplicate of a grandfathered literal is the most likely way a
+    # new desktop check would arrive, because it looks like the old one.
+    counts: dict[tuple[Path, str], int] = {}
+    for relative, line, literal, what, expression in desktop_environment_checks(root):
+        key = (relative, literal)
+        counts[key] = counts.get(key, 0) + 1
+        allowance = GRANDFATHERED_DESKTOP_NAME_CHECKS.get(key)
+        if allowance is not None:
+            expected, reason = allowance
+            if counts[key] > 1:
+                problems.append(
+                    f"{relative}:{line}: a second {literal!r} check. The entry "
+                    "in GRANDFATHERED_DESKTOP_NAME_CHECKS covers exactly one "
+                    f"occurrence ({reason}); this is a new desktop check "
+                    "reusing its name"
+                )
+                continue
+            if _collapse_spaces(expected) != _collapse_spaces(expression):
+                problems.append(
+                    f"{relative}:{line}: {literal!r} is excused only in "
+                    f"{expected!r} ({reason}), and here the statement is "
+                    f"{_collapse_spaces(expression)!r}. The allowance is that one "
+                    "statement, not the name and not anything containing it: "
+                    "flipping the operator, or wrapping the whole comparison "
+                    "in a negation, reverses which desktop it picks while "
+                    "still reading as the same check"
+                )
+            continue
+        problems.append(
+            f"{relative}:{line}: {literal!r} is {what}. Linthra's Linux "
+            "integrations go through desktop standards (portals, MPRIS, the "
+            "Secret Service, freedesktop window properties), so reach for one of "
+            "those instead. If there is genuinely no standard for it, add it to "
+            "GRANDFATHERED_DESKTOP_NAME_CHECKS with the reason and document it "
+            "in docs/desktop-compatibility-matrix.md"
+        )
+
+    for (relative, literal), (_, reason) in GRANDFATHERED_DESKTOP_NAME_CHECKS.items():
+        if counts.get((relative, literal), 0) == 0:
+            problems.append(
+                f"{relative}: the grandfathered desktop-name check {literal!r} "
+                f"({reason}) is gone. That is good news; drop its entry from "
+                "GRANDFATHERED_DESKTOP_NAME_CHECKS so the table keeps meaning "
+                "what it says"
+            )
+    return problems
+
+
 def absolute_paths_under_linux(root: Path) -> list[str]:
     """Absolute host paths hardcoded in the committed Linux build files.
 
@@ -1129,6 +1708,11 @@ def check(root: Path) -> list[str]:
     # where they still take effect.
     problems.extend(runner_identity_problems(root))
     problems.extend(window_state_problems(root))
+
+    # The window's own title (#458), which is not the header bar's, and the
+    # neutrality rule that keeps Linux support from being tuned to one desktop.
+    problems.extend(window_title_problems(root))
+    problems.extend(desktop_neutrality_problems(root))
 
     # Window metrics: a minimum larger than the default would open the window
     # already clamped, which reads as the app ignoring its own default.
