@@ -816,6 +816,41 @@ class WindowTitleTest(CheckoutCase):
         )
         self.assertIn("nested 1 block(s) deep", problem)
 
+    def test_a_title_under_an_unbraced_conditional_is_caught(self) -> None:
+        # Brace depth alone cannot see this one: C++ lets a control statement
+        # take a single unbraced statement as its body, so the call is at depth
+        # zero and still only runs on one path.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "  if (window != nullptr)\n"
+                    "    gtk_window_set_title(window, kApplicationName);\n",
+                )
+            )
+        )
+        self.assertIn("does not start a statement", problem)
+        self.assertIn("conditional", problem)
+
+    def test_a_preprocessor_line_before_the_title_is_not_a_conditional(
+        self,
+    ) -> None:
+        # `#endif` is not a statement, so it must not be read as one that the
+        # title call hangs off.
+        build_checkout(
+            self.root,
+            my_application=self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "#ifdef GDK_WINDOWING_X11\n"
+                    "  GdkScreen* screen = gtk_window_get_screen(window);\n"
+                    "#endif\n"
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                )
+            ),
+        )
+        self.assertEqual(checker.window_title_problems(self.root), [])
+
     def test_a_title_set_outside_activate_is_caught(self) -> None:
         # Setting it somewhere else entirely compiles and runs; it just never
         # reaches the window this function builds.

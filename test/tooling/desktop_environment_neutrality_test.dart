@@ -83,17 +83,70 @@ void main() {
     caseSensitive: false,
   );
 
+  /// The offset just past the string literal starting at [start].
+  ///
+  /// Handles the four quote forms plus the `r` prefix. Nothing is blanked:
+  /// string contents are exactly what the scan is looking for, so this only
+  /// moves the cursor past them.
+  int skipString(String source, int start) {
+    int index = start;
+    final bool raw = source[index] == 'r';
+    if (raw) {
+      index++;
+    }
+    final String quote = source[index];
+    final String triple = quote * 3;
+    if (source.startsWith(triple, index)) {
+      final int close = source.indexOf(triple, index + 3);
+      return close == -1 ? source.length : close + 3;
+    }
+    index++;
+    while (index < source.length) {
+      final String char = source[index];
+      if (char == '\n') {
+        // An unterminated single-quoted string. Stop at the line rather than
+        // running to the end of the file.
+        return index;
+      }
+      if (!raw && char == r'\') {
+        index += 2;
+        continue;
+      }
+      if (char == quote) {
+        return index + 1;
+      }
+      index++;
+    }
+    return source.length;
+  }
+
   /// [source] with `//` and `/* */` comments replaced by spaces of the same
   /// length, so an offset into the result is an offset into the original.
   ///
   /// Prose names both desktops constantly, and should: this file's own doc
   /// comment does. It is a runtime branch on a desktop's name that is the
   /// problem, so only code is scanned.
+  ///
+  /// String literals are stepped over before comment delimiters are looked
+  /// for, and that ordering is load-bearing rather than tidiness. Dart code in
+  /// this repository contains `'*/*'` (an HTTP Accept header), and reading the
+  /// `/*` inside it as the start of a block comment blanked everything to the
+  /// end of the file, because no `*/` followed: 822 lines across two client
+  /// files were invisible to this scan. A guardrail with a silent blind spot is
+  /// worse than no guardrail, so the ordering is covered by a test below.
   String withoutComments(String source) {
     final List<String> out = source.split('');
     int index = 0;
     while (index < source.length) {
-      if (source.startsWith('//', index)) {
+      final String char = source[index];
+      final bool opensString = char == "'" ||
+          char == '"' ||
+          (char == 'r' &&
+              index + 1 < source.length &&
+              (source[index + 1] == "'" || source[index + 1] == '"'));
+      if (opensString) {
+        index = skipString(source, index);
+      } else if (source.startsWith('//', index)) {
         int end = source.indexOf('\n', index);
         if (end == -1) {
           end = source.length;
@@ -197,6 +250,45 @@ void main() {
       reason: 'these allowedOccurrences entries no longer match anything, so '
           'they describe a problem that is gone; drop them.',
     );
+  });
+
+  test('a string containing a comment opener does not blank the file', () {
+    // The real shape: an HTTP Accept header whose value contains `/*`, with no
+    // `*/` anywhere after it. Read naively, that opens a block comment that
+    // never closes and everything below it disappears from the scan.
+    const String sample = "const Map<String, String> headers = {\n"
+        "  'Accept': '*/*',\n"
+        "};\n"
+        "const String later = 'gnome-shell';\n";
+    final String code = withoutComments(sample);
+    expect(code.contains('const String later'), isTrue);
+    expect(desktopName.allMatches(code).length, 1);
+  });
+
+  test('comments are still stripped after a string', () {
+    const String sample = "const String a = 'plain';\n"
+        '// GNOME is named here and must not count.\n'
+        'const String b = 1;\n';
+    final String code = withoutComments(sample);
+    expect(desktopName.allMatches(code), isEmpty);
+    expect(code.contains('const String b'), isTrue);
+  });
+
+  test('every Dart source survives the comment stripper', () {
+    // The property the two cases above are examples of: stripping comments
+    // must never remove code. Checked across the whole of lib/, so a new
+    // string shape that confuses the scanner is caught where it lands.
+    final List<String> shrunk = <String>[];
+    for (final File file in sources) {
+      final String source = file.readAsStringSync();
+      final String code = withoutComments(source);
+      final int before = source.split('\n').length;
+      final int after = code.split('\n').length;
+      if (before != after) {
+        shrunk.add('${file.path}: $before lines in, $after out');
+      }
+    }
+    expect(shrunk, isEmpty);
   });
 
   test('the scan reads code and ignores prose', () {

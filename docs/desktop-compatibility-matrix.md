@@ -59,6 +59,29 @@ A full pass is both builds on both desktops under Wayland. A minimum pass,
 before a Linux milestone release, is the Flatpak on both desktops under
 Wayland, plus the X11 rows.
 
+**The native build installs nothing.** `flutter build linux` and the release
+tarball both produce a bundle you run in place, so a clean machine has no
+desktop entry and no icons, and A1, A2, D9 and G-style launcher checks would
+fail for that reason alone rather than for anything about Linthra. Install the
+committed metadata first, or mark those rows `n/a` for the native pass and let
+the Flatpak cover them:
+
+```bash
+install -Dm644 linux/packaging/io.github.thezupzup.linthra.desktop \
+  ~/.local/share/applications/io.github.thezupzup.linthra.desktop
+for size in 48 64 128 256; do
+  install -Dm644 "linux/packaging/icons/hicolor/${size}x${size}/apps/io.github.thezupzup.linthra.png" \
+    ~/.local/share/icons/hicolor/${size}x${size}/apps/io.github.thezupzup.linthra.png
+done
+install -Dm644 tool/branding/linthra_icon.svg \
+  ~/.local/share/icons/hicolor/scalable/apps/io.github.thezupzup.linthra.svg
+update-desktop-database ~/.local/share/applications
+gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor
+```
+
+The entry's `Exec=linthra` is a bare command, so the built binary has to be on
+`PATH` for the launcher to start it. Uninstall by deleting those same files.
+
 ## Session facts to record first
 
 These four lines go at the top of every result, because half of a "works for
@@ -87,13 +110,14 @@ Each row is one check, what to do, and what a pass looks like. The
 | A1 | **Application launch** | Open the desktop's application launcher, search for Linthra, launch it. | The entry is there, named **Linthra**, with Linthra's icon and not a generic one. It reaches a usable first frame: the library shell, or the onboarding prompt on an empty catalog. |
 | A2 | **Window identity** | While it runs, look at the task switcher, the window list and the dock or task manager. | One entry, grouped with the launcher entry it was started from, carrying the same name and icon. Not a second, unnamed or generically iconned entry beside it. |
 | A3 | **Window title** | Read the window's caption wherever the desktop shows one: task switcher, window list, a task manager tooltip. On X11 you can also run `xprop WM_NAME` and click the window. | The caption is **Linthra**, never blank. This is the one the header bar does not supply: see [the window title](#the-window-title-was-missing-under-a-header-bar) below. |
-| A4 | **Initial window size** | Delete the saved geometry and launch. Native: `rm -f ~/.config/io.github.thezupzup.linthra/window-state`. Flatpak: the same file under `~/.var/app/io.github.thezupzup.linthra/config/`. | The window opens at its 1180x780 default, fully on screen and within the work area, with the desktop's panels not covering its controls. On a display shorter than that the compositor constrains it, and the layout still works at the size that results. |
+| A4 | **Initial window size** | Delete the saved geometry and launch. Native: `rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/io.github.thezupzup.linthra/window-state"`, since the runner builds that path with `g_get_user_config_dir()` and a session that sets `XDG_CONFIG_HOME` keeps it elsewhere. Flatpak: the same file under `~/.var/app/io.github.thezupzup.linthra/config/`. | The window opens at its 1180x780 default, fully on screen and within the work area, with the desktop's panels not covering its controls. On a display shorter than that the compositor constrains it, and the layout still works at the size that results. |
 | A5 | **Minimum sizing** | Drag the window as small as it will go, in both directions. | It stops at 420x600 and the layout at that size is still usable: the navigation is reachable, nothing is clipped, no overflow warnings. |
 | A6 | **Maximize / restore** | Maximize with the title bar control, with a double-click on the title bar, and with the desktop's keyboard shortcut. Restore each way. | Maximizes to the work area (not over the panels), restores to the size it had before, and the content re-lays-out both ways without a visible stall. |
 | A7 | **Tile / snap** | Drag the window to a screen edge, or use the desktop's tiling shortcut, then restore. | It tiles to half the work area, stays usable at that width, and restores to its previous size. Which gestures exist is the desktop's business; behaving at whatever size results is Linthra's. |
 | A8 | **Geometry survives a restart** | Resize to something distinctive, quit, relaunch. Repeat maximized. | The size comes back. Maximized comes back maximized, and un-maximizing lands back on the earlier size. Position comes back on X11 only, [by design](./linux-desktop.md#window-state). |
 | A9 | **Shutdown and relaunch** | Quit from the window control, relaunch from the launcher. Then quit while a track is paused and relaunch. | Clean exit with no leftover process (`pgrep -a linthra` is empty). The relaunch is an ordinary cold start and the crash-safe session restores the paused track. |
 | A10 | **Second launch reaches the first window** | With Linthra running, click the launcher entry again. | The existing window is presented. No second process, no second entry in the media controls. If the compositor's focus-stealing prevention marks it as needing attention instead of raising it, that is [a compositor difference](#differences-linthra-does-not-normalize), not a failure. |
+| A11 | **Title bar owner (X11 only)** | Look at who painted the title bar: Linthra's own header bar has the window controls inside the application's own bar, a window-manager title bar is drawn in the desktop's own style above it. Compare the two X11 sessions. | A header bar under GNOME Shell, the window manager's own title bar elsewhere. This is the one place the [grandfathered desktop-name check](#why-there-are-no-desktop-checks-in-the-code) is observable, so it is the row that notices if that condition is ever inverted. Nothing else changes with it: title, identity, icon and geometry are the same either way, which is why no other row would catch it. Under Wayland there is only the client-side option, so this row is `n/a` there. |
 
 ### B. Appearance
 
@@ -165,9 +189,10 @@ of this.
 | F2 | **Jellyfin configuration** | Settings ▸ Jellyfin: enter a server URL and sign in. | It connects, the library appears, and the sign-in is saved. |
 | F3 | **Navidrome / Subsonic configuration** | The same, against a Navidrome or other Subsonic-compatible server. | The same. |
 | F4 | **Plex configuration** | The same, against Plex. | The same. |
+| F4b | **Audiobookshelf configuration** | The same, against an Audiobookshelf server, including picking a library. | The same. It has its own settings section and its own secure session store, so it is a fourth credential path rather than a variation on one already covered, and F5 to F9 below mean it too. |
 | F5 | **Credentials survive a restart** | Quit and relaunch after each sign-in. | Still signed in, with no second password prompt. |
 | F6 | **Credentials are really encrypted** (native) | Open the desktop's own credential manager and look for Linthra's entries. | One entry per configured provider, and no password among them: Jellyfin stores an access token, Subsonic a salt and token pair, Plex a token. |
-| F6b | **Credentials are really encrypted** (Flatpak) | The sandbox reaches secure storage through the Secret portal, and libsecret keeps its own encrypted store rather than per-provider entries in the shared keyring, so there is nothing for a credential manager to list. Check what can be observed instead: an encrypted keyring file exists under `~/.var/app/io.github.thezupzup.linthra/data/keyrings/`, and `grep -ri` for your server's hostname, username or token across `~/.var/app/io.github.thezupzup.linthra/` finds nothing. | The keyring file is there, the grep is empty, and F5 and F8 behave: the sign-in survives a restart, and signing out stops it surviving. That triple is what shows the session is stored, stored encrypted, and stored there. |
+| F6b | **Credentials are really encrypted** (Flatpak) | The sandbox reaches secure storage through the Secret portal, and libsecret keeps its own encrypted store rather than per-provider entries in the shared keyring, so there is nothing for a credential manager to list. Check what can be observed instead: an encrypted keyring file exists under `~/.var/app/io.github.thezupzup.linthra/data/keyrings/`, and `grep -ri` across `~/.var/app/io.github.thezupzup.linthra/` for the **secret** values only, the access token and the password you signed in with, finds nothing. | The keyring file is there, the grep is empty, and F5 and F8 behave: the sign-in survives a restart, and signing out stops it surviving. That triple is what shows the session is stored, stored encrypted, and stored there. Grep for the token, not for the server's hostname or your username: those are ordinary catalog data, and the indexed library legitimately holds the base URL inside track artwork URIs, so a hostname hit is expected and proves nothing either way. |
 | F7 | **A locked keyring is reported, not swallowed** | Lock the keyring (or stop the provider) and try to sign in again. | A recoverable message asking you to unlock and retry. The app stays usable, and the session that could not be saved is not adopted. |
 | F8 | **Sign out** | Sign out of each provider. | The stored entry goes with it, and the library falls back to what is left. |
 | F9 | **Server playback** | Play a track from each configured server. | Audio comes out, transport works, and the desktop's media controls show the server's metadata and cover. |
@@ -208,6 +233,7 @@ A7  tile / snap                .     .    .     .
 A8  geometry across restart    .     .    .     .
 A9  shutdown and relaunch      .     .    .     .
 A10 second launch              .     .    .     .
+A11 title bar owner (X11)      n/a   .    n/a   .
 B1  system dark                .     .    .     .
 B2  system light, live         .     .    .     .
 B3  explicit light / dark      .     .    .     .
@@ -244,6 +270,7 @@ F1  secure storage available   .     .    .     .
 F2  Jellyfin configuration     .     .    .     .
 F3  Navidrome configuration    .     .    .     .
 F4  Plex configuration         .     .    .     .
+F4b Audiobookshelf config      .     .    .     .
 F5  credentials across restart .     .    .     .
 F6  credentials encrypted      .     .    .     .
 F6b credentials encrypted (fp) .     .    .     .
@@ -258,8 +285,9 @@ G5  Flatpak uninstall          .     .    .     .
 ```
 
 X11 columns only need re-running where the display server changes something:
-A2, A3, A4, A6, A7, A8, A10, and the decoration note under A1. Mark the rest
-`n/a` rather than repeating them.
+A2, A3, A4, A6, A7, A8, A10 and A11. Mark the rest `n/a` rather than repeating
+them. A11 is X11-only in the other direction: there is nothing to check for it
+under Wayland.
 
 **A2 is in that list for a reason that is easy to miss.** Window identity is
 not one mechanism checked once: Wayland reads the `xdg_toplevel` app id, and

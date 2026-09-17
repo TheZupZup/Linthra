@@ -1159,12 +1159,18 @@ def window_title_problems(root: Path) -> list[str]:
     branch where it had *no* header bar, so on a header-bar desktop the window
     carried no title at all and everything reading one showed a blank.
 
-    "Unconditional" is checked as what it actually means: the call is inside
-    `my_application_activate()` and at the top level of it, not nested in any
-    block. Comparing its position with the header-bar decision is not enough on
-    its own, because a call tucked into some *other* `if` earlier in the
-    function would still come first and would still leave one path reaching the
-    display server with no title.
+    "Unconditional" is checked as what it actually means, in two parts,
+    because either alone has a hole:
+
+      * the call is inside `my_application_activate()` and at brace depth zero
+        within it, so it is not in a block; and
+      * the statement before it ends in `;`, `{` or `}`, so it is not the
+        unbraced body of a control statement.
+
+    The second is what rules out `if (cond) gtk_window_set_title(...);`, which
+    has brace depth zero and would otherwise pass while leaving one activation
+    path with no title. Comparing the call's position with the header-bar
+    decision catches neither, which is why that rule is last and weakest here.
     """
     text = _read(root, MY_APPLICATION)
     code = _blank(text, comments=True)
@@ -1216,6 +1222,26 @@ def window_title_problems(root: Path) -> list[str]:
             f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is "
             f"nested {depth} block(s) deep in {function}(), so it is "
             "conditional; the window has to carry a title on every path"
+        )
+        return problems
+
+    # Depth zero is not enough on its own: C++ lets a control statement take a
+    # single unbraced statement as its body, so `if (cond) gtk_window_set_title(...)`
+    # sits at depth zero and is still conditional. A statement that actually
+    # runs unconditionally follows the end of another one, so the last thing
+    # before it has to be `;`, `{` or `}`. Preprocessor lines are dropped first,
+    # since `#endif` is not a statement and says nothing either way.
+    preceding = "\n".join(
+        "" if line.lstrip().startswith("#") else line for line in between.splitlines()
+    ).rstrip()
+    if preceding and preceding[-1] not in ";{}":
+        problems.append(
+            f"{MY_APPLICATION}: "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) does not "
+            "start a statement (the code before it ends in "
+            f"{preceding[-1]!r}, not ';', '{{' or '}}'), so it reads as the body "
+            "of a control statement and is conditional; the window has to carry "
+            "a title on every path"
         )
         return problems
 
