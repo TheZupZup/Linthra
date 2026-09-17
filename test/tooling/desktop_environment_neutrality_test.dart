@@ -18,12 +18,24 @@ import 'package:flutter_test/flutter_test.dart';
 /// (`docs/desktop-compatibility-matrix.md`) exists to prevent. So it is checked
 /// the only way it can be: by reading the source.
 ///
+/// The rule is deliberately blunt: a desktop's name may not appear in Dart
+/// *code* at all, not merely in a comparison. Deciding whether an occurrence is
+/// a branch, a label or a log line is not something a regular expression can be
+/// trusted to do, and the strict version has no false negatives. Prose is where
+/// these names belong, so comments are stripped before the scan and this file's
+/// own doc comment names both desktops freely.
+///
+/// The cost is that a genuine need to put one of these words in Dart code, in
+/// user-facing copy say, trips the guardrail. That is meant to be a
+/// conversation rather than a wall: record it in [allowedOccurrences] below,
+/// with the reason, the way the runner's one exception is recorded.
+///
 /// The runner half of the same rule lives in `scripts/check_linux_runner.py`
 /// (`desktop_neutrality_problems`), which scans `linux/` for the same two
 /// shapes and carries the one grandfathered exception Linthra still has: an
 /// X11-only title bar decoration choice, kept because GTK 3 implements no
-/// xdg-decoration protocol to defer to. Dart has no equivalent, so there is no
-/// allowlist here.
+/// xdg-decoration protocol to defer to. Its allowance covers exactly one
+/// occurrence, and so does each entry here.
 void main() {
   /// The environment variables a desktop session sets to say what it is.
   /// Reading one of them is the Dart-side shape of "detect the desktop".
@@ -55,6 +67,15 @@ void main() {
     'pantheon',
     'deepin',
   ];
+
+  /// Occurrences that have been looked at and accepted, as `'<path>:<name>'`,
+  /// each with its reason beside it. One entry excuses one occurrence, so a
+  /// second one in the same file still fails.
+  ///
+  /// Empty, and the goal is to keep it that way: every Linux integration
+  /// Linthra has goes through a standard that answers on both desktops, so
+  /// there is nothing for Dart to name.
+  const List<String> allowedOccurrences = <String>[];
 
   final String alternatives = desktopNames.join('|');
   final RegExp desktopName = RegExp(
@@ -145,11 +166,15 @@ void main() {
     );
   });
 
-  test('no Dart source compares against a desktop environment name', () {
+  test('no desktop environment name appears in Dart code', () {
     final List<String> findings = <String>[];
+    final List<String> unused = <String>[...allowedOccurrences];
     for (final File file in sources) {
       final String code = withoutComments(file.readAsStringSync());
       for (final RegExpMatch match in desktopName.allMatches(code)) {
+        if (unused.remove('${file.path}:${match.group(0)}')) {
+          continue;
+        }
         final int line = lineAt(code, match.start);
         findings.add('${file.path}:$line: ${match.group(0)}');
       }
@@ -157,10 +182,20 @@ void main() {
     expect(
       findings,
       isEmpty,
-      reason: 'A desktop name in Dart code means a branch that one of GNOME '
-          'and KDE Plasma takes and the other does not, which is how the '
-          'untested desktop becomes the one that breaks after release. See '
-          'docs/desktop-compatibility-matrix.md.',
+      reason: 'A desktop name in Dart code is usually a branch that one of '
+          'GNOME and KDE Plasma takes and the other does not, which is how the '
+          'untested desktop becomes the one that breaks after release. The '
+          'check is on the name rather than on the comparison, because telling '
+          'those apart with a regular expression is not reliable, so an '
+          'occurrence that is genuinely neutral is accepted by adding it to '
+          'allowedOccurrences with a reason. Prose is exempt: put the name '
+          'in a comment, or in docs/desktop-compatibility-matrix.md.',
+    );
+    expect(
+      unused,
+      isEmpty,
+      reason: 'these allowedOccurrences entries no longer match anything, so '
+          'they describe a problem that is gone; drop them.',
     );
   });
 

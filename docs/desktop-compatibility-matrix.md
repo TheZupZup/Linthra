@@ -135,7 +135,7 @@ of this.
 | D2 | **MPRIS transport** | Drive play, pause, next and previous from the desktop widget. | Each one takes effect in the app immediately, and the widget's own state follows. |
 | D3 | **MPRIS position** | Let a track play and watch the widget's progress. Seek in the app. | The position advances and follows a seek, rather than sitting at zero. |
 | D4 | **MPRIS volume** | Move the volume slider in the desktop's media widget, if it has one. Then mute in Linthra. | Linthra's level follows the widget, and the widget reads zero while Linthra is muted. |
-| D5 | **MPRIS raise and quit** | With background mode on (Settings ▸ Music & playback ▸ Desktop window) and the window closed while playing, use the widget's raise and quit affordances. | Raise brings the same window back. Quit stops playback, releases the bus name, and the entry disappears from the widget. |
+| D5 | **MPRIS raise and quit** | With background mode on (Settings ▸ Music & playback ▸ Desktop window) and the window closed while playing, use the widget's raise and quit affordances. Whether a shell draws those is its own choice, so when it does not, call the methods directly instead: `busctl --user call org.mpris.MediaPlayer2.linthra /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2 Raise`, and the same with `Quit`. | Raise brings the same window back, or, where the compositor's focus-stealing prevention intervenes, marks it as wanting attention (see [the differences table](#differences-linthra-does-not-normalize)). Quit stops playback, releases the bus name, and the entry disappears from the widget. A shell with no such buttons is not a failure of this row; a method that does nothing when called directly is. |
 | D6 | **Media keys** | Press play/pause, next and previous on a keyboard or headset that has them, with Linthra unfocused. | They reach Linthra. Both desktops route media keys to the active MPRIS player, so this is the same interface D2 uses and needs no key binding inside Linthra. |
 | D7 | **Media keys with another player running** | Start any other MPRIS player, then repeat D6. | Whichever player the desktop considers active gets the key. Linthra does not grab keys globally and must not steal them. |
 | D8 | **Notifications** | Turn on Settings ▸ Music & playback ▸ Desktop notifications, then play through a few tracks. | One notification per track change, showing the title and the "Artist • Album" subtitle, plus the cover when there is one. Each replaces the last rather than stacking. |
@@ -166,7 +166,8 @@ of this.
 | F3 | **Navidrome / Subsonic configuration** | The same, against a Navidrome or other Subsonic-compatible server. | The same. |
 | F4 | **Plex configuration** | The same, against Plex. | The same. |
 | F5 | **Credentials survive a restart** | Quit and relaunch after each sign-in. | Still signed in, with no second password prompt. |
-| F6 | **Credentials are really in the keyring** | On the native build, open the desktop's own credential manager and look for Linthra's entries. On the Flatpak, confirm `~/.var/app/io.github.thezupzup.linthra/` holds no plaintext session. | One encrypted entry per configured provider, and no password anywhere: Jellyfin stores an access token, Subsonic a salt and token pair, Plex a token. |
+| F6 | **Credentials are really encrypted** (native) | Open the desktop's own credential manager and look for Linthra's entries. | One entry per configured provider, and no password among them: Jellyfin stores an access token, Subsonic a salt and token pair, Plex a token. |
+| F6b | **Credentials are really encrypted** (Flatpak) | The sandbox reaches secure storage through the Secret portal, and libsecret keeps its own encrypted store rather than per-provider entries in the shared keyring, so there is nothing for a credential manager to list. Check what can be observed instead: an encrypted keyring file exists under `~/.var/app/io.github.thezupzup.linthra/data/keyrings/`, and `grep -ri` for your server's hostname, username or token across `~/.var/app/io.github.thezupzup.linthra/` finds nothing. | The keyring file is there, the grep is empty, and F5 and F8 behave: the sign-in survives a restart, and signing out stops it surviving. That triple is what shows the session is stored, stored encrypted, and stored there. |
 | F7 | **A locked keyring is reported, not swallowed** | Lock the keyring (or stop the provider) and try to sign in again. | A recoverable message asking you to unlock and retry. The app stays usable, and the session that could not be saved is not adopted. |
 | F8 | **Sign out** | Sign out of each provider. | The stored entry goes with it, and the library falls back to what is left. |
 | F9 | **Server playback** | Play a track from each configured server. | Audio comes out, transport works, and the desktop's media controls show the server's metadata and cover. |
@@ -244,7 +245,8 @@ F2  Jellyfin configuration     .     .    .     .
 F3  Navidrome configuration    .     .    .     .
 F4  Plex configuration         .     .    .     .
 F5  credentials across restart .     .    .     .
-F6  credentials in the keyring .     .    .     .
+F6  credentials encrypted      .     .    .     .
+F6b credentials encrypted (fp) .     .    .     .
 F7  locked keyring reported    .     .    .     .
 F8  sign out                   .     .    .     .
 F9  server playback            .     .    .     .
@@ -256,8 +258,15 @@ G5  Flatpak uninstall          .     .    .     .
 ```
 
 X11 columns only need re-running where the display server changes something:
-A3, A4, A6, A7, A8, A10, and the decoration note under A1. Mark the rest
+A2, A3, A4, A6, A7, A8, A10, and the decoration note under A1. Mark the rest
 `n/a` rather than repeating them.
+
+**A2 is in that list for a reason that is easy to miss.** Window identity is
+not one mechanism checked once: Wayland reads the `xdg_toplevel` app id, and
+X11 reads `WM_CLASS` and `_NET_WM_ICON`, which the runner sets with different
+calls (see [Desktop identity](./linux-desktop.md#desktop-identity)). Passing A2
+under Wayland says nothing about X11, and an X11-only identity regression looks
+exactly like a window that will not group with its launcher.
 
 ## Differences Linthra does not normalize
 

@@ -89,9 +89,10 @@ endif()
 # below is this same text with exactly one of them broken.
 #
 # The window title and the header-bar decision around it (#458) are here for the
-# same reason. The title has to be set *before* that decision to be set at all
-# on a header-bar desktop, and the decision itself is the one desktop-name check
-# Linthra still carries, so it is also what DesktopNeutralityTest reads.
+# same reason. The title has to be set unconditionally, at the top level of
+# my_application_activate(), to be set at all on a header-bar desktop, and the
+# decision itself is the one desktop-name check Linthra still carries, so it is
+# also what DesktopNeutralityTest reads.
 MY_APPLICATION = """\
 #include "my_application.h"
 
@@ -104,7 +105,7 @@ static constexpr int kDefaultWindowHeight = 780;
 static constexpr int kMinimumWindowWidth = 420;
 static constexpr int kMinimumWindowHeight = 600;
 
-static void activate() {{
+static void my_application_activate(GApplication* application) {{
   if (window_lifecycle_channel_present(self->window_lifecycle)) {{
     return;
   }}
@@ -796,7 +797,41 @@ class WindowTitleTest(CheckoutCase):
                 "  if (use_header_bar) {\n",
             )
         )
-        self.assertIn("after the use_header_bar decision", problem)
+        self.assertIn("nested", problem)
+        self.assertIn("conditional", problem)
+
+    def test_a_title_inside_an_unrelated_conditional_is_caught(self) -> None:
+        # The subtle one: the call is hoisted above the decoration decision, so
+        # a check that only compared positions would pass it, but it still sits
+        # in a block and still leaves a path with no title.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "  if (window != nullptr) {\n"
+                    "    gtk_window_set_title(window, kApplicationName);\n"
+                    "  }\n",
+                )
+            )
+        )
+        self.assertIn("nested 1 block(s) deep", problem)
+
+    def test_a_title_set_outside_activate_is_caught(self) -> None:
+        # Setting it somewhere else entirely compiles and runs; it just never
+        # reaches the window this function builds.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "",
+                )
+            ).replace(
+                "static void my_application_shutdown(GApplication* application) {",
+                "static void my_application_shutdown(GApplication* application) {\n"
+                "  gtk_window_set_title(window, kApplicationName);",
+            )
+        )
+        self.assertIn("not inside my_application_activate()", problem)
 
     def test_a_title_in_a_comment_does_not_count(self) -> None:
         problem = self.only_problem(
@@ -924,6 +959,25 @@ class DesktopNeutralityTest(CheckoutCase):
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("folder_picker_channel.cc", problems[0])
+
+    def test_a_second_use_of_the_grandfathered_literal_is_caught(self) -> None:
+        # The way a new desktop check would most plausibly arrive: reusing the
+        # literal the allowance already excuses, so it looks like the old one.
+        # The allowance covers one occurrence, not the name.
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {\n',
+                '  if (g_strcmp0(wm_name, "GNOME Shell") == 0) {\n'
+                "    keep_above = TRUE;\n"
+                "  }\n"
+                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {\n',
+            ),
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("a second 'GNOME Shell' check", problems[0])
+        self.assertIn("exactly one occurrence", problems[0])
 
     def test_removing_the_grandfathered_check_asks_for_the_entry_to_go(
         self,

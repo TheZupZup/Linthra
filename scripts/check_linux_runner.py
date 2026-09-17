@@ -360,6 +360,7 @@ ABSOLUTE_PATH_PATTERN = re.compile(
 # bar `if` is exactly the bug that was there.
 WINDOW_TITLE_CALL = "gtk_window_set_title"
 HEADER_BAR_DECISION = "use_header_bar"
+RUNNER_ACTIVATE_FUNCTION = "static void my_application_activate("
 
 # === Desktop-environment neutrality (#458) ===
 #
@@ -411,7 +412,9 @@ DESKTOP_NAME_PATTERN = re.compile(
 )
 
 # The one desktop-name check Linthra still carries, and why it is allowed to
-# stay: (file, literal) -> reason.
+# stay: (file, literal) -> reason. The allowance covers exactly *one*
+# occurrence; a second comparison against the same literal in the same file is
+# a new desktop check wearing a grandfathered name, and is reported.
 #
 # It is X11-only (the Wayland path never reaches it), it decides nothing but
 # *who paints the title bar*, and GTK 3 implements no xdg-decoration protocol,
@@ -1156,9 +1159,12 @@ def window_title_problems(root: Path) -> list[str]:
     branch where it had *no* header bar, so on a header-bar desktop the window
     carried no title at all and everything reading one showed a blank.
 
-    Requiring the call before the decoration decision is what keeps it
-    unconditional: a title inside either branch of that `if` is the same bug in
-    a new place.
+    "Unconditional" is checked as what it actually means: the call is inside
+    `my_application_activate()` and at the top level of it, not nested in any
+    block. Comparing its position with the header-bar decision is not enough on
+    its own, because a call tucked into some *other* `if` earlier in the
+    function would still come first and would still leave one path reaching the
+    display server with no title.
     """
     text = _read(root, MY_APPLICATION)
     code = _blank(text, comments=True)
@@ -1186,13 +1192,40 @@ def window_title_problems(root: Path) -> list[str]:
         )
         return problems
 
-    decision = code.find(HEADER_BAR_DECISION)
-    if decision != -1 and matches[0].start() > decision:
+    where = matches[0].start()
+    body_start, body_end = _function_body(
+        code, RUNNER_ACTIVATE_FUNCTION, MY_APPLICATION
+    )
+    function = RUNNER_ACTIVATE_FUNCTION.split("(")[0].split()[-1]
+    if not body_start < where < body_end:
+        problems.append(
+            f"{MY_APPLICATION}: "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is not "
+            f"inside {function}(), which is where the window is built"
+        )
+        return problems
+
+    # Brace depth at the call, relative to the function body. Anything above
+    # zero means the call sits in a block, so some path through the function
+    # reaches the display server without a title.
+    between = code[body_start + 1 : where]
+    depth = between.count("{") - between.count("}")
+    if depth != 0:
+        problems.append(
+            f"{MY_APPLICATION}: "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is "
+            f"nested {depth} block(s) deep in {function}(), so it is "
+            "conditional; the window has to carry a title on every path"
+        )
+        return problems
+
+    decision = code.find(HEADER_BAR_DECISION, body_start, body_end)
+    if decision != -1 and where > decision:
         problems.append(
             f"{MY_APPLICATION}: "
             f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) comes "
-            f"after the {HEADER_BAR_DECISION} decision, so it is only reached on "
-            "one decoration path; set the title before that choice is made"
+            f"after the {HEADER_BAR_DECISION} decision; set the title before "
+            "that choice is made, so the two can never be read as related"
         )
     return problems
 
@@ -1243,11 +1276,23 @@ def desktop_neutrality_problems(root: Path) -> list[str]:
     and the other the one that breaks after release.
     """
     problems: list[str] = []
-    seen: set[tuple[Path, str]] = set()
+    # Occurrences per (file, literal), so the allowance can excuse the one it
+    # was granted for and still report a second one. Keyed the same way the
+    # table is: a duplicate of a grandfathered literal is the most likely way a
+    # new desktop check would arrive, because it looks like the old one.
+    counts: dict[tuple[Path, str], int] = {}
     for relative, line, literal, what in desktop_environment_checks(root):
         key = (relative, literal)
-        seen.add(key)
+        counts[key] = counts.get(key, 0) + 1
         if key in GRANDFATHERED_DESKTOP_NAME_CHECKS:
+            if counts[key] == 1:
+                continue
+            problems.append(
+                f"{relative}:{line}: a second {literal!r} check. The entry in "
+                "GRANDFATHERED_DESKTOP_NAME_CHECKS covers exactly one "
+                f"occurrence ({GRANDFATHERED_DESKTOP_NAME_CHECKS[key]}); this "
+                "is a new desktop check reusing its name"
+            )
             continue
         problems.append(
             f"{relative}:{line}: {literal!r} is {what}. Linthra's Linux "
@@ -1259,7 +1304,7 @@ def desktop_neutrality_problems(root: Path) -> list[str]:
         )
 
     for (relative, literal), reason in GRANDFATHERED_DESKTOP_NAME_CHECKS.items():
-        if (relative, literal) not in seen:
+        if counts.get((relative, literal), 0) == 0:
             problems.append(
                 f"{relative}: the grandfathered desktop-name check {literal!r} "
                 f"({reason}) is gone. That is good news; drop its entry from "
