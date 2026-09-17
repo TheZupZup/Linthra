@@ -851,6 +851,24 @@ class WindowTitleTest(CheckoutCase):
         )
         self.assertEqual(checker.window_title_problems(self.root), [])
 
+    def test_a_brace_in_a_string_does_not_hide_a_conditional(self) -> None:
+        # Brace counting has to run on source with string literals blanked, or
+        # a `"}"` in a literal cancels the real opening brace and a conditional
+        # call reads as top-level. _function_body() documents the same
+        # requirement for the same reason.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "  if (window != nullptr) {\n"
+                    '    const char* marker = "}";\n'
+                    "    gtk_window_set_title(window, kApplicationName);\n"
+                    "  }\n",
+                )
+            )
+        )
+        self.assertIn("nested 1 block(s) deep", problem)
+
     def test_a_title_inside_a_preprocessor_conditional_is_caught(self) -> None:
         # `#if 0` compiles to nothing, so the shipped runner would set no title
         # at all while every other rule here still passed.

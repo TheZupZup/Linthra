@@ -1206,7 +1206,12 @@ def window_title_problems(root: Path) -> list[str]:
     decision catches neither, which is why that rule is last and weakest here.
     """
     text = _read(root, MY_APPLICATION)
-    code = _blank(text, comments=True)
+    # Strings blanked as well as comments. `_function_body()` documents that it
+    # needs both for its brace counting, and the depth check below needs it for
+    # the same reason: a `"}"` in a string literal would otherwise cancel a real
+    # opening brace and make a conditional call look top-level. Nothing here
+    # reads string contents, so there is no cost.
+    code = _blank(text, comments=True, strings=True)
     problems: list[str] = []
 
     pattern = re.compile(

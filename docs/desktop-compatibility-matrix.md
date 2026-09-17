@@ -61,10 +61,15 @@ Wayland, plus the X11 rows.
 
 **The native build installs nothing.** `flutter build linux` and the release
 tarball both produce a bundle you run in place, so a clean machine has no
-desktop entry and no icons, and A1, A2, D9 and G-style launcher checks would
-fail for that reason alone rather than for anything about Linthra. Install the
-committed metadata first, or mark those rows `n/a` for the native pass and let
-the Flatpak cover them:
+desktop entry and no icons, and A1, A2 and D9 would fail for that reason alone
+rather than for anything about Linthra.
+
+The metadata lives in the repository, not in the tarball, which packages only
+the build output. So this step needs a **source checkout at the version you are
+testing**; with the tarball alone there is nothing to install, and the honest
+options are to clone the repository at that tag, or to mark A1, A2 and D9 `n/a`
+for the native pass and let the Flatpak, whose exports do get installed, cover
+them. From a checkout:
 
 ```bash
 install -Dm644 linux/packaging/io.github.thezupzup.linthra.desktop \
@@ -79,8 +84,17 @@ update-desktop-database ~/.local/share/applications
 gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor
 ```
 
-The entry's `Exec=linthra` is a bare command, so the built binary has to be on
-`PATH` for the launcher to start it. Uninstall by deleting those same files.
+The entry's `Exec=linthra` is a bare command resolved from `PATH`, which the
+bundle's binary is not on, so link it somewhere that is:
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$PWD/build/linux/x64/release/bundle/linthra" ~/.local/bin/linthra   # or the tarball's
+```
+
+Confirm with `command -v linthra` before running A1, since a launcher entry
+that cannot start anything fails the row for the wrong reason. Uninstall by
+deleting the files installed above and that symlink.
 
 ## Session facts to record first
 
@@ -203,7 +217,7 @@ of this.
 | --- | --- | --- | --- |
 | G1 | **Flatpak install** | `flatpak install --user <bundle>`, or through the desktop's software centre. | It installs, and the software centre shows the AppStream name, summary and icon. |
 | G2 | **Flatpak launch** | Launch it from the application launcher, not from a terminal. | Same as A1 and A2, from the sandbox. |
-| G3 | **Flatpak portals** | Repeat C1, C2, D8 and F1 inside the Flatpak. | The chooser is the portal's, notifications arrive, and credentials save with no extra D-Bus permission. This is the row the [permission audit](./flatpak-permissions.md) is really about. |
+| G3 | **Flatpak portals** | Repeat C1, C2 and D8 inside the Flatpak, and for credentials use F2 plus F5 rather than F1: F1 is a `secret-tool` round trip against the host's Secret Service, which the sandbox does not use and which is marked `n/a` there. F6b is the storage-side half. | The chooser is the portal's, notifications arrive, and a provider sign-in persists across a restart with no extra D-Bus permission. This is the row the [permission audit](./flatpak-permissions.md) is really about. |
 | G4 | **Flatpak audio** | Repeat E1 and E2 inside the Flatpak. | Audio from the packaged libmpv, and the sink list matches the host's. |
 | G5 | **Flatpak uninstall** | `flatpak uninstall --user io.github.thezupzup.linthra`. | It goes cleanly, and the music files you added are still on disk untouched. |
 
