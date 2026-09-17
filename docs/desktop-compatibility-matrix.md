@@ -59,6 +59,26 @@ A full pass is both builds on both desktops under Wayland. A minimum pass,
 before a Linux milestone release, is the Flatpak on both desktops under
 Wayland, plus the X11 rows.
 
+**Between desktops, start from the same state.** The cheapest setup, one
+account switching login sessions, means both passes share a home directory, so
+whatever the first one leaves behind is what the second one starts from. The
+native rows clean up after themselves if you run section F to the end, since F9
+signs every provider out. The Flatpak's do not: `flatpak uninstall` leaves
+`~/.var/app/io.github.thezupzup.linthra/` in place on purpose ([the table of
+what each command
+removes](./flatpak-development.md#clean-and-uninstall)), so reinstalling for the
+second desktop comes back already signed in, and F2 to F4b have no sign-in left
+to perform. Either sign out inside the Flatpak before G5, or reset it between
+passes:
+
+```bash
+flatpak --user uninstall --delete-data io.github.thezupzup.linthra
+```
+
+That also clears the document-portal grants for the folders you picked in C1
+and C2, which is what you want here: those rows are testing the pick, not a
+grant that was already lying around.
+
 **The native build installs nothing.** `flutter build linux` and the release
 tarball both produce a bundle you run in place, so a clean machine has no
 desktop entry and no icons, and A1, A2 and D9 would fail for that reason alone
@@ -206,10 +226,10 @@ of this.
 | F4b | **Audiobookshelf configuration** | The same, against an Audiobookshelf server, including picking a library. | The same. It has its own settings section and its own secure session store, so it is a fourth credential path rather than a variation on one already covered, and the credential rows below (F5 to F7, and F9) mean it too. F8 does not: at this version Audiobookshelf only lists what is on the server, with playback still to come, so there is nothing to play from it. |
 | F5 | **Credentials survive a restart** | Quit and relaunch after each sign-in. | Still signed in, with no second password prompt. |
 | F6 | **Credentials are really encrypted** (native) | Open the desktop's own credential manager and look for Linthra's entries. | One entry per configured provider, and no password among them: Jellyfin and Audiobookshelf store an access token (Audiobookshelf may keep a refresh token beside it), Subsonic the salt and token derived from the password, Plex the token you pasted in. |
-| F6b | **Credentials are really encrypted** (Flatpak) | The sandbox reaches secure storage through the Secret portal, and libsecret keeps its own encrypted store rather than per-provider entries in the shared keyring, so there is nothing for a credential manager to list. Check what can be observed instead: an encrypted keyring file exists under `~/.var/app/io.github.thezupzup.linthra/data/keyrings/`, and nothing under the app's data holds a session in the clear: `grep -rl -e accessToken -e refreshToken -e '"salt"' -e _session_v1 ~/.var/app/io.github.thezupzup.linthra/`. Those are the JSON keys each session is serialized with plus the suffix on every storage key, so they are greppable without knowing a server-issued secret, and a hit means the blob itself is sitting somewhere readable. For Plex, whose token you paste in yourself, grep for that value too. | The keyring file is there, the grep is empty, and F5 and F9 behave: the sign-in survives a restart, and signing out stops it surviving. That triple is what shows the session is stored, stored encrypted, and stored there. **Do not grep for your password.** No provider stores one, by design: Jellyfin and Audiobookshelf keep a server-issued access token, Subsonic a token derived from the password and thrown away with it, Plex a pasted token. An empty result there is the same empty result you would get from a plaintext session file, so it proves nothing. Same for the server's hostname or your username: those are ordinary catalog data, and the indexed library legitimately holds the base URL inside track artwork URIs, so a hostname hit is expected either way. |
+| F6b | **Credentials are really encrypted** (Flatpak) | The sandbox reaches secure storage through the Secret portal, and libsecret keeps its own encrypted store rather than per-provider entries in the shared keyring, so there is nothing for a credential manager to list. Check what can be observed instead: an encrypted keyring file exists under `~/.var/app/io.github.thezupzup.linthra/data/keyrings/`, and nothing under the app's data holds a session in the clear: `grep -rl -e accessToken -e refreshToken -e '"salt"' -e _session_v1 ~/.var/app/io.github.thezupzup.linthra/`. Those are the JSON keys each session is serialized with plus the suffix on every storage key, so they are greppable without knowing a server-issued secret, and a hit means the blob itself is sitting somewhere readable. For Plex, whose token you paste in yourself, grep for that value too. | The keyring file is there, the grep is empty, and F5 and F9 behave: the sign-in survives a restart, and after signing out it stops surviving one, which is why F9 relaunches rather than trusting the signed-out screen. That triple is what shows the session is stored, stored encrypted, and stored there. **Do not grep for your password.** No provider stores one, by design: Jellyfin and Audiobookshelf keep a server-issued access token, Subsonic a token derived from the password and thrown away with it, Plex a pasted token. An empty result there is the same empty result you would get from a plaintext session file, so it proves nothing. Same for the server's hostname or your username: those are ordinary catalog data, and the indexed library legitimately holds the base URL inside track artwork URIs, so a hostname hit is expected either way. |
 | F7 | **A locked keyring is reported, not swallowed** | Order matters, because F2 to F5 leave every provider connected and a connected provider shows its status rather than a sign-in form. **Sign out of one provider first**, then lock the keyring (or stop the provider), then try to sign in to that one. Do not lock first and try to sign out: a sign-out whose secure-storage delete fails deliberately keeps the session rather than pretending it went, so that is a different row's behaviour and leaves you still connected. | A recoverable message asking you to unlock and retry. The app stays usable, and the session that could not be saved is not adopted. Unlock and retry the same sign-in to confirm it then completes. |
 | F8 | **Server playback** | Play a track from each configured music server: Jellyfin, Navidrome or Subsonic, and Plex. Audiobookshelf is listing-only at this version, so for it confirm the book list renders instead. | Audio comes out, transport works, and the desktop's media controls show the server's metadata and cover. |
-| F9 | **Sign out** | Last in the section, because it disconnects the servers every row above needs. Sign out of each provider. | The stored entry goes with it, and the library falls back to what is left. |
+| F9 | **Sign out** | Last in the section, because it disconnects the servers every row above needs. Sign out of each provider, **then quit and relaunch**. | The stored entry goes with it, and the library falls back to what is left. After the relaunch every provider is still disconnected. The relaunch is the half that matters: a secure-storage delete that fails is reported (that is F7), but one that silently does nothing clears the in-memory session and looks identical until the next launch brings the credential back. |
 
 ### G. Packaging
 
@@ -219,7 +239,7 @@ of this.
 | G2 | **Flatpak launch** | Launch it from the application launcher, not from a terminal. | Same as A1 and A2, from the sandbox. |
 | G3 | **Flatpak portals** | Repeat C1, C2 and D8 inside the Flatpak, and for credentials use F2 plus F5 rather than F1: F1 is a `secret-tool` round trip against the host's Secret Service, which the sandbox does not use and which is marked `n/a` there. F6b is the storage-side half. | The chooser is the portal's, notifications arrive, and a provider sign-in persists across a restart with no extra D-Bus permission. This is the row the [permission audit](./flatpak-permissions.md) is really about. |
 | G4 | **Flatpak audio** | Repeat E1 and E2 inside the Flatpak. | Audio from the packaged libmpv, and the sink list matches the host's. |
-| G5 | **Flatpak uninstall** | `flatpak uninstall --user io.github.thezupzup.linthra`. | It goes cleanly, and the music files you added are still on disk untouched. |
+| G5 | **Flatpak uninstall** | `flatpak uninstall --user io.github.thezupzup.linthra`. | It goes cleanly, and the music files you added are still on disk untouched. This deliberately leaves `~/.var/app/io.github.thezupzup.linthra/` behind, so if another pass follows on this machine, see [Between desktops, start from the same state](#before-you-start). |
 
 The shorter release-time version of G is the
 [manual Flatpak smoke checklist](./linux-desktop.md#manual-flatpak-smoke-checklist);
@@ -290,7 +310,7 @@ F6  credentials encrypted      .     .    .     .
 F6b credentials encrypted (fp) .     .    .     .
 F7  locked keyring reported    .     .    .     .
 F8  server playback            .     .    .     .
-F9  sign out                   .     .    .     .
+F9  sign out + relaunch        .     .    .     .
 G1  Flatpak install            .     .    .     .
 G2  Flatpak launch             .     .    .     .
 G3  Flatpak portals            .     .    .     .

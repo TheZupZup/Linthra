@@ -429,12 +429,17 @@ DESKTOP_NAME_PATTERN = re.compile(
 # expression is what binds the allowance to *this* check rather than to the
 # name: counting occurrences stops a duplicate, but on its own it would still
 # excuse a different comparison that happens to be the only one left.
+#
+# It carries the comparison operator too, and that is not pedantry. Flipping
+# `!= 0` to `== 0` reverses which desktop gets the header bar while leaving the
+# call itself identical, so an allowance recorded as the bare `g_strcmp0(...)`
+# would excuse the opposite behaviour without a word.
 GRANDFATHERED_DESKTOP_NAME_CHECKS = {
     (
         Path("linux") / "runner" / "my_application.cc",
         "GNOME Shell",
     ): (
-        'g_strcmp0(wm_name, "GNOME Shell")',
+        'g_strcmp0(wm_name, "GNOME Shell") != 0',
         "X11-only title bar decoration style; GTK 3 has no xdg-decoration seam",
     ),
 }
@@ -442,9 +447,6 @@ GRANDFATHERED_DESKTOP_NAME_CHECKS = {
 # The committed sources the neutrality scan covers. The rest of linux/ is CMake,
 # packaging metadata and icons, none of which can branch at runtime.
 NEUTRALITY_SOURCE_SUFFIXES = (".cc", ".cpp", ".h", ".hpp")
-
-# A double-quoted C string literal, escapes included.
-C_STRING_LITERAL = re.compile(r'"(?:[^"\\\n]|\\.)*"')
 
 
 class CheckError(Exception):
@@ -1040,6 +1042,48 @@ def _blank(source: str, *, comments: bool = True, strings: bool = False) -> str:
     return "".join(out)
 
 
+def _string_literals(code: str) -> list[tuple[int, str]]:
+    """Every C++ string literal in `code`, as `(offset, body)`.
+
+    Raw strings are recognised exactly the way `_blank()` recognises them, and
+    yielded whole. Matching ordinary quotes alone is not enough and the failure
+    is silent: `R"({"desktop":"KDE"})"` splits at the quotes *inside* its body
+    into `({`, `:` and `})`, so the name the neutrality scan exists to find is
+    in none of the pieces while the code around it can still branch on it.
+
+    Character literals are stepped over rather than returned, matching the
+    scan's long-standing behaviour: `'x'` cannot hold a desktop name, and
+    C++14's digit separators (`1'000'000`) would otherwise read as literals.
+
+    `code` is expected to have had its comments blanked already.
+    """
+    literals: list[tuple[int, str]] = []
+    index = 0
+    length = len(code)
+    while index < length:
+        char = code[index]
+        if code.startswith('R"', index):
+            open_paren = code.find("(", index + 2)
+            if open_paren == -1:
+                index += 2
+                continue
+            closing = ")" + code[index + 2 : open_paren] + '"'
+            found = code.find(closing, open_paren + 1)
+            body_end = length if found == -1 else found
+            literals.append((index, code[open_paren + 1 : body_end]))
+            index = length if found == -1 else found + len(closing)
+        elif char == '"' or char == "'":
+            end = index + 1
+            while end < length and code[end] != char:
+                end += 2 if code[end] == "\\" else 1
+            if char == '"':
+                literals.append((index, code[index + 1 : min(end, length)]))
+            index = min(end + 1, length)
+        else:
+            index += 1
+    return literals
+
+
 def _function_body(code: str, signature: str, where: Path) -> tuple[int, int]:
     """The `[start, end)` span of the body of the function opened by `signature`.
 
@@ -1347,6 +1391,10 @@ def desktop_environment_checks(
     Comments are blanked first: this script and the runner both name GNOME and
     KDE Plasma constantly, and prose is exactly the place that *should* name
     them. It is a runtime branch on a desktop's name that is the problem.
+
+    Literals come from `_string_literals()` rather than a quote-matching regex,
+    so a raw string is read as one token instead of being split at the quotes
+    inside its body.
     """
     findings: list[tuple[Path, int, str, str, str]] = []
     linux_dir = root / "linux"
@@ -1361,9 +1409,8 @@ def desktop_environment_checks(
             continue
         code = _blank(source, comments=True)
         relative = path.relative_to(root)
-        for match in C_STRING_LITERAL.finditer(code):
-            literal = match.group()[1:-1]
-            line = code.count("\n", 0, match.start()) + 1
+        for offset, literal in _string_literals(code):
+            line = code.count("\n", 0, offset) + 1
             # From the *blanked* code rather than the raw source: a comment
             # carrying the old expression would otherwise satisfy the
             # allowance's substring test while the live comparison next to it

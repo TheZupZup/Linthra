@@ -1048,14 +1048,23 @@ class DesktopNeutralityTest(CheckoutCase):
         # The way a new desktop check would most plausibly arrive: reusing the
         # literal the allowance already excuses, so it looks like the old one.
         # The allowance covers one occurrence, not the name.
+        #
+        # The new check goes *after* the grandfathered one, so the first
+        # occurrence is the allowed expression and the only thing wrong here is
+        # that there are two. Putting it first would also trip the expression
+        # rule and report two problems, which is correct but tests two things.
         build_checkout(
             self.root,
             my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
-                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {\n',
+                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {\n'
+                "    use_header_bar = FALSE;\n"
+                "  }\n",
+                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {\n'
+                "    use_header_bar = FALSE;\n"
+                "  }\n"
                 '  if (g_strcmp0(wm_name, "GNOME Shell") == 0) {\n'
                 "    keep_above = TRUE;\n"
-                "  }\n"
-                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {\n',
+                "  }\n",
             ),
         )
         problems = checker.desktop_neutrality_problems(self.root)
@@ -1100,6 +1109,38 @@ class DesktopNeutralityTest(CheckoutCase):
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("excused only in", problems[0])
+
+    def test_the_allowance_does_not_cover_a_flipped_comparison(self) -> None:
+        # `!= 0` to `== 0` is one character and it swaps which desktop gets the
+        # header bar. The call is untouched, so an allowance recorded without
+        # the operator would excuse the opposite behaviour silently.
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                'g_strcmp0(wm_name, "GNOME Shell") != 0',
+                'g_strcmp0(wm_name, "GNOME Shell") == 0',
+            ),
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("excused only in", problems[0])
+
+    def test_a_desktop_name_inside_a_raw_string_is_caught(self) -> None:
+        # A raw string's body can hold its own quotes. Scanning for ordinary
+        # quoted literals splits this one into `({`, `:` and `})`, none of which
+        # holds the name, so the check passed on a literal naming a desktop.
+        build_checkout(self.root)
+        (self.root / "linux" / "runner" / "folder_picker_channel.cc").write_text(
+            FOLDER_PICKER_CHANNEL.format(
+                channel=FOLDER_PICKER_CHANNEL_NAME,
+                method=FOLDER_PICKER_METHOD_NAME,
+            )
+            + 'static const char* kProbe = R"({"desktop":"KDE"})";\n',
+            encoding="utf-8",
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("KDE", problems[0])
 
     def test_a_raw_string_does_not_hide_a_later_check(self) -> None:
         # The C++ twin of the Dart stripper bug: a raw string's body can hold a
