@@ -113,8 +113,26 @@ ln -sf "$PWD/build/linux/x64/release/bundle/linthra" ~/.local/bin/linthra   # or
 ```
 
 Confirm with `command -v linthra` before running A1, since a launcher entry
-that cannot start anything fails the row for the wrong reason. Uninstall by
-deleting the files installed above and that symlink.
+that cannot start anything fails the row for the wrong reason.
+
+**Remove all of it before the Flatpak pass, on the same account.** The entry
+installed above and the Flatpak's export carry the same desktop file id, and
+`~/.local/share` comes before the Flatpak exports directory in `XDG_DATA_DIRS`,
+so the native entry wins. A launcher click then starts the *native* build while
+you are recording G2 and the rows after it, and nothing on screen says so. Undo
+it the same way you did it:
+
+```bash
+rm -f ~/.local/share/applications/io.github.thezupzup.linthra.desktop \
+      ~/.local/share/icons/hicolor/*/apps/io.github.thezupzup.linthra.* \
+      ~/.local/bin/linthra
+update-desktop-database ~/.local/share/applications
+gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor
+```
+
+`gtk-launch io.github.thezupzup.linthra` is the quick way to confirm which one
+a launcher click would get: before G1 it should fail, and after it the window
+that opens should be the sandboxed one.
 
 ## Session facts to record first
 
@@ -195,7 +213,7 @@ of this.
 | D3 | **MPRIS position** | Let a track play and watch the widget's progress. Seek in the app. | The position advances and follows a seek, rather than sitting at zero. |
 | D4 | **MPRIS volume** | Move the volume slider in the desktop's media widget. Then mute in Linthra. Not every shell draws a per-player slider, and `Volume` is a read/write property either way, so when there is none drive it directly: `busctl --user set-property org.mpris.MediaPlayer2.linthra /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player Volume d 0.3` to move it, and `busctl --user get-property org.mpris.MediaPlayer2.linthra /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player Volume` to read it back. | Linthra's level follows the widget, or the `set-property`. Muting in Linthra takes the widget, or `get-property`, to zero. A shell that draws no slider is its own choice and not a failure, but the property answering is Linthra's half and this row still applies. |
 | D5 | **MPRIS raise and quit** | With background mode on (Settings ▸ Music & playback ▸ Desktop window) and the window closed while playing, use the widget's raise and quit affordances. Whether a shell draws those is its own choice, so when it does not, call the methods directly instead: `busctl --user call org.mpris.MediaPlayer2.linthra /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2 Raise`, and the same with `Quit`. | Raise brings the same window back, or, where the compositor's focus-stealing prevention intervenes, marks it as wanting attention (see [the differences table](#differences-linthra-does-not-normalize)). Quit stops playback, releases the bus name, and the entry disappears from the widget. A shell with no such buttons is not a failure of this row; a method that does nothing when called directly is. |
-| D6 | **Media keys** | Press play/pause, next and previous on a keyboard or headset that has them, with Linthra unfocused. | They reach Linthra. Both desktops route media keys to the active MPRIS player, so this is the same interface D2 uses and needs no key binding inside Linthra. |
+| D6 | **Media keys** | D5 ended by quitting Linthra, so start here: relaunch it and start a track, then move focus to another window. Press play/pause, next and previous on a keyboard or headset that has them, with Linthra unfocused. | They reach Linthra. Both desktops route media keys to the active MPRIS player, so this is the same interface D2 uses and needs no key binding inside Linthra. |
 | D7 | **Media keys with another player running** | Start any other MPRIS player, then repeat D6. | Whichever player the desktop considers active gets the key. Linthra does not grab keys globally and must not steal them. |
 | D8 | **Notifications** | Turn on Settings ▸ Music & playback ▸ Desktop notifications, then play through a few tracks. | One notification per track change, showing the title and the "Artist • Album" subtitle, plus the cover when there is one. Each replaces the last rather than stacking. |
 | D9 | **Notification identity** | Look at the notification's own icon and app name. | Linthra's icon and name, resolved from the installed desktop entry, not a generic bell. |
@@ -321,9 +339,16 @@ G5  Flatpak uninstall          .     .    .     .
 ```
 
 X11 columns only need re-running where the display server changes something:
-A2, A3, A4, A6, A7, A8, A10 and A11. Mark the rest `n/a` rather than repeating
-them. A11 is X11-only in the other direction: there is nothing to check for it
-under Wayland.
+A2, A3, A4, A5, A6, A7, A8, A10 and A11. Mark the rest `n/a` rather than
+repeating them. A11 is X11-only in the other direction: there is nothing to
+check for it under Wayland.
+
+**A5 is in that list because the minimum is a request, not a rule.** The runner
+sets it once, with `gtk_window_set_geometry_hints(..., GDK_HINT_MIN_SIZE)`, and
+GDK then delivers it through whichever backend is running: under X11 as
+`WM_NORMAL_HINTS` for the window manager to enforce, under Wayland as the
+toplevel's minimum size for the compositor. Different code path, different
+enforcer, so a Wayland pass says nothing about X11.
 
 **A2 is in that list for a reason that is easy to miss.** Window identity is
 not one mechanism checked once: Wayland reads the `xdg_toplevel` app id, and

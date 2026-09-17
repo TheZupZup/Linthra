@@ -425,35 +425,55 @@ DESKTOP_NAME_PATTERN = re.compile(
 #
 # See docs/desktop-compatibility-matrix.md, "Differences Linthra does not
 # normalize".
-# (file, literal) -> (the whole line it is excused on, reason). The line is
-# what binds the allowance to *this* check rather than to the name: counting
-# occurrences stops a duplicate, but on its own it would still excuse a
-# different comparison that happens to be the only one left.
+# (file, literal) -> (the whole statement it is excused in, reason). The
+# statement is what binds the allowance to *this* check rather than to the
+# name: counting occurrences stops a duplicate, but on its own it would still
+# excuse a different comparison that happens to be the only one left.
 #
 # It is matched whole, after collapsing runs of whitespace, rather than as a
-# substring, and each widening of it came from a way the narrower version was
+# substring, and each widening came from a way the narrower version was
 # satisfied by something that behaves differently:
 #
-#   g_strcmp0(wm_name, "GNOME Shell")          both `!= 0` and `== 0` match it,
-#                                              and they pick opposite desktops
-#   g_strcmp0(wm_name, "GNOME Shell") != 0     `!(... != 0)` contains it, and
-#                                              means the opposite again
+#   g_strcmp0(wm_name, "GNOME Shell")       `== 0` matches it, and picks the
+#                                           opposite desktops
+#   ... != 0                                `!(... != 0)` contains it, and
+#                                           means the opposite again
+#   if (... != 0) {                         the condition is pinned, but the
+#                                           body is not, so the branch can grow
+#                                           a `gtk_window_set_keep_above()`
 #
-# So the entry is the statement, and any edit to it, negation included, has to
-# come back through this table.
+# So the entry is the `if` and its braces, and any edit inside them has to come
+# back through this table. That is the point: what is grandfathered is one
+# decoration choice, not a licence for the branch to do other things.
 GRANDFATHERED_DESKTOP_NAME_CHECKS = {
     (
         Path("linux") / "runner" / "my_application.cc",
         "GNOME Shell",
     ): (
-        'if (g_strcmp0(wm_name, "GNOME Shell") != 0) {',
+        'if (g_strcmp0(wm_name, "GNOME Shell") != 0) { use_header_bar = FALSE; }',
         "X11-only title bar decoration style; GTK 3 has no xdg-decoration seam",
     ),
 }
 
 # The committed sources the neutrality scan covers. The rest of linux/ is CMake,
 # packaging metadata and icons, none of which can branch at runtime.
-NEUTRALITY_SOURCE_SUFFIXES = (".cc", ".cpp", ".h", ".hpp")
+#
+# Every extension CMake compiles as C or C++, not just the ones the runner uses
+# today. An allow-list that tracks the current file set is a guardrail that
+# stops applying the moment someone adds a `.c`, and it fails silently when it
+# does.
+NEUTRALITY_SOURCE_SUFFIXES = (
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".c++",
+    ".h",
+    ".hh",
+    ".hpp",
+    ".hxx",
+    ".h++",
+)
 
 
 class CheckError(Exception):
@@ -1049,6 +1069,65 @@ def _blank(source: str, *, comments: bool = True, strings: bool = False) -> str:
     return "".join(out)
 
 
+def _on_preprocessor_directive(code: str, offset: int) -> bool:
+    """Whether `offset` sits inside a preprocessor directive.
+
+    A directive is not one line. `#define SET_TITLE \\` continues onto the next
+    one, so a call written there has no `#` in front of it and reads as an
+    ordinary statement while still expanding nowhere. Walks back over the
+    continuation run and asks whether the line that started it is a directive.
+    """
+    start = code.rfind("\n", 0, offset) + 1
+    while start > 0:
+        previous_start = code.rfind("\n", 0, start - 1) + 1
+        if not code[previous_start : start - 1].rstrip().endswith("\\"):
+            break
+        start = previous_start
+    end = code.find("\n", start)
+    line = code[start:] if end == -1 else code[start:end]
+    return line.lstrip().startswith("#")
+
+
+def _statement_at(code: str, offset: int) -> str:
+    """The whole statement `offset` sits in, from the start of its line.
+
+    An allowance pinned to a condition says nothing about what the branch does,
+    and a branch excused for choosing a title bar style should not be able to
+    grow a `gtk_window_set_keep_above()` without anyone noticing. So the unit is
+    the whole `if`, brace style irrelevant: the statement runs to the first `;`,
+    or through the block when a `{` comes first, which covers both the brace on
+    the condition's line and the brace on the next one.
+
+    Braces and semicolons are read from source with strings *and* comments
+    blanked, because a `"}"` or a `";"` in a literal would otherwise end the
+    statement early and hand back half of it.
+    """
+    start = code.rfind("\n", 0, offset) + 1
+    end = code.find("\n", start)
+    end = len(code) if end == -1 else end
+    if _on_preprocessor_directive(code, offset):
+        # A directive has no statement to find; it ends with its own line, or
+        # with the last of its continuations.
+        while code[start:end].rstrip().endswith("\\"):
+            following = code.find("\n", end + 1)
+            end = len(code) if following == -1 else following
+        return code[start:end]
+
+    blanked = _blank(code, comments=True, strings=True)
+    depth = 0
+    for position in range(start, len(code)):
+        char = blanked[position]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return code[start : position + 1]
+        elif char == ";" and depth == 0:
+            return code[start : position + 1]
+    return code[start:end]
+
+
 def _collapse_spaces(text: str) -> str:
     """`text` with every run of whitespace reduced to one space, and trimmed.
 
@@ -1057,6 +1136,14 @@ def _collapse_spaces(text: str) -> str:
     the tokens on that line does.
     """
     return " ".join(text.split())
+
+
+# A string literal's opening, encoding prefix included. C++ allows `u8`, `u`,
+# `U` and `L`, each optionally in front of a raw string's `R`. They matter here
+# because they sit *between* two adjacent literals: without them `u8"K" u8"DE"`
+# looks like two strings with `u8` in the gap rather than the one string `KDE`
+# the compiler builds.
+C_LITERAL_OPENING = re.compile(r'(?:u8|u|U|L)?R?"')
 
 
 def _string_literals(code: str) -> list[tuple[int, str]]:
@@ -1086,29 +1173,41 @@ def _string_literals(code: str) -> list[tuple[int, str]]:
     index = 0
     length = len(code)
     while index < length:
-        char = code[index]
-        if code.startswith('R"', index):
-            open_paren = code.find("(", index + 2)
-            if open_paren == -1:
-                index += 2
-                continue
-            closing = ")" + code[index + 2 : open_paren] + '"'
-            found = code.find(closing, open_paren + 1)
-            body_end = length if found == -1 else found
-            end = length if found == -1 else found + len(closing)
-            pieces.append((index, end, code[open_paren + 1 : body_end]))
+        opening = C_LITERAL_OPENING.match(code, index)
+        # A prefix is only a prefix at a token boundary. Without this, the `L`
+        # in an identifier like `kURL` in front of a literal would be read as
+        # one, moving the reported offset back into the identifier.
+        if opening is not None and opening.end() - index > 1:
+            before = code[index - 1] if index else " "
+            if before.isalnum() or before == "_":
+                opening = None
+        if opening is not None:
+            quote = opening.end() - 1
+            if code[quote - 1] == "R":
+                open_paren = code.find("(", quote + 1)
+                if open_paren == -1:
+                    index = quote + 1
+                    continue
+                closing = ")" + code[quote + 1 : open_paren] + '"'
+                found = code.find(closing, open_paren + 1)
+                body_end = length if found == -1 else found
+                end = length if found == -1 else found + len(closing)
+                pieces.append((index, end, code[open_paren + 1 : body_end]))
+            else:
+                close = quote + 1
+                while close < length and code[close] != '"':
+                    close += 2 if code[close] == "\\" else 1
+                # `close` is the closing quote, or the end of the file when
+                # there is none. The body stops there either way; the span runs
+                # past it only when it is really a quote.
+                end = min(close + 1, length)
+                pieces.append((index, end, code[quote + 1 : min(close, length)]))
             index = end
-        elif char == '"' or char == "'":
+        elif code[index] == "'":
             close = index + 1
-            while close < length and code[close] != char:
+            while close < length and code[close] != "'":
                 close += 2 if code[close] == "\\" else 1
-            # `close` is the closing quote, or the end of the file when there
-            # is none. The body stops there either way; the span runs past it
-            # only when it is really a quote.
-            end = min(close + 1, length)
-            if char == '"':
-                pieces.append((index, end, code[index + 1 : min(close, length)]))
-            index = end
+            index = min(close + 1, length)
         else:
             index += 1
 
@@ -1322,16 +1421,17 @@ def window_title_problems(root: Path) -> list[str]:
 
     where = matches[0].start()
 
-    # A match on a preprocessor directive line is text, not a statement:
+    # A match inside a preprocessor directive is text, not a statement:
     # `#define SET_TITLE gtk_window_set_title(window, kApplicationName)` sits
     # inside the function, satisfies every rule below, and expands nowhere.
-    line_start = code.rfind("\n", 0, where) + 1
-    if code[line_start:where].lstrip().startswith("#"):
+    # Continuation lines count as part of the directive, or the same `#define`
+    # split across two lines reads as an ordinary call.
+    if _on_preprocessor_directive(code, where):
         problems.append(
             f"{MY_APPLICATION}: the only "
-            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is on a "
-            "preprocessor directive line, so it is a macro body rather than a "
-            "call the runner makes"
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is inside "
+            "a preprocessor directive, so it is a macro body rather than a call "
+            "the runner makes"
         )
         return problems
 
@@ -1421,10 +1521,11 @@ def desktop_environment_checks(
 
     Returns `(file, line, literal, what, expression)` for every string literal
     that names a desktop environment or reads one of the environment variables a
-    session sets. `expression` is the *comment-stripped* line the literal sits
-    on, which is what lets an allowance be tied to one comparison rather than to
-    a name; taking it from the raw source would let a comment quoting the
-    expected expression satisfy the allowance for an unrelated live check.
+    session sets. `expression` is the *comment-stripped* statement the literal
+    sits in, braced body included, which is what lets an allowance be tied to
+    one check rather than to a name; taking it from the raw source would let a
+    comment quoting the expected statement satisfy the allowance for an
+    unrelated live check.
     Grandfathered entries are filtered out by the caller, so this stays a plain
     scan.
 
@@ -1452,13 +1553,10 @@ def desktop_environment_checks(
         for offset, literal in _string_literals(code):
             line = code.count("\n", 0, offset) + 1
             # From the *blanked* code rather than the raw source: a comment
-            # carrying the old expression would otherwise satisfy the
-            # allowance's substring test while the live comparison next to it
-            # is something else entirely.
-            stripped_lines = code.splitlines()
-            expression = (
-                stripped_lines[line - 1] if 1 <= line <= len(stripped_lines) else ""
-            )
+            # carrying the old statement would otherwise satisfy the
+            # allowance's test while the live comparison next to it is
+            # something else entirely.
+            expression = _statement_at(code, offset)
             if literal in DESKTOP_SESSION_ENV_VARS:
                 findings.append(
                     (
@@ -1506,9 +1604,9 @@ def desktop_neutrality_problems(root: Path) -> list[str]:
                 continue
             if _collapse_spaces(expected) != _collapse_spaces(expression):
                 problems.append(
-                    f"{relative}:{line}: {literal!r} is excused only on the "
-                    f"line {expected!r} ({reason}), and here the line is "
-                    f"{expression.strip()!r}. The allowance is that one "
+                    f"{relative}:{line}: {literal!r} is excused only in "
+                    f"{expected!r} ({reason}), and here the statement is "
+                    f"{_collapse_spaces(expression)!r}. The allowance is that one "
                     "statement, not the name and not anything containing it: "
                     "flipping the operator, or wrapping the whole comparison "
                     "in a negation, reverses which desktop it picks while "

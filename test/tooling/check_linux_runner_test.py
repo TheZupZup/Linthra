@@ -898,7 +898,22 @@ class WindowTitleTest(CheckoutCase):
                 )
             )
         )
-        self.assertIn("preprocessor directive line", problem)
+        self.assertIn("inside a preprocessor directive", problem)
+
+    def test_a_title_in_a_continued_macro_definition_is_caught(self) -> None:
+        # A directive is not one line. Split the same `#define` with a
+        # backslash and the call sits on a line with no `#` on it, which is
+        # what the one-line rule looked for.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "#define SET_TITLE \\\n"
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                )
+            )
+        )
+        self.assertIn("inside a preprocessor directive", problem)
 
     def test_a_title_set_outside_activate_is_caught(self) -> None:
         # Setting it somewhere else entirely compiles and runs; it just never
@@ -1089,7 +1104,7 @@ class DesktopNeutralityTest(CheckoutCase):
         )
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("excused only on the line", problems[0])
+        self.assertIn("excused only in", problems[0])
         self.assertIn("not the name", problems[0])
 
     def test_a_comment_does_not_supply_the_allowed_expression(self) -> None:
@@ -1108,7 +1123,7 @@ class DesktopNeutralityTest(CheckoutCase):
         )
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("excused only on the line", problems[0])
+        self.assertIn("excused only in", problems[0])
 
     def test_the_allowance_does_not_cover_a_flipped_comparison(self) -> None:
         # `!= 0` to `== 0` is one character and it swaps which desktop gets the
@@ -1123,7 +1138,7 @@ class DesktopNeutralityTest(CheckoutCase):
         )
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("excused only on the line", problems[0])
+        self.assertIn("excused only in", problems[0])
 
     def test_a_desktop_name_inside_a_raw_string_is_caught(self) -> None:
         # A raw string's body can hold its own quotes. Scanning for ordinary
@@ -1156,9 +1171,9 @@ class DesktopNeutralityTest(CheckoutCase):
         )
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("excused only on the line", problems[0])
+        self.assertIn("excused only in", problems[0])
 
-    def test_reindenting_the_allowed_line_is_fine(self) -> None:
+    def test_reformatting_the_allowed_statement_is_fine(self) -> None:
         # The other half of matching the line whole: it is compared with runs
         # of whitespace collapsed, so a reformat is not a finding. Only the
         # tokens matter.
@@ -1202,6 +1217,62 @@ class DesktopNeutralityTest(CheckoutCase):
             encoding="utf-8",
         )
         self.assertEqual(checker.desktop_neutrality_problems(self.root), [])
+
+    def test_the_allowance_does_not_cover_extra_work_in_the_branch(self) -> None:
+        # The condition is untouched. What is grandfathered is one decoration
+        # choice, so a branch that starts doing something else to the window is
+        # a new desktop-specific behaviour wearing the old exception.
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                "    use_header_bar = FALSE;\n",
+                "    use_header_bar = FALSE;\n"
+                "    gtk_window_set_keep_above(window, TRUE);\n",
+            ),
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("excused only in", problems[0])
+
+    def test_a_brace_on_its_own_line_is_the_same_statement(self) -> None:
+        # Brace style is formatting, not behaviour. The statement runs to the
+        # block either way, so moving the `{` down a line is not a finding.
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {\n',
+                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0)\n  {\n',
+            ),
+        )
+        self.assertEqual(checker.desktop_neutrality_problems(self.root), [])
+
+    def test_prefixed_adjacent_literals_are_joined(self) -> None:
+        # `u8"K" u8"DE"` is `KDE` to the compiler. The prefix sits between the
+        # two, so reading it as a gap leaves the name in neither half.
+        build_checkout(self.root)
+        (self.root / "linux" / "runner" / "folder_picker_channel.cc").write_text(
+            FOLDER_PICKER_CHANNEL.format(
+                channel=FOLDER_PICKER_CHANNEL_NAME,
+                method=FOLDER_PICKER_METHOD_NAME,
+            )
+            + 'static const char* kShell = u8"K" u8"DE";\n',
+            encoding="utf-8",
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("'KDE'", problems[0])
+
+    def test_a_desktop_check_in_a_plain_c_source_is_caught(self) -> None:
+        # The scan is for future Linux integrations, not for today's file set,
+        # and CMake compiles more than `.cc`.
+        build_checkout(self.root)
+        (self.root / "linux" / "runner" / "probe.c").write_text(
+            'static const char* kShell = "KDE";\n',
+            encoding="utf-8",
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("probe.c", problems[0])
 
     def test_a_raw_string_does_not_hide_a_later_check(self) -> None:
         # The C++ twin of the Dart stripper bug: a raw string's body can hold a

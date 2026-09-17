@@ -83,43 +83,6 @@ void main() {
     caseSensitive: false,
   );
 
-  /// The offset just past the string literal starting at [start].
-  ///
-  /// Handles the four quote forms plus the `r` prefix. Nothing is blanked:
-  /// string contents are exactly what the scan is looking for, so this only
-  /// moves the cursor past them.
-  int skipString(String source, int start) {
-    int index = start;
-    final bool raw = source[index] == 'r';
-    if (raw) {
-      index++;
-    }
-    final String quote = source[index];
-    final String triple = quote * 3;
-    if (source.startsWith(triple, index)) {
-      final int close = source.indexOf(triple, index + 3);
-      return close == -1 ? source.length : close + 3;
-    }
-    index++;
-    while (index < source.length) {
-      final String char = source[index];
-      if (char == '\n') {
-        // An unterminated single-quoted string. Stop at the line rather than
-        // running to the end of the file.
-        return index;
-      }
-      if (!raw && char == r'\') {
-        index += 2;
-        continue;
-      }
-      if (char == quote) {
-        return index + 1;
-      }
-      index++;
-    }
-    return source.length;
-  }
-
   /// [source] with `//` and `/* */` comments replaced by spaces of the same
   /// length, so an offset into the result is an offset into the original.
   ///
@@ -139,13 +102,7 @@ void main() {
     final List<String> out = source.split('');
     int index = 0;
     while (index < source.length) {
-      final String char = source[index];
-      final bool opensString = char == "'" ||
-          char == '"' ||
-          (char == 'r' &&
-              index + 1 < source.length &&
-              (source[index + 1] == "'" || source[index + 1] == '"'));
-      if (opensString) {
+      if (opensString(source, index)) {
         index = skipString(source, index);
       } else if (source.startsWith('//', index)) {
         int end = source.indexOf('\n', index);
@@ -193,8 +150,10 @@ void main() {
   }
 
   /// The seam between two adjacent string literals: a closing quote, nothing
-  /// but whitespace, an opening quote.
-  final RegExp literalSeam = RegExp('["\']\\s*["\']');
+  /// but whitespace and an optional `r` prefix, an opening quote. The prefix is
+  /// in there because it sits *between* the two, so `'K' r'DE'` would otherwise
+  /// look like two strings rather than the one string `KDE` Dart builds.
+  final RegExp literalSeam = RegExp('["\']\\s*r?["\']');
 
   /// [code] with those seams closed up, and a map from each offset in the
   /// result back to the offset it came from.
@@ -448,6 +407,27 @@ void main() {
     expect(desktopName.allMatches(code), isEmpty);
   });
 
+  test('a nested literal inside an interpolation is not the outer close', () {
+    // Valid Dart, and the shape that broke everything after it: taking the
+    // quote that opens `'*/*'` for the outer string's close leaves the cursor
+    // inside that literal, where the `/*` opens a block comment with no `*/`
+    // after it.
+    const String sample = "final String v = '"
+        "\${format('*/*')}';\n"
+        "const String kept = 'value';\n";
+    final String code = withoutComments(sample);
+    expect(code.contains('const String kept'), isTrue);
+    expect(code, equals(sample));
+  });
+
+  test('an r-prefixed adjacent literal still joins', () {
+    // The `r` sits between the two literals, so the seam has to allow for it.
+    const String sample = "const String shell = 'K' r'DE';\n";
+    final (String code, _) = withoutLiteralSeams(withoutComments(sample));
+    expect(desktopName.allMatches(code).length, 1);
+    expect(desktopName.firstMatch(code)!.group(0), 'KDE');
+  });
+
   test('the scan reads code and ignores prose', () {
     // Guards the scan itself: a doc comment naming both desktops (this file
     // has several) must not count, and the same word in code must.
@@ -459,4 +439,91 @@ void main() {
     expect(desktopName.allMatches(code).length, 1);
     expect(desktopName.firstMatch(code)!.group(0), 'gnome');
   });
+}
+
+/// Whether a string literal starts at [at], `r` prefix included.
+bool opensString(String source, int at) {
+  final String char = source[at];
+  if (char == "'" || char == '"') {
+    return true;
+  }
+  return char == 'r' &&
+      at + 1 < source.length &&
+      (source[at + 1] == "'" || source[at + 1] == '"');
+}
+
+/// The offset just past the string literal starting at [start].
+///
+/// Handles the four quote forms plus the `r` prefix. Nothing is blanked:
+/// string contents are exactly what the scan is looking for, so this only
+/// moves the cursor past them.
+///
+/// `${...}` interpolations are stepped through rather than read as text,
+/// because the expression inside one can hold string literals of its own and
+/// those can hold anything. Taking the first quote of a nested literal for
+/// the outer string's close leaves the cursor *inside* that literal, and a
+/// `/*` in it then opens a block comment that blanks the rest of the file.
+/// `'${format('*/*')}'` is valid Dart and does exactly that.
+int skipString(String source, int start) {
+  int index = start;
+  final bool raw = source[index] == 'r';
+  if (raw) {
+    index++;
+  }
+  final String quote = source[index];
+  final bool triple = source.startsWith(quote * 3, index);
+  final String terminator = triple ? quote * 3 : quote;
+  index += terminator.length;
+  while (index < source.length) {
+    if (source.startsWith(terminator, index)) {
+      return index + terminator.length;
+    }
+    final String char = source[index];
+    if (!raw && char == r'\') {
+      index += 2;
+      continue;
+    }
+    if (!triple && char == '\n') {
+      // An unterminated single-quoted string. Stop at the line rather than
+      // running to the end of the file.
+      return index;
+    }
+    if (!raw &&
+        char == r'$' &&
+        index + 1 < source.length &&
+        source[index + 1] == '{') {
+      index = skipInterpolation(source, index + 2);
+      continue;
+    }
+    index++;
+  }
+  return source.length;
+}
+
+/// The offset just past the `}` that closes a `${` opened just before
+/// [start].
+///
+/// Nested literals are handed back to [skipString], so an interpolation
+/// holding a string holding another interpolation still ends in the right
+/// place. Braces are counted so `${a${b}c}` does not stop at the inner one.
+int skipInterpolation(String source, int start) {
+  int depth = 1;
+  int index = start;
+  while (index < source.length) {
+    if (opensString(source, index)) {
+      index = skipString(source, index);
+      continue;
+    }
+    final String char = source[index];
+    if (char == '{') {
+      depth++;
+    } else if (char == '}') {
+      depth--;
+      if (depth == 0) {
+        return index + 1;
+      }
+    }
+    index++;
+  }
+  return source.length;
 }
