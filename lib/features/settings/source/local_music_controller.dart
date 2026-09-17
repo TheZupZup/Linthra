@@ -1,15 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/sources/local/android_media_library.dart';
 import '../../../core/sources/local/folder_location.dart';
 import '../../../core/sources/local/local_music_roots.dart';
-import '../../../core/sources/local/local_root_probe.dart';
+import '../../../core/sources/local/local_root_availability.dart';
+import '../../../core/sources/local/local_root_fault.dart';
 import '../../../core/sources/local/local_scan_report.dart';
 import '../../../data/repositories/host_platform_provider.dart';
 import '../../library/library_controller.dart';
 import '../../library/library_providers.dart';
 import '../../library/local_root_availability_controller.dart';
-import '../../library/local_scan_report_provider.dart';
 import '../../library/selected_folder_controller.dart';
 
 /// Transient state for the Settings ▸ Local music card.
@@ -104,6 +106,130 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     );
   }
 
+  /// Asks one folder again, because the user says it should be back.
+  ///
+  /// The probe first, then a scan: a folder that is still away must not cost a
+  /// full walk of the library to say so, and a folder that *is* back needs the
+  /// ordinary incremental scan to pick up whatever changed while it was gone.
+  /// The scan covers the whole selection because that is the only entry point
+  /// that writes the local catalog. A folder-specific write would be a second
+  /// way to build the same slice, and the two would drift.
+  ///
+  /// Nothing here can remove a folder, change the selection, or substitute a
+  /// path. The worst case is "still can't reach it", said plainly.
+  Future<void> retryFolder(String folder) async {
+    state = const LocalMusicActionState(busy: true);
+    // Asked before the probe, because a folder that was away and is now back is
+    // a folder availability tracking has *already* refreshed: coming back is
+    // what the return trip exists to notice, and it runs the same incremental
+    // scan this would.
+    final bool wasAway =
+        ref.read(localRootAvailabilityProvider).isUnavailable(folder);
+    await ref.read(localRootAvailabilityProvider.notifier).recheck(folder);
+    final LocalLibraryAvailability availability =
+        ref.read(localRootAvailabilityProvider);
+    final LocalRootFault? fault = availability.faultFor(folder);
+    if (fault != null) {
+      state = LocalMusicActionState(
+        message: _stillUnreachable(fault, FolderLocation.parse(folder)),
+        isError: true,
+      );
+      return;
+    }
+    if (wasAway && availability.isAvailable(folder)) {
+      // It came back, and the reconnect already walked the selection. Walking
+      // it again here would read every configured folder a second time for
+      // nothing, which on a large library is the difference between Retry
+      // feeling instant and feeling broken.
+      state = const LocalMusicActionState();
+      return;
+    }
+    final List<String> folders = _selectedFolders();
+    if (folders.isEmpty) {
+      state = const LocalMusicActionState();
+      return;
+    }
+    await _scan(folders);
+  }
+
+  /// Replaces one folder with a folder the user picks, leaving the others
+  /// alone.
+  ///
+  /// This is the *only* way a configured folder's path ever changes, and it
+  /// goes through the system chooser every time: a drive that came back at a
+  /// different mount point is a different path, Linthra cannot prove it is the
+  /// same hardware, and adopting it silently would point a library at somebody
+  /// else's files. Cancelling changes nothing at all.
+  ///
+  /// Transactional, the same way switching to device-wide music is: the
+  /// replacement is scanned first and saved only if that scan could read
+  /// something. A replacement that fails on its first walk (an unsupported SAF
+  /// provider, a network folder that dropped) writes nothing, so saving it
+  /// would leave the library holding the old folder's tracks while naming a
+  /// folder that never contributed any: music the app can no longer place, and
+  /// no way back to the folder it came from.
+  Future<void> reselectFolder(String folder) async {
+    state = const LocalMusicActionState(busy: true);
+    final String? picked = await ref
+        .read(selectedFolderControllerProvider.notifier)
+        .pickReplacementFor(folder);
+    if (picked == null || picked.isEmpty) {
+      // Cancelled. The folder that could not be read is still selected, its
+      // music is still indexed, and nothing was written.
+      state = const LocalMusicActionState();
+      return;
+    }
+    final List<String>? replaced = ref
+        .read(selectedFolderControllerProvider.notifier)
+        .selectionReplacing(folder, picked);
+    if (replaced == null) {
+      // The folder stopped being selected while the chooser was open. Nothing
+      // to put anywhere, and nothing here may add a folder the user did not
+      // ask for.
+      state = const LocalMusicActionState();
+      return;
+    }
+    if (replaced.isEmpty) {
+      // Only possible if the picked folder normalized away to nothing; there is
+      // no local source left to scan, so clear the slice the way Remove does.
+      await ref
+          .read(selectedFolderControllerProvider.notifier)
+          .replaceAndPersist(folder, picked);
+      await ref.read(libraryControllerProvider.notifier).clearLocalCatalog();
+      state = const LocalMusicActionState();
+      return;
+    }
+    // Ask the replacement itself before the scan, not only after it. A scan
+    // that could read some *other* folder writes the catalog for the roots it
+    // was given, which drops the replaced folder's tracks: by the time an
+    // aggregate report says "partly failed" the music is already gone, and
+    // neither committing nor backing out can bring it back. One probe up front
+    // is the only point where nothing has happened yet.
+    final LocalRootFault? unreadable =
+        (await ref.read(localRootProbeProvider).inspect(picked))?.fault;
+    if (unreadable != null) {
+      state = LocalMusicActionState(
+        message: _replacementUnreadable(unreadable),
+        isError: true,
+      );
+      return;
+    }
+    // Picking the *same* folder again is a real fix, not a no-op: it is how a
+    // revoked portal document is re-granted, so this scans either way.
+    final LocalScanReport? report = await _scan(replaced);
+    if (report == null || report.hadError) return;
+    // What the scan had to say, held back until the selection it describes is
+    // actually stored. Nothing renders in between: there is no await between
+    // reading it and going busy again, so no frame can catch the card offering
+    // Retry and Reselect over a selection that is still being written.
+    final LocalMusicActionState outcome = state;
+    state = const LocalMusicActionState(busy: true);
+    await ref
+        .read(selectedFolderControllerProvider.notifier)
+        .replaceAndPersist(folder, picked);
+    state = outcome;
+  }
+
   /// Opts into Android's device-wide shared music library.
   ///
   /// The switch is transactional: the permission is requested, the first
@@ -118,7 +244,7 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     final AndroidMusicPermissionStatus status =
         await ref.read(androidMediaLibraryProvider).requestPermission();
     ref.invalidate(androidMusicPermissionStatusProvider);
-    ref.invalidate(localFolderAccessProvider);
+    unawaited(ref.read(localRootAvailabilityProvider.notifier).refresh());
     if (status != AndroidMusicPermissionStatus.allowed) {
       state = const LocalMusicActionState(
         message: 'Device music access was not granted. You can keep using a '
@@ -140,12 +266,11 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     await ref
         .read(selectedFolderControllerProvider.notifier)
         .setAndPersist(FolderLocation.androidMediaStoreAudio);
-    ref.invalidate(localFolderAccessProvider);
   }
 
   Future<void> refreshAndroidPermissionStatus() async {
     ref.invalidate(androidMusicPermissionStatusProvider);
-    ref.invalidate(localFolderAccessProvider);
+    await ref.read(localRootAvailabilityProvider.notifier).refresh();
   }
 
   Future<void> openAndroidPermissions() async {
@@ -249,6 +374,58 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     return report;
   }
 
+  /// What Retry says when the folder is still away. Worded from the fault, so
+  /// "put the drive back" and "fix the permissions" are never swapped, and
+  /// never carrying an OS message, only the kind.
+  static String _stillUnreachable(LocalRootFault fault, FolderLocation from) {
+    // Android's device-wide library is not a folder: it has no permissions to
+    // check and no chooser to be picked in again, and the panel beside this
+    // message deliberately offers no Reselect. Sending that user to a folder
+    // they do not have would be the same wrong advice this whole change is
+    // about, said one layer down.
+    if (from.isAndroidMediaStore) {
+      return fault == LocalRootFault.permissionDenied
+          ? "Linthra still isn't allowed to read this device's music library. "
+              'Re-enable music access in Android settings, or use a folder '
+              'instead.'
+          : "Linthra still couldn't read this device's music library. Try "
+              'again, or use a folder instead.';
+    }
+    switch (fault) {
+      case LocalRootFault.missing:
+        return "That folder still isn't there. Reconnect the drive, or select "
+            'the folder again if the music moved.';
+      case LocalRootFault.permissionDenied:
+        return "Linthra still isn't allowed to read that folder. Check its "
+            'permissions, or select the folder again.';
+      case LocalRootFault.unavailable:
+        return 'That storage still is not responding. Reconnect it and try '
+            'again.';
+      case LocalRootFault.unknown:
+        return "Linthra still couldn't read that folder. Try selecting it "
+            'again.';
+    }
+  }
+
+  /// Why a folder the user just picked was not taken. Said before anything is
+  /// stored or written, so it promises nothing changed and means it.
+  static String _replacementUnreadable(LocalRootFault fault) {
+    switch (fault) {
+      case LocalRootFault.missing:
+        return "Linthra can't find that folder, so your library was left as it "
+            'was. Reconnect the drive, or pick another folder.';
+      case LocalRootFault.permissionDenied:
+        return "Linthra isn't allowed to read that folder, so your library was "
+            'left as it was. Check its permissions, or pick another folder.';
+      case LocalRootFault.unavailable:
+        return "That folder's storage isn't responding, so your library was "
+            'left as it was. Reconnect it, or pick another folder.';
+      case LocalRootFault.unknown:
+        return "Linthra couldn't read that folder, so your library was left as "
+            'it was. Try again, or pick another folder.';
+    }
+  }
+
   static String _unavailableSuffix(int unavailable) {
     final String folders = unavailable == 1 ? 'folder' : 'folders';
     return '$unavailable $folders could not be read, so their music was kept '
@@ -265,34 +442,25 @@ final localMusicControllerProvider =
 ///
 /// Keyed by folder, so the Settings list can flag exactly the one whose drive
 /// is unplugged instead of declaring the whole library broken. A folder Linthra
-/// cannot answer for on this platform is left out of the map rather than
-/// reported as unreachable.
-final localFolderAccessProvider =
-    FutureProvider<Map<String, bool>>((ref) async {
-  final List<String> folders =
-      ref.watch(selectedFolderControllerProvider).valueOrNull ?? <String>[];
-  // Re-probed after every scan. Access is lost while the app runs (a drive
-  // unplugged, a Flatpak portal document revoked) and the *selection* never
-  // changes when that happens, so a rescan is the user's natural moment to find
-  // out.
-  ref.watch(localScanReportProvider);
-  final LocalRootProbe probe = ref.watch(localRootProbeProvider);
-  final Map<String, bool> access = <String, bool>{};
-  for (final String folder in folders) {
-    // Null means nothing here can answer for this folder (a SAF grant off
-    // Android, a raw path on a platform that does not read paths). Leave it out
-    // rather than calling a folder Linthra cannot see "lost".
-    final bool? reachable = await probe.isAvailable(folder);
-    if (reachable != null) access[folder] = reachable;
-  }
-  return access;
+/// cannot answer for on this platform, and one nothing has answered for yet,
+/// are both left out of the map rather than reported as unreachable.
+///
+/// Derived, never probed: [localRootAvailabilityProvider] already owns the one
+/// probe, the one poll and the one set of rules for "can Linthra read this
+/// folder?". Asking storage a second question here is exactly how the card and
+/// the library screen would come to disagree about one drive.
+final localFolderAccessProvider = Provider<Map<String, bool>>((ref) {
+  return ref.watch(localRootAvailabilityProvider).reachability;
+});
+
+/// The unreachable folders and what is wrong with each. What the recovery UI
+/// renders: one entry per folder that needs the user, each carrying its own fix.
+final localRootFaultsProvider = Provider<Map<String, LocalRootFault>>((ref) {
+  return ref.watch(localRootAvailabilityProvider).faults;
 });
 
 /// Whether any selected folder is currently unreachable — the one-line answer
 /// the compact source card needs.
 final localFolderAccessLostProvider = Provider<bool>((ref) {
-  final Map<String, bool>? access =
-      ref.watch(localFolderAccessProvider).valueOrNull;
-  if (access == null) return false;
-  return access.values.any((bool reachable) => !reachable);
+  return ref.watch(localRootAvailabilityProvider).hasUnavailableRoots;
 });

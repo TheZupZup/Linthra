@@ -1,5 +1,8 @@
 import 'package:flutter/foundation.dart';
 
+import 'local_music_roots.dart';
+import 'local_root_fault.dart';
+
 /// Whether one configured local music root can be reached **right now**, as
 /// opposed to whether it is configured at all.
 ///
@@ -45,20 +48,26 @@ extension LocalRootAvailabilityStatus on LocalRootAvailability {
 /// One configured root's availability, plus when that was last established.
 ///
 /// A value type, so a Riverpod rebuild only fires on a real change and tests can
-/// compare states directly. It carries the configured root and timestamps and
-/// nothing else: no error text, no device identity, no substitute path.
+/// compare states directly. It carries the configured root, a failure *kind*
+/// and timestamps, and nothing else: no error text, no device identity, no
+/// substitute path.
 @immutable
 class LocalRootState {
   const LocalRootState({
     required this.root,
     required this.availability,
+    this.fault,
     this.lastCheckedAt,
     this.lastAvailableAt,
-  });
+  }) : assert(
+          availability == LocalRootAvailability.unavailable || fault == null,
+          'only an unavailable root has a fault',
+        );
 
   /// A newly tracked root: configured, not yet probed.
   const LocalRootState.checking(this.root)
       : availability = LocalRootAvailability.checking,
+        fault = null,
         lastCheckedAt = null,
         lastAvailableAt = null;
 
@@ -72,6 +81,13 @@ class LocalRootState {
 
   final LocalRootAvailability availability;
 
+  /// Why this root is not reachable, when it is not. Null while it is
+  /// available and while nothing has answered for it yet.
+  ///
+  /// A kind, never a message: this is what the recovery UI branches on, and it
+  /// is the only thing about a failure that ever leaves the storage layer.
+  final LocalRootFault? fault;
+
   /// When a probe last answered for this root, or null when none has.
   final DateTime? lastCheckedAt;
 
@@ -84,13 +100,17 @@ class LocalRootState {
   bool get isUnavailable => availability.isUnavailable;
   bool get isChecking => availability.isChecking;
 
-  /// This root after a probe answered [available] at [at].
-  LocalRootState settled({required bool available, required DateTime at}) {
+  /// This root after a probe answered at [at]: available when [fault] is null,
+  /// and unavailable for that fault otherwise.
+  LocalRootState settled(
+      {required LocalRootFault? fault, required DateTime at}) {
+    final bool available = fault == null;
     return LocalRootState(
       root: root,
       availability: available
           ? LocalRootAvailability.available
           : LocalRootAvailability.unavailable,
+      fault: fault,
       lastCheckedAt: at,
       lastAvailableAt: available ? at : lastAvailableAt,
     );
@@ -102,15 +122,17 @@ class LocalRootState {
       (other is LocalRootState &&
           other.root == root &&
           other.availability == availability &&
+          other.fault == fault &&
           other.lastCheckedAt == lastCheckedAt &&
           other.lastAvailableAt == lastAvailableAt);
 
   @override
   int get hashCode =>
-      Object.hash(root, availability, lastCheckedAt, lastAvailableAt);
+      Object.hash(root, availability, fault, lastCheckedAt, lastAvailableAt);
 
   @override
-  String toString() => 'LocalRootState($root, ${availability.name})';
+  String toString() => 'LocalRootState($root, ${availability.name}'
+      '${fault == null ? '' : ', ${fault!.name}'})';
 }
 
 /// The availability of every configured local root, keyed by root.
@@ -134,15 +156,36 @@ class LocalLibraryAvailability {
 
   /// This root's state, or null when it is not tracked (not configured, or not
   /// answerable here).
-  LocalRootState? stateFor(String root) => roots[root];
+  ///
+  /// The key is canonicalized on the way in, because these are keyed by the
+  /// canonical spelling while a caller holds whatever the user's selection
+  /// says. A stored `/media/usb/Music/` asking about `/media/usb/Music` is the
+  /// same folder, and answering "nothing is wrong with it" because of a
+  /// trailing separator would show a drive that is out as perfectly healthy,
+  /// with no way to fix it.
+  LocalRootState? stateFor(String root) =>
+      roots[LocalMusicRoots.canonicalize(root)];
 
   /// Whether [root] was last found reachable. False for an untracked root: the
   /// caller asked about a folder nothing here can speak for.
-  bool isAvailable(String root) => roots[root]?.isAvailable ?? false;
+  bool isAvailable(String root) => stateFor(root)?.isAvailable ?? false;
 
   /// Whether [root] was proven unreachable. Only a settled probe says yes, so
   /// "not checked yet" never reads as "gone".
-  bool isUnavailable(String root) => roots[root]?.isUnavailable ?? false;
+  bool isUnavailable(String root) => stateFor(root)?.isUnavailable ?? false;
+
+  /// Why [root] is unreachable, or null when it is fine, untracked, or nothing
+  /// has answered for it yet.
+  LocalRootFault? faultFor(String root) => stateFor(root)?.fault;
+
+  /// The unreachable roots and what is wrong with each, in the order they are
+  /// tracked. What the recovery UI renders: one entry per folder that needs the
+  /// user, each carrying its own fix.
+  Map<String, LocalRootFault> get faults => <String, LocalRootFault>{
+        for (final LocalRootState state in roots.values)
+          if (state.isUnavailable)
+            state.root: state.fault ?? LocalRootFault.unknown,
+      };
 
   Set<String> get availableRoots => <String>{
         for (final LocalRootState state in roots.values)

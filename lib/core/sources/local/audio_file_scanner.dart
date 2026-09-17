@@ -3,6 +3,7 @@ import 'dart:io';
 import 'directory_readability.dart';
 import 'folder_location.dart';
 import 'folder_scan_exception.dart';
+import 'local_root_fault.dart';
 import 'saf_tree_uri_resolver.dart';
 
 /// Discovers files under a folder on the device.
@@ -43,35 +44,25 @@ class IoAudioFileScanner implements AudioFileScanner {
 
   @override
   Future<List<String>> listFiles(String folder) async {
-    final Directory root = Directory(folder);
-    if (!await root.exists()) {
-      // Gone rather than unreadable: the drive was unmounted, the folder was
-      // moved or deleted, or — in the Flatpak — the portal document that
-      // exposed the user's chosen folder was revoked, which removes the path
-      // rather than making it unreadable. All of them are recoverable by
-      // reselecting, and none of them mean "there is no music here", so this
-      // must not return an empty list: that would be stored as a successful
-      // scan and wipe the catalog the user still has files for.
-      throw FolderScanException(
-        "Linthra couldn't find the selected folder. It may have been moved or "
-        'removed, the drive may not be connected, or access to it was '
-        'revoked. Try selecting the folder again.',
-        folder: folder,
-      );
-    }
-
     // Walk one directory at a time (rather than `list(recursive: true)`) so a
     // single unreadable *subfolder* — common under scoped storage / on removable
     // SD cards — is skipped instead of aborting the whole scan and zeroing out
     // the library. `followLinks: false` keeps symlinked directories from being
     // descended, avoiding cycles.
     //
-    // The selected *root* is different: if it exists but cannot be listed
-    // (access revoked, the mount went away), surface that as a failure rather
-    // than returning an empty list — an empty result would be persisted as a
-    // successful "no music" scan and wipe the existing catalog.
+    // The selected *root* is different: if it cannot be listed at all (it is
+    // gone, the mount went away, access was revoked), surface that as a failure
+    // rather than returning an empty list. An empty result would be persisted
+    // as a successful "no music" scan and wipe a catalog the user's files are
+    // still behind.
+    //
+    // The root's own failure is classified rather than merely reported: a
+    // folder that was deleted, one this process may not read, and one whose
+    // storage stopped answering have three different fixes, and the errno the
+    // walk already has is the only place that distinction exists. It travels
+    // on the exception's [FolderScanException.code], never as raw OS text.
     final List<String> paths = <String>[];
-    final List<Directory> pending = <Directory>[root];
+    final List<Directory> pending = <Directory>[Directory(folder)];
     bool isRoot = true;
     while (pending.isNotEmpty) {
       final Directory directory = pending.removeLast();
@@ -87,14 +78,9 @@ class IoAudioFileScanner implements AudioFileScanner {
             pending.add(entity);
           }
         }
-      } on FileSystemException {
+      } on FileSystemException catch (error) {
         if (wasRoot) {
-          throw FolderScanException(
-            "Linthra couldn't read the selected folder. Access to it may have "
-            'been revoked, or the storage was removed. Try selecting the '
-            'folder again.',
-            folder: folder,
-          );
+          throw rootFaultException(folder, classifyFilesystemFault(error));
         }
         // Unreadable subtree: skip it and keep scanning the rest.
         continue;
@@ -111,16 +97,49 @@ class IoAudioFileScanner implements AudioFileScanner {
     // which is the one thing that must never happen. So a folder that has gone
     // away since the walk began is reported exactly like one that was already
     // gone: unavailable, keep what is indexed.
-    if (!await _presence.canList(folder)) {
+    final LocalRootFault? interrupted = await _presence.inspect(folder);
+    if (interrupted != null) {
       throw FolderScanException(
         "Linthra couldn't finish reading the selected folder. The drive may "
         'have been disconnected while it was being scanned. Reconnect it, or '
         'try selecting the folder again.',
         folder: folder,
+        code: interrupted.code,
       );
     }
     return paths;
   }
+}
+
+/// The recoverable failure to raise for a selected folder that could not be
+/// read, worded for [fault].
+///
+/// One place, so the message a user reads and the [FolderScanException.code]
+/// that availability and diagnostics branch on can never describe two different
+/// problems. No path, no errno and no OS string goes into the message: the
+/// folder travels separately in [FolderScanException.folder], which the UI does
+/// not render.
+FolderScanException rootFaultException(String folder, LocalRootFault fault) {
+  final String message;
+  switch (fault) {
+    case LocalRootFault.missing:
+      message = "Linthra couldn't find the selected folder. It may have been "
+          'moved or removed, the drive may not be connected, or access to it '
+          'was revoked. Try selecting the folder again.';
+    case LocalRootFault.permissionDenied:
+      message = "Linthra isn't allowed to read the selected folder. Its "
+          'permissions may have changed, or access to it was revoked. Check '
+          'the folder permissions, or select the folder again.';
+    case LocalRootFault.unavailable:
+      message = "Linthra couldn't reach the storage this folder is on. The "
+          'drive or network share may be disconnected. Reconnect it and try '
+          'again.';
+    case LocalRootFault.unknown:
+      message = "Linthra couldn't read the selected folder. Access to it may "
+          'have been revoked, or the storage was removed. Try selecting the '
+          'folder again.';
+  }
+  return FolderScanException(message, folder: folder, code: fault.code);
 }
 
 /// Scans an Android SAF `content://` tree URI by resolving it to a filesystem
@@ -166,7 +185,8 @@ class ContentUriAudioFileScanner implements AudioFileScanner {
         folder: folder,
       );
     }
-    if (!await _readability.canList(path)) {
+    final LocalRootFault? fault = await _readability.inspect(path);
+    if (fault != null) {
       throw FolderScanException(
         'Linthra resolved this folder to "$path", but Android is not letting '
         'it read that location. Picking a folder through the system chooser '
@@ -174,6 +194,7 @@ class ContentUriAudioFileScanner implements AudioFileScanner {
         'storage is sandboxed. Choose a folder the app can already read, or '
         'wait for the upcoming Storage Access Framework support.',
         folder: folder,
+        code: fault.code,
       );
     }
     return _filesystemScanner.listFiles(path);

@@ -654,6 +654,85 @@ loaded:
 | Move libmpv out of the loader's path (or run with `LD_LIBRARY_PATH` pointing at an empty directory), start Linthra, press play | The player says libmpv is not installed and offers only Retry; the report shows `Backend runtime: libmpv not found`. Put libmpv back, press Retry, and the track plays without restarting the app. |
 | Narrow the window to its 420 px minimum, or raise the desktop's text scale | The card's two actions stack instead of sharing a row, and the labels stay readable. |
 
+## When a music folder can't be read
+
+A configured local folder can stop answering for reasons that have nothing to do
+with the user changing their mind, and until #414 they all looked the same: an
+empty library, or one sentence about reselecting that was right about a third of
+the time. Linthra now says which problem it is and offers the way out.
+
+### Three problems, three fixes
+
+The classification happens in exactly one place (`classifyFilesystemFault` in
+`lib/core/sources/local/local_root_fault.dart`, the only code that looks at an
+`OSError`), and everything downstream carries a `LocalRootFault`, never an
+errno, a path or an OS message.
+
+| What the user sees | When | Recovery |
+| --- | --- | --- |
+| **Folder not found** | The path is not there: the drive was unmounted, the folder was moved, renamed or deleted, or the Flatpak portal document that exposed it was revoked (`ENOENT`, `ENOTDIR`). | Reconnect the drive and Retry, or select the folder again if the music moved. |
+| **Permission denied** | The folder is there and this process may not read it: directory permissions changed, or a grant was withdrawn (`EACCES`, `EPERM`). | Fix the permissions and Retry, or select the folder again through the chooser. |
+| **Storage isn't responding** | The path resolves but the storage behind it does not answer: a network share that is down, a stale mount, a device returning I/O errors (`EIO`, `ESTALE`, `ETIMEDOUT`, `ENOTCONN`, …). | Reconnect it, or wait: Linthra re-asks an absent folder on its own and picks it up as soon as it answers. |
+| **Folder can't be read** | Anything else. Deliberately *not* dressed up as one of the three above. | Retry, or select the folder again. |
+
+An Android SAF tree and Android's device-wide MediaStore selection do not use the
+filesystem wording at all: a `content://` tree cannot go missing, only lose its
+grant, and the device library is not a folder and is never sent to a folder
+chooser.
+
+### Retry, Select folder again, Remove folder
+
+All three sit on the folder's own row in **Settings → Local music**, and the
+first two are repeated on the Library screen whenever a folder being away is the
+reason there is nothing to show, whether it went away after a scan or could not
+be read on the very first one (which leaves nothing indexed at all). Removing
+stays on the Settings card, next to the sentence that says what it does and does
+not do. While one of the three is running they all stand down, on the Library
+screen as well as the card, so a second chooser or a competing scan cannot be
+started on top of the first.
+
+* **Retry** re-probes that folder, and waits for that probe even when the
+  return-trip poll happened to be mid-round: reading the state from before the
+  question was asked would tell a user who just plugged their drive back in that
+  it is still gone. If it is still away, the card says so in the words of that
+  folder's problem and nothing is written. If it answered, the ordinary
+  incremental scan runs (the same one Rescan runs), so whatever changed while
+  the folder was gone lands in the catalog. That scan runs once: a folder coming
+  back is what the return trip already refreshes, so Retry does not walk the
+  selection a second time on top of it.
+* **Select folder again** opens the system chooser, and the folder it returns
+  is asked whether it can be read *before* anything is scanned or saved: a
+  replacement that cannot be read leaves the old folder, and the music indexed
+  from it, exactly as they were. It is checked that early because a scan writes
+  the catalog for the folders it was given, so a replacement that fails beside a
+  folder that works would already have dropped the replaced folder's tracks by
+  the time the scan reported it. This is the only way a configured path ever
+  changes. Linthra never looks for where a drive went and
+  never adopts a path on the user's behalf: it cannot prove a folder at a new
+  mount point holds the same music, and guessing would aim the library at
+  somebody else's files. Cancelling changes nothing.
+* **Remove folder** drops that folder from the library and rescans what is left,
+  so only its tracks go away. Every other folder, every server source, and every
+  file on disk is untouched.
+
+### What cannot happen
+
+* **A temporary failure never costs the catalog anything.** A scan that could
+  read nothing writes nothing, and a folder that failed inside a multi-folder
+  scan keeps the tracks it already contributed, stamps and all. This is enforced
+  by `LocalLibraryScan.isWritable`.
+* **No folder is ever removed by going away.** Only the user removing it removes
+  anything.
+* **No user file is ever deleted, moved or written.** The seams the local library
+  reaches storage through only list and read; there is no delete in them to call.
+* **Folders are independent.** One drive being unplugged says nothing about the
+  folder beside it, and nothing at all about Jellyfin, Navidrome/Subsonic or
+  Plex.
+* **No raw OS error reaches the UI.** The failure *kind* does reach the
+  diagnostics line (`fault=permissionDenied` alongside the existing
+  `error=folderUnavailable`), which is a fixed enum name and as safe to attach to
+  a bug report as the rest of that line.
+
 ## Remaining Linux limitations
 
 | Area | State | Why |
@@ -670,7 +749,7 @@ loaded:
 | SAF (`content://` folders) | Android-only, by design | Linux picks a real filesystem path. The scanner's desktop path is the one that runs. |
 | Folder chooser | Supported | Linthra's own runner channel (`linux/runner/folder_picker_channel.cc`) opens `GtkFileChooserNative`: the ordinary GTK dialog natively, and the xdg-desktop-portal chooser inside the Flatpak, where `file_picker`'s `zenity`/`kdialog` do not exist ([issue #438](https://github.com/TheZupZup/Linthra/issues/438)). `scripts/check_linux_runner.py` holds the runner's channel name to the Dart side's. |
 | Multiple music folders | Supported | Settings → Local music takes several folders and scans them as one library ([issue #412](https://github.com/TheZupZup/Linthra/issues/412)). A folder selected inside another one is walked once, removing a folder removes only its tracks, and an existing single-folder selection carries over as the first folder. Android keeps its single SAF/MediaStore selection. |
-| Lost folder access | Supported | A selected folder that stops resolving (unmounted drive, deleted folder, revoked portal document) is reported as a recoverable "select it again" state on that folder's row of the Local music card, and the indexed catalog is left alone rather than replaced with an empty scan. With several folders, the readable ones still refresh while the unreachable one keeps the tracks it already contributed. |
+| Lost folder access | Supported | A selected folder that stops being readable says *which* problem it has (not found, permission denied, or storage not responding) and offers Retry, Select folder again and Remove folder on that folder's row ([issue #414](https://github.com/TheZupZup/Linthra/issues/414)). The indexed catalog is left alone rather than replaced with an empty scan, and the Library screen explains the same thing instead of looking empty. With several folders, the readable ones still refresh while the unreachable one keeps the tracks it already contributed. See [When a music folder can't be read](#when-a-music-folder-cant-be-read). |
 | **Removable music drives** | Supported | A music folder on a USB disk or external SSD that is unplugged becomes *temporarily unavailable*, never deleted ([issue #415](https://github.com/TheZupZup/Linthra/issues/415)): the folder stays selected, its tracks stay indexed, the other folders and every server source keep working, and playing one of its files fails cleanly with the queue intact. While a folder is away Linthra re-asks that path every few seconds (and polls nothing at all while every folder is present), so plugging the drive back in re-opens its filesystem watch and runs the ordinary incremental rescan with no reconfiguration. Availability is derived from the configured path alone (no mount-point scanning, no automounter or GNOME/KDE-specific paths), so a drive that returns at a *different* path is deliberately not adopted: the configured folder stays unavailable until it is mounted where it was or the new folder is selected. |
 | Local tag reading | Supported | `FilesystemLocalMetadataReader` reads title, artist, album artist, album, track number and duration from ID3, Vorbis comments, MP4 atoms, APEv2 and RIFF INFO through `audio_metadata_reader` ([issue #407](https://github.com/TheZupZup/Linthra/issues/407)). An unreadable or untagged file still appears, from its filename. Android is deliberately unchanged: its tags come from the native SAF walk. |
 | Local embedded artwork | Unsupported | Tags are read without pulling cover images out of every file during a scan. Extracting and caching embedded art on desktop is [issue #408](https://github.com/TheZupZup/Linthra/issues/408); tracks keep the placeholder until then. |

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'local_music_roots.dart';
 import 'local_root_availability.dart';
+import 'local_root_fault.dart';
 import 'local_root_probe.dart';
 
 /// Tracks whether each configured local music folder is reachable, and notices
@@ -79,6 +80,11 @@ class LocalRootAvailabilityMonitor {
   Timer? _poll;
   bool _pollingEnabled = true;
   bool _probing = false;
+
+  /// Completes when the probe round now running has drained everything,
+  /// [_requeued] included. What a caller that arrived mid-round waits on, so
+  /// "re-probe this folder" never returns before that folder was asked.
+  Completer<void>? _idle;
   bool _disposed = false;
 
   /// How many probe rounds have run. The number a test reads to assert that a
@@ -130,6 +136,12 @@ class LocalRootAvailabilityMonitor {
   /// This is how a disconnect is noticed *immediately* rather than at the next
   /// poll: the filesystem watch on an unmounted folder dies, and that knows
   /// which folder it was watching. An untracked root is ignored.
+  ///
+  /// The future completes once this root has actually been asked, including
+  /// when a poll round was already running and took the request on. A caller
+  /// that reads the answer straight afterwards (Retry does) would otherwise
+  /// read the state from before it asked, and tell a user who just plugged
+  /// their drive back in that it is still gone.
   Future<void> recheck(String root) {
     final String canonical = LocalMusicRoots.canonicalize(root);
     if (!_roots.containsKey(canonical)) return Future<void>.value();
@@ -146,15 +158,16 @@ class LocalRootAvailabilityMonitor {
   /// same folder twice.
   void noteScanOutcome({
     required Iterable<String> readRoots,
-    required Iterable<String> unreadableRoots,
+    required Map<String, LocalRootFault> unreadableRoots,
   }) {
     if (_disposed) return;
     bool changed = false;
     for (final String root in readRoots) {
-      changed |= _settle(root, available: true);
+      changed |= _settle(root, fault: null);
     }
-    for (final String root in unreadableRoots) {
-      changed |= _settle(root, available: false);
+    for (final MapEntry<String, LocalRootFault> entry
+        in unreadableRoots.entries) {
+      changed |= _settle(entry.key, fault: entry.value);
     }
     if (!changed) return;
     _publish();
@@ -179,10 +192,14 @@ class LocalRootAvailabilityMonitor {
   Future<void> _probeRoots(List<String> roots) async {
     if (_disposed || roots.isEmpty) return;
     if (_probing) {
+      // The round in flight drains _requeued before it finishes, so waiting
+      // for it is waiting for these roots' own answers.
       _requeued.addAll(roots);
-      return;
+      return _idle?.future;
     }
     _probing = true;
+    final Completer<void> idle = Completer<void>();
+    _idle = idle;
     try {
       List<String> batch = roots;
       while (batch.isNotEmpty && !_disposed) {
@@ -194,7 +211,9 @@ class LocalRootAvailabilityMonitor {
       }
     } finally {
       _probing = false;
+      _idle = null;
       if (!_disposed) _syncPoll();
+      idle.complete();
     }
   }
 
@@ -204,7 +223,7 @@ class LocalRootAvailabilityMonitor {
     final List<String> returned = <String>[];
     bool changed = false;
     for (final String root in roots) {
-      final bool? answer = await _probe.isAvailable(root);
+      final LocalRootReading? answer = await _probe.inspect(root);
       if (_disposed) return const <String>[];
       if (answer == null) {
         // This platform cannot speak for this root. Forget it rather than
@@ -213,9 +232,9 @@ class LocalRootAvailabilityMonitor {
         continue;
       }
       final bool wasUnavailable = _roots[root]?.isUnavailable ?? false;
-      final bool settled = _settle(root, available: answer);
+      final bool settled = _settle(root, fault: answer.fault);
       changed |= settled;
-      if (settled && answer && wasUnavailable) returned.add(root);
+      if (settled && answer.isAvailable && wasUnavailable) returned.add(root);
     }
     if (changed) _publish();
     return returned;
@@ -234,12 +253,13 @@ class LocalRootAvailabilityMonitor {
   }
 
   /// Records one probe answer for [root]. Returns whether anything changed.
-  bool _settle(String root, {required bool available}) {
+  ///
+  /// A null [fault] is the folder answering; anything else is why it did not.
+  bool _settle(String root, {required LocalRootFault? fault}) {
     final String canonical = LocalMusicRoots.canonicalize(root);
     final LocalRootState? current = _roots[canonical];
     if (current == null) return false;
-    final LocalRootState next =
-        current.settled(available: available, at: _now());
+    final LocalRootState next = current.settled(fault: fault, at: _now());
     if (next == current) return false;
     _roots[canonical] = next;
     return true;

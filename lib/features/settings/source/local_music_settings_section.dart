@@ -5,11 +5,15 @@ import '../../../app/dimens.dart';
 import '../../../core/platform/host_platform.dart';
 import '../../../core/sources/local/android_media_library.dart';
 import '../../../core/sources/local/folder_location.dart';
+import '../../../core/sources/local/local_music_roots.dart';
+import '../../../core/sources/local/local_root_fault.dart';
 import '../../../core/sources/local/local_scan_report.dart';
 import '../../../data/repositories/host_platform_provider.dart';
 import '../../library/library_providers.dart';
+import '../../library/local_root_problem.dart';
 import '../../library/local_scan_report_provider.dart';
 import '../../library/selected_folder_controller.dart';
+import '../../library/widgets/local_root_problem_panel.dart';
 import 'local_music_controller.dart';
 
 /// Settings home for music already stored on the device.
@@ -31,8 +35,11 @@ class LocalMusicSettingsSection extends ConsumerWidget {
     final LocalScanReport? report = ref.watch(localScanReportProvider);
     final LocalMusicActionState action =
         ref.watch(localMusicControllerProvider);
-    final Map<String, bool> access =
-        ref.watch(localFolderAccessProvider).valueOrNull ?? <String, bool>{};
+    // Not just "is it reachable?" but "what is wrong with it?", so a folder
+    // that went away gets the recovery that actually applies instead of one
+    // sentence covering three different problems.
+    final Map<String, LocalRootFault> faults =
+        ref.watch(localRootFaultsProvider);
     final bool hasFolder = folders.isNotEmpty;
     final HostPlatform host = ref.watch(hostPlatformProvider);
     final FolderLocation? location =
@@ -77,12 +84,21 @@ class LocalMusicSettingsSection extends ConsumerWidget {
             if (hasFolder)
               _SelectedFoldersView(
                 folders: folders,
-                access: access,
+                faults: faults,
                 report: report,
                 host: host,
+                // While a command is in flight the card's own actions are a
+                // spinner, and these must go the same way: a second Retry, a
+                // second folder chooser or a Remove landing on top of the
+                // first would race it, and the scan that lost the race would
+                // still be the one reporting.
+                onRetry: action.busy ? null : controller.retryFolder,
+                onReselect: action.busy ? null : controller.reselectFolder,
                 // Removing a folder is a desktop affordance: Android holds a
                 // single grant at a time, which "Forget local music" covers.
-                onRemove: host.isAndroid ? null : controller.removeFolder,
+                onRemove: host.isAndroid || action.busy
+                    ? null
+                    : controller.removeFolder,
               )
             else
               Text(
@@ -255,16 +271,27 @@ class _AndroidPrivacyStatus extends StatelessWidget {
 class _SelectedFoldersView extends StatelessWidget {
   const _SelectedFoldersView({
     required this.folders,
-    required this.access,
+    required this.faults,
     required this.report,
     required this.host,
+    this.onRetry,
+    this.onReselect,
     this.onRemove,
   });
 
   final List<String> folders;
-  final Map<String, bool> access;
+
+  /// Why each unreachable folder is unreachable. A folder that is fine, and one
+  /// nothing has answered for yet, are simply absent.
+  final Map<String, LocalRootFault> faults;
   final LocalScanReport? report;
   final HostPlatform host;
+
+  /// The three ways out of a folder problem. Null while another local-music
+  /// command is running: the folder is being worked on, so it is not also
+  /// something to act on.
+  final void Function(String folder)? onRetry;
+  final void Function(String folder)? onReselect;
   final void Function(String folder)? onRemove;
 
   @override
@@ -285,7 +312,13 @@ class _SelectedFoldersView extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: AppSpacing.xs),
             child: _SelectedFolderRow(
               location: FolderLocation.parse(folder),
-              reachable: access[folder],
+              // Faults are keyed by the canonical spelling; the selection is
+              // whatever was stored. A folder saved as "/media/usb/Music/"
+              // would otherwise look perfectly healthy while its drive is out,
+              // with none of the ways to fix it on screen.
+              fault: faults[LocalMusicRoots.canonicalize(folder)],
+              onRetry: onRetry == null ? null : () => onRetry!(folder),
+              onReselect: onReselect == null ? null : () => onReselect!(folder),
               onRemove: onRemove == null ? null : () => onRemove!(folder),
             ),
           ),
@@ -301,12 +334,18 @@ class _SelectedFoldersView extends StatelessWidget {
 class _SelectedFolderRow extends StatelessWidget {
   const _SelectedFolderRow({
     required this.location,
-    required this.reachable,
+    required this.fault,
+    this.onRetry,
+    this.onReselect,
     this.onRemove,
   });
 
   final FolderLocation location;
-  final bool? reachable;
+
+  /// Why this folder cannot be read right now, or null when it can.
+  final LocalRootFault? fault;
+  final VoidCallback? onRetry;
+  final VoidCallback? onReselect;
   final VoidCallback? onRemove;
 
   @override
@@ -314,6 +353,7 @@ class _SelectedFolderRow extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
     final bool isDeviceLibrary = location.isAndroidMediaStore;
+    final LocalRootFault? fault = this.fault;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -336,7 +376,11 @@ class _SelectedFolderRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            if (onRemove != null)
+            // The compact remove affordance for a folder that is *fine*. A
+            // folder with a problem gets the full panel below instead, where
+            // Remove sits next to the two fixes that do not throw anything
+            // away. So the same row never offers two Removes.
+            if (onRemove != null && fault == null)
               IconButton(
                 onPressed: onRemove,
                 icon: const Icon(Icons.close, size: 18),
@@ -344,16 +388,17 @@ class _SelectedFolderRow extends StatelessWidget {
               ),
           ],
         ),
-        if (reachable == false) ...[
+        if (fault != null) ...[
           const SizedBox(height: AppSpacing.xs),
-          Text(
-            isDeviceLibrary
-                ? 'Device music access is currently off. Your indexed library '
-                    'stays in Linthra; re-enable access to rescan.'
-                : 'Linthra can no longer reach this folder. Its music stays in '
-                    'your library; select the folder again to restore access.',
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: theme.colorScheme.error),
+          LocalRootProblemPanel(
+            presentation: localRootProblemPresentation(
+              fault,
+              location: location,
+            ),
+            dense: true,
+            onRetry: onRetry,
+            onReselect: onReselect,
+            onRemove: onRemove,
           ),
         ],
       ],

@@ -22,6 +22,7 @@ import 'library_providers.dart';
 import 'library_state.dart';
 import 'local_root_availability_controller.dart';
 import 'local_scan_report_provider.dart';
+import 'selected_folder_controller.dart';
 
 /// Drives the Library screen: loads tracks from the [MusicLibraryRepository]
 /// and exposes them as a [LibraryState].
@@ -208,6 +209,15 @@ class LibraryController extends Notifier<LibraryState> {
         // that case keeps the error state.
         await _showCatalogOrError(
           scan.firstFailureMessage ?? _scanFailedMessage,
+          // Only when the walk itself diagnosed a folder, and only when the
+          // folders it walked are the ones the user has configured. A scan that
+          // read nothing for some other reason is not a folder problem, and a
+          // trial of a source that is not committed yet (device music, a
+          // replacement being checked before it is saved) is not the configured
+          // library's problem either: offering its recovery would retry
+          // something other than what failed.
+          localRootsUnreadable:
+              scan.report.fault != null && _isConfiguredSelection(roots),
         );
         return scan.report;
       }
@@ -283,6 +293,9 @@ class LibraryController extends Notifier<LibraryState> {
         error: LocalScanError.unexpected,
         rootsScanned: roots.length,
         rootsUnavailable: roots.length,
+        // Deliberately unset: this is a failure *outside* the folder walk (a
+        // catalog write, most likely), so naming a filesystem fault for it
+        // would tell the user to reconnect a drive that is sitting right there.
       );
       ref.read(localScanReportProvider.notifier).record(report);
       _loadGeneration++;
@@ -306,11 +319,26 @@ class LibraryController extends Notifier<LibraryState> {
         for (final LocalRootOutcome outcome in scan.roots)
           if (outcome.available) outcome.root,
       ],
-      unreadableRoots: <String>[
-        for (final LocalRootOutcome outcome in scan.roots)
-          if (!outcome.available) outcome.root,
-      ],
+      // With the reason attached, so the card explains an unmounted drive and a
+      // permission problem differently without probing the folder a second time
+      // to find out which it was.
+      unreadableRoots: scan.rootFaults,
     );
+  }
+
+  /// Whether [roots] is the selection the user has actually configured, rather
+  /// than a source being tried out before it is committed.
+  bool _isConfiguredSelection(List<String> roots) {
+    final List<String> selected = LocalMusicRoots.normalize(
+      ref.read(selectedFolderControllerProvider).valueOrNull ??
+          const <String>[],
+    );
+    final List<String> scanned = LocalMusicRoots.normalize(roots);
+    if (selected.length != scanned.length) return false;
+    for (int i = 0; i < selected.length; i++) {
+      if (selected[i] != scanned[i]) return false;
+    }
+    return true;
   }
 
   /// Publishes whatever the catalog holds, falling back to [message] only when
@@ -318,16 +346,22 @@ class LibraryController extends Notifier<LibraryState> {
   ///
   /// Used by the scans that write nothing. Every source is included, so a local
   /// drive going away cannot blank a Jellyfin or Navidrome library either.
-  Future<void> _showCatalogOrError(String message) async {
+  Future<void> _showCatalogOrError(
+    String message, {
+    bool localRootsUnreadable = false,
+  }) async {
     final int generation = ++_loadGeneration;
     try {
       final List<Track> tracks =
           await ref.read(musicLibraryRepositoryProvider).getAllTracks();
       if (generation != _loadGeneration) return;
       state = tracks.isEmpty
-          ? LibraryState.error(message)
+          ? LibraryState.error(message,
+              localRootsUnreadable: localRootsUnreadable)
           : LibraryState.loaded(tracks);
     } catch (_) {
+      // The catalog would not answer either. That failure is this one's, not
+      // the folder's, so it keeps its own message and its own retry.
       if (generation == _loadGeneration) state = LibraryState.error(message);
     }
   }

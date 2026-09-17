@@ -6,6 +6,7 @@ import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/folder_location.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/core/sources/local/local_scan_report.dart';
 import 'package:linthra/core/sources/local/saf_document_lister.dart';
@@ -15,6 +16,7 @@ import 'package:linthra/data/repositories/in_memory_selected_music_folder_reposi
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/selected_music_folder_repository_provider.dart';
 import 'package:linthra/features/library/library_providers.dart';
+import 'package:linthra/features/library/local_root_availability_controller.dart';
 import 'package:linthra/features/library/local_scan_report_provider.dart';
 import 'package:linthra/features/library/selected_folder_controller.dart';
 import 'package:linthra/features/settings/source/local_music_controller.dart';
@@ -93,7 +95,8 @@ class _MutableReadability implements DirectoryReadability {
   bool readable;
 
   @override
-  Future<bool> canList(String path) async => readable;
+  Future<LocalRootFault?> inspect(String path) async =>
+      readable ? null : LocalRootFault.missing;
 }
 
 ProviderContainer _container({
@@ -126,6 +129,17 @@ Future<String?> folderRepoValue(ProviderContainer container) async {
   return folders.isEmpty ? null : folders.first;
 }
 
+/// Lets local-root availability track and probe the current selection.
+///
+/// Its first sync is scheduled as a microtask (so the notifier never writes
+/// state while it is being built) and every probe is asynchronous, so a
+/// container that has only just read it has not heard back yet.
+Future<void> _settleAvailability(ProviderContainer container) async {
+  container.read(localRootAvailabilityProvider);
+  await Future<void>.delayed(Duration.zero);
+  await container.read(localRootAvailabilityProvider.notifier).refresh();
+}
+
 void main() {
   setUp(LocalScanDiagnostics.reset);
   tearDown(LocalScanDiagnostics.reset);
@@ -156,8 +170,9 @@ void main() {
       addTearDown(container.dispose);
 
       await container.read(localMusicControllerProvider.notifier).pickFolder();
+      await _settleAvailability(container);
       expect(
-        await container.read(localFolderAccessProvider.future),
+        container.read(localFolderAccessProvider),
         <String, bool>{'/music': true},
       );
 
@@ -174,9 +189,15 @@ void main() {
       );
       // The card's lost-access line now shows, instead of the folder still
       // reading as healthy.
+      await _settleAvailability(container);
       expect(
-        await container.read(localFolderAccessProvider.future),
+        container.read(localFolderAccessProvider),
         <String, bool>{'/music': false},
+      );
+      // …and it says *why*, which is what the recovery panel branches on.
+      expect(
+        container.read(localRootFaultsProvider),
+        <String, LocalRootFault>{'/music': LocalRootFault.missing},
       );
     });
 
@@ -309,6 +330,40 @@ void main() {
         addTearDown(container.dispose);
         return container;
       }
+
+      test('Retry on the device library never mentions folder permissions',
+          () async {
+        // MediaStore is not a folder: it has no permissions to check and no
+        // chooser to pick it in again, and the panel beside this message
+        // deliberately offers no Reselect. Telling that user to check folder
+        // permissions would be the same wrong advice this whole change is
+        // about, one layer down.
+        final container = androidContainer(
+          media: _FakeAndroidMediaLibrary(
+            status: AndroidMusicPermissionStatus.denied,
+          ),
+          folderRepo: InMemorySelectedMusicFolderRepository(
+            initialFolder: FolderLocation.androidMediaStoreAudio,
+          ),
+          libraryRepo: InMemoryMusicLibraryRepository(),
+        );
+        await container.read(selectedFolderControllerProvider.future);
+        container.read(localRootAvailabilityProvider);
+        await pumpEventQueue();
+
+        await container
+            .read(localMusicControllerProvider.notifier)
+            .retryFolder(FolderLocation.androidMediaStoreAudio);
+        await pumpEventQueue();
+
+        final String? message =
+            container.read(localMusicControllerProvider).message;
+
+        expect(message, isNotNull);
+        expect(message, contains('Android settings'));
+        expect(message, isNot(contains('folder again')));
+        expect(message, isNot(contains("folder's permissions")));
+      });
 
       test('a successful first scan persists the MediaStore selection',
           () async {

@@ -7,6 +7,7 @@ import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/core/sources/local/local_scan_report.dart';
 import 'package:linthra/core/sources/local/saf_document_lister.dart';
@@ -27,14 +28,15 @@ Track _track(String id) => Track(id: id, title: 'Track $id', uri: 'file://$id');
 /// scoped-storage probe so the content-URI walk runs in tests.
 class _AlwaysReadable implements DirectoryReadability {
   @override
-  Future<bool> canList(String path) async => true;
+  Future<LocalRootFault?> inspect(String path) async => null;
 }
 
 /// Reports every resolved SAF path as unreadable, simulating Android 11+ scoped
 /// storage blocking a folder the SAF URI resolved to.
 class _NeverReadable implements DirectoryReadability {
   @override
-  Future<bool> canList(String path) async => false;
+  Future<LocalRootFault?> inspect(String path) async =>
+      LocalRootFault.permissionDenied;
 }
 
 class _DeferredAudioFileScanner implements AudioFileScanner {

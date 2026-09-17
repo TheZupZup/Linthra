@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import 'folder_scan_exception.dart';
 import 'local_audio_metadata.dart';
+import 'local_root_fault.dart';
 import 'saf_document_lister.dart';
 
 /// A [SafDocumentLister] backed by a platform method channel into native
@@ -38,14 +39,8 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
       );
     } on MissingPluginException {
       throw const SafUnsupportedException();
-    } on PlatformException {
-      // The native side ran but failed (revoked grant, provider error). Surface
-      // a friendly, secret-free message rather than the raw platform exception.
-      throw FolderScanException(
-        "Couldn't read this folder through Android's Storage Access Framework. "
-        'Try selecting it again, or pick a different folder.',
-        folder: treeUri,
-      );
+    } on PlatformException catch (error) {
+      throw safChannelFailure(treeUri, error.code);
     }
 
     return parseScanResult(result);
@@ -223,4 +218,33 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
     if (trimmed.isEmpty) return null;
     return Uri.tryParse(trimmed);
   }
+}
+
+/// What `SafDocumentScanner.kt` reports when the content resolver refuses the
+/// tree: a `SecurityException`, which on Android means the grant is gone.
+const String safPermissionDeniedCode = 'saf_permission';
+
+/// The failure a native SAF error becomes.
+///
+/// The native side ran and failed, so the user gets a friendly, secret-free
+/// message rather than the raw platform exception. Its *kind* does travel,
+/// though, when the native side knew one: a withdrawn grant has a recovery
+/// (pick the folder again) that a provider which simply failed does not, and
+/// dropping the distinction here would have the UI tell one of them the wrong
+/// thing until some later probe corrected it. Only the fixed code crosses,
+/// never the platform's own message.
+FolderScanException safChannelFailure(String treeUri, String platformCode) {
+  if (platformCode == safPermissionDeniedCode) {
+    return FolderScanException(
+      "Linthra no longer has permission to read this folder through Android's "
+      'Storage Access Framework. Select it again to restore access.',
+      folder: treeUri,
+      code: LocalRootFault.permissionDenied.code,
+    );
+  }
+  return FolderScanException(
+    "Couldn't read this folder through Android's Storage Access Framework. "
+    'Try selecting it again, or pick a different folder.',
+    folder: treeUri,
+  );
 }

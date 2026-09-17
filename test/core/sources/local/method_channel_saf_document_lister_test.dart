@@ -1,6 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/sources/local/folder_scan_exception.dart';
+import 'package:linthra/core/sources/local/local_library_scanner.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/method_channel_saf_document_lister.dart';
 import 'package:linthra/core/sources/local/saf_document_lister.dart';
 
@@ -492,6 +495,52 @@ void main() {
             .discNumber,
         2,
       );
+    });
+  });
+
+  group('safChannelFailure', () {
+    test('a refused grant keeps its kind across the channel', () {
+      // Native reports a SecurityException as `saf_permission`, and that is the
+      // one SAF failure with a recovery: pick the folder again. Dropping the
+      // code here would leave the panel saying Android did not explain itself,
+      // and offering no way back, until some later probe happened to correct
+      // it.
+      final FolderScanException failure =
+          safChannelFailure('content://x/tree/y', safPermissionDeniedCode);
+
+      expect(failure.code, LocalRootFault.permissionDenied.code);
+      expect(
+        LocalLibraryScanner.classifyRootFault(failure),
+        LocalRootFault.permissionDenied,
+      );
+      expect(failure.message, contains('permission'));
+    });
+
+    test('any other native failure stays honestly undiagnosed', () {
+      // A provider that simply failed is not a grant that was withdrawn, and
+      // telling that user to select the folder again would send them round a
+      // loop that cannot end.
+      final FolderScanException failure =
+          safChannelFailure('content://x/tree/y', 'saf_failed');
+
+      expect(failure.code, isNull);
+      expect(
+        LocalLibraryScanner.classifyRootFault(failure),
+        LocalRootFault.unknown,
+      );
+    });
+
+    test('neither carries the platform message or the tree in its text', () {
+      for (final String code in <String>[
+        safPermissionDeniedCode,
+        'saf_failed'
+      ]) {
+        final FolderScanException failure =
+            safChannelFailure('content://secret/tree/Holocene', code);
+
+        expect(failure.message, isNot(contains('content://')));
+        expect(failure.message, isNot(contains('Holocene')));
+      }
     });
   });
 

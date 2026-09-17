@@ -1,10 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/services/folder_picker_service.dart';
+import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/folder_location.dart';
 import 'package:linthra/core/sources/local/local_file_stat.dart';
 import 'package:linthra/core/sources/local/local_metadata_reader.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
+import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
+import 'package:linthra/core/sources/local/local_scan_report.dart';
+import 'package:linthra/data/repositories/host_platform_provider.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
@@ -31,6 +40,9 @@ Future<void> _pumpScreen(
 }
 
 void main() {
+  setUp(LocalScanDiagnostics.reset);
+  tearDown(LocalScanDiagnostics.reset);
+
   group('LibraryScreen', () {
     testWidgets('shows a spinner while loading', (tester) async {
       await _pumpScreen(tester, FakeMusicLibraryRepository());
@@ -223,5 +235,240 @@ void main() {
           findsNothing);
       expect(find.textContaining('mediastore://'), findsNothing);
     });
+
+    testWidgets('a folder it cannot read is explained, not shown as empty', (
+      tester,
+    ) async {
+      // The heart of #414. An empty library and an unplugged drive look
+      // identical until somebody says which it is, and the fixes are different.
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            selectedMusicFolderRepositoryProvider.overrideWithValue(
+              InMemorySelectedMusicFolderRepository(
+                initialFolder: '/media/usb/Music',
+              ),
+            ),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+            directoryReadabilityProvider
+                .overrideWithValue(const _Unreadable(LocalRootFault.missing)),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text("Your music folder isn't available"), findsOneWidget);
+      expect(find.text('Folder not found'), findsOneWidget);
+      expect(find.text('/media/usb/Music'), findsOneWidget);
+      // The two non-destructive fixes are here; the one that throws a source
+      // away stays on the Settings card.
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Select folder again'), findsOneWidget);
+      expect(find.text('Remove folder'), findsNothing);
+      // And none of the "you have no music" wording.
+      expect(find.text('No music found'), findsNothing);
+      expect(find.text('No music folder selected'), findsNothing);
+    });
+
+    testWidgets('a first scan that fails still explains the folder', (
+      tester,
+    ) async {
+      // The plainest version of #414: the folder is picked, the very first
+      // scan cannot read it, and so nothing is indexed. Nothing indexed is the
+      // one case that keeps the error state, which is exactly the case that
+      // used to fall through to "Couldn't load your library" and a Retry that
+      // asks the same unreadable folder the same question.
+      final picker = FakeFolderPickerService(folder: '/media/usb/Music');
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            selectedMusicFolderRepositoryProvider
+                .overrideWithValue(InMemorySelectedMusicFolderRepository()),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+            folderPickerServiceProvider.overrideWithValue(picker),
+            directoryReadabilityProvider.overrideWithValue(
+              const _Unreadable(LocalRootFault.permissionDenied),
+            ),
+            audioFileScannerProvider.overrideWithValue(
+              FakeAudioFileScanner(
+                unavailable: <String>{'/media/usb/Music'},
+                fault: LocalRootFault.permissionDenied,
+              ),
+            ),
+            localMetadataReaderProvider
+                .overrideWithValue(const UnsupportedLocalMetadataReader()),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Select a folder'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Permission denied'), findsOneWidget);
+      expect(find.text('Select folder again'), findsOneWidget);
+      expect(find.text("Couldn't load your library"), findsNothing);
+    });
+
+    testWidgets('a failure that is not the folder\'s keeps its own message', (
+      tester,
+    ) async {
+      // The other half of the rule. A folder being away somewhere in the
+      // library does not make every failure a folder problem: the failure
+      // itself says whose it is. Staged at its worst, with a partial scan's
+      // report still carrying that folder's fault, so nothing can be inferred
+      // from the last report: the catalog is what would not load, and
+      // answering that with "reconnect the drive" would send the user after a
+      // problem they do not have and bury the one they do.
+      LocalScanDiagnostics.record(
+        const LocalScanReport.failure(
+          folderSelected: true,
+          isContentUri: false,
+          error: LocalScanError.folderUnavailable,
+          fault: LocalRootFault.missing,
+        ),
+      );
+      final scanner = FakeAudioFileScanner();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              FakeMusicLibraryRepository(error: StateError('catalog is down')),
+            ),
+            selectedMusicFolderRepositoryProvider.overrideWithValue(
+              InMemorySelectedMusicFolderRepository(
+                initialFolder: '/media/usb/Music',
+              ),
+            ),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+            directoryReadabilityProvider
+                .overrideWithValue(const _Unreadable(LocalRootFault.missing)),
+            audioFileScannerProvider.overrideWithValue(scanner),
+            localMetadataReaderProvider
+                .overrideWithValue(const UnsupportedLocalMetadataReader()),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text("Couldn't load your library"), findsOneWidget);
+      expect(find.text('Folder not found'), findsNothing);
+
+      // And its Retry reloads the catalog, which is what failed. Walking the
+      // whole library would not fix a database that will not answer, and could
+      // replace this error with an unrelated one from a folder.
+      await tester.tap(find.widgetWithText(FilledButton, 'Retry'));
+      await tester.pumpAndSettle();
+
+      expect(scanner.requestedFolders, isEmpty);
+      expect(find.text("Couldn't load your library"), findsOneWidget);
+    });
+
+    testWidgets('a command in flight takes the screen\'s actions with it', (
+      tester,
+    ) async {
+      // Same rule as the Settings card. A chooser the user is still looking at,
+      // or a probe on a mount that is not answering, leaves this screen up for
+      // seconds, and every extra tap would start another one.
+      final picker = _BlockingPicker();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            selectedMusicFolderRepositoryProvider.overrideWithValue(
+              InMemorySelectedMusicFolderRepository(
+                initialFolder: '/media/usb/Music',
+              ),
+            ),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+            folderPickerServiceProvider.overrideWithValue(picker),
+            directoryReadabilityProvider
+                .overrideWithValue(const _Unreadable(LocalRootFault.missing)),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Select folder again'));
+      await tester.pump();
+
+      expect(picker.pickCount, 1);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text('Folder not found'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+      expect(find.text('Select folder again'), findsNothing);
+
+      picker.answer(null);
+      await tester.pumpAndSettle();
+
+      expect(picker.pickCount, 1);
+      expect(find.text('Select folder again'), findsOneWidget);
+    });
+
+    testWidgets('a permission problem is not described as a missing folder', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            selectedMusicFolderRepositoryProvider.overrideWithValue(
+              InMemorySelectedMusicFolderRepository(
+                initialFolder: '/home/me/Music',
+              ),
+            ),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+            directoryReadabilityProvider.overrideWithValue(
+              const _Unreadable(LocalRootFault.permissionDenied),
+            ),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Permission denied'), findsOneWidget);
+      expect(find.text('Folder not found'), findsNothing);
+    });
   });
+}
+
+/// A chooser that does not answer until the test says so, so the screen can be
+/// looked at while a recovery command is still running.
+class _BlockingPicker implements FolderPickerService {
+  final Completer<String?> _answer = Completer<String?>();
+  int pickCount = 0;
+
+  void answer(String? folder) => _answer.complete(folder);
+
+  @override
+  Future<String?> pickFolder() {
+    pickCount++;
+    return _answer.future;
+  }
+}
+
+/// Reports every folder as unreadable for one fixed reason, so the screen's
+/// recovery state can be staged without a drive to unplug.
+class _Unreadable implements DirectoryReadability {
+  const _Unreadable(this.fault);
+
+  final LocalRootFault fault;
+
+  @override
+  Future<LocalRootFault?> inspect(String path) async => fault;
 }

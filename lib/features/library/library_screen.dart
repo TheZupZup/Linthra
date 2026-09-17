@@ -13,6 +13,7 @@ import '../../core/models/track.dart';
 import '../../core/repositories/library_tab_store.dart';
 import '../../core/services/bulk_track_actions.dart';
 import '../../core/sources/local/folder_location.dart';
+import '../../core/sources/local/local_root_fault.dart';
 import '../../data/repositories/host_platform_provider.dart';
 import '../../data/repositories/library_tab_store_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
@@ -20,6 +21,7 @@ import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
+import '../settings/source/local_music_controller.dart';
 import 'album_detail_screen.dart';
 import 'artist_detail_screen.dart';
 import 'folder_browser_providers.dart';
@@ -28,6 +30,7 @@ import 'library_controller.dart';
 import 'library_search.dart';
 import 'library_state.dart';
 import 'library_sync_activity.dart';
+import 'local_root_problem.dart';
 import 'selected_folder_controller.dart';
 import 'song_actions.dart';
 import 'track_selection.dart';
@@ -36,6 +39,7 @@ import 'widgets/album_grid.dart';
 import 'widgets/alphabet_track_list.dart';
 import 'widgets/artist_grid.dart';
 import 'widgets/library_search_field.dart';
+import 'widgets/local_root_problem_panel.dart';
 import 'widgets/selection_escape_scope.dart';
 
 /// Browse the de-duplicated catalog across Songs, Albums and Artists.
@@ -343,13 +347,42 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     List<String> selectedFolders,
     List<String> syncingSources,
   ) {
+    // A folder that cannot be read is the difference between "you have no
+    // music" and "your music is on a drive that is not here". It outranks both
+    // the empty-library prompt and the generic failure page, because it is the
+    // reason the library looks the way it does and because its fix is a
+    // different one.
+    //
+    // The error state needs it just as much as the loaded one: a folder that
+    // is unreadable on its very first scan leaves nothing indexed, and nothing
+    // indexed is the one case that keeps the error state. That is the plainest
+    // version of this whole problem, so it is the last place to fall back to
+    // "Couldn't load your library" and a Retry that cannot help.
+    final Map<String, LocalRootFault> faults =
+        ref.watch(localRootFaultsProvider);
+    // But only when *this* failure was the folder's, which the scan that
+    // diagnosed it says on the state itself. A catalog that will not load while
+    // a drive happens to be out somewhere else in the library is not a folder
+    // problem: answering it with "reconnect the drive" would send the user
+    // after a problem they do not have, and bury the one they do.
     switch (state.status) {
       case LibraryStatus.loading:
         return const LoadingIndicator(label: 'Loading your library');
       case LibraryStatus.error:
+        if (state.localRootsUnreadable && faults.isNotEmpty) {
+          return _rootsUnavailable(faults);
+        }
         return _LibraryError(
           message: state.errorMessage,
-          onRetry: () => ref.read(libraryControllerProvider.notifier).refresh(),
+          // Retry what actually failed. A folder that could not be read is
+          // asked again, because reloading a catalog that is empty for an
+          // unplugged drive would never recover. Everything else is a catalog
+          // that would not load, and walking the whole library for that is
+          // both useless and a good way to replace the real error with an
+          // unrelated one.
+          onRetry: state.localRootsUnreadable && selectedFolders.isNotEmpty
+              ? () => _rescan(selectedFolders)
+              : () => ref.read(libraryControllerProvider.notifier).refresh(),
         );
       case LibraryStatus.loaded:
         // A first sync in flight — from any connected server — takes precedence
@@ -360,6 +393,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         if (headline != null) {
           return _LibrarySyncing(headline: headline);
         }
+        if (faults.isNotEmpty) return _rootsUnavailable(faults);
         return _LibraryEmpty(
           selectedFolders: selectedFolders,
           onPick: _pickAndScan,
@@ -367,6 +401,26 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               selectedFolders.isEmpty ? null : () => _rescan(selectedFolders),
         );
     }
+  }
+
+  /// What each unreadable folder's problem is, and the two fixes this screen
+  /// offers for it. Removing a source stays in Settings, where the rest of the
+  /// folder list lives and where the line about files never being deleted sits
+  /// next to the button.
+  Widget _rootsUnavailable(Map<String, LocalRootFault> faults) {
+    // One command at a time, the same rule the Settings card follows. A slow
+    // chooser or a probe on a mount that is not answering leaves this screen up
+    // for seconds, and every extra tap would start another one.
+    final bool busy = ref.watch(localMusicControllerProvider).busy;
+    return _LibraryRootsUnavailable(
+      faults: faults,
+      busy: busy,
+      onRetry: (String folder) =>
+          ref.read(localMusicControllerProvider.notifier).retryFolder(folder),
+      onReselect: (String folder) => ref
+          .read(localMusicControllerProvider.notifier)
+          .reselectFolder(folder),
+    );
   }
 
   /// Catalog search + the three browse tabs.
@@ -747,6 +801,82 @@ class _LibrarySyncing extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// What the Library shows instead of "no music found" when the reason it has
+/// nothing to show is a folder it cannot read.
+///
+/// An empty library and an unplugged drive look identical until somebody says
+/// which it is, and the difference matters: one is solved by adding music, the
+/// other by plugging something back in. So this names the problem per folder
+/// and offers the two fixes that keep everything: Retry, and picking the
+/// folder again. Removing a folder is deliberately *not* offered here: this screen is
+/// where a worried user lands, and the one action that throws a source away
+/// belongs on the Settings card, next to the sentence promising their files are
+/// safe.
+class _LibraryRootsUnavailable extends StatelessWidget {
+  const _LibraryRootsUnavailable({
+    required this.faults,
+    required this.onRetry,
+    required this.onReselect,
+    this.busy = false,
+  });
+
+  final Map<String, LocalRootFault> faults;
+  final void Function(String folder) onRetry;
+  final void Function(String folder) onReselect;
+
+  /// Whether a recovery command is already running. The actions stand down
+  /// while it is, and a spinner says why.
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return ListView(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      children: <Widget>[
+        Text(
+          faults.length == 1
+              ? "Your music folder isn't available"
+              : "${faults.length} of your music folders aren't available",
+          style: theme.textTheme.titleMedium,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        for (final MapEntry<String, LocalRootFault> entry in faults.entries)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  FolderLocation.parse(entry.key).displayLabel,
+                  style: theme.textTheme.bodyMedium,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                LocalRootProblemPanel(
+                  presentation: localRootProblemPresentation(
+                    entry.value,
+                    location: FolderLocation.parse(entry.key),
+                  ),
+                  onRetry: busy ? null : () => onRetry(entry.key),
+                  onReselect: busy ? null : () => onReselect(entry.key),
+                ),
+              ],
+            ),
+          ),
+        if (busy)
+          const Center(
+            child: SizedBox.square(
+              dimension: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+      ],
     );
   }
 }
