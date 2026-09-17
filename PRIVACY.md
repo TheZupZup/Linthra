@@ -1,6 +1,6 @@
 # Linthra Privacy Policy
 
-Last updated: 2026-06-14
+Last updated: 2026-09-17
 
 Linthra is an open-source Android music player focused on local music and user-controlled self-hosted music libraries.
 
@@ -68,6 +68,35 @@ Linthra is not designed specifically for children. The app is intended for users
 Linthra is open-source. Its source code is available at:
 
 https://github.com/TheZupZup/Linthra
+
+## Checking this yourself
+
+Some of this policy is checked automatically, so you do not have to take the
+project's word for it.
+
+Every pull request runs an audit of the dependency files Linthra ships from —
+the resolved Dart/Flutter packages, the archives the Linux build fetches, the
+plugins linked into the Linux binary, the Android Gradle files and the Rust
+lockfiles — against a written list of known advertising, analytics, attribution,
+telemetry and third-party crash-reporting SDKs. The current result is:
+
+- Advertising SDKs: none
+- Analytics SDKs: none
+- Attribution / install-tracking SDKs: none
+- Automatic third-party crash reporting: none
+- Telemetry, session-replay and APM SDKs: none
+
+You can reproduce it from a checkout with no toolchain and no network access:
+
+```
+python3 scripts/check_tracker_dependencies.py
+```
+
+That check proves a narrow thing: no *named* tracking SDK is in the dependency
+graph. It does not prove that Linthra cannot track users, and it says nothing
+about Linthra's own network code. What it covers, what it does not, and how a
+future finding gets reviewed are written down in
+[docs/tracker-dependency-audit.md](docs/tracker-dependency-audit.md).
 
 ## Contact
 

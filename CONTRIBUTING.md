@@ -81,6 +81,12 @@ For the other areas:
   debugging it locally — on Fedora Atomic (Kinoite/Silverblue) or anywhere
   else — is [docs/flatpak-development.md](./docs/flatpak-development.md).
 - `tools/large_library/` contains the Python and SQLite large-library tooling.
+- Linthra's no-tracking posture is enforced in CI: every PR audits the shipped
+  dependency files against a reviewed list of advertising, analytics,
+  attribution, telemetry and crash-reporting SDKs. If your branch fails on it,
+  `python3 scripts/check_tracker_dependencies.py` reproduces it offline, and
+  [docs/tracker-dependency-audit.md](./docs/tracker-dependency-audit.md)
+  explains how to review the finding.
 - Python tooling (`scripts/`, `tool/`, `tools/`) is checked with
   [Ruff](https://docs.astral.sh/ruff/). Before pushing a Python change, run
   `ruff check scripts tool tools` and `ruff format --check scripts tool tools` —

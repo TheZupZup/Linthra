@@ -297,6 +297,25 @@ SDK locally avoids spurious `dart format` diffs from formatter changes in newer
 Dart releases. The automatic `ci.yml` workflow is **code-quality only**; native
 builds and optional release signing live in separate workflows.
 
+### Privacy guardrails
+
+Two of the `ci.yml` jobs are there for the privacy posture rather than for code
+quality, and both are offline and toolchain-free, so you can run them from a
+checkout:
+
+```bash
+./scripts/check_secrets.sh                        # committed secrets / private data
+python3 scripts/check_tracker_dependencies.py     # known tracker dependencies (#504)
+```
+
+The second one reads the dependency files Linthra ships from and compares them
+against the reviewed policy in `scripts/tracker_policy.json`. If it fails on your
+branch, a dependency you added — or something underneath it — matches a known
+advertising, analytics, attribution, telemetry or crash-reporting SDK. The output
+names the dependency, the file it came in through and why it is on the list;
+[tracker-dependency-audit.md](./tracker-dependency-audit.md) covers what the
+check does and does not prove, and how to review a finding.
+
 ### Python tooling checks (Ruff)
 
 Linthra's Python (the release/toolchain scripts in `scripts/`, icon generation
