@@ -55,9 +55,15 @@ class FakePlaybackController implements LocalPlaybackController {
   /// Pushes [next] to listeners and updates the synchronous [state], stamping
   /// the current volume/mute onto it exactly as the real controller does.
   void emit(PlaybackState next) {
+    emitCount++;
     _state = next.withVolume(volume: _volume, muted: _muted);
     _states.add(_state);
   }
+
+  /// How many states this controller has published. A queue action that touches
+  /// the queue once publishes once, so a test can tell one batched change from
+  /// a loop of single ones.
+  int emitCount = 0;
 
   @override
   PlaybackState get state => _state;
@@ -76,8 +82,17 @@ class FakePlaybackController implements LocalPlaybackController {
     _playCurrent();
   }
 
+  /// Every call the single-track and batched queue actions received, in order,
+  /// so a test can assert that one listener action reached the controller
+  /// exactly once and carried the whole collection in its intended order.
+  final List<Track> playNextCalls = <Track>[];
+  final List<Track> addToQueueCalls = <Track>[];
+  final List<List<Track>> playNextAllCalls = <List<Track>>[];
+  final List<List<Track>> addAllToQueueCalls = <List<Track>>[];
+
   @override
   void playNext(Track track) {
+    playNextCalls.add(track);
     final bool wasEmpty = _queue.current == null;
     _queue = _queue.enqueueNext(track);
     if (wasEmpty) {
@@ -89,8 +104,35 @@ class FakePlaybackController implements LocalPlaybackController {
 
   @override
   void addToQueue(Track track) {
+    addToQueueCalls.add(track);
     final bool wasEmpty = _queue.current == null;
     _queue = _queue.appended(track);
+    if (wasEmpty) {
+      _playCurrent();
+      return;
+    }
+    emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  void playNextAll(List<Track> tracks) {
+    playNextAllCalls.add(List<Track>.of(tracks));
+    if (tracks.isEmpty) return;
+    final bool wasEmpty = _queue.current == null;
+    _queue = _queue.enqueueAllNext(tracks);
+    if (wasEmpty) {
+      _playCurrent();
+      return;
+    }
+    emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  void addAllToQueue(List<Track> tracks) {
+    addAllToQueueCalls.add(List<Track>.of(tracks));
+    if (tracks.isEmpty) return;
+    final bool wasEmpty = _queue.current == null;
+    _queue = _queue.appendedAll(tracks);
     if (wasEmpty) {
       _playCurrent();
       return;

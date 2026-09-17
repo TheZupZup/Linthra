@@ -158,6 +158,36 @@ Both are available from a track's overflow (⋮) menu in the **Songs** list,
 nothing to play "after", so this is the cleanest behaviour — the action is never
 a silent no-op).
 
+### A whole album at once
+
+The same two actions apply to an **album**, from its page header (the ⋮ beside
+Play and Shuffle) and from an album's right-click menu in the Albums tab. Both
+surfaces run the same command, so they behave identically on Android and Linux.
+
+| Action | Behaviour |
+| --- | --- |
+| **Play** | Replaces the queue with the album and starts it. |
+| **Play next** | Inserts the **whole album**, in album order, directly after the current track. Everything already upcoming stays behind it. |
+| **Add to queue** | **Appends** the whole album, in album order, to the end. |
+
+Three things the album versions guarantee:
+
+- **One queue change per action.** The album is inserted in a single step
+  (`playNextAll` / `addAllToQueue`), not one track at a time. Inserting track by
+  track would queue the album backwards and publish a state change per song.
+- **The album exactly as shown.** The queue gets the list the page renders:
+  disc order first, then track number. Track numbers restart on every disc, so a
+  two-disc album would interleave if it were ordered by number alone. No source
+  fills in `Track.discNumber` yet
+  ([issue #85](https://github.com/TheZupZup/Linthra/issues/85)), so the disc
+  tier does nothing today and single-disc albums are unaffected; multi-disc
+  albums fall into place as soon as the tag is carried through.
+- **One entry per song.** The list is the de-duplicated library, so a song held
+  on two servers is queued once, as the preferred copy, still carrying its
+  fallbacks. A track whose server is currently unreachable is not in the list, so
+  a partly unavailable album queues the part that can actually play. An album
+  with nothing playable does nothing at all.
+
 ## Reordering
 
 Drag an **upcoming** track by its handle to a new position. The current track is
@@ -276,6 +306,8 @@ when you save the queue as a playlist (only stable track ids are saved).
       Artist, Playlist, Search) land in the right spot; current track keeps
       playing (no restart).
 - [ ] With nothing playing, **Play next** / **Add to queue** start the track.
+- [ ] **Play next** / **Add to queue** on a whole album (page header ⋮, and the
+      Albums tab's album menu) land the album in one piece, in album order.
 - [ ] Drag an up-next track to reorder; current track keeps playing.
 - [ ] Remove an up-next track (✕) — it leaves the library and offline copy intact.
 - [ ] **Clear** keeps the current track playing.

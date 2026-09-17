@@ -33,6 +33,22 @@ abstract interface class PlaybackController {
   /// interrupting playback. When nothing is playing it starts [track].
   void addToQueue(Track track);
 
+  /// Inserts [tracks] so they play immediately after the current one, in the
+  /// order given, as a single queue change: "play this album next".
+  ///
+  /// The set version of [playNext], and the only correct way to play a whole
+  /// collection next: repeated [playNext] calls all land at the same slot, so
+  /// they queue the collection backwards, and each one is a separate queue
+  /// change the rest of the app reacts to. This inserts once, keeping whatever
+  /// is already upcoming after it. When nothing is playing the set becomes the
+  /// queue and its first track starts, mirroring [playNext]. Empty is a no-op.
+  void playNextAll(List<Track> tracks);
+
+  /// Appends [tracks] to the end of the queue, in the order given, as a single
+  /// queue change: the set version of [addToQueue]. When nothing is playing
+  /// the set becomes the queue and its first track starts. Empty is a no-op.
+  void addAllToQueue(List<Track> tracks);
+
   /// Removes the upcoming track at [upNextIndex] (0-based into
   /// [PlaybackState.upNext]). The current track keeps playing; the track is
   /// only dropped from the queue — never deleted from the library or its

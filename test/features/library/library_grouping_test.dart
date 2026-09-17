@@ -14,6 +14,7 @@ Track _jelly(
   String? albumId,
   String? albumArtist,
   int? trackNumber,
+  int? discNumber,
 }) =>
     Track(
       id: id,
@@ -24,6 +25,7 @@ Track _jelly(
       albumId: albumId,
       albumArtistName: albumArtist,
       trackNumber: trackNumber,
+      discNumber: discNumber,
       artworkUri: Uri.parse('https://media.example/Items/$id/Images/Primary'),
     );
 
@@ -424,6 +426,89 @@ void main() {
         _jelly('2', title: 'Second', artist: 'A', album: 'LP', trackNumber: 2),
       ];
       final String id = albumIdForTrack(all[1]);
+
+      expect(
+        tracksForAlbum(all, id).map((Track t) => t.title),
+        <String>['First', 'Second', 'No number'],
+      );
+    });
+  });
+
+  group('multi-disc album order', () {
+    /// A two-disc release as a server reports one: track numbers restart at 1
+    /// on the second disc, which is exactly what makes ordering by number alone
+    /// interleave the discs.
+    List<Track> twoDiscs() => <Track>[
+          _jelly('d2t2',
+              title: 'D2T2',
+              artist: 'A',
+              album: 'LP',
+              discNumber: 2,
+              trackNumber: 2),
+          _jelly('d1t1',
+              title: 'D1T1',
+              artist: 'A',
+              album: 'LP',
+              discNumber: 1,
+              trackNumber: 1),
+          _jelly('d2t1',
+              title: 'D2T1',
+              artist: 'A',
+              album: 'LP',
+              discNumber: 2,
+              trackNumber: 1),
+          _jelly('d1t2',
+              title: 'D1T2',
+              artist: 'A',
+              album: 'LP',
+              discNumber: 1,
+              trackNumber: 2),
+        ];
+
+    test('disc 1 plays end to end before disc 2 starts', () {
+      final List<Track> all = twoDiscs();
+      final String id = albumIdForTrack(all.first);
+
+      expect(
+        tracksForAlbum(all, id).map((Track t) => t.title),
+        <String>['D1T1', 'D1T2', 'D2T1', 'D2T2'],
+      );
+    });
+
+    test('the order does not depend on how the catalog happened to arrive', () {
+      final String id = albumIdForTrack(twoDiscs().first);
+      final List<String> forwards =
+          tracksForAlbum(twoDiscs(), id).map((Track t) => t.title).toList();
+
+      expect(
+        tracksForAlbum(twoDiscs().reversed.toList(), id)
+            .map((Track t) => t.title),
+        forwards,
+      );
+    });
+
+    test('a disc-numbered track comes before one with no disc at all', () {
+      final List<Track> all = <Track>[
+        _jelly('none', title: 'Bonus', artist: 'A', album: 'LP'),
+        _jelly('d1', title: 'Opener', artist: 'A', album: 'LP', discNumber: 1),
+      ];
+      final String id = albumIdForTrack(all.first);
+
+      expect(
+        tracksForAlbum(all, id).map((Track t) => t.title),
+        <String>['Opener', 'Bonus'],
+      );
+    });
+
+    test('an album with no disc numbers orders exactly as it always did', () {
+      // Every source leaves discNumber null today, so the disc tier must be a
+      // no-op: track number first, numbered before unnumbered, then title.
+      final List<Track> all = <Track>[
+        _jelly('x', title: 'No number', artist: 'A', album: 'LP'),
+        _jelly('2', title: 'Second', artist: 'A', album: 'LP', trackNumber: 2),
+        _jelly('1', title: 'First', artist: 'A', album: 'LP', trackNumber: 1),
+      ];
+      final String id = albumIdForTrack(all.first);
 
       expect(
         tracksForAlbum(all, id).map((Track t) => t.title),

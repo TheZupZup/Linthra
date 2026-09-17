@@ -14,9 +14,9 @@ import '../../playlists/widgets/add_to_playlist_sheet.dart';
 ///
 /// Deliberately only what the domain layer already does. Every entry maps onto
 /// a command the detail screens have used since before this menu existed —
-/// [PlaybackController.playTracks], `playNext`, `addToQueue`, and the shared
-/// add-to-playlist sheet with its duplicate and source safeguards — so the menu
-/// carries no logic of its own to drift.
+/// [PlaybackController.playTracks], `playNextAll`, `addAllToQueue`, and the
+/// shared add-to-playlist sheet with its duplicate and source safeguards, so
+/// the menu carries no logic of its own to drift.
 enum CollectionAction {
   play,
   shuffle,
@@ -31,10 +31,23 @@ List<PopupMenuEntry<CollectionAction>> collectionMenuItems() {
     _item(CollectionAction.play, Icons.play_arrow, 'Play'),
     _item(CollectionAction.shuffle, Icons.shuffle, 'Shuffle'),
     const PopupMenuDivider(),
-    _item(CollectionAction.playNext, Icons.queue_music, 'Play next'),
-    _item(CollectionAction.addToQueue, Icons.add_to_queue, 'Add to queue'),
+    ...queueMenuItems(),
     _item(
         CollectionAction.addToPlaylist, Icons.playlist_add, 'Add to playlist'),
+  ];
+}
+
+/// Just the two entries that *extend* a queue rather than replace it.
+///
+/// For surfaces that already show Play and Shuffle as their own controls (the
+/// album page's header buttons), so the menu beside them offers what is missing
+/// instead of repeating what is already a tap away. Same values, same commands
+/// behind [runCollectionAction], so a menu built from these behaves exactly
+/// like the same entries in [collectionMenuItems].
+List<PopupMenuEntry<CollectionAction>> queueMenuItems() {
+  return <PopupMenuEntry<CollectionAction>>[
+    _item(CollectionAction.playNext, Icons.queue_music, 'Play next'),
+    _item(CollectionAction.addToQueue, Icons.add_to_queue, 'Add to queue'),
   ];
 }
 
@@ -75,25 +88,13 @@ Future<void> runCollectionAction(
       unawaited(controller.playTracks(tracks));
       unawaited(context.push(AppRoutes.player));
     case CollectionAction.playNext:
-      if (controller.state.currentTrack == null) {
-        // Nothing is playing, so there is no "next" to insert before. The
-        // shared command starts the first track it is handed and queues the
-        // rest behind it, which is what "play this next" means from silence.
-        for (final Track track in tracks) {
-          controller.addToQueue(track);
-        }
-      } else {
-        // Each insert lands directly after the current track, so an album
-        // queued front-to-back would play backwards. Reversing is the one
-        // thing a set knows that a single track does not.
-        for (final Track track in tracks.reversed) {
-          controller.playNext(track);
-        }
-      }
+      // One insert for the whole set, in the order it was handed over: it lands
+      // after the current track and keeps everything already upcoming behind
+      // it. From silence the set becomes the queue and starts from its first
+      // track, which is what "play this next" means with nothing playing.
+      controller.playNextAll(tracks);
     case CollectionAction.addToQueue:
-      for (final Track track in tracks) {
-        controller.addToQueue(track);
-      }
+      controller.addAllToQueue(tracks);
     case CollectionAction.addToPlaylist:
       await showAddToPlaylistSheet(context, tracks);
   }
