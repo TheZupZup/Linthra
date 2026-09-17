@@ -884,6 +884,22 @@ class WindowTitleTest(CheckoutCase):
         )
         self.assertIn("preprocessor conditional", problem)
 
+    def test_a_title_that_is_only_a_macro_body_is_caught(self) -> None:
+        # A `#define` inside the function passes every other rule here: the
+        # text is in the body, at brace depth zero, preceded by a `;`, and
+        # under no conditional. It also expands nowhere, so the shipped window
+        # has no title.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "#define SET_TITLE "
+                    "gtk_window_set_title(window, kApplicationName)\n",
+                )
+            )
+        )
+        self.assertIn("preprocessor directive line", problem)
+
     def test_a_title_set_outside_activate_is_caught(self) -> None:
         # Setting it somewhere else entirely compiles and runs; it just never
         # reaches the window this function builds.
@@ -1066,6 +1082,24 @@ class DesktopNeutralityTest(CheckoutCase):
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("excused only in", problems[0])
         self.assertIn("not for the name", problems[0])
+
+    def test_a_comment_does_not_supply_the_allowed_expression(self) -> None:
+        # The allowance is anchored to an expression, and the expression has to
+        # come from code. Here the live comparison is something the allowance
+        # never covered, with the old one parked in a trailing comment: reading
+        # the raw line would find `g_strcmp0(wm_name, "GNOME Shell")` there and
+        # wave the new check through.
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {\n',
+                '  if (is_desktop("GNOME Shell")) {'
+                '  // g_strcmp0(wm_name, "GNOME Shell")\n',
+            ),
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("excused only in", problems[0])
 
     def test_a_raw_string_does_not_hide_a_later_check(self) -> None:
         # The C++ twin of the Dart stripper bug: a raw string's body can hold a
