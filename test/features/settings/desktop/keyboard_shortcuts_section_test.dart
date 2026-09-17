@@ -9,6 +9,7 @@ import 'package:linthra/app/shortcuts/shortcut_binding.dart';
 import 'package:linthra/core/repositories/keyboard_shortcut_preferences.dart';
 import 'package:linthra/data/repositories/in_memory_keyboard_shortcut_preferences.dart';
 import 'package:linthra/data/repositories/keyboard_shortcut_preferences_provider.dart';
+import 'package:linthra/features/help/keyboard_shortcuts_help.dart';
 import 'package:linthra/features/settings/desktop/keyboard_shortcuts_section.dart';
 
 /// Remapping as a user does it (#391): open the row, press the keys, and be
@@ -557,5 +558,53 @@ void main() {
   testWidgets('the card says media keys are not its business', (tester) async {
     await _pumpCard(tester);
     expect(find.textContaining('Media keys are handled'), findsOneWidget);
+  });
+
+  group('the way into the help window (#392)', () {
+    testWidgets('the card offers one, and it opens', (tester) async {
+      await _pumpCard(tester);
+
+      await tester.tap(find.text('Show all shortcuts'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(KeyboardShortcutsHelpDialog), findsOneWidget);
+    });
+
+    testWidgets('it shows what this card shows, remap included',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        stored: <String, String>{
+          'queue': const ShortcutBinding(LogicalKeyboardKey.keyJ, control: true)
+              .storageValue,
+        },
+      );
+
+      await tester.tap(find.text('Show all shortcuts'));
+      await tester.pumpAndSettle();
+
+      // Both surfaces read the one map, so the window cannot disagree with the
+      // row that opened it.
+      expect(find.text('Ctrl + J'), findsNWidgets(2));
+      expect(find.text('Ctrl + U'), findsNothing);
+    });
+
+    testWidgets('and closing it puts the keyboard back on the button',
+        (tester) async {
+      await _pumpCard(tester);
+
+      await tester.tap(find.text('Show all shortcuts'));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(KeyboardShortcutsHelpDialog), findsNothing);
+      expect(
+        Focus.of(tester.element(find.text('Show all shortcuts'))).hasFocus,
+        isTrue,
+        reason: 'a clicked button never had focus for Flutter to restore, so '
+            'the window has to hand it back',
+      );
+    });
   });
 }
