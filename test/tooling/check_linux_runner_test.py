@@ -87,6 +87,11 @@ endif()
 # part of the fixture rather than an optional extra: they are what makes the
 # running window answer to the application id, and every WindowIdentityTest case
 # below is this same text with exactly one of them broken.
+#
+# The window title and the header-bar decision around it (#458) are here for the
+# same reason. The title has to be set *before* that decision to be set at all
+# on a header-bar desktop, and the decision itself is the one desktop-name check
+# Linthra still carries, so it is also what DesktopNeutralityTest reads.
 MY_APPLICATION = """\
 #include "my_application.h"
 
@@ -102,6 +107,17 @@ static constexpr int kMinimumWindowHeight = 600;
 static void activate() {{
   if (window_lifecycle_channel_present(self->window_lifecycle)) {{
     return;
+  }}
+  gtk_window_set_title(window, kApplicationName);
+
+  gboolean use_header_bar = TRUE;
+#ifdef GDK_WINDOWING_X11
+  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {{
+    use_header_bar = FALSE;
+  }}
+#endif
+  if (use_header_bar) {{
+    gtk_header_bar_set_title(header_bar, kApplicationName);
   }}
   self->folder_picker = folder_picker_channel_new(view, window);
   self->window_lifecycle = window_lifecycle_channel_new(view, window);
@@ -721,6 +737,211 @@ class WindowIdentityTest(CheckoutCase):
         )
         with self.assertRaises(checker.CheckError):
             checker.runner_identity_problems(self.root)
+
+
+class WindowTitleTest(CheckoutCase):
+    """The window's own title, and the reason it is not the header bar's (#458).
+
+    `gtk_header_bar_set_title()` draws a string inside the process.
+    `gtk_window_set_title()` is the one that reaches the display server, as
+    X11's `_NET_WM_NAME` and Wayland's `xdg_toplevel.set_title`. The Flutter
+    template only made the second call on the branch that had no header bar, so
+    on a header-bar desktop the window carried no title at all and every task
+    switcher, window list, window rule and screen reader that reads one got a
+    blank. Like the identity calls above, it compiles and launches perfectly
+    either way.
+    """
+
+    def runner(self, *, replace: tuple[str, str] | None = None) -> str:
+        text = MY_APPLICATION.format(display_name=DISPLAY_NAME)
+        if replace is not None:
+            old, new = replace
+            assert old in text, old
+            text = text.replace(old, new)
+        return text
+
+    def only_problem(self, runner: str) -> str:
+        build_checkout(self.root, my_application=runner)
+        problems = checker.window_title_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        return problems[0]
+
+    def test_a_consistent_runner_has_no_title_problems(self) -> None:
+        build_checkout(self.root)
+        self.assertEqual(checker.window_title_problems(self.root), [])
+
+    def test_losing_the_call_is_caught(self) -> None:
+        problem = self.only_problem(
+            self.runner(
+                replace=("  gtk_window_set_title(window, kApplicationName);\n", "")
+            )
+        )
+        self.assertIn("gtk_window_set_title", problem)
+        self.assertIn("no title", problem)
+
+    def test_a_title_set_only_on_one_decoration_branch_is_caught(self) -> None:
+        # What the template actually shipped: the call exists, but only inside
+        # the branch taken when there is no header bar.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n\n",
+                    "",
+                )
+            ).replace(
+                "  if (use_header_bar) {\n",
+                "  if (!use_header_bar) {\n"
+                "    gtk_window_set_title(window, kApplicationName);\n"
+                "  }\n"
+                "  if (use_header_bar) {\n",
+            )
+        )
+        self.assertIn("after the use_header_bar decision", problem)
+
+    def test_a_title_in_a_comment_does_not_count(self) -> None:
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "  // gtk_window_set_title(window, kApplicationName);\n",
+                )
+            )
+        )
+        self.assertIn("gtk_window_set_title", problem)
+
+    def test_a_hardcoded_title_is_caught(self) -> None:
+        # The title has to come from kApplicationName, which the checker already
+        # holds to AppInfo.name, rather than being pasted in as a second copy.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "gtk_window_set_title(window, kApplicationName);",
+                    'gtk_window_set_title(window, "ExampleApp");',
+                )
+            )
+        )
+        self.assertIn("gtk_window_set_title", problem)
+
+    def test_two_calls_are_caught(self) -> None:
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "  gtk_window_set_title(window, kApplicationName);\n"
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                )
+            )
+        )
+        self.assertIn("expected 1", problem)
+
+
+class DesktopNeutralityTest(CheckoutCase):
+    """No new runtime branch on which desktop is running (#458).
+
+    Every Linux integration Linthra has goes through a desktop standard:
+    portals for the file chooser and notifications, MPRIS for media controls and
+    media keys, the Secret Service for credentials, freedesktop window
+    properties for identity. A check that asks which desktop is running is how
+    that quietly turns into "works on the one it was written on", and it is
+    never a build failure, so only a scan catches it.
+    """
+
+    def runner(self, extra: str) -> str:
+        text = MY_APPLICATION.format(display_name=DISPLAY_NAME)
+        return text.replace(
+            "  gboolean use_header_bar = TRUE;\n",
+            "  gboolean use_header_bar = TRUE;\n" + extra,
+        )
+
+    def test_a_consistent_runner_is_neutral(self) -> None:
+        build_checkout(self.root)
+        self.assertEqual(checker.desktop_neutrality_problems(self.root), [])
+
+    def test_the_grandfathered_x11_decoration_check_is_allowed(self) -> None:
+        build_checkout(self.root)
+        found = checker.desktop_environment_checks(self.root)
+        self.assertEqual(
+            [(str(path), literal) for path, _, literal, _ in found],
+            [("linux/runner/my_application.cc", "GNOME Shell")],
+        )
+
+    def test_a_session_environment_variable_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            my_application=self.runner(
+                '  const gchar* desktop = g_getenv("XDG_CURRENT_DESKTOP");\n'
+            ),
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("XDG_CURRENT_DESKTOP", problems[0])
+        self.assertIn("desktop session environment variable", problems[0])
+
+    def test_a_second_desktop_name_check_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            my_application=self.runner(
+                '  if (g_strcmp0(session, "KDE") == 0) use_header_bar = FALSE;\n'
+            ),
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("'KDE'", problems[0])
+        self.assertIn("desktop environment name", problems[0])
+
+    def test_a_desktop_name_in_a_comment_is_fine(self) -> None:
+        # Prose names both desktops constantly, and should. It is a runtime
+        # branch that is the problem.
+        build_checkout(
+            self.root,
+            my_application=self.runner(
+                "  // KDE Plasma draws its own title bar here, GNOME Shell does not.\n"
+            ),
+        )
+        self.assertEqual(checker.desktop_neutrality_problems(self.root), [])
+
+    def test_a_name_inside_a_longer_word_is_not_a_desktop_check(self) -> None:
+        build_checkout(
+            self.root,
+            my_application=self.runner(
+                '  const gchar* unrelated = "kdenlive-import";\n'
+            ),
+        )
+        self.assertEqual(checker.desktop_neutrality_problems(self.root), [])
+
+    def test_a_check_in_another_runner_source_is_caught(self) -> None:
+        # The allowance is scoped to the file it was granted for, so the same
+        # literal somewhere else is still a finding.
+        build_checkout(self.root)
+        (self.root / "linux" / "runner" / "folder_picker_channel.cc").write_text(
+            FOLDER_PICKER_CHANNEL.format(
+                channel=FOLDER_PICKER_CHANNEL_NAME,
+                method=FOLDER_PICKER_METHOD_NAME,
+            )
+            + 'static constexpr const char* kShell = "GNOME Shell";\n',
+            encoding="utf-8",
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("folder_picker_channel.cc", problems[0])
+
+    def test_removing_the_grandfathered_check_asks_for_the_entry_to_go(
+        self,
+    ) -> None:
+        # Good news, but a stale allowance is still rot: the table has to keep
+        # describing what is actually there.
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {\n'
+                "    use_header_bar = FALSE;\n"
+                "  }\n",
+                "",
+            ),
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("GRANDFATHERED_DESKTOP_NAME_CHECKS", problems[0])
 
 
 class DesktopEntryTest(CheckoutCase):

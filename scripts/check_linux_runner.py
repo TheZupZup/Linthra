@@ -344,6 +344,99 @@ ABSOLUTE_PATH_PATTERN = re.compile(
 )
 
 
+# === The window's own title (#458) ===
+#
+# `gtk_window_set_title()` is the only call that puts a title on the display
+# server: X11's `_NET_WM_NAME`, Wayland's `xdg_toplevel.set_title`. A
+# `GtkHeaderBar` title is drawn in-process and reaches neither, so the Flutter
+# template's header-bar path left the window with no title at all, and every
+# desktop component that reads a window title rather than resolving an
+# application id (KDE Plasma's task manager and window switcher, GNOME Shell's
+# overview labels and window list, window rules matched on a caption, wmctrl,
+# a screen reader) had nothing to show.
+#
+# So the call is required, and required *before* the decoration decision, which
+# is what makes it unconditional: a title set inside one branch of the header
+# bar `if` is exactly the bug that was there.
+WINDOW_TITLE_CALL = "gtk_window_set_title"
+HEADER_BAR_DECISION = "use_header_bar"
+
+# === Desktop-environment neutrality (#458) ===
+#
+# Linthra's Linux integrations go through desktop standards: portals for the
+# file chooser and notifications, MPRIS on the session bus for media controls
+# and media keys, the Secret Service for credentials, freedesktop window
+# properties for identity. None of those needs to know *which* desktop is
+# running, and a check that does know is how support quietly becomes
+# "works on the one desktop it was written on".
+#
+# Detection has two shapes and both are cheap to spot, because both end up as a
+# string literal in the runner: reading one of the environment variables a
+# session sets, or comparing against a desktop's name. So every string literal
+# under linux/ is scanned for either, with one grandfathered exception below.
+DESKTOP_SESSION_ENV_VARS = (
+    "XDG_CURRENT_DESKTOP",
+    "XDG_SESSION_DESKTOP",
+    "DESKTOP_SESSION",
+    "KDE_FULL_SESSION",
+    "KDE_SESSION_VERSION",
+    "GNOME_DESKTOP_SESSION_ID",
+)
+
+# Desktop and window-manager names, matched case-insensitively as whole words
+# inside a string literal, so `GDK_WINDOWING_X11` and a path component never
+# trip it. Names that are ordinary words too (MATE's "marco", Cinnamon's
+# "muffin") are left out: nothing would plausibly branch on them, and a list
+# that produces false positives is a list people start ignoring.
+# test/tooling/desktop_environment_neutrality_test.dart applies the same list to
+# the Dart side.
+DESKTOP_NAMES = (
+    "gnome",
+    "kde",
+    "plasma",
+    "kwin",
+    "mutter",
+    "xfce",
+    "xfwm4",
+    "cinnamon",
+    "budgie",
+    "lxqt",
+    "pantheon",
+    "deepin",
+)
+
+DESKTOP_NAME_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])(?:" + "|".join(DESKTOP_NAMES) + r")(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+# The one desktop-name check Linthra still carries, and why it is allowed to
+# stay: (file, literal) -> reason.
+#
+# It is X11-only (the Wayland path never reaches it), it decides nothing but
+# *who paints the title bar*, and GTK 3 implements no xdg-decoration protocol,
+# so there is no desktop standard to replace it with. Everything functional is
+# identical on both sides of it. Recorded here rather than silently skipped, so
+# adding a second one is a deliberate edit to this table with a reason attached,
+# not something that slips in.
+#
+# See docs/desktop-compatibility-matrix.md, "Differences Linthra does not
+# normalize".
+GRANDFATHERED_DESKTOP_NAME_CHECKS = {
+    (
+        Path("linux") / "runner" / "my_application.cc",
+        "GNOME Shell",
+    ): "X11-only title bar decoration style; GTK 3 has no xdg-decoration seam",
+}
+
+# The committed sources the neutrality scan covers. The rest of linux/ is CMake,
+# packaging metadata and icons, none of which can branch at runtime.
+NEUTRALITY_SOURCE_SUFFIXES = (".cc", ".cpp", ".h", ".hpp")
+
+# A double-quoted C string literal, escapes included.
+C_STRING_LITERAL = re.compile(r'"(?:[^"\\\n]|\\.)*"')
+
+
 class CheckError(Exception):
     """A file could not be read or a required value could not be found."""
 
@@ -1054,6 +1147,128 @@ def runner_identity_problems(root: Path) -> list[str]:
     return problems
 
 
+def window_title_problems(root: Path) -> list[str]:
+    """The window's own title, set unconditionally (#458).
+
+    `gtk_header_bar_set_title()` draws a string; `gtk_window_set_title()` is
+    what tells X11 (`_NET_WM_NAME`) and Wayland (`xdg_toplevel.set_title`) what
+    the window is called. The Flutter template only called the second one on the
+    branch where it had *no* header bar, so on a header-bar desktop the window
+    carried no title at all and everything reading one showed a blank.
+
+    Requiring the call before the decoration decision is what keeps it
+    unconditional: a title inside either branch of that `if` is the same bug in
+    a new place.
+    """
+    text = _read(root, MY_APPLICATION)
+    code = _blank(text, comments=True)
+    problems: list[str] = []
+
+    pattern = re.compile(
+        rf"\b{re.escape(WINDOW_TITLE_CALL)}\s*\(\s*window\s*,"
+        rf"\s*{re.escape(APPLICATION_NAME_CONSTANT)}\s*\)"
+    )
+    matches = list(pattern.finditer(code))
+    if not matches:
+        problems.append(
+            f"{MY_APPLICATION}: no "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) call, so "
+            "the window reaches the display server with no title and every task "
+            "switcher, window list and screen reader that reads one shows a "
+            "blank"
+        )
+        return problems
+    if len(matches) > 1:
+        problems.append(
+            f"{MY_APPLICATION}: {len(matches)} "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) calls, "
+            "expected 1"
+        )
+        return problems
+
+    decision = code.find(HEADER_BAR_DECISION)
+    if decision != -1 and matches[0].start() > decision:
+        problems.append(
+            f"{MY_APPLICATION}: "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) comes "
+            f"after the {HEADER_BAR_DECISION} decision, so it is only reached on "
+            "one decoration path; set the title before that choice is made"
+        )
+    return problems
+
+
+def desktop_environment_checks(root: Path) -> list[tuple[Path, int, str, str]]:
+    """Desktop-environment detection in the committed Linux sources (#458).
+
+    Returns `(file, line, literal, what)` for every string literal that names a
+    desktop environment or reads one of the environment variables a session
+    sets. Grandfathered entries are filtered out by the caller, so this stays a
+    plain scan.
+
+    Comments are blanked first: this script and the runner both name GNOME and
+    KDE Plasma constantly, and prose is exactly the place that *should* name
+    them. It is a runtime branch on a desktop's name that is the problem.
+    """
+    findings: list[tuple[Path, int, str, str]] = []
+    linux_dir = root / "linux"
+    for path in sorted(linux_dir.rglob("*")):
+        if not path.is_file() or path.suffix not in NEUTRALITY_SOURCE_SUFFIXES:
+            continue
+        if "ephemeral" in path.relative_to(linux_dir).parts:
+            continue
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        code = _blank(source, comments=True)
+        relative = path.relative_to(root)
+        for match in C_STRING_LITERAL.finditer(code):
+            literal = match.group()[1:-1]
+            line = code.count("\n", 0, match.start()) + 1
+            if literal in DESKTOP_SESSION_ENV_VARS:
+                findings.append(
+                    (relative, line, literal, "a desktop session environment variable")
+                )
+            elif DESKTOP_NAME_PATTERN.search(literal):
+                findings.append((relative, line, literal, "a desktop environment name"))
+    return findings
+
+
+def desktop_neutrality_problems(root: Path) -> list[str]:
+    """The neutrality rule, minus the checks that are recorded as exceptions.
+
+    Every Linux integration Linthra has goes through a desktop standard, so a
+    new runtime branch on *which* desktop is running is a regression in support
+    rather than a feature: it is the shape that makes one desktop the tested one
+    and the other the one that breaks after release.
+    """
+    problems: list[str] = []
+    seen: set[tuple[Path, str]] = set()
+    for relative, line, literal, what in desktop_environment_checks(root):
+        key = (relative, literal)
+        seen.add(key)
+        if key in GRANDFATHERED_DESKTOP_NAME_CHECKS:
+            continue
+        problems.append(
+            f"{relative}:{line}: {literal!r} is {what}. Linthra's Linux "
+            "integrations go through desktop standards (portals, MPRIS, the "
+            "Secret Service, freedesktop window properties), so reach for one of "
+            "those instead. If there is genuinely no standard for it, add it to "
+            "GRANDFATHERED_DESKTOP_NAME_CHECKS with the reason and document it "
+            "in docs/desktop-compatibility-matrix.md"
+        )
+
+    for (relative, literal), reason in GRANDFATHERED_DESKTOP_NAME_CHECKS.items():
+        if (relative, literal) not in seen:
+            problems.append(
+                f"{relative}: the grandfathered desktop-name check {literal!r} "
+                f"({reason}) is gone. That is good news; drop its entry from "
+                "GRANDFATHERED_DESKTOP_NAME_CHECKS so the table keeps meaning "
+                "what it says"
+            )
+    return problems
+
+
 def absolute_paths_under_linux(root: Path) -> list[str]:
     """Absolute host paths hardcoded in the committed Linux build files.
 
@@ -1129,6 +1344,11 @@ def check(root: Path) -> list[str]:
     # where they still take effect.
     problems.extend(runner_identity_problems(root))
     problems.extend(window_state_problems(root))
+
+    # The window's own title (#458), which is not the header bar's, and the
+    # neutrality rule that keeps Linux support from being tuned to one desktop.
+    problems.extend(window_title_problems(root))
+    problems.extend(desktop_neutrality_problems(root))
 
     # Window metrics: a minimum larger than the default would open the window
     # already clamped, which reads as the app ignoring its own default.
