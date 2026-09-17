@@ -425,21 +425,28 @@ DESKTOP_NAME_PATTERN = re.compile(
 #
 # See docs/desktop-compatibility-matrix.md, "Differences Linthra does not
 # normalize".
-# (file, literal) -> (the exact expression it is excused in, reason). The
-# expression is what binds the allowance to *this* check rather than to the
-# name: counting occurrences stops a duplicate, but on its own it would still
-# excuse a different comparison that happens to be the only one left.
+# (file, literal) -> (the whole line it is excused on, reason). The line is
+# what binds the allowance to *this* check rather than to the name: counting
+# occurrences stops a duplicate, but on its own it would still excuse a
+# different comparison that happens to be the only one left.
 #
-# It carries the comparison operator too, and that is not pedantry. Flipping
-# `!= 0` to `== 0` reverses which desktop gets the header bar while leaving the
-# call itself identical, so an allowance recorded as the bare `g_strcmp0(...)`
-# would excuse the opposite behaviour without a word.
+# It is matched whole, after collapsing runs of whitespace, rather than as a
+# substring, and each widening of it came from a way the narrower version was
+# satisfied by something that behaves differently:
+#
+#   g_strcmp0(wm_name, "GNOME Shell")          both `!= 0` and `== 0` match it,
+#                                              and they pick opposite desktops
+#   g_strcmp0(wm_name, "GNOME Shell") != 0     `!(... != 0)` contains it, and
+#                                              means the opposite again
+#
+# So the entry is the statement, and any edit to it, negation included, has to
+# come back through this table.
 GRANDFATHERED_DESKTOP_NAME_CHECKS = {
     (
         Path("linux") / "runner" / "my_application.cc",
         "GNOME Shell",
     ): (
-        'g_strcmp0(wm_name, "GNOME Shell") != 0',
+        'if (g_strcmp0(wm_name, "GNOME Shell") != 0) {',
         "X11-only title bar decoration style; GTK 3 has no xdg-decoration seam",
     ),
 }
@@ -1042,6 +1049,16 @@ def _blank(source: str, *, comments: bool = True, strings: bool = False) -> str:
     return "".join(out)
 
 
+def _collapse_spaces(text: str) -> str:
+    """`text` with every run of whitespace reduced to one space, and trimmed.
+
+    Used to compare a recorded allowance against the line it is recorded for,
+    so re-indenting the runner does not trip the guardrail while any change to
+    the tokens on that line does.
+    """
+    return " ".join(text.split())
+
+
 def _string_literals(code: str) -> list[tuple[int, str]]:
     """Every C++ string literal in `code`, as `(offset, body)`.
 
@@ -1051,13 +1068,21 @@ def _string_literals(code: str) -> list[tuple[int, str]]:
     into `({`, `:` and `})`, so the name the neutrality scan exists to find is
     in none of the pieces while the code around it can still branch on it.
 
+    Literals separated only by whitespace are returned as one, at the offset of
+    the first, because that is what the compiler does with them: `"K" "DE"` is
+    the single string `KDE` by the time anything runs, and returning two bodies
+    would mean the scan looks for a name in neither of the halves it was split
+    into.
+
     Character literals are stepped over rather than returned, matching the
     scan's long-standing behaviour: `'x'` cannot hold a desktop name, and
     C++14's digit separators (`1'000'000`) would otherwise read as literals.
 
-    `code` is expected to have had its comments blanked already.
+    `code` is expected to have had its comments blanked already, which is also
+    what makes the adjacency test above safe: a comment between two literals is
+    whitespace here, and it is whitespace to the compiler too.
     """
-    literals: list[tuple[int, str]] = []
+    pieces: list[tuple[int, int, str]] = []
     index = 0
     length = len(code)
     while index < length:
@@ -1070,17 +1095,32 @@ def _string_literals(code: str) -> list[tuple[int, str]]:
             closing = ")" + code[index + 2 : open_paren] + '"'
             found = code.find(closing, open_paren + 1)
             body_end = length if found == -1 else found
-            literals.append((index, code[open_paren + 1 : body_end]))
-            index = length if found == -1 else found + len(closing)
+            end = length if found == -1 else found + len(closing)
+            pieces.append((index, end, code[open_paren + 1 : body_end]))
+            index = end
         elif char == '"' or char == "'":
-            end = index + 1
-            while end < length and code[end] != char:
-                end += 2 if code[end] == "\\" else 1
+            close = index + 1
+            while close < length and code[close] != char:
+                close += 2 if code[close] == "\\" else 1
+            # `close` is the closing quote, or the end of the file when there
+            # is none. The body stops there either way; the span runs past it
+            # only when it is really a quote.
+            end = min(close + 1, length)
             if char == '"':
-                literals.append((index, code[index + 1 : min(end, length)]))
-            index = min(end + 1, length)
+                pieces.append((index, end, code[index + 1 : min(close, length)]))
+            index = end
         else:
             index += 1
+
+    literals: list[tuple[int, str]] = []
+    previous_end = 0
+    for start, end, body in pieces:
+        if literals and code[previous_end:start].strip() == "":
+            offset, joined = literals[-1]
+            literals[-1] = (offset, joined + body)
+        else:
+            literals.append((start, body))
+        previous_end = end
     return literals
 
 
@@ -1464,12 +1504,15 @@ def desktop_neutrality_problems(root: Path) -> list[str]:
                     "reusing its name"
                 )
                 continue
-            if expected not in expression:
+            if _collapse_spaces(expected) != _collapse_spaces(expression):
                 problems.append(
-                    f"{relative}:{line}: {literal!r} is excused only in "
-                    f"{expected!r} ({reason}), but here it appears in "
-                    f"{expression.strip()!r}. The allowance is for that one "
-                    "comparison, not for the name"
+                    f"{relative}:{line}: {literal!r} is excused only on the "
+                    f"line {expected!r} ({reason}), and here the line is "
+                    f"{expression.strip()!r}. The allowance is that one "
+                    "statement, not the name and not anything containing it: "
+                    "flipping the operator, or wrapping the whole comparison "
+                    "in a negation, reverses which desktop it picks while "
+                    "still reading as the same check"
                 )
             continue
         problems.append(

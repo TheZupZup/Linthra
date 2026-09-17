@@ -157,11 +157,31 @@ void main() {
         }
         index = end;
       } else if (source.startsWith('/*', index)) {
-        final int close = source.indexOf('*/', index + 2);
-        final int end = close == -1 ? source.length : close + 2;
-        for (int at = index; at < end; at++) {
-          if (out[at] != '\n') {
-            out[at] = ' ';
+        // Dart block comments nest, which C's do not, so the first `*/` is not
+        // necessarily the end. Treating it as the end leaves the tail of the
+        // outer comment visible to the scan, and prose is exactly where these
+        // names belong, so `/* outer /* inner */ GNOME */` would fail the
+        // whole suite on a comment that compiles fine.
+        int depth = 0;
+        int at = index;
+        while (at < source.length) {
+          if (source.startsWith('/*', at)) {
+            depth++;
+            at += 2;
+          } else if (source.startsWith('*/', at)) {
+            depth--;
+            at += 2;
+            if (depth == 0) {
+              break;
+            }
+          } else {
+            at++;
+          }
+        }
+        final int end = at;
+        for (int blank = index; blank < end; blank++) {
+          if (out[blank] != '\n') {
+            out[blank] = ' ';
           }
         }
         index = end;
@@ -170,6 +190,42 @@ void main() {
       }
     }
     return out.join();
+  }
+
+  /// The seam between two adjacent string literals: a closing quote, nothing
+  /// but whitespace, an opening quote.
+  final RegExp literalSeam = RegExp('["\']\\s*["\']');
+
+  /// [code] with those seams closed up, and a map from each offset in the
+  /// result back to the offset it came from.
+  ///
+  /// Two literals separated only by whitespace are one string in Dart: `'K'
+  /// 'DE'` is `KDE` before anything runs. The scan looks for a name as
+  /// contiguous letters, so without this a desktop check written that way sits
+  /// in neither half and passes.
+  ///
+  /// The map is what keeps the report honest. A seam can span lines, and Dart
+  /// splits long strings across lines constantly, so the joined text has fewer
+  /// lines than the file it came from. A line counted in the joined text would
+  /// be wrong for every finding after the first seam; findings are looked up
+  /// through this map instead.
+  (String, List<int>) withoutLiteralSeams(String code) {
+    final StringBuffer joined = StringBuffer();
+    final List<int> origin = <int>[];
+    void copy(int from, int to) {
+      for (int at = from; at < to; at++) {
+        joined.write(code[at]);
+        origin.add(at);
+      }
+    }
+
+    int index = 0;
+    for (final Match seam in literalSeam.allMatches(code)) {
+      copy(index, seam.start);
+      index = seam.end;
+    }
+    copy(index, code.length);
+    return (joined.toString(), origin);
   }
 
   /// The 1-based line number [offset] falls on.
@@ -229,13 +285,15 @@ void main() {
   test('no Dart source reads a desktop session environment variable', () {
     final List<String> findings = <String>[];
     for (final File file in sources) {
-      final String code = withoutComments(file.readAsStringSync());
+      final String stripped = withoutComments(file.readAsStringSync());
+      final (String code, List<int> origin) = withoutLiteralSeams(stripped);
       for (final String variable in sessionVariables) {
         final int at = code.indexOf(variable);
         if (at == -1) {
           continue;
         }
-        findings.add('${file.path}:${lineAt(code, at)}: $variable');
+        final int line = lineAt(stripped, origin[at]);
+        findings.add('${file.path}:$line: $variable');
       }
     }
     expect(
@@ -254,12 +312,13 @@ void main() {
     final List<String> findings = <String>[];
     final List<String> unused = <String>[...allowedOccurrences];
     for (final File file in sources) {
-      final String code = withoutComments(file.readAsStringSync());
+      final String stripped = withoutComments(file.readAsStringSync());
+      final (String code, List<int> origin) = withoutLiteralSeams(stripped);
       for (final RegExpMatch match in desktopName.allMatches(code)) {
         if (unused.remove('${file.path}:${match.group(0)}')) {
           continue;
         }
-        final int line = lineAt(code, match.start);
+        final int line = lineAt(stripped, origin[match.start]);
         findings.add('${file.path}:$line: ${match.group(0)}');
       }
     }
@@ -344,6 +403,49 @@ void main() {
       }
     }
     expect(damaged, isEmpty);
+  });
+
+  test('a nested block comment is stripped whole', () {
+    // Dart nests block comments, C does not. Stopping at the first `*/` leaves
+    // the tail of the outer one exposed, and since prose is where these names
+    // belong, the guardrail would fail the suite on a legal comment.
+    const String sample = '/* outer /* inner */ GNOME */\n'
+        "const String kept = 'value';\n";
+    final String code = withoutComments(sample);
+    expect(desktopName.allMatches(code), isEmpty);
+    expect(code.contains('const String kept'), isTrue);
+  });
+
+  test('adjacent string literals are read as the string they form', () {
+    // `'K' 'DE'` is the single string `KDE` before anything runs, so a scan
+    // that reads the halves separately finds the name in neither.
+    const String sample = "const String shell = 'K' 'DE';\n";
+    final (String code, _) = withoutLiteralSeams(withoutComments(sample));
+    expect(desktopName.allMatches(code).length, 1);
+    expect(desktopName.firstMatch(code)!.group(0), 'KDE');
+  });
+
+  test('a seam spanning lines keeps the line numbers honest', () {
+    // The seam may hold a newline, and dropping it would shift every line
+    // number below it in the report.
+    const String sample = 'const String a = 1;\n'
+        "const String shell = 'K'\n"
+        "    'DE';\n";
+    final String stripped = withoutComments(sample);
+    final (String code, List<int> origin) = withoutLiteralSeams(stripped);
+    final RegExpMatch match = desktopName.firstMatch(code)!;
+    expect(match.group(0), 'KDE');
+    // The name starts on line 2 of the file. The joined text is a line
+    // shorter, so counting newlines in it is not the same question.
+    expect(lineAt(stripped, origin[match.start]), 2);
+  });
+
+  test('literals separated by anything else are left alone', () {
+    // The other direction: a comma makes them two strings, and joining them
+    // would invent a name nothing forms.
+    const String sample = "const List<String> pair = <String>['K', 'DE'];\n";
+    final (String code, _) = withoutLiteralSeams(withoutComments(sample));
+    expect(desktopName.allMatches(code), isEmpty);
   });
 
   test('the scan reads code and ignores prose', () {

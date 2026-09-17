@@ -1089,8 +1089,8 @@ class DesktopNeutralityTest(CheckoutCase):
         )
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("excused only in", problems[0])
-        self.assertIn("not for the name", problems[0])
+        self.assertIn("excused only on the line", problems[0])
+        self.assertIn("not the name", problems[0])
 
     def test_a_comment_does_not_supply_the_allowed_expression(self) -> None:
         # The allowance is anchored to an expression, and the expression has to
@@ -1108,7 +1108,7 @@ class DesktopNeutralityTest(CheckoutCase):
         )
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("excused only in", problems[0])
+        self.assertIn("excused only on the line", problems[0])
 
     def test_the_allowance_does_not_cover_a_flipped_comparison(self) -> None:
         # `!= 0` to `== 0` is one character and it swaps which desktop gets the
@@ -1123,7 +1123,7 @@ class DesktopNeutralityTest(CheckoutCase):
         )
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("excused only in", problems[0])
+        self.assertIn("excused only on the line", problems[0])
 
     def test_a_desktop_name_inside_a_raw_string_is_caught(self) -> None:
         # A raw string's body can hold its own quotes. Scanning for ordinary
@@ -1141,6 +1141,67 @@ class DesktopNeutralityTest(CheckoutCase):
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("KDE", problems[0])
+
+    def test_the_allowance_does_not_cover_a_negated_condition(self) -> None:
+        # The comparison is untouched and the branch is inverted around it, so
+        # a substring match on the approved expression still succeeds while the
+        # runner gives the header bar to the other set of desktops. That is why
+        # the allowance is the whole line.
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                'if (g_strcmp0(wm_name, "GNOME Shell") != 0) {',
+                'if (!(g_strcmp0(wm_name, "GNOME Shell") != 0)) {',
+            ),
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("excused only on the line", problems[0])
+
+    def test_reindenting_the_allowed_line_is_fine(self) -> None:
+        # The other half of matching the line whole: it is compared with runs
+        # of whitespace collapsed, so a reformat is not a finding. Only the
+        # tokens matter.
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {',
+                '    if (g_strcmp0(wm_name,  "GNOME Shell")  != 0) {',
+            ),
+        )
+        self.assertEqual(checker.desktop_neutrality_problems(self.root), [])
+
+    def test_adjacent_literals_are_read_as_the_string_they_form(self) -> None:
+        # `"K" "DE"` is the single string `KDE` before anything runs, so a scan
+        # that reports two bodies finds the name in neither and a desktop check
+        # written this way passes.
+        build_checkout(self.root)
+        (self.root / "linux" / "runner" / "folder_picker_channel.cc").write_text(
+            FOLDER_PICKER_CHANNEL.format(
+                channel=FOLDER_PICKER_CHANNEL_NAME,
+                method=FOLDER_PICKER_METHOD_NAME,
+            )
+            + "static bool IsPlasma(const char* wm) "
+            '{ return g_strcmp0(wm, "K" "DE") == 0; }\n',
+            encoding="utf-8",
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("'KDE'", problems[0])
+
+    def test_separate_arguments_are_not_joined(self) -> None:
+        # The other direction: two literals with a comma between them are two
+        # strings, and joining them would invent a name nothing forms.
+        build_checkout(self.root)
+        (self.root / "linux" / "runner" / "folder_picker_channel.cc").write_text(
+            FOLDER_PICKER_CHANNEL.format(
+                channel=FOLDER_PICKER_CHANNEL_NAME,
+                method=FOLDER_PICKER_METHOD_NAME,
+            )
+            + 'static const char* kPair[] = {"K", "DE"};\n',
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.desktop_neutrality_problems(self.root), [])
 
     def test_a_raw_string_does_not_hide_a_later_check(self) -> None:
         # The C++ twin of the Dart stripper bug: a raw string's body can hold a
