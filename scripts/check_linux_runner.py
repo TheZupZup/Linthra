@@ -1237,6 +1237,20 @@ def window_title_problems(root: Path) -> list[str]:
         return problems
 
     where = matches[0].start()
+
+    # A match on a preprocessor directive line is text, not a statement:
+    # `#define SET_TITLE gtk_window_set_title(window, kApplicationName)` sits
+    # inside the function, satisfies every rule below, and expands nowhere.
+    line_start = code.rfind("\n", 0, where) + 1
+    if code[line_start:where].lstrip().startswith("#"):
+        problems.append(
+            f"{MY_APPLICATION}: the only "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is on a "
+            "preprocessor directive line, so it is a macro body rather than a "
+            "call the runner makes"
+        )
+        return problems
+
     body_start, body_end = _function_body(
         code, RUNNER_ACTIVATE_FUNCTION, MY_APPLICATION
     )
@@ -1323,8 +1337,10 @@ def desktop_environment_checks(
 
     Returns `(file, line, literal, what, expression)` for every string literal
     that names a desktop environment or reads one of the environment variables a
-    session sets. `expression` is the source line the literal sits on, which is
-    what lets an allowance be tied to one comparison rather than to a name.
+    session sets. `expression` is the *comment-stripped* line the literal sits
+    on, which is what lets an allowance be tied to one comparison rather than to
+    a name; taking it from the raw source would let a comment quoting the
+    expected expression satisfy the allowance for an unrelated live check.
     Grandfathered entries are filtered out by the caller, so this stays a plain
     scan.
 
@@ -1348,7 +1364,14 @@ def desktop_environment_checks(
         for match in C_STRING_LITERAL.finditer(code):
             literal = match.group()[1:-1]
             line = code.count("\n", 0, match.start()) + 1
-            expression = source.splitlines()[line - 1] if line >= 1 else ""
+            # From the *blanked* code rather than the raw source: a comment
+            # carrying the old expression would otherwise satisfy the
+            # allowance's substring test while the live comparison next to it
+            # is something else entirely.
+            stripped_lines = code.splitlines()
+            expression = (
+                stripped_lines[line - 1] if 1 <= line <= len(stripped_lines) else ""
+            )
             if literal in DESKTOP_SESSION_ENV_VARS:
                 findings.append(
                     (

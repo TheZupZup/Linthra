@@ -133,7 +133,8 @@ void main() {
   /// `/*` inside it as the start of a block comment blanked everything to the
   /// end of the file, because no `*/` followed: 822 lines across two client
   /// files were invisible to this scan. A guardrail with a silent blind spot is
-  /// worse than no guardrail, so the ordering is covered by a test below.
+  /// worse than no guardrail, so the ordering is covered by tests below, one of
+  /// which checks the whole of `lib/` for code that got blanked.
   String withoutComments(String source) {
     final List<String> out = source.split('');
     int index = 0;
@@ -174,6 +175,36 @@ void main() {
   /// The 1-based line number [offset] falls on.
   int lineAt(String code, int offset) {
     return code.substring(0, offset).split('\n').length;
+  }
+
+  /// The offset of the last character in [source] that is not part of a
+  /// trailing comment, or -1 if the file has nothing else.
+  ///
+  /// Whether a trailing line is a comment is judged from the raw source, never
+  /// from [withoutComments] output, so this sentinel does not depend on the
+  /// thing it is used to check. No file in `lib/` ends in a comment today; the
+  /// skip is here so that the day one does, it reads as a trailing note rather
+  /// than as a guardrail failure.
+  int lastCodeCharacter(String source) {
+    final List<String> lines = source.split('\n');
+    final List<int> starts = <int>[];
+    int start = 0;
+    for (final String line in lines) {
+      starts.add(start);
+      start += line.length + 1;
+    }
+    for (int at = lines.length - 1; at >= 0; at--) {
+      final String line = lines[at];
+      final String trimmed = line.trim();
+      if (trimmed.isEmpty ||
+          trimmed.startsWith('//') ||
+          trimmed.startsWith('*') ||
+          trimmed.endsWith('*/')) {
+        continue;
+      }
+      return starts[at] + line.trimRight().length - 1;
+    }
+    return -1;
   }
 
   late List<File> sources;
@@ -274,21 +305,45 @@ void main() {
     expect(code.contains('const String b'), isTrue);
   });
 
+  test('the sentinel skips a trailing comment', () {
+    // lastCodeCharacter() is the only moving part of the whole-lib check
+    // below, so it gets its own case: the answer is the closing brace, not
+    // the last character of the note under it.
+    const String sample = 'void main() {}\n'
+        '// A trailing note, which a stripper may blank.\n';
+    final int at = lastCodeCharacter(sample);
+    expect(sample[at], '}');
+    expect(lastCodeCharacter('// nothing but a comment\n'), -1);
+  });
+
   test('every Dart source survives the comment stripper', () {
     // The property the two cases above are examples of: stripping comments
-    // must never remove code. Checked across the whole of lib/, so a new
-    // string shape that confuses the scanner is caught where it lands.
-    final List<String> shrunk = <String>[];
+    // must never blank code. Checked across the whole of lib/, so a new string
+    // shape that confuses the scanner is caught where it lands.
+    //
+    // Comparing line counts would NOT do this, and an earlier version of this
+    // test did exactly that. `withoutComments` replaces characters with spaces
+    // and preserves every newline, so the count comes out identical whether it
+    // blanked one comment or everything after the first mistake, and the
+    // assertion could never fail.
+    //
+    // The last character of code does discriminate, because this scanner only
+    // fails in one direction: a `/*` it should not have believed has no `*/`
+    // to stop at, so the damage always runs to the end of the file.
+    final List<String> damaged = <String>[];
     for (final File file in sources) {
       final String source = file.readAsStringSync();
+      final int sentinel = lastCodeCharacter(source);
+      if (sentinel == -1) {
+        continue;
+      }
       final String code = withoutComments(source);
-      final int before = source.split('\n').length;
-      final int after = code.split('\n').length;
-      if (before != after) {
-        shrunk.add('${file.path}: $before lines in, $after out');
+      if (code[sentinel] != source[sentinel]) {
+        damaged.add('${file.path}: the ${source[sentinel]} closing line '
+            '${lineAt(source, sentinel)} was blanked');
       }
     }
-    expect(shrunk, isEmpty);
+    expect(damaged, isEmpty);
   });
 
   test('the scan reads code and ignores prose', () {
