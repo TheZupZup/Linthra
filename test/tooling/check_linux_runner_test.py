@@ -851,6 +851,21 @@ class WindowTitleTest(CheckoutCase):
         )
         self.assertEqual(checker.window_title_problems(self.root), [])
 
+    def test_a_title_inside_a_preprocessor_conditional_is_caught(self) -> None:
+        # `#if 0` compiles to nothing, so the shipped runner would set no title
+        # at all while every other rule here still passed.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "#if 0\n"
+                    "  gtk_window_set_title(window, kApplicationName);\n"
+                    "#endif\n",
+                )
+            )
+        )
+        self.assertIn("preprocessor conditional", problem)
+
     def test_a_title_set_outside_activate_is_caught(self) -> None:
         # Setting it somewhere else entirely compiles and runs; it just never
         # reaches the window this function builds.
@@ -931,7 +946,7 @@ class DesktopNeutralityTest(CheckoutCase):
         build_checkout(self.root)
         found = checker.desktop_environment_checks(self.root)
         self.assertEqual(
-            [(str(path), literal) for path, _, literal, _ in found],
+            [(str(path), literal) for path, _, literal, _, _ in found],
             [("linux/runner/my_application.cc", "GNOME Shell")],
         )
 
@@ -1013,6 +1028,44 @@ class DesktopNeutralityTest(CheckoutCase):
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("a second 'GNOME Shell' check", problems[0])
         self.assertIn("exactly one occurrence", problems[0])
+
+    def test_the_allowance_does_not_cover_a_different_comparison(self) -> None:
+        # Counting occurrences stops a duplicate, but on its own it would still
+        # excuse whichever occurrence happened to be the only one left. The
+        # decoration check is replaced with a name the scan does not know, and
+        # the excused literal is reused somewhere else entirely.
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                '  if (g_strcmp0(wm_name, "GNOME Shell") != 0) {\n',
+                '  if (g_strcmp0(wm_name, "i3") != 0) {\n'
+                "    use_header_bar = FALSE;\n"
+                "  }\n"
+                '  if (g_strcmp0(session, "GNOME Shell") == 0) {\n',
+            ),
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("excused only in", problems[0])
+        self.assertIn("not for the name", problems[0])
+
+    def test_a_raw_string_does_not_hide_a_later_check(self) -> None:
+        # The C++ twin of the Dart stripper bug: a raw string's body can hold a
+        # bare quote and a bare `/*`, and reading it as an ordinary string
+        # blanked everything after it, taking the desktop check with it.
+        build_checkout(self.root)
+        (self.root / "linux" / "runner" / "folder_picker_channel.cc").write_text(
+            FOLDER_PICKER_CHANNEL.format(
+                channel=FOLDER_PICKER_CHANNEL_NAME,
+                method=FOLDER_PICKER_METHOD_NAME,
+            )
+            + 'static const char* kHelp = R"(a " and a /* inside)";\n'
+            'static const char* kShell = "KDE";\n',
+            encoding="utf-8",
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("'KDE'", problems[0])
 
     def test_removing_the_grandfathered_check_asks_for_the_entry_to_go(
         self,

@@ -425,11 +425,18 @@ DESKTOP_NAME_PATTERN = re.compile(
 #
 # See docs/desktop-compatibility-matrix.md, "Differences Linthra does not
 # normalize".
+# (file, literal) -> (the exact expression it is excused in, reason). The
+# expression is what binds the allowance to *this* check rather than to the
+# name: counting occurrences stops a duplicate, but on its own it would still
+# excuse a different comparison that happens to be the only one left.
 GRANDFATHERED_DESKTOP_NAME_CHECKS = {
     (
         Path("linux") / "runner" / "my_application.cc",
         "GNOME Shell",
-    ): "X11-only title bar decoration style; GTK 3 has no xdg-decoration seam",
+    ): (
+        'g_strcmp0(wm_name, "GNOME Shell")',
+        "X11-only title bar decoration style; GTK 3 has no xdg-decoration seam",
+    ),
 }
 
 # The committed sources the neutrality scan covers. The rest of linux/ is CMake,
@@ -971,13 +978,39 @@ def _blank(source: str, *, comments: bool = True, strings: bool = False) -> str:
     original. Blanking comments is what stops a call *described* in a comment
     from counting as a call; blanking strings is what lets the brace matcher
     below ignore a `"{"` inside a literal.
+
+    String literals, raw ones included, are recognised before comment
+    delimiters. That ordering is load-bearing: the body of a raw string can hold
+    a bare `"` and a bare `/*`, and reading it as an ordinary quoted string ends
+    the string early and then blanks everything after it as an unterminated
+    comment. Everything built on this function, the neutrality scan most of all,
+    would then be silently reading a truncated file.
     """
     out = list(source)
     index = 0
     length = len(source)
     while index < length:
         char = source[index]
-        if char == '"' or char == "'":
+        if source.startswith('R"', index):
+            # A C++ raw string, R"delim( ... )delim". Its body may contain a
+            # bare `"` and a bare `/*`, so reading it as an ordinary quoted
+            # string ends the string early and then treats the `/*` as an
+            # unterminated block comment, blanking the rest of the file. That is
+            # the same shape of blind spot the Dart guardrail had, and it hides
+            # exactly what this scan is looking for.
+            open_paren = source.find("(", index + 2)
+            if open_paren == -1:
+                index += 2
+                continue
+            closing = ")" + source[index + 2 : open_paren] + '"'
+            found = source.find(closing, open_paren + 1)
+            end = length if found == -1 else found + len(closing)
+            if strings:
+                for position in range(index, end):
+                    if out[position] != "\n":
+                        out[position] = " "
+            index = end
+        elif char == '"' or char == "'":
             end = index + 1
             while end < length and source[end] != char:
                 end += 2 if source[end] == "\\" else 1
@@ -1225,12 +1258,34 @@ def window_title_problems(root: Path) -> list[str]:
         )
         return problems
 
-    # Depth zero is not enough on its own: C++ lets a control statement take a
-    # single unbraced statement as its body, so `if (cond) gtk_window_set_title(...)`
-    # sits at depth zero and is still conditional. A statement that actually
-    # runs unconditionally follows the end of another one, so the last thing
-    # before it has to be `;`, `{` or `}`. Preprocessor lines are dropped first,
-    # since `#endif` is not a statement and says nothing either way.
+    # A call inside `#if 0`, or any build-time conditional, is not in the
+    # compiled runner at all, and dropping preprocessor lines to find the
+    # preceding statement would make it look unconditional. So the directives
+    # are counted before they are dropped.
+    conditional_depth = 0
+    for line in between.splitlines():
+        directive = line.lstrip()
+        if directive.startswith(("#if", "#ifdef", "#ifndef")):
+            conditional_depth += 1
+        elif directive.startswith("#endif"):
+            conditional_depth -= 1
+    if conditional_depth != 0:
+        problems.append(
+            f"{MY_APPLICATION}: "
+            f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is "
+            f"inside {conditional_depth} preprocessor conditional(s), so "
+            "whether the compiled runner sets a title at all depends on the "
+            "build; the window has to carry a title on every path"
+        )
+        return problems
+
+    # Brace depth zero is not enough on its own either: C++ lets a control
+    # statement take a single unbraced statement as its body, so
+    # `if (cond) gtk_window_set_title(...)` sits at depth zero and is still
+    # conditional. A statement that actually runs unconditionally follows the
+    # end of another one, so the last thing before it has to be `;`, `{` or `}`.
+    # Preprocessor lines are dropped for that look-back, now that the block
+    # above has established none of them is still open.
     preceding = "\n".join(
         "" if line.lstrip().startswith("#") else line for line in between.splitlines()
     ).rstrip()
@@ -1256,19 +1311,23 @@ def window_title_problems(root: Path) -> list[str]:
     return problems
 
 
-def desktop_environment_checks(root: Path) -> list[tuple[Path, int, str, str]]:
+def desktop_environment_checks(
+    root: Path,
+) -> list[tuple[Path, int, str, str, str]]:
     """Desktop-environment detection in the committed Linux sources (#458).
 
-    Returns `(file, line, literal, what)` for every string literal that names a
-    desktop environment or reads one of the environment variables a session
-    sets. Grandfathered entries are filtered out by the caller, so this stays a
-    plain scan.
+    Returns `(file, line, literal, what, expression)` for every string literal
+    that names a desktop environment or reads one of the environment variables a
+    session sets. `expression` is the source line the literal sits on, which is
+    what lets an allowance be tied to one comparison rather than to a name.
+    Grandfathered entries are filtered out by the caller, so this stays a plain
+    scan.
 
     Comments are blanked first: this script and the runner both name GNOME and
     KDE Plasma constantly, and prose is exactly the place that *should* name
     them. It is a runtime branch on a desktop's name that is the problem.
     """
-    findings: list[tuple[Path, int, str, str]] = []
+    findings: list[tuple[Path, int, str, str, str]] = []
     linux_dir = root / "linux"
     for path in sorted(linux_dir.rglob("*")):
         if not path.is_file() or path.suffix not in NEUTRALITY_SOURCE_SUFFIXES:
@@ -1284,12 +1343,21 @@ def desktop_environment_checks(root: Path) -> list[tuple[Path, int, str, str]]:
         for match in C_STRING_LITERAL.finditer(code):
             literal = match.group()[1:-1]
             line = code.count("\n", 0, match.start()) + 1
+            expression = source.splitlines()[line - 1] if line >= 1 else ""
             if literal in DESKTOP_SESSION_ENV_VARS:
                 findings.append(
-                    (relative, line, literal, "a desktop session environment variable")
+                    (
+                        relative,
+                        line,
+                        literal,
+                        "a desktop session environment variable",
+                        expression,
+                    )
                 )
             elif DESKTOP_NAME_PATTERN.search(literal):
-                findings.append((relative, line, literal, "a desktop environment name"))
+                findings.append(
+                    (relative, line, literal, "a desktop environment name", expression)
+                )
     return findings
 
 
@@ -1307,18 +1375,27 @@ def desktop_neutrality_problems(root: Path) -> list[str]:
     # table is: a duplicate of a grandfathered literal is the most likely way a
     # new desktop check would arrive, because it looks like the old one.
     counts: dict[tuple[Path, str], int] = {}
-    for relative, line, literal, what in desktop_environment_checks(root):
+    for relative, line, literal, what, expression in desktop_environment_checks(root):
         key = (relative, literal)
         counts[key] = counts.get(key, 0) + 1
-        if key in GRANDFATHERED_DESKTOP_NAME_CHECKS:
-            if counts[key] == 1:
+        allowance = GRANDFATHERED_DESKTOP_NAME_CHECKS.get(key)
+        if allowance is not None:
+            expected, reason = allowance
+            if counts[key] > 1:
+                problems.append(
+                    f"{relative}:{line}: a second {literal!r} check. The entry "
+                    "in GRANDFATHERED_DESKTOP_NAME_CHECKS covers exactly one "
+                    f"occurrence ({reason}); this is a new desktop check "
+                    "reusing its name"
+                )
                 continue
-            problems.append(
-                f"{relative}:{line}: a second {literal!r} check. The entry in "
-                "GRANDFATHERED_DESKTOP_NAME_CHECKS covers exactly one "
-                f"occurrence ({GRANDFATHERED_DESKTOP_NAME_CHECKS[key]}); this "
-                "is a new desktop check reusing its name"
-            )
+            if expected not in expression:
+                problems.append(
+                    f"{relative}:{line}: {literal!r} is excused only in "
+                    f"{expected!r} ({reason}), but here it appears in "
+                    f"{expression.strip()!r}. The allowance is for that one "
+                    "comparison, not for the name"
+                )
             continue
         problems.append(
             f"{relative}:{line}: {literal!r} is {what}. Linthra's Linux "
@@ -1329,7 +1406,7 @@ def desktop_neutrality_problems(root: Path) -> list[str]:
             "in docs/desktop-compatibility-matrix.md"
         )
 
-    for (relative, literal), reason in GRANDFATHERED_DESKTOP_NAME_CHECKS.items():
+    for (relative, literal), (_, reason) in GRANDFATHERED_DESKTOP_NAME_CHECKS.items():
         if counts.get((relative, literal), 0) == 0:
             problems.append(
                 f"{relative}: the grandfathered desktop-name check {literal!r} "

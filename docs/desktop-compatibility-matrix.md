@@ -90,7 +90,7 @@ me" disagreement turns out to be one of them:
 ```bash
 echo "$XDG_SESSION_TYPE"                 # wayland or x11
 busctl --user list | grep -i portal      # which portal backend is running
-busctl --user list | grep -i secrets     # whether a Secret Service is on the bus
+busctl --user list | grep -i secrets     # which Secret Service holds the name (F1 tests whether it works)
 pactl info | head -n 3                   # the audio server answering, if pactl exists
 ```
 
@@ -110,7 +110,7 @@ Each row is one check, what to do, and what a pass looks like. The
 | A1 | **Application launch** | Open the desktop's application launcher, search for Linthra, launch it. | The entry is there, named **Linthra**, with Linthra's icon and not a generic one. It reaches a usable first frame: the library shell, or the onboarding prompt on an empty catalog. |
 | A2 | **Window identity** | While it runs, look at the task switcher, the window list and the dock or task manager. | One entry, grouped with the launcher entry it was started from, carrying the same name and icon. Not a second, unnamed or generically iconned entry beside it. |
 | A3 | **Window title** | Read the window's caption wherever the desktop shows one: task switcher, window list, a task manager tooltip. On X11 you can also run `xprop WM_NAME` and click the window. | The caption is **Linthra**, never blank. This is the one the header bar does not supply: see [the window title](#the-window-title-was-missing-under-a-header-bar) below. |
-| A4 | **Initial window size** | Delete the saved geometry and launch. Native: `rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/io.github.thezupzup.linthra/window-state"`, since the runner builds that path with `g_get_user_config_dir()` and a session that sets `XDG_CONFIG_HOME` keeps it elsewhere. Flatpak: the same file under `~/.var/app/io.github.thezupzup.linthra/config/`. | The window opens at its 1180x780 default, fully on screen and within the work area, with the desktop's panels not covering its controls. On a display shorter than that the compositor constrains it, and the layout still works at the size that results. |
+| A4 | **Initial window size** | Delete the saved geometry and launch. Native: `rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/io.github.thezupzup.linthra/window-state"`, since the runner builds that path with `g_get_user_config_dir()` and a session that sets `XDG_CONFIG_HOME` keeps it elsewhere. Flatpak: `rm -f ~/.var/app/io.github.thezupzup.linthra/config/io.github.thezupzup.linthra/window-state`. The application id appears twice on purpose: `g_get_user_config_dir()` already resolves to the sandbox's `config/`, and `StateFilePath()` appends the id again, so `config/window-state` is not the file and deleting it leaves the saved geometry in place. | The window opens at its 1180x780 default, fully on screen and within the work area, with the desktop's panels not covering its controls. On a display shorter than that the compositor constrains it, and the layout still works at the size that results. |
 | A5 | **Minimum sizing** | Drag the window as small as it will go, in both directions. | It stops at 420x600 and the layout at that size is still usable: the navigation is reachable, nothing is clipped, no overflow warnings. |
 | A6 | **Maximize / restore** | Maximize with the title bar control, with a double-click on the title bar, and with the desktop's keyboard shortcut. Restore each way. | Maximizes to the work area (not over the panels), restores to the size it had before, and the content re-lays-out both ways without a visible stall. |
 | A7 | **Tile / snap** | Drag the window to a screen edge, or use the desktop's tiling shortcut, then restore. | It tiles to half the work area, stays usable at that width, and restores to its previous size. Which gestures exist is the desktop's business; behaving at whatever size results is Linthra's. |
@@ -185,7 +185,7 @@ of this.
 
 | # | Check | Do this | Pass |
 | --- | --- | --- | --- |
-| F1 | **Secure storage is available** | Before signing in, confirm a Secret Service provider is running and unlocked (`busctl --user list \| grep -i secrets` for the native build; the Flatpak uses the Secret portal instead). | Something answers. Which daemon supplies it is the desktop's business, and Linthra never asks which. |
+| F1 | **Secure storage is usable** | Listing the bus name proves only that a process holds it, not that its collection is unlocked or that a write would succeed, so do a real round trip. Native, if `secret-tool` is installed: `secret-tool store --label='Linthra matrix probe' linthra-matrix probe` (type any value), then `secret-tool lookup linthra-matrix probe`, then `secret-tool clear linthra-matrix probe`. Flatpak: there is no host-side probe of the Secret portal, so this row is `n/a` there and F2 and F5 carry the verdict instead. | The value written comes back and then deletes cleanly, unlocking the keyring on the way if the desktop asks. Which daemon supplies it is the desktop's business, and Linthra never asks which. If `secret-tool` is missing, mark this `n/a` too rather than substituting a bus listing: a provider sign-in that survives a restart (F2 plus F5) is the honest test either way. |
 | F2 | **Jellyfin configuration** | Settings ▸ Jellyfin: enter a server URL and sign in. | It connects, the library appears, and the sign-in is saved. |
 | F3 | **Navidrome / Subsonic configuration** | The same, against a Navidrome or other Subsonic-compatible server. | The same. |
 | F4 | **Plex configuration** | The same, against Plex. | The same. |
@@ -193,7 +193,7 @@ of this.
 | F5 | **Credentials survive a restart** | Quit and relaunch after each sign-in. | Still signed in, with no second password prompt. |
 | F6 | **Credentials are really encrypted** (native) | Open the desktop's own credential manager and look for Linthra's entries. | One entry per configured provider, and no password among them: Jellyfin stores an access token, Subsonic a salt and token pair, Plex a token. |
 | F6b | **Credentials are really encrypted** (Flatpak) | The sandbox reaches secure storage through the Secret portal, and libsecret keeps its own encrypted store rather than per-provider entries in the shared keyring, so there is nothing for a credential manager to list. Check what can be observed instead: an encrypted keyring file exists under `~/.var/app/io.github.thezupzup.linthra/data/keyrings/`, and `grep -ri` across `~/.var/app/io.github.thezupzup.linthra/` for the **secret** values only, the access token and the password you signed in with, finds nothing. | The keyring file is there, the grep is empty, and F5 and F8 behave: the sign-in survives a restart, and signing out stops it surviving. That triple is what shows the session is stored, stored encrypted, and stored there. Grep for the token, not for the server's hostname or your username: those are ordinary catalog data, and the indexed library legitimately holds the base URL inside track artwork URIs, so a hostname hit is expected and proves nothing either way. |
-| F7 | **A locked keyring is reported, not swallowed** | Lock the keyring (or stop the provider) and try to sign in again. | A recoverable message asking you to unlock and retry. The app stays usable, and the session that could not be saved is not adopted. |
+| F7 | **A locked keyring is reported, not swallowed** | Order matters, because F2 to F5 leave every provider connected and a connected provider shows its status rather than a sign-in form. **Sign out of one provider first**, then lock the keyring (or stop the provider), then try to sign in to that one. Do not lock first and try to sign out: a sign-out whose secure-storage delete fails deliberately keeps the session rather than pretending it went, so that is a different row's behaviour and leaves you still connected. | A recoverable message asking you to unlock and retry. The app stays usable, and the session that could not be saved is not adopted. Unlock and retry the same sign-in to confirm it then completes. |
 | F8 | **Sign out** | Sign out of each provider. | The stored entry goes with it, and the library falls back to what is left. |
 | F9 | **Server playback** | Play a track from each configured server. | Audio comes out, transport works, and the desktop's media controls show the server's metadata and cover. |
 
@@ -266,7 +266,7 @@ E5  hotplug                    .     .    .     .
 E6  per-app volume             .     .    .     .
 E7  suspend and resume         .     .    .     .
 E8  playback diagnostics       .     .    .     .
-F1  secure storage available   .     .    .     .
+F1  secure storage usable      .     .    .     .
 F2  Jellyfin configuration     .     .    .     .
 F3  Navidrome configuration    .     .    .     .
 F4  Plex configuration         .     .    .     .
