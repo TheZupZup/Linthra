@@ -162,6 +162,19 @@ main() {
   run_step "Linux runner configuration" python3 scripts/check_linux_runner.py
   run_step "Linux runner tooling tests" python3 test/tooling/check_linux_runner_test.py
 
+  # Every Flatpak build source still resolves from an immutable reference
+  # (#443), the same check CI runs on every PR. It parses YAML, so it needs
+  # PyYAML; skip with a message rather than failing a desktop verify run on a
+  # machine that has no reason to have it installed.
+  if python3 -c 'import yaml' >/dev/null 2>&1; then
+    run_step "Flatpak source pins" python3 scripts/check_flatpak_sources.py
+    run_step "Flatpak source pin tooling tests" \
+      python3 test/tooling/check_flatpak_sources_test.py
+  else
+    warn "PyYAML not found (pip install PyYAML); skipping the Flatpak source"
+    warn "pin check. CI still runs it."
+  fi
+
   # The desktop entry's syntax (#434). check_linux_runner.py above already
   # covers its agreement with the app; this is the freedesktop tooling's own
   # verdict on the file. Optional locally — desktop-file-utils is not one of

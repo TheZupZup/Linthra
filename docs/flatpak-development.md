@@ -217,8 +217,10 @@ source edit:
 It regenerates `flatpak/io.github.thezupzup.linthra.yml` and
 `flatpak/generated/` from `flatpak/flatpak-flutter.yml`, using a pinned
 flatpak-flutter checkout in `.tool/`. Needs network (it pins every dependency
-by URL + sha256). Review the diff before committing — see
-[`flatpak/README.md`](../flatpak/README.md#regenerating-the-pinned-sources).
+by URL + sha256), and finishes by checking its own output with
+`scripts/check_flatpak_sources.py`. Review the diff before committing; see
+[`flatpak/README.md`](../flatpak/README.md#regenerating-the-pinned-sources)
+and [source pinning](./flatpak-source-pinning.md).
 
 ## Clean and uninstall
 

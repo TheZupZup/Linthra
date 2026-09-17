@@ -163,6 +163,23 @@ jobs:
       - name: Test the Flatpak permission checker
         run: python3 test/tooling/check_flatpak_permissions_test.py
 
+      # Every external Flatpak build input has to resolve from an immutable
+      # reference: a full git commit, or a URL plus the sha256 of what it must
+      # return (#443). This reads both manifests, the generated modules and
+      # source lists they include, pubspec.lock and .flutter-version, and
+      # fails on a floating source, a missing hash, a template and generated
+      # manifest that disagree, or a Flutter pin that only moved in one place.
+      # Offline and toolchain-free apart from PyYAML, so it runs on every PR
+      # rather than in the 90-minute Flatpak job. Local twin:
+      # `python3 scripts/check_flatpak_sources.py`.
+      - name: Check every Flatpak build source is pinned
+        run: |
+          python3 -m pip install --quiet PyYAML
+          python3 scripts/check_flatpak_sources.py
+
+      - name: Test the Flatpak source pin checker
+        run: python3 test/tooling/check_flatpak_sources_test.py
+
       # A smoke borrows a contributor's machine: it may remove what it
       # installed, and nothing else (#629). The audio and local-library smokes
       # used to end with `uninstall --delete-data`, which deletes
