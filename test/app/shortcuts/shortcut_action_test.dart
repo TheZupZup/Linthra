@@ -1,10 +1,12 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/shortcuts/shortcut_action.dart';
 import 'package:linthra/app/shortcuts/shortcut_binding.dart';
+import 'package:linthra/app/shortcuts/shortcut_intents.dart';
 
 /// The registry has to stay honest on its own, because everything else reads
 /// it: the dispatcher installs it, settings edits it, storage keys off it, and
-/// the help window in #392 will print it. A default that collided with another,
+/// the help window (#392) prints it. A default that collided with another,
 /// or a storage key that moved with an enum reorder, would be a bug nobody sees
 /// until somebody's shortcut quietly starts doing the wrong thing.
 
@@ -41,6 +43,27 @@ void main() {
     }
   });
 
+  test('#392\'s help window is an action of its own, on the conventional key',
+      () {
+    // The window is opened through the registry rather than by a chord wired
+    // into the widget, which is what makes it listed, remappable, and
+    // impossible to bind something else over.
+    final ShortcutActionDefinition definition =
+        ShortcutActions.definitionFor(ShortcutAction.shortcutsHelp);
+
+    expect(definition.intent, isA<ShowKeyboardShortcutsIntent>());
+    expect(
+      definition.defaultBinding,
+      const ShortcutBinding(LogicalKeyboardKey.slash, control: true),
+      reason: 'Ctrl+/ is what people press to ask what the keys are',
+    );
+    expect(
+      conflictsWithTextEditing(definition.defaultBinding),
+      isFalse,
+      reason: 'it has to answer from inside a search field too',
+    );
+  });
+
   test('storage keys are unique', () {
     final Set<String> keys = <String>{};
     for (final ShortcutActionDefinition d in ShortcutActions.definitions) {
@@ -68,6 +91,7 @@ void main() {
         ShortcutAction.library: 'library',
         ShortcutAction.queue: 'queue',
         ShortcutAction.nowPlaying: 'now_playing',
+        ShortcutAction.shortcutsHelp: 'shortcuts_help',
       },
     );
   });
@@ -141,6 +165,66 @@ void main() {
       expect(d.label, isNotEmpty);
       expect(d.description, isNotEmpty);
       expect(d.description.endsWith('.'), isTrue, reason: d.description);
+    }
+  });
+
+  test('grouped() lists every action exactly once', () {
+    // The help window draws [grouped] and nothing else, so an action missing
+    // from it is a shortcut that works and is not documented anywhere.
+    final List<ShortcutAction> listed = <ShortcutAction>[
+      for (final ShortcutGroupListing listing in ShortcutActions.grouped)
+        for (final ShortcutActionDefinition d in listing.actions) d.action,
+    ];
+    expect(listed.toSet(), ShortcutAction.values.toSet());
+    expect(listed.length, ShortcutAction.values.length,
+        reason: 'an action is listed under two headings');
+  });
+
+  test('grouped() is deterministic: enum order outside, registry order in', () {
+    final List<ShortcutGroupListing> grouped = ShortcutActions.grouped;
+
+    expect(
+      grouped.map((ShortcutGroupListing l) => l.group).toList(),
+      <ShortcutGroup>[
+        for (final ShortcutGroup group in ShortcutGroup.values)
+          if (ShortcutActions.definitions
+              .any((ShortcutActionDefinition d) => d.group == group))
+            group,
+      ],
+      reason: 'headings must follow the enum, not map iteration order',
+    );
+
+    for (final ShortcutGroupListing listing in grouped) {
+      expect(listing.actions, isNotEmpty, reason: 'empty heading drawn');
+      final List<int> registryPositions = <int>[
+        for (final ShortcutActionDefinition d in listing.actions)
+          ShortcutActions.definitions.indexOf(d),
+      ];
+      final List<int> sorted = List<int>.from(registryPositions)..sort();
+      expect(registryPositions, sorted,
+          reason: '${listing.group.label} reorders the registry');
+    }
+  });
+
+  test('two runs of grouped() agree', () {
+    // It is a getter that rebuilds the list every call; two help windows
+    // opened in one session must not disagree about the order.
+    List<String> shape() {
+      return <String>[
+        for (final ShortcutGroupListing listing in ShortcutActions.grouped)
+          '${listing.group.name}: '
+              '${listing.actions.map(
+                    (ShortcutActionDefinition d) => d.action.name,
+                  ).join(',')}',
+      ];
+    }
+
+    expect(shape(), shape());
+  });
+
+  test('every group has a heading a person can read', () {
+    for (final ShortcutGroup group in ShortcutGroup.values) {
+      expect(group.label, isNotEmpty, reason: group.name);
     }
   });
 
