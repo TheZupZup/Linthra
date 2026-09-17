@@ -101,6 +101,7 @@ Commit the result in its own PR. Never hand-edit the generated manifest; see
 ```sh
 python3 scripts/check_linux_runner.py
 python3 test/tooling/check_linux_runner_test.py
+python3 scripts/check_flatpak_sources.py
 
 desktop-file-validate linux/packaging/io.github.thezupzup.linthra.desktop
 appstreamcli validate linux/packaging/io.github.thezupzup.linthra.metainfo.xml

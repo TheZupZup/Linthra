@@ -11,7 +11,12 @@
 # dependency by URL + sha256) — that's the same one-time, declared-source
 # generation step as running `flutter pub get` to produce pubspec.lock itself,
 # not the sandboxed build flatpak-builder later runs offline. See
-# flatpak/README.md.
+# flatpak/README.md and docs/flatpak-source-pinning.md.
+#
+# The output is checked before this script exits: scripts/check_flatpak_sources.py
+# re-reads what was just written and refuses a source that is not pinned to a
+# commit or a sha256 (#443). Generating a floating source should fail here,
+# while the diff is still in front of you, rather than in CI later.
 #
 # Usage: ./scripts/regenerate_flatpak_sources.sh
 
@@ -50,10 +55,31 @@ resolved_commit="$(git -C "$TOOL_DIR" rev-parse HEAD)"
 [ "$resolved_commit" = "$TOOL_COMMIT" ] ||
   die "flatpak-flutter checkout is $resolved_commit, expected pinned $TOOL_COMMIT (stale $TOOL_DIR? remove it and rerun)"
 
+# The venv holds the pinned tool's own dependencies, so it belongs to that
+# commit: a bumped TOOL_COMMIT with a stale venv would run new generator code
+# against whatever was installed for the old one. The stamp makes that
+# visible instead of silent.
+VENV_STAMP="$VENV_DIR/.tool-commit"
+if [ -x "$VENV_DIR/bin/python3" ] && [ "$(cat "$VENV_STAMP" 2>/dev/null)" != "$TOOL_COMMIT" ]; then
+  info "Discarding the venv built for a different flatpak-flutter commit"
+  rm -rf "$VENV_DIR"
+fi
+
 if [ ! -x "$VENV_DIR/bin/python3" ]; then
+  # Every hash this script commits comes out of the generator, so the
+  # generator's own dependencies cannot be resolved at install time either.
+  # flatpak-flutter pins each of them with `==`; if a future release stops
+  # doing that, refuse rather than installing whatever is newest today.
+  floating="$(grep -vE '^[[:space:]]*(#|$)' "$TOOL_DIR/requirements.txt" | grep -v '==' || true)"
+  [ -z "$floating" ] ||
+    die "flatpak-flutter's requirements.txt does not pin every dependency:
+$floating
+       Pin them (or pin a release that does) before generating source hashes."
+
   info "Creating a throwaway venv for flatpak-flutter's own dependencies"
   python3 -m venv "$VENV_DIR"
   "$VENV_DIR/bin/pip" install -q -r "$TOOL_DIR/requirements.txt"
+  printf '%s\n' "$TOOL_COMMIT" > "$VENV_STAMP"
 fi
 
 cd "$FLATPAK_DIR"
@@ -78,4 +104,16 @@ info "Running flatpak-flutter"
 
 rm -rf .flatpak-builder
 
+# Audit what was just generated, offline and against the committed lockfile
+# and Flutter pin. Same check CI runs; docs/flatpak-source-pinning.md lists
+# what it holds the output to. Run with the venv's python because the check
+# reads YAML and the venv already has flatpak-flutter's pinned PyYAML, so this
+# does not add a system dependency to a script that only needed git+python3.
+info "Checking the generated sources are pinned"
+"$VENV_DIR/bin/python3" "$REPO_ROOT/scripts/check_flatpak_sources.py" ||
+  die "the generated sources did not pass the pin check above. Nothing was
+       reverted: read the findings, then either fix the input in
+       flatpak-flutter.yml or bump the generator pin deliberately."
+
 info "Done. Review the diff in flatpak/io.github.thezupzup.linthra.yml and flatpak/generated/."
+info "The full offline-build audit needs Flutter: flutter test test/tooling/flatpak_offline_build_test.dart"

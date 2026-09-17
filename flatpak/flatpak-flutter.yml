@@ -412,7 +412,19 @@ modules:
       # that pins the matching Dart SDK and Linux engine artifacts by their
       # real storage.googleapis.com URLs and sha256, so nothing is fetched
       # ad hoc during the sandboxed build.
+      #
+      # Both a tag and a commit, on purpose (#443). The tag is what
+      # flatpak-flutter reads (it is how the generator knows which Flutter to
+      # check out and which engine artifacts to resolve), and a tag is mutable
+      # upstream, so it is not a pin on its own. The commit is: it is the one
+      # `git ls-remote --tags` resolves 3.44.7 to today, and
+      # scripts/check_flatpak_sources.py holds it to the commit the generated
+      # SDK module actually carries, and both to .flutter-version. Bump all
+      # three together by editing .flutter-version and regenerating; a tag that
+      # was repointed upstream then shows up as a failing check rather than as
+      # a different toolchain.
       - type: git
         url: https://github.com/flutter/flutter.git
         tag: '3.44.7'
+        commit: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
         dest: flutter
