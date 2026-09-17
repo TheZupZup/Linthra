@@ -78,6 +78,14 @@ main() {
   # diagnostics fixture carrying real private data.
   run_step "secret & privacy scan" "$REPO_ROOT/scripts/check_secrets.sh"
 
+  # The other half of the privacy guardrail (#504): the dependency files
+  # Linthra ships from are checked against the reviewed tracker policy in
+  # scripts/tracker_policy.json. Offline and toolchain-free, same as CI's
+  # "Check for known tracker dependencies" step. docs/tracker-dependency-audit.md
+  # has what it proves and, just as importantly, what it does not.
+  run_step "tracker dependency audit" \
+    python3 scripts/check_tracker_dependencies.py
+
   # Also Flutter-independent, and the reason it is a check at all: a library
   # walk that drifts back onto the platform thread still compiles and still
   # passes every test — it only shows up as an ANR on a real library (#346).
