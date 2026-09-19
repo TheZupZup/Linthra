@@ -276,6 +276,11 @@ older "Flatpak apps can't use KWallet" reports come from. And
 (freedesktop-sdk 25.08 `elements/components/libsecret.bst`), so the file
 backend is compiled in and the sandbox detection above is live.
 
+That libsecret check was made inside the 50 runtime, and the manifest now
+declares 51 ([#449](https://github.com/TheZupZup/Linthra/issues/449)). It is
+left naming 50 rather than rewritten, because nobody has looked inside 51 yet;
+re-checking it there is part of finishing that migration.
+
 So `--talk-name=org.freedesktop.secrets` is **not** granted. It would be dead
 weight on both supported desktops, and `scripts/check_linux_runner.py` now
 rejects it, along with `--socket=session-bus`, any `org.freedesktop.*` or

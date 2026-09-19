@@ -17,7 +17,23 @@
 # See flatpak/README.md.
 app-id: io.github.thezupzup.linthra
 runtime: org.gnome.Platform
-runtime-version: '50'
+runtime-version: '51'
+# Bumped from '50' for #449: Flathub's linter fails a submission manifest while
+# a newer runtime exists, and that one finding was failing the Flatpak job on
+# every open pull request and on main.
+#
+# The comments further down still say org.gnome.Platform//50 and
+# org.gnome.Sdk//50, and that is deliberate rather than an oversight. Each of
+# them records something checked *inside* that SDK: no C/C++ compiler of the
+# kind Flutter invokes, libsecret 0.21.7 built with libgcrypt, gnutls.pc at
+# 3.8.13, alsa.pc and libpulse.pc present, libpipewire's dev files present.
+# None has been re-checked inside 51, and rewriting the version in them would
+# claim a verification nobody did. They need a pass inside the 51 SDK; until
+# then they are accurate about 50 and silent about 51.
+#
+# The first signal either way is this manifest's own build: if the llvm20
+# extension below, or the ffmpeg/libplacebo/libass/mpv modules, or the
+# pkg-config files they expect moved in 51, the Flatpak job says so.
 sdk: org.gnome.Sdk
 # org.gnome.Sdk//50 (built on freedesktop-sdk 25.08) has no C/C++ compiler of
 # its own kind Flutter's Linux tool invokes: `flutter build linux` hardcodes
