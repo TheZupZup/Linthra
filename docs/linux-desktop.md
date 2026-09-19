@@ -1837,7 +1837,7 @@ would rather run the plain build.
 You need Flatpak itself installed, and the GNOME runtime the bundle declares.
 Most desktop distributions ship Flatpak; if yours does not, [flatpak.org's
 setup guide](https://flatpak.org/setup/) covers it. The bundle names Flathub as
-where its runtime comes from, so the install can fetch `org.gnome.Platform//50`
+where its runtime comes from, so the install can fetch `org.gnome.Platform//51`
 if the machine does not already have it.
 
 **Graphical install.** On a desktop whose software centre handles Flatpak

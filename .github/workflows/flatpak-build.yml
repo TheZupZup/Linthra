@@ -427,15 +427,11 @@ jobs:
       # cannot come from a different build than the one the smoke above
       # exercised.
       #
-      # --runtime-repo names Flathub as where the org.gnome.Platform version
-      # the manifest declares comes from, so installing this file on a machine
-      # without that runtime offers to fetch it instead of failing. It does not
-      # put Linthra on Flathub (#456) and does not fetch the app from anywhere:
-      # Linthra's own bytes are inside the bundle.
-      #
-      # The version is deliberately not repeated here. It lives in
-      # flatpak/flatpak-flutter.yml, and a second copy in a comment is one more
-      # place to go stale the next time it moves.
+      # --runtime-repo names Flathub as where org.gnome.Platform//51 comes
+      # from, so installing this file on a machine without that runtime offers
+      # to fetch it instead of failing. It does not put Linthra on Flathub
+      # (#456) and does not fetch the app from anywhere: Linthra's own bytes
+      # are inside the bundle.
       #
       # The name comes from scripts/flatpak_bundle.py, which derives it from
       # the tag — the workflow never spells a version itself.
