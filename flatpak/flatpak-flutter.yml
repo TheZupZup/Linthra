@@ -323,7 +323,7 @@ modules:
     build-options:
       # Rewritten by flatpak-flutter to /var/lib/flutter/bin, where the
       # generated Flutter SDK module installs the activated toolchain.
-      append-path: /usr/lib/sdk/llvm20/bin:flutter/bin
+      append-path: /usr/lib/sdk/llvm22/bin:flutter/bin
       prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
     build-commands:
       - flutter pub get --enforce-lockfile
