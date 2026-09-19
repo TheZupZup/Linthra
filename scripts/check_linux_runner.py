@@ -462,6 +462,9 @@ GRANDFATHERED_DESKTOP_NAME_CHECKS = {
 # today. An allow-list that tracks the current file set is a guardrail that
 # stops applying the moment someone adds a `.c`, and it fails silently when it
 # does.
+# Compared against a lower-cased suffix: `Path.suffix` keeps the file's case and
+# CMake compiles `probe.C` and `probe.CPP` as C++ just as happily as the
+# lower-case spellings, so a case-sensitive match skipped them in silence.
 NEUTRALITY_SOURCE_SUFFIXES = (
     ".c",
     ".cc",
@@ -1050,11 +1053,11 @@ def _blank(source: str, *, comments: bool = True, strings: bool = False) -> str:
                         out[position] = " "
             index = end
         elif source.startswith("//", index):
-            end = source.find("\n", index)
-            end = length if end == -1 else end
+            end = _line_comment_end(source, index)
             if comments:
                 for position in range(index, end):
-                    out[position] = " "
+                    if out[position] != "\n":
+                        out[position] = " "
             index = end
         elif source.startswith("/*", index):
             end = source.find("*/", index + 2)
@@ -1126,6 +1129,34 @@ def _statement_at(code: str, offset: int) -> str:
         elif char == ";" and depth == 0:
             return code[start : position + 1]
     return code[start:end]
+
+
+def _line_comment_end(source: str, start: int) -> int:
+    """The end of the `//` comment starting at `start`, line splices included.
+
+    A backslash immediately before the newline splices the next physical line
+    onto this one *before* comments are recognised, so
+
+        // explanation \\
+        const char* s = "KDE";
+
+    is one comment to the compiler and the literal does not exist. Ending the
+    comment at the first newline leaves that literal visible to every scan built
+    on `_blank()`, which made the guardrail reject legal C++.
+
+    Newlines inside the spliced run are left in place by the caller, so offsets
+    and line numbers still line up with the original.
+    """
+    length = len(source)
+    index = start
+    while True:
+        end = source.find("\n", index)
+        if end == -1:
+            return length
+        spliced = source[:end].rstrip("\r")
+        if not spliced.endswith("\\"):
+            return end
+        index = end + 1
 
 
 def _collapse_spaces(text: str) -> str:
@@ -1387,6 +1418,21 @@ def window_title_problems(root: Path) -> list[str]:
     has brace depth zero and would otherwise pass while leaving one activation
     path with no title. Comparing the call's position with the header-bar
     decision catches neither, which is why that rule is last and weakest here.
+
+    What this does NOT prove, stated plainly so nobody mistakes it for more
+    than it is. These rules are lexical. They do not expand macros, follow
+    `goto`, or reason about reachability, so a call that is textually
+    unconditional but jumped over (`if (skip) goto after_title;` with the label
+    just past it) satisfies every rule above. Review found that, and it is not
+    fixed here on purpose: each previous round of hardening added another
+    proxy for "this statement is reached", and the honest version of that
+    question needs a parser rather than a seventh proxy. See #663.
+
+    The threat model this is worth having for is an accident: the template's own
+    shape coming back in a merge, a refactor moving the call into the decoration
+    branch, someone deleting it. Against a contributor who is deliberately
+    routing around it, no text scan wins, and pretending otherwise is worse than
+    saying so.
     """
     text = _read(root, MY_APPLICATION)
     # Strings blanked as well as comments. `_function_body()` documents that it
@@ -1540,7 +1586,7 @@ def desktop_environment_checks(
     findings: list[tuple[Path, int, str, str, str]] = []
     linux_dir = root / "linux"
     for path in sorted(linux_dir.rglob("*")):
-        if not path.is_file() or path.suffix not in NEUTRALITY_SOURCE_SUFFIXES:
+        if not path.is_file() or path.suffix.lower() not in NEUTRALITY_SOURCE_SUFFIXES:
             continue
         if "ephemeral" in path.relative_to(linux_dir).parts:
             continue
@@ -1581,6 +1627,19 @@ def desktop_neutrality_problems(root: Path) -> list[str]:
     new runtime branch on *which* desktop is running is a regression in support
     rather than a feature: it is the shape that makes one desktop the tested one
     and the other the one that breaks after release.
+
+    What this does NOT prove. The scan reads literal *spellings*, so a name
+    assembled another way is invisible: `"\x4b\x44\x45"` is `KDE` to the
+    compiler and not to this. The allowance compares a statement's text, so an
+    `else` arm hung off the grandfathered `if` is outside what it checks. Both
+    were found in review and are left alone deliberately, for the reason in
+    `window_title_problems()`: decoding escapes and comparing whole `if`/`else`
+    chains is a parser's job, and every round of widening this scanner has been
+    another proxy. See #663.
+
+    Accidents are what it catches, and accidents are what happen: a plain
+    `getenv("XDG_CURRENT_DESKTOP")`, a `g_strcmp0(name, "KDE")` copied from a
+    Stack Overflow answer, the grandfathered branch growing a second behaviour.
     """
     problems: list[str] = []
     # Occurrences per (file, literal), so the allowance can excuse the one it

@@ -59,25 +59,44 @@ A full pass is both builds on both desktops under Wayland. A minimum pass,
 before a Linux milestone release, is the Flatpak on both desktops under
 Wayland, plus the X11 rows.
 
-**Between desktops, start from the same state.** The cheapest setup, one
-account switching login sessions, means both passes share a home directory, so
-whatever the first one leaves behind is what the second one starts from. The
-native rows clean up after themselves if you run section F to the end, since F9
-signs every provider out. The Flatpak's do not: `flatpak uninstall` leaves
-`~/.var/app/io.github.thezupzup.linthra/` in place on purpose ([the table of
-what each command
+**Between desktops, start from the same state.** The cheapest setup, one account
+switching login sessions, means both passes share a home directory, so whatever
+the first one leaves behind is what the second one starts from. Neither build
+cleans up after itself completely, and the leftovers are different:
+
+*Native.* F9 signs the providers out, but nothing removes the local folders. C7
+exists precisely to prove a selection survives a restart, and C5 leaves one of
+C4's two roots in place, so the next desktop would start C2 with a library
+already indexed and could not establish the clean folder pick those rows claim
+to test. **Remove the folders in Settings ▸ Local music before switching**, which
+is the whole of what C needs and is the one step that is certainly right.
+
+No `rm -rf` recipe is given here on purpose. The window geometry is the one
+native path this page states outright, because A4 needs it and the runner builds
+it from `g_get_user_config_dir()`. The library is `linthra.sqlite` under
+Flutter's `getApplicationDocumentsDirectory()`
+([`linthra_database.dart`](../lib/data/database/linthra_database.dart)), which
+`path_provider` resolves on Linux through xdg-user-dirs, so where it actually
+lands depends on the session rather than on a constant this page could quote.
+Deleting by a guessed path is how a compatibility pass eats something it did not
+mean to.
+
+*Flatpak.* `flatpak uninstall` leaves `~/.var/app/io.github.thezupzup.linthra/`
+in place on purpose ([the table of what each command
 removes](./flatpak-development.md#clean-and-uninstall)), so reinstalling for the
-second desktop comes back already signed in, and F2 to F4b have no sign-in left
-to perform. Either sign out inside the Flatpak before G5, or reset it between
+second desktop comes back already signed in *and* already indexed. Either sign
+out and remove the folders inside the Flatpak before G5, or reset it between
 passes:
 
 ```bash
 flatpak --user uninstall --delete-data io.github.thezupzup.linthra
 ```
 
-That also clears the document-portal grants for the folders you picked in C1
-and C2, which is what you want here: those rows are testing the pick, not a
-grant that was already lying around.
+That also clears the document-portal grants for the folders you picked in C1 and
+C2, which is what you want here: those rows are testing the pick, not a grant
+that was already lying around.
+
+Your music files are never touched by any of this; only Linthra's own state is.
 
 **The native build installs nothing.** `flutter build linux` and the release
 tarball both produce a bundle you run in place, so a clean machine has no
@@ -155,14 +174,30 @@ keep it that way.
 Each row is one check, what to do, and what a pass looks like. The
 [result sheet](#result-sheet) below is the copy-paste grid to fill in.
 
+**Rows run in order, and each section says what it assumes and what it leaves.**
+That is not decoration. Review of this page found five separate places where one
+row ended by destroying the state the next row needed: a row that quits the app
+followed by one that drives it, a sign-out before a playback check, a nested
+folder selection that cannot coexist with the row after it. Every one read fine
+on its own. A checklist is a sequence, so the state each section hands on is part
+of the check, and the lines below are what a reader can hold the page to.
+
+**The Flatpak pass brackets the run.** G1 installs and G5 uninstalls, but a
+Flatpak pass needs the sandbox installed before section A, not after F. So for
+that build, run G1 first, then A through F inside the sandbox, then G2 to G5.
+The G rows sit last in the table because they are about packaging; they are not
+last in time. The native pass ignores this and starts at A1.
+
 ### A. Launch and window
+
+*Assumes:* nothing running, the desktop entry and icons installed (see above). *Leaves:* Linthra running, with a saved window geometry.
 
 | # | Check | Do this | Pass |
 | --- | --- | --- | --- |
 | A1 | **Application launch** | Open the desktop's application launcher, search for Linthra, launch it. | The entry is there, named **Linthra**, with Linthra's icon and not a generic one. It reaches a usable first frame: the library shell, or the onboarding prompt on an empty catalog. |
 | A2 | **Window identity** | While it runs, look at the task switcher, the window list and the dock or task manager. | One entry, grouped with the launcher entry it was started from, carrying the same name and icon. Not a second, unnamed or generically iconned entry beside it. |
 | A3 | **Window title** | Read the window's caption wherever the desktop shows one: task switcher, window list, a task manager tooltip. On X11 you can also run `xprop WM_NAME` and click the window. | The caption is **Linthra**, never blank. This is the one the header bar does not supply: see [the window title](#the-window-title-was-missing-under-a-header-bar) below. |
-| A4 | **Initial window size** | Delete the saved geometry and launch. Native: `rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/io.github.thezupzup.linthra/window-state"`, since the runner builds that path with `g_get_user_config_dir()` and a session that sets `XDG_CONFIG_HOME` keeps it elsewhere. Flatpak: `rm -f ~/.var/app/io.github.thezupzup.linthra/config/io.github.thezupzup.linthra/window-state`. The application id appears twice on purpose: `g_get_user_config_dir()` already resolves to the sandbox's `config/`, and `StateFilePath()` appends the id again, so `config/window-state` is not the file and deleting it leaves the saved geometry in place. | The window opens at its 1180x780 default, fully on screen and within the work area, with the desktop's panels not covering its controls. On a display shorter than that the compositor constrains it, and the layout still works at the size that results. |
+| A4 | **Initial window size** | **Quit Linthra first.** A1 to A3 left it running, and it is single-instance: launching again presents the window that already exists rather than building one from the default geometry, so the row would report on A1's window. Quit, then delete the saved geometry, then launch. Native: `rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/io.github.thezupzup.linthra/window-state"`, since the runner builds that path with `g_get_user_config_dir()` and a session that sets `XDG_CONFIG_HOME` keeps it elsewhere. Flatpak: `rm -f ~/.var/app/io.github.thezupzup.linthra/config/io.github.thezupzup.linthra/window-state`. The application id appears twice on purpose: `g_get_user_config_dir()` already resolves to the sandbox's `config/`, and `StateFilePath()` appends the id again, so `config/window-state` is not the file and deleting it leaves the saved geometry in place. | The window opens at its 1180x780 default, fully on screen and within the work area, with the desktop's panels not covering its controls. On a display shorter than that the compositor constrains it, and the layout still works at the size that results. |
 | A5 | **Minimum sizing** | Drag the window as small as it will go, in both directions. | It stops at 420x600 and the layout at that size is still usable: the navigation is reachable, nothing is clipped, no overflow warnings. |
 | A6 | **Maximize / restore** | Maximize with the title bar control, with a double-click on the title bar, and with the desktop's keyboard shortcut. Restore each way. | Maximizes to the work area (not over the panels), restores to the size it had before, and the content re-lays-out both ways without a visible stall. |
 | A7 | **Tile / snap** | Drag the window to a screen edge, or use the desktop's tiling shortcut, then restore. | It tiles to half the work area, stays usable at that width, and restores to its previous size. Which gestures exist is the desktop's business; behaving at whatever size results is Linthra's. |
@@ -172,6 +207,8 @@ Each row is one check, what to do, and what a pass looks like. The
 | A11 | **Title bar owner (X11 only)** | Look at who painted the title bar: Linthra's own header bar has the window controls inside the application's own bar, a window-manager title bar is drawn in the desktop's own style above it. Compare the two X11 sessions. | A header bar under GNOME Shell, the window manager's own title bar elsewhere. This is the one place the [grandfathered desktop-name check](#why-there-are-no-desktop-checks-in-the-code) is observable, so it is the row that notices if that condition is ever inverted. Nothing else changes with it: title, identity, icon and geometry are the same either way, which is why no other row would catch it. Under Wayland there is only the client-side option, so this row is `n/a` there. |
 
 ### B. Appearance
+
+*Assumes:* Linthra running. *Leaves:* it running, with the appearance setting back on **System**.
 
 | # | Check | Do this | Pass |
 | --- | --- | --- | --- |
@@ -193,6 +230,8 @@ of this.
 
 ### C. Files and local library
 
+*Assumes:* Linthra running, no local folders selected yet. *Leaves:* one folder selected and indexed, which D and E need something to play.
+
 | # | Check | Do this | Pass |
 | --- | --- | --- | --- |
 | C1 | **Folder portal opens** | Settings ▸ Local music ▸ Add folder. | A folder chooser appears. In the Flatpak it is the desktop's own portal chooser, drawn by the desktop and not by Linthra. It is modal to Linthra's window and parented to it. |
@@ -205,6 +244,8 @@ of this.
 | C7 | **Selection survives a restart** | Quit and relaunch. | The folders are still selected and the library is still there, with no second full scan of unchanged files. |
 
 ### D. Desktop integration
+
+*Assumes:* Linthra running with a local library. *Leaves:* Linthra **quit**, because D12 is the row that checks the MPRIS name is released at exit.
 
 | # | Check | Do this | Pass |
 | --- | --- | --- | --- |
@@ -223,9 +264,11 @@ of this.
 
 ### E. Audio
 
+*Assumes:* nothing running, since D12 quit it. *Leaves:* Linthra running.
+
 | # | Check | Do this | Pass |
 | --- | --- | --- | --- |
-| E1 | **Basic playback** | Play a local track. Pause, resume, seek, skip forward and back, let one track end into the next. | Audio comes out, every transport control works, and the next track starts on its own without a stall at the end of the last one. |
+| E1 | **Basic playback** | Relaunch Linthra: D12 ended by quitting it to prove the MPRIS name is released. Then play a local track. Pause, resume, seek, skip forward and back, let one track end into the next. | Audio comes out, every transport control works, and the next track starts on its own without a stall at the end of the last one. |
 | E2 | **Audio output device list** | Settings ▸ Music & playback ▸ Audio output. | The list covers the sinks the desktop's own volume control shows, and offers the system default alongside them. |
 | E3 | **Routing to a chosen device** | Pick a non-default sink and play. | Sound comes from that device, and the desktop's volume control shows Linthra on it. |
 | E4 | **A chosen device survives a restart** | Quit and relaunch with a non-default device selected. | The device is re-applied. If it is gone, playback falls back to the system default and says so rather than failing silently. |
@@ -235,6 +278,8 @@ of this.
 | E8 | **Playback diagnostics** | Settings ▸ Diagnostics & support ▸ Linux playback. | A report that names the backend, libmpv and the output subsystem actually in use, and contains no path, URL, token or device name. |
 
 ### F. Credentials and providers
+
+*Assumes:* Linthra running. *Leaves:* every provider signed out (F9), and the local folders from C still selected.
 
 | # | Check | Do this | Pass |
 | --- | --- | --- | --- |
@@ -252,9 +297,11 @@ of this.
 
 ### G. Packaging
 
+*Assumes:* for the Flatpak pass, G1 already ran before section A; the native build is not running (see G1). *Leaves:* nothing installed, and `~/.var/app/…` gone if you used `--delete-data`.
+
 | # | Check | Do this | Pass |
 | --- | --- | --- | --- |
-| G1 | **Flatpak install** | `flatpak install --user <bundle>`, or through the desktop's software centre. | It installs, and the software centre shows the AppStream name, summary and icon. |
+| G1 | **Flatpak install** | **Quit the native Linthra first**, not just remove its desktop entry: F9 ends by relaunching it, and a running native instance keeps `org.mpris.MediaPlayer2.linthra`. The sandboxed one then falls back to an `.instance…` name, and every later MPRIS row plus the `busctl` commands in D4, D5 and D12 would drive the *native* player while you record them as Flatpak results. Then `flatpak install --user <bundle>`, or through the desktop's software centre. | It installs, and the software centre shows the AppStream name, summary and icon. |
 | G2 | **Flatpak launch** | Launch it from the application launcher, not from a terminal. | Same as A1 and A2, from the sandbox. |
 | G3 | **Flatpak portals** | Repeat C1, C2 and D8 inside the Flatpak, and for credentials use F2 plus F5 rather than F1: F1 is a `secret-tool` round trip against the host's Secret Service, which the sandbox does not use and which is marked `n/a` there. F6b is the storage-side half. | The chooser is the portal's, notifications arrive, and a provider sign-in persists across a restart with no extra D-Bus permission. This is the row the [permission audit](./flatpak-permissions.md) is really about. |
 | G4 | **Flatpak audio** | Repeat E1 and E2 inside the Flatpak. | Audio from the packaged libmpv, and the sink list matches the host's. |

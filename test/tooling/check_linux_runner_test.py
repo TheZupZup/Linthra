@@ -1274,6 +1274,54 @@ class DesktopNeutralityTest(CheckoutCase):
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("probe.c", problems[0])
 
+    def test_a_spliced_line_comment_is_all_comment(self) -> None:
+        # A backslash before the newline splices the next physical line on
+        # before comments are recognised, so this is one comment and the
+        # literal does not exist. Reading it as code rejected legal C++.
+        build_checkout(self.root)
+        (self.root / "linux" / "runner" / "folder_picker_channel.cc").write_text(
+            FOLDER_PICKER_CHANNEL.format(
+                channel=FOLDER_PICKER_CHANNEL_NAME,
+                method=FOLDER_PICKER_METHOD_NAME,
+            )
+            + "// explanation \\\n"
+            + 'static const char* kShell = "KDE";\n',
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.desktop_neutrality_problems(self.root), [])
+
+    def test_an_ordinary_line_comment_does_not_swallow_the_next_line(self) -> None:
+        # The other direction, so the splice handling cannot be a blanket
+        # "skip the line after every comment".
+        build_checkout(self.root)
+        (self.root / "linux" / "runner" / "folder_picker_channel.cc").write_text(
+            FOLDER_PICKER_CHANNEL.format(
+                channel=FOLDER_PICKER_CHANNEL_NAME,
+                method=FOLDER_PICKER_METHOD_NAME,
+            )
+            + "// explanation\n"
+            + 'static const char* kShell = "KDE";\n',
+            encoding="utf-8",
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("'KDE'", problems[0])
+
+    def test_an_uppercase_cxx_source_is_scanned(self) -> None:
+        # CMake compiles `probe.C` as C++, and `Path.suffix` keeps the case, so
+        # a case-sensitive allow-list skipped it without a word.
+        for name in ("probe.C", "probe.CPP"):
+            with self.subTest(name=name):
+                root = self.root / name.replace(".", "_")
+                build_checkout(root)
+                (root / "linux" / "runner" / name).write_text(
+                    'static const char* kShell = "KDE";\n',
+                    encoding="utf-8",
+                )
+                problems = checker.desktop_neutrality_problems(root)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn(name, problems[0])
+
     def test_a_raw_string_does_not_hide_a_later_check(self) -> None:
         # The C++ twin of the Dart stripper bug: a raw string's body can hold a
         # bare quote and a bare `/*`, and reading it as an ordinary string

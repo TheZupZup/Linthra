@@ -30,6 +30,19 @@ import 'package:flutter_test/flutter_test.dart';
 /// conversation rather than a wall: record it in [allowedOccurrences] below,
 /// with the reason, the way the runner's one exception is recorded.
 ///
+/// What this does NOT prove. The scan reads literal spellings, so a name built
+/// another way is invisible to it: `'\u004bDE'` is `KDE` to the Dart compiler
+/// and not to this. Review found that, and it is left alone on purpose. Every
+/// round of hardening this scanner has added another proxy (raw strings, split
+/// quotes, adjacency, prefixes, interpolation, nested comments), and decoding
+/// escapes properly means lexing Dart, which means the `analyzer` package
+/// rather than the hand-rolled walk in this file. See #663.
+///
+/// So read a pass here as "nobody did this by accident", not as "this cannot be
+/// done". The accidents are the realistic case and the ones it catches: a
+/// `Platform.environment['XDG_CURRENT_DESKTOP']` lookup, a `contains('KDE')`,
+/// a desktop name in a user-facing string that should have been generic.
+///
 /// The runner half of the same rule lives in `scripts/check_linux_runner.py`
 /// (`desktop_neutrality_problems`), which scans `linux/` for the same two
 /// shapes and carries the one grandfathered exception Linthra still has: an
@@ -119,23 +132,11 @@ void main() {
         // outer comment visible to the scan, and prose is exactly where these
         // names belong, so `/* outer /* inner */ GNOME */` would fail the
         // whole suite on a comment that compiles fine.
-        int depth = 0;
-        int at = index;
-        while (at < source.length) {
-          if (source.startsWith('/*', at)) {
-            depth++;
-            at += 2;
-          } else if (source.startsWith('*/', at)) {
-            depth--;
-            at += 2;
-            if (depth == 0) {
-              break;
-            }
-          } else {
-            at++;
-          }
-        }
-        final int end = at;
+        //
+        // Shared with the interpolation walk rather than repeated here: the
+        // recurring bug in this file has been one scanner learning something
+        // its callers did not.
+        final int end = skipBlockComment(source, index);
         for (int blank = index; blank < end; blank++) {
           if (out[blank] != '\n') {
             out[blank] = ' ';
@@ -149,19 +150,21 @@ void main() {
     return out.join();
   }
 
-  /// The seam between two adjacent string literals: a closing quote, nothing
-  /// but whitespace and an optional `r` prefix, an opening quote. The prefix is
-  /// in there because it sits *between* the two, so `'K' r'DE'` would otherwise
-  /// look like two strings rather than the one string `KDE` Dart builds.
-  final RegExp literalSeam = RegExp('["\']\\s*r?["\']');
-
-  /// [code] with those seams closed up, and a map from each offset in the
-  /// result back to the offset it came from.
+  /// [code] with the seam between adjacent string literals closed up, and a map
+  /// from each offset in the result back to the offset it came from.
   ///
   /// Two literals separated only by whitespace are one string in Dart: `'K'
-  /// 'DE'` is `KDE` before anything runs. The scan looks for a name as
-  /// contiguous letters, so without this a desktop check written that way sits
-  /// in neither half and passes.
+  /// 'DE'` is `KDE` before anything runs, and `'K' r'DE'` is too. The scan looks
+  /// for a name as contiguous letters, so without this a desktop check written
+  /// that way sits in neither half and passes.
+  ///
+  /// The seams are found by walking literal *tokens*, not by matching quote
+  /// pairs anywhere in the text. An earlier version used the pattern
+  /// `["']\s*r?["']` over the whole file, which also matches the two inner
+  /// quotes of `'"K" "DE"'`: one literal whose body happens to contain quoted
+  /// words. It closed those up and reported `KDE` in a file that builds no such
+  /// string, so the guardrail rejected correct source. Only a gap *between* two
+  /// literals can be a seam, and that is a question about tokens.
   ///
   /// The map is what keeps the report honest. A seam can span lines, and Dart
   /// splits long strings across lines constantly, so the joined text has fewer
@@ -179,9 +182,30 @@ void main() {
     }
 
     int index = 0;
-    for (final Match seam in literalSeam.allMatches(code)) {
-      copy(index, seam.start);
-      index = seam.end;
+    int cursor = 0;
+    ({int end, int bodyStart, int bodyEnd})? previous;
+    while (cursor < code.length) {
+      if (!opensString(code, cursor)) {
+        cursor++;
+        continue;
+      }
+      final int start = cursor;
+      final ({int end, int bodyStart, int bodyEnd}) literal =
+          stringSpan(code, cursor);
+      if (previous != null) {
+        final String between = code.substring(previous.end, start);
+        // Whitespace, optionally with the next literal's `r` prefix in it: the
+        // two are one string. Anything else (a comma, an operator, a name) and
+        // they are two.
+        if (between.replaceFirst('r', '').trim().isEmpty) {
+          // Delete exactly the closing quote, the gap and the opening quote, so
+          // the two bodies meet. Keeping either quote would leave them apart.
+          copy(index, previous.bodyEnd);
+          index = literal.bodyStart;
+        }
+      }
+      previous = literal;
+      cursor = literal.end;
     }
     copy(index, code.length);
     return (joined.toString(), origin);
@@ -192,34 +216,36 @@ void main() {
     return code.substring(0, offset).split('\n').length;
   }
 
-  /// The offset of the last character in [source] that is not part of a
-  /// trailing comment, or -1 if the file has nothing else.
+  /// The body span of every string literal in [source], in order.
   ///
-  /// Whether a trailing line is a comment is judged from the raw source, never
-  /// from [withoutComments] output, so this sentinel does not depend on the
-  /// thing it is used to check. No file in `lib/` ends in a comment today; the
-  /// skip is here so that the day one does, it reads as a trailing note rather
-  /// than as a guardrail failure.
-  int lastCodeCharacter(String source) {
-    final List<String> lines = source.split('\n');
-    final List<int> starts = <int>[];
-    int start = 0;
-    for (final String line in lines) {
-      starts.add(start);
-      start += line.length + 1;
-    }
-    for (int at = lines.length - 1; at >= 0; at--) {
-      final String line = lines[at];
-      final String trimmed = line.trim();
-      if (trimmed.isEmpty ||
-          trimmed.startsWith('//') ||
-          trimmed.startsWith('*') ||
-          trimmed.endsWith('*/')) {
+  /// Literal bodies are what the scan actually reads, and they are what the
+  /// stripper has historically eaten: `'*/*'` was read as opening a block
+  /// comment and took 822 lines with it. So "no literal body was blanked" is
+  /// the property worth asserting across the whole tree, and unlike a
+  /// last-character sentinel it cannot be confused by what a file ends with.
+  List<(int, int)> literalBodies(String source) {
+    final List<(int, int)> bodies = <(int, int)>[];
+    int index = 0;
+    while (index < source.length) {
+      if (source.startsWith('//', index)) {
+        final int newline = source.indexOf('\n', index);
+        index = newline == -1 ? source.length : newline;
         continue;
       }
-      return starts[at] + line.trimRight().length - 1;
+      if (source.startsWith('/*', index)) {
+        index = skipBlockComment(source, index);
+        continue;
+      }
+      if (opensString(source, index)) {
+        final ({int end, int bodyStart, int bodyEnd}) literal =
+            stringSpan(source, index);
+        bodies.add((literal.bodyStart, literal.bodyEnd));
+        index = literal.end;
+        continue;
+      }
+      index++;
     }
-    return -1;
+    return bodies;
   }
 
   late List<File> sources;
@@ -323,42 +349,67 @@ void main() {
     expect(code.contains('const String b'), isTrue);
   });
 
-  test('the sentinel skips a trailing comment', () {
-    // lastCodeCharacter() is the only moving part of the whole-lib check
-    // below, so it gets its own case: the answer is the closing brace, not
-    // the last character of the note under it.
-    const String sample = 'void main() {}\n'
-        '// A trailing note, which a stripper may blank.\n';
-    final int at = lastCodeCharacter(sample);
-    expect(sample[at], '}');
-    expect(lastCodeCharacter('// nothing but a comment\n'), -1);
+  test('literalBodies finds bodies and ignores commented-out ones', () {
+    // The only moving part of the whole-tree check below, so it gets its own
+    // case. A quote inside a comment is not a literal.
+    const String sample = "const String a = 'keep';\n"
+        "// const String b = 'commented';\n"
+        "/* const String c = 'blocked'; */\n";
+    final List<(int, int)> bodies = literalBodies(sample);
+    expect(bodies.length, 1);
+    final (int start, int end) = bodies.single;
+    expect(sample.substring(start, end), 'keep');
   });
 
-  test('every Dart source survives the comment stripper', () {
-    // The property the two cases above are examples of: stripping comments
-    // must never blank code. Checked across the whole of lib/, so a new string
-    // shape that confuses the scanner is caught where it lands.
+  test('a file ending in a block comment is not a failure', () {
+    // The shape that broke the previous sentinel: legal Dart, and the stripper
+    // is right to blank that comment.
+    const String sample = 'void main() {}\n'
+        '/* trailing\n'
+        '   note */\n';
+    final String code = withoutComments(sample);
+    expect(code.contains('void main'), isTrue);
+    expect(desktopName.allMatches(code), isEmpty);
+    for (final (int, int) body in literalBodies(sample)) {
+      final (int start, int end) = body;
+      expect(code.substring(start, end), sample.substring(start, end));
+    }
+  });
+
+  test('no string literal in lib/ is eaten by the comment stripper', () {
+    // The property the two cases above are examples of, asserted across the
+    // whole tree so a new string shape is caught where it lands.
     //
-    // Comparing line counts would NOT do this, and an earlier version of this
-    // test did exactly that. `withoutComments` replaces characters with spaces
-    // and preserves every newline, so the count comes out identical whether it
-    // blanked one comment or everything after the first mistake, and the
-    // assertion could never fail.
+    // Two earlier versions of this test were worse, and both are worth
+    // recording because the failure modes are opposite.
     //
-    // The last character of code does discriminate, because this scanner only
-    // fails in one direction: a `/*` it should not have believed has no `*/`
-    // to stop at, so the damage always runs to the end of the file.
+    // The first compared line counts. `withoutComments` writes spaces and keeps
+    // every newline, so the count is identical whether it blanked one comment
+    // or the whole file: the assertion could never fail, and it passed on the
+    // very bug it was written for.
+    //
+    // The second took the file's last character of code as a sentinel and
+    // guessed which trailing lines were comments by looking at them one at a
+    // time. A file ending in a legal multi-line `/* ... */` broke that guess:
+    // the closing line looked like a comment, the opening line did not, so the
+    // test demanded that `withoutComments` preserve text inside a comment and
+    // failed on correct source.
+    //
+    // Literal bodies avoid both. They are what the scan reads, they are what
+    // the stripper has actually eaten, and whether one survives is a question
+    // with an answer rather than a guess.
     final List<String> damaged = <String>[];
     for (final File file in sources) {
       final String source = file.readAsStringSync();
-      final int sentinel = lastCodeCharacter(source);
-      if (sentinel == -1) {
-        continue;
-      }
       final String code = withoutComments(source);
-      if (code[sentinel] != source[sentinel]) {
-        damaged.add('${file.path}: the ${source[sentinel]} closing line '
-            '${lineAt(source, sentinel)} was blanked');
+      for (final (int, int) body in literalBodies(source)) {
+        final (int start, int end) = body;
+        if (code.substring(start, end) == source.substring(start, end)) {
+          continue;
+        }
+        damaged.add('${file.path}:${lineAt(source, start)}: the literal '
+            '${source.substring(start, end)} was blanked');
+        break;
       }
     }
     expect(damaged, isEmpty);
@@ -464,7 +515,14 @@ bool opensString(String source, int at) {
 /// the outer string's close leaves the cursor *inside* that literal, and a
 /// `/*` in it then opens a block comment that blanks the rest of the file.
 /// `'${format('*/*')}'` is valid Dart and does exactly that.
-int skipString(String source, int start) {
+int skipString(String source, int start) => stringSpan(source, start).end;
+
+/// The literal starting at [start], as the offsets that bound it and its body.
+///
+/// `end` is just past the closing quote. `bodyStart` and `bodyEnd` bound the
+/// contents, which is what lets a caller join two adjacent literals by deleting
+/// exactly the quotes between them.
+({int end, int bodyStart, int bodyEnd}) stringSpan(String source, int start) {
   int index = start;
   final bool raw = source[index] == 'r';
   if (raw) {
@@ -474,9 +532,14 @@ int skipString(String source, int start) {
   final bool triple = source.startsWith(quote * 3, index);
   final String terminator = triple ? quote * 3 : quote;
   index += terminator.length;
+  final int bodyStart = index;
   while (index < source.length) {
     if (source.startsWith(terminator, index)) {
-      return index + terminator.length;
+      return (
+        end: index + terminator.length,
+        bodyStart: bodyStart,
+        bodyEnd: index,
+      );
     }
     final String char = source[index];
     if (!raw && char == r'\') {
@@ -486,7 +549,7 @@ int skipString(String source, int start) {
     if (!triple && char == '\n') {
       // An unterminated single-quoted string. Stop at the line rather than
       // running to the end of the file.
-      return index;
+      return (end: index, bodyStart: bodyStart, bodyEnd: index);
     }
     if (!raw &&
         char == r'$' &&
@@ -497,7 +560,7 @@ int skipString(String source, int start) {
     }
     index++;
   }
-  return source.length;
+  return (end: source.length, bodyStart: bodyStart, bodyEnd: source.length);
 }
 
 /// The offset just past the `}` that closes a `${` opened just before
@@ -510,6 +573,20 @@ int skipInterpolation(String source, int start) {
   int depth = 1;
   int index = start;
   while (index < source.length) {
+    // Comments first. An interpolated expression may hold them, and a quote
+    // inside one is not a string: `'${/* " */ 0}'` is valid Dart, and reading
+    // that `"` as a literal opening ran the cursor to the end of the file,
+    // leaving everything after it unstripped. That is the same mistake as
+    // reading a `/*` inside a string as a comment, in the other direction.
+    if (source.startsWith('//', index)) {
+      final int newline = source.indexOf('\n', index);
+      index = newline == -1 ? source.length : newline;
+      continue;
+    }
+    if (source.startsWith('/*', index)) {
+      index = skipBlockComment(source, index);
+      continue;
+    }
     if (opensString(source, index)) {
       index = skipString(source, index);
       continue;
@@ -524,6 +601,31 @@ int skipInterpolation(String source, int start) {
       }
     }
     index++;
+  }
+  return source.length;
+}
+
+/// The offset just past the block comment opening at [start].
+///
+/// Dart nests block comments, so the first `*/` is not necessarily the end.
+/// Shared by the stripper and by the interpolation walk so both agree on where
+/// one stops.
+int skipBlockComment(String source, int start) {
+  int depth = 0;
+  int index = start;
+  while (index < source.length) {
+    if (source.startsWith('/*', index)) {
+      depth++;
+      index += 2;
+    } else if (source.startsWith('*/', index)) {
+      depth--;
+      index += 2;
+      if (depth == 0) {
+        return index;
+      }
+    } else {
+      index++;
+    }
   }
   return source.length;
 }
