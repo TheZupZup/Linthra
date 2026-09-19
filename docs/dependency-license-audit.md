@@ -223,7 +223,7 @@ media binary is shipped.
 | **mpv (libmpv)** | `v0.41.0` | **LGPL-2.1-or-later** | Built with **`-Dgpl=false`**. See the caveat below. |
 | **libplacebo** | `v7.360.1` | **LGPL-2.1-or-later** | Hard mpv dependency (no feature toggle). Or-later, so the LGPLv3 upgrade path applies. |
 | **libass** | `0.17.5` | **ISC** | Permissive. Hard mpv dependency. |
-| **GnuTLS** | runtime-provided (`org.gnome.Sdk//50`, 3.8.x) | **LGPL-2.1-or-later** | TLS backend for FFmpeg's `https://`. Chosen over OpenSSL specifically to avoid OpenSSL's historical GPL-linking caveats. |
+| **GnuTLS** | runtime-provided (`org.gnome.Sdk//51`, 3.8.x) | **LGPL-2.1-or-later** | TLS backend for FFmpeg's `https://`. Chosen over OpenSSL specifically to avoid OpenSSL's historical GPL-linking caveats. |
 | **jinja / markupsafe** | `3.1.6` / `3.0.3` | **BSD-3-Clause** | libplacebo build-time shader-template generation. |
 | **glad** | `v2.0.8` | **MIT** (generator; emits public-domain/MIT loader code) | libplacebo GL/Vulkan loader generation. |
 | **SQLite amalgamation** | `3.52.0` | **Public domain** | Compiled from source via `sqlite3_flutter_libs`; hash-pinned by a committed patch. |
