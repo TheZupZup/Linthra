@@ -38,6 +38,33 @@ command -v xvfb-run >/dev/null 2>&1 || fail "xvfb-run is not installed"
 command -v xwininfo >/dev/null 2>&1 || fail "xwininfo is not installed"
 command -v xprop >/dev/null 2>&1 || fail "xprop is not installed"
 command -v dbus-run-session >/dev/null 2>&1 || fail "dbus-run-session is not installed"
+command -v timeout >/dev/null 2>&1 || fail "timeout (coreutils) is not installed"
+
+# The version the installed package has to report back.
+#
+# Every version check so far runs against the *checkout*: release_preflight.sh
+# holds pubspec.yaml and AppInfo to the tag, and check_release_metadata_sync.py
+# holds pubspec.yaml to the Flatpak manifest and the AppStream release list. All
+# of that is true before a single byte is packaged. What none of it can say is
+# what the package a user ends up running reports about itself, which is the one
+# question an installed artifact can still answer wrongly — and the one a user
+# asks when a build looks stale.
+#
+# Resolved from the checkout this script lives in rather than the working
+# directory, which is flatpak/ in CI. LINTHRA_EXPECTED_VERSION overrides it so a
+# downloaded bundle can be held to a known version with no matching checkout.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXPECTED_VERSION="${LINTHRA_EXPECTED_VERSION:-}"
+if [[ -z "$EXPECTED_VERSION" ]]; then
+  EXPECTED_VERSION="$(sed -n \
+    's/^version:[[:space:]]*\([^[:space:]+]*\).*/\1/p' \
+    "$REPO_ROOT/pubspec.yaml" | head -n 1)"
+fi
+[[ -n "$EXPECTED_VERSION" ]] ||
+  fail "cannot read the expected version from $REPO_ROOT/pubspec.yaml; set LINTHRA_EXPECTED_VERSION"
+# What `--version` prints: AppInfo.name, then AppInfo.version. The name half is
+# the same constant the window title is checked against below.
+EXPECTED_VERSION_LINE="$WINDOW_TITLE $EXPECTED_VERSION"
 
 case "$INSTALL_SOURCE" in
   *.flatpak)
@@ -87,7 +114,7 @@ else
   printf 'Installed %s from local repository %s.\n' "$APP_ID" "$REPO_PATH"
 fi
 
-export APP_ID WINDOW_TITLE TIMEOUT_SECONDS
+export APP_ID WINDOW_TITLE TIMEOUT_SECONDS EXPECTED_VERSION_LINE
 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
   dbus-run-session -- bash -c '
     set -euo pipefail
@@ -171,6 +198,45 @@ xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
         "$WINDOW_TITLE" >&2
     }
 
+    # Ask the installed package what version it is, before any window exists.
+    #
+    # Everything else in this file proves the package runs and is recognisably
+    # Linthra. None of it proves it is *this* Linthra: an install that resolves
+    # to an older build than the one under test launches, titles and icons
+    # itself exactly like the right one. --version is answered by the Dart
+    # entrypoint from the compiled AppInfo.version and returns before Flutter
+    # renders a frame, so it reads the version the packaged bundle actually
+    # carries and opens no window doing it.
+    #
+    # First because it is the cheapest check here and needs none of the window
+    # machinery below. The command substitution waits for the process to exit,
+    # so the single-instance runner is free again before the launches start.
+    check_version() {
+      local output status
+
+      status=0
+      output="$(timeout "$TIMEOUT_SECONDS" flatpak run "$APP_ID" --version 2>&1)" ||
+        status=$?
+
+      if [ "$status" -ne 0 ]; then
+        printf "FAIL: %s --version exited with status %s.\n" "$APP_ID" "$status" >&2
+        printf "%s\n" "$output" >&2
+        return 1
+      fi
+
+      # An exact whole line, so a version that merely contains the expected one
+      # (0.2.7 inside 0.2.70) is still a failure.
+      if ! printf "%s\n" "$output" | grep -qxF "$EXPECTED_VERSION_LINE"; then
+        printf "FAIL: the installed %s does not report the expected version.\n" \
+          "$APP_ID" >&2
+        printf "  expected a line: %s\n" "$EXPECTED_VERSION_LINE" >&2
+        printf "  actual output:   %s\n" "$output" >&2
+        return 1
+      fi
+
+      printf "PASS: installed %s reports %s.\n" "$APP_ID" "$EXPECTED_VERSION_LINE"
+    }
+
     # One full launch: start the packaged app, wait for its window, and hold that
     # window to the application id. Both checks are about desktop identity rather
     # than rendering:
@@ -252,6 +318,8 @@ xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
 
       stop_app "$app_pid"
     }
+
+    check_version
 
     launch_and_check "first launch"
 

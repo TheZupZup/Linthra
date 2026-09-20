@@ -160,7 +160,7 @@ check is cheaper and runs on every PR in the main CI workflow instead
 
 | Feature | Automated evidence | Still manual |
 | --- | --- | --- |
-| The app starts and is a real desktop window | `scripts/flatpak_launch_smoke.sh`, which installs the package, waits for the window, and holds it to the app id and its icon | none |
+| The app starts, is the expected build, and is a real desktop window | `scripts/flatpak_launch_smoke.sh`, which installs the package, asks it for its version, waits for the window, and holds it to the app id and its icon | none |
 | No host filesystem reach | `scripts/flatpak_filesystem_smoke.sh`, where the installed package declares no filesystem or persist grant, no override adds one, an unrelated host file is invisible, and the private XDG tree is writable | none |
 | The installed package carries exactly this table | the same script, which then runs `check_flatpak_permissions.py --installed` against the built package | none |
 | Audio output | `scripts/flatpak_audio_smoke.sh` (#446), the full transport lifecycle on the libmpv the manifest built | That a speaker actually makes a sound: no CI runner has an audio device |
