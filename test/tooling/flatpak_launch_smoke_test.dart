@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/app_info.dart';
 
 void main() {
   late String smoke;
@@ -73,6 +75,53 @@ void main() {
   test('launch smoke re-checks identity after a close and reopen', () {
     expect(smoke, contains('launch_and_check "first launch"'));
     expect(smoke, contains('launch_and_check "reopen after close"'));
+  });
+
+  // The gap every other check here leaves open. A stale or shadowed install
+  // launches, titles itself Linthra and carries the right icon — it is simply
+  // not the build under test. `--version` is answered by the Dart entrypoint
+  // from the compiled AppInfo.version, so this is the one question whose answer
+  // comes from the packaged bundle rather than from the metadata that described
+  // it, and the only version check here that a build-time guard cannot make.
+  test('launch smoke holds the installed package to the expected version', () {
+    expect(smoke, contains(r'flatpak run "$APP_ID" --version'));
+    expect(
+      smoke,
+      contains(r'EXPECTED_VERSION_LINE="$WINDOW_TITLE $EXPECTED_VERSION"'),
+    );
+    // Whole-line, so 0.2.7 does not pass against a package reporting 0.2.70.
+    expect(smoke, contains(r'grep -qxF "$EXPECTED_VERSION_LINE"'));
+    expect(smoke, contains('check_version\n'));
+  });
+
+  test('the expected version is read from the checkout, not the caller', () {
+    // CI runs this script from flatpak/, so a relative pubspec.yaml would
+    // silently resolve to nothing and the check would have to be skipped.
+    expect(
+      smoke,
+      contains(r'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"'),
+    );
+    expect(smoke, contains(r'"$REPO_ROOT/pubspec.yaml"'));
+    expect(smoke, contains(r'EXPECTED_VERSION="${LINTHRA_EXPECTED_VERSION:-}"'));
+  });
+
+  // Both halves matter: the script must still contain this expression, and the
+  // expression must still pull AppInfo.version out of the real pubspec.yaml.
+  // Either one drifting alone would leave the smoke comparing against the wrong
+  // string while every assertion above still passed.
+  test('the version expression yields the version the app reports', () {
+    const String expression =
+        r's/^version:[[:space:]]*\([^[:space:]+]*\).*/\1/p';
+    expect(smoke, contains(expression));
+
+    final ProcessResult parsed = Process.runSync(
+      'sed',
+      <String>['-n', expression, 'pubspec.yaml'],
+    );
+    expect(parsed.exitCode, 0, reason: parsed.stderr.toString());
+    final String version =
+        const LineSplitter().convert(parsed.stdout.toString()).first;
+    expect('Linthra $version', AppInfo.versionLine);
   });
 
   test('launch smoke cleans up app and temporary remote', () {

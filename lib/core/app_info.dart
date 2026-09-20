@@ -39,6 +39,26 @@ abstract final class AppInfo {
   static String resolveVersion(String defined, String devFallback) =>
       defined.isEmpty ? devFallback : defined;
 
+  /// The single line the Linux binary prints for `--version`, e.g.
+  /// `Linthra 0.2.7`.
+  ///
+  /// Composed from [name] and [version] rather than kept as a constant of its
+  /// own, so there is nothing here that can drift: the packaged binary reports
+  /// the version it was actually built with — the same string Settings ▸ About
+  /// and the diagnostics report show — and the existing pubspec/tag guards in
+  /// `test/core/app_info_version_test.dart` and `scripts/release_preflight.sh`
+  /// already hold that value to the release.
+  static String get versionLine => '$name $version';
+
+  /// Whether [arguments] ask for [versionLine] instead of the app itself.
+  ///
+  /// On Linux the runner forwards its `argv` (minus the binary name) to the
+  /// Dart entrypoint, so this is what `linthra --version` lands in. Exposed as
+  /// a pure rule so the flag is unit-testable without launching the app; other
+  /// platforms pass no entrypoint arguments and never match.
+  static bool isVersionQuery(Iterable<String> arguments) =>
+      arguments.contains('--version');
+
   /// The release channel shown in Settings → About, **derived from [version]**
   /// so it always matches what shipped instead of a hand-maintained label. A
   /// stable release (no pre-release suffix, e.g. `0.1.8`) reads `Stable`; a
