@@ -101,6 +101,45 @@ void main() {
     });
   });
 
+  // `linthra --version` on Linux. The value is composed from AppInfo rather
+  // than stored, so these guard the composition and the flag rule — the string
+  // itself is already held to pubspec.yaml by the drift tests above, which is
+  // what makes it safe for scripts/flatpak_launch_smoke.sh to compare an
+  // installed Flatpak against it.
+  group('AppInfo.versionLine', () {
+    test('is the product name and the effective version', () {
+      expect(AppInfo.versionLine, '${AppInfo.name} ${AppInfo.version}');
+    });
+
+    test('matches the line the Flatpak launch smoke expects', () {
+      final ({String name, int? code}) pubspec = readPubspecVersion();
+      expect(AppInfo.versionLine, 'Linthra ${pubspec.name}');
+    });
+  });
+
+  group('AppInfo.isVersionQuery', () {
+    test('matches the --version flag wherever it appears', () {
+      expect(AppInfo.isVersionQuery(const <String>['--version']), isTrue);
+      expect(
+        AppInfo.isVersionQuery(const <String>['--other', '--version']),
+        isTrue,
+      );
+    });
+
+    test('no entrypoint arguments is never a version query', () {
+      // The path every non-Linux launch takes: Android and iOS pass no Dart
+      // entrypoint arguments at all, so `main` must fall straight through to
+      // the normal bootstrap.
+      expect(AppInfo.isVersionQuery(const <String>[]), isFalse);
+    });
+
+    test('a near miss is not the flag', () {
+      expect(AppInfo.isVersionQuery(const <String>['--versions']), isFalse);
+      expect(AppInfo.isVersionQuery(const <String>['version']), isFalse);
+      expect(AppInfo.isVersionQuery(const <String>['-v']), isFalse);
+    });
+  });
+
   group('AppInfo.releaseChannel', () {
     test('a stable versionName (no suffix) reads "Stable"', () {
       expect(AppInfo.channelForVersion('0.1.8'), 'Stable');

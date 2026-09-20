@@ -1587,9 +1587,13 @@ there.
 * `test/tooling/desktop_environment_neutrality_test.dart` covers the Dart half
   of that last rule: no source under `lib/` reads a desktop session environment
   variable or compares against a desktop's name.
-* `scripts/flatpak_launch_smoke.sh` — launches the packaged Flatpak twice and
-  reads `WM_CLASS` and `_NET_WM_ICON` back off the real window each time, so a
-  window that stops answering to the application id fails CI.
+* `scripts/flatpak_launch_smoke.sh` — asks the installed Flatpak for its
+  version, then launches it twice and reads `WM_CLASS` and `_NET_WM_ICON` back
+  off the real window each time, so a window that stops answering to the
+  application id fails CI. The version check is the one that a build-time guard
+  cannot make: it comes from the packaged bundle rather than from the metadata
+  describing it, so an install that silently resolves to another build fails
+  instead of passing every identity check.
 * `test/app/linux_startup_test.dart` — every provider `main()` reads before the
   first frame constructs on a Linux host, with no Android MethodChannel
   binding among them.
