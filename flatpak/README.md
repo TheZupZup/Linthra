@@ -427,6 +427,19 @@ commit SHA in `scripts/regenerate_flatpak_sources.sh` (`TOOL_COMMIT`, the
 `io.github.thezupzup.linthra.yml` and `generated/` from `flatpak-flutter.yml`
 and the current `pubspec.lock`. Diff the result before committing.
 
+Before it exits it re-reads what it just wrote and refuses anything that is
+not pinned to a full commit or a sha256:
+
+```bash
+python3 scripts/check_flatpak_sources.py
+```
+
+That is the same check CI runs on every PR. What each input is pinned by, how
+to refresh a pin by hand, and the four inputs that genuinely cannot be
+content-addressed (the runtime, the SDK, the SDK extension and the app's own
+checkout) are in
+[docs/flatpak-source-pinning.md](../docs/flatpak-source-pinning.md).
+
 ## Local music folders
 
 Choosing a music folder (#438) needs **no** `finish-args` entry, and adding
