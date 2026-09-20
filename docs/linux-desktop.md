@@ -312,6 +312,94 @@ promise still holds.
 | Registration and retry | `LinuxPlaybackBackendInitializer`, `lib/core/services/linux_playback_controller.dart` |
 | The shared seams it plugs into | `engineUnavailableFailure` / `loadFailureFor`, `lib/core/services/just_audio_playback_controller.dart` |
 
+### Remote streams: what CI proves, and what a real box still has to
+
+Remote playback is the part of Linux desktop most worth testing and the hardest
+to test honestly. The unit suites each stub the other half out: the resolver
+tests hand the controller a canned URI, and the controller tests hand the
+resolver a canned server. Neither says whether a real `jellyfin:` row actually
+becomes a URL a server accepts, and nothing catches a credential that leaks out
+of the one place it belongs.
+
+`test/core/services/linux_remote_stream_integration_test.dart` closes that gap
+without a home server, a credential, or the internet. It runs the whole Linux
+remote chain for real:
+
+```
+jellyfin: / subsonic: / plex: track
+  → RoutingPlayableUriResolver
+  → the provider resolver and its *MusicSource
+  → the real Http*Client, over a real socket
+  → a loopback fake server that checks the credential
+  → the minted URL handed to LinuxPlaybackController
+  → an engine that fetches those bytes back off the same socket
+```
+
+The servers (`test/support/fake_remote_music_servers.dart`) bind `127.0.0.1` on
+an ephemeral port, answer only the handful of endpoints playback actually calls,
+and verify the credential the way each provider carries it: Jellyfin's `ApiKey`
+query and `Authorization` header, Subsonic's `u`/`t`/`s` query, Plex's
+`X-Plex-Token` header for the API calls and query for the Part fetch. A request
+signed with the wrong token gets a 401, so "the URL was authenticated" is
+checked rather than assumed. The tokens are synthetic constants this repository
+created; no CI secret, no real server address, and no DNS is involved, and the
+whole file runs in well under a second.
+
+Why a socket instead of a substituted HTTP response function: a canned response
+can only replay what the test already decided. A server that rejects a bad
+credential, and an engine that really fetches what it was handed, make the
+interesting assertions real — a stream URL that a server would refuse fails the
+load here too.
+
+What it covers: an opaque, credential-free track reference; fresh authenticated
+URL minting per play; the handoff into `LinuxPlaybackController`; the
+play/pause/seek/stop lifecycle; queue transitions (completion and skip) that
+re-resolve the next track against its own provider; the bounded mid-stream
+retry and its re-resolution; a listener-driven Retry against a recovered server;
+provider session expiry for all three (a rejected credential asks for a sign-in
+rather than offering a pointless retry); a stale library row whose item the
+server no longer has, and a Plex item with no playable part, both of which stay
+"unavailable" rather than turning into an auth problem; cross-provider fallback
+to a sibling copy, both at resolve time and after the mid-stream budget is
+spent; and the Linux backend preflight, which refuses a machine with no libmpv
+*before* a single credential is minted and plays after Retry once the package is
+there.
+
+Four security invariants ride on every case:
+
+* the queued track stays a logical reference (`jellyfin:101`), never a URL;
+* the crash-safe session document carries that identity and no authenticated
+  URL, host or token;
+* nothing a listener can see carries a credential — including when the engine's
+  own failure quotes the tokenized URL it was fetching, which the fake engine
+  does on purpose because the real backend does;
+* the `SafeEventLog` breadcrumbs a bug report would include carry no URL at all.
+
+#### What still needs a real Linux box
+
+libmpv itself. `flutter test` runs on the Dart VM without the Linux plugin
+bundle, so the last hop — media_kit decoding those bytes and putting them out
+through PipeWire or PulseAudio — is not exercised above; the engine seam is
+driven as far as the handoff and no further. That hop is covered by
+`tool/linux_audio_backend_smoke.dart` (built and run by
+[`scripts/verify_linux.sh`](../scripts/verify_linux.sh) and CI, headless, with
+`ao=null`), and the rest is this manual matrix, worth re-checking before a Linux
+milestone release:
+
+| Scenario | Expect |
+| --- | --- |
+| Play a Jellyfin track from a real server | Audible output; the badge reads STREAMING DIRECT; no `[lavf] Failed to create cache temporary file.` in the log |
+| Play a Navidrome/Subsonic track | Same, and seeking lands where it should (the server honours Range) |
+| Play a Plex track | Same, direct-play only — a track PMS will only transcode is expected to fail with a clear message, not silence |
+| Let a queue of remote tracks run across a track boundary | Gapless-enough handoff; no audible restart of the first track; one stream at a time |
+| Pull the network mid-track, then restore it | Reconnecting…, then playing again, or error + Retry; never a permanent "Buffering…" |
+| Expire the session server-side (revoke the token), then play | "Sign in again" wording, no retry offered, and no token anywhere in `flutter run`'s log |
+| Play the same song where two providers have it, with the preferred one down | The other copy plays and the queue entry swaps to it |
+
+The last two are the ones the automated suite already proves at every level
+except the audio device, so a failure there is almost always the machine rather
+than the app.
+
 ### Volume
 
 Desktop needs its own volume control: there are no hardware volume keys bound to
