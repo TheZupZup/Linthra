@@ -145,9 +145,16 @@ Artist? artistById(List<Track> tracks, String artistId) {
   return null;
 }
 
-/// Tracks on the album [albumId], in playable album order: by track number
-/// (numbered first, ascending), then title, then id. No disc number is stored
-/// on a [Track], so numbering is the finest order available.
+/// Tracks on the album [albumId], in playable album order: by disc number, then
+/// track number (numbered first, ascending in both), then title, then id.
+///
+/// This is *the* album order in Linthra. The album surfaces render it and the
+/// album queue actions enqueue it, so what a listener sees is what they get.
+/// Disc comes before track because track numbers restart on every disc: sorted
+/// by number alone, a two-disc album interleaves (d1t1, d2t1, d1t2, …) instead
+/// of playing disc 1 end to end and then disc 2. [Track.discNumber] is null for
+/// every source today (#85), which makes the disc tier a no-op and leaves the
+/// order for single-disc albums exactly as it was.
 List<Track> tracksForAlbum(List<Track> tracks, String albumId) {
   final List<Track> result = <Track>[
     for (final Track t in tracks)
@@ -192,14 +199,24 @@ int _artistCompare(Artist a, Artist b) {
 }
 
 int _trackInAlbumCompare(Track a, Track b) {
-  final int? an = a.trackNumber;
-  final int? bn = b.trackNumber;
-  if (an != null && bn != null && an != bn) return an.compareTo(bn);
-  if (an != null && bn == null) return -1;
-  if (an == null && bn != null) return 1;
+  final int byDisc = _byNumbering(a.discNumber, b.discNumber);
+  if (byDisc != 0) return byDisc;
+  final int byTrack = _byNumbering(a.trackNumber, b.trackNumber);
+  if (byTrack != 0) return byTrack;
   final int byTitle = foldText(a.title).compareTo(foldText(b.title));
   if (byTitle != 0) return byTitle;
   return a.id.compareTo(b.id);
+}
+
+/// Orders one tier of optional 1-based numbering: numbered ascending, a
+/// numbered value before an unnumbered one, and 0 when the two carry the same
+/// number (or neither carries one) so the next tier decides. Shared by the disc
+/// and track tiers, which order identically.
+int _byNumbering(int? a, int? b) {
+  if (a != null && b != null) return a.compareTo(b);
+  if (a != null) return -1;
+  if (b != null) return 1;
+  return 0;
 }
 
 int _trackForArtistCompare(Track a, Track b) {

@@ -319,6 +319,98 @@ void main() {
     });
   });
 
+  group('PlaybackQueue batched inserts (a whole collection at once)', () {
+    test('enqueueAllNext() keeps the set in the order it was handed over', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')]);
+
+      final updated = queue.enqueueAllNext([_track('x'), _track('y')]);
+
+      // Inserting one at a time would land each at the same slot and queue the
+      // set backwards; one insert keeps it front to back.
+      expect(updated.current, _track('a'));
+      expect(updated.upNext, [_track('x'), _track('y'), _track('b')]);
+    });
+
+    test('enqueueAllNext() keeps what was already upcoming behind it', () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c')],
+      );
+
+      final updated = queue.enqueueAllNext([_track('x')]);
+
+      expect(updated.upNext, [_track('x'), _track('b'), _track('c')]);
+      expect(updated.tracks, hasLength(4));
+    });
+
+    test('enqueueAllNext() on an empty queue starts the set at its first track',
+        () {
+      final updated =
+          PlaybackQueue.empty.enqueueAllNext([_track('a'), _track('b')]);
+
+      expect(updated.current, _track('a'));
+      expect(updated.upNext, [_track('b')]);
+    });
+
+    test('enqueueAllNext() with nothing to insert leaves the queue alone', () {
+      final queue = PlaybackQueue.of([_track('a')]);
+
+      expect(queue.enqueueAllNext(const []), same(queue));
+      expect(PlaybackQueue.empty.enqueueAllNext(const []),
+          same(PlaybackQueue.empty));
+    });
+
+    test('appendedAll() adds the set to the end, in order', () {
+      final queue = PlaybackQueue.of([_track('a'), _track('b')]);
+
+      final updated = queue.appendedAll([_track('x'), _track('y')]);
+
+      expect(updated.current, _track('a'));
+      expect(updated.upNext, [_track('b'), _track('x'), _track('y')]);
+    });
+
+    test('appendedAll() on an empty queue starts the set', () {
+      final updated =
+          PlaybackQueue.empty.appendedAll([_track('a'), _track('b')]);
+
+      expect(updated.current, _track('a'));
+      expect(updated.upNext, [_track('b')]);
+    });
+
+    test('appendedAll() with nothing to add leaves the queue alone', () {
+      final queue = PlaybackQueue.of([_track('a')]);
+
+      expect(queue.appendedAll(const []), same(queue));
+    });
+
+    test('both carry the set into originalOrder, so unshuffle keeps it', () {
+      final shuffled =
+          PlaybackQueue.of([_track('a'), _track('b')]).shuffled(Random(3));
+
+      final next = shuffled.enqueueAllNext([_track('x'), _track('y')]);
+      final appended = shuffled.appendedAll([_track('x'), _track('y')]);
+
+      expect(next.unshuffled().tracks, containsAll([_track('x'), _track('y')]));
+      expect(appended.unshuffled().tracks,
+          containsAll([_track('x'), _track('y')]));
+    });
+
+    test('a set inserted next is one transition, not one per track', () {
+      final queue = PlaybackQueue.of([_track('a')]);
+      final set = [_track('x'), _track('y'), _track('z')];
+
+      // Each track appears exactly once, wherever it landed: a batched insert
+      // cannot double-add an entry the way a retried per-track loop could.
+      final inserted = queue.enqueueAllNext(set);
+      for (final Track track in set) {
+        expect(
+          inserted.tracks.where((Track t) => t.uri == track.uri),
+          hasLength(1),
+        );
+      }
+      expect(inserted.tracks, hasLength(4));
+    });
+  });
+
   group('PlaybackQueue shuffle', () {
     test('shuffled() keeps the current track current and shuffles the rest',
         () {

@@ -152,6 +152,48 @@ class PlaybackQueue {
     );
   }
 
+  /// Inserts [tracks] immediately after the current one, in the order given, as
+  /// **one** transition: the set version of [enqueueNext].
+  ///
+  /// One call rather than a loop of single inserts is what keeps a collection's
+  /// own order intact: each [enqueueNext] lands at the same slot, so inserting
+  /// an album track by track puts it in the queue backwards unless the caller
+  /// reverses it first. It also means one queue mutation (and one state change)
+  /// per listener action instead of one per track. With an empty queue the set
+  /// becomes the queue, starting at its first track, mirroring [enqueueNext]'s
+  /// single-track behaviour. An empty [tracks] is a no-op.
+  PlaybackQueue enqueueAllNext(List<Track> tracks) {
+    if (tracks.isEmpty) return this;
+    if (current == null) return PlaybackQueue.of(tracks);
+    final updated = List<Track>.of(this.tracks)
+      ..insertAll(currentIndex + 1, tracks);
+    final updatedOriginal = originalOrder == null
+        ? null
+        : (List<Track>.of(originalOrder!)..addAll(tracks));
+    return PlaybackQueue(
+      tracks: updated,
+      currentIndex: currentIndex,
+      originalOrder: updatedOriginal,
+    );
+  }
+
+  /// Appends [tracks] to the end of the queue, in the order given, as **one**
+  /// transition: the set version of [appended]. With an empty queue the set
+  /// becomes the queue. An empty [tracks] is a no-op.
+  PlaybackQueue appendedAll(List<Track> tracks) {
+    if (tracks.isEmpty) return this;
+    if (current == null) return PlaybackQueue.of(tracks);
+    final updated = List<Track>.of(this.tracks)..addAll(tracks);
+    final updatedOriginal = originalOrder == null
+        ? null
+        : (List<Track>.of(originalOrder!)..addAll(tracks));
+    return PlaybackQueue(
+      tracks: updated,
+      currentIndex: currentIndex,
+      originalOrder: updatedOriginal,
+    );
+  }
+
   /// Removes the upcoming track at [upNextIndex] (0-based into [upNext]),
   /// leaving the current track and everything before it untouched so playback
   /// continues uninterrupted. An out-of-range index is a no-op (returns this).
