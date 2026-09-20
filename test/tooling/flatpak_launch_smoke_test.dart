@@ -102,7 +102,8 @@ void main() {
       contains(r'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"'),
     );
     expect(smoke, contains(r'"$REPO_ROOT/pubspec.yaml"'));
-    expect(smoke, contains(r'EXPECTED_VERSION="${LINTHRA_EXPECTED_VERSION:-}"'));
+    expect(
+        smoke, contains(r'EXPECTED_VERSION="${LINTHRA_EXPECTED_VERSION:-}"'));
   });
 
   // Both halves matter: the script must still contain this expression, and the
@@ -114,14 +115,24 @@ void main() {
         r's/^version:[[:space:]]*\([^[:space:]+]*\).*/\1/p';
     expect(smoke, contains(expression));
 
-    final ProcessResult parsed = Process.runSync(
-      'sed',
-      <String>['-n', expression, 'pubspec.yaml'],
-    );
-    expect(parsed.exitCode, 0, reason: parsed.stderr.toString());
-    final String version =
-        const LineSplitter().convert(parsed.stdout.toString()).first;
-    expect('Linthra $version', AppInfo.versionLine);
+    // The same rule as [expression], written as a Dart pattern and applied one
+    // line at a time the way `sed -n` applies it: `version:` at the start of a
+    // line, then whitespace, then everything up to the next whitespace or `+`.
+    // Matched here rather than by handing the expression to sed, because
+    // scripts/check_pr_security_surface.py blocks running a process from Dart
+    // outright. The assertion above is what holds the script's copy of the
+    // expression in place; this half still reads the real pubspec.yaml, so a
+    // version the script cannot parse is still a failure here.
+    final RegExp equivalent = RegExp(r'^version:[ \t]*([^ \t+]*)');
+    final List<String> parsed = const LineSplitter()
+        .convert(File('pubspec.yaml').readAsStringSync())
+        .map(equivalent.firstMatch)
+        .whereType<RegExpMatch>()
+        .map((RegExpMatch match) => match.group(1)!)
+        .toList();
+
+    expect(parsed, isNotEmpty, reason: 'pubspec.yaml declares no version');
+    expect('Linthra ${parsed.first}', AppInfo.versionLine);
   });
 
   test('launch smoke cleans up app and temporary remote', () {
