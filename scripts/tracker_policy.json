@@ -1,0 +1,770 @@
+{
+  "_policy": [
+    "Linthra's reviewed tracker-dependency policy (#504).",
+    "",
+    "scripts/check_tracker_dependencies.py reads this file and compares it",
+    "against the identifiers Linthra's production dependency files actually",
+    "resolve to: pubspec.lock, the Flatpak pub sources, the Linux plugin",
+    "registration, the Android Gradle files and the Rust lockfiles.",
+    "",
+    "Matching is on EXACT identifiers, never on substrings. A Dart entry is a",
+    "pub.dev package name; a Maven entry is either a full `group:artifact`",
+    "coordinate or, with \"match\": \"group\", a whole Maven group; a",
+    "gradle-plugin entry is a plugin id; a cargo entry is a crate name. That is",
+    "deliberate: a substring rule would flag `audio_amplitude` for Amplitude and",
+    "`com.google.firebaseui` for Firebase, and a check that cries wolf gets",
+    "switched off.",
+    "",
+    "Every entry carries the reason it is here, so a reviewer can disagree with",
+    "a specific line rather than with the list. This is a REVIEW TRIGGER, not a",
+    "ban: a match fails CI and asks for a human decision. If the decision is",
+    "that the dependency is fine, it is recorded in \"exceptions\" below.",
+    "",
+    "The list is knowingly incomplete. It names the systems that are widely",
+    "deployed enough to be worth naming; it cannot name one nobody has heard of",
+    "yet, and it says nothing about code Linthra writes itself. What this check",
+    "does and does not prove is written down in",
+    "docs/tracker-dependency-audit.md.",
+    "",
+    "Entries are sorted by (ecosystem, identifier) and must be unique. The",
+    "checker enforces both, so a hand-edited file cannot drift into an order",
+    "that makes review diffs unreadable."
+  ],
+  "_exceptions": [
+    "A reviewed exception is a claim that a human looked at a specific match and",
+    "decided Linthra should ship the dependency anyway. It is not a way to make",
+    "the check green.",
+    "",
+    "Each entry needs: \"ecosystem\", the exact \"identifier\" as the check reports",
+    "it, the \"sources\" the exception covers (the paths the check prints), a",
+    "\"reason\", and \"reviewed_in\": a link to where the decision was made.",
+    "",
+    "The checker also fails when an exception matches nothing, so a reason can",
+    "never outlive the dependency it explains.",
+    "",
+    "Empty is the expected state, and the state PRIVACY.md describes."
+  ],
+  "version": 1,
+  "categories": {
+    "advertising": "Advertising SDKs",
+    "analytics": "Analytics SDKs",
+    "attribution": "Attribution / install-tracking SDKs",
+    "crash-reporting": "Automatic third-party crash reporting",
+    "telemetry": "Telemetry, session-replay and APM SDKs"
+  },
+  "denylist": [
+    {
+      "ecosystem": "cargo",
+      "match": "exact",
+      "identifier": "opentelemetry",
+      "category": "telemetry",
+      "vendor": "OpenTelemetry",
+      "rationale": "General tracing/metrics SDK. Vendor-neutral, but its whole purpose is exporting spans to a collector, so it belongs in a local-first player only with a decision behind it."
+    },
+    {
+      "ecosystem": "cargo",
+      "match": "exact",
+      "identifier": "opentelemetry-otlp",
+      "category": "telemetry",
+      "vendor": "OpenTelemetry",
+      "rationale": "The OTLP exporter: the half of OpenTelemetry that actually sends data to a remote endpoint."
+    },
+    {
+      "ecosystem": "cargo",
+      "match": "exact",
+      "identifier": "sentry",
+      "category": "crash-reporting",
+      "vendor": "Sentry",
+      "rationale": "Automatic crash and error reporting to a Sentry server, including breadcrumbs and device context."
+    },
+    {
+      "ecosystem": "cargo",
+      "match": "exact",
+      "identifier": "sentry-core",
+      "category": "crash-reporting",
+      "vendor": "Sentry",
+      "rationale": "Core of the Sentry Rust SDK; present whenever Sentry reporting is wired up."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "adjust_sdk",
+      "category": "attribution",
+      "vendor": "Adjust",
+      "rationale": "Install-attribution SDK. Sends device and install signals to Adjust to attribute the install to a campaign."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "admob_flutter",
+      "category": "advertising",
+      "vendor": "Google (AdMob)",
+      "rationale": "Community AdMob plugin. Serves ads and reports ad events to Google."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "amplitude_flutter",
+      "category": "analytics",
+      "vendor": "Amplitude",
+      "rationale": "Product-analytics SDK. Named exactly, because `amplitude` is also an ordinary audio term and a music player will legitimately depend on packages that contain the word."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "appcenter_analytics",
+      "category": "analytics",
+      "vendor": "Microsoft (App Center)",
+      "rationale": "Session and event analytics reported to Microsoft App Center."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "applovin_max",
+      "category": "advertising",
+      "vendor": "AppLovin",
+      "rationale": "AppLovin MAX ad mediation. Collects advertising identifiers and ad engagement across the mediated networks."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "appmetrica_plugin",
+      "category": "analytics",
+      "vendor": "Yandex (AppMetrica)",
+      "rationale": "Event analytics and attribution reported to Yandex."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "appsflyer_sdk",
+      "category": "attribution",
+      "vendor": "AppsFlyer",
+      "rationale": "Install-attribution and marketing-analytics SDK."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "branch_io_plugin",
+      "category": "attribution",
+      "vendor": "Branch",
+      "rationale": "Deep-link attribution SDK; matches a device to the link that sent it."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "bugsnag_flutter",
+      "category": "crash-reporting",
+      "vendor": "Bugsnag / SmartBear",
+      "rationale": "Automatic crash reporting to a Bugsnag server."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "clarity_flutter",
+      "category": "telemetry",
+      "vendor": "Microsoft (Clarity)",
+      "rationale": "Session replay: records what the user does on screen and uploads it."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "clevertap_plugin",
+      "category": "analytics",
+      "vendor": "CleverTap",
+      "rationale": "Behavioural analytics and engagement SDK; builds a per-user profile server-side."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "countly_flutter",
+      "category": "analytics",
+      "vendor": "Countly",
+      "rationale": "Product analytics SDK. Self-hostable, which is why it needs a decision rather than an assumption: the endpoint is configuration, not a property of the package."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "countly_flutter_np",
+      "category": "analytics",
+      "vendor": "Countly",
+      "rationale": "The no-push build of the Countly SDK; same analytics reporting."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "datadog_flutter_plugin",
+      "category": "telemetry",
+      "vendor": "Datadog",
+      "rationale": "Real-user monitoring: sessions, views, errors and resource timings sent to Datadog."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "facebook_app_events",
+      "category": "attribution",
+      "vendor": "Meta (Facebook)",
+      "rationale": "Meta app events: the SDK that reports app activity back to Facebook for attribution and ad targeting."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "facebook_audience_network",
+      "category": "advertising",
+      "vendor": "Meta (Facebook)",
+      "rationale": "Meta's ad network SDK."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "firebase_admob",
+      "category": "advertising",
+      "vendor": "Google (Firebase)",
+      "rationale": "Legacy Firebase AdMob plugin."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "firebase_analytics",
+      "category": "analytics",
+      "vendor": "Google (Firebase)",
+      "rationale": "Reports app events and a per-install identifier to Google. Named explicitly in #504."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "firebase_analytics_platform_interface",
+      "category": "analytics",
+      "vendor": "Google (Firebase)",
+      "rationale": "Federated half of firebase_analytics; appears in the lockfile whenever it is used."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "firebase_analytics_web",
+      "category": "analytics",
+      "vendor": "Google (Firebase)",
+      "rationale": "Federated half of firebase_analytics; appears in the lockfile whenever it is used."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "firebase_crashlytics",
+      "category": "crash-reporting",
+      "vendor": "Google (Firebase)",
+      "rationale": "Automatic crash reporting to Google, with device and session context. Named explicitly in #504."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "firebase_crashlytics_platform_interface",
+      "category": "crash-reporting",
+      "vendor": "Google (Firebase)",
+      "rationale": "Federated half of firebase_crashlytics; appears in the lockfile whenever it is used."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "firebase_performance",
+      "category": "telemetry",
+      "vendor": "Google (Firebase)",
+      "rationale": "Performance traces and network-request timings uploaded to Google."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "firebase_performance_platform_interface",
+      "category": "telemetry",
+      "vendor": "Google (Firebase)",
+      "rationale": "Federated half of firebase_performance; appears in the lockfile whenever it is used."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "firebase_performance_web",
+      "category": "telemetry",
+      "vendor": "Google (Firebase)",
+      "rationale": "Federated half of firebase_performance; appears in the lockfile whenever it is used."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "flutter_branch_sdk",
+      "category": "attribution",
+      "vendor": "Branch",
+      "rationale": "Deep-link attribution SDK; matches a device to the link that sent it."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "flutter_segment",
+      "category": "analytics",
+      "vendor": "Segment / Twilio",
+      "rationale": "Analytics pipeline SDK: forwards events to whichever destinations the Segment workspace has enabled."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "flutter_uxcam",
+      "category": "telemetry",
+      "vendor": "UXCam",
+      "rationale": "Session replay: records screens and gestures and uploads them."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "google_mobile_ads",
+      "category": "advertising",
+      "vendor": "Google (AdMob)",
+      "rationale": "The official AdMob plugin. Linthra ships no ads, and this is also a Play-Services dependency an F-Droid build cannot carry."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "instabug_flutter",
+      "category": "crash-reporting",
+      "vendor": "Instabug",
+      "rationale": "Crash reporting plus session and screen capture."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "ironsource_mediation",
+      "category": "advertising",
+      "vendor": "ironSource / Unity",
+      "rationale": "ironSource ad mediation. Fans a single ad request out to several networks, each with its own collection."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "kochava_tracker",
+      "category": "attribution",
+      "vendor": "Kochava",
+      "rationale": "Install-attribution and audience SDK."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "matomo_tracker",
+      "category": "analytics",
+      "vendor": "Matomo",
+      "rationale": "Analytics SDK. Self-hostable, so the endpoint is configuration rather than a property of the package, which is exactly why a human should look."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "mixpanel_flutter",
+      "category": "analytics",
+      "vendor": "Mixpanel",
+      "rationale": "Product-analytics SDK with per-user profiles. Named explicitly in #504."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "newrelic_mobile",
+      "category": "telemetry",
+      "vendor": "New Relic",
+      "rationale": "Mobile APM: interactions, HTTP calls and crashes reported to New Relic."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "onesignal_flutter",
+      "category": "analytics",
+      "vendor": "OneSignal",
+      "rationale": "Messaging SDK that also registers a device identifier and reports engagement to OneSignal."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "opentelemetry",
+      "category": "telemetry",
+      "vendor": "OpenTelemetry",
+      "rationale": "General tracing SDK whose exporters ship spans off-device."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "posthog_flutter",
+      "category": "analytics",
+      "vendor": "PostHog",
+      "rationale": "Product analytics and session replay. Self-hostable, so it needs a decision rather than an assumption."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "rollbar_flutter",
+      "category": "crash-reporting",
+      "vendor": "Rollbar",
+      "rationale": "Automatic error reporting to a Rollbar server."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "segment_analytics_flutter",
+      "category": "analytics",
+      "vendor": "Segment / Twilio",
+      "rationale": "Analytics pipeline SDK; forwards events to configured destinations."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "sentry",
+      "category": "crash-reporting",
+      "vendor": "Sentry",
+      "rationale": "Automatic error reporting to a Sentry server. Named explicitly in #504."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "sentry_dio",
+      "category": "crash-reporting",
+      "vendor": "Sentry",
+      "rationale": "Sentry HTTP integration; present only where Sentry reporting is wired up."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "sentry_flutter",
+      "category": "crash-reporting",
+      "vendor": "Sentry",
+      "rationale": "The Flutter binding for Sentry: uncaught errors, breadcrumbs and device context."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "sentry_logging",
+      "category": "crash-reporting",
+      "vendor": "Sentry",
+      "rationale": "Forwards log records to Sentry."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "singular_flutter_sdk",
+      "category": "attribution",
+      "vendor": "Singular",
+      "rationale": "Install-attribution and marketing-analytics SDK."
+    },
+    {
+      "ecosystem": "dart",
+      "match": "exact",
+      "identifier": "unity_ads_plugin",
+      "category": "advertising",
+      "vendor": "Unity",
+      "rationale": "Unity Ads SDK. Serves ads and reports impressions, plus the device identifiers ad networks join on."
+    },
+    {
+      "ecosystem": "gradle-plugin",
+      "match": "exact",
+      "identifier": "com.datadoghq.dd-sdk-android-gradle-plugin",
+      "category": "telemetry",
+      "vendor": "Datadog",
+      "rationale": "Applied to upload build symbols for Datadog RUM; its presence means the RUM SDK is in the build."
+    },
+    {
+      "ecosystem": "gradle-plugin",
+      "match": "exact",
+      "identifier": "com.google.firebase.crashlytics",
+      "category": "crash-reporting",
+      "vendor": "Google (Firebase)",
+      "rationale": "The Crashlytics Gradle plugin, which uploads mapping files and enables automatic crash collection."
+    },
+    {
+      "ecosystem": "gradle-plugin",
+      "match": "exact",
+      "identifier": "com.google.firebase.firebase-perf",
+      "category": "telemetry",
+      "vendor": "Google (Firebase)",
+      "rationale": "Instruments the app at build time for Firebase Performance Monitoring."
+    },
+    {
+      "ecosystem": "gradle-plugin",
+      "match": "exact",
+      "identifier": "com.google.gms.google-services",
+      "category": "analytics",
+      "vendor": "Google",
+      "rationale": "The google-services plugin processes google-services.json and wires the Firebase/GMS stack into the build. Linthra ships no Google Play Services at all (docs/fdroid-readiness.md), so this appearing is a large change wearing a small diff."
+    },
+    {
+      "ecosystem": "gradle-plugin",
+      "match": "exact",
+      "identifier": "io.sentry.android.gradle",
+      "category": "crash-reporting",
+      "vendor": "Sentry",
+      "rationale": "Adds the Sentry Android SDK and auto-instrumentation to the build."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "group",
+      "identifier": "com.adjust.sdk",
+      "category": "attribution",
+      "vendor": "Adjust",
+      "rationale": "Every artifact in Adjust's group is part of its attribution SDK."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.amplitude:analytics-android",
+      "category": "analytics",
+      "vendor": "Amplitude",
+      "rationale": "Amplitude's Android analytics SDK."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.amplitude:android-sdk",
+      "category": "analytics",
+      "vendor": "Amplitude",
+      "rationale": "The older Amplitude Android SDK artifact."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.applovin:applovin-sdk",
+      "category": "advertising",
+      "vendor": "AppLovin",
+      "rationale": "AppLovin MAX ad mediation. Collects advertising identifiers and ad engagement across the mediated networks."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.appsflyer:af-android-sdk",
+      "category": "attribution",
+      "vendor": "AppsFlyer",
+      "rationale": "AppsFlyer's Android attribution SDK."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.bugsnag:bugsnag-android",
+      "category": "crash-reporting",
+      "vendor": "Bugsnag / SmartBear",
+      "rationale": "Automatic crash reporting to a Bugsnag server."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "group",
+      "identifier": "com.datadoghq",
+      "category": "telemetry",
+      "vendor": "Datadog",
+      "rationale": "Datadog's Android SDK group: real-user monitoring, logs and traces."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "group",
+      "identifier": "com.facebook.android",
+      "category": "attribution",
+      "vendor": "Meta (Facebook)",
+      "rationale": "Meta's Android SDK group. facebook-core alone turns on automatic app-event logging, so the whole group is a review trigger. Matched as a group, which does not match a differently named group that merely starts with the same letters."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.google.android.gms:play-services-ads",
+      "category": "advertising",
+      "vendor": "Google (AdMob)",
+      "rationale": "The AdMob SDK. Only the tracking-relevant Play Services artifacts are listed, not the whole com.google.android.gms group, so this check stays about tracking rather than about Play Services in general (that is F-Droid's rule, enforced elsewhere)."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.google.android.gms:play-services-ads-identifier",
+      "category": "advertising",
+      "vendor": "Google",
+      "rationale": "Reads the Android advertising ID, the identifier ad networks join on."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.google.android.gms:play-services-ads-lite",
+      "category": "advertising",
+      "vendor": "Google (AdMob)",
+      "rationale": "The lightweight AdMob artifact."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.google.android.gms:play-services-analytics",
+      "category": "analytics",
+      "vendor": "Google",
+      "rationale": "Legacy Google Analytics for Android."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.google.android.gms:play-services-measurement",
+      "category": "analytics",
+      "vendor": "Google",
+      "rationale": "The Google Analytics for Firebase collector, which can arrive without the firebase-analytics artifact itself."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.google.android.gms:play-services-measurement-api",
+      "category": "analytics",
+      "vendor": "Google",
+      "rationale": "Public API half of the Google Analytics for Firebase collector."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.google.android.gms:play-services-measurement-sdk",
+      "category": "analytics",
+      "vendor": "Google",
+      "rationale": "SDK half of the Google Analytics for Firebase collector."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.google.android.ump:user-messaging-platform",
+      "category": "advertising",
+      "vendor": "Google",
+      "rationale": "The ad-consent SDK. An app with no ads has no consent form to show."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "group",
+      "identifier": "com.google.firebase",
+      "category": "analytics",
+      "vendor": "Google (Firebase)",
+      "rationale": "Firebase's Android group, including firebase-analytics, firebase-crashlytics and firebase-perf. Matched as a whole group because the analytics collector is pulled in transitively by several of the others. Group matching is exact: com.google.firebaseui is a different group and does not match."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.ironsource.sdk:mediationsdk",
+      "category": "advertising",
+      "vendor": "ironSource / Unity",
+      "rationale": "ironSource ad mediation. Fans a single ad request out to several networks, each with its own collection."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.kochava.tracker:tracker",
+      "category": "attribution",
+      "vendor": "Kochava",
+      "rationale": "Install-attribution SDK."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.microsoft.appcenter:appcenter-analytics",
+      "category": "analytics",
+      "vendor": "Microsoft (App Center)",
+      "rationale": "Session and event analytics reported to Microsoft."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.microsoft.appcenter:appcenter-crashes",
+      "category": "crash-reporting",
+      "vendor": "Microsoft (App Center)",
+      "rationale": "Automatic crash reporting to Microsoft."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.mixpanel.android:mixpanel-android",
+      "category": "analytics",
+      "vendor": "Mixpanel",
+      "rationale": "Mixpanel's Android analytics SDK."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.newrelic.agent.android:android-agent",
+      "category": "telemetry",
+      "vendor": "New Relic",
+      "rationale": "Mobile APM agent; instruments HTTP calls and interactions."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.onesignal:OneSignal",
+      "category": "analytics",
+      "vendor": "OneSignal",
+      "rationale": "Messaging SDK that registers a device identifier and reports engagement."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.posthog:posthog-android",
+      "category": "analytics",
+      "vendor": "PostHog",
+      "rationale": "Product analytics and session replay."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.segment.analytics.android:analytics",
+      "category": "analytics",
+      "vendor": "Segment / Twilio",
+      "rationale": "Segment's Android analytics SDK."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.segment.analytics.kotlin:android",
+      "category": "analytics",
+      "vendor": "Segment / Twilio",
+      "rationale": "The Kotlin rewrite of Segment's Android analytics SDK."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.singular.sdk:singular_sdk",
+      "category": "attribution",
+      "vendor": "Singular",
+      "rationale": "Install-attribution SDK."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.unity3d.ads:unity-ads",
+      "category": "advertising",
+      "vendor": "Unity",
+      "rationale": "Unity Ads SDK. Serves ads and reports impressions, plus the device identifiers ad networks join on."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "com.uxcam:uxcam",
+      "category": "telemetry",
+      "vendor": "UXCam",
+      "rationale": "Session replay: records screens and gestures and uploads them."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "io.branch.sdk.android:library",
+      "category": "attribution",
+      "vendor": "Branch",
+      "rationale": "Deep-link attribution SDK."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "group",
+      "identifier": "io.opentelemetry",
+      "category": "telemetry",
+      "vendor": "OpenTelemetry",
+      "rationale": "OpenTelemetry's Java/Android group; the exporters ship spans off-device."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "group",
+      "identifier": "io.sentry",
+      "category": "crash-reporting",
+      "vendor": "Sentry",
+      "rationale": "Sentry's Android group, including sentry-android and its auto-instrumentation artifacts."
+    },
+    {
+      "ecosystem": "maven",
+      "match": "exact",
+      "identifier": "ly.count.android:sdk",
+      "category": "analytics",
+      "vendor": "Countly",
+      "rationale": "Countly's Android analytics SDK."
+    }
+  ],
+  "exceptions": []
+}

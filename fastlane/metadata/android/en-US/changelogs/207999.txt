@@ -1,0 +1,7 @@
+Linthra 0.2.7
+
+- Android Auto: Next and Previous track controls work again.
+- Linux: stronger local folders, removable-drive recovery, artwork, audio-device handling and desktop integration.
+- Desktop: queue panel, quick search, keyboard navigation and configurable shortcuts.
+- GitHub Linux releases now include an installable Flatpak bundle.
+- Current project license: AGPL-3.0-or-later.

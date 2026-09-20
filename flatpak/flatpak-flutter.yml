@@ -17,16 +17,16 @@
 # See flatpak/README.md.
 app-id: io.github.thezupzup.linthra
 runtime: org.gnome.Platform
-runtime-version: '50'
+runtime-version: '51'
 sdk: org.gnome.Sdk
-# org.gnome.Sdk//50 (built on freedesktop-sdk 25.08) has no C/C++ compiler of
+# org.gnome.Sdk//51 (built on freedesktop-sdk 26.08) has no C/C++ compiler of
 # its own kind Flutter's Linux tool invokes: `flutter build linux` hardcodes
 # CC=clang/CXX=clang++, and linux/CMakeLists.txt's -Werror exception for
 # flutter_secure_storage_linux is scoped to Clang specifically. This is the
 # same LLVM version flatpak-flutter's own generated template defaults to for
-# freedesktop-sdk 25.08.
+# freedesktop-sdk 26.08.
 sdk-extensions:
-  - org.freedesktop.Sdk.Extension.llvm20
+  - org.freedesktop.Sdk.Extension.llvm22
 # linux/CMakeLists.txt: BINARY_NAME "linthra" — check_linux_runner.py asserts
 # this matches pubspec.yaml's `name:`.
 command: linthra
@@ -44,7 +44,7 @@ finish-args:
   # Audio output (#433). LinuxPlaybackController's libmpv now actually opens
   # an audio device (ao=auto, built with -Dpulse=enabled below) instead of
   # only being dlopened/registered at startup as it was for #432. On the
-  # current org.gnome.Platform//50 / freedesktop-sdk 25.08 runtime this is
+  # current org.gnome.Platform//51 / freedesktop-sdk 26.08 runtime this is
   # still the correct, minimal grant for audio: PipeWire's default desktop
   # deployment ships pipewire-pulse, a PulseAudio-protocol-compatible server,
   # so --socket=pulseaudio is what reaches both a native PulseAudio session
@@ -94,8 +94,8 @@ finish-args:
   #     (src/runtime/ksecretd/kwalletportalsecrets.cpp, which installs
   #     org.freedesktop.impl.portal.desktop.kwallet.service and
   #     kwallet.portal). KF6 only; the KF5 kwalletd had no portal backend.
-  # org.gnome.Platform//50 carries libsecret 0.21.7 built with libgcrypt
-  # (freedesktop-sdk 25.08 elements/components/libsecret.bst), so that file
+  # org.gnome.Platform//51 carries libsecret 0.21.7 built with libgcrypt
+  # (freedesktop-sdk 26.08 elements/components/libsecret.bst), so that file
   # backend is compiled in and the sandbox detection above is live.
   #
   # So --talk-name=org.freedesktop.secrets is deliberately NOT granted. On a
@@ -170,7 +170,7 @@ modules:
   # resolved Jellyfin/Navidrome-Subsonic/Plex stream URLs already go through
   # (see docs/linux-desktop.md "Audio playback"). --enable-gnutls adds the
   # TLS backend https:// needs: GnuTLS is LGPLv2.1+, so it keeps this LGPL-only
-  # build's licensing unchanged, and org.gnome.Sdk//50 already ships gnutls.pc
+  # build's licensing unchanged, and org.gnome.Sdk//51 already ships gnutls.pc
   # (verified: `pkg-config --modversion gnutls` inside the SDK resolves to
   # 3.8.13), so no new module/source is declared for it — it links against
   # the runtime's own gnutls the same way mpv already links the runtime's
@@ -291,7 +291,7 @@ modules:
       # is also the protocol pipewire-pulse (the default PipeWire
       # compatibility server on modern desktops) speaks — the same target
       # --socket=pulseaudio opens up above. alsa=enabled stays as the
-      # non-PipeWire/non-Pulse fallback (org.gnome.Sdk//50 ships both
+      # non-PipeWire/non-Pulse fallback (org.gnome.Sdk//51 ships both
       # alsa.pc and libpulse.pc — verified). No new mpv build option is
       # needed for network streaming: mpv has no separate "network" toggle
       # of its own — it opens http(s):// URLs straight through ffmpeg's
@@ -301,7 +301,7 @@ modules:
       - -Dpulse=enabled
       # mpv's own `pipewire` audio-output option defaults to meson's `auto`
       # (unlike every other feature here, which #432 already pinned
-      # explicitly), and org.gnome.Sdk//50 happens to carry libpipewire's
+      # explicitly), and org.gnome.Sdk//51 happens to carry libpipewire's
       # dev files — so leaving it on `auto` would silently build a *second*,
       # undeclared audio backend the committed finish-args don't grant a
       # socket for (a native PipeWire client needs its own IPC socket;
@@ -323,8 +323,8 @@ modules:
     build-options:
       # Rewritten by flatpak-flutter to /var/lib/flutter/bin, where the
       # generated Flutter SDK module installs the activated toolchain.
-      append-path: /usr/lib/sdk/llvm20/bin:flutter/bin
-      prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
+      append-path: /usr/lib/sdk/llvm22/bin:flutter/bin
+      prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
     build-commands:
       - flutter pub get --enforce-lockfile
       - flutter build linux --release --no-pub
