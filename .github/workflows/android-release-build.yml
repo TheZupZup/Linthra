@@ -655,6 +655,10 @@ jobs:
   # sideload assets back over the supporter build would make a release worse,
   # not safer. Hence `!cancelled()` plus an explicit check that the canonical
   # build succeeded, instead of the implicit all-needs-succeeded default.
+  #
+  # The one exception is a rerun of a tag whose Release already carries a
+  # Sponsor APK: there the step below stops rather than refresh five assets
+  # around a sixth this run did not build. See the comment at that check.
   attach-release:
     name: Attach artifacts to GitHub Release
     needs: [build-release, build-sponsor]
@@ -709,9 +713,10 @@ jobs:
             echo "::error::Expected at least one universal APK, three per-ABI APKs, and one AAB."
             exit 1
           fi
-          # Deliberately not fatal: the canonical assets F-Droid and sideload
-          # users resolve are all present, and the failed Sponsor build has
-          # already failed the run on its own.
+          # Deliberately not fatal here: the canonical assets F-Droid and
+          # sideload users resolve are all present, and the failed Sponsor build
+          # has already failed the run on its own. The one case that cannot pass
+          # on a warning is handled below, where the Release is known.
           if [ "$sponsor_count" -eq 0 ]; then
             echo "::warning::No GitHub Sponsor APK among the built artifacts; attaching the canonical assets without it. Check the 'Build GitHub Sponsor APK' job in this run."
           fi
@@ -722,6 +727,31 @@ jobs:
           fi
 
           if [ "$release_exists" = "true" ]; then
+            # `--clobber` only replaces an asset of the SAME name, so a Sponsor
+            # APK left behind by an earlier run of this tag survives a rerun
+            # whose Sponsor build failed. The Release would then serve five
+            # freshly built canonical assets around a sixth this run neither
+            # built nor verified, all looking like one build. Stop instead:
+            # nothing is uploaded and nothing is deleted, so the Release stays
+            # exactly as it was and the operator decides. Deleting the stale
+            # asset here would be worse, since a transient Sponsor failure would
+            # take a good, same-commit APK off a published Release.
+            #
+            # Only reachable on a rerun of a tag that already has assets. A
+            # first attach has no Sponsor asset to go stale, so it still
+            # proceeds on the warning above and the canonical assets ship.
+            existing_sponsor=""
+            if [ "$sponsor_count" -eq 0 ]; then
+              existing_sponsor="$(gh release view "$TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --json assets \
+                --jq '[.assets[].name | select(endswith("-github-sponsor.apk"))] | join(", ")')"
+            fi
+            if [ -n "$existing_sponsor" ]; then
+              echo "::error::Release '$TAG' already carries a GitHub Sponsor APK from an earlier run ($existing_sponsor), and this run's Sponsor build produced none. Nothing was uploaded or deleted, so the Release is unchanged. Fix the 'Build GitHub Sponsor APK' job and re-run, or remove that asset by hand first if the Sponsor APK is being dropped from this release deliberately."
+              exit 1
+            fi
+
             echo "GitHub Release '$TAG' exists; uploading/replacing assets."
             gh release upload "$TAG" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
             echo "Attached $SIGNING universal + per-ABI APKs and AAB to Release '$TAG'."
