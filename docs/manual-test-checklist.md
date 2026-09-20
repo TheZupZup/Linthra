@@ -463,6 +463,19 @@ The short version, for a release pass:
 - ☐ A loading screen says it is loading rather than being silent.
 - ☐ No token, password or full server URL is ever spoken.
 
+### Linux Orca / screen reader
+
+The full pass — window title, rail destinations, library rows, Now Playing,
+dialogs, connection forms, and keyboard-only traversal — is in
+[accessibility.md](./accessibility.md#linux-orca-smoke-checklist).
+Use Orca. Native `flutter run -d linux` first; a silent Flatpak is a
+sandbox issue, not a missing label.
+
+- ☐ The window says **Linthra** when focused.
+- ☐ Each sidebar destination is named, and the current one says selected.
+- ☐ Play/pause, seek, shuffle and repeat are understandable without sight.
+- ☐ No token, password or full server URL is ever spoken.
+
 ### Desktop GNOME & KDE Plasma pass (Linux)
 
 Linux ships on two desktops that most users are on, and a build tuned to one of

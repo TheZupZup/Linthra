@@ -46,7 +46,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | --- | --- |
 | Reporting a bug | [reporting-bugs.md](./reporting-bugs.md) |
 | Manual QA checklist | [manual-test-checklist.md](./manual-test-checklist.md) |
-| Accessibility & TalkBack checklist | [accessibility.md](./accessibility.md) |
+| Accessibility, TalkBack & Linux Orca checklists | [accessibility.md](./accessibility.md) |
 | GNOME & KDE Plasma compatibility matrix | [desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md) |
 | Desktop HiDPI & fractional scaling | [hidpi-and-scaling.md](./hidpi-and-scaling.md) |
 | Linux startup benchmark | [tools/startup/README.md](../tools/startup/README.md) |

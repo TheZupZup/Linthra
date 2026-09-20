@@ -1161,6 +1161,11 @@ and backward traversal, activation, list and grid movement, the two pane
 closures, dialog trapping and restoration, and a touch build behaving exactly
 as it did before.
 
+The listen-through with a screen reader — window title, rail destinations,
+sliders, dialogs, and the rule that a secret is never spoken — is the
+[Linux Orca smoke](./accessibility.md#linux-orca-smoke-checklist). Widget tests
+pin the tree; that checklist is the pass that has to be heard.
+
 Configurable shortcuts are a separate job
 ([#391](https://github.com/TheZupZup/Linthra/issues/391)); what is bound today
 is in the row above.
