@@ -452,7 +452,7 @@ real desktop session can answer, not for re-checking these.
 | --- | --- |
 | `scripts/check_linux_runner.py` | The window title is set unconditionally, the four desktop-identity calls are present in the places GTK honours them, the desktop entry and icon agree with the application id, the folder-picker and window-lifecycle channels agree with their Dart halves, the app is single-instance, and no new desktop-name check has appeared under `linux/`. Tests: `test/tooling/check_linux_runner_test.py`. |
 | `test/tooling/desktop_environment_neutrality_test.dart` | No Dart source reads a desktop session environment variable or compares against a desktop's name. |
-| `scripts/flatpak_launch_smoke.sh` | The packaged Flatpak launches twice and the real window answers to the application id, with an icon, both times. |
+| `scripts/flatpak_launch_smoke.sh` | The installed package reports the checkout's version through `--version`, then launches twice with the real window answering to the application id, with an icon, both times. |
 | `scripts/flatpak_audio_smoke.sh` | The whole playback transport works on the packaged libmpv, inside the sandbox. |
 | `scripts/flatpak_local_library_smoke.sh` | A chosen music folder is scanned, tagged and played inside the sandbox. |
 | `scripts/check_flatpak_permissions.py` | The sandbox holds exactly the permissions it is documented to hold, MPRIS's two `--own-name` grants included. |

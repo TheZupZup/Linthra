@@ -1,14 +1,37 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/application_lifecycle.dart';
 import 'app/linthra_app.dart';
+import 'core/app_info.dart';
 import 'core/models/desktop_density.dart';
 import 'core/models/theme_mode_preference.dart';
 import 'data/repositories/desktop_density_store_provider.dart';
 import 'data/repositories/theme_mode_store_provider.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> arguments) async {
+  // `linthra --version` on Linux, where the runner forwards its argv to this
+  // entrypoint. Answered from the compiled [AppInfo.version], which is the
+  // only copy of the version the shipped bundle carries, so the reply can
+  // never be a manifest's claim about a build rather than the build itself —
+  // that is what makes it worth asking an *installed* package
+  // (scripts/flatpak_launch_smoke.sh does exactly that).
+  //
+  // Handled before any bootstrap, so it starts no database, socket or media
+  // session. The runner shows its window only on Flutter's first frame
+  // (linux/runner/my_application.cc), and this returns long before one, so
+  // nothing appears on screen. Other platforms pass no entrypoint arguments,
+  // so Android never takes this path.
+  if (AppInfo.isVersionQuery(arguments)) {
+    stdout.writeln(AppInfo.versionLine);
+    // `exit` does not drain a buffered stdout on its own, and a version that
+    // is printed but never flushed is the same as one never printed.
+    await stdout.flush();
+    exit(0);
+  }
+
   WidgetsFlutterBinding.ensureInitialized();
 
   // Read the saved theme mode before the container exists so the first frame
