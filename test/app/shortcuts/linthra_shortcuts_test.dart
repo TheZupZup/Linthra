@@ -13,6 +13,7 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/data/repositories/in_memory_keyboard_shortcut_preferences.dart';
 import 'package:linthra/data/repositories/keyboard_shortcut_preferences_provider.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/features/help/keyboard_shortcuts_help.dart';
 import 'package:linthra/features/onboarding/onboarding_controller.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/widgets/queue_sheet.dart';
@@ -412,6 +413,56 @@ void main() {
       app.router.pop();
       await tester.pumpAndSettle();
       expect(find.text('player screen'), findsNothing);
+    });
+
+    testWidgets('Ctrl+/ opens the shortcuts help window (#392)',
+        (tester) async {
+      await _pumpApp(tester);
+
+      await _pressCtrl(tester, LogicalKeyboardKey.slash);
+
+      expect(find.byType(KeyboardShortcutsHelpDialog), findsOneWidget);
+      // It lists itself, off the same registry the chord came from.
+      expect(find.text('Shortcut help'), findsOneWidget);
+      expect(find.text('Ctrl + Slash'), findsOneWidget);
+    });
+
+    testWidgets('and pressing it again will not stack a second window',
+        (tester) async {
+      await _pumpApp(tester);
+
+      await _pressCtrl(tester, LogicalKeyboardKey.slash);
+      await _pressCtrl(tester, LogicalKeyboardKey.slash);
+
+      // The window lists its own chord, so pressing it again while it is open
+      // is a thing people do. Two identical dialogs look like one.
+      expect(find.byType(KeyboardShortcutsHelpDialog), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(KeyboardShortcutsHelpDialog), findsNothing);
+    });
+
+    testWidgets('and it opens on whatever the user remapped it to',
+        (tester) async {
+      await _pumpApp(
+        tester,
+        storedOverrides: <String, String>{
+          'shortcuts_help':
+              const ShortcutBinding(LogicalKeyboardKey.f1).storageValue,
+        },
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.f1);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(KeyboardShortcutsHelpDialog), findsOneWidget);
+      expect(
+        find.text('F1'),
+        findsOneWidget,
+        reason: 'the window reads the live map, so it shows the remap that '
+            'opened it rather than the shipped default',
+      );
     });
   });
 

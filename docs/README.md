@@ -47,11 +47,13 @@ The full index of Linthra's docs. New to the project? Start with the
 | Reporting a bug | [reporting-bugs.md](./reporting-bugs.md) |
 | Manual QA checklist | [manual-test-checklist.md](./manual-test-checklist.md) |
 | Accessibility & TalkBack checklist | [accessibility.md](./accessibility.md) |
+| GNOME & KDE Plasma compatibility matrix | [desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md) |
 | Desktop HiDPI & fractional scaling | [hidpi-and-scaling.md](./hidpi-and-scaling.md) |
 | Linux startup benchmark | [tools/startup/README.md](../tools/startup/README.md) |
 | Release process & signing | [release-process.md](./release-process.md) · [signing](./release-signing.md) · [artifact verification](./release-artifact-verification.md) |
 | Dependency update bots | [dependency-updates.md](./dependency-updates.md) |
 | PR security surface guard | [pr-security-guard.md](./pr-security-guard.md) |
+| Tracker dependency audit (no ads/analytics/telemetry SDKs) | [tracker-dependency-audit.md](./tracker-dependency-audit.md) |
 | F-Droid readiness | [fdroid-readiness.md](./fdroid-readiness.md) |
 | Google Play readiness | [play-store-readiness.md](./play-store-readiness.md) |
 | Flatpak build CI | [flatpak-ci.md](./flatpak-ci.md) |
@@ -59,6 +61,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | Flatpak local-library sandbox smoke | [flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md) |
 | Flatpak sandbox filesystem audit | [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md) |
 | Flatpak permission audit | [flatpak-permissions.md](./flatpak-permissions.md) |
+| Flatpak source pinning & refresh | [flatpak-source-pinning.md](./flatpak-source-pinning.md) |
 | Flathub builder lint | [flathub-builder-lint.md](./flathub-builder-lint.md) |
 | Flathub screenshots | [flathub-screenshots.md](./flathub-screenshots.md) |
 | Flathub updates (release to published Flatpak) | [flathub-update-process.md](./flathub-update-process.md) |

@@ -219,6 +219,12 @@ Pass `--output-dir DIR` to also write the Markdown summary and the raw
 - If it needs code changes, do that in a separate PR. Do not push the fix onto
   the update branch — the CI guard rejects it, and the next scheduled run
   refuses to force-push over commits it did not write.
+- The Flatpak's pinned Dart sources are derived from `pubspec.lock`, and the
+  same guard keeps them off this branch, so refresh them in a follow-up PR:
+  `./scripts/regenerate_flatpak_sources.sh`. Until that lands, the Flatpak
+  source checks are red and name the package they are missing, which is
+  another red that is the point rather than something to work around (see
+  [source pinning](./flatpak-source-pinning.md)).
 - Merge manually when it is green and you are happy with it. Nothing
   auto-merges, by design.
 
@@ -398,6 +404,10 @@ version it is, and why it is intentionally manual:
 - Re-read [`fdroid-build-recipe.md`](./fdroid-build-recipe.md) and the
   reproducibility notes, and update them if the bump changes what a builder must
   install.
+- The Flatpak builds the SDK from the same pin, so the migration PR is also
+  where its sources get regenerated (`./scripts/regenerate_flatpak_sources.sh`)
+  and the template's Flutter `commit` moves to the one the new tag resolves to.
+  See [source pinning](./flatpak-source-pinning.md).
 - Merge manually when you are happy with it. Nothing auto-merges, by design.
 
 ### One-time setup

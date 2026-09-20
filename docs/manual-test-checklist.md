@@ -463,6 +463,26 @@ The short version, for a release pass:
 - ☐ A loading screen says it is loading rather than being silent.
 - ☐ No token, password or full server URL is ever spoken.
 
+### Desktop GNOME & KDE Plasma pass (Linux)
+
+Linux ships on two desktops that most users are on, and a build tuned to one of
+them looks fine until the other one breaks after release. The full pass, with a
+copy-paste result sheet, is
+[desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md); it covers
+launch, window sizing and maximize/restore, appearance, the file portal, local
+folder selection, notifications, MPRIS, media keys, audio output, secure
+storage, the Flatpak, provider setup, playback and relaunch, on both desktops,
+Wayland first.
+
+- ☐ Run the matrix on a GNOME session and a KDE Plasma session before a Linux
+  milestone release, and record the result sheet on the release issue.
+- ☐ Any row that fails on one desktop and passes on the other gets filed with
+  both results and the session facts from the top of that page.
+- ☐ A difference that turns out to belong to the compositor or the portal
+  backend gets a row in that page's
+  [differences table](./desktop-compatibility-matrix.md#differences-linthra-does-not-normalize),
+  never a branch on which desktop is running.
+
 ### Desktop HiDPI & fractional scaling (Linux)
 
 The scale matrix is covered by widget tests, so this pass is only about what a
