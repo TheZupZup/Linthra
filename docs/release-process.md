@@ -788,7 +788,9 @@ evidence, and neither is duplicated here:
   which is also why they cannot be pointed at the release bundle itself. They
   gate the same packaging changes this bundle is built from;
 - the real-desktop checks are in
-  [linux-desktop.md](./linux-desktop.md#manual-flatpak-smoke-checklist).
+  [linux-desktop.md](./linux-desktop.md#manual-flatpak-smoke-checklist), and the
+  wider GNOME/KDE Plasma pass they are the short version of is
+  [desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md).
 
 What the release path adds on top is narrow and deterministic: the bundle
 contains a `libmpv`, so the shipped artifact cannot be one that would fall back

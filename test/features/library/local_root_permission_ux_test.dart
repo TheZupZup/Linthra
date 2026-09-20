@@ -152,6 +152,20 @@ class _BlockingSelectionRepository implements SelectedMusicFolderRepository {
   Future<void> clearSelectedFolders() => _inner.clearSelectedFolders();
 }
 
+/// Pumps the event queue until [check] holds, so a test waits for the state it
+/// needs rather than for a fixed number of turns.
+Future<void> _until(
+  bool Function() check, {
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  final Stopwatch elapsed = Stopwatch()..start();
+  while (elapsed.elapsed < timeout) {
+    if (check()) return;
+    await pumpEventQueue(times: 1);
+  }
+  fail('condition never held within $timeout');
+}
+
 Track _serverTrack(String id) => Track(
       id: id,
       uri: 'jellyfin:$id',
@@ -543,7 +557,12 @@ void main() {
       slow.block();
       final Future<void> reselect =
           c.read(localMusicControllerProvider.notifier).reselectFolder(_usb);
-      await pumpEventQueue();
+      // Not pumpEventQueue(): it yields a fixed twenty times, and the steps
+      // between reselectFolder() and the write (the picker, the probe, the
+      // scan) need more turns than that on a loaded machine, so the fixed
+      // count is a race the test loses under CI contention. Wait for the
+      // write itself.
+      await _until(() => slow.pendingWrites == 1);
 
       expect(slow.pendingWrites, 1);
       expect(c.read(localMusicControllerProvider).busy, isTrue);
