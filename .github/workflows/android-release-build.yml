@@ -1,9 +1,17 @@
 name: Android Release Build
 
-# Builds the Android release artifacts (APK + AAB) and makes them available as
-# workflow artifacts. When triggered by a version tag, it can additionally
-# attach the built artifacts to a matching GitHub Release. It never publishes to
-# a store or submits to F-Droid, and it never writes production release notes.
+# Builds the Android release artifacts (universal APK + AAB, the three per-ABI
+# APKs, and the GitHub Sponsor APK) and makes them available as workflow
+# artifacts. When triggered by a version tag, it can additionally attach the
+# built artifacts to a matching GitHub Release. It never publishes to a store or
+# submits to F-Droid, and it never writes production release notes.
+#
+# The GitHub Sponsor APK is built by the `build-sponsor` job, which calls
+# .github/workflows/github-sponsor-apk.yml, the one implementation of that
+# build, reused rather than copied here. It is a job of THIS run, so the Sponsor
+# APK is built from the same commit, with the same signing decision, and is
+# attached by the same `attach-release` job as everything else. It used to be a
+# separate workflow of its own that raced this one for the Release.
 #
 # Triggers:
 #
@@ -85,6 +93,15 @@ name: Android Release Build
 #     because these never reach a public Release and the label is useful for
 #     telling local artifacts apart at a glance. Per-ABI APKs get the ABI
 #     appended (`linthra-<signing>-<abi>.apk`).
+#
+#   * The GitHub Sponsor APK is named for what it is and never collides with
+#     the canonical assets above: `linthra-<tag>-github-sponsor.apk` on a tag
+#     build, `linthra-github-sponsor-<signing>.apk` on a manual one. It is the
+#     only artifact of this workflow built for the `github` distribution
+#     (`--dart-define=LINTHRA_DISTRIBUTION=github`); the universal APK/AAB, the
+#     per-ABI APKs and the F-Droid build keep the default `fdroid` distribution
+#     and never offer the sponsor-only palette. F-Droid resolves none of the
+#     Sponsor names, so adding it cannot affect the F-Droid build.
 #
 # Version derivation (tag builds):
 #
@@ -590,15 +607,63 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The GitHub Sponsor APK, built in this run rather than by a workflow of its
+  # own (see the header). The implementation is reused, not copied: this calls
+  # .github/workflows/github-sponsor-apk.yml, which is also still dispatchable
+  # by hand for development.
+  #
+  # It `needs` the canonical build rather than running beside it, for two
+  # reasons: the signing mode is decided exactly once, by that job's "Determine
+  # build mode" step, so the Sponsor APK can never sign differently from the
+  # assets it ships next to; and the tag/pubspec preflight runs first, so a tag
+  # that does not match pubspec.yaml stops the release before anything is
+  # compiled, Sponsor APK included.
+  #
+  # Read-only, like the build job: the Sponsor APK reaches the Release through
+  # `attach-release` below, which is still the only job holding write access.
+  # The signing secrets are passed explicitly rather than with `secrets:
+  # inherit`, so the called workflow sees the four LINTHRA_* values it needs
+  # and nothing else.
+  build-sponsor:
+    name: Build GitHub Sponsor APK
+    needs: build-release
+    uses: ./.github/workflows/github-sponsor-apk.yml
+    permissions:
+      contents: read
+    with:
+      # Empty for a tag push and a plain manual run, in which case the called
+      # workflow checks out the ref that started this run, which is the same
+      # commit the canonical build used.
+      ref: ${{ inputs.release_tag }}
+      signing: ${{ needs.build-release.outputs.signing }}
+      target_tag: ${{ needs.build-release.outputs.target_tag }}
+    secrets:
+      LINTHRA_KEYSTORE_BASE64: ${{ secrets.LINTHRA_KEYSTORE_BASE64 }}
+      LINTHRA_KEYSTORE_PASSWORD: ${{ secrets.LINTHRA_KEYSTORE_PASSWORD }}
+      LINTHRA_KEY_ALIAS: ${{ secrets.LINTHRA_KEY_ALIAS }}
+      LINTHRA_KEY_PASSWORD: ${{ secrets.LINTHRA_KEY_PASSWORD }}
+
   # Attaches the built artifacts to a GitHub Release for the pushed tag. This is
   # the only job that needs write access, so it is the only one granted
   # `contents: write` — plus `actions: write`, needed only by the final
   # "Dispatch Linux release build" step below to trigger
   # linux-desktop-build.yml for a Release this job just attached to.
+  #
+  # It waits for `build-sponsor` so the Sponsor APK is among the artifacts it
+  # downloads, but it does not *require* it to have succeeded: a failed Sponsor
+  # build already turns the whole run red, and holding the canonical F-Droid and
+  # sideload assets back over the supporter build would make a release worse,
+  # not safer. Hence `!cancelled()` plus an explicit check that the canonical
+  # build succeeded, instead of the implicit all-needs-succeeded default.
   attach-release:
     name: Attach artifacts to GitHub Release
-    needs: build-release
-    if: ${{ needs.build-release.outputs.target_tag != '' && (needs.build-release.outputs.signing == 'release-signed' || needs.build-release.outputs.prerelease == 'true') }}
+    needs: [build-release, build-sponsor]
+    if: >-
+      ${{ !cancelled()
+          && needs.build-release.result == 'success'
+          && needs.build-release.outputs.target_tag != ''
+          && (needs.build-release.outputs.signing == 'release-signed'
+              || needs.build-release.outputs.prerelease == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -626,18 +691,29 @@ jobs:
           aab_count=0
           apk_count=0
           per_abi_count=0
+          sponsor_count=0
           for f in "${assets[@]}"; do
             case "$f" in
               *.aab) aab_count=$((aab_count + 1));;
+              # Before the per-ABI and universal arms: the Sponsor APK is a
+              # separate distribution, not one of the canonical assets, and must
+              # not be counted as one of them.
+              *github-sponsor*.apk) sponsor_count=$((sponsor_count + 1));;
               *armeabi-v7a*.apk|*arm64-v8a*.apk|*x86_64*.apk) per_abi_count=$((per_abi_count + 1));;
               *.apk) apk_count=$((apk_count + 1));;
             esac
             echo "  - $f"
           done
-          echo "Found $apk_count universal APK(s), $per_abi_count per-ABI APK(s), $aab_count AAB(s)."
+          echo "Found $apk_count universal APK(s), $per_abi_count per-ABI APK(s), $aab_count AAB(s), $sponsor_count GitHub Sponsor APK(s)."
           if [ "$apk_count" -lt 1 ] || [ "$aab_count" -lt 1 ] || [ "$per_abi_count" -lt 3 ]; then
             echo "::error::Expected at least one universal APK, three per-ABI APKs, and one AAB."
             exit 1
+          fi
+          # Deliberately not fatal: the canonical assets F-Droid and sideload
+          # users resolve are all present, and the failed Sponsor build has
+          # already failed the run on its own.
+          if [ "$sponsor_count" -eq 0 ]; then
+            echo "::warning::No GitHub Sponsor APK among the built artifacts; attaching the canonical assets without it. Check the 'Build GitHub Sponsor APK' job in this run."
           fi
 
           release_exists=false
@@ -672,6 +748,9 @@ jobs:
           fi
           {
             printf '%s\n' 'Per-ABI APKs are attached alongside the universal APK and the AAB so F-Droid can reference reproducible upstream binaries for each ABI build (MR !39329).'
+            if [ "$sponsor_count" -gt 0 ]; then
+              printf '%s\n' 'The `-github-sponsor.apk` is the GitHub Sponsor build: the same app with the supporter-only custom palette, unlocked by an active monthly sponsorship. Everyone else wants the universal APK above.'
+            fi
             printf '%s\n' 'This Release was created automatically by the Android Release Build workflow on a pre-release tag. Edit these notes to describe the build.'
             printf '%s\n' 'Nothing here is published to the Play Store or F-Droid (F-Droid builds and signs separately).'
           } >> "$notes_file"

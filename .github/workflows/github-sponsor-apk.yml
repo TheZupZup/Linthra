@@ -1,26 +1,107 @@
 name: GitHub Sponsor APK
 
+# Builds the GitHub Sponsor variant of the Android release APK: the same app,
+# compiled for the `github` distribution with the public OAuth client ID, so the
+# sponsor-only custom palette can be unlocked after GitHub verifies an active
+# monthly sponsorship (docs/SUPPORT.md).
+#
+# This file is the ONE implementation of that build. It has two entry points:
+#
+#   * workflow_call, how it normally runs. android-release-build.yml calls it
+#     as its `build-sponsor` job, so the Sponsor APK is built in the SAME run as
+#     the canonical release APK/AAB and per-ABI APKs, from the same commit, with
+#     the signing mode that run already decided. That run's `attach-release` job
+#     uploads the Sponsor APK to the GitHub Release alongside the other Android
+#     assets. Nothing here talks to a Release, so nothing here needs write
+#     access.
+#
+#   * workflow_dispatch, a manual entry point kept for development and
+#     debugging: building a Sponsor APK from a branch (an OAuth device-flow
+#     change, say) without cutting a tag. It runs the same job, with the same
+#     steps, and only produces a workflow artifact.
+#
+# It deliberately does NOT trigger on `push: tags` any more. It used to, which
+# meant a second, independent run racing the release build with its own copy of
+# the Flutter/Java/signing setup, and then polling `gh release view` for up to
+# 30 minutes waiting for the release workflow to create the Release before it
+# could attach its APK. Being a job of the release run removes the race, the
+# polling and the duplicated setup.
+#
+# Distribution: the Sponsor APK is the only artifact built with
+# `--dart-define=LINTHRA_DISTRIBUTION=github`. The canonical universal APK/AAB,
+# the per-ABI APKs and the F-Droid build all stay on the default `fdroid`
+# distribution (lib/features/support/support_actions_provider.dart), so the
+# sponsor-only palette and the GitHub sign-in never appear in them. The
+# simulation define used by github-sponsor-simulation-apk.yml is never passed
+# here.
+#
+# Naming: a tag build produces `linthra-<tag>-github-sponsor.apk`, which cannot
+# be confused with the canonical `linthra-<tag>-release-signed.apk` or with the
+# per-ABI assets F-Droid resolves. A manual build keeps the signing label
+# instead (`linthra-github-sponsor-<signing>.apk`) because it never reaches a
+# Release.
 on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit-ish to build. Empty means the ref that started the calling run (the pushed tag, or the dispatched branch)."
+        type: string
+        default: ""
+      signing:
+        description: "Signing mode the calling release run already decided: release-signed or debug-signed."
+        type: string
+        required: true
+      target_tag:
+        description: "Release tag this run builds for, or empty for a build that is not a release."
+        type: string
+        default: ""
+    secrets:
+      LINTHRA_KEYSTORE_BASE64:
+        required: false
+      LINTHRA_KEYSTORE_PASSWORD:
+        required: false
+      LINTHRA_KEY_ALIAS:
+        required: false
+      LINTHRA_KEY_PASSWORD:
+        required: false
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
+# Read-only: this workflow builds and uploads a workflow artifact. Attaching it
+# to a GitHub Release is the caller's `attach-release` job, which is the only
+# one that holds `contents: write`.
 permissions:
   contents: read
 
 jobs:
+  # Named for what it does inside this workflow, not for the workflow itself:
+  # called, GitHub shows it as "Build GitHub Sponsor APK / Build APK" (the
+  # caller's job name, then this one), and dispatched by hand as "GitHub Sponsor
+  # APK / Build APK".
   build:
-    name: Build GitHub Sponsor APK
+    name: Build APK
     runs-on: ubuntu-latest
+    # Harmless when empty (unsigned builds): the Gradle config treats
+    # absent/empty values as "no release signing" and falls back to the debug
+    # key. LINTHRA_KEYSTORE_PATH is only exported by the decode step below, and
+    # only when signing is requested. `inputs.*` is empty on a manual dispatch,
+    # which is what the steps below use to tell the two entry points apart.
     env:
       LINTHRA_GITHUB_OAUTH_CLIENT_ID: ${{ vars.LINTHRA_GITHUB_OAUTH_CLIENT_ID }}
       LINTHRA_KEYSTORE_PASSWORD: ${{ secrets.LINTHRA_KEYSTORE_PASSWORD }}
       LINTHRA_KEY_ALIAS: ${{ secrets.LINTHRA_KEY_ALIAS }}
       LINTHRA_KEY_PASSWORD: ${{ secrets.LINTHRA_KEY_PASSWORD }}
+      CALLER_SIGNING: ${{ inputs.signing }}
+      TARGET_TAG: ${{ inputs.target_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Set by the release workflow when it is rebuilding an existing tag,
+          # so the Sponsor APK comes from the same commit as the canonical
+          # assets of that run. Empty otherwise, which is checkout's own
+          # default: the pushed tag for a tag build, the dispatched branch for a
+          # manual one.
+          ref: ${{ inputs.ref }}
 
       - name: Require GitHub OAuth client ID
         run: |
@@ -29,6 +110,69 @@ jobs:
             exit 1
           fi
 
+      # Called from the release run, the signing mode is not decided here: the
+      # caller's "Determine build mode" step already decided it once for the
+      # whole run, and the Sponsor APK signs exactly like the canonical assets
+      # beside it. Dispatched by hand, the old rule still applies: sign if the
+      # secrets are configured, otherwise build with the debug key and say so in
+      # the artifact name.
+      - name: Determine signing mode
+        id: signing
+        env:
+          LINTHRA_KEYSTORE_BASE64: ${{ secrets.LINTHRA_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$CALLER_SIGNING" ]; then
+            case "$CALLER_SIGNING" in
+              release-signed | debug-signed)
+                mode="$CALLER_SIGNING"
+                ;;
+              *)
+                echo "::error::Unknown signing mode '$CALLER_SIGNING' passed by the calling workflow; expected release-signed or debug-signed."
+                exit 1
+                ;;
+            esac
+          else
+            have_secrets=true
+            for value in "$LINTHRA_KEYSTORE_BASE64" "$LINTHRA_KEYSTORE_PASSWORD" "$LINTHRA_KEY_ALIAS" "$LINTHRA_KEY_PASSWORD"; do
+              if [ -z "$value" ]; then
+                have_secrets=false
+              fi
+            done
+            if [ "$have_secrets" = "true" ]; then
+              mode=release-signed
+            else
+              mode=debug-signed
+            fi
+          fi
+
+          # A tagged Sponsor APK is named after the tag alone, with no signing
+          # label to warn anyone, so it must never be debug-signed. The
+          # canonical assets may degrade to the debug key on a pre-release tag
+          # (their name stays stable for F-Droid and the Release notes flag the
+          # signing); there is no such labelling here, so this fails instead.
+          if [ -n "$TARGET_TAG" ] && [ "$mode" != "release-signed" ]; then
+            echo "::error::Tagged GitHub Sponsor APKs require the LINTHRA_* signing secrets. The canonical release assets for '${TARGET_TAG}' are unaffected by this failure. See docs/release-signing.md."
+            exit 1
+          fi
+
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "Signing: $mode | Target tag: ${TARGET_TAG:-<none>}"
+
+      # The release tooling from the revision that is RUNNING, kept beside the
+      # build source rather than replacing it, exactly as android-release-build.yml
+      # does it and for the same reason: a run rebuilding an older tag checks
+      # that tag's tree out above, which may predate the containment verifier.
+      - name: Check out the release tooling from this workflow's revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tooling
+          sparse-checkout: scripts
+
+      # Same pin files as every other Android job: .java-version for the JDK and
+      # .flutter-version (via the shared action) for the SDK.
       - name: Set up Java
         uses: actions/setup-java@v6
         with:
@@ -41,25 +185,6 @@ jobs:
       - name: Install dependencies
         run: flutter pub get --enforce-lockfile
 
-      - name: Determine signing mode
-        id: signing
-        env:
-          LINTHRA_KEYSTORE_BASE64: ${{ secrets.LINTHRA_KEYSTORE_BASE64 }}
-        run: |
-          have_secrets=true
-          for value in "$LINTHRA_KEYSTORE_BASE64" "$LINTHRA_KEYSTORE_PASSWORD" "$LINTHRA_KEY_ALIAS" "$LINTHRA_KEY_PASSWORD"; do
-            [ -z "$value" ] && have_secrets=false
-          done
-
-          if [ "$have_secrets" = "true" ]; then
-            echo "mode=release-signed" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            echo "::error::Tagged GitHub Sponsor APKs require the LINTHRA_* signing secrets."
-            exit 1
-          else
-            echo "mode=debug-signed" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Decode release keystore
         if: ${{ steps.signing.outputs.mode == 'release-signed' }}
         env:
@@ -68,7 +193,11 @@ jobs:
           keystore_path="$RUNNER_TEMP/linthra-release.keystore"
           echo "$LINTHRA_KEYSTORE_BASE64" | base64 -d > "$keystore_path"
           echo "LINTHRA_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
+          echo "Release keystore decoded to a temporary path."
 
+      # The OAuth client ID is a public value (the device flow has no client
+      # secret), passed through the environment rather than interpolated into
+      # the command line.
       - name: Build GitHub Sponsor APK
         run: |
           flutter build apk --release \
@@ -78,14 +207,38 @@ jobs:
       - name: Stage APK
         id: artifact
         run: |
+          set -euo pipefail
           mkdir -p dist
-          if [ "${{ github.event_name }}" = "push" ]; then
-            filename="linthra-${{ github.ref_name }}-github-sponsor.apk"
+          if [ -n "$TARGET_TAG" ]; then
+            filename="linthra-${TARGET_TAG}-github-sponsor.apk"
           else
             filename="linthra-github-sponsor-${{ steps.signing.outputs.mode }}.apk"
           fi
           cp build/app/outputs/flutter-apk/app-release.apk "dist/$filename"
           echo "filename=$filename" >> "$GITHUB_OUTPUT"
+          ls -l dist
+
+      # The Sponsor APK is a public Release asset like any other, so it is held
+      # to the same rule: casting is withheld from shipped builds while a
+      # reported security issue is resolved, and that is checked in the built
+      # artifact before it leaves this job. It fails closed (see
+      # docs/release-artifact-verification.md).
+      - name: Verify the built artifact carries the Cast containment
+        run: |
+          set -euo pipefail
+
+          source_file="lib/core/services/cast/cast_containment.dart"
+
+          # The one case with nothing to check: a tag from before the
+          # containment existed, which carries no message to look for.
+          if [ ! -f "$source_file" ] || ! grep -q 'static const String userMessage' "$source_file"; then
+            echo "::warning::This tag predates the Cast containment, so its artifacts carry nothing to check. See docs/release-artifact-verification.md."
+            exit 0
+          fi
+
+          python3 .release-tooling/scripts/verify_release_containment.py \
+            --containment-source "$source_file" \
+            dist/*.apk
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
@@ -94,38 +247,20 @@ jobs:
           path: dist/${{ steps.artifact.outputs.filename }}
           if-no-files-found: error
 
-  attach-release:
-    name: Attach GitHub Sponsor APK to release
-    needs: build
-    if: ${{ github.event_name == 'push' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download APK
-        uses: actions/download-artifact@v8
-        with:
-          name: linthra-github-sponsor-apk
-          path: dist
-
-      - name: Wait for the release and attach APK
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+      - name: Build summary
         run: |
-          set -euo pipefail
-          for attempt in $(seq 1 180); do
-            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              apk="$(find dist -type f -name '*.apk' -print -quit)"
-              if [ -z "$apk" ]; then
-                echo "::error::GitHub Sponsor APK was not downloaded."
-                exit 1
-              fi
-              gh release upload "$TAG" "$apk" --clobber --repo "$GITHUB_REPOSITORY"
-              exit 0
+          {
+            echo "## Linthra GitHub Sponsor APK"
+            echo ""
+            echo "**Artifact:** \`${{ steps.artifact.outputs.filename }}\`"
+            echo ""
+            echo "**Distribution:** \`github\`. The sponsor-only custom palette and the GitHub sign-in are compiled in; the canonical release APK/AAB, the per-ABI APKs and the F-Droid build are not affected."
+            echo ""
+            if [ -n "$TARGET_TAG" ]; then
+              echo "**Signing:** release-signed with the configured keystore. This APK is attached to the GitHub Release for \`${TARGET_TAG}\` by the calling release run."
+            elif [ "${{ steps.signing.outputs.mode }}" = "release-signed" ]; then
+              echo "**Signing:** release-signed with the configured keystore. Not a tagged release, so this APK is a workflow artifact only."
+            else
+              echo "**Signing:** DEBUG-KEY signed, FOR TESTING ONLY, NOT a production release. This APK is a workflow artifact only."
             fi
-            echo "Release $TAG is not available yet; waiting for the main release workflow."
-            sleep 10
-          done
-          echo "::error::Release $TAG was not created within 30 minutes."
-          exit 1
+          } >> "$GITHUB_STEP_SUMMARY"
