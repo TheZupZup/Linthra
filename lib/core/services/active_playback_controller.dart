@@ -267,6 +267,12 @@ class ActivePlaybackController implements PlaybackController {
   void addToQueue(Track track) => _local.addToQueue(track);
 
   @override
+  void playNextAll(List<Track> tracks) => _local.playNextAll(tracks);
+
+  @override
+  void addAllToQueue(List<Track> tracks) => _local.addAllToQueue(tracks);
+
+  @override
   void removeFromQueue(int upNextIndex) => _local.removeFromQueue(upNextIndex);
 
   @override

@@ -1202,6 +1202,32 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   @override
+  void playNextAll(List<Track> tracks) {
+    if (tracks.isEmpty) return;
+    final bool wasEmpty = _queue.current == null;
+    _queue = _queue.enqueueAllNext(tracks);
+    if (wasEmpty) {
+      // Nothing was playing, so there is no "next" to insert before: start the
+      // set from its first track, exactly as playNext does with one.
+      unawaited(_playCurrent());
+      return;
+    }
+    _emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
+  void addAllToQueue(List<Track> tracks) {
+    if (tracks.isEmpty) return;
+    final bool wasEmpty = _queue.current == null;
+    _queue = _queue.appendedAll(tracks);
+    if (wasEmpty) {
+      unawaited(_playCurrent());
+      return;
+    }
+    _emit(_state.copyWith(upNext: _queue.upNext));
+  }
+
+  @override
   void removeFromQueue(int upNextIndex) {
     final updated = _queue.removeUpNextAt(upNextIndex);
     if (identical(updated, _queue)) return; // out of range: nothing to do
