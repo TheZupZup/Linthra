@@ -764,7 +764,7 @@ started on top of the first.
 | Content density | Supported | Compact by default, switchable to Comfortable in Settings → Appearance and remembered across restarts ([issue #395](https://github.com/thezupzup/linthra/issues/395)). Both are Material `VisualDensity` values, so the choice reaches every list row, grid and control at once. Touch builds are unaffected. See [Density (Compact / Comfortable)](#density-compact--comfortable). |
 | Pointer affordances | Supported | Compact content density, visible hover feedback, right-click context menus with a keyboard equivalent, and Ctrl/Shift multi-select in track lists — all keyed on the input rather than the window width. See [Pointer, not width](#pointer-not-width). |
 | Keyboard navigation | Supported | The whole UI is reachable without a pointer: predictable Tab/Shift+Tab order, a strong accent focus ring distinct from hover and selection, Enter/Space activation, arrow keys through lists and grids with Home/End at their ends, and panes and dialogs that hand focus back when they close ([issue #390](https://github.com/TheZupZup/Linthra/issues/390)). Shared helpers in `lib/shared/focus/`, keyed on the input device rather than the platform, so touch is untouched. See [Keyboard navigation](#keyboard-navigation). |
-| Keyboard shortcuts | Supported | App-wide transport and navigation chords, remappable in **Settings → Music & playback → Keyboard shortcuts** ([issue #391](https://github.com/TheZupZup/Linthra/issues/391)): play/pause, next, previous, quick search (**Ctrl+K**, with **Ctrl+F** as a fixed alias, [issue #393](https://github.com/TheZupZup/Linthra/issues/393)), library, queue and Now Playing. They stand down while a text field wants the key, and media keys stay with MPRIS rather than being bound a second time here. The volume control still takes the wheel and arrow keys only when focused; a global volume chord is not offered. See [Keyboard shortcuts](#keyboard-shortcuts) and [Quick search](#quick-search-ctrlk). |
+| Keyboard shortcuts | Supported | App-wide transport and navigation chords, remappable in **Settings → Music & playback → Keyboard shortcuts** ([issue #391](https://github.com/TheZupZup/Linthra/issues/391)): play/pause, next, previous, quick search (**Ctrl+K**, with **Ctrl+F** as a fixed alias, [issue #393](https://github.com/TheZupZup/Linthra/issues/393)), library, queue and Now Playing. **Ctrl+/** lists the lot, grouped, showing whatever each one is bound to right now ([issue #392](https://github.com/TheZupZup/Linthra/issues/392)), read off the same registry the app dispatches from, so it cannot drift. They stand down while a text field wants the key, and media keys stay with MPRIS rather than being bound a second time here. The volume control still takes the wheel and arrow keys only when focused; a global volume chord is not offered. See [Keyboard shortcuts](#keyboard-shortcuts), [The shortcuts help window](#the-shortcuts-help-window) and [Quick search](#quick-search-ctrlk). |
 
 Nothing in that table is faked. Each one is an explicit implementation behind an
 existing interface, so it is visible in the code and covered by tests — with
@@ -1211,28 +1211,33 @@ right on one monitor fails.
 
 ### Keyboard shortcuts
 
-Seven actions are bound out of the box, and every one of them can be remapped
-in **Settings → Music & playback → Keyboard shortcuts**:
+Eight actions are bound out of the box, and every one of them can be remapped
+in **Settings → Music & playback → Keyboard shortcuts**. `Ctrl+/` shows the
+same list inside the app, with whatever each one is bound to right now:
 
-| Action | Default | What it does |
-| --- | --- | --- |
-| Play / pause | `Ctrl+Space` | Start or pause what is loaded |
-| Next track | `Ctrl+→` | Skip forward in the queue |
-| Previous track | `Ctrl+←` | Go back |
-| Search | `Ctrl+K` (also `Ctrl+F`) | Open quick search |
-| Library | `Ctrl+L` | Go to the Library tab |
-| Queue | `Ctrl+U` | Show or hide what is up next |
-| Now Playing | `Ctrl+P` | Open the full-screen player |
+| Group | Action | Default | What it does |
+| --- | --- | --- | --- |
+| Playback | Play / pause | `Ctrl+Space` | Start or pause what is loaded |
+| Playback | Next track | `Ctrl+→` | Skip forward in the queue |
+| Playback | Previous track | `Ctrl+←` | Go back |
+| Navigation | Queue | `Ctrl+U` | Show or hide what is up next |
+| Navigation | Now Playing | `Ctrl+P` | Open the full-screen player |
+| Library | Search | `Ctrl+K` (also `Ctrl+F`) | Open quick search |
+| Library | Library | `Ctrl+L` | Go to the Library tab |
+| Help | Shortcut help | `Ctrl+/` | Show every shortcut and its binding |
+
+The group is the heading the help window lists the action under, and it is a
+field on the action in the registry rather than a second table beside it.
 
 `Ctrl+F` is a fixed alias rather than a second binding: Linthra has always
 answered it, so remapping search does not take it away, and nothing else can be
 bound over it.
 
 **One registry.** `lib/app/shortcuts/shortcut_action.dart` holds the actions,
-their names, their descriptions and their defaults. The dispatcher installs it,
-the settings card edits it, storage keys off it, and the help window planned in
-#392 reads the same table — so a shortcut cannot be documented as one thing and
-bound as another.
+their names, their descriptions, their groups and their defaults. The
+dispatcher installs it, the settings card edits it, storage keys off it, and
+the help window reads the same table, so a shortcut cannot be documented as
+one thing and bound as another.
 
 **No new playback logic.** Every action forwards to the `PlaybackController`,
 router or overlay the buttons already use. The queue shortcut is the clearest
@@ -1383,6 +1388,53 @@ dispatch — including a held key firing once, a text field keeping `Ctrl+→`, 
 `test/features/settings/desktop/keyboard_shortcuts_section_test.dart` covers
 recording a chord, being refused one, and the recorder staying escapable with
 Tab and Escape.
+`test/features/help/keyboard_shortcuts_help_test.dart` covers the help window.
+
+### The shortcuts help window
+
+`Ctrl+/`, or **Show all shortcuts** on the settings card, opens a window
+listing every shortcut under its group heading, with the combination each one
+answers *right now*
+([`lib/features/help/keyboard_shortcuts_help.dart`](../lib/features/help/keyboard_shortcuts_help.dart)).
+
+**It has no list of its own.** The rows come from `ShortcutActions.grouped` and
+the chords from `activeShortcutBindingsProvider`: the registry the dispatcher
+installs and the map the settings card edits. A remap appears in it without
+anything being kept in step by hand, live, while the window is open; so does a
+reset. A second hard-coded table is the failure this window exists to avoid,
+and a test holds every row to the live map rather than to a written-out list.
+
+**Grouping is deterministic.** Headings follow the `ShortcutGroup` enum's
+declaration order and rows follow the registry's, so neither depends on map
+iteration. A group nothing is filed under is not drawn as an empty heading.
+
+**A fixed alias reads as one.** `Ctrl+F` is shown under search's binding as
+"or Ctrl + F" rather than on a row of its own, because it is a second way to
+press the same shortcut and not a second shortcut to learn.
+
+**The chord goes through the registry like any other.** `Ctrl+/` is a
+`ShortcutAction`, which means it is listed, remappable, and cannot be bound
+over by accident. (`Shift+/`, the "?" people also reach for, is not offered:
+Shift plus a printable key is a capital letter, which `ShortcutBinding` refuses
+outright.) Pressing it again while the window is open does nothing rather than
+stacking a second copy, the same promise quick search makes, and it is a
+promise worth making here because the window lists its own chord.
+
+**Keyboard and focus.** Escape closes it, through the `DismissIntent` every
+modal route already answers rather than through a second path to the same pop.
+The focus stop that opens with it sits *inside* the scroll view, which is what
+makes Page Up/Down and `Ctrl`+arrow scroll the list: Flutter's `ScrollAction`
+looks for a `Scrollable` above whatever holds the keyboard, so a stop outside
+it would leave those keys doing nothing. Tab moves on to Close. Closing hands
+the keyboard back: to the control that opened it when there is one to name (the
+settings button passes its own node, because Flutter never focuses a button
+that was *clicked* and there would otherwise be nothing to restore), and
+otherwise to whatever held it when the chord fired.
+
+**Long names do not break it.** Both halves of a row are `Expanded` and both
+wrap, so a translated action name, a long description, or every modifier at
+once on a long key name grows the row taller instead of pushing the chord off
+the window.
 
 ## Window state
 

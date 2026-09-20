@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +8,7 @@ import '../../../app/dimens.dart';
 import '../../../app/shortcuts/keyboard_shortcuts_controller.dart';
 import '../../../app/shortcuts/shortcut_action.dart';
 import '../../../app/shortcuts/shortcut_binding.dart';
+import '../../help/keyboard_shortcuts_help.dart';
 
 /// The "Keyboard shortcuts" card on the Music & playback settings page (#391).
 ///
@@ -23,6 +26,10 @@ import '../../../app/shortcuts/shortcut_binding.dart';
 /// controller owns validation and conflicts, and this card only renders them —
 /// which is why a refusal reads the same here as it would anywhere else that
 /// ever offers rebinding.
+///
+/// "Show all shortcuts" opens the help window (#392), which is the readable
+/// view of the same map: grouped, with descriptions, and without the editing
+/// controls. It is also what `Ctrl+/` opens from anywhere in the app.
 class KeyboardShortcutsSettingsSection extends ConsumerWidget {
   const KeyboardShortcutsSettingsSection({super.key});
 
@@ -129,17 +136,63 @@ class KeyboardShortcutsSettingsSection extends ConsumerWidget {
                 onChange: () => rebind(definition),
                 onReset: () => reset(definition),
               ),
+            // Wrapped rather than a Row: two buttons whose labels grow with
+            // translation would otherwise overflow a narrow window, and the
+            // second one is the way out of this card.
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: anyOverridden ? resetEverything : null,
-                icon: const Icon(Icons.settings_backup_restore, size: 18),
-                label: const Text('Reset all to defaults'),
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: AppSpacing.xs,
+                children: <Widget>[
+                  const _ShowAllShortcutsButton(),
+                  TextButton.icon(
+                    onPressed: anyOverridden ? resetEverything : null,
+                    icon: const Icon(Icons.settings_backup_restore, size: 18),
+                    label: const Text('Reset all to defaults'),
+                  ),
+                ],
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The way into the help window (#392) from Settings.
+///
+/// Stateful only to own a [FocusNode]: the window hands the keyboard back to
+/// whatever opened it, and a button that was clicked never had focus for
+/// Flutter to restore on its own. Naming the node means a mouse user comes back
+/// to this button rather than to a page with no focus at all.
+class _ShowAllShortcutsButton extends StatefulWidget {
+  const _ShowAllShortcutsButton();
+
+  @override
+  State<_ShowAllShortcutsButton> createState() =>
+      _ShowAllShortcutsButtonState();
+}
+
+class _ShowAllShortcutsButtonState extends State<_ShowAllShortcutsButton> {
+  final FocusNode _node = FocusNode(debugLabel: 'show all shortcuts');
+
+  @override
+  void dispose() {
+    _node.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      focusNode: _node,
+      onPressed: () => unawaited(
+        showKeyboardShortcutsHelp(context, returnFocusTo: _node),
+      ),
+      icon: const Icon(Icons.keyboard_outlined, size: 18),
+      label: const Text('Show all shortcuts'),
     );
   }
 }

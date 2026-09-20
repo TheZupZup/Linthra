@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/models/playback_state.dart';
 import '../../core/services/playback_controller.dart';
+import '../../features/help/keyboard_shortcuts_help.dart';
 import '../../features/library/widgets/quick_search_overlay.dart';
 import '../../features/onboarding/onboarding_controller.dart';
 import '../../features/player/player_providers.dart';
@@ -21,8 +22,7 @@ import 'shortcut_surface.dart';
 /// The activators to install for [bindings], including the fixed aliases.
 ///
 /// Pure, and exported, so a test can assert the app really is reachable by the
-/// documented keys rather than by a private copy of them — and so the help
-/// window in #392 can render the same table the dispatcher installed.
+/// documented keys rather than by a private copy of them.
 ///
 /// An alias is added only when nothing else already claims that combination.
 /// Nothing in the shipped defaults can collide (the controller refuses to bind
@@ -94,6 +94,10 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
   /// search chord again while the overlay already has focus must be a no-op.
   bool _searchShowing = false;
 
+  /// The same promise for the help window (#392): its own chord is listed in
+  /// it, so pressing it again while it is open is a thing people will do.
+  bool _helpShowing = false;
+
   /// Null only before the navigator's first build, when there is nothing to act
   /// on yet; a dropped keystroke there is the right outcome.
   BuildContext? get _navigatorContext => widget.navigatorKey.currentContext;
@@ -107,6 +111,20 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
       await showQuickSearch(context);
     } finally {
       _searchShowing = false;
+    }
+  }
+
+  Future<void> _showShortcutsHelp() async {
+    if (_helpShowing) return;
+    final BuildContext? context = _navigatorContext;
+    if (context == null) return;
+    _helpShowing = true;
+    try {
+      // No focus node to hand back to: this can fire from anywhere, so the
+      // helper returns the keyboard to whatever was holding it.
+      await showKeyboardShortcutsHelp(context);
+    } finally {
+      _helpShowing = false;
     }
   }
 
@@ -254,6 +272,10 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
           OpenNowPlayingIntent: command<OpenNowPlayingIntent>(
             ShortcutAction.nowPlaying,
             _openNowPlaying,
+          ),
+          ShowKeyboardShortcutsIntent: command<ShowKeyboardShortcutsIntent>(
+            ShortcutAction.shortcutsHelp,
+            () => unawaited(_showShortcutsHelp()),
           ),
         },
         child: widget.child,
