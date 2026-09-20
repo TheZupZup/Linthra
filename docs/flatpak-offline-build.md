@@ -35,6 +35,11 @@ The generator itself needs network access because its job is to discover and
 record upstream archive URLs and hashes. That is a maintainer-time generation
 step, not Flatpak build-time networking.
 
+What each of those declarations is pinned by, how to refresh one, and which
+inputs cannot be content-addressed at all is
+[flatpak-source-pinning.md](./flatpak-source-pinning.md) (#443). This page is
+about the other half: that what is declared is enough to build offline.
+
 ## Dart / Flutter
 
 `flatpak/generated/sources/pubspec.json` contains one versioned pub.dev archive

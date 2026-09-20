@@ -42,7 +42,7 @@ packages for one expecting them to help the other.
 | | Native Flutter Linux | Flatpak |
 | --- | --- | --- |
 | Where you work on Atomic | inside a `toolbox` | on the **host** |
-| Toolchain | clang/cmake/ninja + GTK 3, libsecret, xz headers from your distro | `org.gnome.Sdk//50` + the LLVM SDK extension, inside `flatpak-builder` |
+| Toolchain | clang/cmake/ninja + GTK 3, libsecret, xz headers from your distro | `org.gnome.Sdk//51` + the LLVM SDK extension, inside `flatpak-builder` |
 | libmpv | **host** `mpv-libs`/`libmpv` required at runtime | **bundled** in the image; host libmpv is never loaded and is not required |
 | Build | `flutter build linux --release` | `flatpak run org.flatpak.Builder …` (below) |
 | Run | `./build/linux/x64/release/bundle/linthra` | `flatpak run io.github.thezupzup.linthra` |
@@ -77,8 +77,8 @@ flatpak remote-add --user --if-not-exists \
 # flatpak-builder, plus the runtime/SDK/extension the manifest declares.
 flatpak install --user flathub \
   org.flatpak.Builder \
-  org.gnome.Platform//50 org.gnome.Sdk//50 \
-  org.freedesktop.Sdk.Extension.llvm20//25.08
+  org.gnome.Platform//51 org.gnome.Sdk//51 \
+  org.freedesktop.Sdk.Extension.llvm22//26.08
 ```
 
 Those versions mirror the committed manifest. If a manifest bump ever makes
@@ -89,8 +89,8 @@ grep -E '^(app-id|runtime|runtime-version|sdk):|Extension\.' \
   flatpak/io.github.thezupzup.linthra.yml
 ```
 
-`org.gnome.Sdk//50` is built on freedesktop-sdk 25.08, which is where the
-`//25.08` branch of the LLVM extension comes from. `flatpak-builder` can also
+`org.gnome.Sdk//51` is built on freedesktop-sdk 26.08, which is where the
+`//26.08` branch of the LLVM extension comes from. `flatpak-builder` can also
 resolve all of that from the manifest itself, which never goes stale:
 
 ```bash
@@ -217,8 +217,10 @@ source edit:
 It regenerates `flatpak/io.github.thezupzup.linthra.yml` and
 `flatpak/generated/` from `flatpak/flatpak-flutter.yml`, using a pinned
 flatpak-flutter checkout in `.tool/`. Needs network (it pins every dependency
-by URL + sha256). Review the diff before committing — see
-[`flatpak/README.md`](../flatpak/README.md#regenerating-the-pinned-sources).
+by URL + sha256), and finishes by checking its own output with
+`scripts/check_flatpak_sources.py`. Review the diff before committing; see
+[`flatpak/README.md`](../flatpak/README.md#regenerating-the-pinned-sources)
+and [source pinning](./flatpak-source-pinning.md).
 
 ## Clean and uninstall
 
@@ -269,7 +271,7 @@ flatpak run --command=sh io.github.thezupzup.linthra -c 'ls /app/lib/linthra'
 flatpak run --command=sh io.github.thezupzup.linthra -c 'ls /app/lib | grep -i mpv'
 
 # A shell with the SDK's tools instead of the bare platform runtime
-# (needs org.gnome.Sdk//50, installed in Host tools above).
+# (needs org.gnome.Sdk//51, installed in Host tools above).
 flatpak run --devel --command=bash io.github.thezupzup.linthra
 
 # Attach to an already-running instance.

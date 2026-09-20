@@ -10,9 +10,9 @@
 #include "window_lifecycle_channel.h"
 #include "window_state_store.h"
 
-// The user-visible application name. Kept as one constant so the header bar,
-// the fallback title bar, and anything added later can never drift apart — and
-// so it stays greppable against the Dart-side `AppInfo.name` and the Android
+// The user-visible application name. Kept as one constant so the window title,
+// the header bar, and anything added later can never drift apart, and so it
+// stays greppable against the Dart-side `AppInfo.name` and the Android
 // `android:label`. scripts/check_linux_runner.py enforces that agreement.
 static constexpr const char* kApplicationName = "Linthra";
 
@@ -68,13 +68,36 @@ static void my_application_activate(GApplication* application) {
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
-  // Use a header bar when running in GNOME as this is the common style used
-  // by applications and is the setup most users will be using (e.g. Ubuntu
-  // desktop).
-  // If running on X and not using GNOME then just use a traditional title bar
-  // in case the window manager does more exotic layout, e.g. tiling.
-  // If running on Wayland assume the header bar will work (may need changing
-  // if future cases occur).
+  // The window's own title, set before anything decides how the window is
+  // decorated, so it is set whichever way that decision goes (#458).
+  //
+  // This is the only call that reaches the display server: GTK sends it as
+  // X11's `_NET_WM_NAME` and as Wayland's `xdg_toplevel.set_title`. A
+  // GtkHeaderBar title is drawn in-process and reaches neither, so the Flutter
+  // template's header-bar path (which set the header bar's title and nothing
+  // else) left the window introducing itself with no title at all. Everything
+  // that reads a window title rather than resolving an application id then has
+  // nothing to show: KDE Plasma's task manager tooltips and window switcher,
+  // GNOME Shell's overview labels and window list, window rules matched on a
+  // caption, `wmctrl`/`xdotool`, and the screen reader that announces a window
+  // when focus reaches it. It is one string on a freedesktop-standard property,
+  // so it needs no desktop-specific handling at all.
+  //
+  // scripts/check_linux_runner.py holds it here, ahead of the decoration
+  // choice.
+  gtk_window_set_title(window, kApplicationName);
+
+  // Whether the title bar is drawn by Linthra (a GtkHeaderBar) or by the
+  // window manager is a *decoration* choice, and GTK 3 implements no
+  // xdg-decoration protocol, so there is no desktop standard to defer to here.
+  // See docs/desktop-compatibility-matrix.md, "Differences Linthra does not
+  // normalize". Under Wayland the toolkit only has the client-side option.
+  // Under X11 the Flutter template's heuristic is kept: GNOME Shell expects a
+  // header bar, and anything else gets the traditional one (KWin included,
+  // which draws its own title bar, as do the tiling window managers the
+  // template had in mind). It changes who paints the title bar and nothing
+  // else: the title set above, the application id, the icon and every
+  // integration Linthra has are identical either way.
   gboolean use_header_bar = TRUE;
 #ifdef GDK_WINDOWING_X11
   GdkScreen* screen = gtk_window_get_screen(window);
@@ -91,8 +114,6 @@ static void my_application_activate(GApplication* application) {
     gtk_header_bar_set_title(header_bar, kApplicationName);
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
-  } else {
-    gtk_window_set_title(window, kApplicationName);
   }
 
   // Floor the window at a size the shared layout can still render without

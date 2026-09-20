@@ -36,11 +36,48 @@ jobs:
       - name: Install dependencies
         run: flutter pub get --enforce-lockfile
 
+      # Retry an artifact download, because the two matrix rows resolve the
+      # same Gradle artifacts on two runners at the same moment and one of them
+      # gets throttled.
+      #
+      # That is not hypothetical: in run 35480575826 the `unlocked` row started
+      # resolving 8 seconds before `locked` and Maven Central answered it with
+      # "Received status code 403 from server: Forbidden" for
+      # kotlin-gradle-plugins-bom, 32 seconds in, before a line was compiled.
+      # `locked` resolved the same artifacts on the other runner and built, as
+      # did `Build debug APK` on that same commit, and every other run of this
+      # workflow that day passed. The PR was Dart and Markdown only.
+      #
+      # Deliberately narrow, so this stays a retry and does not become a way to
+      # pass a broken build on the second try. Flutter prints "Gradle threw an
+      # error while downloading artifacts from the network." for this class of
+      # failure and nothing else, so a compile error still fails on the first
+      # attempt, at its own speed, with its own message.
+      #
+      # Gradle's own `org.gradle.internal.repository.max.retries` would not
+      # help here: it retries 5xx and transport errors, and a throttle answered
+      # as 403 is a client error it treats as final.
       - name: Build simulated GitHub Sponsor state
         run: |
-          flutter build apk --debug \
-            --dart-define=LINTHRA_DISTRIBUTION=github \
-            --dart-define=LINTHRA_GITHUB_SPONSOR_SIMULATION=${{ matrix.state }}
+          set -uo pipefail
+          marker='Gradle threw an error while downloading artifacts from the network'
+          log="$(mktemp)"
+          for attempt in 1 2 3; do
+            if flutter build apk --debug \
+                 --dart-define=LINTHRA_DISTRIBUTION=github \
+                 --dart-define=LINTHRA_GITHUB_SPONSOR_SIMULATION=${{ matrix.state }} \
+                 2>&1 | tee "$log"; then
+              exit 0
+            fi
+            if ! grep -qF "$marker" "$log"; then
+              echo "::error::Build failed for a reason other than an artifact download; not retrying."
+              exit 1
+            fi
+            echo "::warning::Artifact download failed on attempt $attempt."
+            sleep "$((attempt * 15))"
+          done
+          echo "::error::Artifact download still failing after 3 attempts."
+          exit 1
 
       - name: Verify APK and remove it
         run: |

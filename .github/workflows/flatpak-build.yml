@@ -33,6 +33,7 @@ on:
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - 'scripts/check_flatpak_permissions.py'
+      - 'scripts/check_flatpak_sources.py'
       - 'scripts/check_linux_runner.py'
       - 'scripts/flatpak_audio_smoke.sh'
       - 'scripts/flathub_builder_lint.py'
@@ -43,6 +44,7 @@ on:
       - 'scripts/make_flatpak_smoke_manifest.py'
       - 'scripts/regenerate_flatpak_sources.sh'
       - 'scripts/verify_release_containment.py'
+      - 'test/tooling/check_flatpak_sources_test.py'
       - 'test/tooling/check_linux_runner_test.py'
       - 'test/tooling/flatpak_bundle_test.py'
       - 'third_party/**'
@@ -71,6 +73,7 @@ on:
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - 'scripts/check_flatpak_permissions.py'
+      - 'scripts/check_flatpak_sources.py'
       - 'scripts/check_linux_runner.py'
       - 'scripts/flatpak_audio_smoke.sh'
       - 'scripts/flathub_builder_lint.py'
@@ -81,6 +84,7 @@ on:
       - 'scripts/make_flatpak_smoke_manifest.py'
       - 'scripts/regenerate_flatpak_sources.sh'
       - 'scripts/verify_release_containment.py'
+      - 'test/tooling/check_flatpak_sources_test.py'
       - 'test/tooling/check_linux_runner_test.py'
       - 'test/tooling/flatpak_bundle_test.py'
       - 'third_party/**'
@@ -427,7 +431,7 @@ jobs:
       # cannot come from a different build than the one the smoke above
       # exercised.
       #
-      # --runtime-repo names Flathub as where org.gnome.Platform//50 comes
+      # --runtime-repo names Flathub as where org.gnome.Platform//51 comes
       # from, so installing this file on a machine without that runtime offers
       # to fetch it instead of failing. It does not put Linthra on Flathub
       # (#456) and does not fetch the app from anywhere: Linthra's own bytes

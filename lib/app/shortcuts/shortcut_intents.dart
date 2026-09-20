@@ -48,3 +48,8 @@ class ToggleQueueIntent extends Intent {
 class OpenNowPlayingIntent extends Intent {
   const OpenNowPlayingIntent();
 }
+
+/// Open the keyboard shortcuts help window (#392).
+class ShowKeyboardShortcutsIntent extends Intent {
+  const ShowKeyboardShortcutsIntent();
+}

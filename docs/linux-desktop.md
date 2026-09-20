@@ -827,7 +827,7 @@ started on top of the first.
 | --- | --- | --- |
 | **Audio playback** | Supported | media_kit/libmpv through `LinuxPlaybackController`; local files and resolved Jellyfin, Navidrome/Subsonic, and Plex HTTP(S) streams share one backend. A libmpv that is missing, unloadable or incompatible is reported as such and retried in place ([issue #404](https://github.com/TheZupZup/Linthra/issues/404)), not as a track that would not play. See [When the audio engine itself won't start](#when-the-audio-engine-itself-wont-start). |
 | **Suspend / resume** | Supported (app side); real device/sink timing varies | Lifecycle `paused`→`resumed` arms a bounded Linux-only reload of an actively playing track after a short backoff ([issue #466](https://github.com/TheZupZup/Linthra/issues/466)). See [Suspend / resume (manual matrix)](#suspend--resume-manual-matrix). |
-| **Light/Dark/System theme** | Supported (app side); the native brightness bridge itself is Flutter's, not independently verified here | Settings → Appearance's System/Light/Dark choice ([issue #459](https://github.com/TheZupZup/Linthra/issues/459)) is the same shared `ThemeModePreference`/`ThemeModeController` Android uses, mapped onto `MaterialApp`'s own `themeMode` — no `gsettings`/D-Bus/GNOME/KDE-specific code in Linthra itself, and no separate Linux theme path (`test/app/theme_mode_test.dart` proves that). *Supplying* System's brightness on Linux is Flutter's GTK embedder (via the XDG desktop portal or a GNOME GSettings fallback); that native bridge is outside Linthra's code and isn't exercised by `flutter test`, which runs on the Dart VM and injects brightness straight into Flutter's test `PlatformDispatcher`. Reproducing the real bridge deterministically in CI would need a running portal daemon or GNOME schemas — exactly the DE-specific setup this app avoids adding — so it stays untested here and is a known gap, not a claimed guarantee. |
+| **Light/Dark/System theme** | Supported (app side); the native brightness bridge itself is Flutter's, not independently verified here | Settings → Appearance's System/Light/Dark choice ([issue #459](https://github.com/TheZupZup/Linthra/issues/459)) is the same shared `ThemeModePreference`/`ThemeModeController` Android uses, mapped onto `MaterialApp`'s own `themeMode` — no `gsettings`/D-Bus/GNOME/KDE-specific code in Linthra itself, and no separate Linux theme path (`test/app/theme_mode_test.dart` proves that). *Supplying* System's brightness on Linux is Flutter's GTK embedder (via the XDG desktop portal or a GNOME GSettings fallback); that native bridge is outside Linthra's code and isn't exercised by `flutter test`, which runs on the Dart VM and injects brightness straight into Flutter's test `PlatformDispatcher`. Reproducing the real bridge deterministically in CI would need a running portal daemon or GNOME schemas — exactly the DE-specific setup this app avoids adding — so it stays untested here and is a known gap, not a claimed guarantee. Rows B1 and B2 of the [compatibility matrix](./desktop-compatibility-matrix.md#b-appearance) are where that bridge is exercised by hand, on both desktops. |
 | Media session / MPRIS | Supported | `PlatformMediaSessionBinding` routes Linux to `MprisMediaSessionBinding`, which exports `/org/mpris/MediaPlayer2` and owns `org.mpris.MediaPlayer2.linthra` ([issue #397](https://github.com/TheZupZup/Linthra/issues/397)). Shells get PlaybackStatus, Metadata, Position and the transport methods; media keys work through the same interface. `Volume` is read/write, so a shell's own volume slider drives Linthra's level (and reads zero while muted); `Rate` stays honestly read-only. `Raise` and `Quit` are answered too, so a listener whose window is hidden by background mode can bring Linthra back or shut it down from the shell's media widget (#401). `audio_service` is still never initialised on Linux — it stays the Android delegate. A machine with no session bus simply gets no desktop controls. |
 | Close-window behaviour | Supported | Settings → Music & playback → Desktop window chooses between quitting and keeping playback running ([issue #401](https://github.com/TheZupZup/Linthra/issues/401)). The runner answers the close, Dart decides what the answer should be, and background mode only ever starts while audio is actually playing. See [Closing the window](#closing-the-window). |
 | Android Auto | Android-only, by design | It is an Android platform integration, not a Linthra feature. |
@@ -852,7 +852,7 @@ started on top of the first.
 | Content density | Supported | Compact by default, switchable to Comfortable in Settings → Appearance and remembered across restarts ([issue #395](https://github.com/thezupzup/linthra/issues/395)). Both are Material `VisualDensity` values, so the choice reaches every list row, grid and control at once. Touch builds are unaffected. See [Density (Compact / Comfortable)](#density-compact--comfortable). |
 | Pointer affordances | Supported | Compact content density, visible hover feedback, right-click context menus with a keyboard equivalent, and Ctrl/Shift multi-select in track lists — all keyed on the input rather than the window width. See [Pointer, not width](#pointer-not-width). |
 | Keyboard navigation | Supported | The whole UI is reachable without a pointer: predictable Tab/Shift+Tab order, a strong accent focus ring distinct from hover and selection, Enter/Space activation, arrow keys through lists and grids with Home/End at their ends, and panes and dialogs that hand focus back when they close ([issue #390](https://github.com/TheZupZup/Linthra/issues/390)). Shared helpers in `lib/shared/focus/`, keyed on the input device rather than the platform, so touch is untouched. See [Keyboard navigation](#keyboard-navigation). |
-| Keyboard shortcuts | Supported | App-wide transport and navigation chords, remappable in **Settings → Music & playback → Keyboard shortcuts** ([issue #391](https://github.com/TheZupZup/Linthra/issues/391)): play/pause, next, previous, quick search (**Ctrl+K**, with **Ctrl+F** as a fixed alias, [issue #393](https://github.com/TheZupZup/Linthra/issues/393)), library, queue and Now Playing. They stand down while a text field wants the key, and media keys stay with MPRIS rather than being bound a second time here. The volume control still takes the wheel and arrow keys only when focused; a global volume chord is not offered. See [Keyboard shortcuts](#keyboard-shortcuts) and [Quick search](#quick-search-ctrlk). |
+| Keyboard shortcuts | Supported | App-wide transport and navigation chords, remappable in **Settings → Music & playback → Keyboard shortcuts** ([issue #391](https://github.com/TheZupZup/Linthra/issues/391)): play/pause, next, previous, quick search (**Ctrl+K**, with **Ctrl+F** as a fixed alias, [issue #393](https://github.com/TheZupZup/Linthra/issues/393)), library, queue and Now Playing. **Ctrl+/** lists the lot, grouped, showing whatever each one is bound to right now ([issue #392](https://github.com/TheZupZup/Linthra/issues/392)), read off the same registry the app dispatches from, so it cannot drift. They stand down while a text field wants the key, and media keys stay with MPRIS rather than being bound a second time here. The volume control still takes the wheel and arrow keys only when focused; a global volume chord is not offered. See [Keyboard shortcuts](#keyboard-shortcuts), [The shortcuts help window](#the-shortcuts-help-window) and [Quick search](#quick-search-ctrlk). |
 
 Nothing in that table is faked. Each one is an explicit implementation behind an
 existing interface, so it is visible in the code and covered by tests — with
@@ -1299,28 +1299,33 @@ right on one monitor fails.
 
 ### Keyboard shortcuts
 
-Seven actions are bound out of the box, and every one of them can be remapped
-in **Settings → Music & playback → Keyboard shortcuts**:
+Eight actions are bound out of the box, and every one of them can be remapped
+in **Settings → Music & playback → Keyboard shortcuts**. `Ctrl+/` shows the
+same list inside the app, with whatever each one is bound to right now:
 
-| Action | Default | What it does |
-| --- | --- | --- |
-| Play / pause | `Ctrl+Space` | Start or pause what is loaded |
-| Next track | `Ctrl+→` | Skip forward in the queue |
-| Previous track | `Ctrl+←` | Go back |
-| Search | `Ctrl+K` (also `Ctrl+F`) | Open quick search |
-| Library | `Ctrl+L` | Go to the Library tab |
-| Queue | `Ctrl+U` | Show or hide what is up next |
-| Now Playing | `Ctrl+P` | Open the full-screen player |
+| Group | Action | Default | What it does |
+| --- | --- | --- | --- |
+| Playback | Play / pause | `Ctrl+Space` | Start or pause what is loaded |
+| Playback | Next track | `Ctrl+→` | Skip forward in the queue |
+| Playback | Previous track | `Ctrl+←` | Go back |
+| Navigation | Queue | `Ctrl+U` | Show or hide what is up next |
+| Navigation | Now Playing | `Ctrl+P` | Open the full-screen player |
+| Library | Search | `Ctrl+K` (also `Ctrl+F`) | Open quick search |
+| Library | Library | `Ctrl+L` | Go to the Library tab |
+| Help | Shortcut help | `Ctrl+/` | Show every shortcut and its binding |
+
+The group is the heading the help window lists the action under, and it is a
+field on the action in the registry rather than a second table beside it.
 
 `Ctrl+F` is a fixed alias rather than a second binding: Linthra has always
 answered it, so remapping search does not take it away, and nothing else can be
 bound over it.
 
 **One registry.** `lib/app/shortcuts/shortcut_action.dart` holds the actions,
-their names, their descriptions and their defaults. The dispatcher installs it,
-the settings card edits it, storage keys off it, and the help window planned in
-#392 reads the same table — so a shortcut cannot be documented as one thing and
-bound as another.
+their names, their descriptions, their groups and their defaults. The
+dispatcher installs it, the settings card edits it, storage keys off it, and
+the help window reads the same table, so a shortcut cannot be documented as
+one thing and bound as another.
 
 **No new playback logic.** Every action forwards to the `PlaybackController`,
 router or overlay the buttons already use. The queue shortcut is the clearest
@@ -1471,6 +1476,53 @@ dispatch — including a held key firing once, a text field keeping `Ctrl+→`, 
 `test/features/settings/desktop/keyboard_shortcuts_section_test.dart` covers
 recording a chord, being refused one, and the recorder staying escapable with
 Tab and Escape.
+`test/features/help/keyboard_shortcuts_help_test.dart` covers the help window.
+
+### The shortcuts help window
+
+`Ctrl+/`, or **Show all shortcuts** on the settings card, opens a window
+listing every shortcut under its group heading, with the combination each one
+answers *right now*
+([`lib/features/help/keyboard_shortcuts_help.dart`](../lib/features/help/keyboard_shortcuts_help.dart)).
+
+**It has no list of its own.** The rows come from `ShortcutActions.grouped` and
+the chords from `activeShortcutBindingsProvider`: the registry the dispatcher
+installs and the map the settings card edits. A remap appears in it without
+anything being kept in step by hand, live, while the window is open; so does a
+reset. A second hard-coded table is the failure this window exists to avoid,
+and a test holds every row to the live map rather than to a written-out list.
+
+**Grouping is deterministic.** Headings follow the `ShortcutGroup` enum's
+declaration order and rows follow the registry's, so neither depends on map
+iteration. A group nothing is filed under is not drawn as an empty heading.
+
+**A fixed alias reads as one.** `Ctrl+F` is shown under search's binding as
+"or Ctrl + F" rather than on a row of its own, because it is a second way to
+press the same shortcut and not a second shortcut to learn.
+
+**The chord goes through the registry like any other.** `Ctrl+/` is a
+`ShortcutAction`, which means it is listed, remappable, and cannot be bound
+over by accident. (`Shift+/`, the "?" people also reach for, is not offered:
+Shift plus a printable key is a capital letter, which `ShortcutBinding` refuses
+outright.) Pressing it again while the window is open does nothing rather than
+stacking a second copy, the same promise quick search makes, and it is a
+promise worth making here because the window lists its own chord.
+
+**Keyboard and focus.** Escape closes it, through the `DismissIntent` every
+modal route already answers rather than through a second path to the same pop.
+The focus stop that opens with it sits *inside* the scroll view, which is what
+makes Page Up/Down and `Ctrl`+arrow scroll the list: Flutter's `ScrollAction`
+looks for a `Scrollable` above whatever holds the keyboard, so a stop outside
+it would leave those keys doing nothing. Tab moves on to Close. Closing hands
+the keyboard back: to the control that opened it when there is one to name (the
+settings button passes its own node, because Flutter never focuses a button
+that was *clicked* and there would otherwise be nothing to restore), and
+otherwise to whatever held it when the chord fired.
+
+**Long names do not break it.** Both halves of a row are `Expanded` and both
+wrap, so a translated action name, a long description, or every modifier at
+once on a long key name grows the row taller instead of pushing the chord off
+the window.
 
 ## Window state
 
@@ -1518,12 +1570,18 @@ there.
 * `scripts/check_linux_runner.py` — the committed runner still matches the app's
   identity (`APPLICATION_ID` = Android's `applicationId`, `BINARY_NAME` =
   the package name, window title = `AppInfo.name`), it still makes the four
-  desktop-identity calls below in the places where GTK honours them, the window
-  metrics are sane, the offline SQLite seam is wired, the folder-picker and
-  window-lifecycle channels still agree with their Dart halves, the application
-  is still registered single-instance, and nothing under `linux/` hardcodes an
-  absolute host path.
+  desktop-identity calls below in the places where GTK honours them, it still
+  sets the window's own caption ahead of the header-bar decision so it is set
+  on both decoration paths, the window metrics are sane, the offline SQLite
+  seam is wired, the folder-picker and window-lifecycle channels still agree
+  with their Dart halves, the application is still registered single-instance,
+  no string literal under `linux/` names a desktop environment or reads a
+  desktop session variable beyond the one grandfathered exception, and nothing
+  under `linux/` hardcodes an absolute host path.
   Tests: `test/tooling/check_linux_runner_test.py`.
+* `test/tooling/desktop_environment_neutrality_test.dart` covers the Dart half
+  of that last rule: no source under `lib/` reads a desktop session environment
+  variable or compares against a desktop's name.
 * `scripts/flatpak_launch_smoke.sh` — launches the packaged Flatpak twice and
   reads `WM_CLASS` and `_NET_WM_ICON` back off the real window each time, so a
   window that stops answering to the application id fails CI.
@@ -1575,11 +1633,23 @@ different thing, so `linux/runner/my_application.cc` sets all of them from
 | `gdk_set_program_class(APPLICATION_ID)` | `my_application_startup()`, **after** the chain-up | the class half of `WM_CLASS`. GDK's default is the program name with its first letter upper-cased, which is not the app id |
 | `gtk_window_set_default_icon_name(APPLICATION_ID)` | same | GTK attaches the themed icon as `_NET_WM_ICON`; without it the window has no icon of its own |
 | `g_set_application_name(AppInfo.name)` | same | `g_get_application_name()`, which GTK and portals show to the user |
+| `gtk_window_set_title(kApplicationName)` | `my_application_activate()`, **before** the header-bar decision | X11's `_NET_WM_NAME` and Wayland's `xdg_toplevel.set_title`: the window's *caption*, which is not the header bar's title |
 
 The two in `my_application_startup()` have to run after the chain-up to
 `GtkApplication::startup`: that is what calls `gtk_init()`, and `gtk_init()`
 resets GDK's program class unconditionally. Set earlier, they compile, run, and
 are thrown away.
+
+The last row is the one that is easy to miss (#458).
+`gtk_header_bar_set_title()` draws a string inside the process;
+`gtk_window_set_title()` is the only call that reaches the display server. The
+Flutter template made the second call *only* on the branch where it had no
+header bar, so on a header-bar desktop the window arrived with no caption at
+all, and everything that reads a window title rather than resolving an
+application id had nothing to show: task manager tooltips, window switchers,
+overview labels, window rules matched on a caption, `wmctrl`/`xdotool`, and a
+screen reader announcing the focused window. It is now set ahead of the
+decoration choice, so it is set whichever way that choice goes.
 
 `linux/packaging/io.github.thezupzup.linthra.desktop` declares the same X11 pair
 as `StartupWMClass=`, so a shell matches the window to the entry exactly rather
@@ -1594,6 +1664,43 @@ refuses the file outright: GTK cannot load it as a themed icon, and every
 launcher that resolves icons through that stack shows a generic one. The file
 still parses, still validates, and still renders in a browser, which is why the
 checker measures the offset. Put comments *inside* the root element.
+
+## GNOME and KDE Plasma
+
+Linux support is easy to tune to whichever desktop the person writing it runs.
+Everything still builds, every test still passes, and the other desktop is the
+one that breaks after release. So there is a repeatable pass covering both, run
+on a real session before a Linux milestone:
+
+**[docs/desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md)**
+
+It covers launch, window sizing and maximize/restore, light/dark appearance,
+the file/folder portal, local music folder selection, notifications, MPRIS,
+media keys, audio output and routing, secure credential storage, Flatpak
+install and launch, Jellyfin/Navidrome/Plex configuration, basic playback, and
+shutdown/relaunch. Wayland is the primary session on both desktops; the X11
+rows are the handful where the display server genuinely changes something. It
+also records the differences that belong to the compositor or the portal
+backend and are therefore documented rather than worked around, and it carries
+a copy-paste result sheet so a pass is written down rather than remembered.
+
+Nothing in Linthra asks which desktop is running. Every Linux integration goes
+through something both implement: portals for the file chooser and
+notifications, MPRIS for media controls and media keys, the Secret Service for
+credentials, freedesktop window properties for identity, the portal's
+`color-scheme` for appearance. Two guardrails keep it that way, and both fail
+the build on a new desktop check:
+
+* `scripts/check_linux_runner.py` scans every string literal under `linux/` for
+  a desktop session environment variable or a desktop name, with one
+  grandfathered exception recorded in its
+  `GRANDFATHERED_DESKTOP_NAME_CHECKS` table: the X11-only title bar decoration
+  style, kept because GTK 3 implements no xdg-decoration protocol to defer to;
+* `test/tooling/desktop_environment_neutrality_test.dart` does the same for
+  `lib/`, where there is no exception at all.
+
+Prose is exempt, and should be. Comments and docs name both desktops
+constantly; it is a runtime branch on a desktop's name that is the problem.
 
 ## Suspend / resume (manual matrix)
 
@@ -1870,7 +1977,7 @@ would rather run the plain build.
 You need Flatpak itself installed, and the GNOME runtime the bundle declares.
 Most desktop distributions ship Flatpak; if yours does not, [flatpak.org's
 setup guide](https://flatpak.org/setup/) covers it. The bundle names Flathub as
-where its runtime comes from, so the install can fetch `org.gnome.Platform//50`
+where its runtime comes from, so the install can fetch `org.gnome.Platform//51`
 if the machine does not already have it.
 
 **Graphical install.** On a desktop whose software centre handles Flatpak
