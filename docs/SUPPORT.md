@@ -98,8 +98,7 @@ The sponsorable login defaults to `TheZupZup`. A fork may override it with:
 The release workflow keeps the existing canonical APKs unchanged because their
 per-ABI files are reproducible-build references for F-Droid. Those builds use the
 `fdroid` distribution behaviour: built-in themes only, no custom palette and no
-GitHub sign-in. When `LINTHRA_GITHUB_OAUTH_CLIENT_ID` is configured, a separate
-workflow additionally builds:
+GitHub sign-in. Alongside them, the same release run additionally builds:
 
 ```text
 linthra-<tag>-github-sponsor.apk
@@ -113,6 +112,20 @@ That separate universal APK is compiled with:
 ```
 
 The existing canonical APK, AAB, and per-ABI APK names remain untouched.
+
+It is built by `.github/workflows/github-sponsor-apk.yml`, which
+`android-release-build.yml` calls as its `build-sponsor` job. So the Sponsor APK
+is produced by the same run, from the same commit, with the same signing
+decision as the canonical artifacts, and is attached to the GitHub Release by
+the same `attach-release` job. It needs the `LINTHRA_GITHUB_OAUTH_CLIENT_ID`
+repository variable: without it the Sponsor job fails (visibly, and without
+holding back the canonical assets) rather than shipping an APK that cannot
+verify a sponsorship.
+
+The same workflow is still dispatchable on its own for development (building a
+Sponsor APK from a branch to test an OAuth change, say). A manual run only
+produces a workflow artifact (`linthra-github-sponsor-<signing>.apk`) and never
+touches a Release.
 
 ## Custom palette architecture
 
@@ -156,7 +169,7 @@ and:
 
 These APKs do not contact GitHub Sponsors and need no OAuth client ID. The
 workflow verifies each APK exists, then deletes it without uploading an artifact.
-The real GitHub Sponsor release workflow never passes the simulation define.
+The GitHub Sponsor release build never passes the simulation define.
 F-Droid ignores the simulation path and does not expose the custom palette.
 
 ## Future Play Billing integration

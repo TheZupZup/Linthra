@@ -80,10 +80,11 @@ exit non-zero rather than reporting a pass.
 | --- | --- | --- |
 | Every PR and push | `ci.yml` ▸ *Cast containment markers* | The verifier's own unit tests (`test/tooling/verify_release_containment_test.py`), on synthetic artifacts, so a change that stops it catching an uncontained build is caught here. |
 | Every release build | `android-release-build.yml` ▸ *Verify the built artifacts carry the Cast containment* | The APK/AAB in `dist/`, before they are uploaded anywhere. |
+| Every release build | `github-sponsor-apk.yml` ▸ *Verify the built artifact carries the Cast containment* | The GitHub Sponsor APK, in the job that builds it, before it is uploaded anywhere. It is a public Release asset like the others, so it is held to the same rule. |
 | Every Linux release build | `linux-desktop-build.yml` ▸ *Verify the archive carries the Cast containment* | The `.tar.gz`, before it is attached to the Release — the Release is already public by then, so an artifact that fails the check must never become downloadable from it. |
 | Every Flatpak release build | `flatpak-build.yml` ▸ *Verify the bundle carries the Cast containment* | The `.flatpak` bundle, before it is attached to the Release, for the same reason. The bundle is also checked against its own manifest first (`scripts/flatpak_bundle.py verify`) — see [release-process.md §4b](./release-process.md#4b-linux-flatpak-bundle-dispatched-alongside-the-android-and-linux-builds). |
 
-All three release builds check out the tag they are building, so the script
+Each of those release builds checks out the tag it is building, so the script
 itself comes from a second, script-only checkout of the revision the workflow is
 running from, and `--containment-source` points it at the *built* tree's
 `cast_containment.dart`. That way rebuilding an existing release is still

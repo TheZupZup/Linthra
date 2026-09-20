@@ -511,6 +511,14 @@ Artifacts are named with the version and signing label, e.g.
 `linthra-v0.1.0-alpha.1-debug-signed.apk` or
 `linthra-v0.1.0-alpha.1-release-signed.aab`.
 
+The same run also builds the **GitHub Sponsor APK**,
+`linthra-<tag>-github-sponsor.apk`, and attaches it alongside them. It is the
+supporter build described in [SUPPORT.md](./SUPPORT.md#github-release-apk): the
+same app compiled for the `github` distribution, so an active monthly
+sponsorship can unlock the custom palette. It is not one of the canonical
+assets, F-Droid does not reference it, and the universal, per-ABI and AAB names
+above are unaffected by it.
+
 > **F-Droid asset-name compatibility (do not change these names).** On a tag
 > build the public Release assets are named `linthra-<tag>-…-release-signed.…`,
 > and F-Droid's per-Build `binary:` URLs in
@@ -886,10 +894,11 @@ consume our signed artifacts:
 | Dependency-update PR touches only `pubspec.lock` | **Automatic** on `deps/*` PRs only (`ci.yml`, job `dependency-guard`; `scripts/check_dependency_update_files.sh`). |
 | Debug APK build + build-output verification | Manual (`workflow_dispatch`) + on PRs (`android-debug-apk.yml`; a "Verify build output exists" step rejects a missing/empty APK). |
 | Release APK/AAB build | **Manual** (`workflow_dispatch`) **and automatic on `v*` tags** (`android-release-build.yml`). |
+| GitHub Sponsor APK build | **Automatic with every release build** (`android-release-build.yml` ▸ `build-sponsor`, which calls `github-sponsor-apk.yml`). Same run, same commit, same signing decision as the canonical artifacts; attached to the Release by the same `attach-release` job. Needs the `LINTHRA_GITHUB_OAUTH_CLIENT_ID` repository variable. `github-sponsor-apk.yml` is still dispatchable on its own for development, and a manual run only produces a workflow artifact. See [SUPPORT.md](./SUPPORT.md#github-release-apk). |
 | Preparing the version-bump PR (pubspec, in-app mirror, Fastlane changelog, F-Droid `CurrentVersion`, AppStream `<release>`) | **Manual** (`workflow_dispatch`, `prepare-release-bump.yml`); opens a draft PR but never tags, builds, or publishes. The same edits are reproducible locally with `scripts/prepare_release_bump.py`. |
 | Verifying the tag matches `pubspec.yaml` (versionName/versionCode) | **Automatic** on a `v*` tag build (`scripts/release_preflight.sh`, encoding-checked against `tool/version_from_tag.dart`); fails fast on a mismatch and the workflow summary explicitly says "Version mismatch: release was not built." so it is not confused with an APK build failure. The same script is intended to be run locally before tagging (§3 step 10). Both manual and tag builds take the version from `pubspec.yaml`. |
-| Verifying the shipped artifacts carry the Cast containment | **Automatic**: on every release build (`android-release-build.yml`, `linux-desktop-build.yml` and `flatpak-build.yml`, before each artifact is uploaded) and again on the published assets during a stable publication (`publish-stable-release.yml`, which records every SHA-256 in the job summary). Local twin: `python3 scripts/verify_release_containment.py dist/*.apk dist/*.aab`. See [release-artifact-verification.md](./release-artifact-verification.md). |
-| Attaching APK/AAB to a Release | **Automatic** on a `v*` tag build. Alpha/beta/rc tags attach (debug- or release-signed) to a **pre-release**; stable tags attach **release-signed** assets to an existing Release only. |
+| Verifying the shipped artifacts carry the Cast containment | **Automatic**: on every release build (`android-release-build.yml`, `github-sponsor-apk.yml`, `linux-desktop-build.yml` and `flatpak-build.yml`, before each artifact is uploaded) and again on the published assets during a stable publication (`publish-stable-release.yml`, which records every SHA-256 in the job summary). Local twin: `python3 scripts/verify_release_containment.py dist/*.apk dist/*.aab`. See [release-artifact-verification.md](./release-artifact-verification.md). |
+| Attaching APK/AAB to a Release | **Automatic** on a `v*` tag build. Alpha/beta/rc tags attach (debug- or release-signed) to a **pre-release**; stable tags attach **release-signed** assets to an existing Release only. The `linthra-<tag>-github-sponsor.apk` rides along in the same upload when its build succeeded; a failed Sponsor build reddens the run and still lets the canonical assets attach, except on a rerun of a tag whose Release already carries a Sponsor APK, where the attach stops rather than refresh five assets around a sixth this run did not build (nothing is uploaded and nothing is deleted). |
 | Linux `.tar.gz` build + attach to a Release | **Automatic**, via `workflow_dispatch` (`linux-desktop-build.yml` `release_tag` input, job `package-linux-release`) — see §4a. `publish-stable-release.yml` dispatches it for every stable release; `android-release-build.yml`'s `attach-release` job dispatches it for a directly-pushed alpha/beta/rc tag. Not wired to `push: tags` or `release: published` — a `GITHUB_TOKEN`-authored tag push/Release doesn't reliably start either. |
 | Linux `.flatpak` bundle build + attach to a Release | **Automatic** for stable releases, via `workflow_dispatch` (`flatpak-build.yml` `release_tag` input, job `package-flatpak-release`) — see §4b. `publish-stable-release.yml` dispatches it and waits for it. A directly-pushed alpha/beta/rc tag does not get one automatically. |
 | Creating a GitHub **pre-release** (alpha/beta/rc) | **Automatic** on the tag build if no Release exists yet (placeholder notes; edit afterwards). |
@@ -914,6 +923,7 @@ Release, writes production notes, signs a store build, or submits to F-Droid.
 | `dart-dependency-updates.yml` — open/update the draft Dart package PR | — | — | — | ✅ (also weekly on a schedule) |
 | `android-debug-apk.yml` — build debug APK + verify output | ✅ | — | — | ✅ |
 | `android-release-build.yml` · `build-release`/`attach-release` — release APK/AAB, tag↔pubspec preflight, attach | — | — | ✅ | ✅ (also how `publish-stable-release.yml` triggers it for a stable release) |
+| `github-sponsor-apk.yml` · `build` — build the GitHub Sponsor APK | — | — | ✅ (as `android-release-build.yml`'s `build-sponsor` job, via `workflow_call`) | ✅ (same, for a manual release build; also dispatchable on its own for development) |
 | `linux-desktop-build.yml` · `build-linux` — build/validate the Linux desktop target | ✅ | ✅ | — | ✅ (`release_tag` set: checks out that exact tag; empty: normal manual build) |
 | `linux-desktop-build.yml` · `package-linux-release` — package `.tar.gz`, attach to Release | — | — | — | ✅ (only when `release_tag` is set and its Release exists) |
 | `flatpak-build.yml` · `build-flatpak` — build, install and launch the Flatpak | ✅ (packaging paths) | ✅ (packaging paths) | — | ✅ (`release_tag` set: checks out that exact tag and exports the `.flatpak`; empty: normal manual build) |
