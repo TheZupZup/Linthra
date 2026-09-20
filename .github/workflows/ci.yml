@@ -233,6 +233,16 @@ jobs:
       - name: Test the local native verify script
         run: python3 test/tooling/verify_native_test.py
 
+      # The updaters open the PRs that keep Linthra's pins current, and a
+      # failing scheduled run opens none while looking exactly like a quiet
+      # week (#362). scripts/check_update_automation_health.py is what tells
+      # those two apart, so its judgement is tested against fixtures — no
+      # network, no `gh`, no Actions API — and the tests also read
+      # update-automation-health.yml to hold it to reporting only. Local twin:
+      # `python3 test/tooling/update_automation_health_test.py`.
+      - name: Test the update automation health check
+        run: python3 test/tooling/update_automation_health_test.py
+
   release-bump-guard:
     name: Release bump touches only version files
     runs-on: ubuntu-latest

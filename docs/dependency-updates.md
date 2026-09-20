@@ -22,6 +22,12 @@ setup and the F-Droid builder all install, and a JDK change ripples through the
 whole Android build at once — issue #362 lists it under the upgrades that stay
 manual, and it still is.
 
+A fifth workflow watches the three scheduled ones rather than any dependency:
+[`update-automation-health.yml`](../.github/workflows/update-automation-health.yml)
+files an issue when an updater has been failing, because a broken updater and a
+quiet week look identical from the outside. See
+[When the updaters themselves break](#when-the-updaters-themselves-break).
+
 ## How this was built
 
 Issue #362 was delivered in five phases, in this order:
@@ -692,3 +698,126 @@ python3 test/tooling/android_toolchain_update_test.py
 
 Both are fully offline: fixture release indexes, throwaway git repositories, and
 no network access at all.
+
+## When the updaters themselves break
+
+Everything above describes what happens when an updater *runs*. This section is
+about what happens when one stops.
+
+A failed scheduled workflow tells almost nobody. It opens no PR, files no issue
+and puts no red mark on any branch — the run simply goes red in the Actions tab,
+where nothing forces a maintainer to look. From the repository's point of view a
+broken updater and a week with genuinely nothing to update are indistinguishable,
+so the pins quietly stop moving and everything keeps looking current.
+
+That is not a hypothetical failure mode. It is how `.flutter-version` fell
+behind the stable channel: every weekly run detected the newer release correctly
+and then failed before publishing it, for weeks, until a contributor hit the
+version mismatch on their own machine and reported it from the other end.
+
+[`update-automation-health.yml`](../.github/workflows/update-automation-health.yml)
+closes that gap. It runs on Mondays, an hour after the last updater, reads the
+recent run history of all three scheduled updaters, and files **one** issue when
+any of them has failed two or more scheduled runs in a row.
+
+| | |
+| --- | --- |
+| Watches | `dart-dependency-updates.yml`, `flutter-sdk-updates.yml`, `android-toolchain-updates.yml` |
+| Counts | completed **scheduled** runs only |
+| Reports after | 2 consecutive failures (one week of grace for a runner blip) |
+| Outcome | one issue, updated in place — never a PR, never a merge |
+| Token | the workflow's own `GITHUB_TOKEN`; no repository secret is read |
+
+Only scheduled runs count. A `workflow_dispatch` run is a maintainer testing the
+workflow by hand and says nothing about whether the weekly cadence still works —
+counting a manual green run would let "I ran it once to check" mask a month of
+dead Mondays. A cancelled run is treated as no evidence in either direction: it
+bounds the streak rather than being read as a pass or a failure.
+
+The judgement lives in `scripts/check_update_automation_health.py` rather than in
+the workflow YAML, so it can be tested offline against fixtures. The workflow
+does the `gh api` call and nothing else:
+
+```bash
+python3 test/tooling/update_automation_health_test.py
+```
+
+**If that issue is open, check the failing run first.** If it stops at
+`DEPENDENCY_UPDATE_TOKEN is required`, the repository secret is missing or
+expired — and all three updaters fail the same way, because they share it. See
+the One-time setup sections above.
+
+To silence the report, disable **Actions → Update automation health → ⋯ →
+Disable workflow**. Disabling it stops the reporting, not the updaters; they are
+separate workflows and keep running (or keep failing) either way.
+
+## Automatic merging, and why there is none
+
+Nothing in this repository merges itself. That is stated in several places
+above, and it is worth being precise about *why*, because it is not simply an
+omission waiting to be filled in.
+
+### At a glance
+
+| Question | Answer |
+| --- | --- |
+| What does Dependabot monitor? | GitHub Actions (`/` and `/.github/actions/setup-flutter`) and Cargo (`native/linthra_core`) |
+| What monitors Dart/Flutter packages? | `dart-dependency-updates.yml`, not Dependabot — see [Why not Dependabot](#why-not-dependabot) |
+| Schedule | weekly, Mondays, for every mechanism |
+| What auto-merges? | **nothing** |
+| What needs manual review? | **everything**, patch and minor included |
+| How are majors handled? | an issue, never a PR — for the SDK, Gradle, AGP and Kotlin alike |
+| How is the Flutter SDK handled? | detect newer stable → draft PR that changes `.flutter-version` and nothing else → full CI → human review → merge |
+| Required repository settings | `DEPENDENCY_UPDATE_TOKEN`, plus the `main` ruleset in [repository-hardening.md](./repository-hardening.md) |
+| Is "Allow auto-merge" needed? | no — leave it off |
+
+### Three independent reasons, not one policy
+
+Even if an auto-merge workflow were added tomorrow, it could not merge anything
+unattended. Three separate controls each stop it on their own:
+
+1. **Code-owner review.** [`CODEOWNERS`](../.github/CODEOWNERS) is `* @TheZupZup`
+   — every path, no exceptions — and the required `main` ruleset enables
+   *Require review from Code Owners* and *Require approval of the most recent
+   reviewable push*. Dependabot cannot approve its own pull request, and
+   **Allow GitHub Actions to create and approve pull requests** is deliberately
+   left disabled ([repository-hardening.md](./repository-hardening.md)). So a
+   human approval is required on every dependency PR, by configuration.
+
+2. **The security surface guard.** `scripts/check_pr_security_surface.py`
+   classifies `.github/**` as CI/automation configuration and `Cargo.toml` /
+   `Cargo.lock` as a dependency manifest — both security-sensitive. Those are
+   *exactly* the two ecosystems Dependabot is configured for here, so every
+   Dependabot PR this repository can produce is sensitive by construction, and
+   `pr-security-review.yml` requires the repository owner to approve the exact
+   current HEAD before the check passes.
+
+3. **No safe way to hold the write permission.** Enabling GitHub's auto-merge
+   needs `pull-requests: write`, and there is no route to it that this
+   repository permits:
+   - a `pull_request`-triggered workflow gets a **read-only** `GITHUB_TOKEN` on
+     Dependabot PRs, whatever its `permissions:` block says;
+   - `pull_request_target` is a **blocked** high-risk pattern in
+     `check_pr_security_surface.py` — a hard block that a maintainer approval
+     deliberately cannot clear;
+   - a PAT would put a long-lived credential in a context driven by
+     dependency metadata, which is the supply-chain shape the SHA pinning and
+     the rest of this repository's hardening exist to avoid.
+
+### So what would auto-merge actually buy?
+
+One click. The owner must read and approve every dependency PR either way
+(reasons 1 and 2), so auto-merge would only save coming back to press **Merge**
+once the long checks finish. Against that: a new workflow holding write
+permission, a reversal of an invariant that three test suites currently assert,
+and — for the only implementations GitHub offers — a primitive this repository
+blocks on purpose.
+
+It is not worth it, so it is not here. If a future maintainer does want it, the
+honest version is a scheduled workflow in trusted context that reads Dependabot's
+`updated-dependencies` commit trailer (never the PR title), allows only
+`version-update:semver-patch` and `version-update:semver-minor`, treats anything
+ambiguous as a major, and calls GitHub's auto-merge so branch protection still
+decides. What it must **not** do is weaken any of the three controls above to
+make itself useful — at which point it is worth re-reading this section and
+asking what was actually gained.
