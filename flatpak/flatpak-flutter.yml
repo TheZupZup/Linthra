@@ -417,7 +417,7 @@ modules:
       # flatpak-flutter reads (it is how the generator knows which Flutter to
       # check out and which engine artifacts to resolve), and a tag is mutable
       # upstream, so it is not a pin on its own. The commit is: it is the one
-      # `git ls-remote --tags` resolves 3.44.7 to today, and
+      # `git ls-remote --tags` resolves 3.47.5 to today, and
       # scripts/check_flatpak_sources.py holds it to the commit the generated
       # SDK module actually carries, and both to .flutter-version. Bump all
       # three together by editing .flutter-version and regenerating; a tag that
@@ -425,6 +425,6 @@ modules:
       # a different toolchain.
       - type: git
         url: https://github.com/flutter/flutter.git
-        tag: '3.44.7'
-        commit: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
+        tag: '3.47.5'
+        commit: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
         dest: flutter

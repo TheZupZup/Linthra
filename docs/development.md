@@ -21,10 +21,10 @@ of repeating the values, so a bump is a one-line edit:
 
 | Tool | Pinned version | Source of truth |
 | ---- | -------------- | --------------- |
-| Flutter SDK | Flutter 3.44.7 (`stable`) | [`.flutter-version`](../.flutter-version) |
+| Flutter SDK | Flutter 3.47.5 (`stable`) | [`.flutter-version`](../.flutter-version) |
 | JDK | JDK 17 (Temurin in CI) | [`.java-version`](../.java-version) |
 | Gradle | Gradle 8.14.5 | [`android/gradle/wrapper/gradle-wrapper.properties`](../android/gradle/wrapper/gradle-wrapper.properties) |
-| Android Gradle Plugin | AGP 8.10.1 | [`android/settings.gradle`](../android/settings.gradle) |
+| Android Gradle Plugin | AGP 8.11.1 | [`android/settings.gradle`](../android/settings.gradle) |
 | Kotlin Gradle plugin | Kotlin 2.2.21 | [`android/settings.gradle`](../android/settings.gradle) |
 
 `scripts/setup_flutter.sh` and the shared `.github/actions/setup-flutter` action
@@ -191,7 +191,7 @@ do not.
 You need a working Android SDK (`ANDROID_HOME` / `ANDROID_SDK_ROOT` set) and a
 JDK that matches the bundled Gradle wrapper — use the pinned **JDK 17** from
 [`.java-version`](../.java-version), the same one CI installs for the Gradle
-8.14.5 / Android Gradle Plugin 8.10.1 the project pins. Run `flutter doctor` to
+8.14.5 / Android Gradle Plugin 8.11.1 the project pins. Run `flutter doctor` to
 confirm your toolchain.
 
 ```bash
@@ -292,7 +292,7 @@ flutter analyze                      # static analysis + lints
 flutter test                         # widget/unit tests
 ```
 
-CI pins **Flutter 3.44.x (stable)** for reproducible results; using a matching
+CI pins **Flutter 3.47.x (stable)** for reproducible results; using a matching
 SDK locally avoids spurious `dart format` diffs from formatter changes in newer
 Dart releases. The automatic `ci.yml` workflow is **code-quality only**; native
 builds and optional release signing live in separate workflows.

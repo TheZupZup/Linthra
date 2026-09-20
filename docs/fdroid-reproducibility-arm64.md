@@ -2,7 +2,7 @@
 
 > **Toolchain note.** The investigation below was carried out on the pre-upgrade
 > toolchain (Flutter `3.27.4`, AGP `8.2.1`). The project has since moved to
-> Flutter `3.44.7` / AGP `8.10.1` / Gradle `8.14.5`, which changes the release
+> Flutter `3.47.5` / AGP `8.11.1` / Gradle `8.14.5`, which changes the release
 > APK bytes, so the comparison has not been re-run against the current
 > toolchain. The *cause* documented here is the build invocation, not the tool
 > versions, so it is expected to carry over — but treat the specific manifest

@@ -261,6 +261,11 @@ const Map<String, Set<String>> _historicalVersions = <String, Set<String>>{
   'docs/fdroid-reproducibility-arm64.md': <String>{'3.27.4', '8.2.1'},
   'docs/fdroid-readiness.md': <String>{'3.27.4'},
   'docs/dependency-license-audit.md': <String>{'3.27.4'},
+  // Names the Flutter 3.44.7 bump as the worked example of an upgrade that
+  // needed application changes, which is why the Dart dependency updater is
+  // allowed to open red PRs. That sentence is about that past upgrade, so it
+  // keeps naming 3.44.7 after the pin moves on.
+  'docs/dependency-updates.md': <String>{'3.44.7'},
 };
 
 /// Asserts every `pattern` match across the scanned files captures [pin].

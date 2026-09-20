@@ -100,7 +100,7 @@ What makes it a good fit for building from source:
   optional release signing only applies to the GitHub channel and is injected at
   build time (see [release-signing.md](./release-signing.md)); no keystore or
   secret is committed.
-- The toolchain is pinned: Flutter `3.44.7` (stable), Dart `3.12.x`, JDK 17,
+- The toolchain is pinned: Flutter `3.47.5` (stable), Dart `3.13.x`, JDK 17,
   Gradle 8.14.5 — CI reads the same `.flutter-version` and `.java-version` files.
 - No codegen step: the Drift output
   `lib/data/database/linthra_database.g.dart` is committed, so there's no
@@ -116,7 +116,7 @@ A few things still need checking against fdroiddata before submitting:
 1. How Flutter gets provisioned. The draft now uses the **`flutter` srclib**
    method from `templates/build-flutter.yml` (`srclibs: [flutter@stable]`,
    referenced as `$$flutter$$`), checking out the version from `.flutter-version`
-   (3.44.7) in `prebuild`. No Flutter submodule is added upstream and no SDK is
+   (3.47.5) in `prebuild`. No Flutter submodule is added upstream and no SDK is
    cloned by hand. Flutter's engine artifacts are fetched at the pinned version,
    which is normal for Flutter on F-Droid and stays pinned and reproducible.
 2. Native toolchain. The only native component is SQLite (`sqlite3_flutter_libs`,
@@ -220,7 +220,7 @@ checkout.
 Commands to run locally and in an fdroiddata checkout:
 
 ```sh
-# In the Linthra repo (pinned Flutter 3.44.7 — see scripts/setup_flutter.sh):
+# In the Linthra repo (pinned Flutter 3.47.5 — see scripts/setup_flutter.sh):
 flutter pub get
 dart format --set-exit-if-changed .
 flutter analyze

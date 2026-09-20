@@ -66,7 +66,7 @@ that order, so Android and F-Droid both accept it as an update:
 - [ ] **`pubspec.lock` stays committed** (it is tracked — do **not** re-ignore
       it). F-Droid runs `flutter pub get --enforce-lockfile`, which needs the
       committed, in-sync lockfile (this is exactly why `alpha.40` was cut).
-      Regenerate it with pinned Flutter `3.44.7` only if dependencies changed.
+      Regenerate it with pinned Flutter `3.47.5` only if dependencies changed.
 - [ ] The **tag is created from `main`**, on the merged version-bump commit —
       never from a feature branch, and never before the bump PR is merged.
 - [ ] **Do not rewrite or move old tags**, and **do not replace old GitHub-Release
