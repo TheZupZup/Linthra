@@ -1,0 +1,185 @@
+name: Update automation health
+
+# Watches the watchers (issue #362).
+#
+# Linthra's three scheduled updaters — Dart packages, the Flutter SDK, and the
+# Gradle/AGP/Kotlin pins — each run weekly, detect what can move and open a
+# draft PR. A human decides what lands; nothing here merges anything, and that
+# stays true of this workflow too.
+#
+# The problem this solves is what happens when one of those updaters *fails*.
+# A failed scheduled run produces no PR, no issue and no red mark on any
+# branch: it goes red in the Actions tab, where nothing makes a maintainer look.
+# From the repository's point of view a broken updater and a week with no
+# updates are indistinguishable, so the pins quietly stop moving.
+#
+# That is not hypothetical — it is how `.flutter-version` fell behind stable
+# while every weekly run correctly detected the newer release and then died
+# before publishing it. The mismatch surfaced only when a contributor hit it on
+# their own machine.
+#
+# So this runs after the three updaters, reads their recent scheduled runs, and
+# files one issue when any of them has been failing. The judgement lives in
+# scripts/check_update_automation_health.py so it can be tested offline against
+# fixtures (test/tooling/update_automation_health_test.py) rather than in YAML.
+on:
+  schedule:
+    # Mondays, an hour after the last updater (android-toolchain-updates runs at
+    # 04:53), so every run this reports on has finished and recorded a
+    # conclusion by the time the history is read.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+# One report at a time. Two concurrent runs would race on the same issue and
+# could file it twice.
+concurrency:
+  group: update-automation-health
+  cancel-in-progress: false
+
+# Read-only by default. The one write is `issues: write`, granted to the single
+# job that files the report — the same shape the updaters' own major-upgrade
+# issue jobs use. No publication token is involved: an issue triggers no CI, so
+# it needs none of that token's reach, and the built-in GITHUB_TOKEN is enough.
+permissions:
+  contents: read
+
+jobs:
+  health:
+    name: Report stalled update workflows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Reading other workflows' run history.
+      actions: read
+      # Filing the one report issue.
+      issues: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      # The only network call in this workflow, and it reads nothing but this
+      # repository's own run history. Each updater's recent runs are collected
+      # into one JSON object keyed by workflow file name, which is exactly what
+      # the checker expects; the API returns newest first, which the checker
+      # relies on and deliberately does not re-sort.
+      - name: Collect the updaters' recent runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          runs="$RUNNER_TEMP/runs.json"
+          echo '{}' > "$runs"
+
+          for workflow in \
+            dart-dependency-updates.yml \
+            flutter-sdk-updates.yml \
+            android-toolchain-updates.yml
+          do
+            # per_page=10 is about two and a half months of weekly runs: long
+            # enough to see a streak, short enough that one bad quarter in 2024
+            # cannot colour today's verdict.
+            page="$RUNNER_TEMP/page.json"
+            gh api \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?per_page=10" \
+              --jq '[.workflow_runs[] | {event, status, conclusion, url: .html_url, createdAt: .created_at}]' \
+              > "$page"
+
+            WORKFLOW="$workflow" jq \
+              --slurpfile page "$page" \
+              '.[env.WORKFLOW] = $page[0]' "$runs" > "$runs.next"
+            mv "$runs.next" "$runs"
+          done
+
+          echo "Collected run history for 3 workflows."
+
+      # Classifies and stops there: it opens nothing and changes no file in the
+      # repository. Exits non-zero only when the history cannot be trusted to
+      # mean anything, so an unreadable input can never read as "all healthy".
+      - name: Classify the run history
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/check_update_automation_health.py \
+            --runs-file "$RUNNER_TEMP/runs.json" \
+            --report "$RUNNER_TEMP/health.md" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Summarise
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Update automation health"
+            echo
+            cat "$RUNNER_TEMP/health.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the stalled-updater issue
+        if: ${{ steps.check.outputs.verdict == 'failing' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILING: ${{ steps.check.outputs.failing }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # A fixed title, so the weekly run edits one issue in place rather
+          # than filing a new one every Monday for as long as the fault lasts.
+          title="Dependency update workflows are failing"
+
+          body="$RUNNER_TEMP/issue-body.md"
+          {
+            cat "$RUNNER_TEMP/health.md"
+            echo
+            echo "### Why this matters"
+            echo
+            echo "A failed scheduled run opens no PR. Nothing else in the repository"
+            echo "reports that, so a broken updater and a quiet week look identical —"
+            echo "and the pins stop moving without anyone being told."
+            echo
+            echo "### First thing to check"
+            echo
+            echo "Open the failing run above. If it stops at"
+            echo "\`DEPENDENCY_UPDATE_TOKEN is required\`, the repository secret is"
+            echo "missing or expired, and all three updaters fail the same way because"
+            echo "they share it. It is a fine-grained token with **Contents:"
+            echo "read/write** and **Pull requests: read/write** on this repository."
+            echo "See [docs/dependency-updates.md](docs/dependency-updates.md)."
+            echo
+            echo "### What was not done"
+            echo
+            echo "No pin was changed, no PR was opened and nothing was merged. This"
+            echo "workflow only reports; the updaters publish, and a human reviews what"
+            echo "they publish (#362)."
+            echo
+            echo "Close this once the updaters are green again — the next run will"
+            echo "refile it if they are not."
+            echo
+            echo "Filed by [\`update-automation-health.yml\`](.github/workflows/update-automation-health.yml)."
+          } > "$body"
+
+          # Listed rather than searched, so an issue filed minutes ago is found
+          # without waiting for the search index to catch up.
+          existing="$(TITLE="$title" gh issue list --repo "$GITHUB_REPOSITORY" \
+            --state open --limit 200 --json number,title \
+            --jq 'map(select(.title == env.TITLE))[0].number // empty')"
+
+          if [[ -n "$existing" ]]; then
+            gh issue edit "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$body"
+            echo "Updated issue #$existing ($FAILING)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            url="$(gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$title" --body-file "$body")"
+            echo "Filed $url ($FAILING)." >> "$GITHUB_STEP_SUMMARY"
+          fi
