@@ -36,7 +36,7 @@
     <section class="section legal">
       <div class="container narrow">
         <h1 class="section-title legal-title">Privacy Policy</h1>
-        <p class="legal-updated">Last updated: 2026-06-14</p>
+        <p class="legal-updated">Last updated: 2026-09-17</p>
 
         <div class="legal-body">
           <p>
@@ -173,6 +173,40 @@
           <p>
             Linthra is open-source. Its source code is available at:
             <a href="https://github.com/TheZupZup/Linthra" rel="noopener">https://github.com/TheZupZup/Linthra</a>
+          </p>
+
+          <h2>Checking this yourself</h2>
+          <p>
+            Some of this policy is checked automatically, so you do not have to
+            take the project's word for it.
+          </p>
+          <p>
+            Every pull request runs an audit of the dependency files Linthra
+            ships from &mdash; the resolved Dart/Flutter packages, the archives
+            the Linux build fetches, the plugins linked into the Linux binary,
+            the Android Gradle files and the Rust lockfiles &mdash; against a
+            written list of known advertising, analytics, attribution, telemetry
+            and third-party crash-reporting SDKs. The current result is:
+          </p>
+          <ul>
+            <li>Advertising SDKs: none</li>
+            <li>Analytics SDKs: none</li>
+            <li>Attribution / install-tracking SDKs: none</li>
+            <li>Automatic third-party crash reporting: none</li>
+            <li>Telemetry, session-replay and APM SDKs: none</li>
+          </ul>
+          <p>
+            You can reproduce it from a checkout with no toolchain and no network
+            access by running
+            <code>python3 scripts/check_tracker_dependencies.py</code>.
+          </p>
+          <p>
+            That check proves a narrow thing: no <em>named</em> tracking SDK is in
+            the dependency graph. It does not prove that Linthra cannot track
+            users, and it says nothing about Linthra's own network code. What it
+            covers, what it does not, and how a future finding gets reviewed are
+            written down in
+            <a href="https://github.com/TheZupZup/Linthra/blob/main/docs/tracker-dependency-audit.md" rel="noopener">docs/tracker-dependency-audit.md</a>.
           </p>
 
           <h2>Contact</h2>

@@ -3,7 +3,8 @@ name: CI
 # Quality, security, and release-hygiene checks on every PR and on pushes to
 # main. Four independent jobs run in parallel:
 #   * flutter             — format, analyze, test, lockfile-enforced pub get.
-#   * secret-scan         — offline scan for committed secrets / private data.
+#   * secret-scan         — offline scan for committed secrets / private data,
+#                           plus the tracker-dependency audit (#504).
 #   * cast-containment    — tripwire on the Cast containment's source markers.
 #   * release-bump-guard  — release/* PRs only: the bump must be version-only.
 #   * dependency-guard    — deps/* PRs only: the update must be lockfile-only.
@@ -77,6 +78,36 @@ jobs:
       # `./scripts/check_secrets.sh` (also wired into scripts/verify_android.sh).
       - name: Scan for secrets and private data
         run: ./scripts/check_secrets.sh
+
+      # PRIVACY.md says Linthra carries no third-party advertising trackers and
+      # reports nothing home. This is the part of that promise a stranger can
+      # re-run (#504): it reads the committed dependency files Linthra ships
+      # from — pubspec.lock, the Flatpak pub sources, the Linux plugin
+      # registration, the Android Gradle files, the Rust lockfiles — and
+      # compares the identifiers against the reviewed policy in
+      # scripts/tracker_policy.json.
+      #
+      # Matching is on exact package/artifact identifiers, never substrings: a
+      # `grep -i amplitude` over a *music player's* dependency graph is a
+      # machine for false alarms, and a check people switch off protects
+      # nothing. A match does not accuse anybody — it asks for a human decision,
+      # and prints which file the dependency came in through and why the policy
+      # line is there.
+      #
+      # It proves a narrow thing: no NAMED tracking SDK is in the graph. It says
+      # nothing about Linthra's own network code, which is what the rest of #504
+      # covers. The boundary is written down in
+      # docs/tracker-dependency-audit.md. Local twin:
+      # `python3 scripts/check_tracker_dependencies.py`.
+      - name: Check for known tracker dependencies
+        run: python3 scripts/check_tracker_dependencies.py
+
+      # The policy file is the whole claim the check makes, so the tests cover
+      # both directions it can be wrong in: missing a real tracking SDK, and
+      # crying wolf over a package that merely reads like one. Local twin:
+      # `python3 test/tooling/check_tracker_dependencies_test.py`.
+      - name: Test the tracker dependency checker
+        run: python3 test/tooling/check_tracker_dependencies_test.py
 
   cast-containment:
     name: Cast containment markers
@@ -162,6 +193,23 @@ jobs:
 
       - name: Test the Flatpak permission checker
         run: python3 test/tooling/check_flatpak_permissions_test.py
+
+      # Every external Flatpak build input has to resolve from an immutable
+      # reference: a full git commit, or a URL plus the sha256 of what it must
+      # return (#443). This reads both manifests, the generated modules and
+      # source lists they include, pubspec.lock and .flutter-version, and
+      # fails on a floating source, a missing hash, a template and generated
+      # manifest that disagree, or a Flutter pin that only moved in one place.
+      # Offline and toolchain-free apart from PyYAML, so it runs on every PR
+      # rather than in the 90-minute Flatpak job. Local twin:
+      # `python3 scripts/check_flatpak_sources.py`.
+      - name: Check every Flatpak build source is pinned
+        run: |
+          python3 -m pip install --quiet PyYAML
+          python3 scripts/check_flatpak_sources.py
+
+      - name: Test the Flatpak source pin checker
+        run: python3 test/tooling/check_flatpak_sources_test.py
 
       # A smoke borrows a contributor's machine: it may remove what it
       # installed, and nothing else (#629). The audio and local-library smokes

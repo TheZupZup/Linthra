@@ -735,7 +735,7 @@ Set to an existing Release tag:
   It then runs `flatpak build-bundle` on the repository **it just exported and
   launched**, so the artifact cannot come from a different build than the one
   that was tested. `--runtime-repo` points at Flathub so that installing the
-  file on a machine without `org.gnome.Platform//50` offers to fetch the
+  file on a machine without `org.gnome.Platform//51` offers to fetch the
   runtime rather than failing; Linthra's own bytes are inside the bundle.
 
   The name comes from `scripts/flatpak_bundle.py name --tag`, which derives it
@@ -788,7 +788,9 @@ evidence, and neither is duplicated here:
   which is also why they cannot be pointed at the release bundle itself. They
   gate the same packaging changes this bundle is built from;
 - the real-desktop checks are in
-  [linux-desktop.md](./linux-desktop.md#manual-flatpak-smoke-checklist).
+  [linux-desktop.md](./linux-desktop.md#manual-flatpak-smoke-checklist), and the
+  wider GNOME/KDE Plasma pass they are the short version of is
+  [desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md).
 
 What the release path adds on top is narrow and deterministic: the bundle
 contains a `libmpv`, so the shipped artifact cannot be one that would fall back

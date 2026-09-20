@@ -272,8 +272,8 @@ interface is never exported). Both desktops this package targets ship one:
 
 KDE's backend is KF6-only; the KF5 `kwalletd` had none, which is where the
 older "Flatpak apps can't use KWallet" reports come from. And
-`org.gnome.Platform//50` carries libsecret 0.21.7 built with libgcrypt
-(freedesktop-sdk 25.08 `elements/components/libsecret.bst`), so the file
+`org.gnome.Platform//51` carries libsecret 0.21.7 built with libgcrypt
+(freedesktop-sdk 26.08 `elements/components/libsecret.bst`), so the file
 backend is compiled in and the sandbox detection above is live.
 
 So `--talk-name=org.freedesktop.secrets` is **not** granted. It would be dead
@@ -426,6 +426,19 @@ commit SHA in `scripts/regenerate_flatpak_sources.sh` (`TOOL_COMMIT`, the
 `0.15.0` release), never a moving branch — and re-generates
 `io.github.thezupzup.linthra.yml` and `generated/` from `flatpak-flutter.yml`
 and the current `pubspec.lock`. Diff the result before committing.
+
+Before it exits it re-reads what it just wrote and refuses anything that is
+not pinned to a full commit or a sha256:
+
+```bash
+python3 scripts/check_flatpak_sources.py
+```
+
+That is the same check CI runs on every PR. What each input is pinned by, how
+to refresh a pin by hand, and the four inputs that genuinely cannot be
+content-addressed (the runtime, the SDK, the SDK extension and the app's own
+checkout) are in
+[docs/flatpak-source-pinning.md](../docs/flatpak-source-pinning.md).
 
 ## Local music folders
 
