@@ -5,9 +5,10 @@ the same work for free wherever it comes from a shared widget, because Orca
 reads the same semantics tree Flutter builds — but Android is the platform the
 rules below are written against.
 
-This doc has two halves: what the app relies on and why (so a change does not
-undo it by accident), and a short **real-device smoke checklist** for the pass
-that widget tests cannot do.
+This doc has the rules the widgets rely on (so a change does not undo them by
+accident), a **TalkBack smoke** for a phone, and a **Linux Orca smoke** for the
+desktop build. Widget tests pin the tree; the checklists are the pass that has
+to be listened to.
 
 ## The rules
 
@@ -145,6 +146,120 @@ Roughly fifteen minutes end to end.
 - A screen that is silent while it loads.
 - A token, password or full server URL spoken out loud.
 
+
+## Linux Orca smoke checklist
+
+Widget tests pin names, states and actions on the shared widgets. They cannot
+tell you whether Orca reads those nodes in an order a person can follow,
+whether the window itself is named, or whether a Flatpak sandbox left AT-SPI
+silent. This is the pass that needs a real Linux session.
+
+**Setup.** Orca is the screen reader this pass uses — it is the one a GNOME
+install already has, and it runs on KDE Plasma too. Settings ▸ Accessibility ▸
+Screen Reader, or `orca`. Caps Lock is the Orca modifier on a laptop layout;
+Insert on a full keyboard.
+
+Tab / Shift+Tab move between controls. Arrow keys move through lists and
+grids. Enter or Space activates. Escape closes a dialog. There is no
+explore-by-touch: if you cannot Tab to it, a keyboard user cannot reach it.
+
+Run this against a native `flutter run -d linux` build first. A Flatpak that
+is silent while the native window talks is a sandbox/AT-SPI issue, not a
+missing label — file that separately rather than wrapping the widget.
+
+Roughly fifteen minutes end to end.
+
+### App identity
+
+- ☐ Focusing the window, Alt+Tab, and the overview / task switcher all say
+  **Linthra**, not "Flutter" or an empty caption. The runner sets
+  `gtk_window_set_title` unconditionally — see
+  [Desktop identity](./linux-desktop.md#desktop-identity).
+- ☐ Shells that resolve an application id see `io.github.thezupzup.linthra`.
+
+### Sidebar navigation
+
+- ☐ Each rail destination — Library, Folders, Playlists, Downloads,
+  Settings — announces its **name**, and the current one says **selected**.
+- ☐ Tab walks the page first, then the whole rail in that order, not
+  interleaved. Shift+Tab retraces. (Pinned by
+  `home_shell_focus_order_test.dart`; this box is whether Orca says the
+  same thing.)
+- ☐ Moving to another destination announces the new screen.
+- ☐ A source that is down is named (for example "Jellyfin unavailable") and
+  can be activated to open connection settings. A healthy source stays
+  quiet.
+- ☐ A window narrowed past the rail breakpoint still names each bottom-bar
+  destination.
+
+### Library
+
+- ☐ A track row reads as **one** item: title, artist, and any status.
+- ☐ An album card reads as one item (title and artist together).
+- ☐ Arrow keys move through the list / grid; Home and End reach the ends.
+- ☐ The overflow / context menu is named, and its items are readable.
+- ☐ While the library is loading, something says it is loading.
+
+### Now Playing
+
+- ☐ Play/pause, next, previous, shuffle, repeat and favourite are named, and
+  their on / off or disabled states are audible.
+- ☐ The seek bar is a slider: it reads a position, and the arrow keys move
+  it while it is focused.
+- ☐ Volume, when focused, announces its value. There is no global volume
+  chord.
+
+### Dialogs and connection management
+
+- ☐ Opening a confirm dialog traps Tab inside it and gives focus back when
+  it closes.
+- ☐ Connection forms (Settings ▸ the provider) name server URL, username
+  and password. The password field does not read the typed characters
+  back.
+- ☐ Revealing the password is a named, deliberate action.
+- ☐ A connection error is read out and says nothing about a token.
+- ☐ Sign out confirms first.
+
+The separate server-management window is not part of this pass until it
+exists. Use Settings' existing connection forms.
+
+### Keyboard-only traversal
+
+- ☐ The whole window is reachable without a pointer: page, rail,
+  mini-player, queue column, dialogs.
+- ☐ A focused control has a visible accent focus ring.
+- ☐ Closing the queue column or a detail pane returns focus to the control
+  that opened it.
+
+The keyboard mechanics themselves are in
+[linux-desktop.md](./linux-desktop.md#keyboard-navigation). This section is
+whether those stops are *understandable* with the screen reader on.
+
+### Desktop-specific limitations (not a fail)
+
+- Orca on Flutter Linux speaks the AT-SPI tree the GTK embedder publishes.
+  A custom-painted control that is a slider in the semantics tree may still
+  sound generic compared with a GTK `GtkScale`.
+- TalkBack swipe gestures do not exist here. If a control is only reachable
+  by pointer, that is a fail of the keyboard pass, not of Orca.
+- GNOME and KDE both run Orca; they do not have to sound identical. What
+  has to match is that every named control above is reachable and named.
+- Cast is contained on shipped builds — the sheet saying so must be named,
+  and must not start listing devices.
+- Tokens, passwords, authenticated stream URLs and local file paths must
+  not be spoken. Server addresses and usernames on connection forms are
+  shown on purpose.
+
+### The things worth failing a pass on
+
+Same as TalkBack, plus:
+
+- A window that announces nothing when focused (empty caption).
+- A rail destination with no name, or one that does not say selected when
+  it is current.
+- A Flatpak that is silent when the native build talks — file the sandbox,
+  do not "fix" it by adding duplicate `Semantics` labels.
+
 ## Where the tests are
 
 | Surface | Test |
@@ -161,3 +276,8 @@ Roughly fifteen minutes end to end.
 | Provider cards | `test/features/settings/source/provider_summary_card_semantics_test.dart` |
 | Secrets, Plex | `test/features/settings/plex/plex_settings_secrets_semantics_test.dart` |
 | Secrets, Jellyfin & Navidrome | `test/features/settings/provider_secrets_semantics_test.dart` |
+| Desktop rail focus order | `test/features/shell/home_shell_focus_order_test.dart` |
+| Sidebar source status | `test/features/shell/sidebar_source_status_test.dart` |
+| Album cards | `test/features/library/album_grid_test.dart` |
+| Keyboard seek | `test/features/player/wavy_seek_bar_keyboard_test.dart` |
+| Window title / app id | `scripts/check_linux_runner.py` |
