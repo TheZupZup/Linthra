@@ -59,10 +59,10 @@ pinned and matches CI (`.github/workflows/ci.yml`, `android-debug-apk.yml`).
 
 | Question | Answer |
 | -------- | ------ |
-| **Flutter version required?** | **Flutter 3.44.7**, `stable` channel — pinned in [`.flutter-version`](../.flutter-version), which the CI workflows and `scripts/setup_flutter.sh` both read. |
-| **Dart SDK?** | `>=3.6.0 <4.0.0` (`pubspec.yaml`); satisfied by Flutter 3.44.7 (Dart 3.12.2). |
-| **JDK / Gradle?** | JDK 17 (Temurin in CI, pinned in [`.java-version`](../.java-version)), Gradle 8.14.5, Android Gradle Plugin 8.10.1, Kotlin 2.2.21. |
-| **Android SDK required?** | **Yes.** A standard Android SDK (`platform-tools`, `platforms;android-36`, `build-tools;36.0.0`) plus the NDK + CMake are needed to compile the one native component (SQLite, below). `compileSdk`/`minSdk`/`targetSdk` come from Flutter, not hard-coded — Flutter 3.44.7 supplies `compileSdk`/`targetSdk` 36 and `minSdk` 24, so an `android-35`-only SDK no longer configures the build. |
+| **Flutter version required?** | **Flutter 3.47.5**, `stable` channel — pinned in [`.flutter-version`](../.flutter-version), which the CI workflows and `scripts/setup_flutter.sh` both read. |
+| **Dart SDK?** | `>=3.6.0 <4.0.0` (`pubspec.yaml`); satisfied by Flutter 3.47.5 (Dart 3.13.4). |
+| **JDK / Gradle?** | JDK 17 (Temurin in CI, pinned in [`.java-version`](../.java-version)), Gradle 8.14.5, Android Gradle Plugin 8.11.1, Kotlin 2.2.21. |
+| **Android SDK required?** | **Yes.** A standard Android SDK (`platform-tools`, `platforms;android-36`, `build-tools;36.0.0`) plus the NDK + CMake are needed to compile the one native component (SQLite, below). `compileSdk`/`minSdk`/`targetSdk` come from Flutter, not hard-coded — Flutter 3.47.5 supplies `compileSdk`/`targetSdk` 36 and `minSdk` 24, so an `android-35`-only SDK no longer configures the build. |
 | **Signing keys required to build?** | **No.** A from-source build needs no signing material; F-Droid signs its own builds. Linthra's release signing is optional and supplied at build time via env vars / `android/key.properties`, falling back to the debug key when absent (see [release-signing.md](./release-signing.md)). No keystore or secret is committed. |
 | **Build commands** | `flutter pub get` then `flutter build apk --release` (or `--debug`; split-per-ABI is fine — appbundle is for Play, not F-Droid). |
 | **Generated files: committed or generated?** | **Committed.** The Drift output `lib/data/database/linthra_database.g.dart` is committed, so **no `build_runner`/codegen prebuild step is required** for the F-Droid build. It must be kept in sync with the schema on the tagged commit (regenerate with the `generate-drift.yml` workflow or `dart run build_runner build`). |
@@ -282,7 +282,7 @@ What each one shows, plus the privacy review and the still-optional extras, is i
 
 1. **Reproducible build verification.** CI runs `dart format`, `flutter analyze`,
    and `flutter test` green on every PR (`ci.yml`) and builds a debug APK per PR
-   (`android-debug-apk.yml`, JDK 17 + Flutter 3.44.7); the tagged release APK is
+   (`android-debug-apk.yml`, JDK 17 + Flutter 3.47.5); the tagged release APK is
    built by `android-release-build.yml`. This preparation pass could only
    validate the **metadata YAML** (no Flutter/Android SDK / fdroidserver in the
    environment). Before submitting, re-confirm a clean from-source

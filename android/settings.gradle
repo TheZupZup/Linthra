@@ -34,7 +34,7 @@ plugins {
     // .github/workflows/android-toolchain-updates.yml. Keep explanatory prose
     // above this point and out of those lines — the updater is guarded to
     // rewrite the version string and nothing else, comments included.
-    id "com.android.application" version "8.10.1" apply false
+    id "com.android.application" version "8.11.1" apply false
     id "org.jetbrains.kotlin.android" version "2.2.21" apply false
 }
 
