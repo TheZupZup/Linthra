@@ -7,6 +7,7 @@
 
 #include "flutter/generated_plugin_registrant.h"
 #include "folder_picker_channel.h"
+#include "optical_toc_channel.h"
 #include "window_lifecycle_channel.h"
 #include "window_state_store.h"
 
@@ -38,6 +39,13 @@ struct _MyApplication {
   // a window still exists. Owned here for the same reason: it is the
   // application's own window it manages.
   WindowLifecycleChannel* window_lifecycle;
+
+  // The audio-CD table-of-contents reader (#631). Registered like the other
+  // two: it is Linthra's own channel rather than a plugin, because the only
+  // way to learn where a disc's tracks start is to ask the drive, and only
+  // the runner can issue an ioctl. See optical_toc_channel.h.
+  OpticalTocChannel* optical_toc;
+
   // Remembers the window's size, maximized state and position across restarts
   // (#383). Owned here so it outlives the window and can still be written on
   // shutdown, after GtkApplication has destroyed the window itself.
@@ -175,6 +183,10 @@ static void my_application_activate(GApplication* application) {
   // answer a GTK delete-event in time. See window_lifecycle_channel.h.
   self->window_lifecycle = window_lifecycle_channel_new(view, window);
 
+  // Registered on the same engine. Reading a disc needs no window, so this one
+  // takes only the view. See optical_toc_channel.h.
+  self->optical_toc = optical_toc_channel_new(view);
+
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
@@ -270,6 +282,7 @@ static void my_application_dispose(GObject* object) {
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_pointer(&self->folder_picker, folder_picker_channel_free);
   g_clear_pointer(&self->window_lifecycle, window_lifecycle_channel_free);
+  g_clear_pointer(&self->optical_toc, optical_toc_channel_free);
   g_clear_pointer(&self->window_state, window_state_store_free);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
