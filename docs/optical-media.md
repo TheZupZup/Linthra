@@ -19,7 +19,7 @@ answers the whole question:
 | --- | --- |
 | `unsupported` | Nothing in this build can look: Android, a non-Linux desktop, the Flatpak (see below), or a Linux box with no UDisks2 on it. |
 | `supported`, no drives | The host was asked and it has no optical drive. A finding, not a failure — and the difference matters, because telling somebody with a perfectly good CD drive that they do not have one is the bug this distinction exists to prevent. |
-| `supported`, drives listed | Each drive reports `empty`, `audioCd`, `otherMedia` or `unreadable`. |
+| `supported`, drives listed | Each drive reports `empty`, `audioCd` or `otherMedia`. |
 | `permissionDenied` | The host refused. Rare, and the one failure a user can actually act on. |
 | `error` | Something else went wrong: a timeout, a dropped connection, a reply that did not parse. |
 
@@ -28,11 +28,31 @@ vendor, no model, no serial, no firmware revision: none of it is needed to
 list or play a disc, and hardware identifiers should not travel into a UI, a
 log or a bug report just because the platform handed them over.
 
-`unreadable` deserves a note. It covers two things — a disc that was just put
-in and has not been identified yet, and a disc the drive genuinely cannot read
-— and callers must treat both as **transient**. Detection is event-driven, so
-the first resolves itself within a moment; the second simply stays. Nothing
-retries and nothing treats it as terminal.
+### There is no "unreadable disc" state, and that is the hardware's limit
+
+A disc the drive cannot read reaches Linthra as an **empty drive**, and no
+amount of modelling changes that. Both of the properties detection reads come
+from the same udev property, `ID_CDROM_MEDIA`:
+
+- `Drive.Optical` is set from it directly
+  (`udisks_drive_set_optical (iface, is_disc)` in `src/udiskslinuxdrive.c`),
+  and
+- `MediaAvailable` is derived from it for any drive udev tagged `ID_CDROM`
+  (`udisks_daemon_util_block_get_size` in `src/udisksdaemonutil.c`, which
+  deliberately never opens an optical device because doing so can close the
+  tray).
+
+So the two can never disagree. When `cdrom_id` cannot identify a disc it does
+not set `ID_CDROM_MEDIA`, and the drive is reported as holding nothing.
+
+The same applies to the moment just after a disc goes in: it reads as `empty`
+until the host has identified the disc, then goes straight to its real state.
+That is one transition, not an intermediate state, which is why detection
+publishes one change rather than a flicker.
+
+Telling a damaged disc from an empty tray means actually trying to read the
+disc. That is the table-of-contents work in PR 2, and until it lands claiming
+to distinguish them would be a promise the hardware does not keep.
 
 ## How it works
 
@@ -165,18 +185,21 @@ native (non-Flatpak) build:
    queue, playlists or downloads changes.
 4. Insert a data CD or a DVD. The drive reports `otherMedia`, **not**
    `audioCd`, even if the disc is full of FLAC files.
-5. Insert and eject several times in quick succession. The final state
+5. Insert a badly scratched or unfinalised disc. Expect `empty`, per the
+   limitation above, and confirm nothing hangs or crashes.
+6. Insert and eject several times in quick succession. The final state
    matches what is actually in the drive.
-6. Unplug a USB optical drive while a disc is in it. The drive disappears
+7. Unplug a USB optical drive while a disc is in it. The drive disappears
    from the list; the app does not crash or hang.
-7. Run the same build inside the Flatpak: detection reports `unsupported`.
+8. Run the same build inside the Flatpak: detection reports `unsupported`.
 
 ## What comes next
 
 This PR is the foundation. Still to come under #631:
 
 - **PR 2** — reading the disc's table of contents, track list and durations,
-  plus CD-Text where the disc has it.
+  plus CD-Text where the disc has it. This is also what can finally tell a
+  damaged disc from an empty drive.
 - **PR 3** — playback through the existing `PlaybackController` and queue. No
   second player implementation.
 - **PR 4** — the desktop optical-disc source and its UI, including what a

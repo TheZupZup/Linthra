@@ -61,11 +61,30 @@ void main() {
       expect(stateOf(drive), OpticalDiscState.otherMedia);
     });
 
-    test('media present but not yet identified reads as unreadable', () {
-      // Both the moment after insertion and a disc the drive cannot read. A
-      // caller must treat it as transient; detection is event-driven, so the
-      // first resolves itself on the next signal.
-      expect(stateOf(unidentifiedDiscDrive()), OpticalDiscState.unreadable);
+    test('media UDisks2 will not vouch for is never called an audio CD', () {
+      // A shape a real drive cannot produce -- MediaAvailable and Optical both
+      // come from ID_CDROM_MEDIA -- but the decoder must still answer sanely
+      // rather than claiming a disc it cannot identify.
+      expect(stateOf(unidentifiedDiscDrive()), OpticalDiscState.otherMedia);
+    });
+
+    test('audio tracks without an identified optical medium are not a CD', () {
+      final Map<String, DBusValue> drive = opticalDriveInterface(
+        mediaCompatibility: const <String>['optical_cd'],
+        mediaAvailable: true,
+        numTracks: 12,
+        numAudioTracks: 12,
+      );
+      expect(stateOf(drive), OpticalDiscState.otherMedia);
+    });
+
+    test(
+        'a disc the drive cannot read is indistinguishable from an empty '
+        'tray', () {
+      // The honest limit this model documents: cdrom_id not identifying a
+      // disc clears ID_CDROM_MEDIA, which clears both MediaAvailable and
+      // Optical, so detection sees an empty drive.
+      expect(stateOf(opticalDriveInterface()), OpticalDiscState.empty);
     });
 
     test('a non-optical drive is not an optical drive', () {

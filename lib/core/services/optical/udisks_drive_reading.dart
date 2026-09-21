@@ -151,19 +151,33 @@ bool isUDisksOpticalDrive(UDisksDriveProperties properties) {
 ///
 /// The ordering of the checks is the whole rule:
 ///
-///  1. nothing in the drive at all → [OpticalDiscState.empty];
-///  2. something in the drive that UDisks2 has not identified as an optical
-///     disc → [OpticalDiscState.unreadable], which covers both a disc still
-///     being probed and one the drive cannot read;
-///  3. at least one audio track → [OpticalDiscState.audioCd], including
-///     mixed-mode discs that also carry a data session;
-///  4. anything else → [OpticalDiscState.otherMedia]: a data CD, a DVD, a
+///  1. nothing the drive will vouch for → [OpticalDiscState.empty];
+///  2. an identified optical disc with at least one audio track →
+///     [OpticalDiscState.audioCd], including mixed-mode discs that also carry
+///     a data session;
+///  3. anything else → [OpticalDiscState.otherMedia]: a data CD, a DVD, a
 ///     Blu-ray, or a blank disc with no tracks at all.
+///
+/// There is no fourth outcome for a disc the drive cannot read, because
+/// UDisks2 cannot report one. `MediaAvailable` and `Optical` are both derived
+/// from udev's `ID_CDROM_MEDIA` for any drive tagged `ID_CDROM`
+/// (`udisks_daemon_util_block_get_size` and `udisks_drive_set_optical` in
+/// `src/udisksdaemonutil.c` and `src/udiskslinuxdrive.c`), so they can never
+/// disagree: a disc `cdrom_id` could not identify arrives here as an empty
+/// drive and is indistinguishable from one. [OpticalDiscState] says the same
+/// thing from the model's side, and `docs/optical-media.md` records it as a
+/// hardware limit for the table-of-contents work to lift.
+///
+/// [UDisksDriveProperties.optical] is still read, and still gates the audio-CD
+/// answer: it is the property that says the *medium* is an optical disc, so a
+/// drive reporting audio tracks without one is not a disc Linthra will claim
+/// to have identified.
 OpticalDiscState? udisksOpticalDiscState(UDisksDriveProperties properties) {
   if (!isUDisksOpticalDrive(properties)) return null;
   if (!properties.mediaAvailable) return OpticalDiscState.empty;
-  if (!properties.optical) return OpticalDiscState.unreadable;
-  if (properties.opticalNumAudioTracks > 0) return OpticalDiscState.audioCd;
+  if (properties.optical && properties.opticalNumAudioTracks > 0) {
+    return OpticalDiscState.audioCd;
+  }
   return OpticalDiscState.otherMedia;
 }
 

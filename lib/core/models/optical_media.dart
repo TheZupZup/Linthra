@@ -42,8 +42,26 @@ enum OpticalMediaAvailability {
 /// filesystem on it at all — so nothing here is expressed in terms of mount
 /// points, paths or readable directories. Conflating the two is exactly how a
 /// disc source ends up trying to list a folder that does not exist.
+///
+/// **There is no "unreadable disc" value, and that is a limit of detection
+/// rather than a gap in the model.** A disc the drive cannot read reaches
+/// Linthra as an *empty drive*. On Linux both facts come from one udev
+/// property, `ID_CDROM_MEDIA`: udisks2 sets `Drive.Optical` from it directly
+/// and derives `MediaAvailable` from it too for any drive udev tagged
+/// `ID_CDROM`, so the two can never disagree and nothing this layer can see
+/// tells a damaged disc from an empty tray. The moment just after a disc goes
+/// in is the same: the drive reads as [empty] until the host has identified
+/// the disc, then goes straight to its real state, which is one transition
+/// rather than a state worth modelling. Telling a damaged disc apart means
+/// actually reading it, which is the table-of-contents work later in #631;
+/// until then, claiming to distinguish them would be a promise the hardware
+/// does not keep. See `docs/optical-media.md`.
 enum OpticalDiscState {
   /// The drive is there and there is nothing in it.
+  ///
+  /// Also what a disc the host could not identify looks like, per the note
+  /// above: this is "the drive reports nothing usable", not a proof that the
+  /// tray is physically empty.
   empty,
 
   /// A CD-DA disc with at least one audio track.
@@ -60,17 +78,6 @@ enum OpticalDiscState {
   /// playable files. That is the ordinary local-library path's question
   /// (issue #631, phase 2), not this one's.
   otherMedia,
-
-  /// Media is present and the drive could not say what it is.
-  ///
-  /// Two situations share this value, and callers must treat both as
-  /// *transient*: a disc that was just inserted and has not finished being
-  /// identified yet, and a disc the drive genuinely cannot read (scratched,
-  /// dirty, an unfinalised burn). Detection is event-driven, so the first
-  /// resolves itself within a moment when the host publishes the disc's real
-  /// contents; the second simply stays. Nothing here retries, and nothing here
-  /// treats this as a terminal error.
-  unreadable,
 }
 
 /// One optical drive attached to this machine, and what is in it.

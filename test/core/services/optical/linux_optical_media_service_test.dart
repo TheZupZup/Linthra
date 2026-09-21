@@ -194,7 +194,11 @@ void main() {
       expect(await service.inspect(), const OpticalMediaSnapshot.noDrive());
     });
 
-    test('a disc still being identified settles into its real state', () async {
+    test('a disc being identified publishes one transition, not two', () async {
+      // UDisks2 has nothing to say about a disc until cdrom_id has identified
+      // it: MediaAvailable and Optical both come from ID_CDROM_MEDIA, so the
+      // drive reads as empty right up to the moment it reads as an audio CD.
+      // The settle delay is what keeps that from becoming a flicker.
       final _FakeUDisks udisks = _FakeUDisks(objects: opticalDriveObjects());
       final LinuxOpticalMediaService service = serviceFor(udisks);
       addTearDown(service.dispose);
@@ -205,16 +209,18 @@ void main() {
       addTearDown(subscription.cancel);
 
       await service.inspect();
+      await _settle();
+      expect(seen.single.drives.single.disc, OpticalDiscState.empty);
 
-      // The kernel says there is media before UDisks2 knows what it is.
-      udisks.table = opticalDriveObjects(drive: unidentifiedDiscDrive());
+      // The tray closes and udev fires before the disc has been identified.
       udisks.emit();
       await _settle();
-      expect(seen.last.drives.single.disc, OpticalDiscState.unreadable);
+      expect(seen, hasLength(1), reason: 'nothing changed yet');
 
       udisks.table = opticalDriveObjects(drive: audioCdDrive());
       udisks.emit();
       await _settle();
+      expect(seen, hasLength(2));
       expect(seen.last.drives.single.disc, OpticalDiscState.audioCd);
     });
 

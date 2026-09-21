@@ -29,11 +29,6 @@ void main() {
             .hasAudioCd,
         isFalse,
       );
-      expect(
-        const OpticalDrive(id: '/dev/sr0', disc: OpticalDiscState.unreadable)
-            .hasAudioCd,
-        isFalse,
-      );
     });
 
     test('changing the disc keeps the drive', () {

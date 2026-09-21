@@ -97,9 +97,13 @@ Map<String, DBusValue> dataDiscDrive({String media = 'optical_cd'}) =>
       numTracks: 1,
     );
 
-/// A drive with something in it that UDisks2 has not identified yet — the
-/// moment just after a disc is inserted, and also a disc the drive cannot
-/// read.
+/// The shape UDisks2 would have to publish for "there is media in here but I
+/// cannot say what it is": `MediaAvailable` without `Optical`.
+///
+/// It is kept because the decoder must still answer sanely if it ever turns
+/// up, not because a real drive produces it. It cannot: both properties come
+/// from udev's `ID_CDROM_MEDIA`, so a disc the drive cannot read arrives as an
+/// empty drive instead. See [udisksOpticalDiscState].
 Map<String, DBusValue> unidentifiedDiscDrive() =>
     opticalDriveInterface(mediaAvailable: true);
 
