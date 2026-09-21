@@ -57,6 +57,7 @@ class is bound to its interface, and where tests swap in fakes.
 | Lyrics (fetching & parsing) | `lib/core/services/lyrics_resolver.dart`, `lyrics_text_parser.dart` |
 | Lyrics (how they look) | `lib/features/player/widgets/lyrics/` + `lib/core/models/lyric_focus.dart` |
 | Local-files provider | `lib/core/sources/local/` |
+| Optical drives / audio-CD detection (Linux) | `lib/core/services/optical/` |
 | Jellyfin provider | `lib/core/sources/jellyfin/` |
 | Navidrome / Subsonic provider | `lib/core/sources/subsonic/` |
 | What each provider can do (capabilities) | `lib/core/sources/music_provider.dart` |

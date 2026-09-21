@@ -187,5 +187,8 @@ started needing something.
   half in detail, and the manual portal pass
 - [flathub-builder-lint.md](./flathub-builder-lint.md), Flathub's own view of
   the same permissions
+- [optical-media.md](./optical-media.md), a feature the sandbox cannot serve
+  today: UDisks2 is on the system bus, which this page refuses in every
+  spelling
 - `scripts/check_linux_runner.py`, the exact allow-list, checked against both
   manifests
