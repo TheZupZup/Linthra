@@ -44,10 +44,10 @@ class _RecordingService implements OpticalMediaService {
 
 void main() {
   group('PlatformOpticalMediaService', () {
-    const OpticalMediaSnapshot withAudioCd = OpticalMediaSnapshot(
+    final OpticalMediaSnapshot withAudioCd = OpticalMediaSnapshot(
       availability: OpticalMediaAvailability.supported,
       drives: <OpticalDrive>[
-        OpticalDrive(id: '/dev/sr0', disc: OpticalDiscState.audioCd),
+        const OpticalDrive(id: '/dev/sr0', disc: OpticalDiscState.audioCd),
       ],
     );
 

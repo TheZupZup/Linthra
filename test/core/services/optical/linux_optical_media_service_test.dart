@@ -439,6 +439,54 @@ void main() {
       expect(seen.last.hasAudioCd, isTrue);
     });
 
+    test('a manual look that is overtaken never publishes stale state',
+        () async {
+      // inspect() deliberately does not queue behind an event-driven read, so
+      // two looks can be in flight at once. Requests go out in order; answers
+      // need not come back in it. An older look landing last must not
+      // overwrite a newer reading -- nothing would be owed afterwards, so
+      // every listener would stay stale until somebody touched the machine.
+      final _FakeUDisks udisks =
+          _FakeUDisks(objects: opticalDriveObjects(drive: audioCdDrive()));
+      final LinuxOpticalMediaService service = serviceFor(udisks);
+      addTearDown(service.dispose);
+
+      final List<OpticalMediaSnapshot> seen = <OpticalMediaSnapshot>[];
+      final StreamSubscription<OpticalMediaSnapshot> subscription =
+          service.changes.listen(seen.add);
+      addTearDown(subscription.cancel);
+
+      // The manual look goes out first and is held open, so it still carries
+      // the disc that was in the drive when it was taken.
+      final Completer<void> held = Completer<void>();
+      udisks.gate = held;
+      final Future<OpticalMediaSnapshot> manual = service.inspect();
+      await _settle();
+
+      // The disc is ejected, and the event-driven look that follows sees it
+      // and answers first.
+      udisks.table = opticalDriveObjects();
+      udisks.emit();
+      await _settle();
+      expect(seen.last.drives.single.disc, OpticalDiscState.empty);
+
+      // Now the older look finally lands, still holding the audio CD.
+      held.complete();
+      expect((await manual).hasAudioCd, isTrue, reason: 'its own answer');
+      await _settle();
+
+      // What listeners hold is the newer reading, not the one that arrived
+      // last: the overtaken look is dropped rather than published, so the
+      // disc that is no longer in the drive is never announced as present.
+      expect(seen, hasLength(1));
+      expect(seen.single.drives.single.disc, OpticalDiscState.empty);
+      expect(
+        seen.where((OpticalMediaSnapshot s) => s.hasAudioCd),
+        isEmpty,
+        reason: 'the stale look must never reach a listener',
+      );
+    });
+
     test('dispose closes the source and is safe to call twice', () async {
       final _FakeUDisks udisks = _FakeUDisks(objects: opticalDriveObjects());
       final LinuxOpticalMediaService service = serviceFor(udisks);

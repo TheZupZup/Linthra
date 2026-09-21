@@ -138,10 +138,22 @@ class OpticalDrive {
 /// [AudioOutputDeviceService.deviceChanges] uses for output devices.
 @immutable
 class OpticalMediaSnapshot {
-  const OpticalMediaSnapshot({
+  /// Takes a copy of [drives] rather than holding the caller's list.
+  ///
+  /// Not `const`, and that is the point. A published snapshot is compared
+  /// against the next one to decide whether anything changed, so a caller that
+  /// still held the list it passed in could sort, clear or append through it
+  /// afterwards and silently rewrite a value that has already been handed out
+  /// — moving its own [hashCode], and making a later *real* state compare
+  /// equal to it and never be announced. Freezing it here is what makes
+  /// [immutable] true rather than aspirational.
+  ///
+  /// The fixed answers below stay `const`: they hold a `const` empty list,
+  /// which nobody can mutate and nothing needs to copy.
+  OpticalMediaSnapshot({
     required this.availability,
-    this.drives = const <OpticalDrive>[],
-  });
+    List<OpticalDrive> drives = const <OpticalDrive>[],
+  }) : drives = List<OpticalDrive>.unmodifiable(drives);
 
   /// Nothing here can look. The answer on Android, on non-Linux desktops, and
   /// inside the Flatpak until #631's sandbox work lands.

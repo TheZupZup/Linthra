@@ -91,6 +91,13 @@ class LinuxOpticalMediaService implements OpticalMediaService {
   /// nothing.
   OpticalMediaSnapshot? _published;
 
+  /// How many looks have been *started*, ever. Stamped onto each read so a
+  /// result that has been overtaken can be recognised — see [_publish].
+  int _looks = 0;
+
+  /// The generation of the newest look that has reached [_publish].
+  int _publishedLook = 0;
+
   bool _reading = false;
 
   /// An event that arrived while a read was in flight. Drained by that read
@@ -116,11 +123,16 @@ class LinuxOpticalMediaService implements OpticalMediaService {
   @override
   Future<OpticalMediaSnapshot> inspect() async {
     if (_disposed) return const OpticalMediaSnapshot.unsupported();
+    // Deliberately *not* queued behind a read already in flight: a caller
+    // asking "look now" is owed an answer about the machine as it is when
+    // they asked, not the answer to a question asked before them. It is the
+    // publishing that is ordered, not the looking — see [_publish].
+    final int look = ++_looks;
     final OpticalMediaSnapshot snapshot = await _read();
     // Published through the same path as an event-driven read, so a listener
     // sees a change a manual refresh discovered instead of only the ones a
     // signal happened to announce.
-    _publish(snapshot);
+    _publish(snapshot, look);
     return snapshot;
   }
 
@@ -191,7 +203,8 @@ class LinuxOpticalMediaService implements OpticalMediaService {
     }
     _reading = true;
     try {
-      _publish(await _read());
+      final int look = ++_looks;
+      _publish(await _read(), look);
     } finally {
       _reading = false;
     }
@@ -213,8 +226,23 @@ class LinuxOpticalMediaService implements OpticalMediaService {
     }
   }
 
-  void _publish(OpticalMediaSnapshot snapshot) {
-    if (_disposed || snapshot == _published) return;
+  /// Publishes what [look] found, unless a later look has already answered.
+  ///
+  /// The ordering guard matters because two looks can genuinely be in flight
+  /// at once: [inspect] does not queue behind an event-driven read, by design.
+  /// Requests are issued in order, but nothing guarantees the *answers* come
+  /// back in that order, and without this an older look landing last would
+  /// overwrite a newer reading with a stale one — and, because nothing would
+  /// then be owed, leave every listener stale until the next time somebody
+  /// physically touched the machine.
+  ///
+  /// So a look that has been overtaken is dropped rather than published. It is
+  /// never the only answer: the look that overtook it is newer by definition
+  /// and has already been published, or is about to be.
+  void _publish(OpticalMediaSnapshot snapshot, int look) {
+    if (_disposed || look < _publishedLook) return;
+    _publishedLook = look;
+    if (snapshot == _published) return;
     _published = snapshot;
     final StreamController<OpticalMediaSnapshot>? controller = _controller;
     if (controller == null || controller.isClosed) return;
