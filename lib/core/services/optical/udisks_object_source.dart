@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dbus/dbus.dart';
+import 'package:flutter/foundation.dart';
 
 import 'udisks_drive_reading.dart';
 
@@ -181,10 +182,16 @@ class DBusUDisksObjectSource implements UDisksObjectSource {
   void _onSignal(DBusSignal signal) {
     final StreamController<void>? controller = _controller;
     if (controller == null || controller.isClosed) return;
-    if (_isRelevant(signal)) controller.add(null);
+    if (isRelevantSignal(signal)) controller.add(null);
   }
 
-  static bool _isRelevant(DBusSignal signal) {
+  /// Whether [signal] can change Linthra's answer, and so is worth a re-read.
+  ///
+  /// The one decision in this otherwise mechanical class, so it is reachable
+  /// from a test: a `DBusSignal` can be built by hand, which the rest of this
+  /// class (a live bus connection) cannot.
+  @visibleForTesting
+  static bool isRelevantSignal(DBusSignal signal) {
     if (signal is DBusObjectManagerInterfacesAddedSignal) {
       return signal.interfacesAndProperties.keys.any(_isWatchedInterface);
     }
@@ -197,8 +204,21 @@ class DBusUDisksObjectSource implements UDisksObjectSource {
     return false;
   }
 
+  /// The interfaces whose comings, goings and property changes can move a
+  /// drive's reading.
+  ///
+  /// This list must stay in step with every interface [opticalSnapshotFrom]
+  /// looks at, and `Partition` is here for exactly that reason: the decoder
+  /// skips a block that is a partition, so a `Partition` interface arriving on
+  /// or leaving an existing object changes which node names a drive. Watching
+  /// only `Drive` and `Block` left that change unnoticed until some unrelated
+  /// event happened to trigger the next read. An interface the decoder reads
+  /// and the filter ignores is the shape of that bug, so the two belong
+  /// together.
   static bool _isWatchedInterface(String interface) =>
-      interface == UDisks.driveInterface || interface == UDisks.blockInterface;
+      interface == UDisks.driveInterface ||
+      interface == UDisks.blockInterface ||
+      interface == UDisks.partitionInterface;
 
   DBusRemoteObjectManager _remoteManager() {
     final DBusRemoteObjectManager? existing = _manager;
