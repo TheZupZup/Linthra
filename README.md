@@ -76,7 +76,7 @@ New versions land on
 [GitHub Releases](https://github.com/thezupzup/linthra/releases) first, as
 signed Android APKs, a native Linux x64 archive (since v0.2.2) and, from the
 next stable release, an installable Linux `.flatpak` bundle. The
-current stable is v0.2.4. Linthra is also on
+current stable is v0.2.7. Linthra is also on
 [F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/); F-Droid
 builds may arrive a bit later while their build and review process runs. Not on
 Google Play yet.
