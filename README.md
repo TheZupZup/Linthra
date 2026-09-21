@@ -4,7 +4,7 @@
 [![Platform: Android](https://img.shields.io/badge/platform-Android-3ddc84.svg)](#install)
 [![Platform: Linux](https://img.shields.io/badge/platform-Linux-FCC624.svg)](#install)
 [![Built with Flutter](https://img.shields.io/badge/built%20with-Flutter-02569B.svg)](https://flutter.dev)
-[![Latest release: v0.2.6](https://img.shields.io/badge/release-v0.2.6-7C5CFF.svg)](https://github.com/thezupzup/linthra/releases/latest)
+[![Latest release: v0.2.7](https://img.shields.io/badge/release-v0.2.7-7C5CFF.svg)](https://github.com/thezupzup/linthra/releases/latest)
 [![Releases](https://img.shields.io/badge/download-releases-blue.svg)](https://github.com/thezupzup/linthra/releases)
 
 [<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" height="75">](https://f-droid.org/packages/io.github.thezupzup.linthra/)
@@ -76,7 +76,7 @@ New versions land on
 [GitHub Releases](https://github.com/thezupzup/linthra/releases) first, as
 signed Android APKs, a native Linux x64 archive (since v0.2.2) and, from the
 next stable release, an installable Linux `.flatpak` bundle. The
-current stable is v0.2.4. Linthra is also on
+current stable is v0.2.7. Linthra is also on
 [F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/); F-Droid
 builds may arrive a bit later while their build and review process runs. Not on
 Google Play yet.
