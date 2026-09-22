@@ -12,6 +12,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -102,6 +104,52 @@ struct ReadResult {
 
 ReadResult Failure(const char* error) { return ReadResult{false, error, Toc{}}; }
 
+// The drives with a read already running on a worker thread.
+//
+// A deadline on the Dart side can only stop the *caller* waiting. It cannot
+// abort an ioctl a struggling drive has not returned from, and that read goes
+// on holding its worker thread and its open descriptor until the drive gives
+// up on its own. Without a guard, every retry would start another one — and a
+// few retries on exactly the marginal hardware the deadline exists for would
+// exhaust GLib's thread pool and leave the app unable to do anything else.
+//
+// So: one read per drive at a time. A second is refused at once as
+// unreadable, which is what the disc honestly looks like from where the
+// caller stands while the first read is still stuck on it.
+std::mutex& ReadsInFlightMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::set<std::string>& ReadsInFlight() {
+  static std::set<std::string> devices;
+  return devices;
+}
+
+// Holds a drive for the life of one read, and lets it go on every path out.
+class DeviceClaim {
+ public:
+  explicit DeviceClaim(const std::string& device) : device_(device) {
+    std::lock_guard<std::mutex> lock(ReadsInFlightMutex());
+    held_ = ReadsInFlight().insert(device).second;
+  }
+
+  ~DeviceClaim() {
+    if (!held_) return;
+    std::lock_guard<std::mutex> lock(ReadsInFlightMutex());
+    ReadsInFlight().erase(device_);
+  }
+
+  DeviceClaim(const DeviceClaim&) = delete;
+  DeviceClaim& operator=(const DeviceClaim&) = delete;
+
+  bool held() const { return held_; }
+
+ private:
+  const std::string device_;
+  bool held_ = false;
+};
+
 // Whether `device` is a Linux optical-drive device node.
 //
 // The value comes from UDisks2 by way of Dart rather than from a person, so
@@ -142,10 +190,26 @@ const char* ErrorForErrno(int err) {
   }
 }
 
-// Whether the drive says it currently holds a readable disc.
-bool HasDisc(int fd) {
+// Why the drive says there is nothing to read, or nullptr to go ahead.
+//
+// Deliberately *not* "status == CDS_DISC_OK". Only two answers mean the drive
+// is definitely empty; every other one has to fall through to the read:
+//
+//  * `CDS_NO_INFO` is what a drive that does not implement the query returns.
+//    Treating it as an empty tray would make Linthra report "no disc" for
+//    every disc in such a drive.
+//  * `CDS_DRIVE_NOT_READY` is a drive still spinning up — and also a drive
+//    struggling with a damaged disc, which is exactly the case this whole
+//    layer exists to tell apart from an empty tray.
+//
+// So the table of contents is read anyway, and its own failure is the answer.
+// That is both more informative and harder to get wrong than a guess made
+// before trying.
+const char* DriveStatusError(int fd) {
   const int status = ioctl(fd, CDROM_DRIVE_STATUS, CDSL_CURRENT);
-  return status == CDS_DISC_OK;
+  if (status < 0) return ErrorForErrno(errno);
+  if (status == CDS_NO_DISC || status == CDS_TRAY_OPEN) return kNoDiscError;
+  return nullptr;
 }
 
 // Reads the TOC header: the first and last track numbers on the disc.
@@ -208,6 +272,25 @@ bool ReadCdTextBytes(int fd, int length, std::vector<unsigned char>* out) {
   if (io.status != 0 || io.host_status != 0 || io.driver_status != 0) {
     return false;
   }
+
+  // A drive may transfer less than it was asked for, and `resid` is how much
+  // it left untransferred. The tail of the buffer is then still the zeros it
+  // was allocated with, and handing those on would invent CD-Text packs the
+  // disc never carried — all-zero packs whose blank CRC the decoder accepts,
+  // and whose repeated sequence number would make it throw away the real
+  // packs in front of them. So the buffer is cut back to what actually
+  // arrived, and to a whole number of packs: half a pack is not a pack.
+  int transferred = length;
+  if (io.resid > 0) {
+    transferred = io.resid >= length ? 0 : length - io.resid;
+  }
+  if (transferred < kCdTextHeaderLength) return false;
+  if (transferred > kCdTextHeaderLength) {
+    const int packs =
+        (transferred - kCdTextHeaderLength) / kCdTextPackLength;
+    transferred = kCdTextHeaderLength + packs * kCdTextPackLength;
+  }
+  buffer.resize(static_cast<size_t>(transferred));
   *out = std::move(buffer);
   return true;
 }
@@ -228,6 +311,11 @@ void ReadCdText(int fd, std::vector<unsigned char>* out) {
   if (total <= kCdTextHeaderLength || total > kCdTextMaxLength) return;
   std::vector<unsigned char> data;
   if (!ReadCdTextBytes(fd, total, &data)) return;
+  // A short transfer leaves fewer packs than the header promised. That is a
+  // partial answer rather than a wrong one — each pack still carries its own
+  // sequence number and CRC, and the decoder refuses the lot if what arrived
+  // does not hang together — so it is passed on as it came.
+  if (data.size() <= static_cast<size_t>(kCdTextHeaderLength)) return;
   *out = std::move(data);
 }
 
@@ -236,8 +324,59 @@ void ReadCdText(int fd, std::vector<unsigned char>* out) {
 // Runs on a worker thread: a drive that has been idle takes seconds to spin
 // up, focus and read a lead-in, and the GTK main loop is where Linthra's
 // window is drawn.
+// Reads the header and every track entry, lead-out included.
+//
+// Pulled out so the read can be done twice: once to gather the disc, and once
+// afterwards to prove the disc did not change underneath it. `cd_text` is left
+// alone — only the geometry is compared.
+bool ReadWholeToc(int fd, Toc* toc) {
+  int first = 0;
+  int last = 0;
+  if (!ReadTocHeader(fd, &first, &last)) return false;
+  if (first < 1 || last < first || last > 99) return false;
+
+  toc->first_track = first;
+  toc->last_track = last;
+  toc->tracks.clear();
+  for (int track = first; track <= last; track++) {
+    TocEntry entry;
+    if (!ReadTocEntry(fd, track, &entry)) return false;
+    toc->tracks.push_back(entry);
+  }
+
+  TocEntry lead_out;
+  if (!ReadTocEntry(fd, CDROM_LEADOUT, &lead_out)) return false;
+  toc->lead_out_lba = lead_out.lba;
+  return true;
+}
+
+// Whether two reads describe the same disc, to the frame.
+//
+// Everything the drive reported, not a summary of it. Comparing only the
+// track range and the lead-out would accept a disc swapped for another with
+// the same outline but different track positions — and the whole point of
+// re-reading is that the answer must describe the disc that is in the drive
+// *now*, not one that resembles it.
+bool SameDisc(const Toc& a, const Toc& b) {
+  if (a.first_track != b.first_track) return false;
+  if (a.last_track != b.last_track) return false;
+  if (a.lead_out_lba != b.lead_out_lba) return false;
+  if (a.tracks.size() != b.tracks.size()) return false;
+  for (size_t i = 0; i < a.tracks.size(); i++) {
+    if (a.tracks[i].number != b.tracks[i].number) return false;
+    if (a.tracks[i].lba != b.tracks[i].lba) return false;
+    if (a.tracks[i].control != b.tracks[i].control) return false;
+  }
+  return true;
+}
+
 ReadResult ReadToc(const std::string& device) {
   if (!IsOpticalDeviceNode(device)) return Failure(kDriveUnavailableError);
+
+  // One read per drive: see [DeviceClaim]. Taken before the device is opened,
+  // so a refused read costs no descriptor either.
+  const DeviceClaim claim(device);
+  if (!claim.held()) return Failure(kUnreadableError);
 
   // O_NONBLOCK is not an optimisation. Opening a CD-ROM without it blocks
   // until there is a disc — and on a drive with an open tray, it can make the
@@ -247,62 +386,33 @@ ReadResult ReadToc(const std::string& device) {
 
   ReadResult result = Failure(kUnreadableError);
   struct stat info;
+  const char* status_error = nullptr;
   if (fstat(fd, &info) < 0 || !S_ISBLK(info.st_mode)) {
     result = Failure(kDriveUnavailableError);
   } else if (ioctl(fd, CDROM_GET_CAPABILITY, 0) < 0) {
     // Not a CD-ROM, whatever its name says.
     result = Failure(kDriveUnavailableError);
-  } else if (!HasDisc(fd)) {
-    result = Failure(kNoDiscError);
+  } else if ((status_error = DriveStatusError(fd)) != nullptr) {
+    result = Failure(status_error);
   } else {
-    int first = 0;
-    int last = 0;
-    TocEntry lead_out;
-    if (!ReadTocHeader(fd, &first, &last)) {
+    Toc toc;
+    if (!ReadWholeToc(fd, &toc)) {
       result = Failure(ErrorForErrno(errno));
-    } else if (first < 1 || last < first || last > 99) {
-      result = Failure(kUnreadableError);
     } else {
-      Toc toc;
-      toc.first_track = first;
-      toc.last_track = last;
-      bool read_every_entry = true;
-      for (int track = first; track <= last; track++) {
-        TocEntry entry;
-        if (!ReadTocEntry(fd, track, &entry)) {
-          read_every_entry = false;
-          break;
-        }
-        toc.tracks.push_back(entry);
-      }
-      if (!read_every_entry || !ReadTocEntry(fd, CDROM_LEADOUT, &lead_out)) {
-        result = Failure(ErrorForErrno(errno));
-      } else {
-        toc.lead_out_lba = lead_out.lba;
-        ReadCdText(fd, &toc.cd_text);
+      ReadCdText(fd, &toc.cd_text);
 
-        // The disc can be ejected — or swapped — at any point above: it is a
-        // button on the hardware. Reading the table of contents again is what
-        // turns "the numbers we gathered describe a disc that has gone" into
-        // an answer, instead of into a track list for a disc nobody has any
-        // more.
-        //
-        // The header alone is not enough: two different discs can easily have
-        // the same first and last track. The lead-out is where they differ —
-        // two discs agreeing on their track range *and* on where the music
-        // ends, to the frame, are the same disc for every purpose here.
-        int first_again = 0;
-        int last_again = 0;
-        TocEntry lead_out_again;
-        if (!HasDisc(fd) || !ReadTocHeader(fd, &first_again, &last_again) ||
-            !ReadTocEntry(fd, CDROM_LEADOUT, &lead_out_again)) {
-          result = Failure(kDiscChangedError);
-        } else if (first_again != first || last_again != last ||
-                   lead_out_again.lba != lead_out.lba) {
-          result = Failure(kDiscChangedError);
-        } else {
-          result = ReadResult{true, nullptr, std::move(toc)};
-        }
+      // The disc can be ejected — or swapped — at any point above: it is a
+      // button on the hardware, and the CD-Text read is the slowest part of
+      // this function. Reading the table of contents again is what turns "the
+      // numbers we gathered describe a disc that has gone" into an answer,
+      // instead of into a track list for a disc nobody has any more.
+      Toc again;
+      if (DriveStatusError(fd) != nullptr || !ReadWholeToc(fd, &again)) {
+        result = Failure(kDiscChangedError);
+      } else if (!SameDisc(toc, again)) {
+        result = Failure(kDiscChangedError);
+      } else {
+        result = ReadResult{true, nullptr, std::move(toc)};
       }
     }
   }

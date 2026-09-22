@@ -162,4 +162,48 @@ void main() {
       expect(source(), contains('CDROM_LEADOUT'));
     });
   });
+
+  group('the runner is careful about what it reports', () {
+    // These four are the bugs a review found in the first cut of this file.
+    // None of them can be reached from a Dart test — there is no drive — so
+    // the shape of each fix is asserted here instead of nowhere.
+
+    test('only a definite empty tray is reported as no disc', () {
+      // `CDS_NO_INFO` is what a drive with no status query answers, and
+      // `CDS_DRIVE_NOT_READY` is a drive spinning up or fighting a damaged
+      // disc. Collapsing either into "no disc" would hide a disc the user is
+      // holding the case of.
+      final String code = source();
+      expect(code, contains('CDS_NO_DISC'));
+      expect(code, contains('CDS_TRAY_OPEN'));
+      expect(
+        code,
+        isNot(contains('return status == CDS_DISC_OK;')),
+        reason: 'the drive status must not collapse to a single boolean',
+      );
+    });
+
+    test('a short SG_IO transfer is cut back to what arrived', () {
+      // Otherwise the zero tail of the buffer reaches Dart as fabricated
+      // CD-Text packs.
+      expect(source(), contains('io.resid'));
+      expect(source(), contains('buffer.resize('));
+    });
+
+    test('the disc-change check compares the whole table of contents', () {
+      // Two discs can share a track range and a lead-out; only the full TOC
+      // proves the disc in the drive is still the one that was read.
+      expect(source(), contains('bool SameDisc('));
+      expect(source(), contains('a.tracks[i].lba != b.tracks[i].lba'));
+      expect(source(), contains('a.tracks[i].control != b.tracks[i].control'));
+    });
+
+    test('a drive can only have one read in flight', () {
+      // A Dart deadline cannot abort an ioctl, so without this each retry
+      // would strand another worker thread and descriptor.
+      expect(source(), contains('class DeviceClaim'));
+      expect(source(), contains('ReadsInFlight()'));
+      expect(source(), contains('if (!claim.held())'));
+    });
+  });
 }

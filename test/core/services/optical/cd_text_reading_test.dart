@@ -384,5 +384,23 @@ void main() {
       expect(a.hashCode, b.hashCode);
       expect(a, isNot(CdTextMetadata.empty));
     });
+
+    test('hashes the same however its maps were built', () {
+      // `mapEquals` ignores insertion order, so the hash has to as well —
+      // otherwise two equal values land in different buckets and a HashSet
+      // holds both of them.
+      const CdTextMetadata forwards = CdTextMetadata(
+        trackTitles: <int, String>{1: 'One', 2: 'Two', 3: 'Three'},
+        trackPerformers: <int, String>{1: 'A', 2: 'B'},
+      );
+      const CdTextMetadata backwards = CdTextMetadata(
+        trackTitles: <int, String>{3: 'Three', 2: 'Two', 1: 'One'},
+        trackPerformers: <int, String>{2: 'B', 1: 'A'},
+      );
+
+      expect(forwards, backwards);
+      expect(forwards.hashCode, backwards.hashCode);
+      expect(<CdTextMetadata>{forwards, backwards}, hasLength(1));
+    });
   });
 }

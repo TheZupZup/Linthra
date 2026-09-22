@@ -266,6 +266,81 @@ void main() {
   });
 
   group('malformed tables of contents', () {
+    test('a lead-out sitting between two tracks is rejected', () {
+      // The lead-out is the physical end of the disc, so a TOC that puts it
+      // in the middle of its own track list describes a disc that cannot
+      // exist. Checking it only against the *first* track would let this
+      // through, and track 1 would then resolve to a 200-frame length on a
+      // disc that ends at 100.
+      expect(
+        normalizedTocEntries(
+          tocOf(
+            tracks: <RawCdTocTrack>[tocTrack(1, 0), tocTrack(2, 200)],
+            leadOutLba: 100,
+          ),
+        ),
+        isNull,
+      );
+      expect(
+        audioCdDiscFrom(
+          tocOf(
+            tracks: <RawCdTocTrack>[tocTrack(1, 0), tocTrack(2, 200)],
+            leadOutLba: 100,
+          ),
+          driveId: '/dev/sr0',
+        ),
+        isNull,
+      );
+    });
+
+    test('a lead-out exactly at the last track leaves it no length', () {
+      expect(
+        normalizedTocEntries(
+          tocOf(
+            tracks: <RawCdTocTrack>[tocTrack(1, 0), tocTrack(2, 1000)],
+            leadOutLba: 1000,
+          ),
+        ),
+        isNull,
+      );
+    });
+
+    test('no track can ever resolve past the lead-out', () {
+      // The property the check above exists to guarantee, asserted over a
+      // handful of deliberately broken tables of contents rather than one.
+      for (final RawCdToc toc in <RawCdToc>[
+        tocOf(
+          tracks: <RawCdTocTrack>[tocTrack(1, 0), tocTrack(2, 5000)],
+          leadOutLba: 2500,
+        ),
+        tocOf(
+          tracks: <RawCdTocTrack>[
+            tocTrack(1, 0),
+            tocTrack(2, 1000),
+            tocTrack(3, 90000),
+          ],
+          leadOutLba: 50000,
+        ),
+        tocOf(
+          tracks: <RawCdTocTrack>[
+            tocTrack(1, 0),
+            tocTrack(2, 30000, data: true),
+          ],
+          leadOutLba: 10000,
+        ),
+      ]) {
+        final AudioCdDisc? disc = audioCdDiscFrom(toc, driveId: '/dev/sr0');
+        if (disc == null) continue;
+        for (final AudioCdTrack track in disc.tracks) {
+          expect(
+            track.endFrame,
+            lessThanOrEqualTo(toc.leadOutLba + cdLeadInFrames),
+            reason: 'track ${track.number} of $toc ends past the lead-out',
+          );
+        }
+      }
+    });
+
     test('a lead-out at or before the first track is not a disc', () {
       expect(
         normalizedTocEntries(

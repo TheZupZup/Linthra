@@ -44,12 +44,15 @@ class CdTextMetadata {
           mapEquals(other.trackTitles, trackTitles) &&
           mapEquals(other.trackPerformers, trackPerformers));
 
+  /// Unordered over the maps, because [mapEquals] is: two metadata values
+  /// holding the same track titles are equal however their maps were built,
+  /// so they have to hash the same or a `HashSet` would hold both.
   @override
   int get hashCode => Object.hash(
         discTitle,
         discPerformer,
-        Object.hashAll(trackTitles.entries.map(_entryHash)),
-        Object.hashAll(trackPerformers.entries.map(_entryHash)),
+        Object.hashAllUnordered(trackTitles.entries.map(_entryHash)),
+        Object.hashAllUnordered(trackPerformers.entries.map(_entryHash)),
       );
 
   static int _entryHash(MapEntry<int, String> entry) =>

@@ -54,7 +54,12 @@ AudioCdDisc? audioCdDiscFrom(RawCdToc toc, {required String driveId}) {
 ///  * an entry outside the header's own range, which belongs to no disc the
 ///    header describes;
 ///  * two entries claiming the same track number;
-///  * a negative position, or a lead-out at or before the first track;
+///  * a negative position, or a lead-out at or before the **last** track.
+///    The lead-out is the physical end of the disc, so every track starts
+///    before it; a TOC placing it in the middle of its own track list is
+///    describing a disc that cannot exist, and checking only the first track
+///    would let the tracks after the lead-out resolve to boundaries past the
+///    end of the disc;
 ///  * entries whose positions do not increase with their numbers — a disc
 ///    cannot play track 5 before track 4, so a TOC saying otherwise is
 ///    corrupt rather than unusual.
@@ -85,7 +90,12 @@ List<RawCdTocTrack>? normalizedTocEntries(RawCdToc toc) {
   for (int i = 1; i < ordered.length; i++) {
     if (ordered[i].startLba < ordered[i - 1].startLba) return null;
   }
-  if (toc.leadOutLba <= ordered.first.startLba) return null;
+  // Against the *last* entry, not the first: positions are non-decreasing by
+  // now, so this is the strictest form of "every track starts before the disc
+  // ends" — and the only form that rejects a lead-out sitting between two
+  // tracks, which would otherwise let the earlier one resolve to a boundary
+  // past the physical end of the disc.
+  if (toc.leadOutLba <= ordered.last.startLba) return null;
 
   return ordered;
 }

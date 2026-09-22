@@ -171,6 +171,20 @@ on an open tray it can make the kernel close the tray. The read runs on a
 worker thread, because a drive that has been idle takes seconds to spin up and
 the GTK main loop is where Linthra's window is drawn.
 
+Only a *definite* empty tray short-circuits the read. `CDROM_DRIVE_STATUS` also
+answers `CDS_NO_INFO` (a drive with no status query at all) and
+`CDS_DRIVE_NOT_READY` (one spinning up, or fighting a damaged disc), and
+collapsing either into "no disc" would hide a disc the user is holding the case
+of. Those fall through to the table-of-contents read, whose own failure is a
+better answer than a guess made before trying.
+
+**One read per drive at a time.** A deadline on the Dart side stops the caller
+waiting; it cannot abort an ioctl a struggling drive has not returned from, and
+that read keeps its worker thread and its descriptor until the drive gives up.
+Without a guard, each retry would strand another one — so a second read on a
+drive that already has one is refused immediately, which is what the disc looks
+like from the caller's side anyway.
+
 **Nothing is written, and nothing needs root.** The runner never ejects, never
 locks the tray, never starts playback and never opens the device for writing;
 `test/tooling/optical_toc_channel_contract_test.dart` asserts that it does not
@@ -248,7 +262,10 @@ metadata is how a track ends up called `THANKS FOR BUYING THIS CD`.
 **Nothing is guessed.** The decoder returns *no* CD-Text at all — so the whole
 disc falls back — whenever it cannot be sure:
 
-- a truncated header, or a byte count that is not a whole number of packs;
+- a truncated header, or a byte count that is not a whole number of packs. A
+  drive that transfers less than it promised is cut back to what actually
+  arrived (and to whole packs) before Dart ever sees it, so the zero tail of
+  the buffer can never reach the decoder as CD-Text the disc does not carry;
 - a pack whose CRC does not match (a CRC of zero means the drive did not fill
   it in, which many do not, and is not a mismatch);
 - a gap in the block's sequence numbers, which means a pack went missing and
@@ -311,10 +328,12 @@ exception:
 
 - the drive **disappears before** the read → `driveUnavailable`;
 - the disc is **removed during** the read → `discChanged`;
-- the disc is **swapped during** the read → `discChanged`. The runner re-reads
-  the TOC header after gathering everything and compares it with what it
-  started from, so a swapped disc is caught rather than described with half of
-  each disc's numbers;
+- the disc is **swapped during** the read → `discChanged`. After gathering
+  everything the runner reads the **whole** table of contents again — header,
+  every track's position and control field, and the lead-out — and compares it
+  with what it started from. The full comparison matters because two different
+  discs can easily share a track range and even a lead-out; only the track
+  positions prove the disc in the drive is still the one that was read;
 - the drive **never answers** → `unreadable` after a 20-second deadline,
   because a caller waiting forever cannot tell a slow drive from a hang;
 - the disc is **unreadable** → `unreadable`, which is the whole point of this
