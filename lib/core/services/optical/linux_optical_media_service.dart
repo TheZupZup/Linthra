@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:dbus/dbus.dart';
 
 import '../../models/optical_media.dart';
+import '../../platform/flatpak_sandbox.dart';
 import 'optical_media_service.dart';
 import 'udisks_drive_reading.dart';
 import 'udisks_object_source.dart';
@@ -55,7 +55,7 @@ class LinuxOpticalMediaService implements OpticalMediaService {
     this.settleDelay = defaultSettleDelay,
     this.callDeadline = defaultCallDeadline,
   })  : _source = source ?? DBusUDisksObjectSource(),
-        _sandboxed = sandboxed ?? _isFlatpak;
+        _sandboxed = sandboxed ?? isFlatpakSandbox;
 
   /// How long the burst of signals from one physical event is allowed to run
   /// before the machine is read again.
@@ -289,12 +289,4 @@ class LinuxOpticalMediaService implements OpticalMediaService {
       errorName.contains('NotAuthorized') ||
       errorName.contains('AuthFailed') ||
       errorName.contains('NotPermitted');
-
-  /// Whether this process is running inside a Flatpak.
-  ///
-  /// The same environment variable [LinuxPlaybackController] reads, and the
-  /// one Flatpak documents for this: it is set for every app the sandbox
-  /// starts.
-  static bool get _isFlatpak =>
-      (Platform.environment['FLATPAK_ID'] ?? '').trim().isNotEmpty;
 }
