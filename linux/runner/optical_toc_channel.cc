@@ -205,10 +205,17 @@ const char* ErrorForErrno(int err) {
 // So the table of contents is read anyway, and its own failure is the answer.
 // That is both more informative and harder to get wrong than a guess made
 // before trying.
-const char* DriveStatusError(int fd) {
+// `*confirmed` is set to whether the drive positively vouched for a disc, as
+// opposed to merely declining to say. That distinction matters later: a
+// no-medium failure part-way through the read means the disc *left* only if
+// something had established it was there to begin with. On a drive that
+// answers `CDS_NO_INFO` for an ordinary empty tray, nothing has.
+const char* DriveStatusError(int fd, bool* confirmed) {
+  *confirmed = false;
   const int status = ioctl(fd, CDROM_DRIVE_STATUS, CDSL_CURRENT);
   if (status < 0) return ErrorForErrno(errno);
   if (status == CDS_NO_DISC || status == CDS_TRAY_OPEN) return kNoDiscError;
+  *confirmed = status == CDS_DISC_OK;
   return nullptr;
 }
 
@@ -339,10 +346,17 @@ void ReadCdText(int fd, std::vector<unsigned char>* out) {
 // Pulled out so the read can be done twice: once to gather the disc, and once
 // afterwards to prove the disc did not change underneath it. `cd_text` is left
 // alone — only the geometry is compared.
-const char* ReadWholeToc(int fd, Toc* toc) {
+//
+// `saw_media` (optional) is raised as soon as the header comes back, so a
+// caller can tell a disc that vanished part-way through from one that was
+// never there.
+const char* ReadWholeToc(int fd, Toc* toc, bool* saw_media) {
   int first = 0;
   int last = 0;
   if (const char* error = ReadTocHeader(fd, &first, &last)) return error;
+  // A header came back, so there was a disc here to read it from — even if
+  // the drive would not say so when it was asked.
+  if (saw_media != nullptr) *saw_media = true;
   // A header the drive returned happily, describing a disc that cannot exist.
   // Nothing failed, so this is unreadable rather than anything `errno` knows.
   if (first < 1 || last < first || last > 99) return kUnreadableError;
@@ -401,24 +415,29 @@ ReadResult ReadToc(const std::string& device) {
   ReadResult result = Failure(kUnreadableError);
   struct stat info;
   const char* status_error = nullptr;
+  // Whether anything has positively established that this drive holds a disc.
+  bool saw_media = false;
   if (fstat(fd, &info) < 0 || !S_ISBLK(info.st_mode)) {
     result = Failure(kDriveUnavailableError);
   } else if (ioctl(fd, CDROM_GET_CAPABILITY, 0) < 0) {
     // Not a CD-ROM, whatever its name says.
     result = Failure(kDriveUnavailableError);
-  } else if ((status_error = DriveStatusError(fd)) != nullptr) {
+  } else if ((status_error = DriveStatusError(fd, &saw_media)) != nullptr) {
     result = Failure(status_error);
   } else {
     Toc toc;
-    if (const char* error = ReadWholeToc(fd, &toc)) {
-      // The drive said it held a disc a moment ago, so a no-medium failure
-      // now means the disc left while this was reading it. That is a change,
-      // not an empty tray: the caller is owed "ask again", and reporting
-      // "there is nothing in the drive" for a disc somebody just took out
-      // would be the one answer the disc-change check further down exists to
-      // prevent.
-      result = Failure(strcmp(error, kNoDiscError) == 0 ? kDiscChangedError
-                                                        : error);
+    if (const char* error = ReadWholeToc(fd, &toc, &saw_media)) {
+      // A no-medium failure means the disc *left while this was reading it* —
+      // but only if something had established it was there. The drive saying
+      // `CDS_DISC_OK`, or a header that already came back, both count.
+      //
+      // Without that guard this would mislabel the ordinary empty tray of a
+      // drive that answers `CDS_NO_INFO`: nothing vouched for a disc, the read
+      // fails with no medium, and "the disc changed" would be a story about an
+      // event that never happened.
+      result = Failure(
+          saw_media && strcmp(error, kNoDiscError) == 0 ? kDiscChangedError
+                                                       : error);
     } else {
       ReadCdText(fd, &toc.cd_text);
 
@@ -428,8 +447,9 @@ ReadResult ReadToc(const std::string& device) {
       // numbers we gathered describe a disc that has gone" into an answer,
       // instead of into a track list for a disc nobody has any more.
       Toc again;
-      if (DriveStatusError(fd) != nullptr ||
-          ReadWholeToc(fd, &again) != nullptr) {
+      bool still_there = false;
+      if (DriveStatusError(fd, &still_there) != nullptr ||
+          ReadWholeToc(fd, &again, nullptr) != nullptr) {
         result = Failure(kDiscChangedError);
       } else if (!SameDisc(toc, again)) {
         result = Failure(kDiscChangedError);

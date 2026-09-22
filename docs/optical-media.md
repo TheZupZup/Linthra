@@ -178,6 +178,14 @@ collapsing either into "no disc" would hide a disc the user is holding the case
 of. Those fall through to the table-of-contents read, whose own failure is a
 better answer than a guess made before trying.
 
+The runner also tracks whether anything ever *positively* established that a
+disc was in the drive — `CDS_DISC_OK`, or a TOC header that came back. That is
+what separates the two ways a read can fail for want of a medium: a disc that
+left part-way through reports `discChanged`, while the ordinary empty tray of a
+drive that never answered the status query reports `noDisc`. Without the
+distinction, one of those two would be a story about an event that never
+happened.
+
 **One read per drive at a time.** A deadline on the Dart side stops the caller
 waiting; it cannot abort an ioctl a struggling drive has not returned from, and
 that read keeps its worker thread and its descriptor until the drive gives up.

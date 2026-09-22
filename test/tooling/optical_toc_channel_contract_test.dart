@@ -213,7 +213,7 @@ void main() {
       // outcome being re-derived from errno instead of carried.
       expect(
         code,
-        contains('if (const char* error = ReadWholeToc(fd, &toc)) {'),
+        contains('if (const char* error = ReadWholeToc(fd, &toc, &saw_media))'),
       );
       expect(
         code,
@@ -236,6 +236,21 @@ void main() {
       expect(
         source(),
         contains('strcmp(error, kNoDiscError) == 0 ? kDiscChangedError'),
+      );
+    });
+
+    test('an empty tray is still no disc on a drive with no status query', () {
+      // The other half of the rule above, and the one their interaction
+      // nearly lost: a drive answering CDS_NO_INFO has vouched for nothing,
+      // so a no-medium failure there is an ordinary empty tray and must not
+      // be dressed up as an ejection that never happened.
+      final String code = source();
+      expect(code, contains('bool saw_media = false;'));
+      expect(code, contains('*confirmed = status == CDS_DISC_OK;'));
+      expect(
+        code,
+        contains('saw_media && strcmp(error, kNoDiscError) == 0'),
+        reason: 'ENOMEDIUM only becomes disc_changed once media was confirmed',
       );
     });
 
