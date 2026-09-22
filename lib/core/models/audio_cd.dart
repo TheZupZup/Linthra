@@ -233,6 +233,14 @@ enum AudioCdInspectionStatus {
   /// **This is the state detection alone could never reach.** UDisks2 reports
   /// a disc it cannot identify as an empty drive (see `docs/optical-media.md`);
   /// actually trying to read it is what tells the two apart.
+  ///
+  /// It is also where a medium with no CD table of contents at all lands — a
+  /// Blu-ray, a blank disc, and some DVDs — rather than in [notAudioCd]. A
+  /// data CD reaches [notAudioCd] correctly, because it really does have a
+  /// table of contents with one data track in it; the others have nothing for
+  /// this layer to read, and telling "no CD TOC" from "a damaged CD" needs the
+  /// drive's current profile, which is another MMC command. See
+  /// `docs/optical-media.md`.
   unreadable,
 
   /// The drive itself is gone: unplugged, or a device node that no longer

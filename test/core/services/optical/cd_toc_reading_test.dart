@@ -432,6 +432,52 @@ void main() {
       );
     });
 
+    test('a track the header claims but no entry supplies is rejected', () {
+      // Header covers 1-3, entries supply only 1 and 3. Accepting it would
+      // make track 1 swallow track 2's running time on its way to track 3.
+      expect(
+        normalizedTocEntries(
+          tocOf(
+            tracks: <RawCdTocTrack>[tocTrack(1, 0), tocTrack(3, 20000)],
+            firstTrack: 1,
+            lastTrack: 3,
+            leadOutLba: 30000,
+          ),
+        ),
+        isNull,
+      );
+      expect(
+        audioCdDiscFrom(
+          tocOf(
+            tracks: <RawCdTocTrack>[tocTrack(1, 0), tocTrack(3, 20000)],
+            firstTrack: 1,
+            lastTrack: 3,
+            leadOutLba: 30000,
+          ),
+          driveId: '/dev/sr0',
+        ),
+        isNull,
+      );
+    });
+
+    test('a complete range is still accepted', () {
+      // The check is "no gaps", not "starts at 1": a disc whose header runs
+      // 4-6 and supplies 4, 5 and 6 is complete.
+      expect(
+        normalizedTocEntries(
+          tocOf(
+            tracks: <RawCdTocTrack>[
+              tocTrack(4, 0),
+              tocTrack(5, 1000),
+              tocTrack(6, 2000),
+            ],
+            leadOutLba: 3000,
+          ),
+        ),
+        hasLength(3),
+      );
+    });
+
     test('a negative position is rejected', () {
       expect(
         normalizedTocEntries(

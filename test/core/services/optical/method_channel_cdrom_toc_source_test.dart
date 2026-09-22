@@ -127,6 +127,22 @@ void main() {
       expect((await sourceFor().readToc('/dev/sr0')).cdText, bytes);
     });
 
+    test('the CD-Text bytes cannot be rewritten after the read', () async {
+      // `RawCdToc` is `@immutable`, and the CD-Text buffer feeds both the
+      // decoded metadata and the value's hashCode — so it is copied, exactly
+      // as the track list is.
+      final Uint8List bytes = Uint8List.fromList(<int>[0, 2, 0, 0]);
+      answerWith((MethodCall call) async => replyFor(cdText: bytes));
+
+      final RawCdToc toc = await sourceFor().readToc('/dev/sr0');
+      final int before = toc.hashCode;
+      bytes[0] = 0xff;
+
+      expect(toc.cdText, isNot(same(bytes)));
+      expect(toc.cdText!.first, 0);
+      expect(toc.hashCode, before);
+    });
+
     test('a missing field is refused rather than defaulted', () async {
       for (final String missing in <String>[
         MethodChannelCdromTocSource.firstTrackKey,

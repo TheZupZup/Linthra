@@ -105,6 +105,8 @@ const int _cdTextMaxPacks = 2048;
 ///    did not fill it in", which many do, rather than as a mismatch);
 ///  * a gap in the block's sequence numbers, which means a pack went missing
 ///    and every continuation after it would be joined to the wrong text;
+///  * a pack whose item byte disagrees with the item the NUL count places it
+///    in, which would otherwise attach a real title to the wrong track;
 ///  * double-byte text (MS-JIS), which Linthra has no decoder for. Rendering
 ///    those bytes as Latin-1 would produce mojibake that *looks* like
 ///    metadata, and a disc that honestly says "Track 01" is better than one
@@ -129,10 +131,14 @@ CdTextMetadata cdTextFrom(Uint8List? response) {
     return CdTextMetadata.empty;
   }
 
-  final Map<int, String> titles =
+  final Map<int, String>? titles =
       _textsFor(packs, cdTextTitlePackType, charset);
-  final Map<int, String> performers =
+  final Map<int, String>? performers =
       _textsFor(packs, cdTextPerformerPackType, charset);
+  // All or nothing: a pack whose header contradicts the stream means this
+  // disc's CD-Text cannot be trusted, and a half-decoded answer is exactly
+  // the kind of plausible-but-wrong metadata this decoder exists to refuse.
+  if (titles == null || performers == null) return CdTextMetadata.empty;
 
   return CdTextMetadata(
     discTitle: titles.remove(0),
@@ -223,7 +229,15 @@ int _blockCharset(List<_CdTextPack> packs) {
 /// Trailing bytes with no NUL after them are dropped: an unterminated string
 /// is a string the disc did not finish writing, and half a title is not a
 /// title.
-Map<int, String> _textsFor(
+///
+/// Returns null — which costs the disc all of its CD-Text — when a pack's own
+/// item byte disagrees with the item the NUL count says it begins inside.
+/// Those two are the disc telling us the same thing twice, so a disagreement
+/// means one of them is wrong and there is no way to know which. Believing the
+/// count alone would attach a real title to the wrong track, which is worse
+/// than the fallback: `Track 04` is obviously a placeholder, and the name of
+/// track 5 sitting on track 4 is not.
+Map<int, String>? _textsFor(
   List<_CdTextPack> packs,
   int packType,
   int charset,
@@ -239,6 +253,9 @@ Map<int, String> _textsFor(
   final List<int> buffer = <int>[];
 
   for (final _CdTextPack pack in ofType) {
+    // The header says which item this pack starts inside; the running count
+    // says the same thing. They have to agree.
+    if (pack.item != item) return null;
     for (final int byte in pack.payload) {
       if (byte != 0) {
         buffer.add(byte);

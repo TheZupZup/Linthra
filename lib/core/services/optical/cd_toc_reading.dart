@@ -53,7 +53,8 @@ AudioCdDisc? audioCdDiscFrom(RawCdToc toc, {required String driveId}) {
 ///  * a header whose track range is outside 1-99, or inverted;
 ///  * an entry outside the header's own range, which belongs to no disc the
 ///    header describes;
-///  * two entries claiming the same track number;
+///  * two entries claiming the same track number, or a number the header's
+///    range claims that no entry supplies;
 ///  * a negative position, or a lead-out at or before the **last** track.
 ///    The lead-out is the physical end of the disc, so every track starts
 ///    before it; a TOC placing it in the middle of its own track list is
@@ -82,7 +83,12 @@ List<RawCdTocTrack>? normalizedTocEntries(RawCdToc toc) {
     if (byNumber.containsKey(entry.number)) return null;
     byNumber[entry.number] = entry;
   }
-  if (byNumber.isEmpty) return null;
+  // Every number the header claims, and no gaps. A TOC whose header covers
+  // tracks 1-3 but supplies only 1 and 3 would otherwise be accepted, and
+  // track 1 would silently swallow track 2's running time on its way to
+  // track 3's start — a successful-looking disc with a track missing and a
+  // wrong duration on the one before it.
+  if (byNumber.length != toc.lastTrack - toc.firstTrack + 1) return null;
 
   final List<RawCdTocTrack> ordered = byNumber.values.toList(growable: false)
     ..sort((RawCdTocTrack a, RawCdTocTrack b) => a.number.compareTo(b.number));

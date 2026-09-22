@@ -213,28 +213,38 @@ const char* DriveStatusError(int fd) {
 }
 
 // Reads the TOC header: the first and last track numbers on the disc.
-bool ReadTocHeader(int fd, int* first, int* last) {
+//
+// Returns an error code, or nullptr on success. Deliberately *not* a bool:
+// these helpers fail in two different ways — an ioctl the kernel refused, and
+// an answer that does not make sense — and only the first leaves anything
+// useful in `errno`. Handing a caller a bare false made it reach for `errno`
+// either way, which on a reused worker thread means classifying a malformed
+// table of contents by whatever unrelated syscall happened to fail on that
+// thread last.
+const char* ReadTocHeader(int fd, int* first, int* last) {
   struct cdrom_tochdr header;
   memset(&header, 0, sizeof(header));
-  if (ioctl(fd, CDROMREADTOCHDR, &header) < 0) return false;
+  if (ioctl(fd, CDROMREADTOCHDR, &header) < 0) return ErrorForErrno(errno);
   *first = header.cdth_trk0;
   *last = header.cdth_trk1;
-  return true;
+  return nullptr;
 }
 
 // Reads one TOC entry as a logical block address. `track` is a track number,
 // or CDROM_LEADOUT for where the disc's audio ends.
-bool ReadTocEntry(int fd, int track, TocEntry* entry) {
+const char* ReadTocEntry(int fd, int track, TocEntry* entry) {
   struct cdrom_tocentry tocentry;
   memset(&tocentry, 0, sizeof(tocentry));
   tocentry.cdte_track = static_cast<__u8>(track);
   tocentry.cdte_format = CDROM_LBA;
-  if (ioctl(fd, CDROMREADTOCENTRY, &tocentry) < 0) return false;
-  if (tocentry.cdte_format != CDROM_LBA) return false;
+  if (ioctl(fd, CDROMREADTOCENTRY, &tocentry) < 0) return ErrorForErrno(errno);
+  // The drive answered, in a format nobody asked for. Nothing failed, so
+  // `errno` says nothing about it.
+  if (tocentry.cdte_format != CDROM_LBA) return kUnreadableError;
   entry->number = track;
   entry->lba = tocentry.cdte_addr.lba;
   entry->control = tocentry.cdte_ctrl;
-  return true;
+  return nullptr;
 }
 
 // Issues one READ TOC/PMA/ATIP in CD-Text format, asking for `length` bytes.
@@ -329,25 +339,29 @@ void ReadCdText(int fd, std::vector<unsigned char>* out) {
 // Pulled out so the read can be done twice: once to gather the disc, and once
 // afterwards to prove the disc did not change underneath it. `cd_text` is left
 // alone — only the geometry is compared.
-bool ReadWholeToc(int fd, Toc* toc) {
+const char* ReadWholeToc(int fd, Toc* toc) {
   int first = 0;
   int last = 0;
-  if (!ReadTocHeader(fd, &first, &last)) return false;
-  if (first < 1 || last < first || last > 99) return false;
+  if (const char* error = ReadTocHeader(fd, &first, &last)) return error;
+  // A header the drive returned happily, describing a disc that cannot exist.
+  // Nothing failed, so this is unreadable rather than anything `errno` knows.
+  if (first < 1 || last < first || last > 99) return kUnreadableError;
 
   toc->first_track = first;
   toc->last_track = last;
   toc->tracks.clear();
   for (int track = first; track <= last; track++) {
     TocEntry entry;
-    if (!ReadTocEntry(fd, track, &entry)) return false;
+    if (const char* error = ReadTocEntry(fd, track, &entry)) return error;
     toc->tracks.push_back(entry);
   }
 
   TocEntry lead_out;
-  if (!ReadTocEntry(fd, CDROM_LEADOUT, &lead_out)) return false;
+  if (const char* error = ReadTocEntry(fd, CDROM_LEADOUT, &lead_out)) {
+    return error;
+  }
   toc->lead_out_lba = lead_out.lba;
-  return true;
+  return nullptr;
 }
 
 // Whether two reads describe the same disc, to the frame.
@@ -396,8 +410,8 @@ ReadResult ReadToc(const std::string& device) {
     result = Failure(status_error);
   } else {
     Toc toc;
-    if (!ReadWholeToc(fd, &toc)) {
-      result = Failure(ErrorForErrno(errno));
+    if (const char* error = ReadWholeToc(fd, &toc)) {
+      result = Failure(error);
     } else {
       ReadCdText(fd, &toc.cd_text);
 
@@ -407,7 +421,8 @@ ReadResult ReadToc(const std::string& device) {
       // numbers we gathered describe a disc that has gone" into an answer,
       // instead of into a track list for a disc nobody has any more.
       Toc again;
-      if (DriveStatusError(fd) != nullptr || !ReadWholeToc(fd, &again)) {
+      if (DriveStatusError(fd) != nullptr ||
+          ReadWholeToc(fd, &again) != nullptr) {
         result = Failure(kDiscChangedError);
       } else if (!SameDisc(toc, again)) {
         result = Failure(kDiscChangedError);

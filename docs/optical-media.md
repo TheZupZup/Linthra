@@ -138,7 +138,7 @@ takes the drive and answers with an
 | `noDisc` | The drive is empty, its tray is open, or it has not finished spinning up. |
 | `notAudioCd` | There is a disc and it has no playable CD-DA track: a data CD, a DVD, a Blu-ray, a blank. |
 | `discChanged` | The disc changed, or left, **while it was being read**. The numbers gathered describe a disc that is no longer there, so they are dropped rather than answered with. |
-| `unreadable` | There is a disc and its table of contents could not be read: scratched, unfinalised, or a TOC that contradicts itself. **The state detection alone can never reach.** |
+| `unreadable` | There is a disc and its table of contents could not be read: scratched, unfinalised, or a TOC that contradicts itself. **The state detection alone can never reach.** Also where a medium with no CD table of contents at all lands — see the note below. |
 | `driveUnavailable` | The drive is gone, or the handle does not name an optical drive. |
 | `permissionDenied` | Opening the drive was refused — a group membership, a udev rule. The one failure a user can act on. |
 | `unsupported` | Nothing in this build can read a disc: Android, every non-Linux desktop, the Flatpak. |
@@ -250,6 +250,26 @@ device node — is exactly what a player has to hand the drive to play it.
 
 A disc whose every track is data is not an audio CD at all, and reports
 `notAudioCd`.
+
+#### Media with no CD table of contents read as `unreadable`
+
+A **data CD** reports `notAudioCd` correctly: it really does have a Red Book
+table of contents, with one data track in it, and that is what the reader sees.
+
+A **Blu-ray, a blank disc, and some DVDs** have no CD table of contents at all,
+so the read fails and they report `unreadable` instead. That is honest as far as
+it goes — this layer genuinely could not read a CD table of contents off them —
+but `notAudioCd` would be the more useful answer.
+
+Telling "this medium has no CD TOC" from "this CD is damaged" means asking the
+drive for its current profile, which is another MMC command over `SG_IO`, and
+the `SG_IO` surface here is deliberately staying as small as it is until the
+CD-Text path has been validated on real hardware. Noted for a later PR rather
+than guessed at now.
+
+In practice it is a narrow gap: detection (part 1) already answers "is this an
+audio CD" from UDisks2 without touching the drive, so a Blu-ray reaching the
+table-of-contents reader at all is an unusual path.
 
 ### CD-Text
 

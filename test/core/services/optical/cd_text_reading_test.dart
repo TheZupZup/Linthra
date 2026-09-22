@@ -251,6 +251,46 @@ void main() {
       expect(cdTextFrom(cdTextResponse(packs)), CdTextMetadata.empty);
     });
 
+    test('a pack whose item byte contradicts the stream is refused', () {
+      // The pack header and the NUL count each say which item the pack starts
+      // inside. When they disagree, believing the count would put a real
+      // title on the wrong track — worse than showing `Track 02`.
+      final List<Uint8List> packs = cdTextBlockOf(<List<Uint8List>>[
+        cdTextPacksFor(
+          type: cdTextTitlePackType,
+          texts: const <String>['Disc', 'One', 'Two', 'Three', 'Four'],
+        ),
+      ]);
+      expect(packs.length, greaterThan(1));
+      // Claim the second pack starts inside a different item than it does.
+      packs[1][1] = (packs[1][1] + 7) & 0x7f;
+      expect(cdTextFrom(cdTextResponse(packs)), CdTextMetadata.empty);
+    });
+
+    test('a contradiction in one pack type costs the disc both', () {
+      // All or nothing: a half-decoded answer is exactly the plausible-but-
+      // wrong metadata this decoder exists to refuse.
+      final List<Uint8List> packs = cdTextBlockOf(<List<Uint8List>>[
+        cdTextPacksFor(
+          type: cdTextTitlePackType,
+          texts: const <String>['Disc', 'One', 'Two', 'Three', 'Four'],
+        ),
+        cdTextPacksFor(
+          type: cdTextPerformerPackType,
+          texts: const <String>['Someone', 'Someone', 'Someone'],
+        ),
+      ]);
+      final int firstPerformer = packs.indexWhere(
+        (Uint8List pack) => pack[0] == cdTextPerformerPackType,
+      );
+      expect(firstPerformer, greaterThan(0));
+      packs[1][1] = (packs[1][1] + 7) & 0x7f;
+
+      final CdTextMetadata text = cdTextFrom(cdTextResponse(packs));
+      expect(text, CdTextMetadata.empty);
+      expect(text.discPerformer, isNull);
+    });
+
     test('double-byte text is refused rather than rendered as mojibake', () {
       expect(
         cdTextFrom(

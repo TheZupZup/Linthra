@@ -109,15 +109,19 @@ class RawCdTocTrack {
 /// feature needs a drive.
 @immutable
 class RawCdToc {
-  /// Takes a copy of [tracks]; see [AudioCdDisc] for why the model layer does
-  /// not hold a list somebody else can still write to.
+  /// Takes a copy of [tracks] *and* of [cdText]; see [AudioCdDisc] for why the
+  /// model layer does not hold bytes somebody else can still write to. The
+  /// CD-Text buffer is the same argument as the track list: it feeds both the
+  /// decoded metadata and this value's [hashCode], so a caller that kept the
+  /// list it passed in could change what an already-published disc says.
   RawCdToc({
     required this.firstTrack,
     required this.lastTrack,
     required this.leadOutLba,
     required List<RawCdTocTrack> tracks,
-    this.cdText,
-  }) : tracks = List<RawCdTocTrack>.unmodifiable(tracks);
+    Uint8List? cdText,
+  })  : tracks = List<RawCdTocTrack>.unmodifiable(tracks),
+        cdText = cdText == null ? null : Uint8List.fromList(cdText);
 
   /// The first and last track numbers from the TOC header. Not necessarily 1
   /// and `tracks.length`: a disc may start at any number, and a mixed-mode

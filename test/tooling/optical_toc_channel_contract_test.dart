@@ -198,6 +198,32 @@ void main() {
       expect(source(), contains('a.tracks[i].control != b.tracks[i].control'));
     });
 
+    test('a malformed answer is never classified by a stale errno', () {
+      // The TOC helpers fail two ways — an ioctl the kernel refused, and an
+      // answer that makes no sense — and only the first leaves anything in
+      // `errno`. A bare bool made the caller reach for `errno` either way,
+      // which on a reused worker thread classifies a malformed disc by
+      // whatever unrelated syscall failed on that thread last.
+      final String code = source();
+      expect(code, contains('const char* ReadTocHeader('));
+      expect(code, contains('const char* ReadTocEntry('));
+      expect(code, contains('const char* ReadWholeToc('));
+      // Every surviving `ErrorForErrno(errno)` sits immediately after a
+      // syscall that just failed. What must not come back is the TOC read's
+      // outcome being re-derived from errno instead of carried.
+      expect(
+        code,
+        contains('if (const char* error = ReadWholeToc(fd, &toc)) {'),
+      );
+      expect(code, contains('result = Failure(error);'));
+      expect(
+        code,
+        contains('if (first < 1 || last < first || last > 99) '
+            'return kUnreadableError;'),
+        reason: 'a nonsensical header is unreadable, not whatever errno held',
+      );
+    });
+
     test('a drive can only have one read in flight', () {
       // A Dart deadline cannot abort an ioctl, so without this each retry
       // would strand another worker thread and descriptor.
