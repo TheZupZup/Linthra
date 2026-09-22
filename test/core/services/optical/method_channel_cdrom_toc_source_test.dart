@@ -141,6 +141,11 @@ void main() {
       expect(toc.cdText, isNot(same(bytes)));
       expect(toc.cdText!.first, 0);
       expect(toc.hashCode, before);
+
+      // Copying the caller's list closes one hole; the getter hands out a
+      // writable list unless it is also a view, which closes the other.
+      expect(() => toc.cdText![0] = 0xff, throwsUnsupportedError);
+      expect(toc.hashCode, before);
     });
 
     test('a missing field is refused rather than defaulted', () async {

@@ -263,10 +263,13 @@ Map<int, String>? _textsFor(
       }
       if (item > 99) return texts;
       final String? text = _decode(buffer, charset, previous);
-      if (text != null && text.isNotEmpty) {
-        texts[item] = text;
-        previous = text;
-      }
+      if (text != null && text.isNotEmpty) texts[item] = text;
+      // Every terminated item moves the repeat state, blank ones included. A
+      // TAB means "the same as the item immediately before this one", so after
+      // a blank item it has to repeat the blank — leaving `previous` on the
+      // last *named* item would put that name on a track the disc left empty,
+      // two tracks further down.
+      previous = text != null && text.isNotEmpty ? text : null;
       buffer.clear();
       item++;
     }
@@ -276,8 +279,10 @@ Map<int, String>? _textsFor(
 
 /// One CD-Text string: [bytes] in [charset], with the repeat marker resolved.
 ///
-/// A single TAB means "the same as the item before this one", which is how a
-/// compilation avoids spending a pack per track repeating one performer.
+/// A single TAB means "the same as the item immediately before this one",
+/// which is how a compilation avoids spending a pack per track repeating one
+/// performer. After an item the disc left blank it repeats the blank, not the
+/// last name seen.
 /// Returns null when the bytes are not text this decoder will hand on — an
 /// ASCII block carrying a byte above 0x7f is claiming a character it does not
 /// have.

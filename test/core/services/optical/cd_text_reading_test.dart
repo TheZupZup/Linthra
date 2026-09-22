@@ -126,6 +126,26 @@ void main() {
       expect(text.trackTitles[1], 'Ascii');
     });
 
+    test('the TAB repeat marker after a blank item repeats the blank', () {
+      // The marker means "the same as the item immediately before this one".
+      // After an item the disc left empty that is *nothing*, not the last
+      // name seen two items ago.
+      final CdTextMetadata text = cdTextFrom(
+        cdTextResponse(
+          cdTextBlockOf(<List<Uint8List>>[
+            cdTextPacksFor(
+              type: cdTextPerformerPackType,
+              texts: const <String>['Artist', '', '\t', 'Someone Else'],
+            ),
+          ]),
+        ),
+      );
+      expect(text.discPerformer, 'Artist');
+      expect(text.trackPerformers.containsKey(1), isFalse);
+      expect(text.trackPerformers.containsKey(2), isFalse);
+      expect(text.trackPerformers[3], 'Someone Else');
+    });
+
     test('the TAB repeat marker repeats the previous performer', () {
       // How a single-artist album avoids spending a pack per track.
       final CdTextMetadata text = cdTextFrom(

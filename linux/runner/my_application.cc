@@ -185,6 +185,14 @@ static void my_application_activate(GApplication* application) {
 
   // Registered on the same engine. Reading a disc needs no window, so this one
   // takes only the view. See optical_toc_channel.h.
+  //
+  // Cleared first. This function returns early while a window still exists, so
+  // reaching here twice means the previous window was destroyed — which takes
+  // the process with it, making this unreachable in practice. It costs one
+  // line to not depend on that. (The two channels above are assigned the same
+  // way and would want the same treatment; that is their PRs' code, not this
+  // one's, so it is left alone rather than changed in passing.)
+  g_clear_pointer(&self->optical_toc, optical_toc_channel_free);
   self->optical_toc = optical_toc_channel_new(view);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));

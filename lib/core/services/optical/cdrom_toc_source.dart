@@ -114,6 +114,11 @@ class RawCdToc {
   /// CD-Text buffer is the same argument as the track list: it feeds both the
   /// decoded metadata and this value's [hashCode], so a caller that kept the
   /// list it passed in could change what an already-published disc says.
+  ///
+  /// Copied *and* handed out unmodifiable, which are two different holes. The
+  /// copy closes the one the constructor's argument opens; the view closes the
+  /// one the getter opens, since a plain copy is still a writable list once a
+  /// caller has it.
   RawCdToc({
     required this.firstTrack,
     required this.lastTrack,
@@ -121,7 +126,9 @@ class RawCdToc {
     required List<RawCdTocTrack> tracks,
     Uint8List? cdText,
   })  : tracks = List<RawCdTocTrack>.unmodifiable(tracks),
-        cdText = cdText == null ? null : Uint8List.fromList(cdText);
+        cdText = cdText == null
+            ? null
+            : Uint8List.fromList(cdText).asUnmodifiableView();
 
   /// The first and last track numbers from the TOC header. Not necessarily 1
   /// and `tracks.length`: a disc may start at any number, and a mixed-mode
