@@ -170,6 +170,31 @@ void main() {
       }
     });
 
+    test('a present but wrongly typed cdText is refused, not dropped',
+        () async {
+      // Absent is ordinary — most discs have no CD-Text. Present and the
+      // wrong type means the two halves of the build disagree about the wire,
+      // and reading it as "no CD-Text" would hide that behind a disc that
+      // looks fine apart from having lost its titles.
+      answerWith(
+        (MethodCall call) async => <Object?, Object?>{
+          ...replyFor(),
+          MethodChannelCdromTocSource.cdTextKey: 'not bytes',
+        },
+      );
+
+      await expectLater(
+        sourceFor().readToc('/dev/sr0'),
+        throwsA(
+          isA<CdromTocException>().having(
+            (CdromTocException error) => error.failure,
+            'failure',
+            CdromTocFailure.unreadable,
+          ),
+        ),
+      );
+    });
+
     test('a malformed track entry is refused', () async {
       answerWith(
         (MethodCall call) async => <Object?, Object?>{

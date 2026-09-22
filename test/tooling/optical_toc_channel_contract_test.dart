@@ -215,12 +215,27 @@ void main() {
         code,
         contains('if (const char* error = ReadWholeToc(fd, &toc)) {'),
       );
-      expect(code, contains('result = Failure(error);'));
+      expect(
+        code,
+        contains('strcmp(error, kNoDiscError) == 0 ? kDiscChangedError'),
+        reason: 'the read\'s own code is carried, not re-derived from errno',
+      );
       expect(
         code,
         contains('if (first < 1 || last < first || last > 99) '
             'return kUnreadableError;'),
         reason: 'a nonsensical header is unreadable, not whatever errno held',
+      );
+    });
+
+    test('a disc that leaves mid-read is a change, not an empty tray', () {
+      // The drive said it held a disc moments earlier, so ENOMEDIUM now means
+      // somebody pressed eject — and the caller is owed "ask again" rather
+      // than "there is nothing in the drive".
+      expect(source(), contains('kDiscChangedError'));
+      expect(
+        source(),
+        contains('strcmp(error, kNoDiscError) == 0 ? kDiscChangedError'),
       );
     });
 

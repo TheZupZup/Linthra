@@ -487,6 +487,12 @@ disc, ejects one, or changes anything on the machine.
    case usually says so), expect the real disc title, performer and track
    titles. With a disc that does not, expect `Audio CD` and `Track 01`,
    `Track 02`, … — and **no invented names**.
+   **Try several CD-Text discs from different labels and eras.** The decoder
+   refuses a pack whose item byte or character position contradicts the
+   stream, which is correct by the specification but stricter than some
+   mastering tools were; a disc that falls back to `Track NN` while its case
+   promises titles is the signal that the check needs relaxing, and it is
+   worth knowing before PR 4 puts those titles in front of anyone.
 6. With a CD-Extra or enhanced CD (audio tracks plus a data session), expect
    only the audio tracks, and expect the last one **not** to run two and a half
    minutes long.

@@ -287,6 +287,27 @@ void main() {
       expect(cdTextFrom(cdTextResponse(packs)), CdTextMetadata.empty);
     });
 
+    test('a pack whose character position contradicts the stream is refused',
+        () {
+      // The second independent header: the item byte says which text this
+      // pack continues, the character position says how far into it the pack
+      // starts. A wrong position would splice one title into the middle of
+      // another rather than misplace it whole.
+      final List<Uint8List> packs = cdTextBlockOf(<List<Uint8List>>[
+        cdTextPacksFor(
+          type: cdTextTitlePackType,
+          texts: const <String>[
+            'A Disc Title Long Enough To Straddle Several Packs',
+            'One',
+          ],
+        ),
+      ]);
+      expect(packs.length, greaterThan(2));
+      // Claim the second pack starts a fresh text when it is mid-title.
+      packs[1][3] = packs[1][3] & 0xf0;
+      expect(cdTextFrom(cdTextResponse(packs)), CdTextMetadata.empty);
+    });
+
     test('a contradiction in one pack type costs the disc both', () {
       // All or nothing: a half-decoded answer is exactly the plausible-but-
       // wrong metadata this decoder exists to refuse.
@@ -432,11 +453,11 @@ void main() {
 
   group('CdTextMetadata', () {
     test('is value-equal', () {
-      const CdTextMetadata a = CdTextMetadata(
+      final CdTextMetadata a = CdTextMetadata(
         discTitle: 'Disc',
         trackTitles: <int, String>{1: 'One'},
       );
-      const CdTextMetadata b = CdTextMetadata(
+      final CdTextMetadata b = CdTextMetadata(
         discTitle: 'Disc',
         trackTitles: <int, String>{1: 'One'},
       );
@@ -445,15 +466,27 @@ void main() {
       expect(a, isNot(CdTextMetadata.empty));
     });
 
+    test('cannot be rewritten through the maps it was built from', () {
+      final Map<int, String> titles = <int, String>{1: 'One'};
+      final CdTextMetadata text = CdTextMetadata(trackTitles: titles);
+      final int before = text.hashCode;
+
+      titles[2] = 'Two';
+
+      expect(text.trackTitles, <int, String>{1: 'One'});
+      expect(text.hashCode, before);
+      expect(() => text.trackTitles[3] = 'Three', throwsUnsupportedError);
+    });
+
     test('hashes the same however its maps were built', () {
       // `mapEquals` ignores insertion order, so the hash has to as well —
       // otherwise two equal values land in different buckets and a HashSet
       // holds both of them.
-      const CdTextMetadata forwards = CdTextMetadata(
+      final CdTextMetadata forwards = CdTextMetadata(
         trackTitles: <int, String>{1: 'One', 2: 'Two', 3: 'Three'},
         trackPerformers: <int, String>{1: 'A', 2: 'B'},
       );
-      const CdTextMetadata backwards = CdTextMetadata(
+      final CdTextMetadata backwards = CdTextMetadata(
         trackTitles: <int, String>{3: 'Three', 2: 'Two', 1: 'One'},
         trackPerformers: <int, String>{2: 'B', 1: 'A'},
       );

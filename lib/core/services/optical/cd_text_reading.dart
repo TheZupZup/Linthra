@@ -9,16 +9,22 @@ import 'package:flutter/foundation.dart';
 /// still tell.
 @immutable
 class CdTextMetadata {
-  const CdTextMetadata({
+  /// Takes a copy of both maps, for the reason [RawCdToc] copies its bytes:
+  /// they decide this value's equality *and* its [hashCode], so a caller that
+  /// kept the map it passed in could move an already-published value while it
+  /// sits in a hash set. That copy is also why this constructor is not
+  /// `const` — a `const` one cannot defend itself.
+  CdTextMetadata({
     this.discTitle,
     this.discPerformer,
-    this.trackTitles = const <int, String>{},
-    this.trackPerformers = const <int, String>{},
-  });
+    Map<int, String> trackTitles = const <int, String>{},
+    Map<int, String> trackPerformers = const <int, String>{},
+  })  : trackTitles = Map<int, String>.unmodifiable(trackTitles),
+        trackPerformers = Map<int, String>.unmodifiable(trackPerformers);
 
   /// No CD-Text at all: what an ordinary disc pressed before 1996, a burnt
   /// CD-R, or a drive that cannot read the lead-in comes back as.
-  static const CdTextMetadata empty = CdTextMetadata();
+  static final CdTextMetadata empty = CdTextMetadata();
 
   final String? discTitle;
   final String? discPerformer;
@@ -106,7 +112,10 @@ const int _cdTextMaxPacks = 2048;
 ///  * a gap in the block's sequence numbers, which means a pack went missing
 ///    and every continuation after it would be joined to the wrong text;
 ///  * a pack whose item byte disagrees with the item the NUL count places it
-///    in, which would otherwise attach a real title to the wrong track;
+///    in, which would otherwise attach a real title to the wrong track, or
+///    whose character position disagrees with how much text is already
+///    carried, which would otherwise splice one title into the middle of
+///    another;
 ///  * double-byte text (MS-JIS), which Linthra has no decoder for. Rendering
 ///    those bytes as Latin-1 would produce mojibake that *looks* like
 ///    metadata, and a disc that honestly says "Track 01" is better than one
@@ -184,6 +193,7 @@ List<_CdTextPack>? _packsFrom(Uint8List? response) {
         type: bytes[0],
         item: bytes[1],
         sequence: bytes[2],
+        characterPosition: indicator & 0x0f,
         payload: Uint8List.sublistView(bytes, 4, 16),
       ),
     );
@@ -253,9 +263,16 @@ Map<int, String>? _textsFor(
   final List<int> buffer = <int>[];
 
   for (final _CdTextPack pack in ofType) {
-    // The header says which item this pack starts inside; the running count
-    // says the same thing. They have to agree.
+    // Two independent headers, both describing where this pack sits in the
+    // stream, and the running state says the same thing twice over. They have
+    // to agree: the item byte pins which text this pack continues, and the
+    // character position pins how far into that text it starts. A pack that
+    // contradicts either is a stream that cannot be reassembled with any
+    // confidence about what belongs where.
     if (pack.item != item) return null;
+    if (pack.characterPosition != (buffer.length < 15 ? buffer.length : 15)) {
+      return null;
+    }
     for (final int byte in pack.payload) {
       if (byte != 0) {
         buffer.add(byte);
@@ -332,6 +349,7 @@ class _CdTextPack {
     required this.type,
     required this.item,
     required this.sequence,
+    required this.characterPosition,
     required this.payload,
   });
 
@@ -342,6 +360,11 @@ class _CdTextPack {
 
   /// The block's running pack counter.
   final int sequence;
+
+  /// How many characters of the text this pack starts inside were carried in
+  /// from earlier packs, saturating at 15 — which also stands for "this text
+  /// began further back than the previous pack".
+  final int characterPosition;
 
   /// The pack's twelve text bytes.
   final Uint8List payload;

@@ -160,13 +160,23 @@ List<Uint8List> cdTextPacksFor({
     final int end = offset + 12 < stream.length ? offset + 12 : stream.length;
     final List<int> payload = stream.sublist(offset, end);
     int item = startItem;
+    int itemStart = 0;
     for (int i = 0; i < itemStarts.length; i++) {
-      if (itemStarts[i] <= offset) item = startItem + i;
+      if (itemStarts[i] <= offset) {
+        item = startItem + i;
+        itemStart = itemStarts[i];
+      }
     }
+    // How much of this pack's text was carried in from earlier packs,
+    // saturating at 15 — the value a conforming mastering tool writes into
+    // the low nibble of byte 3, and the one the decoder checks against its
+    // own running count.
+    final int carried = offset - itemStart;
     final Uint8List pack = cdTextPack(
       type: type,
       item: item,
       sequence: startSequence + packs.length,
+      characterPosition: carried < 15 ? carried : 15,
       payload: payload,
       block: block,
     );

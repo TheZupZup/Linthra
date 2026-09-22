@@ -411,7 +411,14 @@ ReadResult ReadToc(const std::string& device) {
   } else {
     Toc toc;
     if (const char* error = ReadWholeToc(fd, &toc)) {
-      result = Failure(error);
+      // The drive said it held a disc a moment ago, so a no-medium failure
+      // now means the disc left while this was reading it. That is a change,
+      // not an empty tray: the caller is owed "ask again", and reporting
+      // "there is nothing in the drive" for a disc somebody just took out
+      // would be the one answer the disc-change check further down exists to
+      // prevent.
+      result = Failure(strcmp(error, kNoDiscError) == 0 ? kDiscChangedError
+                                                        : error);
     } else {
       ReadCdText(fd, &toc.cd_text);
 

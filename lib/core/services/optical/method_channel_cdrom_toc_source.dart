@@ -173,12 +173,23 @@ class MethodChannelCdromTocSource implements CdromTocSource {
         ),
       );
     }
+    // Absent is fine — CD-Text is optional and most discs have none. Present
+    // and the wrong type is not: it means the two halves of this build
+    // disagree about the wire, and quietly reading it as "no CD-Text" would
+    // hide that behind a disc that looks perfectly fine apart from having
+    // lost its titles.
     final Object? cdText = reply[cdTextKey];
+    if (cdText != null && cdText is! Uint8List) {
+      throw const CdromTocException(
+        CdromTocFailure.unreadable,
+        'bad field: cdText',
+      );
+    }
     return RawCdToc(
       firstTrack: _int(reply[firstTrackKey], firstTrackKey),
       lastTrack: _int(reply[lastTrackKey], lastTrackKey),
       leadOutLba: _int(reply[leadOutKey], leadOutKey),
-      cdText: cdText is Uint8List ? cdText : null,
+      cdText: cdText as Uint8List?,
       tracks: tracks,
     );
   }
