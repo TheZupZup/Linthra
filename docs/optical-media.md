@@ -296,8 +296,10 @@ disc falls back — whenever it cannot be sure:
   the buffer can never reach the decoder as CD-Text the disc does not carry;
 - a pack whose CRC does not match (a CRC of zero means the drive did not fill
   it in, which many do not, and is not a mismatch);
-- a gap in the block's sequence numbers, which means a pack went missing and
-  every continuation after it would join the wrong text;
+- a gap in the block's sequence numbers, or a first pack numbered anything but
+  zero — a block counts from zero, so either means a pack went missing, and a
+  missing pack joins the end of one title to the start of another or hides a
+  run of tracks the disc did name;
 - double-byte text (MS-JIS), which Linthra has no decoder for. Rendering those
   bytes as Latin-1 produces mojibake that *looks* like metadata, and a disc
   that honestly says `Track 01` is better than one that confidently says

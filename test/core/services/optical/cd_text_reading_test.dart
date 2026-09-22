@@ -332,6 +332,22 @@ void main() {
       expect(text.discPerformer, isNull);
     });
 
+    test('a block that does not start at sequence zero is refused', () {
+      // Packs missing from the front are the same defect as a gap in the
+      // middle: there is text the decoder never saw and cannot know the shape
+      // of, and publishing what survived would present a disc's later tracks
+      // as if they were all it named.
+      final List<Uint8List> packs = cdTextBlockOf(<List<Uint8List>>[
+        cdTextPacksFor(
+          type: cdTextTitlePackType,
+          texts: const <String>['Disc', 'One', 'Two', 'Three', 'Four'],
+        ),
+      ]);
+      expect(packs.length, greaterThan(1));
+      packs.removeAt(0);
+      expect(cdTextFrom(cdTextResponse(packs)), CdTextMetadata.empty);
+    });
+
     test('double-byte text is refused rather than rendered as mojibake', () {
       expect(
         cdTextFrom(

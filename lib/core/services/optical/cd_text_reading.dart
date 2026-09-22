@@ -109,8 +109,10 @@ const int _cdTextMaxPacks = 2048;
 ///  * a truncated header, or a byte count that is not a whole number of packs;
 ///  * a pack whose CRC does not match (a CRC of zero is treated as "the drive
 ///    did not fill it in", which many do, rather than as a mismatch);
-///  * a gap in the block's sequence numbers, which means a pack went missing
-///    and every continuation after it would be joined to the wrong text;
+///  * a gap in the block's sequence numbers, or a first pack numbered anything
+///    but zero, either of which means a pack went missing — and a missing pack
+///    silently joins the end of one title to the start of another, or hides a
+///    run of tracks the disc did name;
 ///  * a pack whose item byte disagrees with the item the NUL count places it
 ///    in, which would otherwise attach a real title to the wrong track, or
 ///    whose character position disagrees with how much text is already

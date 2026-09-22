@@ -254,6 +254,20 @@ void main() {
       );
     });
 
+    test('the verification reports its own failure, not a disc change', () {
+      // A USB drive unplugged mid-read is drive_unavailable and a marginal
+      // disc that fails the second pass is unreadable. Both are more useful
+      // than "the disc changed", which would send the caller back to retry a
+      // drive that is gone or a disc that cannot be read.
+      final String code = source();
+      expect(code, contains('const char* verify_error = DriveStatusError('));
+      expect(
+        code,
+        contains('strcmp(verify_error, kNoDiscError) == 0'),
+        reason: 'only a no-medium verification failure becomes disc_changed',
+      );
+    });
+
     test('a drive can only have one read in flight', () {
       // A Dart deadline cannot abort an ioctl, so without this each retry
       // would strand another worker thread and descriptor.

@@ -446,11 +446,24 @@ ReadResult ReadToc(const std::string& device) {
       // this function. Reading the table of contents again is what turns "the
       // numbers we gathered describe a disc that has gone" into an answer,
       // instead of into a track list for a disc nobody has any more.
+      // Whatever went wrong on the way back is reported as itself, with one
+      // translation: the first read succeeded, so this drive definitely held
+      // a disc, and "no medium" now can only mean it left. Everything else
+      // has its own answer and is more useful as that answer — a USB drive
+      // unplugged mid-read is `drive_unavailable`, and a marginal disc that
+      // fails on the second pass is `unreadable`. Calling either of those a
+      // disc change would send the caller back to retry a drive that is gone
+      // or a disc that cannot be read.
       Toc again;
       bool still_there = false;
-      if (DriveStatusError(fd, &still_there) != nullptr ||
-          ReadWholeToc(fd, &again, nullptr) != nullptr) {
-        result = Failure(kDiscChangedError);
+      const char* verify_error = DriveStatusError(fd, &still_there);
+      if (verify_error == nullptr) {
+        verify_error = ReadWholeToc(fd, &again, nullptr);
+      }
+      if (verify_error != nullptr) {
+        result = Failure(strcmp(verify_error, kNoDiscError) == 0
+                             ? kDiscChangedError
+                             : verify_error);
       } else if (!SameDisc(toc, again)) {
         result = Failure(kDiscChangedError);
       } else {
