@@ -69,8 +69,9 @@ class AppDiagnosticsData {
   /// The device's supported ABIs, most preferred first (e.g. `armeabi-v7a`).
   final List<String>? androidAbis;
 
-  /// How FLAC is decoded on this device: the platform decoder (named), the
-  /// built-in libFLAC fallback, or unavailable. Codec names only.
+  /// Which FLAC decoders this device has: the platform decoder (named, tried
+  /// first) and whether the built-in libFLAC fallback loaded. Availability,
+  /// not the decoder a given track used. Codec names only.
   final String? flacDecoding;
 
   /// Short names of the formats the platform itself can decode (e.g. `mp3`,

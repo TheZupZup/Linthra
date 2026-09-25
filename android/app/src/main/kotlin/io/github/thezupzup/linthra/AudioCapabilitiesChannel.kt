@@ -4,6 +4,8 @@ import android.media.MediaCodecList
 import android.os.Build
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 
 /**
  * Reports which audio decoders this device has, for the diagnostics report (#674).
@@ -26,12 +28,14 @@ import io.flutter.plugin.common.MethodChannel
  * Read-only and side-effect free. Only APIs from API 21 or earlier are used, so
  * it is safe on Linthra's API 24 minimum. The codec-list query can take a
  * noticeable moment on old devices (it parses the vendor codec XML the first
- * time), so it runs on [PlatformChannelWorker] rather than the platform thread.
- * It runs only when the diagnostics report is built, never during playback, and
- * never walks the music library.
+ * time), so it runs on [PlatformChannelWorker] rather than the platform thread,
+ * on its own thread: the shared channel worker also runs SAF library scans,
+ * and a long scan must not hold up the diagnostics report behind it. It runs
+ * only when the diagnostics report is built, never during playback, and never
+ * walks the music library.
  */
 class AudioCapabilitiesChannel(
-    private val worker: PlatformChannelWorker = PlatformChannelWorker(),
+    private val worker: PlatformChannelWorker = PlatformChannelWorker(CODEC_QUERY),
 ) {
     fun configure(messenger: BinaryMessenger) {
         MethodChannel(messenger, CHANNEL).setMethodCallHandler { call, result ->
@@ -98,6 +102,14 @@ class AudioCapabilitiesChannel(
 
     companion object {
         const val CHANNEL = "io.github.thezupzup.linthra/audio_capabilities"
+
+        // Separate from PlatformChannelWorker's shared executor, which queues
+        // SAF scans. One daemon thread: the query is short and rare, and a
+        // second report while one is running just waits for it.
+        private val CODEC_QUERY: Executor =
+            Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "linthra-audio-capabilities").apply { isDaemon = true }
+            }
 
         private const val FLAC = "audio/flac"
 

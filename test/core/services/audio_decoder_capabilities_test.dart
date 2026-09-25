@@ -47,7 +47,31 @@ void main() {
         ),
       )!;
       expect(caps.flacDecodingPath, FlacDecodingPath.platform);
-      expect(caps.flacSummary, 'platform (OMX.MTK.AUDIO.DECODER.FLAC)');
+      // Availability of both paths, not a claim about which decoder a track
+      // used: the platform decoder can still turn a track down, and libFLAC
+      // then plays it.
+      expect(
+        caps.flacSummary,
+        'platform decoder first (OMX.MTK.AUDIO.DECODER.FLAC), '
+        'built-in libFLAC fallback available',
+      );
+    });
+
+    test('a platform decoder without the fallback says so', () {
+      final AudioDecoderCapabilities caps =
+          AudioDecoderCapabilities.fromPlatform(
+        _platform(
+          sdkInt: 30,
+          flac: <Object?>['c2.android.flac.decoder'],
+          fallback: false,
+        ),
+      )!;
+      expect(caps.flacDecodingPath, FlacDecodingPath.platform);
+      expect(
+        caps.flacSummary,
+        'platform decoder first (c2.android.flac.decoder), '
+        'built-in libFLAC fallback not loaded',
+      );
     });
 
     test('API 27+ uses the platform decoder even with the fallback bundled',

@@ -1,14 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// How this device decodes FLAC with Linthra's Android player.
+/// Which FLAC decoding path this device prefers with Linthra's Android player.
 ///
-/// Linthra's player prefers the platform decoder and falls back to the bundled
-/// libFLAC only when the platform has none (see
-/// third_party/just_audio/PATCHES.md), so these three facts decide the path.
+/// Linthra's player tries the platform decoder first and uses the bundled
+/// libFLAC for any FLAC track the platform decoder does not handle (see
+/// third_party/just_audio/PATCHES.md). This is the preferred path from what is
+/// registered on the device, not the decoder a particular track used: a
+/// platform decoder can still turn down one track's sample rate, channels or
+/// bit depth, and that track then plays through libFLAC. The decoder a track
+/// actually used is logged (`Audio decoder: <name>` in logcat).
 enum FlacDecodingPath {
-  /// A platform `MediaCodec` FLAC decoder exists and is used. Guaranteed from
-  /// API 27; present on many older devices too.
+  /// A platform `MediaCodec` FLAC decoder is registered and is tried first.
+  /// Guaranteed from API 27; present on many older devices too.
   platform,
 
   /// No platform FLAC decoder. The bundled libFLAC decoder is used instead
@@ -55,18 +59,24 @@ class AudioDecoderCapabilities {
   /// platform has at least one decoder for.
   final List<String> platformDecoderMimeTypes;
 
-  /// The path FLAC takes on this device.
+  /// The FLAC path this device prefers (see [FlacDecodingPath]).
   FlacDecodingPath get flacDecodingPath {
     if (flacPlatformDecoders.isNotEmpty) return FlacDecodingPath.platform;
     if (flacFallbackAvailable) return FlacDecodingPath.bundledFallback;
     return FlacDecodingPath.unavailable;
   }
 
-  /// The report line for FLAC, naming the platform decoder when there is one.
+  /// The report line for FLAC. With a platform decoder registered it states
+  /// both paths' availability rather than claiming which one a track used:
+  /// the platform decoder can turn down a track that libFLAC then plays.
   String get flacSummary {
     switch (flacDecodingPath) {
       case FlacDecodingPath.platform:
-        return 'platform (${flacPlatformDecoders.join(', ')})';
+        final String fallback = flacFallbackAvailable
+            ? 'built-in libFLAC fallback available'
+            : 'built-in libFLAC fallback not loaded';
+        return 'platform decoder first (${flacPlatformDecoders.join(', ')}), '
+            '$fallback';
       case FlacDecodingPath.bundledFallback:
         return 'built-in fallback (libFLAC), no platform decoder';
       case FlacDecodingPath.unavailable:
