@@ -38,4 +38,10 @@ immediately before the relicensing commit (SHA-256
 Vendored third-party code keeps its own upstream license and is **not** covered
 by Linthra's relicensing. In particular
 [`third_party/just_audio_media_kit/LICENSE`](../../third_party/just_audio_media_kit/LICENSE)
-(the Unlicense) is upstream's own notice and must be preserved as-is.
+(the Unlicense) is upstream's own notice and must be preserved as-is, as are
+[`third_party/just_audio/LICENSE`](../../third_party/just_audio/LICENSE) (MIT,
+with ExoPlayer's Apache-2.0 notice),
+[`third_party/media3_decoder_flac/LICENSE`](../../third_party/media3_decoder_flac/LICENSE)
+(Apache-2.0) and
+[`third_party/libflac/COPYING.Xiph`](../../third_party/libflac/COPYING.Xiph)
+(BSD-3-Clause).

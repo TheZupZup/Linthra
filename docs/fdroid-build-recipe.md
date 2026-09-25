@@ -84,7 +84,7 @@ Linthra is a Flutter (Dart) application targeting Android.
 | Android SDK | `compileSdk`, `minSdk`, `targetSdk`, `versionCode`, and `versionName` all come from Flutter (`flutter.*` in `android/app/build.gradle`); they follow the pinned Flutter version rather than being hard-coded. |
 | Gradle wrapper committed? | **Partly.** `gradle-wrapper.properties` is committed; **`gradle-wrapper.jar` is _not_ committed.** F-Droid's build server can regenerate/restore the wrapper jar, but the recipe must account for this (e.g. `gradle` build type, or a prebuild that runs `flutter build` which provisions the wrapper). Worth re-checking before submission. |
 | Generated files committed? | **Yes for Drift.** `lib/data/database/linthra_database.g.dart` is committed. This means `build_runner` is **not** required during the F-Droid build (see §4). |
-| Native components | `sqlite3_flutter_libs` ships a native SQLite engine built from source; no prebuilt closed blobs. |
+| Native components | `sqlite3_flutter_libs` ships a native SQLite engine built from source, and `third_party/media3_decoder_flac` builds `libflacJNI.so` from the vendored libFLAC source (#674); no prebuilt closed blobs. |
 
 **Build commands** (what the recipe effectively performs):
 

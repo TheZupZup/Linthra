@@ -954,20 +954,6 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://pub.dev/api/archives/just_audio-0.9.46.tar.gz",
-        "sha256": "f978d5b4ccea08f267dae0232ec5405c1b05d3f3cd63f82097ea46c015d5c09e",
-        "strip-components": 0,
-        "dest": ".pub-cache/hosted/pub.dev/just_audio-0.9.46"
-    },
-    {
-        "type": "inline",
-        "contents": "f978d5b4ccea08f267dae0232ec5405c1b05d3f3cd63f82097ea46c015d5c09e",
-        "dest": ".pub-cache/hosted-hashes/pub.dev",
-        "dest-filename": "just_audio-0.9.46.sha256"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
         "url": "https://pub.dev/api/archives/just_audio_platform_interface-4.6.0.tar.gz",
         "sha256": "2532c8d6702528824445921c5ff10548b518b13f808c2e34c2fd54793b999a6a",
         "strip-components": 0,

@@ -1,0 +1,7 @@
+PATCHES.md
+upstream.sha256
+local.files
+build.gradle
+linthra-consumer-rules.pro
+src/main/AndroidManifest.xml
+src/main/jni/CMakeLists.txt

@@ -130,6 +130,16 @@ your files are never touched on disk.
   audio if it has one of those extensions **or** the system reports an `audio/*`
   content type, so an oddly-named file the platform still recognises as audio is
   not dropped.
+- FLAC plays on every supported Android version. Android only guarantees a
+  built-in FLAC decoder from Android 8.1 (API 27); on older devices without one
+  (some Android 7 phones, tablets and Fire OS devices) Linthra decodes FLAC
+  itself with a bundled libFLAC. Devices that have a platform decoder keep using
+  it. The same applies to FLAC from Plex, Jellyfin, Navidrome and the offline
+  cache (#674).
+- A track whose audio this device cannot decode at all shows "This track's
+  format isn't supported on this device." instead of playing silently.
+  Settings ▸ Diagnostics lists the Android SDK level, ABI and how FLAC is
+  decoded, for bug reports.
 
 ### Track metadata (tags)
 
