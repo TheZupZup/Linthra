@@ -1735,7 +1735,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
           throw failure;
         }
-        StabilityDiagnostics.playbackError('load');
+        StabilityDiagnostics.playbackError(
+            loadFailureBreadcrumb(error, failure));
         // A cached file that won't open (reclaimed after the existence check,
         // corrupt, or an unreadable codec) must not strand a single-source
         // track on an error: re-resolve the same copy past the offline cache
@@ -1817,7 +1818,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
         throw failure;
       }
-      StabilityDiagnostics.playbackError('load');
+      StabilityDiagnostics.playbackError(loadFailureBreadcrumb(error, failure));
       return null;
     }
   }
@@ -1879,6 +1880,35 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       kind: PlaybackResolutionErrorKind.streamUnavailable,
     );
   }
+
+  /// The diagnostics breadcrumb for an engine load failure.
+  ///
+  /// `load` for an ordinary failure to open a source. For audio this device
+  /// cannot decode it is `unsupported-format`, plus the sample MIME type the
+  /// engine named (`unsupported-format:audio/flac`), so a report like #674 says
+  /// what could not be decoded instead of a bare "load" (or, before the engine
+  /// reported it at all, nothing).
+  ///
+  /// The MIME type is the only engine-supplied text that can reach a report,
+  /// and only when it is shaped like one: never a message, path or URL.
+  @visibleForTesting
+  static String loadFailureBreadcrumb(
+    Object error,
+    PlaybackResolutionException failure,
+  ) {
+    if (failure.kind != PlaybackResolutionErrorKind.mediaUnsupported) {
+      return 'load';
+    }
+    final Object? mimeType =
+        error is PlayerException ? error.details['mimeType'] : null;
+    if (mimeType is String && _safeMimeType.hasMatch(mimeType)) {
+      return 'unsupported-format:$mimeType';
+    }
+    return 'unsupported-format';
+  }
+
+  static final RegExp _safeMimeType =
+      RegExp(r'^[a-z0-9][a-z0-9.+-]{0,31}/[a-z0-9][a-z0-9.+-]{0,63}$');
 
   /// The generic message for an engine load failure *after* a successful
   /// resolve, worded for the resolved [source] (a direct stream "couldn't

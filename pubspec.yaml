@@ -138,6 +138,13 @@ dependency_overrides:
   # via [JustAudioMediaKit.mpvProperties] without forking production playback.
   just_audio_media_kit:
     path: third_party/just_audio_media_kit
+  # Patched locally so Android never plays silently (#674): the player uses
+  # Media3's extension renderers *after* the platform decoders (Linthra bundles
+  # a FLAC one for devices without a platform FLAC decoder), and a source whose
+  # audio no renderer can decode fails as unsupported instead of "playing" with
+  # no sound. Android-only hunks; see third_party/just_audio/PATCHES.md.
+  just_audio:
+    path: third_party/just_audio
 
 dev_dependencies:
   flutter_lints: ^5.0.0

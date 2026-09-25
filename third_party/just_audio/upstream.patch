@@ -1,0 +1,139 @@
+--- a/analysis_options.yaml
++++ b/analysis_options.yaml
+@@ -1,6 +1,9 @@
+ include: package:flutter_lints/flutter.yaml
+ 
+ analyzer:
++  exclude:
++    - build/**
++    - android/**
+   language:
+     strict-casts: true
+     strict-inference: true
+--- a/android/src/main/java/com/ryanheise/just_audio/AudioPlayer.java
++++ b/android/src/main/java/com/ryanheise/just_audio/AudioPlayer.java
+@@ -10,6 +10,8 @@ import android.os.Handler;
+ import android.os.Looper;
+ import androidx.media3.common.C;
+ import androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl;
++import androidx.media3.exoplayer.DefaultRenderersFactory;
++import androidx.media3.exoplayer.analytics.AnalyticsListener;
+ import androidx.media3.exoplayer.DefaultLoadControl;
+ import androidx.media3.exoplayer.ExoPlaybackException;
+ import androidx.media3.exoplayer.LivePlaybackSpeedControl;
+@@ -98,6 +100,9 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
+     private List<AudioEffect> audioEffects = new ArrayList<AudioEffect>();
+     private Map<String, AudioEffect> audioEffectsMap = new HashMap<String, AudioEffect>();
+     private int lastPlaylistLength = 0;
++    // Linthra patch (#674): set once the current source turned out to have
++    // audio that no renderer on this device can decode. Cleared by load().
++    private boolean unsupportedAudioReported;
+     private Map<String, Object> pendingPlaybackEvent;
+ 
+     private ExoPlayer player;
+@@ -227,6 +232,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
+ 
+     @Override
+     public void onTracksChanged(Tracks tracks) {
++        if (reportUnsupportedAudio(tracks)) return;
+         for (int i = 0; i < tracks.getGroups().size(); i++) {
+             TrackGroup trackGroup = tracks.getGroups().get(i).getMediaTrackGroup();
+ 
+@@ -314,6 +320,10 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
+ 
+     @Override
+     public void onPlaybackStateChanged(int playbackState) {
++        // Linthra patch (#674): a source whose audio cannot be decoded has
++        // already failed. Don't let a READY queued in the same event batch
++        // report it as loaded (and so as playing) after the error.
++        if (unsupportedAudioReported) return;
+         switch (playbackState) {
+         case Player.STATE_READY:
+             if (player.getPlayWhenReady())
+@@ -738,6 +748,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
+     }
+ 
+     private void load(final MediaSource mediaSource, final long initialPosition, final Integer initialIndex, final Result result) {
++        unsupportedAudioReported = false;
+         this.initialPos = initialPosition;
+         this.initialIndex = initialIndex;
+         currentIndex = initialIndex != null ? initialIndex : 0;
+@@ -765,7 +776,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
+ 
+     private void ensurePlayerInitialized() {
+         if (player == null) {
+-            ExoPlayer.Builder builder = new ExoPlayer.Builder(context);
++            ExoPlayer.Builder builder = new ExoPlayer.Builder(context, buildRenderersFactory());
+             if (loadControl != null) {
+                 builder.setLoadControl(loadControl);
+             }
+@@ -798,9 +809,69 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
+             );
+             setAudioSessionId(player.getAudioSessionId());
+             player.addListener(this);
++            player.addAnalyticsListener(decoderLogger);
+         }
+     }
+ 
++    // Linthra patch (#674): Media3's extension renderers are appended *after*
++    // the platform MediaCodec renderers (EXTENSION_RENDERER_MODE_ON, not
++    // PREFER), and the track selector only moves past a renderer that does not
++    // fully handle the format. So a device whose platform decodes a format keeps
++    // using it, and an extension renderer bundled with the app (Linthra ships
++    // Media3's FLAC one) is used only where the platform cannot. With no
++    // extension bundled this is identical to the default factory.
++    private DefaultRenderersFactory buildRenderersFactory() {
++        return new DefaultRenderersFactory(context)
++                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
++    }
++
++    // Linthra patch (#674): Media3 does not treat "this source has audio but no
++    // renderer can decode it" as an error. It drops the audio track, reaches
++    // READY and advances position on a wall-clock timer with no AudioTrack at
++    // all, so the app sees a normal playing state while nothing is heard.
++    // Report it as a load/playback error instead, and stop the player so it
++    // cannot keep "playing" silently. Returns whether the source is (already)
++    // reported as unsupported.
++    //
++    // The message carries only the sample MIME type (e.g. "audio/flac"): never
++    // the URI, which can contain credentials.
++    private boolean reportUnsupportedAudio(Tracks tracks) {
++        if (unsupportedAudioReported) return true;
++        if (!tracks.containsType(C.TRACK_TYPE_AUDIO) || tracks.isTypeSelected(C.TRACK_TYPE_AUDIO)) {
++            return false;
++        }
++        String mimeType = null;
++        for (Tracks.Group group : tracks.getGroups()) {
++            if (group.getType() == C.TRACK_TYPE_AUDIO && group.length > 0) {
++                mimeType = group.getTrackFormat(0).sampleMimeType;
++                break;
++            }
++        }
++        unsupportedAudioReported = true;
++        Log.w(TAG, "No audio renderer on this device can decode " + mimeType);
++        sendError(
++                String.valueOf(PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED),
++                "Unsupported audio format: no decoder on this device for " + mimeType,
++                mapOf("index", currentIndex, "mimeType", mimeType));
++        player.stop();
++        return true;
++    }
++
++    // Linthra patch (#674): one logcat line per audio decoder initialisation,
++    // naming the decoder (a platform codec such as "c2.android.flac.decoder",
++    // or "libflac" for the bundled fallback), so a field report can show which
++    // path actually played. Decoder names only; nothing about the media.
++    private final AnalyticsListener decoderLogger = new AnalyticsListener() {
++        @Override
++        public void onAudioDecoderInitialized(
++                AnalyticsListener.EventTime eventTime,
++                String decoderName,
++                long initializedTimestampMs,
++                long initializationDurationMs) {
++            Log.i(TAG, "Audio decoder: " + decoderName);
++        }
++    };
++
+     private void setAudioAttributes(int contentType, int flags, int usage) {
+         AudioAttributes.Builder builder = new AudioAttributes.Builder();
+         builder.setContentType(contentType);

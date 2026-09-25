@@ -181,6 +181,14 @@ android.applicationVariants.all { variant ->
     }
 }
 
+dependencies {
+    // FLAC fallback decoder for devices whose platform has no FLAC MediaCodec
+    // (#674). Media3 discovers it by reflection, so app code never calls it;
+    // this line is what packages its classes and libflacJNI.so. Built from
+    // vendored source; see third_party/media3_decoder_flac/PATCHES.md.
+    implementation project(":media3_decoder_flac")
+}
+
 flutter {
     source = "../.."
 }

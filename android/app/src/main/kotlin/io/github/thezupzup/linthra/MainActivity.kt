@@ -43,6 +43,11 @@ class MainActivity : AudioServiceActivity() {
         InstallHistoryChannel(applicationContext)
     }
 
+    // Reports which audio decoders the device has (SDK level, ABIs, FLAC
+    // platform decoders, whether the bundled FLAC fallback loads) for the
+    // diagnostics report (#674). Stateless and read-only.
+    private val audioCapabilitiesChannel by lazy { AudioCapabilitiesChannel() }
+
     // Walks the picked SAF tree and reads sidecar lyrics from it. One instance
     // for the activity rather than one per channel call, like every other
     // channel here. Superseding an in-flight walk does not depend on this: the
@@ -153,6 +158,9 @@ class MainActivity : AudioServiceActivity() {
 
         // First-install/update history for the v0.2.0 onboarding migration.
         installHistoryChannel.configure(flutterEngine.dartExecutor.binaryMessenger)
+
+        // Audio decoder capabilities for the diagnostics report (#674).
+        audioCapabilitiesChannel.configure(flutterEngine.dartExecutor.binaryMessenger)
 
         // Launcher-icon switching: enable the chosen <activity-alias> and
         // disable the others (LauncherIconChannel). Separate channel from SAF so

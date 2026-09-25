@@ -78,9 +78,9 @@ The specific combinations that need stating rather than assuming:
 
   | Source | Count | Licenses |
   | --- | --- | --- |
-  | pub.dev hosted | 158 | **101** BSD-3-Clause, **43** MIT, **7** Apache-2.0, **6** BSD-2-Clause, **1** MPL-2.0 |
+  | pub.dev hosted | 157 | **101** BSD-3-Clause, **43** MIT, **6** Apache-2.0, **6** BSD-2-Clause, **1** MPL-2.0 |
   | Flutter SDK (`flutter`, `flutter_test`, `flutter_web_plugins`, `sky_engine`) | 4 | BSD-3-Clause (the SDK's own license) |
-  | Vendored path dependency (`just_audio_media_kit`) | 1 | Unlicense (public domain) — see §5 |
+  | Vendored path dependencies (`just_audio_media_kit`, `just_audio`) | 2 | Unlicense (public domain); MIT with ExoPlayer's Apache-2.0 notice — see §5.3 |
 
   **No GPL, no LGPL, no proprietary, and no unknown or unverifiable license** in
   the resolved Dart/Flutter set. The single MPL-2.0 package is `dbus 0.7.12`
@@ -123,7 +123,7 @@ published archive (§2).
 | `drift`                  | `^2.18.0`    | simonbinder.eu      | MIT            | Typed SQLite query layer. |
 | `sqlite3_flutter_libs`   | `^0.5.20`    | simonbinder.eu      | MIT            | Bundles the native SQLite engine (see §5). |
 | `path_provider`          | `^2.1.4`     | flutter.dev         | BSD-3-Clause   | Locates the on-device DB file. |
-| `just_audio`             | `^0.9.42`    | ryanheise.com       | **Apache-2.0** | Local audio playback engine. Apache-2.0, not MIT — corrected in this revision (§2). |
+| `just_audio`             | 0.9.46 (vendored) | ryanheise.com  | MIT (+ ExoPlayer's Apache-2.0 notice) | Local audio playback engine. Vendored with a small Android patch for #674 (§5.3). Its `LICENSE` is MIT and carries the Apache-2.0 notice of the ExoPlayer it bundles, which is why pub.dev reports Apache-2.0. |
 | `audio_service`          | `^0.18.15`   | ryanheise.com       | MIT            | Background playback / media session. |
 | `file_picker`            | `^8.1.4`     | (miguelpruivo)      | MIT            | Native folder chooser (SAF). |
 | `shared_preferences`     | `^2.3.3`     | flutter.dev         | BSD-3-Clause   | Persists the selected folder. |
@@ -281,6 +281,23 @@ vendored fork of the upstream package, carried with its upstream `LICENSE`
 (**the Unlicense** — public domain), plus `PATCHES.md`, `upstream.patch` and
 `upstream.sha256` recording provenance.
 
+Three more trees were vendored for [#674](https://github.com/thezupzup/linthra/issues/674)
+(silent FLAC playback on Android devices without a platform FLAC decoder). Each
+carries its upstream license file unmodified and a `PATCHES.md` +
+`upstream.sha256` provenance record, checked offline by
+`scripts/check_vendored_packages.sh`:
+
+- [`third_party/just_audio`](../third_party/just_audio) — just_audio 0.9.46,
+  **MIT** (its `LICENSE` also carries ExoPlayer's Apache-2.0 notice). Android
+  patch only.
+- [`third_party/media3_decoder_flac`](../third_party/media3_decoder_flac) —
+  AndroidX Media3 1.4.1's `decoder_flac` module, **Apache-2.0**. Not published
+  to Maven by Google, so it is built from source.
+- [`third_party/libflac`](../third_party/libflac) — the decoder half of libFLAC
+  1.5.0, **BSD-3-Clause** (`COPYING.Xiph`), unmodified.
+
+Apache-2.0, MIT and BSD-3-Clause are all compatible with AGPL-3.0-or-later.
+
 **This code is not relicensed and must not be relabelled.** Linthra's move to
 AGPL-3.0-or-later covers Linthra's own work. Vendored third-party code keeps its
 own upstream terms, and its license/provenance files are preserved byte-for-byte.
@@ -291,6 +308,11 @@ The same applies to every other third-party notice in the tree.
 - **SQLite** (via `sqlite3_flutter_libs`): the SQLite amalgamation is in the
   **public domain** and is compiled from source as part of the build — not a
   prebuilt closed binary. The Dart wrapper packages are MIT.
+- **libFLAC 1.5.0** (via the vendored Media3 FLAC module, #674):
+  **BSD-3-Clause**, compiled **from vendored source** with the NDK + CMake into
+  `libflacJNI.so` for armeabi-v7a, arm64-v8a and x86_64. Decoder subset only,
+  no prebuilt binary. Used only for FLAC on devices whose platform has no FLAC
+  decoder (§5.3).
 - **Android Keystore / EncryptedSharedPreferences** (used by
   `flutter_secure_storage`): part of the **AOSP** platform, not Google Play
   Services. No proprietary dependency is introduced.
@@ -436,8 +458,11 @@ The in-app "Report a bug" flow (Settings → Report a bug) is the reason
   LGPL-2.1-or-later at worst, AGPL-compatible via the LGPLv3 upgrade path (§5.1).
 - **Rust core:** zero third-party crates (§5.2).
 - **Vendored code:** `third_party/just_audio_media_kit` stays under the
-  Unlicense and is **not** relicensed (§5.3).
-- **Android native bits:** SQLite (public domain, built from source), AndroidX
+  Unlicense, `third_party/just_audio` under MIT, `third_party/media3_decoder_flac`
+  under Apache-2.0 and `third_party/libflac` under BSD-3-Clause; none is
+  relicensed (§5.3).
+- **Android native bits:** SQLite (public domain, built from source), libFLAC
+  (BSD-3-Clause, built from vendored source), AndroidX
   Media3 / `media` / `core` (Apache-2.0 — the playback engine, not GMS), and
   Android Keystore (AOSP). No Google Play Services / Firebase anywhere.
 - **Bottom line:** no `GPL-2.0-only`, non-free, or unknown-license component was

@@ -1,0 +1,75 @@
+// Linthra's build for Media3's FLAC decoder module (androidx/media 1.4.1,
+// libraries/decoder_flac). Upstream's own build.gradle depends on the Media3
+// monorepo's shared Gradle config and sibling projects; this one builds the same
+// sources against the published Media3 artifacts just_audio already uses. See
+// PATCHES.md.
+//
+// It provides LibflacAudioRenderer and libflacJNI.so. just_audio's player (see
+// third_party/just_audio/PATCHES.md) turns on Media3's extension renderers, so
+// this renderer is added *after* the platform MediaCodec renderer and is only
+// picked for FLAC the device cannot decode itself.
+
+apply plugin: 'com.android.library'
+
+// android/build.gradle makes every subproject evaluate after :app, so the app's
+// SDK levels and NDK are known here. Taking them from the app keeps this module
+// on exactly the toolchain Flutter pins (compileSdk, minSdk and the NDK all come
+// from flutter.* in android/app/build.gradle), with nothing to keep in sync.
+def appAndroid = project(':app').android
+
+android {
+    namespace 'androidx.media3.decoder.flac'
+    compileSdk appAndroid.compileSdk
+    ndkVersion appAndroid.ndkVersion
+
+    defaultConfig {
+        minSdk appAndroid.defaultConfig.minSdk
+        // Upstream's rules keep the members libflacJNI.so calls back into;
+        // Linthra's keep the reflective entry points Media3 uses to find the
+        // renderer, so R8 can never shrink the fallback away.
+        consumerProguardFiles 'proguard-rules.txt', 'linthra-consumer-rules.pro'
+        externalNativeBuild {
+            cmake {
+                // Every ABI Linthra ships (see android-release-build.yml):
+                // armeabi-v7a for 32-bit devices such as the Echo Show 8 in
+                // #674, arm64-v8a, and x86_64: the same three Flutter ships
+                // libflutter.so for. A per-ABI build (--split-per-abi) still
+                // compiles all three, and packaging keeps only its own.
+                abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+                // The JNI glue uses the C++ standard library. c++_static is
+                // AGP's default and what upstream's Application.mk uses; it is
+                // safe to link statically because nothing C++ crosses the JNI
+                // boundary.
+                arguments '-DANDROID_STL=c++_static'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'src/main/jni/CMakeLists.txt'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        // Upstream Media3 source, checked by upstream. Linthra's lint would
+        // only flag its @UnstableApi opt-in annotations.
+        abortOnError false
+    }
+}
+
+dependencies {
+    // Must equal the Media3 version just_audio resolves; a FLAC module from one
+    // Media3 release against another release's renderer API is unsupported.
+    // test/tooling/media3_flac_fallback_build_test.dart enforces the match.
+    implementation 'androidx.media3:media3-exoplayer:1.4.1'
+    // Media3 declares this as `implementation`, so it is not on this module's
+    // compile classpath through media3-exoplayer. Same version Media3 1.4.1
+    // builds against; Gradle keeps whichever newer version the app resolves.
+    implementation 'androidx.annotation:annotation:1.3.0'
+}

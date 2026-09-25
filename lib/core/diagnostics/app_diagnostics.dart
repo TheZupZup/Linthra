@@ -16,6 +16,10 @@ class AppDiagnosticsData {
   const AppDiagnosticsData({
     required this.appVersion,
     this.androidVersion,
+    this.androidSdkInt,
+    this.androidAbis,
+    this.flacDecoding,
+    this.platformAudioFormats,
     this.deviceModel,
     this.jellyfinState,
     this.jellyfinHost,
@@ -56,6 +60,22 @@ class AppDiagnosticsData {
 
   /// The Android OS version string, when running on Android. Null elsewhere.
   final String? androidVersion;
+
+  /// `Build.VERSION.SDK_INT`, when known. Fire OS puts a build id (e.g.
+  /// `NS6574`) where [androidVersion] normally has the release, so this is the
+  /// only reliable API level in a report (#674).
+  final int? androidSdkInt;
+
+  /// The device's supported ABIs, most preferred first (e.g. `armeabi-v7a`).
+  final List<String>? androidAbis;
+
+  /// How FLAC is decoded on this device: the platform decoder (named), the
+  /// built-in libFLAC fallback, or unavailable. Codec names only.
+  final String? flacDecoding;
+
+  /// Short names of the formats the platform itself can decode (e.g. `mp3`,
+  /// `aac`), when known.
+  final List<String>? platformAudioFormats;
 
   /// The device model, when a platform source for it is available. Null
   /// otherwise — never a guess.
@@ -220,6 +240,13 @@ abstract final class AppDiagnostics {
       'Linthra diagnostics',
       'App version: ${data.appVersion}',
       if (_has(data.androidVersion)) 'Android: ${data.androidVersion}',
+      if (data.androidSdkInt != null) 'Android SDK: ${data.androidSdkInt}',
+      if (data.androidAbis != null && data.androidAbis!.isNotEmpty)
+        'ABI: ${data.androidAbis!.join(', ')}',
+      if (_has(data.flacDecoding)) 'FLAC decoding: ${data.flacDecoding}',
+      if (data.platformAudioFormats != null)
+        'Platform audio decoders: '
+            '${data.platformAudioFormats!.isEmpty ? 'none' : data.platformAudioFormats!.join(', ')}',
       if (_has(data.deviceModel)) 'Device: ${data.deviceModel}',
       if (data.jellyfinState != null) 'Jellyfin: ${data.jellyfinState}',
       if (jellyfinHost != null) 'Jellyfin host: $jellyfinHost',

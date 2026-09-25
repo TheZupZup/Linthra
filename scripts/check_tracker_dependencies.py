@@ -27,6 +27,8 @@ toolchain):
   * `android/**/*.gradle` and `*.gradle.kts` — Maven coordinates and Gradle
     plugin ids. Linthra declares no Maven dependencies of its own today; the
     point is the line that adds the first one.
+  * `third_party/**/*.gradle` — the same, for vendored Android modules
+    (just_audio's plugin build and Media3's FLAC decoder module, #674).
   * `native/**/Cargo.lock` — the Rust core's resolved crates.
 
 **Matching is exact, never substring.** A Dart entry has to equal a package
@@ -578,6 +580,10 @@ SOURCES: tuple[tuple[str, str, object], ...] = (
     ("linux/flutter/generated_plugins.cmake", "file", parse_generated_plugins),
     ("android/**/*.gradle", "glob", parse_gradle),
     ("android/**/*.gradle.kts", "glob-optional", parse_gradle),
+    # Vendored Android modules (Media3's FLAC decoder, just_audio's plugin
+    # build) declare Maven coordinates of their own. They ship in the APK
+    # exactly like android/**, so they are read the same way.
+    ("third_party/**/*.gradle", "glob-optional", parse_gradle),
     ("native/**/Cargo.lock", "glob", parse_cargo_lock),
 )
 

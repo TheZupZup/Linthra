@@ -8,6 +8,7 @@ import '../../../core/models/active_playback_output.dart';
 import '../../../core/models/cast_state.dart';
 import '../../../core/models/playback_state.dart';
 import '../../../core/services/active_playback_controller.dart';
+import '../../../core/services/audio_decoder_capabilities.dart';
 import '../../../core/services/notification_permission.dart';
 import '../../../core/services/playback_diagnostics.dart';
 import '../../../core/services/stability_diagnostics.dart';
@@ -74,10 +75,15 @@ class DiagnosticsCollector {
     final bool? persistedPermission =
         await _persistedPermission(selectedFolder, isContentFolder);
     final LocalScanReport? scan = LocalScanDiagnostics.last;
+    final AudioDecoderCapabilities? audio = await _audioCapabilities();
 
     return AppDiagnosticsData(
       appVersion: AppInfo.version,
       androidVersion: _androidVersion(),
+      androidSdkInt: audio?.sdkInt,
+      androidAbis: audio?.supportedAbis,
+      flacDecoding: audio?.flacSummary,
+      platformAudioFormats: audio?.platformFormatNames,
       // No device-model plugin is bundled, so this stays null rather than a
       // guess; the report omits the line entirely when absent.
       deviceModel: null,
@@ -108,7 +114,9 @@ class DiagnosticsCollector {
       playbackOutput: _playbackOutput(),
       playbackStatus: _playbackStatus(),
       currentTrackIdHash: _currentTrackIdHash(),
-      lastErrorKind: jellyfin.errorKind?.name ?? subsonic.errorKind?.name,
+      lastErrorKind: jellyfin.errorKind?.name ??
+          subsonic.errorKind?.name ??
+          _playbackFailureKind(),
       notificationPermission: (await _notificationPermission()).label,
       lastLifecycleState: StabilityDiagnostics.lastLifecycleState,
       playbackStateAtBackground: StabilityDiagnostics.playbackStateAtBackground,
@@ -135,6 +143,17 @@ class DiagnosticsCollector {
   /// Best-effort: the seam returns `unknown` off Android and on any read error.
   Future<NotificationPermissionStatus> _notificationPermission() =>
       const PermissionHandlerNotificationPermission().status();
+
+  /// The device's audio decoder capabilities (Android only), best-effort: a
+  /// failure leaves the lines out rather than breaking the report.
+  Future<AudioDecoderCapabilities?> _audioCapabilities() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      return await readPlatformAudioDecoderCapabilities();
+    } catch (_) {
+      return null;
+    }
+  }
 
   String? _androidVersion() =>
       Platform.isAndroid ? Platform.operatingSystemVersion : null;
@@ -267,6 +286,13 @@ class DiagnosticsCollector {
     }
     return state.status.name;
   }
+
+  /// The current playback failure's kind (a stable enum name such as
+  /// `unplayableMedia`), when playback is in an error state. Before #674 a
+  /// playback failure never reached "Last error", so a report could read
+  /// "Last error: none" beside a track that would not play.
+  String? _playbackFailureKind() =>
+      _ref.read(playbackControllerProvider).state.failure?.kind.name;
 
   /// A non-reversible hash of the currently playing track's id (never the id,
   /// title, or URI), or null when nothing is playing.

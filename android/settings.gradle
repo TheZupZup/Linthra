@@ -39,3 +39,10 @@ plugins {
 }
 
 include ":app"
+
+// Media3's FLAC decoder (LibflacAudioRenderer + libflacJNI.so), vendored with
+// the libFLAC sources it builds from. It is the fallback for FLAC on devices
+// without a platform FLAC decoder (Android only guarantees one from API 27;
+// Linthra supports API 24, #674). See third_party/media3_decoder_flac/PATCHES.md.
+include ":media3_decoder_flac"
+project(":media3_decoder_flac").projectDir = file("../third_party/media3_decoder_flac")

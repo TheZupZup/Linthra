@@ -13,6 +13,13 @@
 #      recorded from the pub.dev archive named in the package's PATCHES.md, so
 #      nothing has to be fetched to re-check the claim.
 #
+#      Vendored trees that are not Dart packages (native sources such as
+#      third_party/libflac and third_party/media3_decoder_flac, which have no
+#      pubspec.yaml) get the same check. For them upstream.patch is optional
+#      (no patch means the files must be byte-for-byte upstream), and the files
+#      Linthra adds are listed in a local.files manifest instead of being
+#      implied.
+#
 #   2. Static analysis. The root analysis_options.yaml excludes third_party/**
 #      (upstream code is not held to Linthra's stricter lint set, and forcing it
 #      to be would mean patching upstream for style), so `flutter analyze` at
@@ -51,13 +58,21 @@ fi
 
 # Reverse-apply the recorded patch onto a copy of the vendored tree and compare
 # the result with the recorded upstream digests.
+#
+# $3 is "pub" for a Dart package (upstream.patch required, the fixed set of
+# Linthra additions below) or "native" for a non-package tree (upstream.patch
+# optional, Linthra additions listed in local.files).
 check_provenance() {
-  local package_dir="$1" name="$2"
+  local package_dir="$1" name="$2" kind="${3:-pub}"
   local manifest="$package_dir/upstream.sha256"
   local patch_file="$package_dir/upstream.patch"
 
   [ -f "$manifest" ] || fail "$name: missing upstream.sha256 (see PATCHES.md)"
-  [ -f "$patch_file" ] || fail "$name: missing upstream.patch (see PATCHES.md)"
+  if [ "$kind" = "pub" ]; then
+    [ -f "$patch_file" ] || fail "$name: missing upstream.patch (see PATCHES.md)"
+  else
+    [ -f "$package_dir/local.files" ] || fail "$name: missing local.files (see PATCHES.md)"
+  fi
   [ -f "$package_dir/PATCHES.md" ] || fail "$name: missing PATCHES.md"
 
   local work
@@ -77,10 +92,11 @@ check_provenance() {
   done < "$manifest"
 
   cp "$manifest" "$work/upstream.sha256"
-  cp "$patch_file" "$work/upstream.patch"
-
-  ( cd "$work" && git apply --reverse -p1 upstream.patch ) \
-    || fail "$name: upstream.patch no longer describes the vendored tree"
+  if [ -f "$patch_file" ]; then
+    cp "$patch_file" "$work/upstream.patch"
+    ( cd "$work" && git apply --reverse -p1 upstream.patch ) \
+      || fail "$name: upstream.patch no longer describes the vendored tree"
+  fi
 
   ( cd "$work" && sha256sum --check --quiet upstream.sha256 ) \
     || fail "$name: reverse-applying upstream.patch did not reproduce upstream (an undocumented local edit?)"
@@ -90,13 +106,21 @@ check_provenance() {
   local relative
   while IFS= read -r relative; do
     grep -qx "[0-9a-f]\{64\}  $relative" "$manifest" && continue
-    case " $allowed_extra " in
-      *" $relative "*) continue ;;
-    esac
+    if [ "$kind" = "pub" ]; then
+      case " $allowed_extra " in
+        *" $relative "*) continue ;;
+      esac
+    else
+      grep -qxF "$relative" "$package_dir/local.files" && continue
+    fi
     fail "$name: $relative is neither recorded in upstream.sha256 nor a known Linthra addition"
-  done < <(cd "$package_dir" && git ls-files)
+  done < <(cd "$package_dir" && git ls-files --cached --others --exclude-standard)
 
-  info "$name: vendored tree is upstream + upstream.patch"
+  if [ -f "$patch_file" ]; then
+    info "$name: vendored tree is upstream + upstream.patch"
+  else
+    info "$name: vendored tree is unmodified upstream"
+  fi
 }
 
 # Analyze the package on its own terms, with the pinned toolchain.
@@ -120,13 +144,19 @@ main() {
 
   local found=0 package_dir name
   for package_dir in "$VENDOR_ROOT"/*/; do
-    [ -f "${package_dir}pubspec.yaml" ] || continue
-    found=1
     package_dir="${package_dir%/}"
     name="$(basename "$package_dir")"
-    check_provenance "$package_dir" "$name"
-    if [ "$ANALYZE" -eq 1 ]; then
-      check_analysis "$package_dir" "$name"
+    if [ -f "$package_dir/pubspec.yaml" ]; then
+      found=1
+      check_provenance "$package_dir" "$name" pub
+      if [ "$ANALYZE" -eq 1 ]; then
+        check_analysis "$package_dir" "$name"
+      fi
+    elif [ -f "$package_dir/upstream.sha256" ]; then
+      found=1
+      check_provenance "$package_dir" "$name" native
+    else
+      fail "$name: vendored directory has neither pubspec.yaml nor upstream.sha256 (see PATCHES.md of an existing package)"
     fi
   done
 

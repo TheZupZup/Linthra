@@ -32,6 +32,16 @@ class StreamInterruption {
   final bool retryable;
 }
 
+/// The engine error code for "this source has audio, but no decoder on this
+/// device can play it": Media3's `ERROR_CODE_DECODING_FORMAT_UNSUPPORTED`.
+///
+/// Linthra's patched just_audio raises it (see
+/// third_party/just_audio/PATCHES.md) where Media3 alone would drop the audio
+/// track and "play" silently, with the session reporting PLAYING and no error
+/// at all (#674). It means these bytes can't be decoded here, so it is never
+/// retried.
+const int unsupportedAudioFormatErrorCode = 4005;
+
 /// Classifies an audio-engine error into a [StreamInterruption].
 ///
 /// Security invariant: the engine's raw error can carry the tokenized stream URL
@@ -40,6 +50,18 @@ class StreamInterruption {
 /// returns a fixed, safe message. So a token can't leak through a playback error.
 StreamInterruption classifyEngineError(Object error) {
   final String text = error.toString().toLowerCase();
+
+  // Structural, not wording: the Android engine's "no decoder on this device
+  // for this audio" error (#674) carries Media3's code, and just_audio renders
+  // an engine error as "(<code>) <message>". Checked before anything else so no
+  // digit or word in the message can route it elsewhere.
+  if (text.startsWith('($unsupportedAudioFormatErrorCode)')) {
+    return const StreamInterruption(
+      StreamInterruptionKind.formatUnsupported,
+      "This track's format isn't supported on this device.",
+      retryable: false,
+    );
+  }
 
   bool mentions(List<String> needles) =>
       needles.any((String needle) => text.contains(needle));
