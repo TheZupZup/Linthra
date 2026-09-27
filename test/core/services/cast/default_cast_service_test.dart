@@ -226,7 +226,10 @@ void main() {
   late StreamController<Track?> trackChanges;
   Track? current;
 
-  DefaultCastService build() => DefaultCastService(
+  DefaultCastService build({
+    Duration relayKeepAlive = const Duration(minutes: 5),
+  }) =>
+      DefaultCastService(
         transport: transport,
         mediaResolver: resolver,
         mediaRelay: relay,
@@ -234,6 +237,7 @@ void main() {
         trackChanges: trackChanges.stream,
         discoveryTimeout: const Duration(milliseconds: 5),
         connectTimeout: const Duration(milliseconds: 100),
+        relayKeepAlive: relayKeepAlive,
       );
 
   setUp(() {
@@ -759,6 +763,29 @@ void main() {
       expect(handle.closed, isTrue);
       expect(relay.running, isFalse);
       expect(service.state.message, CastMediaRelayException.unavailableMessage);
+    });
+
+    test('a connected session keeps the relay awake through a long pause',
+        () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build(relayKeepAlive: const Duration(milliseconds: 10));
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      // No status and no requests, as with a paused receiver.
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(relay.touchCount, greaterThanOrEqualTo(3));
+      expect(relay.running, isTrue);
+
+      await service.disconnect();
+      final int afterDisconnect = relay.touchCount;
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      // Nothing keeps a relay awake once its session is gone.
+      expect(relay.touchCount, afterDisconnect);
     });
 
     test('receiver status keeps the relay awake', () async {

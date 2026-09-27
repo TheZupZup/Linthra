@@ -117,9 +117,13 @@ How it answers the questions this option was parked on:
 - **Lifecycle.** The cast service starts it when a session starts and stops it
   when the session ends (disconnect, receiver drop, failed connect, dispose).
   Stopping closes the socket, drops every token and cuts transfers in flight.
-  It also stops itself after 30 minutes with no request, no transfer in flight
-  and no receiver status, as a safety net; the next track brings it back. It
-  runs in the main isolate, the same process as the background audio service.
+  While a session is connected, the cast service keeps it awake, so a long
+  pause can still be resumed. Its own idle stop (30 minutes with no request, no
+  transfer in flight and no keep-alive) only catches a session that ended
+  without telling it; the next track brings it back. A token still expires 6
+  hours after it was issued, so resuming the same item after a pause longer
+  than that needs the track to be cast again. It runs in the main isolate, the
+  same process as the background audio service.
 - **Failure.** If it cannot start (no private LAN address, the port cannot be
   opened), the session is refused before the receiver is contacted and the
   sheet says casting is off for this session. If it cannot come back mid-

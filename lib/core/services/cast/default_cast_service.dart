@@ -53,13 +53,15 @@ class DefaultCastService implements CastService {
     required Stream<Track?> trackChanges,
     Duration discoveryTimeout = const Duration(seconds: 5),
     Duration connectTimeout = const Duration(seconds: 12),
+    Duration relayKeepAlive = const Duration(minutes: 5),
   })  : _transport = transport,
         _mediaResolver = mediaResolver,
         _mediaRelay = mediaRelay,
         _currentTrack = currentTrack,
         _trackChanges = trackChanges,
         _discoveryTimeout = discoveryTimeout,
-        _connectTimeout = connectTimeout;
+        _connectTimeout = connectTimeout,
+        _relayKeepAliveInterval = relayKeepAlive;
 
   static const String localFileLimitation =
       'This track is a local file. Casting plays streamed (Jellyfin/Subsonic) '
@@ -79,6 +81,13 @@ class DefaultCastService implements CastService {
   final Duration _discoveryTimeout;
   final Duration _connectTimeout;
 
+  /// How often a connected session tells the relay it is still in use. A
+  /// paused receiver sends no status and fetches nothing, so without this the
+  /// relay's idle shutdown would revoke the item mid-pause and a resume that
+  /// needs another range would fail. Must stay well under the relay's own idle
+  /// timeout.
+  final Duration _relayKeepAliveInterval;
+
   final StreamController<CastState> _states =
       StreamController<CastState>.broadcast();
   final StreamController<CastPlaybackStatus> _playback =
@@ -94,6 +103,7 @@ class DefaultCastService implements CastService {
   StreamSubscription<CastPlaybackStatus>? _statusSub;
   StreamSubscription<CastVolume>? _volumeSub;
   StreamSubscription<Track?>? _trackSub;
+  Timer? _relayKeepAlive;
   bool _discovering = false;
 
   /// The connected receiver's last-reported volume, kept so every connected
@@ -255,6 +265,12 @@ class DefaultCastService implements CastService {
     }
 
     _handle = handle;
+    // The relay lives exactly as long as this session, paused or not; its own
+    // idle shutdown only catches a session that ended without telling it.
+    _relayKeepAlive = Timer.periodic(
+      _relayKeepAliveInterval,
+      (_) => _mediaRelay.touch(),
+    );
     // Watch for the receiver dropping the session so we can recover locally.
     _readySub = handle.readyStream.listen(
       (bool r) {
@@ -484,6 +500,8 @@ class DefaultCastService implements CastService {
   /// Cancels the session listeners, closes the handle, and resets the reported
   /// playback status to idle.
   Future<void> _teardownSession() async {
+    _relayKeepAlive?.cancel();
+    _relayKeepAlive = null;
     await _readySub?.cancel();
     _readySub = null;
     await _statusSub?.cancel();
