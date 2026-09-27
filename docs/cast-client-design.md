@@ -253,8 +253,8 @@ exposes neither the peer certificate nor a binary channel. So:
 - `TrustGatedCastTransport` keeps its role as policy over that identity (match,
   pin, wording), and its tests move to the new shape.
 - the handle also exposes the **local address of the receiver connection**
-  (`Socket.address`, which in `dart:io` is this device's end of the
-  connection; `remoteAddress` is the receiver). The on-device relay
+  (the connection's `address` getter, which in `dart:io` is this device's end
+  of the connection; `remoteAddress` is the receiver). The on-device relay
   ([#678](https://github.com/TheZupZup/Linthra/pull/678)) binds to and
   advertises that address instead of picking an interface by preference, so a
   device on two networks (Wi-Fi and Ethernet on different subnets, for
