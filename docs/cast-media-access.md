@@ -111,9 +111,16 @@ How it answers the questions this option was parked on:
 - **What goes back.** Only media headers are relayed (`Content-Type`,
   `Content-Length`, `Content-Range`, `Accept-Ranges`, `ETag`,
   `Last-Modified`). `Range` is forwarded when it is a plain byte range, and
-  `206`/`416` come back as the server sent them, so seeking and buffering work.
-  Any other upstream status becomes an empty `502`: no server body, no cookies,
-  no auth challenge. Nothing in the proxy logs.
+  `206` comes back as the server sent it, so seeking and buffering work; a
+  `416` keeps its status and `Content-Range` but not its body, which a server
+  may fill with diagnostics that include the credential. Any other upstream
+  status becomes an empty `502`: no server body, no cookies, no auth
+  challenge. So does a success that is a page rather than audio (a login
+  screen behind a reverse proxy, a Subsonic error document), a redirect to
+  another host (same-host redirects are followed, an http to https upgrade
+  included), and a server that sends no headers within 20 seconds. Only
+  requests carrying a live token count as activity, so traffic without one
+  cannot keep an orphaned relay alive. Nothing in the proxy logs.
 - **Lifecycle.** The cast service starts it when a session starts and stops it
   when the session ends (disconnect, receiver drop, failed connect, dispose).
   Stopping closes the socket, drops every token and cuts transfers in flight.

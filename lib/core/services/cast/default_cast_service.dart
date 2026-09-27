@@ -108,6 +108,12 @@ class DefaultCastService implements CastService {
   Timer? _relayKeepAlive;
   bool _discovering = false;
 
+  /// Bumped by every [connect], [disconnect] and [dispose]. A connection
+  /// attempt that finds it changed after an `await` has been superseded: it
+  /// closes its own handle and leaves the relay and the state to whoever
+  /// replaced it, so a slow first attempt cannot tear down a newer session.
+  int _connectAttempt = 0;
+
   /// The connected receiver's last-reported volume, kept so every connected
   /// state build carries it (it belongs to the device and persists across track
   /// changes within a session). Null until the receiver reports one.
@@ -207,8 +213,12 @@ class DefaultCastService implements CastService {
 
   @override
   Future<void> connect(CastDevice device) async {
+    final int attempt = ++_connectAttempt;
+    bool superseded() => attempt != _connectAttempt;
+
     // Tear down any prior session first so we never leak one.
     await _teardownSession();
+    if (superseded()) return;
     _emit(CastState(
       availability: CastAvailability.connecting,
       devices: _state.devices,
@@ -220,6 +230,7 @@ class DefaultCastService implements CastService {
     try {
       await _mediaRelay.start();
     } catch (_) {
+      if (superseded()) return;
       _emit(CastState(
         availability: CastAvailability.error,
         devices: _state.devices,
@@ -232,6 +243,7 @@ class DefaultCastService implements CastService {
     try {
       handle = await _transport.connect(device);
     } on CastReceiverTrustException catch (error) {
+      if (superseded()) return;
       await _stopRelay();
       // A receiver that could not prove who it is failed for a reason worth
       // saying: "couldn't connect" would read as a flaky network and invite the
@@ -243,6 +255,7 @@ class DefaultCastService implements CastService {
       ));
       return;
     } catch (_) {
+      if (superseded()) return;
       await _stopRelay();
       _emit(CastState(
         availability: CastAvailability.error,
@@ -251,12 +264,17 @@ class DefaultCastService implements CastService {
       ));
       return;
     }
+    if (superseded()) {
+      await _safeClose(handle);
+      return;
+    }
 
     final bool ready = await handle.readyStream
         .firstWhere((bool r) => r, orElse: () => false)
         .timeout(_connectTimeout, onTimeout: () => false);
-    if (!ready) {
+    if (!ready || superseded()) {
       await _safeClose(handle);
+      if (superseded()) return;
       await _stopRelay();
       _emit(CastState(
         availability: CastAvailability.error,
@@ -417,6 +435,7 @@ class DefaultCastService implements CastService {
 
   @override
   Future<void> disconnect() async {
+    _connectAttempt++;
     await _teardownSession();
     _emit(CastState(
       availability: CastAvailability.idle,
@@ -548,6 +567,7 @@ class DefaultCastService implements CastService {
 
   @override
   Future<void> dispose() async {
+    _connectAttempt++;
     await _teardownSession();
     await _states.close();
     await _playback.close();

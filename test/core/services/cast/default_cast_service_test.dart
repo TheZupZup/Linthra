@@ -137,6 +137,9 @@ class _FakeTransport implements CastTransport {
   Object? connectError;
   _FakeHandle? handle;
 
+  /// Per-device handles, for tests that connect to more than one device.
+  Map<String, _FakeHandle> handlesById = <String, _FakeHandle>{};
+
   int discoverCount = 0;
   final List<CastDevice> connectRequests = <CastDevice>[];
 
@@ -151,7 +154,7 @@ class _FakeTransport implements CastTransport {
   Future<CastSessionHandle> connect(CastDevice device) async {
     connectRequests.add(device);
     if (connectError != null) throw connectError!;
-    return handle ??= _FakeHandle();
+    return handlesById[device.id] ?? (handle ??= _FakeHandle());
   }
 }
 
@@ -230,6 +233,7 @@ class _FakeRelay implements CastMediaRelay {
 }
 
 const _d1 = CastDevice(id: 'd1', name: 'Living Room');
+const _d2 = CastDevice(id: 'd2', name: 'Kitchen');
 const _jellyfinTrack = Track(id: 'j1', title: 'Streamed', uri: 'jellyfin:j1');
 const _localTrack = Track(id: 'l1', title: 'On device', uri: '/music/x.mp3');
 
@@ -835,6 +839,29 @@ void main() {
       handle.closeGate!.complete();
       await disconnecting;
       await service.dispose();
+    });
+
+    test('a superseded connection attempt leaves the newer session alone',
+        () async {
+      current = _jellyfinTrack;
+      final slow = _FakeHandle(readyImmediately: false); // times out
+      final fast = _FakeHandle();
+      transport.handlesById = <String, _FakeHandle>{'d1': slow, 'd2': fast};
+      final service = build();
+      addTearDown(service.dispose);
+
+      final Future<void> first = service.connect(_d1);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await service.connect(_d2);
+      expect(service.state.isCasting, isTrue);
+
+      await first; // its readiness wait runs out now
+
+      expect(slow.closed, isTrue);
+      expect(relay.running, isTrue);
+      expect(service.state.connectedDevice, _d2);
+      expect(service.state.isCasting, isTrue);
+      expect(service.state.hasError, isFalse);
     });
 
     test('receiver status keeps the relay awake', () async {

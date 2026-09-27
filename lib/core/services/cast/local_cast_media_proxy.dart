@@ -32,8 +32,15 @@ import 'cast_media_relay.dart';
 ///    relayed as is: `206 Partial Content`, `Content-Range`, `Accept-Ranges`,
 ///    `Content-Length`. Without that the receiver cannot scrub or buffer.
 ///  - **Nothing leaks back.** An upstream failure becomes an empty `502`, with
-///    none of the server's body or headers. Only a fixed list of media headers
-///    is copied. Nothing here logs.
+///    none of the server's body or headers, and so does a success that is a
+///    page rather than audio (a login screen, a Subsonic error document). A
+///    `416` keeps its status and `Content-Range` but loses its body. Redirects
+///    are followed here, same host only, never by `HttpClient`. An upstream
+///    that sends no headers in [upstreamHeaderTimeout] is a `502` too. Only a
+///    fixed list of media headers is copied. Nothing here logs.
+///  - **Only real use renews it.** The idle timer counts requests carrying a
+///    live token (and [touch]); a scanner knocking with a guessed path does not
+///    keep an orphaned relay alive.
 ///  - **LAN only.** It binds to the phone's private Wi-Fi/Ethernet address
 ///    rather than every interface, so it is not offered on mobile data or a VPN
 ///    tunnel.
@@ -48,6 +55,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
     DateTime Function()? clock,
     this.idleTimeout = const Duration(minutes: 30),
     this.tokenLifetime = const Duration(hours: 6),
+    this.upstreamHeaderTimeout = const Duration(seconds: 20),
   })  : _lanAddress = lanAddress ?? findLanAddress,
         _bind = bind ?? _bindEphemeral,
         _httpClient = httpClient ?? HttpClient.new,
@@ -65,6 +73,15 @@ class LocalCastMediaProxy implements CastMediaRelay {
 
   /// How long one item's token stays valid, however long the session lasts.
   final Duration tokenLifetime;
+
+  /// How long the upstream server gets to send response headers once
+  /// connected. `HttpClient.connectionTimeout` only covers connecting; a server
+  /// or reverse proxy that accepts and then says nothing would otherwise hold
+  /// the request, and the relay's idle shutdown, forever.
+  final Duration upstreamHeaderTimeout;
+
+  /// Redirects followed per request, same host only.
+  static const int _maxRedirects = 3;
 
   final Future<InternetAddress> Function() _lanAddress;
   final Future<HttpServer> Function(InternetAddress address) _bind;
@@ -210,8 +227,6 @@ class LocalCastMediaProxy implements CastMediaRelay {
   }
 
   Future<void> _handle(HttpRequest request) async {
-    _inFlight++;
-    _idleTimer?.cancel();
     // A receiver that hangs up mid-stream fails this future; nothing to do.
     unawaited(request.response.done.then<void>((_) {}, onError: (Object _) {}));
     try {
@@ -227,9 +242,6 @@ class LocalCastMediaProxy implements CastMediaRelay {
       } catch (_) {
         // The connection is already gone.
       }
-    } finally {
-      _inFlight--;
-      _armIdleTimer();
     }
   }
 
@@ -252,24 +264,68 @@ class LocalCastMediaProxy implements CastMediaRelay {
       return;
     }
 
-    final HttpClientRequest upstreamRequest =
-        await client.openUrl(method, item.upstream);
-    upstreamRequest.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+    // Only a request carrying a live token counts as activity. Anything else on
+    // the LAN (a scanner, a guessed path) must not be able to keep an orphaned
+    // relay alive.
+    _inFlight++;
+    _idleTimer?.cancel();
+    try {
+      await _relay(request, item, client);
+    } finally {
+      _inFlight--;
+      _armIdleTimer();
+    }
+  }
+
+  Future<void> _relay(
+    HttpRequest request,
+    _PublishedItem item,
+    HttpClient client,
+  ) async {
+    final HttpResponse response = request.response;
+    final String method = request.method;
     final String? range =
         request.headers.value(HttpHeaders.rangeHeader)?.trim();
-    if (range != null && _rangePattern.hasMatch(range)) {
-      upstreamRequest.headers.set(HttpHeaders.rangeHeader, range);
+    final HttpClientResponse? upstream = await _fetchUpstream(
+      client,
+      method,
+      item.upstream,
+      range != null && _rangePattern.hasMatch(range) ? range : null,
+    );
+    if (upstream == null) {
+      response.statusCode = HttpStatus.badGateway;
+      await response.close();
+      return;
     }
-    final HttpClientResponse upstream = await upstreamRequest.close();
 
     final int status = upstream.statusCode;
-    if (status != HttpStatus.ok &&
-        status != HttpStatus.partialContent &&
-        status != HttpStatus.requestedRangeNotSatisfiable) {
-      // The server said no (expired session, missing item, outage). The
-      // receiver learns only that the relay could not get it.
+    final bool media =
+        status == HttpStatus.ok || status == HttpStatus.partialContent;
+    if ((!media && status != HttpStatus.requestedRangeNotSatisfiable) ||
+        (media && !_looksLikeMedia(upstream.headers.contentType))) {
+      // The server said no (expired session, missing item, outage), or said
+      // yes with a page instead of audio (a login screen, a Subsonic error
+      // document). The receiver learns only that the relay could not get it.
       await upstream.listen(null).cancel();
       response.statusCode = HttpStatus.badGateway;
+      await response.close();
+      return;
+    }
+
+    if (!media) {
+      // 416: keep the status and Content-Range so the receiver can recover,
+      // but never the body, which a server or proxy may fill with diagnostics
+      // that include the requested URL and its credential.
+      await upstream.listen(null).cancel();
+      response.statusCode = status;
+      final List<String>? contentRange =
+          upstream.headers[HttpHeaders.contentRangeHeader];
+      if (contentRange != null && contentRange.isNotEmpty) {
+        response.headers
+            .set(HttpHeaders.contentRangeHeader, contentRange.first);
+      }
+      response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+      response.contentLength = 0;
       await response.close();
       return;
     }
@@ -303,6 +359,73 @@ class LocalCastMediaProxy implements CastMediaRelay {
     }
     await response.addStream(upstream);
     await response.close();
+  }
+
+  /// Fetches [url] with redirects handled here rather than by `HttpClient`, so
+  /// every hop is checked: only the same host is followed (an http to https
+  /// upgrade is allowed, a downgrade is not), at most [_maxRedirects] times.
+  /// Returns null when the upstream cannot be used: no headers in time, a
+  /// redirect elsewhere, or too many hops.
+  Future<HttpClientResponse?> _fetchUpstream(
+    HttpClient client,
+    String method,
+    Uri url,
+    String? range,
+  ) async {
+    Uri target = url;
+    for (int hop = 0; hop <= _maxRedirects; hop++) {
+      final HttpClientRequest request = await client.openUrl(method, target);
+      request
+        ..followRedirects = false
+        ..headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+      if (range != null) request.headers.set(HttpHeaders.rangeHeader, range);
+      final Future<HttpClientResponse> pending = request.close();
+      final HttpClientResponse response;
+      try {
+        response = await pending.timeout(upstreamHeaderTimeout);
+      } on TimeoutException {
+        request.abort();
+        // The aborted request still settles; make sure it goes nowhere.
+        unawaited(pending.then<void>(
+          (HttpClientResponse late) => late.listen(null).cancel(),
+          onError: (Object _) {},
+        ));
+        return null;
+      }
+      if (!response.isRedirect) return response;
+
+      final String? location =
+          response.headers.value(HttpHeaders.locationHeader);
+      await response.listen(null).cancel();
+      if (location == null) return null;
+      final Uri next = target.resolve(location);
+      if (!_sameServer(url, next)) return null;
+      target = next;
+    }
+    return null;
+  }
+
+  static bool _sameServer(Uri original, Uri next) {
+    if (next.host.toLowerCase() != original.host.toLowerCase()) return false;
+    if (next.scheme == original.scheme) return true;
+    return original.scheme == 'http' && next.scheme == 'https';
+  }
+
+  /// Whether a successful upstream answer can be audio. A missing type is
+  /// allowed (the resolver's hint is used); a document type is not.
+  static bool _looksLikeMedia(ContentType? type) {
+    if (type == null) return true;
+    final String primary = type.primaryType.toLowerCase();
+    final String sub = type.subType.toLowerCase();
+    if (primary == 'text') return false;
+    if (primary == 'application' &&
+        (sub == 'json' ||
+            sub == 'xml' ||
+            sub.endsWith('+xml') ||
+            sub.endsWith('+json'))) {
+      return false;
+    }
+    return true;
   }
 
   _PublishedItem? _lookup(Uri uri) {

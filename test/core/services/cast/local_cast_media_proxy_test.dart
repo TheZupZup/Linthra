@@ -27,6 +27,11 @@ class _Upstream {
   final List<String> methods = <String>[];
   int failWith = 0;
 
+  /// Where `/redirect-away` points.
+  String awayLocation = 'http://login.example.test/?return=ApiKey%3DSECRET';
+
+  int get port => _server.port;
+
   Uri get streamUrl => Uri(
         scheme: 'http',
         host: InternetAddress.loopbackIPv4.address,
@@ -34,6 +39,9 @@ class _Upstream {
         path: '/Audio/1/stream',
         queryParameters: <String, String>{'ApiKey': 'SECRET'},
       );
+
+  /// A URL on this server with the right key, at [path].
+  Uri at(String path) => streamUrl.replace(path: path);
 
   Future<void> close() => _server.close(force: true);
 
@@ -44,6 +52,43 @@ class _Upstream {
     response.headers
       ..set(HttpHeaders.setCookieHeader, 'session=SECRETCOOKIE')
       ..set('x-upstream-banner', 'secret-server');
+    switch (request.uri.path) {
+      case '/hang':
+        // Accepts the request and never answers.
+        return;
+      case '/redirect-same':
+        response
+          ..statusCode = HttpStatus.found
+          ..headers
+              .set(HttpHeaders.locationHeader, '/Audio/1/stream?ApiKey=SECRET');
+        await response.close();
+        return;
+      case '/redirect-away':
+        response
+          ..statusCode = HttpStatus.found
+          ..headers.set(HttpHeaders.locationHeader, awayLocation);
+        await response.close();
+        return;
+      case '/login':
+        response
+          ..headers.contentType = ContentType.html
+          ..write('<html>sign in, ApiKey=SECRET</html>');
+        await response.close();
+        return;
+      case '/subsonic-error':
+        response
+          ..headers.contentType = ContentType('text', 'xml')
+          ..write('<subsonic-response status="failed"/>');
+        await response.close();
+        return;
+      case '/416-with-body':
+        response
+          ..statusCode = HttpStatus.requestedRangeNotSatisfiable
+          ..headers.set(HttpHeaders.contentRangeHeader, 'bytes */1000')
+          ..write('range error for /Audio/1/stream?ApiKey=SECRET');
+        await response.close();
+        return;
+    }
     if (failWith != 0) {
       response.statusCode = failWith;
       response.write('upstream failure body');
@@ -423,6 +468,80 @@ void main() {
       expect(utf8.decode(reply.body), isNot(contains('upstream')));
     });
 
+    test('a server that never sends headers becomes a 502', () async {
+      final LocalCastMediaProxy proxy = LocalCastMediaProxy(
+        lanAddress: () async => InternetAddress.loopbackIPv4,
+        upstreamHeaderTimeout: const Duration(milliseconds: 100),
+      );
+      addTearDown(proxy.stop);
+      await proxy.start();
+      final CastMedia relayed = proxy.publish(_media(upstream.at('/hang')));
+
+      final _Reply reply =
+          await _fetch(relayed.url).timeout(const Duration(seconds: 5));
+
+      expect(reply.status, HttpStatus.badGateway);
+      expect(reply.body, isEmpty);
+    });
+
+    test('a 416 keeps its status and range but never its body', () async {
+      final LocalCastMediaProxy proxy = build();
+      await proxy.start();
+      final CastMedia relayed =
+          proxy.publish(_media(upstream.at('/416-with-body')));
+
+      final _Reply reply = await _fetch(relayed.url, range: 'bytes=5000-');
+
+      expect(reply.status, HttpStatus.requestedRangeNotSatisfiable);
+      expect(
+          reply.headers.value(HttpHeaders.contentRangeHeader), 'bytes */1000');
+      expect(reply.body, isEmpty);
+    });
+
+    test('follows a redirect on the same server', () async {
+      final LocalCastMediaProxy proxy = build();
+      await proxy.start();
+      final CastMedia relayed =
+          proxy.publish(_media(upstream.at('/redirect-same')));
+
+      final _Reply reply = await _fetch(relayed.url);
+
+      expect(reply.status, HttpStatus.ok);
+      expect(reply.body, upstream.body);
+      expect(upstream.requests, hasLength(2));
+    });
+
+    test('refuses a redirect to another host', () async {
+      // A real server that would happily serve audio, under another host name.
+      final _Upstream other = await _Upstream.start();
+      addTearDown(other.close);
+      upstream.awayLocation =
+          'http://localhost:${other.port}/Audio/1/stream?ApiKey=SECRET';
+      final LocalCastMediaProxy proxy = build();
+      await proxy.start();
+      final CastMedia relayed =
+          proxy.publish(_media(upstream.at('/redirect-away')));
+
+      final _Reply reply = await _fetch(relayed.url);
+
+      expect(reply.status, HttpStatus.badGateway);
+      expect(reply.body, isEmpty);
+      expect(reply.headers.value(HttpHeaders.locationHeader), isNull);
+      expect(other.requests, isEmpty);
+    });
+
+    test('a page instead of audio becomes a 502', () async {
+      final LocalCastMediaProxy proxy = build();
+      await proxy.start();
+
+      for (final String path in <String>['/login', '/subsonic-error']) {
+        final CastMedia relayed = proxy.publish(_media(upstream.at(path)));
+        final _Reply reply = await _fetch(relayed.url);
+        expect(reply.status, HttpStatus.badGateway, reason: path);
+        expect(reply.body, isEmpty, reason: path);
+      }
+    });
+
     test('an unreachable server becomes a 502', () async {
       final LocalCastMediaProxy proxy = build();
       await proxy.start();
@@ -509,6 +628,40 @@ void main() {
       }
 
       expect(proxy.isRunning, isTrue);
+    });
+  });
+
+  group('idle shutdown and untrusted traffic', () {
+    test('requests without a live token do not keep the relay awake', () async {
+      final LocalCastMediaProxy proxy =
+          build(idleTimeout: const Duration(milliseconds: 150));
+      await proxy.start();
+      proxy.publish(_media(upstream.streamUrl));
+      final Uri base = proxy.baseUrl!;
+
+      // A scanner that found the port keeps knocking without a valid token,
+      // well past the idle timeout. Once the relay is gone a knock fails to
+      // connect, which is the point.
+      Future<void> knock(Uri url, {String method = 'GET'}) async {
+        try {
+          await _fetch(url, method: method);
+        } on IOException {
+          // Nothing listening any more, or the relay went down mid-knock.
+        }
+      }
+
+      final Stopwatch clock = Stopwatch()..start();
+      while (clock.elapsed < const Duration(milliseconds: 450)) {
+        await knock(base.replace(
+            pathSegments: <String>['cast', LocalCastMediaProxy.newToken()]));
+        await knock(base, method: 'POST');
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      }
+
+      // Checked while the knocking is still recent: had it counted as
+      // activity, the relay would still be up.
+      expect(proxy.isRunning, isFalse);
+      expect(upstream.requests, isEmpty);
     });
   });
 
