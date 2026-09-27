@@ -238,6 +238,9 @@ class DefaultCastService implements CastService {
       ));
       return;
     }
+    // The user may have moved on while the relay started: an abandoned device
+    // is never contacted. The relay now belongs to whoever replaced us.
+    if (superseded()) return;
 
     final CastSessionHandle handle;
     try {
@@ -382,7 +385,13 @@ class DefaultCastService implements CastService {
       if (_handle != handle) return;
       relayed = _mediaRelay.publish(media);
     } catch (_) {
+      // Only this session's handoff may end this session. If the user already
+      // disconnected or moved to another receiver, the failure is stale.
+      if (_handle != handle) return;
+      final int attempt = _connectAttempt;
       await _teardownSession();
+      // A new connection may have begun while tearing down; leave its state.
+      if (attempt != _connectAttempt) return;
       _emit(CastState(
         availability: CastAvailability.error,
         devices: _state.devices,

@@ -56,12 +56,16 @@ class CastMedia {
   final Uri? artworkUrl;
 
   /// Redacts the secret-bearing [url] down to scheme/host/path so the media can
-  /// be safely interpolated into a log or error without leaking the token.
+  /// be safely interpolated into a log or error without leaking the token. A
+  /// scoped capability (the on-device relay's `/cast/<token>`) carries its
+  /// secret in the path itself, so for those the path goes too.
   Uri get _safeUrl => Uri(
       scheme: url.scheme,
       host: url.host,
       port: url.hasPort ? url.port : null,
-      path: url.path);
+      path: access.delegation == CastMediaDelegation.scopedCapability
+          ? null
+          : url.path);
 
   @override
   String toString() =>

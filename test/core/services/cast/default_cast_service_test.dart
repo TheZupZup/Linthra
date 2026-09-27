@@ -208,10 +208,20 @@ class _FakeRelay implements CastMediaRelay {
   @override
   bool get isRunning => running;
 
+  /// Holds the n-th [start] call (1-based) until completed; a call listed in
+  /// [failingStarts] then throws instead of starting.
+  final Map<int, Completer<void>> startGates = <int, Completer<void>>{};
+  final Set<int> failingStarts = <int>{};
+
   @override
   Future<void> start() async {
     startCount++;
-    if (startError != null) throw startError!;
+    final int call = startCount;
+    final Completer<void>? gate = startGates[call];
+    if (gate != null) await gate.future;
+    if (startError != null || failingStarts.contains(call)) {
+      throw startError ?? const CastMediaRelayException('down');
+    }
     running = true;
   }
 
@@ -899,6 +909,64 @@ void main() {
       expect(service.state.isCasting, isTrue);
       expect(service.state.hasError, isFalse);
       expect(relay.running, isTrue);
+    });
+
+    test(
+        'an attempt superseded while the relay starts never contacts its '
+        'device', () async {
+      current = _jellyfinTrack;
+      transport.handlesById = <String, _FakeHandle>{
+        'd1': _FakeHandle(),
+        'd2': _FakeHandle(),
+      };
+      final Completer<void> slowStart = Completer<void>();
+      relay.startGates[1] = slowStart; // the first attempt's relay start
+      final service = build();
+      addTearDown(service.dispose);
+
+      final Future<void> first = service.connect(_d1);
+      await Future<void>.delayed(Duration.zero);
+      await service.connect(_d2);
+      slowStart.complete();
+      await first;
+
+      expect(transport.connectRequests, const <CastDevice>[_d2]);
+      expect(service.state.connectedDevice, _d2);
+      expect(service.state.isCasting, isTrue);
+    });
+
+    test('a stale handoff failing late leaves the next session alone',
+        () async {
+      current = _jellyfinTrack;
+      final d1 = _FakeHandle();
+      final d2 = _FakeHandle();
+      transport.handlesById = <String, _FakeHandle>{'d1': d1, 'd2': d2};
+      final service = build();
+      addTearDown(service.dispose);
+      await service.connect(_d1);
+
+      // The relay idled out; the next track has to bring it back, and that
+      // restart is slow and ends up failing.
+      relay.running = false;
+      final Completer<void> slowRestart = Completer<void>();
+      relay.startGates[2] = slowRestart;
+      relay.failingStarts.add(2);
+      const Track next = Track(id: 'j2', title: 'Next', uri: 'jellyfin:j2');
+      current = next;
+      trackChanges.add(next);
+      await Future<void>.delayed(Duration.zero);
+
+      // Meanwhile the user moves to another receiver.
+      await service.connect(_d2);
+      expect(service.state.isCasting, isTrue);
+
+      slowRestart.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(d2.closed, isFalse);
+      expect(service.state.connectedDevice, _d2);
+      expect(service.state.isCasting, isTrue);
+      expect(service.state.hasError, isFalse);
     });
 
     test('receiver status keeps the relay awake', () async {

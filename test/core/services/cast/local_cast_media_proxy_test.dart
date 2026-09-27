@@ -261,6 +261,18 @@ void main() {
       expect(relayed.artworkUrl, isNotNull);
     });
 
+    test('the relayed media never prints its token', () async {
+      final LocalCastMediaProxy proxy = build();
+      await proxy.start();
+
+      final CastMedia relayed = proxy.publish(_media(upstream.streamUrl));
+      final String token = relayed.url.pathSegments.last;
+
+      expect(relayed.toString(), isNot(contains(token)));
+      expect(relayed.toString(), isNot(contains('/cast/')));
+      expect('$relayed', contains(relayed.url.host));
+    });
+
     test('an unknown token is a bare 404 and never reaches the server',
         () async {
       final LocalCastMediaProxy proxy = build();
