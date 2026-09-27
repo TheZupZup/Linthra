@@ -313,6 +313,10 @@ All with generated fixtures and a fake socket, so they run in CI.
   leaf revoked by key hash, intermediate revoked by serial range.
 - **Readiness:** a status answering another request id; a status listing only
   another app; `LAUNCH_ERROR`; launch timeout.
+- **Status requests:** a media status request works with no known media
+  session (asked without a session id), so the relay keep-alive keeps
+  working while a LOAD is pending or after the receiver rejected it and kept
+  the previous item.
 - **Binding and session:** disconnect during auth; reconnect during auth; a
   receiver change during auth; identity from a replaced session never reaching
   the new one; state cleared after every one of these.
