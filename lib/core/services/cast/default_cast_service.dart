@@ -81,11 +81,13 @@ class DefaultCastService implements CastService {
   final Duration _discoveryTimeout;
   final Duration _connectTimeout;
 
-  /// How often a connected session tells the relay it is still in use. A
-  /// paused receiver sends no status and fetches nothing, so without this the
+  /// How often a connected session asks the receiver for its status. A paused
+  /// receiver sends nothing on its own and fetches nothing, so without this the
   /// relay's idle shutdown would revoke the item mid-pause and a resume that
-  /// needs another range would fail. Must stay well under the relay's own idle
-  /// timeout.
+  /// needs another range would fail. Only the receiver's *reply* keeps the relay
+  /// awake (through the status listener), so a receiver that died without the
+  /// session noticing stops renewing it and the idle shutdown still fires. Must
+  /// stay well under the relay's own idle timeout.
   final Duration _relayKeepAliveInterval;
 
   final StreamController<CastState> _states =
@@ -265,12 +267,14 @@ class DefaultCastService implements CastService {
     }
 
     _handle = handle;
-    // The relay lives exactly as long as this session, paused or not; its own
-    // idle shutdown only catches a session that ended without telling it.
-    _relayKeepAlive = Timer.periodic(
-      _relayKeepAliveInterval,
-      (_) => _mediaRelay.touch(),
-    );
+    // Keep the relay up through a long pause, but only on proof the receiver is
+    // still there: the status request's reply is what touches the relay.
+    _relayKeepAlive = Timer.periodic(_relayKeepAliveInterval, (_) {
+      final CastSessionHandle? live = _handle;
+      if (live == null) return;
+      unawaited(
+          live.requestStatus().then<void>((_) {}, onError: (Object _) {}));
+    });
     // Watch for the receiver dropping the session so we can recover locally.
     _readySub = handle.readyStream.listen(
       (bool r) {
@@ -518,9 +522,11 @@ class DefaultCastService implements CastService {
     _castingTrackUri = null;
     final CastSessionHandle? handle = _handle;
     _handle = null;
-    if (handle != null) await _safeClose(handle);
-    // Nothing stays listening once the session is over.
+    // Revoke the relay first: closing the session has no time bound, and the
+    // item must stop being reachable the moment the session is over, not once
+    // the receiver has finished saying goodbye.
     await _stopRelay();
+    if (handle != null) await _safeClose(handle);
     _emitPlayback(CastPlaybackStatus.idle);
   }
 

@@ -117,10 +117,13 @@ How it answers the questions this option was parked on:
 - **Lifecycle.** The cast service starts it when a session starts and stops it
   when the session ends (disconnect, receiver drop, failed connect, dispose).
   Stopping closes the socket, drops every token and cuts transfers in flight.
-  While a session is connected, the cast service keeps it awake, so a long
-  pause can still be resumed. Its own idle stop (30 minutes with no request, no
-  transfer in flight and no keep-alive) only catches a session that ended
-  without telling it; the next track brings it back. A token still expires 6
+  While a session is connected, the cast service asks the receiver for its
+  status every few minutes and the receiver's reply keeps the relay awake, so a
+  long pause can still be resumed. Its own idle stop (30 minutes with no
+  request, no transfer in flight and no reply) catches a session that ended
+  without telling it, including a receiver that died silently; the next track
+  brings it back. Ending the session revokes the relay first, before waiting
+  on the receiver to close. A token still expires 6
   hours after it was issued, so resuming the same item after a pause longer
   than that needs the track to be cast again. It runs in the main isolate, the
   same process as the background audio service.
@@ -132,6 +135,14 @@ How it answers the questions this option was parked on:
 - **Cost.** Every byte now goes server to phone to receiver, and the phone has
   to stay awake and on the network for the whole session. That is the price of
   keeping the credential home, and it is paid only while casting.
+- **Open: Android and a paused cast.** On a user pause the audio service
+  demotes its foreground service and releases its wake lock (#499), so a
+  backgrounded, screen-off phone can have its process frozen with the relay in
+  it. Resuming from the phone wakes it; a resume started from the receiver
+  side while the phone is frozen stalls until the app runs again. Keeping the
+  foreground service while a cast session is connected would close this, at a
+  battery cost while casting; that trade-off is decided before the
+  restoration, not here.
 
 What it does not change: the phone to server hop is the same request local
 playback already makes (for Jellyfin and Subsonic the credential is still in

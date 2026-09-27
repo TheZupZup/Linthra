@@ -46,6 +46,13 @@ class _FakeHandle implements CastSessionHandle {
   Object? loadError;
   bool closed = false;
 
+  /// When true, [requestStatus] is answered with a status push, like a live
+  /// receiver. False models a receiver that died without the session noticing.
+  bool answerStatusRequests = false;
+
+  /// When set, [close] waits for it, so a test can drive a slow goodbye.
+  Completer<void>? closeGate;
+
   void becomeReady() {
     _last = true;
     if (!_ready.isClosed) _ready.add(true);
@@ -104,11 +111,18 @@ class _FakeHandle implements CastSessionHandle {
   }
 
   @override
-  Future<void> requestStatus() async => statusRequests++;
+  Future<void> requestStatus() async {
+    statusRequests++;
+    if (answerStatusRequests) {
+      pushStatus(const CastPlaybackStatus(status: PlaybackStatus.paused));
+    }
+  }
 
   @override
   Future<void> close() async {
     closed = true;
+    final Completer<void>? gate = closeGate;
+    if (gate != null) await gate.future;
     if (!_ready.isClosed) await _ready.close();
     if (!_status.isClosed) await _status.close();
     if (!_volume.isClosed) await _volume.close();
@@ -768,7 +782,7 @@ void main() {
     test('a connected session keeps the relay awake through a long pause',
         () async {
       current = _jellyfinTrack;
-      final handle = _FakeHandle();
+      final handle = _FakeHandle()..answerStatusRequests = true;
       transport.handle = handle;
       final service = build(relayKeepAlive: const Duration(milliseconds: 10));
       addTearDown(service.dispose);
@@ -786,6 +800,41 @@ void main() {
 
       // Nothing keeps a relay awake once its session is gone.
       expect(relay.touchCount, afterDisconnect);
+    });
+
+    test('a receiver that stops answering stops keeping the relay awake',
+        () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle(); // never answers a status request
+      transport.handle = handle;
+      final service = build(relayKeepAlive: const Duration(milliseconds: 10));
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      // It was asked, and its silence renewed nothing, so the relay's own idle
+      // shutdown is still armed for a session that died unnoticed.
+      expect(handle.statusRequests, greaterThanOrEqualTo(3));
+      expect(relay.touchCount, 0);
+    });
+
+    test('the relay is revoked before a slow session close finishes', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle()..closeGate = Completer<void>();
+      transport.handle = handle;
+      final service = build();
+
+      await service.connect(_d1);
+      final Future<void> disconnecting = service.disconnect();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(handle.closed, isTrue);
+      expect(relay.running, isFalse);
+
+      handle.closeGate!.complete();
+      await disconnecting;
+      await service.dispose();
     });
 
     test('receiver status keeps the relay awake', () async {
