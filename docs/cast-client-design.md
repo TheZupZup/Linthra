@@ -121,6 +121,18 @@ Rules that go with the table:
   challenge was written, or a device-auth error message fails the attempt.
 - **Timeouts are per state** (proposed: TLS 10 s, auth reply 5 s, launch 10 s;
   to be tuned on devices). A timeout is a failure, never a slow success.
+- **Every request in `ready` has a deadline** (proposed: `LOAD` 10 s, status
+  and control 5 s). A reply after it is ignored, and the request's entry is
+  removed when it expires. A timed-out request fails that operation only; the
+  session's liveness is the heartbeat's job. At most one status request is
+  outstanding at a time, so a periodic keep-alive never piles up entries.
+- **Routing is checked on every inbound message:** protocol version
+  `CASTV2_1_0`; a destination of our sender id, or `*` only for unsolicited
+  status broadcasts, never for a reply to one of our request ids; and a source
+  of `receiver-0` for the device-auth, connection, heartbeat and receiver
+  namespaces, or the app's transport id for the media namespace (once `ready`).
+  A message on the wrong route is a protocol error, whatever request id it
+  carries.
 - **Framing is strict:** a 4-byte big-endian length prefix, a fixed maximum
   frame size (proposed 64 KiB, to check against Open Screen's limit), reads
   reassembled across socket events, and a frame that does not parse closes the
@@ -203,6 +215,11 @@ app and needs refreshing through releases.
 - An authenticated identity belongs to one connection object. It holds the
   device id the user picked, the verified leaf certificate fingerprint, and
   nothing that outlives the connection.
+- **The fingerprint is fixed:** SHA-256 over the device-auth leaf certificate
+  exactly as received (DER, never re-encoded), written as lowercase hex with no
+  separators, which `normalizeCastFingerprint` leaves unchanged. Changing any
+  part of that later would read every pinned receiver as replaced, so it is
+  part of the contract.
 - Closing, timing out, reconnecting, changing receiver or replacing the session
   drops the identity with the connection. A new attempt starts from `tls` with
   a new nonce, and nothing from a previous attempt is consulted.
@@ -226,14 +243,18 @@ exposes neither the peer certificate nor a binary channel. So:
   whatever state the attempt is in, writes nothing more (no `LAUNCH` after a
   cancel during auth), and makes `connect()` fail with a cancellation that
   `DefaultCastService` treats as stale. The service cancels its in-flight
-  attempt on disconnect, on a receiver change and on dispose, instead of
-  waiting for it to reach `ready` or time out;
+  attempt on disconnect, on a receiver change, when the app is backgrounded
+  (the lifecycle leaving the foreground, as required in
+  [cast-receiver-trust.md](cast-receiver-trust.md)) and on dispose, instead of
+  waiting for it to reach `ready` or time out. Backgrounding only cancels an
+  attempt still connecting; a session already `ready` keeps playing;
 - the transport only ever returns a `CastSessionHandle` for a connection in the
   `ready` state, carrying the verified identity;
 - `TrustGatedCastTransport` keeps its role as policy over that identity (match,
   pin, wording), and its tests move to the new shape.
 - the handle also exposes the **local address of the receiver connection**
-  (the socket's own `address`). The on-device relay
+  (`Socket.address`, which in `dart:io` is this device's end of the
+  connection; `remoteAddress` is the receiver). The on-device relay
   ([#678](https://github.com/TheZupZup/Linthra/pull/678)) binds to and
   advertises that address instead of picking an interface by preference, so a
   device on two networks (Wi-Fi and Ethernet on different subnets, for
@@ -263,6 +284,10 @@ exposes neither the peer certificate nor a binary channel. So:
   error replies surfacing from the receiver, a rejected handoff keeps the
   previous casting state, status and relay token, and only reports that this
   track could not be cast.
+- handoffs are ordered. Each handoff takes a sequence number; a newer track
+  supersedes any handoff still resolving or waiting on its reply. A superseded
+  handoff never sends its `LOAD` if it has not yet, and its reply, success or
+  rejection, changes no state and revokes only its own relay token.
 
 ## Keeping credential-bearing media behind the barrier
 
@@ -360,6 +385,12 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Framing:** fragmented and coalesced frames, a length over the maximum, a
   truncated frame, a frame that is not a `CastMessage`, the wrong payload type
   for the namespace.
+- **Routing:** a wrong protocol version; a message addressed to another
+  sender; a broadcast answering one of our request ids; a platform message not
+  from `receiver-0`; a media message from a transport id other than the app's.
+- **Requests in `ready`:** a `LOAD` or status request never answered fails at
+  its deadline without ending the session; a late reply is ignored; a second
+  keep-alive is not sent while one is outstanding.
 - **Sequencing:** any message before the challenge is sent; `RECEIVER_STATUS`
   before authentication; a second device-auth response; a response before the
   challenge; an unexpected namespace in each state; `CONNECT`/`LAUNCH`/`LOAD`
@@ -367,9 +398,12 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Device auth:** no response (timeout); malformed response; missing fields;
   device-auth error; missing, empty or altered nonce refused under the strict
   policy, and accepted under a relaxed one with the signature checked over the
-  nonce the response carries (or none); a valid response for
-  another challenge; a valid response recorded on another connection (replay);
-  a valid response from another receiver.
+  nonce the response carries (or none); a valid response for another
+  challenge, refused under the strict policy (under a relaxed one it is the
+  accepted altered-nonce case); a valid response recorded on a connection with
+  a different peer certificate (replay), refused under either policy since the
+  signature covers the peer certificate; a valid response from another
+  receiver.
 - **Peer certificate:** not yet valid, expired, lifetime over 4 days.
 - **Chain:** untrusted root, incomplete chain, wrong order, expired
   certificate, leaf presented as a CA, path longer than the root allows, bad
@@ -395,7 +429,13 @@ All with generated fixtures and a fake socket, so they run in CI.
   sends nothing.
 - **Cancellation:** cancelling in `tls`, `awaitingAuth` and `launching` closes
   the socket, writes nothing further, and never lets a stale attempt reach
-  `ready`.
+  `ready`; backgrounding the app does the same for an attempt in flight and
+  leaves a `ready` session alone.
+- **Handoff order:** two tracks in quick succession, with the first handoff's
+  reply arriving after the second's (success and rejection both): only the
+  newest handoff changes state, and the older one's `LOAD` is never sent after
+  the newer one.
+- **Fingerprint:** a known leaf DER maps to its expected lowercase-hex SHA-256.
 - **Status requests:** a media status request works with no known media
   session (asked without a session id), so the relay keep-alive keeps
   working while a LOAD is pending or after the receiver rejected it and kept
