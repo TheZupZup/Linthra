@@ -80,7 +80,7 @@ attempt.
 | `awaitingAuth` | one `DeviceAuthMessage{challenge}` (sender-0 to receiver-0, deviceauth namespace, binary payload) | exactly one device-auth response | Response verified, or anything else arrives, or timeout |
 | `authenticated` | `CONNECT` to receiver-0 | nothing yet | `CONNECT` written |
 | `launching` | one `LAUNCH` of `CC1AD845` with a fresh request id; heartbeat `PONG` | heartbeat `PING`; `RECEIVER_STATUS` | A `RECEIVER_STATUS` answering that request id lists `CC1AD845`, or `LAUNCH_ERROR`, or timeout |
-| `ready` | `CONNECT` to the app's transport id, then media and volume commands | media and receiver status, heartbeat | Close, error, heartbeat loss |
+| `ready` | `CONNECT` to the app's transport id, then media and volume commands | media and receiver status, heartbeat; media error replies (`LOAD_FAILED`, `LOAD_CANCELLED`, `INVALID_REQUEST`) to our own request ids | Close, error, heartbeat loss, or a `RECEIVER_STATUS` that no longer lists `CC1AD845` with the same transport id |
 | `closed` | nothing | nothing | Terminal. A new attempt is a new connection object. |
 
 Rules that go with the table:
@@ -95,6 +95,16 @@ Rules that go with the table:
   to it. A status that arrives earlier, answers another request, lists only
   another app, or lists the app with a missing or empty transport id never
   produces readiness.
+- **A rejected request is not a lost session.** In `ready`, a media error
+  reply to one of our own request ids fails that request only (the track
+  handoff reports it) and the session stays `ready`: the receiver may still be
+  playing the previous item. An error reply to a request id we never sent is a
+  protocol error.
+- **The app going away is session loss.** If a `RECEIVER_STATUS` in `ready`
+  stops listing the Default Media Receiver, or lists it with another transport
+  id, the app we connected to is gone even if the platform connection is
+  healthy. The session ends as if the receiver had dropped (the relay stops
+  with it); nothing relaunches on its own.
 - **One challenge, one response.** A second response, a response before the
   challenge was written, or a device-auth error message fails the attempt.
 - **Timeouts are per state** (proposed: TLS 10 s, auth reply 5 s, launch 10 s;
@@ -248,8 +258,9 @@ Neither option removes this work, because no Dart library does it:
 - **Path validation** for the Cast profile: leaf plus at most two
   intermediates, RSA-2048, pinned anchors, validity windows, `basicConstraints`
   (CA flag and path length, the Cast root asserts `pathlen:2`), key usage, the
-  leaf not being a CA. Anything outside the profile is refused rather than
-  interpreted.
+  leaf not being a CA. Every extension's criticality is read, and a critical
+  extension the validator does not implement is refused. Anything outside the
+  profile is refused rather than interpreted.
 - **Cast CRL parsing and verification** (protobuf, its own root).
 - **Exact bytes:** signatures over certificates are checked against the
   `tbsCertificate` bytes exactly as received, never a re-encoding.
@@ -330,7 +341,8 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Peer certificate:** not yet valid, expired, lifetime over 4 days.
 - **Chain:** untrusted root, incomplete chain, wrong order, expired
   certificate, leaf presented as a CA, path longer than the root allows, bad
-  key usage, malformed DER at every position, trailing data.
+  key usage, an unknown critical extension at every position, malformed DER at
+  every position, trailing data.
 - **Signature:** over the wrong peer certificate, over the wrong nonce, by the
   wrong key, SHA-1 or unknown digest (per the strictness decision), altered by
   one bit.
@@ -339,6 +351,10 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Readiness:** a status answering another request id; a status listing only
   another app; the Default Media Receiver listed with a missing or empty
   transport id; `LAUNCH_ERROR`; launch timeout.
+- **In `ready`:** `LOAD_FAILED`, `LOAD_CANCELLED` and `INVALID_REQUEST` for our
+  own request keep the session ready and fail only that handoff; the same
+  replies for an unknown request id close it; a status without the app, or with
+  a different transport id, ends the session and stops the relay.
 - **Status requests:** a media status request works with no known media
   session (asked without a session id), so the relay keep-alive keeps
   working while a LOAD is pending or after the receiver rejected it and kept
@@ -370,6 +386,12 @@ is reachable from production until the restoration:
    decision and its external review.**
 4. The client: framing, the state machine, device auth wired to 3. Not wired
    into production.
+
+   Steps 3 and 4 build each open strictness choice (nonce presence and
+   equality, accepted digests, device CRL or fallback) as an explicit setting
+   with no default, both behaviours tested, because the matrix needs a working
+   client to run. The matrix picks the settings, and they are fixed, with the
+   steps and tests updated, before step 5 lands.
 5. Contract changes: the transport returns only `ready` handles, the trust gate
    and its tests move to the new shape; `cast` removed.
 6. Device matrix by hand. **Blocked on inventory.**
