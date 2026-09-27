@@ -277,9 +277,9 @@ the maintainer asked for.
 > the cutover: the v0.2.5 release update advanced `CurrentVersion` past
 > `v0.2.4` and set `License: AGPL-3.0-or-later` in the same change (see
 > [license-transition.md](./license-transition.md)). **Still to do:** the
-> external `fdroiddata` recipe's `License:` field and this submission text must
-> be switched to AGPL-3.0-or-later when the F-Droid update pointing at v0.2.5
-> or later is filed.
+> external `fdroiddata` recipe already builds v0.2.5 to v0.2.7 but its
+> `License:` field still says MPL-2.0. The merge request that fixes it is
+> ready in §11 (tracked in #659).
 
 ---
 
@@ -373,3 +373,58 @@ The metadata, audit, permissions, anti-feature review, build recipe, screenshots
 and submission text are ready and point at `v0.1.0-alpha.30`. What's left before
 the merge request: an SDK-machine release-build re-confirmation, and `fdroid lint`
 / `fdroid build` in an fdroiddata checkout.
+
+## 11. License update merge request (#659)
+
+The fdroiddata recipe picked up v0.2.5, v0.2.6 and v0.2.7 through the
+checkupdates bot, which never edits `License:`. The canonical entry therefore
+still says `License: MPL-2.0` while every current F-Droid build is
+AGPL-3.0-or-later. This merge request fixes that one field and nothing else.
+
+Steps:
+
+1. In your fdroiddata fork, sync `master`, then create a non-protected branch
+   named `io.github.thezupzup.linthra`.
+2. Edit `metadata/io.github.thezupzup.linthra.yml`:
+
+   ```diff
+   -License: MPL-2.0
+   +License: AGPL-3.0-or-later
+   ```
+
+   Do not touch the `Builds` entries, commits or tags.
+3. Let the fork's CI pipeline pass (`fdroid lint` / `rewritemeta` are what
+   matter for a metadata-only change).
+4. Open the merge request with fdroiddata's **"App update"** template, remove
+   the instruction lines it asks you to remove, and use the text below.
+
+**Title:** Linthra: update license to AGPL-3.0-or-later
+
+**Body:**
+
+Linthra was relicensed from MPL-2.0 to AGPL-3.0-or-later after v0.2.4. Every
+build currently in this recipe's `CurrentVersion` range (v0.2.5, v0.2.6,
+v0.2.7) comes from a source tree whose top-level `LICENSE` is the GNU AGPLv3,
+so the app-level `License:` field is updated to match.
+
+Releases up to and including v0.2.4 were published under MPL-2.0 and stay
+under it upstream. No `Builds` entry, commit or tag is changed here.
+
+- Transition record: https://github.com/TheZupZup/Linthra/blob/main/docs/license-transition.md
+- Contributor consent: https://github.com/TheZupZup/Linthra/blob/main/docs/relicensing-consent.md
+- Preserved MPL-2.0 text for older releases: https://github.com/TheZupZup/Linthra/blob/main/docs/licenses/MPL-2.0.txt
+- Upstream tracking issue: https://github.com/TheZupZup/Linthra/issues/659
+
+## Required
+
+* [x] The app complies with the [inclusion criteria](https://f-droid.org/docs/Inclusion_Policy)
+* [x] All related fdroiddata and RFP issues have been referenced in this merge request (none exist for this change)
+* [x] Builds with `fdroid build` (metadata-only change, no build steps touched)
+
+## Strongly Recommended
+
+* [x] The upstream app source code repo contains the app metadata in a Fastlane folder structure
+* [x] Releases are tagged
+
+After it merges, check that the F-Droid package page shows the GNU AGPL, then
+tick the fdroiddata items in #659.
