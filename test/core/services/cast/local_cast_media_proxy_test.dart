@@ -191,6 +191,9 @@ void main() {
   /// The relay's monotonic clock, driven by the tests.
   late Duration now;
 
+  /// The relay's wall clock, driven by the tests.
+  late DateTime wall;
+
   LocalCastMediaProxy build({
     Duration idleTimeout = const Duration(minutes: 30),
     Duration tokenLifetime = const Duration(hours: 6),
@@ -198,6 +201,7 @@ void main() {
     final LocalCastMediaProxy proxy = LocalCastMediaProxy(
       lanAddress: () async => InternetAddress.loopbackIPv4,
       elapsed: () => now,
+      wallClock: () => wall,
       idleTimeout: idleTimeout,
       tokenLifetime: tokenLifetime,
     );
@@ -208,6 +212,7 @@ void main() {
   setUp(() async {
     upstream = await _Upstream.start();
     now = const Duration(hours: 1);
+    wall = DateTime(2026, 9, 27, 12);
   });
 
   tearDown(() => upstream.close());
@@ -324,6 +329,31 @@ void main() {
       expect(upstream.requests, hasLength(1));
       // Nothing brings an expired token back: it is gone, not just stale.
       now -= const Duration(hours: 2);
+      expect((await _fetch(relayed.url)).status, HttpStatus.notFound);
+    });
+
+    test('sleeping past the lifetime expires a token', () async {
+      final LocalCastMediaProxy proxy =
+          build(tokenLifetime: const Duration(hours: 1));
+      await proxy.start();
+      final CastMedia relayed = proxy.publish(_media(upstream.streamUrl));
+
+      // Suspended: the monotonic clock stood still, the wall clock did not.
+      wall = wall.add(const Duration(hours: 7));
+
+      expect((await _fetch(relayed.url)).status, HttpStatus.notFound);
+      expect(upstream.requests, isEmpty);
+    });
+
+    test('turning the wall clock back does not extend a token', () async {
+      final LocalCastMediaProxy proxy =
+          build(tokenLifetime: const Duration(hours: 1));
+      await proxy.start();
+      final CastMedia relayed = proxy.publish(_media(upstream.streamUrl));
+
+      wall = wall.subtract(const Duration(hours: 5));
+      now += const Duration(hours: 1);
+
       expect((await _fetch(relayed.url)).status, HttpStatus.notFound);
     });
 

@@ -55,6 +55,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
     Future<HttpServer> Function(InternetAddress address)? bind,
     HttpClient Function()? httpClient,
     Duration Function()? elapsed,
+    DateTime Function()? wallClock,
     this.idleTimeout = const Duration(minutes: 30),
     this.tokenLifetime = const Duration(hours: 6),
     this.upstreamHeaderTimeout = const Duration(seconds: 20),
@@ -62,7 +63,8 @@ class LocalCastMediaProxy implements CastMediaRelay {
   })  : _lanAddress = lanAddress ?? findLanAddress,
         _bind = bind ?? _bindEphemeral,
         _httpClient = httpClient ?? HttpClient.new,
-        _elapsed = elapsed ?? _monotonicClock();
+        _elapsed = elapsed ?? _monotonicClock(),
+        _wallClock = wallClock ?? DateTime.now;
 
   /// The first path segment of every relayed URL.
   static const String pathPrefix = 'cast';
@@ -101,10 +103,18 @@ class LocalCastMediaProxy implements CastMediaRelay {
     return () => stopwatch.elapsed;
   }
 
-  /// A monotonic reading used to age tokens. Deliberately not the wall clock:
-  /// a user changing the time, or a network time correction, must not stretch
-  /// or cut a token's lifetime.
+  /// A monotonic reading used to age tokens, so turning the clock back cannot
+  /// stretch a token's lifetime. It stands still during suspend, which is why
+  /// [_wallClock] is checked too.
   final Duration Function() _elapsed;
+
+  /// The wall clock, read alongside [_elapsed]. The monotonic reading does not
+  /// advance while the device is suspended, and the wall clock can be moved
+  /// back by hand, so neither alone bounds a token's life. A token expires as
+  /// soon as either says its lifetime is up: sleeping past it expires it (wall
+  /// clock), and turning the clock back cannot extend it (monotonic). A clock
+  /// moved forward can only end it early, which is the safe direction.
+  final DateTime Function() _wallClock;
 
   static final Random _random = Random.secure();
 
@@ -202,13 +212,15 @@ class LocalCastMediaProxy implements CastMediaRelay {
     // handoffs the receiver never asked for, which this one supersedes. So at
     // most two tokens are ever live, and no upstream URL lingers unused.
     final Duration now = _elapsed();
+    final DateTime wallNow = _wallClock();
     _items.removeWhere((_, _PublishedItem item) =>
-        now - item.issuedAt >= tokenLifetime || item.serial != _playingSerial);
+        _expired(item, now, wallNow) || item.serial != _playingSerial);
     final String token = newToken();
     _items[token] = _PublishedItem(
       upstream: media.url,
       contentType: media.contentType,
       issuedAt: now,
+      issuedAtWall: wallNow,
       serial: _nextSerial++,
     );
     _armIdleTimer();
@@ -484,13 +496,18 @@ class LocalCastMediaProxy implements CastMediaRelay {
     return true;
   }
 
+  /// See [_wallClock]: expired when either clock says so.
+  bool _expired(_PublishedItem item, Duration now, DateTime wallNow) =>
+      now - item.issuedAt >= tokenLifetime ||
+      wallNow.difference(item.issuedAtWall) >= tokenLifetime;
+
   _PublishedItem? _lookup(Uri uri) {
     final List<String> segments = uri.pathSegments;
     if (segments.length != 2 || segments[0] != pathPrefix) return null;
     final String token = segments[1];
     final _PublishedItem? item = _items[token];
     if (item == null) return null;
-    if (_elapsed() - item.issuedAt >= tokenLifetime) {
+    if (_expired(item, _elapsed(), _wallClock())) {
       _items.remove(token);
       return null;
     }
@@ -597,6 +614,7 @@ class _PublishedItem {
     required this.upstream,
     required this.contentType,
     required this.issuedAt,
+    required this.issuedAtWall,
     required this.serial,
   });
 
@@ -607,6 +625,10 @@ class _PublishedItem {
 
   /// When it was published, on the relay's monotonic clock.
   final Duration issuedAt;
+
+  /// When it was published, on the wall clock (see [LocalCastMediaProxy]'s
+  /// `_wallClock` for why both are kept).
+  final DateTime issuedAtWall;
 
   /// Publication order, so a request for an item can retire older ones.
   final int serial;
