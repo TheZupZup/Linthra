@@ -157,9 +157,6 @@ The transition was made in one reviewable change. The surfaces updated:
   under MPL-2.0. Only their *links* were repointed from the top-level `LICENSE`
   (now AGPL) to the preserved `docs/licenses/MPL-2.0.txt`, so the stated fact and
   the text it links to agree.
-- `metadata/io.github.thezupzup.linthra.yml` — temporary distribution metadata
-  for F-Droid's existing pre-transition build records. It must change together
-  with the first post-transition F-Droid build/current-version entry.
 - `third_party/**` — third-party licenses and notices, untouched.
 - Historical and compatibility discussion of MPL-2.0 in this file and in
   `docs/dependency-license-audit.md`.
@@ -218,12 +215,38 @@ to `0.2.5` and set `License: AGPL-3.0-or-later` in the same change. The `Builds`
 were left alone: they record the versions F-Droid actually built, all of them
 pre-transition, and no old build commit, tag, release note, or artifact is relabelled.
 
-The corresponding metadata in the external `fdroiddata` repository still has to be
-updated to the same value, along with the submission text — see
-[fdroid-submission.md](./fdroid-submission.md) §9.
-
 Do not retroactively edit old release notes to say AGPL when those releases shipped
 under MPL.
+
+### The external `fdroiddata` entry
+
+The canonical F-Droid recipe lives in the external
+[`fdroiddata`](https://gitlab.com/fdroid/fdroiddata/-/blob/master/metadata/io.github.thezupzup.linthra.yml)
+repository, not here. F-Droid's checkupdates bot has already added the v0.2.5,
+v0.2.6 and v0.2.7 builds there and advanced `CurrentVersion`, but the bot never
+touches `License:`, so that entry still says `License: MPL-2.0`. That is wrong
+for every current F-Droid build and needs a one-line manual merge request:
+
+```diff
+-License: MPL-2.0
++License: AGPL-3.0-or-later
+```
+
+Nothing else in the recipe changes: no `Builds` entry, commit or tag is
+edited. The ready-to-file merge request is in
+[fdroid-submission.md](./fdroid-submission.md) §11, and the sync is tracked in
+[#659](https://github.com/TheZupZup/Linthra/issues/659).
+
+F-Droid's `License:` is a single app-level field with no per-build value (see
+F-Droid's Build Metadata Reference), so once it is corrected the F-Droid client
+will show AGPL-3.0-or-later next to any archived v0.2.4-or-older APK as well.
+That is a limit of the metadata format, not a relicensing of those builds: they
+remain MPL-2.0, and this file and [`licenses/`](./licenses/README.md) are the
+authoritative record.
+
+Third-party listings that copied an older release (for example a page still
+describing v0.2.4 as MPL-2.0) are stale, not wrong. The fix there is to refresh
+them to a current release, never to relabel the old version as AGPL.
 
 ## Branding and unofficial builds
 

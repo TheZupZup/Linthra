@@ -8,6 +8,7 @@ import 'package:linthra/core/models/cast_volume.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/cast/cast_media_access.dart';
+import 'package:linthra/core/services/cast/cast_media_relay.dart';
 import 'package:linthra/core/services/cast/cast_media_resolver.dart';
 import 'package:linthra/core/services/cast/cast_receiver_trust.dart';
 import 'package:linthra/core/services/cast/cast_transport.dart';
@@ -44,6 +45,13 @@ class _FakeHandle implements CastSessionHandle {
   /// can drive a refused handoff.
   Object? loadError;
   bool closed = false;
+
+  /// When true, [requestStatus] is answered with a status push, like a live
+  /// receiver. False models a receiver that died without the session noticing.
+  bool answerStatusRequests = false;
+
+  /// When set, [close] waits for it, so a test can drive a slow goodbye.
+  Completer<void>? closeGate;
 
   void becomeReady() {
     _last = true;
@@ -103,11 +111,18 @@ class _FakeHandle implements CastSessionHandle {
   }
 
   @override
-  Future<void> requestStatus() async => statusRequests++;
+  Future<void> requestStatus() async {
+    statusRequests++;
+    if (answerStatusRequests) {
+      pushStatus(const CastPlaybackStatus(status: PlaybackStatus.paused));
+    }
+  }
 
   @override
   Future<void> close() async {
     closed = true;
+    final Completer<void>? gate = closeGate;
+    if (gate != null) await gate.future;
     if (!_ready.isClosed) await _ready.close();
     if (!_status.isClosed) await _status.close();
     if (!_volume.isClosed) await _volume.close();
@@ -121,6 +136,12 @@ class _FakeTransport implements CastTransport {
   Object? discoverError;
   Object? connectError;
   _FakeHandle? handle;
+
+  /// Per-device handles, for tests that connect to more than one device.
+  Map<String, _FakeHandle> handlesById = <String, _FakeHandle>{};
+
+  /// Per-device connect failures.
+  Map<String, Object> connectErrorById = <String, Object>{};
 
   int discoverCount = 0;
   final List<CastDevice> connectRequests = <CastDevice>[];
@@ -136,7 +157,9 @@ class _FakeTransport implements CastTransport {
   Future<CastSessionHandle> connect(CastDevice device) async {
     connectRequests.add(device);
     if (connectError != null) throw connectError!;
-    return handle ??= _FakeHandle();
+    final Object? deviceError = connectErrorById[device.id];
+    if (deviceError != null) throw deviceError;
+    return handlesById[device.id] ?? (handle ??= _FakeHandle());
   }
 }
 
@@ -167,28 +190,104 @@ class _FakeResolver implements CastMediaResolver {
   }
 }
 
+/// A relay that records what it was asked to re-serve and hands back a
+/// token-free address, or fails as configured.
+class _FakeRelay implements CastMediaRelay {
+  bool running = false;
+  Object? startError;
+  Object? publishError;
+  int startCount = 0;
+  int stopCount = 0;
+  int touchCount = 0;
+  final List<CastMedia> published = <CastMedia>[];
+
+  /// Holds the n-th [stop] call (1-based) until completed, after it has
+  /// already taken effect, like the real relay awaiting its socket close.
+  final Map<int, Completer<void>> stopGates = <int, Completer<void>>{};
+
+  @override
+  bool get isRunning => running;
+
+  /// Holds the n-th [start] call (1-based) until completed; a call listed in
+  /// [failingStarts] then throws instead of starting.
+  final Map<int, Completer<void>> startGates = <int, Completer<void>>{};
+  final Set<int> failingStarts = <int>{};
+
+  @override
+  Future<void> start() async {
+    startCount++;
+    final int call = startCount;
+    final Completer<void>? gate = startGates[call];
+    if (gate != null) await gate.future;
+    if (startError != null || failingStarts.contains(call)) {
+      throw startError ?? const CastMediaRelayException('down');
+    }
+    running = true;
+  }
+
+  @override
+  CastMedia publish(CastMedia media) {
+    if (publishError != null) throw publishError!;
+    if (!running) {
+      throw const CastMediaRelayException(
+          CastMediaRelayException.unavailableMessage);
+    }
+    published.add(media);
+    return CastMedia(
+      url: Uri.parse('http://192.168.1.20:40000/cast/item${published.length}'),
+      contentType: media.contentType,
+      title: media.title,
+      access: CastMediaAccess.localRelay,
+    );
+  }
+
+  @override
+  void touch() => touchCount++;
+
+  final List<CastMedia> revoked = <CastMedia>[];
+
+  @override
+  void revoke(CastMedia relayed) => revoked.add(relayed);
+
+  @override
+  Future<void> stop() async {
+    stopCount++;
+    running = false;
+    final Completer<void>? gate = stopGates[stopCount];
+    if (gate != null) await gate.future;
+  }
+}
+
 const _d1 = CastDevice(id: 'd1', name: 'Living Room');
+const _d2 = CastDevice(id: 'd2', name: 'Kitchen');
 const _jellyfinTrack = Track(id: 'j1', title: 'Streamed', uri: 'jellyfin:j1');
 const _localTrack = Track(id: 'l1', title: 'On device', uri: '/music/x.mp3');
 
 void main() {
   late _FakeTransport transport;
   late _FakeResolver resolver;
+  late _FakeRelay relay;
   late StreamController<Track?> trackChanges;
   Track? current;
 
-  DefaultCastService build() => DefaultCastService(
+  DefaultCastService build({
+    Duration relayKeepAlive = const Duration(minutes: 5),
+  }) =>
+      DefaultCastService(
         transport: transport,
         mediaResolver: resolver,
+        mediaRelay: relay,
         currentTrack: () => current,
         trackChanges: trackChanges.stream,
         discoveryTimeout: const Duration(milliseconds: 5),
         connectTimeout: const Duration(milliseconds: 100),
+        relayKeepAlive: relayKeepAlive,
       );
 
   setUp(() {
     transport = _FakeTransport();
     resolver = _FakeResolver();
+    relay = _FakeRelay();
     trackChanges = StreamController<Track?>.broadcast();
     current = null;
   });
@@ -245,10 +344,12 @@ void main() {
       expect(service.state.isConnected, isTrue);
       expect(service.state.isCasting, isTrue);
       expect(service.state.connectedDevice, _d1);
-      // The resolved, token-bearing URL reached the receiver.
+      // The receiver got the relay's address; the resolved, token-bearing URL
+      // went to the relay and no further.
       expect(handle.loaded, hasLength(1));
-      expect(handle.loaded.single.url.queryParameters['api_key'], 'TOKEN');
+      expect(handle.loaded.single.url.host, '192.168.1.20');
       expect(handle.loaded.single.title, 'Streamed');
+      expect(relay.published.single.url.queryParameters['api_key'], 'TOKEN');
     });
 
     test('a local file is reported as a clear limitation, not cast', () async {
@@ -575,11 +676,338 @@ void main() {
       addTearDown(service.dispose);
 
       await service.connect(_d1);
-      // The token rode only on the CastMedia handed to the receiver.
-      expect(handle.loaded.single.url.queryParameters['api_key'], 'TOKEN');
+      // The token stayed with the relay; the receiver never saw it.
+      expect(handle.loaded.single.url.toString(), isNot(contains('TOKEN')));
+      expect(handle.loaded.single.access, CastMediaAccess.localRelay);
       // Never in the user-facing state.
       expect(service.state.message ?? '', isNot(contains('TOKEN')));
       expect(service.state.message ?? '', isNot(contains('api_key')));
+    });
+  });
+
+  group('media relay', () {
+    test(
+        'a relay that cannot start refuses the session before any receiver '
+        'contact', () async {
+      current = _jellyfinTrack;
+      relay.startError = const CastMediaRelayException('boom');
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+
+      expect(transport.connectRequests, isEmpty);
+      expect(handle.loaded, isEmpty);
+      expect(resolver.resolved, isEmpty);
+      expect(service.state.hasError, isTrue);
+      expect(service.state.isCasting, isFalse);
+      expect(service.state.message, CastMediaRelayException.unavailableMessage);
+    });
+
+    test('the relay stops when the session ends', () async {
+      current = _jellyfinTrack;
+      transport.handle = _FakeHandle();
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      expect(relay.running, isTrue);
+
+      await service.disconnect();
+
+      expect(relay.running, isFalse);
+    });
+
+    test('the relay stops when the receiver drops the session', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      handle.drop();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(relay.running, isFalse);
+    });
+
+    test('the relay stops when connecting fails', () async {
+      current = _jellyfinTrack;
+      transport.connectError = Exception('no route');
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+
+      expect(relay.startCount, 1);
+      expect(relay.running, isFalse);
+    });
+
+    test('an idle-stopped relay is brought back for the next track', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      relay.running = false; // as if the idle timer fired
+      const Track next = Track(id: 'j2', title: 'Next', uri: 'jellyfin:j2');
+      current = next;
+      trackChanges.add(next);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(relay.startCount, 2);
+      expect(handle.loaded, hasLength(2));
+      expect(handle.loaded.last.url.toString(), isNot(contains('TOKEN')));
+      expect(service.state.isCasting, isTrue);
+    });
+
+    test(
+        'a relay that cannot come back ends the session, never falling back '
+        'to the server URL', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      relay.running = false;
+      relay.startError = const CastMediaRelayException('boom');
+      const Track next = Track(id: 'j2', title: 'Next', uri: 'jellyfin:j2');
+      current = next;
+      trackChanges.add(next);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(handle.loaded, hasLength(1));
+      for (final CastMedia media in handle.loaded) {
+        expect(media.url.toString(), isNot(contains('TOKEN')));
+      }
+      expect(handle.closed, isTrue);
+      expect(service.state.hasError, isTrue);
+      expect(service.state.isCasting, isFalse);
+      expect(service.state.message, CastMediaRelayException.unavailableMessage);
+    });
+
+    test('a publish failure hands the receiver nothing', () async {
+      current = _jellyfinTrack;
+      relay.publishError = StateError('nope');
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+
+      expect(handle.loaded, isEmpty);
+      expect(handle.closed, isTrue);
+      expect(relay.running, isFalse);
+      expect(service.state.message, CastMediaRelayException.unavailableMessage);
+    });
+
+    test('a connected session keeps the relay awake through a long pause',
+        () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle()..answerStatusRequests = true;
+      transport.handle = handle;
+      final service = build(relayKeepAlive: const Duration(milliseconds: 10));
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      // No status and no requests, as with a paused receiver.
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(relay.touchCount, greaterThanOrEqualTo(3));
+      expect(relay.running, isTrue);
+
+      await service.disconnect();
+      final int afterDisconnect = relay.touchCount;
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      // Nothing keeps a relay awake once its session is gone.
+      expect(relay.touchCount, afterDisconnect);
+    });
+
+    test('a receiver that stops answering stops keeping the relay awake',
+        () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle(); // never answers a status request
+      transport.handle = handle;
+      final service = build(relayKeepAlive: const Duration(milliseconds: 10));
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      // It was asked, and its silence renewed nothing, so the relay's own idle
+      // shutdown is still armed for a session that died unnoticed.
+      expect(handle.statusRequests, greaterThanOrEqualTo(3));
+      expect(relay.touchCount, 0);
+    });
+
+    test('the relay is revoked before a slow session close finishes', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle()..closeGate = Completer<void>();
+      transport.handle = handle;
+      final service = build();
+
+      await service.connect(_d1);
+      final Future<void> disconnecting = service.disconnect();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(handle.closed, isTrue);
+      expect(relay.running, isFalse);
+
+      handle.closeGate!.complete();
+      await disconnecting;
+      await service.dispose();
+    });
+
+    test('a superseded connection attempt leaves the newer session alone',
+        () async {
+      current = _jellyfinTrack;
+      final slow = _FakeHandle(readyImmediately: false); // times out
+      final fast = _FakeHandle();
+      transport.handlesById = <String, _FakeHandle>{'d1': slow, 'd2': fast};
+      final service = build();
+      addTearDown(service.dispose);
+
+      final Future<void> first = service.connect(_d1);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await service.connect(_d2);
+      expect(service.state.isCasting, isTrue);
+
+      await first; // its readiness wait runs out now
+
+      expect(slow.closed, isTrue);
+      expect(relay.running, isTrue);
+      expect(service.state.connectedDevice, _d2);
+      expect(service.state.isCasting, isTrue);
+      expect(service.state.hasError, isFalse);
+    });
+
+    test('a failed attempt that lost the race while cleaning up stays quiet',
+        () async {
+      current = _jellyfinTrack;
+      transport.connectErrorById = <String, Object>{'d1': Exception('no')};
+      transport.handlesById = <String, _FakeHandle>{'d2': _FakeHandle()};
+      // Stop #1 is the first attempt's teardown, #2 its cleanup after the
+      // failed connect: hold that one while the second attempt connects.
+      final Completer<void> slowStop = Completer<void>();
+      relay.stopGates[2] = slowStop;
+      final service = build();
+      addTearDown(service.dispose);
+
+      final Future<void> first = service.connect(_d1);
+      await Future<void>.delayed(Duration.zero);
+      await service.connect(_d2);
+      expect(service.state.isCasting, isTrue);
+
+      slowStop.complete();
+      await first;
+
+      expect(service.state.connectedDevice, _d2);
+      expect(service.state.isCasting, isTrue);
+      expect(service.state.hasError, isFalse);
+      expect(relay.running, isTrue);
+    });
+
+    test(
+        'an attempt superseded while the relay starts never contacts its '
+        'device', () async {
+      current = _jellyfinTrack;
+      transport.handlesById = <String, _FakeHandle>{
+        'd1': _FakeHandle(),
+        'd2': _FakeHandle(),
+      };
+      final Completer<void> slowStart = Completer<void>();
+      relay.startGates[1] = slowStart; // the first attempt's relay start
+      final service = build();
+      addTearDown(service.dispose);
+
+      final Future<void> first = service.connect(_d1);
+      await Future<void>.delayed(Duration.zero);
+      await service.connect(_d2);
+      slowStart.complete();
+      await first;
+
+      expect(transport.connectRequests, const <CastDevice>[_d2]);
+      expect(service.state.connectedDevice, _d2);
+      expect(service.state.isCasting, isTrue);
+    });
+
+    test('a stale handoff failing late leaves the next session alone',
+        () async {
+      current = _jellyfinTrack;
+      final d1 = _FakeHandle();
+      final d2 = _FakeHandle();
+      transport.handlesById = <String, _FakeHandle>{'d1': d1, 'd2': d2};
+      final service = build();
+      addTearDown(service.dispose);
+      await service.connect(_d1);
+
+      // The relay idled out; the next track has to bring it back, and that
+      // restart is slow and ends up failing.
+      relay.running = false;
+      final Completer<void> slowRestart = Completer<void>();
+      relay.startGates[2] = slowRestart;
+      relay.failingStarts.add(2);
+      const Track next = Track(id: 'j2', title: 'Next', uri: 'jellyfin:j2');
+      current = next;
+      trackChanges.add(next);
+      await Future<void>.delayed(Duration.zero);
+
+      // Meanwhile the user moves to another receiver.
+      await service.connect(_d2);
+      expect(service.state.isCasting, isTrue);
+
+      slowRestart.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(d2.closed, isFalse);
+      expect(service.state.connectedDevice, _d2);
+      expect(service.state.isCasting, isTrue);
+      expect(service.state.hasError, isFalse);
+    });
+
+    test('the playing item stays reachable when the next LOAD fails', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      final CastMedia playing = handle.loaded.single;
+
+      handle.loadError = Exception('socket write failed');
+      const Track next = Track(id: 'j2', title: 'Next', uri: 'jellyfin:j2');
+      current = next;
+      trackChanges.add(next);
+      await Future<void>.delayed(Duration.zero);
+
+      // Only the refused item's token went; the playing one was never touched.
+      expect(relay.revoked, hasLength(1));
+      expect(relay.revoked.single.url, isNot(playing.url));
+    });
+
+    test('receiver status keeps the relay awake', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      handle
+          .pushStatus(const CastPlaybackStatus(status: PlaybackStatus.playing));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(relay.touchCount, 1);
     });
   });
 

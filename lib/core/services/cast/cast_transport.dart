@@ -63,8 +63,9 @@ abstract interface class CastSessionHandle {
   Future<void> setMuted(bool muted);
 
   /// Asks the receiver for a fresh media status (used to re-sync position, e.g.
-  /// after the app returns from the background). Best-effort; a no-op when no
-  /// media is loaded.
+  /// after the app returns from the background, and as the relay keep-alive).
+  /// Best-effort; when no media session is known yet it asks for every media
+  /// session's status rather than doing nothing.
   Future<void> requestStatus();
 
   /// Tears the session down and returns control to this device.
