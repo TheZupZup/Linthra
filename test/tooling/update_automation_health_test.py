@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -453,6 +455,69 @@ class WorkflowWiringTest(unittest.TestCase):
         self.assertIn("/actions/runs/$run_id/jobs", self.text)
         # Best effort: a failed lookup warns rather than failing the report.
         self.assertIn("::warning::Could not read the failed steps", self.text)
+
+    def _jobs_filter(self) -> str:
+        """The jq filter the workflow applies to a run's jobs, as written."""
+
+        match = re.search(
+            r'/actions/runs/\$run_id/jobs\?per_page=100" \\\n\s*--jq \'(.*?)\' \\\n',
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "could not find the jobs lookup filter")
+        return match.group(1)
+
+    def _failed_steps(self, jobs: list) -> list:
+        proc = subprocess.run(
+            ["jq", "-c", self._jobs_filter()],
+            input=json.dumps({"jobs": jobs}),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return json.loads(proc.stdout)
+
+    @unittest.skipUnless(shutil.which("jq"), "jq is not installed")
+    def test_the_jobs_filter_locates_failures_and_timeouts(self) -> None:
+        jobs = [
+            {"name": "Check", "conclusion": "success", "steps": []},
+            {
+                "name": "Draft PR for agp",
+                "conclusion": "failure",
+                "steps": [
+                    {"name": "Require token", "conclusion": "failure"},
+                    {"name": "Checkout main", "conclusion": "skipped"},
+                ],
+            },
+            # A timeout marks the job timed_out and its interrupted step
+            # cancelled, so filtering on "failure" alone reports nothing.
+            {
+                "name": "Resolve",
+                "conclusion": "timed_out",
+                "steps": [
+                    {"name": "Set up Flutter", "conclusion": "success"},
+                    {"name": "Run tests", "conclusion": "cancelled"},
+                ],
+            },
+            # No failed step recorded: the job is still named.
+            {"name": "Draft PR for kotlin", "conclusion": "failure", "steps": None},
+        ]
+        self.assertEqual(
+            self._failed_steps(jobs),
+            [
+                "Draft PR for agp / Require token",
+                "Resolve / Run tests",
+                "Draft PR for kotlin",
+            ],
+        )
+
+    @unittest.skipUnless(shutil.which("jq"), "jq is not installed")
+    def test_the_jobs_filter_ignores_healthy_jobs(self) -> None:
+        jobs = [
+            {"name": "Check", "conclusion": "success", "steps": []},
+            {"name": "Major upgrade issue", "conclusion": "skipped", "steps": []},
+        ]
+        self.assertEqual(self._failed_steps(jobs), [])
 
     def test_the_guidance_names_steps_that_exist(self) -> None:
         # The issue body tells the reader which step means what. If an updater
