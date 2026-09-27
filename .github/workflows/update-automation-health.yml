@@ -91,8 +91,35 @@ jobs:
             page="$RUNNER_TEMP/page.json"
             gh api \
               "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?per_page=10" \
-              --jq '[.workflow_runs[] | {event, status, conclusion, url: .html_url, createdAt: .created_at}]' \
+              --jq '[.workflow_runs[] | {id, event, status, conclusion, url: .html_url, createdAt: .created_at}]' \
               > "$page"
+
+            # Where the newest completed scheduled run stopped, if it failed.
+            # The updaters fail for different reasons, and the report should
+            # name the step rather than leave the reader to guess. Only ever
+            # rendered, never part of the verdict, so a lookup that fails is a
+            # warning and the verdict is unchanged. A job that timed out has its
+            # interrupted step `cancelled`, and a failed job with no failed step
+            # recorded is named on its own rather than dropped.
+            index="$(jq '[.[] | select(.event == "schedule" and .status == "completed")][0] as $newest
+              | if $newest != null and ($newest.conclusion | IN("failure", "timed_out", "startup_failure"))
+                then map(.id) | index($newest.id) else empty end' "$page")"
+            if [[ -n "$index" ]]; then
+              run_id="$(jq -r ".[$index].id" "$page")"
+              steps="$RUNNER_TEMP/steps.json"
+              if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
+                --jq '[.jobs[] | select(.conclusion | IN("failure", "timed_out")) | .name as $job
+                  | [(.steps // [])[] | select(.conclusion | IN("failure", "timed_out", "cancelled"))
+                    | "\($job) / \(.name)"] as $failed
+                  | if ($failed | length) > 0 then $failed[] else $job end]' \
+                > "$steps"; then
+                jq --argjson i "$index" --slurpfile steps "$steps" \
+                  '.[$i].failedSteps = $steps[0]' "$page" > "$page.next"
+                mv "$page.next" "$page"
+              else
+                echo "::warning::Could not read the failed steps of $workflow run $run_id; the report will not name them."
+              fi
+            fi
 
             WORKFLOW="$workflow" jq \
               --slurpfile page "$page" \
@@ -150,11 +177,22 @@ jobs:
             echo
             echo "### First thing to check"
             echo
-            echo "Open the failing run above. If it stops at"
-            echo "\`DEPENDENCY_UPDATE_TOKEN is required\`, the repository secret is"
-            echo "missing or expired, and all three updaters fail the same way because"
-            echo "they share it. It is a fine-grained token with **Contents:"
-            echo "read/write** and **Pull requests: read/write** on this repository."
+            echo "Open the failing run above. The two known ways an updater stops:"
+            echo
+            echo "- **\`Require workflow-triggering publication token\`** fails with"
+            echo "  \`DEPENDENCY_UPDATE_TOKEN is required\`: the repository Actions"
+            echo "  secret is not set (an expired one fails later, at the push, with an"
+            echo "  authentication error). All three updaters share it, but each only"
+            echo "  asks for it when it has something to publish, so a green updater"
+            echo "  does not prove the secret exists. It is a fine-grained token with"
+            echo "  **Contents: read/write** and **Pull requests: read/write** on this"
+            echo "  repository."
+            echo "- **\`Resolve updates with the pinned SDK\`** fails with \`changes"
+            echo "  files outside the allowed set\`: the lockfile refresh also changed"
+            echo "  another file, named in the log. That is the Dart updater's guard"
+            echo "  working, not the token: the update needs a human PR (or a human"
+            echo "  decision to keep that package back), not a wider allowlist."
+            echo
             echo "See [docs/dependency-updates.md](docs/dependency-updates.md)."
             echo
             echo "### What was not done"

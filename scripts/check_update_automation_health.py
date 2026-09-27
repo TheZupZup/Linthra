@@ -79,6 +79,17 @@ A workflow with no completed scheduled runs at all is reported as `unknown`, not
 as failing. That is what a newly added workflow looks like before its first
 Monday, and filing an issue about it would be wrong.
 
+Where it failed
+---------------
+
+A run may also carry `failedSteps`: the failed job and step names of that run,
+as `"<job> / <step>"` strings, which the workflow looks up for the newest
+failing run of each updater. It is only ever rendered into the report, never
+read by the verdict: the updaters fail for different reasons (a missing
+publication token, an allowlist guard refusing a change that needs a human),
+and the report should point at the one that actually happened rather than
+leave the reader to guess. A run without it is reported exactly as before.
+
 Exit codes follow the other checkers here: 0 when the input was understood
 (whatever the verdict), 2 when it was not. The verdict is what the caller reads,
 not the exit code, so a genuinely broken input can never be mistaken for a
@@ -160,6 +171,17 @@ def scheduled_runs(runs: List[Any], where: str) -> List[Dict[str, Any]]:
     return completed
 
 
+def _failed_steps(run: Dict[str, Any], where: str) -> List[str]:
+    """Return the run's optional `failedSteps`, checked but never interpreted."""
+
+    value = run.get("failedSteps")
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise CheckError(f"{where}: run field 'failedSteps' is not a list of strings.")
+    return value
+
+
 def failure_streak(runs: List[Dict[str, Any]], where: str) -> int:
     """Count consecutive broken runs from the newest backwards.
 
@@ -192,6 +214,7 @@ def classify_workflow(name: str, runs: Any, min_failures: int) -> Dict[str, Any]
             "last_conclusion": "",
             "last_run_url": "",
             "last_run_at": "",
+            "failed_steps": [],
             "detail": "no completed scheduled run in the window",
         }
 
@@ -208,6 +231,7 @@ def classify_workflow(name: str, runs: Any, min_failures: int) -> Dict[str, Any]
         or _as_str(newest, "html_url", where),
         "last_run_at": _as_str(newest, "createdAt", where)
         or _as_str(newest, "created_at", where),
+        "failed_steps": _failed_steps(newest, where),
         "detail": "",
     }
 
@@ -276,6 +300,17 @@ def render_report(result: Dict[str, Any]) -> str:
             f"| {workflow['consecutive_failures']} | {last} |"
         )
     lines.append("")
+
+    located = [
+        w for w in result["workflows"] if w["state"] == "failing" and w["failed_steps"]
+    ]
+    if located:
+        lines.append("### Where the last scheduled run stopped")
+        lines.append("")
+        for workflow in located:
+            steps = ", ".join(f"`{step}`" for step in workflow["failed_steps"])
+            lines.append(f"- `{workflow['workflow']}`: {steps}")
+        lines.append("")
     return "\n".join(lines)
 
 
