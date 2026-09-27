@@ -128,7 +128,9 @@ How it answers the questions this option was parked on:
   another host (same-host redirects are followed, an http to https upgrade
   included, a downgrade at any hop refused), and a server that sends no headers within 20 seconds. A body
   that stops arriving for 30 seconds (while the receiver is still reading) is
-  cut rather than left hanging. Only
+  cut rather than left hanging. Audio the server sends compressed although
+  the relay asked for it uncompressed is refused (it would reach the receiver
+  as garbage). Only
   requests carrying a live token count as activity, so traffic without one
   cannot keep an orphaned relay alive. Nothing in the proxy logs.
 - **Lifecycle.** The cast service starts it when a session starts and stops it
@@ -137,7 +139,7 @@ How it answers the questions this option was parked on:
   While a session is connected, the cast service asks the receiver for its
   status every few minutes and the receiver's reply keeps the relay awake, so a
   long pause can still be resumed. Its own idle stop (30 minutes with no
-  request, no transfer in flight and no reply) catches a session that ended
+  request, no bytes moving and no reply; a transfer the receiver stopped reading does not count) catches a session that ended
   without telling it, including a receiver that died silently; the next track
   brings it back. Ending the session revokes the relay first, before waiting
   on the receiver to close. A token still expires 6

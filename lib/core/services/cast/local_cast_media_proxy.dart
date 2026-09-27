@@ -22,8 +22,10 @@ import 'cast_media_relay.dart';
 /// What it holds to:
 ///  - **Only while casting.** Nothing listens until [start]; [stop] closes the
 ///    socket, drops every token and cuts transfers in flight. It also stops by
-///    itself after [idleTimeout] with no requests and nothing in flight, as a
-///    safety net for a session that ended without telling it.
+///    itself after [idleTimeout] without activity (a request with a live
+///    token, bytes actually moving, or a [touch]), as a safety net for a
+///    session that ended without telling it. A transfer the receiver stopped
+///    reading is not activity, so it cannot hold the relay open forever.
 ///  - **One live item.** [publish] mints a fresh 256-bit token from
 ///    [Random.secure] per item; the receiver's first request for it forgets
 ///    every earlier one (and [revoke] drops it instead if the handoff failed,
@@ -72,8 +74,8 @@ class LocalCastMediaProxy implements CastMediaRelay {
   /// Token size in bytes before encoding: 256 bits, 43 base64url characters.
   static const int tokenBytes = 32;
 
-  /// How long the proxy waits with no request, nothing in flight and no
-  /// [touch] before it shuts itself down.
+  /// How long the proxy waits without activity (a request with a live token,
+  /// bytes moving, or a [touch]) before it shuts itself down.
   final Duration idleTimeout;
 
   /// How long one item's token stays valid, however long the session lasts.
@@ -138,7 +140,10 @@ class LocalCastMediaProxy implements CastMediaRelay {
   Uri? _base;
   Future<void>? _starting;
   Timer? _idleTimer;
-  int _inFlight = 0;
+
+  /// Time since the last activity. Real time on purpose (not the injectable
+  /// token clock): this only decides when an abandoned relay closes.
+  final Stopwatch _sinceActivity = Stopwatch();
   final Map<String, _PublishedItem> _items = <String, _PublishedItem>{};
   int _nextSerial = 0;
 
@@ -277,12 +282,31 @@ class LocalCastMediaProxy implements CastMediaRelay {
     if (server != null) await server.close(force: true);
   }
 
+  /// Records activity and (re)schedules the idle check.
   void _armIdleTimer() {
+    _markActivity();
+    _scheduleIdleCheck(idleTimeout);
+  }
+
+  /// Records activity without touching the timer, cheap enough to call for
+  /// every chunk relayed.
+  void _markActivity() => _sinceActivity
+    ..reset()
+    ..start();
+
+  void _scheduleIdleCheck(Duration after) {
     _idleTimer?.cancel();
     _idleTimer = null;
-    if (_server == null || _inFlight > 0) return;
-    _idleTimer = Timer(idleTimeout, () {
-      if (_inFlight == 0) unawaited(stop());
+    if (_server == null) return;
+    _idleTimer = Timer(after, () {
+      final Duration quiet = _sinceActivity.elapsed;
+      if (quiet >= idleTimeout) {
+        // Nothing moved for the whole window, open transfers included (a
+        // receiver that stopped reading holds a transfer without progress).
+        unawaited(stop());
+      } else {
+        _scheduleIdleCheck(idleTimeout - quiet);
+      }
     });
   }
 
@@ -326,14 +350,12 @@ class LocalCastMediaProxy implements CastMediaRelay {
 
     // Only a request carrying a live token counts as activity. Anything else on
     // the LAN (a scanner, a guessed path) must not be able to keep an orphaned
-    // relay alive.
-    _inFlight++;
-    _idleTimer?.cancel();
+    // relay alive. During the transfer, activity is bytes actually moving.
+    _armIdleTimer();
     try {
       await _relay(request, item, client);
     } finally {
-      _inFlight--;
-      _armIdleTimer();
+      _markActivity();
     }
   }
 
@@ -361,11 +383,20 @@ class LocalCastMediaProxy implements CastMediaRelay {
     final int status = upstream.statusCode;
     final bool media =
         status == HttpStatus.ok || status == HttpStatus.partialContent;
+    final String encoding =
+        (upstream.headers.value(HttpHeaders.contentEncodingHeader) ??
+                'identity')
+            .trim()
+            .toLowerCase();
     if ((!media && status != HttpStatus.requestedRangeNotSatisfiable) ||
-        (media && !_looksLikeMedia(upstream.headers.contentType))) {
-      // The server said no (expired session, missing item, outage), or said
-      // yes with a page instead of audio (a login screen, a Subsonic error
-      // document). The receiver learns only that the relay could not get it.
+        (media && !_looksLikeMedia(upstream.headers.contentType)) ||
+        (media && encoding != 'identity')) {
+      // The server said no (expired session, missing item, outage), said yes
+      // with a page instead of audio (a login screen, a Subsonic error
+      // document), or sent the audio compressed although identity was asked
+      // for: relaying those bytes as the declared audio type would only hand
+      // the receiver garbage. The receiver learns only that the relay could
+      // not get it.
       await upstream.listen(null).cancel();
       response.statusCode = HttpStatus.badGateway;
       await response.close();
@@ -420,7 +451,11 @@ class LocalCastMediaProxy implements CastMediaRelay {
     // A stall surfaces as a TimeoutException out of addStream: the upstream
     // subscription is cancelled (closing that connection) and the receiver's
     // transfer is cut, via the error path in [_handle].
-    await response.addStream(upstream.timeout(upstreamBodyIdleTimeout));
+    await response.addStream(
+        upstream.timeout(upstreamBodyIdleTimeout).map((List<int> chunk) {
+      _markActivity();
+      return chunk;
+    }));
     await response.close();
   }
 

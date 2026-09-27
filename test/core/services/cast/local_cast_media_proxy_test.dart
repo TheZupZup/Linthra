@@ -57,6 +57,30 @@ class _Upstream {
       case '/hang':
         // Accepts the request and never answers.
         return;
+      case '/gzipped':
+        // Compressed although identity was asked for.
+        response
+          ..headers.contentType = ContentType('audio', 'flac')
+          ..headers.set(HttpHeaders.contentEncodingHeader, 'gzip')
+          ..add(gzip.encode(body));
+        await response.close();
+        return;
+      case '/big':
+        // Large enough to fill socket buffers when nobody reads.
+        response
+          ..headers.contentType = ContentType('audio', 'flac')
+          ..contentLength = 8 * 1024 * 1024;
+        final List<int> chunk = List<int>.filled(64 * 1024, 7);
+        try {
+          for (int i = 0; i < 128; i++) {
+            response.add(chunk);
+            await response.flush();
+          }
+          await response.close();
+        } catch (_) {
+          // The relay cut the transfer.
+        }
+        return;
       case '/stall':
         // Promises 1000 bytes, sends 100, then goes quiet without closing.
         response
@@ -621,6 +645,42 @@ void main() {
 
       // Nothing is left in flight, so the idle shutdown can do its job.
       await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(proxy.isRunning, isFalse);
+    });
+
+    test('compressed audio is refused rather than relayed as garbage',
+        () async {
+      final LocalCastMediaProxy proxy = build();
+      await proxy.start();
+      final CastMedia relayed = proxy.publish(_media(upstream.at('/gzipped')));
+
+      final _Reply reply = await _fetch(relayed.url);
+
+      expect(reply.status, HttpStatus.badGateway);
+      expect(reply.body, isEmpty);
+    });
+
+    test('a receiver that stops reading cannot hold the relay open', () async {
+      final LocalCastMediaProxy proxy = LocalCastMediaProxy(
+        lanAddress: () async => InternetAddress.loopbackIPv4,
+        idleTimeout: const Duration(milliseconds: 300),
+      );
+      addTearDown(proxy.stop);
+      await proxy.start();
+      final CastMedia relayed = proxy.publish(_media(upstream.at('/big')));
+
+      // Asks for the item and then never reads a byte, without closing.
+      final Socket socket =
+          await Socket.connect(relayed.url.host, relayed.url.port);
+      addTearDown(socket.destroy);
+      unawaited(socket.done.then<void>((_) {}, onError: (Object _) {}));
+      socket.write('GET ${relayed.url.path} HTTP/1.1\r\n'
+          'Host: relay\r\n\r\n');
+      await socket.flush();
+
+      // Well past the idle timeout, with the transfer still open and stuck.
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+
       expect(proxy.isRunning, isFalse);
     });
 
