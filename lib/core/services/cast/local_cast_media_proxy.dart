@@ -25,7 +25,7 @@ import 'cast_media_relay.dart';
 ///    itself after [idleTimeout] with no requests and nothing in flight, as a
 ///    safety net for a session that ended without telling it.
 ///  - **One live item.** [publish] mints a fresh 256-bit token from
-///    [Random.secure] per item; once the receiver accepts it, [retain] forgets
+///    [Random.secure] per item; the receiver's first request for it forgets
 ///    every earlier one (and [revoke] drops it instead if the handoff failed,
 ///    so the item still playing keeps working). A token also
 ///    expires after [tokenLifetime] even if the session is still up. Unknown
@@ -122,6 +122,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
   Timer? _idleTimer;
   int _inFlight = 0;
   final Map<String, _PublishedItem> _items = <String, _PublishedItem>{};
+  int _nextSerial = 0;
 
   @override
   bool get isRunning => _server != null;
@@ -179,13 +180,15 @@ class LocalCastMediaProxy implements CastMediaRelay {
         CastMediaRelayException.unavailableMessage,
       );
     }
-    // Earlier items stay live until [retain]: the receiver is still playing
-    // the previous one until it accepts this.
+    // Earlier items stay live: the receiver keeps playing the previous one
+    // until it has taken this one, and the proof of that is its first request
+    // for this item (see [_lookup]).
     final String token = newToken();
     _items[token] = _PublishedItem(
       upstream: media.url,
       contentType: media.contentType,
       issuedAt: _clock(),
+      serial: _nextSerial++,
     );
     _armIdleTimer();
     return CastMedia(
@@ -198,12 +201,6 @@ class LocalCastMediaProxy implements CastMediaRelay {
       artworkUrl: media.artworkUrl,
       access: CastMediaAccess.localRelay,
     );
-  }
-
-  @override
-  void retain(CastMedia relayed) {
-    final String? token = _tokenOf(relayed);
-    _items.removeWhere((String key, _) => key != token);
   }
 
   @override
@@ -431,16 +428,21 @@ class LocalCastMediaProxy implements CastMediaRelay {
       await response.listen(null).cancel();
       if (location == null) return null;
       final Uri next = target.resolve(location);
-      if (!_sameServer(url, next)) return null;
+      if (!isAllowedRedirect(url, target, next)) return null;
       target = next;
     }
     return null;
   }
 
-  static bool _sameServer(Uri original, Uri next) {
+  /// Whether a redirect from [current] to [next] may be followed: the host
+  /// stays the one of the [original] URL, and the scheme never downgrades
+  /// relative to the hop it comes from, so http, then https, then http again
+  /// is refused.
+  @visibleForTesting
+  static bool isAllowedRedirect(Uri original, Uri current, Uri next) {
     if (next.host.toLowerCase() != original.host.toLowerCase()) return false;
-    if (next.scheme == original.scheme) return true;
-    return original.scheme == 'http' && next.scheme == 'https';
+    if (next.scheme == current.scheme) return true;
+    return current.scheme == 'http' && next.scheme == 'https';
   }
 
   /// Whether a successful upstream answer can be audio. A missing type is
@@ -470,6 +472,10 @@ class LocalCastMediaProxy implements CastMediaRelay {
       _items.remove(token);
       return null;
     }
+    // The receiver asking for this item is the acknowledgement that it took
+    // it: every item published before it is dropped. Asking for an older item
+    // (still finishing the previous track) drops nothing.
+    _items.removeWhere((_, _PublishedItem other) => other.serial < item.serial);
     return item;
   }
 
@@ -562,6 +568,7 @@ class _PublishedItem {
     required this.upstream,
     required this.contentType,
     required this.issuedAt,
+    required this.serial,
   });
 
   /// The server's own URL, credential and all. Never leaves this object except
@@ -569,4 +576,7 @@ class _PublishedItem {
   final Uri upstream;
   final String contentType;
   final DateTime issuedAt;
+
+  /// Publication order, so a request for an item can retire older ones.
+  final int serial;
 }

@@ -420,10 +420,9 @@ class DefaultCastService implements CastService {
           message: "Couldn't start playback on ${device.name}."));
       return;
     }
-    // The receiver took the new item: from here on only it is reachable. A
-    // session replaced during the LOAD already dropped every token with its
-    // relay, and must not have the new session's items pruned.
-    if (_handle == handle) _mediaRelay.retain(relayed);
+    // The previous item's token is left alone here on purpose: the LOAD was
+    // sent, not accepted. The relay retires it when the receiver first asks
+    // for the new item.
     // Remember what is now loaded so a duplicate emission of the same track is a
     // no-op (see the guard above).
     _castingTrackUri = track.uri;

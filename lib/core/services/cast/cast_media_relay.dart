@@ -43,15 +43,12 @@ abstract interface class CastMediaRelay {
   Future<void> start();
 
   /// Registers [media] and returns a copy whose URL points at this relay, with
-  /// a fresh token for this item. Earlier items stay reachable until [retain]
-  /// is called, because the receiver keeps playing the previous item until it
-  /// accepts the new one. Throws [CastMediaRelayException] when the relay is
-  /// not running.
+  /// a fresh token for this item. Earlier items stay reachable until the
+  /// receiver's first request for this one, which is the only reliable sign it
+  /// has taken it (sending a LOAD proves nothing about its acceptance); from
+  /// then on only this item is reachable. Throws [CastMediaRelayException]
+  /// when the relay is not running.
   CastMedia publish(CastMedia media);
-
-  /// Makes [relayed] (a value [publish] returned) the only reachable item:
-  /// every other token is dropped. Called once the receiver accepted it.
-  void retain(CastMedia relayed);
 
   /// Drops [relayed]'s token only. Called when handing it to the receiver
   /// failed, so the item still playing keeps working.

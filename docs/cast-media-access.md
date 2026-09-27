@@ -99,9 +99,10 @@ How it answers the questions this option was parked on:
 
 - **Authentication.** A receiver cannot send headers, so the proxy is guarded
   by the URL alone: a 256-bit token from `Random.secure()`, minted per item.
-  Once the receiver accepts the next item the previous token is forgotten (if
-  handing it over fails, the new token is dropped instead, so the item still
-  playing keeps working), every token also expires
+  The previous token is forgotten when the receiver first asks for the next
+  item, the only reliable sign it has taken it (if handing it over fails, the
+  new token is dropped instead, so the item still playing keeps working),
+  every token also expires
   after a fixed lifetime (6 hours by default), and unknown or expired tokens get
   the same bare 404 without touching the server. Only `GET` and `HEAD` on
   exactly `/cast/<token>` are served.
@@ -120,7 +121,7 @@ How it answers the questions this option was parked on:
   challenge. So does a success that is a page rather than audio (a login
   screen behind a reverse proxy, a Subsonic error document), a redirect to
   another host (same-host redirects are followed, an http to https upgrade
-  included), and a server that sends no headers within 20 seconds. A body
+  included, a downgrade at any hop refused), and a server that sends no headers within 20 seconds. A body
   that stops arriving for 30 seconds (while the receiver is still reading) is
   cut rather than left hanging. Only
   requests carrying a live token count as activity, so traffic without one

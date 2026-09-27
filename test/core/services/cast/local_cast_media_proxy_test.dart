@@ -325,17 +325,20 @@ void main() {
       expect((await _fetch(relayed.url)).status, HttpStatus.notFound);
     });
 
-    test('the previous item keeps working until the next is retained',
+    test('the previous item keeps working until the receiver asks for the next',
         () async {
       final LocalCastMediaProxy proxy = build();
       await proxy.start();
       final CastMedia first = proxy.publish(_media(upstream.streamUrl));
       final CastMedia second = proxy.publish(_media(upstream.streamUrl));
 
-      // The receiver is still on the first item until it accepts the second.
+      // A LOAD was sent, nothing more: the receiver is still on the first item,
+      // and asking for it again retires nothing.
+      expect((await _fetch(first.url)).status, HttpStatus.ok);
       expect((await _fetch(first.url)).status, HttpStatus.ok);
 
-      proxy.retain(second);
+      // Its first request for the second item is the acknowledgement.
+      expect((await _fetch(second.url)).status, HttpStatus.ok);
 
       expect((await _fetch(first.url)).status, HttpStatus.notFound);
       expect((await _fetch(second.url)).status, HttpStatus.ok);
@@ -345,7 +348,7 @@ void main() {
       final LocalCastMediaProxy proxy = build();
       await proxy.start();
       final CastMedia playing = proxy.publish(_media(upstream.streamUrl));
-      proxy.retain(playing);
+      expect((await _fetch(playing.url)).status, HttpStatus.ok);
       final CastMedia refused = proxy.publish(_media(upstream.streamUrl));
 
       proxy.revoke(refused);
@@ -789,6 +792,44 @@ void main() {
       await expectLater(proxy.start(), throwsA(isA<CastMediaRelayException>()));
       expect(proxy.isRunning, isFalse);
       await proxy.stop();
+    });
+  });
+
+  group('following redirects', () {
+    final Uri original = Uri.parse('http://music.example.test/stream');
+
+    test('allows the same host, and an upgrade to https', () {
+      expect(
+          LocalCastMediaProxy.isAllowedRedirect(
+              original, original, Uri.parse('http://music.example.test/other')),
+          isTrue);
+      expect(
+          LocalCastMediaProxy.isAllowedRedirect(original, original,
+              Uri.parse('https://music.example.test:8920/stream')),
+          isTrue);
+    });
+
+    test('never downgrades relative to the previous hop', () {
+      // http, then https, then back to http: the last hop is a downgrade even
+      // though it matches the original scheme.
+      final Uri upgraded = Uri.parse('https://music.example.test/stream');
+      expect(
+          LocalCastMediaProxy.isAllowedRedirect(original, upgraded,
+              Uri.parse('http://music.example.test/stream')),
+          isFalse);
+      final Uri secure = Uri.parse('https://music.example.test/stream');
+      expect(
+          LocalCastMediaProxy.isAllowedRedirect(
+              secure, secure, Uri.parse('http://music.example.test/stream')),
+          isFalse);
+    });
+
+    test('never leaves the original host', () {
+      final Uri upgraded = Uri.parse('https://music.example.test/stream');
+      expect(
+          LocalCastMediaProxy.isAllowedRedirect(
+              original, upgraded, Uri.parse('https://login.example.test/')),
+          isFalse);
     });
   });
 

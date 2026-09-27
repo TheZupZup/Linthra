@@ -203,8 +203,8 @@ token-free `jellyfin:<id>` / `subsonic:<id>`, so the minted URL never lands in
 - **The receiver never gets that URL.** `DefaultCastService` hands it to the
   on-device relay (`LocalCastMediaProxy`), which keeps it on the phone and gives
   the receiver `http://<phone-lan-ip>:<port>/cast/<token>` instead: a random
-  token for that one item, dead once the receiver has accepted the next item
-  or the session ends. The phone fetches the stream itself and relays it, `Range` requests
+  token for that one item, dead once the receiver starts fetching the next
+  item or the session ends. The phone fetches the stream itself and relays it, `Range` requests
   included, so seeking still works.
 - **The relay lives only as long as the session.** It starts when casting
   starts and stops on disconnect, on a dropped receiver, or after a long idle
