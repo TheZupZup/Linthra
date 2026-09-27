@@ -80,7 +80,7 @@ attempt.
 | `awaitingAuth` | one `DeviceAuthMessage{challenge}` (sender-0 to receiver-0, deviceauth namespace, binary payload) | exactly one device-auth response | Response verified, or anything else arrives, or timeout |
 | `authenticated` | `CONNECT` to receiver-0 | nothing yet | `CONNECT` written |
 | `launching` | one `LAUNCH` of `CC1AD845` with a fresh request id; heartbeat `PING` and `PONG` | heartbeat `PING` and `PONG`; `RECEIVER_STATUS` | A `RECEIVER_STATUS` answering that request id lists `CC1AD845`, or `LAUNCH_ERROR`, or timeout, or heartbeat loss |
-| `ready` | `CONNECT` to the app's transport id, then media and volume commands; heartbeat `PING` and `PONG` | media and receiver status, heartbeat `PING` and `PONG`; media error replies (`LOAD_FAILED`, `LOAD_CANCELLED`, `INVALID_REQUEST`) to our own request ids | `close()` (goes through `stopping`), error, heartbeat loss, or a `RECEIVER_STATUS` that no longer lists `CC1AD845` with the same transport id |
+| `ready` | `CONNECT` to the app's transport id, then media and volume commands; heartbeat `PING` and `PONG` | media and receiver status, heartbeat `PING` and `PONG`; media error replies (`LOAD_FAILED`, `LOAD_CANCELLED`, `INVALID_REQUEST`) to our own request ids | `close()` (goes through `stopping`), error, heartbeat loss, or a `RECEIVER_STATUS` that no longer lists `CC1AD845` with the same transport id and session id |
 | `stopping` | one receiver `STOP` for the app's session id, with a fresh request id; then `CLOSE` on both virtual connections | the `RECEIVER_STATUS` answering that request id; heartbeat | That status arrives, or a bounded wait (proposed 2 s) runs out; either way the socket is closed |
 | `closed` | nothing | nothing | Terminal. A new attempt is a new connection object. |
 
@@ -102,9 +102,9 @@ Rules that go with the table:
   playing the previous item. An error reply to a request id we never sent is a
   protocol error.
 - **The app going away is session loss.** If a `RECEIVER_STATUS` in `ready`
-  stops listing the Default Media Receiver, or lists it with another transport
-  id, the app we connected to is gone even if the platform connection is
-  healthy. The session ends as if the receiver had dropped (the relay stops
+  stops listing the Default Media Receiver, or lists it with a transport id or
+  session id that is missing or differs from the ones taken at launch, the app
+  we connected to is gone even if the platform connection is healthy. The session ends as if the receiver had dropped (the relay stops
   with it); nothing relaunches on its own.
 - **Closing stops the app.** `close()` from `ready` sends the receiver a
   `STOP` for our session id before dropping the connection, so the Default
@@ -123,9 +123,18 @@ Rules that go with the table:
   to be tuned on devices). A timeout is a failure, never a slow success.
 - **Every request in `ready` has a deadline** (proposed: `LOAD` 10 s, status
   and control 5 s). A reply after it is ignored, and the request's entry is
-  removed when it expires. A timed-out request fails that operation only; the
-  session's liveness is the heartbeat's job. At most one status request is
-  outstanding at a time, so a periodic keep-alive never piles up entries.
+  removed when it expires. At most one status request is outstanding at a
+  time, so a periodic keep-alive never piles up entries. The session's
+  liveness stays the heartbeat's job. What a timeout means depends on the
+  request:
+  - a status request that times out fails only itself;
+  - a control command (play, pause, seek, volume) that times out changes no
+    local state; the next media status is what the state follows;
+  - a `LOAD` that times out is ambiguous, since the receiver may have taken it.
+    Nothing changes yet, the relay tokens included: one status request
+    reconciles it. If the media status shows the new item, the handoff
+    succeeded; if it shows the previous item, it is handled as a rejection;
+    if that status request times out too, the session ends.
 - **Routing is checked on every inbound message:** protocol version
   `CASTV2_1_0`; a destination of our sender id, or `*` only for unsolicited
   status broadcasts, never for a reply to one of our request ids; and a source
@@ -139,6 +148,12 @@ Rules that go with the table:
   connection instead of throwing out of a listener.
 - **Payload types are fixed per namespace:** binary for device-auth, string
   (JSON) for everything else. The wrong type is a protocol error.
+- **JSON payloads are parsed and checked, never trusted:** invalid JSON, a top
+  level that is not an object, an unknown `type`, or a field of the wrong
+  shape (a non-integer `requestId`, a non-string `transportId`, and so on) is a
+  protocol error that closes the connection in a controlled way. Parsing
+  happens inside the frame handler, so nothing throws out of the socket
+  listener.
 
 ## Device authentication
 
@@ -385,12 +400,20 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Framing:** fragmented and coalesced frames, a length over the maximum, a
   truncated frame, a frame that is not a `CastMessage`, the wrong payload type
   for the namespace.
+- **Payloads:** invalid JSON, a non-object top level, an unknown `type`, and
+  each field with the wrong type, all closing the connection without an
+  exception escaping the listener.
 - **Routing:** a wrong protocol version; a message addressed to another
   sender; a broadcast answering one of our request ids; a platform message not
   from `receiver-0`; a media message from a transport id other than the app's.
-- **Requests in `ready`:** a `LOAD` or status request never answered fails at
-  its deadline without ending the session; a late reply is ignored; a second
-  keep-alive is not sent while one is outstanding.
+- **Requests in `ready`:** a status request never answered fails at its
+  deadline without ending the session; a late reply is ignored; a second
+  keep-alive is not sent while one is outstanding; a `LOAD` that times out is
+  reconciled by one status request (new item: success; previous item:
+  rejection path; no answer: session ends), with no token revoked before that.
+- **Session identity in `ready`:** a status with the same transport id but a
+  missing or different session id ends the session, and no `STOP` is sent for
+  the stale id.
 - **Sequencing:** any message before the challenge is sent; `RECEIVER_STATUS`
   before authentication; a second device-auth response; a response before the
   challenge; an unexpected namespace in each state; `CONNECT`/`LAUNCH`/`LOAD`
