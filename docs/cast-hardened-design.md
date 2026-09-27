@@ -264,8 +264,12 @@ The user-facing half is a distinct failure kind
 every other refusal this one has an action attached: if you really did replace
 the speaker, forget it and connect again.
 
-Both follow-ons this layer needed have landed, ahead of the protocol work and
-without touching the containment.
+The two follow-ons planned for this layer, persistence and the forget
+affordance, have landed ahead of the protocol work and without touching the
+containment. Its keying has not: the store is keyed by the discovery id, which
+is unauthenticated, and has to move to certificate fingerprints with a
+first-use confirmation before the restoration (see
+[cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session)).
 
 The store is persistent in production
 (`lib/data/repositories/shared_preferences_cast_receiver_pin_store.dart`). An
@@ -293,7 +297,8 @@ pin store that cannot answer still gets the menu item: whether the recovery is
 drawn is a UI question, not a trust one, and `TrustGatedCastTransport` refuses on
 that same throw regardless.
 
-What is left for the restoration is to hand the same store to
+What is left before the restoration: replace the device-id keying with trust
+by certificate fingerprint and first-use confirmation, then hand that store to
 `TrustGatedCastTransport`, which is step 7 below.
 
 ## Layer 4: hand over as little as possible

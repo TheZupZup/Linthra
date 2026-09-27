@@ -132,7 +132,11 @@ Rules that go with the table:
   keeps the highest id it has sent: a reply to an id at or below it that is
   no longer outstanding is late and ignored, however late, and only an id
   above it (never sent) is a protocol error. Nothing has to be remembered per
-  expired request. At most one status request is outstanding at a
+  expired request. Each outstanding entry also records the namespace it was
+  sent on and the reply types that can answer it (a media status or media
+  error for a media command, a receiver status for a receiver request), so a
+  reply carrying a pending id on the wrong namespace or with the wrong type is
+  a protocol error, never the completion of another operation. At most one status request is outstanding at a
   time, so a periodic keep-alive never piles up entries. The session's
   liveness stays the heartbeat's job. What a timeout means depends on the
   request:
@@ -182,8 +186,14 @@ Rules that go with the table:
   can control the same receiver app, so a `MEDIA_STATUS` is only applied if it
   describes the item Linthra last had accepted (same content id and media
   session), whether it is an unsolicited push or the reply to one of our own
-  status or control requests. (A `LOAD` reconciliation follows its own
-  rules, above.) One for a different item, a new media session Linthra
+  status or control requests. The one exception is the `LOAD` in flight: a
+  status describing its item (the relay URL it sent as the content id),
+  whether the `LOAD`'s own reply or a push arriving first, is that `LOAD`'s
+  acceptance, and the item and its new media session become the accepted
+  ones. Likewise, while that `LOAD` is in flight, the accepted item going idle
+  with reason `INTERRUPTED` is the receiver replacing it as asked, not a
+  takeover. (A `LOAD` reconciliation after a timeout follows its own rules,
+  above.) One for a different item, a new media session Linthra
   did not load, or media gone without the item finishing means another
   controller has taken over: the session ends and the relay stops, rather
   than keeping stale casting state and a live token.
@@ -293,12 +303,23 @@ app and needs refreshing through releases.
   never trusted silently: the sheet asks the user to confirm a new receiver
   before the first cast to it. If that new fingerprint arrives under the name
   of a receiver already trusted, the sheet says plainly that it is a different
-  device from the one used before. A trusted fingerprint showing up under a
-  new device id is only recognised as the same receiver if the device matrix
-  shows the device-auth leaf is unique per unit (two units of the same model
-  included); until then it goes through the same confirmation. The store
-  change and the confirmation land with the contract step, and the existing
-  device-id store stays an open item until they do.
+  device from the one used before. The store also keeps the reverse link:
+  every device id and name a fingerprint was trusted under. If an advertised
+  device id or name is linked to other fingerprints but not to the one that
+  connects, the sheet shows the same different-device warning and asks, even
+  when the connecting fingerprint is trusted for another receiver. (Names are
+  not unique, so a name shared by two trusted receivers is linked to both and
+  does not warn for either.)
+- **Pinning needs a per-unit certificate.** A fingerprint only tells units
+  apart if each unit has its own device-auth leaf. The device matrix checks
+  this on at least two units of each model. A model whose units share a leaf
+  cannot be pinned and is not supported, unless another authenticated
+  per-unit identifier turns up; confirmation alone would not protect it,
+  since a second unit could present the first one's name and id. For a
+  supported model, a trusted fingerprint under a new device id is recognised
+  as the same receiver. The store change and the confirmation land with the
+  contract step, and the existing device-id store stays an open item until
+  they do.
 - **Forgetting forgets the certificate.** The sheet's "forget this device"
   removes the fingerprint from the trusted set together with every device id
   it has been seen under, not only the entry that was picked. The next
@@ -339,7 +360,10 @@ exposes neither the peer certificate nor a binary channel. So:
   and volume support straight away. Some receivers leave volume out of the
   launch status (the current adapter works around it), so if it is missing
   the transport sends one receiver `GET_STATUS` right after `ready`, and the
-  handle replays its answer to listeners, early or late;
+  handle replays its answer to listeners, early or late. What is kept and
+  replayed includes the volume's `controlType`: a `fixed` receiver reports a
+  level but cannot be set, so it is replayed as not controllable and no
+  `SET_VOLUME` is ever sent to it;
 - `TrustGatedCastTransport` keeps its role as policy over that identity (match,
   pin, wording), and its tests move to the new shape. Its decision runs
   **inside** the transport, at a checkpoint in `authenticated` before the
@@ -446,7 +470,13 @@ Neither option removes this work, because no Dart library does it:
   extension the validator does not implement is refused. The algorithm
   identifier inside `tbsCertificate` must equal the outer
   `signatureAlgorithm`, so policy and verification look at the same
-  algorithm. Anything outside the
+  algorithm, and that algorithm must be on an explicit allowlist for every
+  verified link: `sha256WithRSAEncryption` (1.2.840.113549.1.1.11) with NULL
+  or absent parameters, and `sha1WithRSAEncryption` (1.2.840.113549.1.1.5)
+  only if the digest policy chosen on the matrix allows SHA-1. Anything else
+  (MD5, RSA-PSS, another OID, other parameters) is refused. A pinned
+  anchor's own self-signature is never verified, so it is not subject to
+  this list. Anything outside the
   profile is refused rather than interpreted.
 - **Cast CRL parsing and verification** (protobuf, its own root).
 - **Exact bytes:** signatures over certificates are checked against the
@@ -529,7 +559,9 @@ All with generated fixtures and a fake socket, so they run in CI.
   connection without an exception escaping the listener.
 - **Routing:** a wrong protocol version; a message addressed to another
   sender; a broadcast answering one of our request ids; a platform message not
-  from `receiver-0`; a media message from a transport id other than the app's.
+  from `receiver-0`; a media message from a transport id other than the app's;
+  a `MEDIA_STATUS` carrying the id of a pending receiver request, and a
+  `RECEIVER_STATUS` carrying the id of a pending media command, both refused.
 - **Requests in `ready`:** a status request never answered fails at its
   deadline without ending the session; a late reply is ignored, and so is a
   late error reply (`LOAD_FAILED`, `INVALID_REQUEST`) to an expired id, even
@@ -549,7 +581,13 @@ All with generated fixtures and a fake socket, so they run in CI.
   returns gets the launch volume at once, and volume control is available
   without waiting for another receiver status; with a launch status that
   carries no volume, the follow-up receiver status is sent and its volume
-  reaches early and late listeners.
+  reaches early and late listeners; a `fixed` volume is replayed as not
+  controllable and no `SET_VOLUME` is sent.
+- **`LOAD` acceptance:** a successful first `LOAD` and a successful
+  replacement `LOAD` are accepted, from their reply or from a push that
+  arrives first, and never read as another controller; the previous item's
+  `INTERRUPTED` idle status during a replacement `LOAD` does not end the
+  session.
 - **Evidence expiry:** with a controlled clock, evidence expiring in
   `authenticated` or `launching` closes the connection just as it does in
   `ready`.
@@ -570,8 +608,9 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Chain:** untrusted root, incomplete chain, wrong order, expired
   certificate, leaf presented as a CA, path longer than the root allows, bad
   key usage, an unknown critical extension at every position, inner and outer
-  signature algorithms that differ, malformed DER at every position, trailing
-  data.
+  signature algorithms that differ, a link signed with MD5, RSA-PSS, an
+  unknown OID or unexpected parameters (and SHA-1 under the SHA-256-only
+  policy), malformed DER at every position, trailing data.
 - **Signature:** over the wrong peer certificate, over the wrong nonce, by the
   wrong key, SHA-1 or unknown digest (per the strictness decision), altered by
   one bit.
@@ -587,8 +626,10 @@ All with generated fixtures and a fake socket, so they run in CI.
   confirmation that outlasts the checkpoint bound, or that arrives after the
   evidence expired, closes the connection with no `CONNECT` or `LAUNCH`; a new fingerprint needs the
   user's confirmation, including under a known receiver's name; a trusted
-  fingerprint under a new device id is recognised only with the per-unit
-  uniqueness setting on; every refusal message promises only that no app,
+  fingerprint under a new device id is recognised only for a model the matrix
+  found to have per-unit leaves; a device id or name linked to one trusted
+  fingerprint connecting with another trusted fingerprint gets the
+  different-device warning and confirmation; every refusal message promises only that no app,
   music or account details were sent.
 - **Readiness:** a status answering another request id; a status listing only
   another app; the Default Media Receiver listed with a missing or empty
@@ -647,7 +688,8 @@ All with generated fixtures and a fake socket, so they run in CI.
 
 **TBD, pending inventory.** The strictness choices above, leaf stability for
 pinning, whether the device-auth leaf is unique per unit (checked on at least
-two units of the same model), and timeout values all depend on it. Results go
+two units of each model; a model with a shared leaf is not supported), and
+timeout values all depend on it. Results go
 to the advisory.
 
 ## Staging
