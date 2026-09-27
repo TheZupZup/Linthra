@@ -64,7 +64,9 @@ goodwill, never as a dependency of the fix.
 - **Trust anchors:** the Cast device roots listed in
   [cast-hardened-design.md](cast-hardened-design.md#the-trust-anchors), plus the
   separate **Cast CRL Root CA** that CRLs chain to (see
-  [Revocation](#revocation)). Stored as DER with recorded digests.
+  [Revocation](#revocation)). Stored as DER with recorded digests; the CRL
+  root's expected digest is fixed below, not taken from whatever file gets
+  vendored.
 - **Removed:** the `cast` package, from `pubspec.yaml`, the lockfile, the
   Flatpak generated sources and the dependency and license audits.
 
@@ -132,9 +134,13 @@ Rules that go with the table:
     local state; the next media status is what the state follows;
   - a `LOAD` that times out is ambiguous, since the receiver may have taken it.
     Nothing changes yet, the relay tokens included: one status request
-    reconciles it. If the media status shows the new item, the handoff
-    succeeded; if it shows the previous item, it is handled as a rejection;
-    if that status request times out too, the session ends.
+    reconciles it. Only the new item counts as success. The previous item is
+    handled as a rejection. An idle receiver with no previous item (the first
+    handoff of a session) is a failed handoff: its token is revoked and the
+    session stays `ready` with nothing playing. Anything else (idle after a
+    previous item, an unrelated item, or no answer to that status request)
+    means the receiver is in a state the client cannot account for, and the
+    session ends.
 - **Routing is checked on every inbound message:** protocol version
   `CASTV2_1_0`; a destination of our sender id, or `*` only for unsolicited
   status broadcasts, never for a reply to one of our request ids; and a source
@@ -168,7 +174,11 @@ the attempt.
    handshake, as exact DER (`X509Certificate.der`).
 2. **Sanity-check the peer certificate.** Not yet valid, expired, or valid for
    more than 4 days is a refusal. Chromium applies the same 4-day limit and
-   treats the X.509 validity as the expiry of the signature below.
+   treats the X.509 validity as the expiry of the signature below. The
+   evidence also bounds the session: a `ready` session ends at the earliest
+   expiry among the peer certificate, the validated device chain and the CRL
+   used. Continuing after that is a new connection with a full
+   authentication, never an extension of the old one.
 3. **Send the challenge:** a 16-byte nonce from `Random.secure()`, fresh for
    this connection, and `hash_algorithm = SHA256`.
 4. **Parse the response strictly.** Exactly one `AuthResponse`; a missing
@@ -220,6 +230,19 @@ number ranges keyed by issuer key hash) signed by a certificate that chains to
 the separate **Cast CRL Root CA**, not to the device roots. This corrects the
 earlier statement in the hardened design that CRLs chain to the same roots.
 
+The CRL root is pinned exactly, the same way the hardened design pins the
+device roots:
+
+| Root | Subject | Key | Valid until | SHA-256 of the DER |
+| --- | --- | --- | --- | --- |
+| Cast CRL Root CA | `C=US, ST=California, L=Mountain View, O=Google Inc, OU=Cast, CN=Cast CRL Root CA` | RSA 2048 | 2036-07-27 | `8b77c60291f9d62764613083f49750b1c5caac2d9efbe5a28edf301f9d84831d` |
+
+Upstream copy: Chromium
+`components/media_router/common/providers/cast/certificate/cast_crl_root_ca_cert_der-inc.h`
+(self-signed, serial `0x99`, valid from 2016-08-01). The vendoring step checks
+the vendored DER against this digest, and a CRL whose chain ends anywhere else
+is refused.
+
 That means a third parser (the CRL protobuf) and a second trust store. It also
 means a policy decision the device matrix has to inform: require the device's
 CRL, or ship a fallback CRL the way Chromium does, which then expires with the
@@ -235,6 +258,16 @@ app and needs refreshing through releases.
   separators, which `normalizeCastFingerprint` leaves unchanged. Changing any
   part of that later would read every pinned receiver as replaced, so it is
   part of the contract.
+- **Trust follows the certificate, not the discovery name.** The device id
+  comes from unauthenticated discovery, so it only says where to connect. The
+  pin store also remembers every fingerprint the user has trusted, with the
+  receiver name it was trusted under. A fingerprint seen for the first time is
+  never trusted silently: the sheet asks the user to confirm a new receiver
+  before the first cast to it. If that new fingerprint arrives under the name
+  of a receiver already trusted, the sheet says plainly that it is a different
+  device from the one used before. A trusted fingerprint showing up under a
+  new device id is recognised as the same receiver. The store change and the
+  confirmation land with the contract step.
 - Closing, timing out, reconnecting, changing receiver or replacing the session
   drops the identity with the connection. A new attempt starts from `tls` with
   a new nonce, and nothing from a previous attempt is consulted.
@@ -266,7 +299,12 @@ exposes neither the peer certificate nor a binary channel. So:
 - the transport only ever returns a `CastSessionHandle` for a connection in the
   `ready` state, carrying the verified identity;
 - `TrustGatedCastTransport` keeps its role as policy over that identity (match,
-  pin, wording), and its tests move to the new shape.
+  pin, wording), and its tests move to the new shape. Its decision runs
+  **inside** the transport, at a checkpoint in `authenticated` before the
+  platform `CONNECT` and `LAUNCH`: the transport hands it the verified
+  identity and writes nothing more until it answers. A refusal closes the
+  connection with no app launched on the receiver, so "no verified identity,
+  no session" holds for the app launch too, not only for media.
 - the handle also exposes the **local address of the receiver connection**
   (the connection's `address` getter, which in `dart:io` is this device's end
   of the connection; `remoteAddress` is the receiver). The on-device relay
@@ -299,10 +337,13 @@ exposes neither the peer certificate nor a binary channel. So:
   error replies surfacing from the receiver, a rejected handoff keeps the
   previous casting state, status and relay token, and only reports that this
   track could not be cast.
-- handoffs are ordered. Each handoff takes a sequence number; a newer track
-  supersedes any handoff still resolving or waiting on its reply. A superseded
-  handoff never sends its `LOAD` if it has not yet, and its reply, success or
-  rejection, changes no state and revokes only its own relay token.
+- handoffs are ordered, with at most one `LOAD` in flight. Each handoff takes
+  a sequence number, and a newer track supersedes older ones. A superseded
+  handoff that has not sent its `LOAD` never sends it and drops its token. A
+  `LOAD` already sent is never ignored: its reply (or its reconciliation, on a
+  timeout) settles what the receiver is playing first, and only then does the
+  newest handoff send its own `LOAD`. So the state and the live tokens always
+  match what the receiver last accepted.
 
 ## Keeping credential-bearing media behind the barrier
 
@@ -334,6 +375,12 @@ Neither option removes this work, because no Dart library does it:
 - **Cast CRL parsing and verification** (protobuf, its own root).
 - **Exact bytes:** signatures over certificates are checked against the
   `tbsCertificate` bytes exactly as received, never a re-encoding.
+- **Canonical RSA signatures:** a signature must be exactly the modulus length
+  in bytes and, as an integer, less than the modulus, checked before the
+  public-key operation. Otherwise a leading-zero encoding or `s + n` would
+  verify as the same signature. Option A enforces it itself; under Option B it
+  has to be confirmed in the library or checked in front of it. Negative
+  fixtures cover both aliases.
 - **Fixtures generated at test time**, never real device certificates, with a
   negative fixture for every rejection reason.
 - SHA-256 comes from `crypto` (dart-lang), already a dependency.
@@ -435,8 +482,16 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Signature:** over the wrong peer certificate, over the wrong nonce, by the
   wrong key, SHA-1 or unknown digest (per the strictness decision), altered by
   one bit.
-- **Revocation:** missing CRL, CRL not chaining to the CRL root, expired CRL,
-  leaf revoked by key hash, intermediate revoked by serial range.
+- **Revocation:** a missing device CRL refused under the device-CRL policy,
+  and accepted against the bundled CRL under the fallback policy; CRL not
+  chaining to the pinned CRL root (including a chain to another root); expired
+  CRL; leaf revoked by key hash; intermediate revoked by serial range.
+- **Session lifetime:** with a controlled clock, a `ready` session ends when
+  the peer certificate, the chain or the CRL expires, whichever is first.
+- **Trust checkpoint:** a pin mismatch or unknown device refused at the
+  checkpoint writes no `CONNECT` or `LAUNCH`; a new fingerprint needs the
+  user's confirmation, including under a known receiver's name; a trusted
+  fingerprint under a new device id is recognised.
 - **Readiness:** a status answering another request id; a status listing only
   another app; the Default Media Receiver listed with a missing or empty
   transport id; `LAUNCH_ERROR`; launch timeout.
@@ -454,10 +509,15 @@ All with generated fixtures and a fake socket, so they run in CI.
   the socket, writes nothing further, and never lets a stale attempt reach
   `ready`; backgrounding the app does the same for an attempt in flight and
   leaves a `ready` session alone.
-- **Handoff order:** two tracks in quick succession, with the first handoff's
-  reply arriving after the second's (success and rejection both): only the
-  newest handoff changes state, and the older one's `LOAD` is never sent after
-  the newer one.
+- **Handoff order:** two tracks in quick succession: the second `LOAD` waits
+  for the first to settle; a first `LOAD` accepted while the second is
+  rejected leaves the state and token on the first; a superseded handoff that
+  never sent is dropped.
+- **`LOAD` reconciliation:** new item (success), previous item (rejection),
+  idle on the first handoff (failed, session stays), idle after a previous
+  item or an unrelated item (session ends).
+- **Signatures:** a signature one byte longer with a leading zero, and one
+  replaced by `s + n`, both refused.
 - **Fingerprint:** a known leaf DER maps to its expected lowercase-hex SHA-256.
 - **Status requests:** a media status request works with no known media
   session (asked without a session id), so the relay keep-alive keeps
