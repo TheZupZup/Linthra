@@ -177,6 +177,13 @@ Rules that go with the table:
   `1e999` or a negative position is a protocol error, not a value that throws
   later. Parsing happens inside the frame handler, so nothing throws out of
   the socket listener.
+- **Unsolicited media status is checked against what we loaded.** Another
+  sender can control the same receiver app, so a `MEDIA_STATUS` push is only
+  applied if it describes the item Linthra last had accepted (same content id
+  and media session). One for a different item, a new media session Linthra
+  did not load, or media gone without the item finishing means another
+  controller has taken over: the session ends and the relay stops, rather
+  than keeping stale casting state and a live token.
 
 ## Device authentication
 
@@ -321,7 +328,11 @@ exposes neither the peer certificate nor a binary channel. So:
   waiting for it to reach `ready` or time out. Backgrounding only cancels an
   attempt still connecting; a session already `ready` keeps playing;
 - the transport only ever returns a `CastSessionHandle` for a connection in the
-  `ready` state, carrying the verified identity;
+  `ready` state, carrying the verified identity. The launch's
+  `RECEIVER_STATUS` has already been processed by then, so the handle keeps
+  the current volume and replays it to every new volume listener; a service
+  that subscribes after `connect()` returns still sees the receiver's volume
+  and volume support straight away;
 - `TrustGatedCastTransport` keeps its role as policy over that identity (match,
   pin, wording), and its tests move to the new shape. Its decision runs
   **inside** the transport, at a checkpoint in `authenticated` before the
@@ -377,8 +388,11 @@ exposes neither the peer certificate nor a binary channel. So:
   queue cleared or ended), it is ordered like any other handoff: after a
   `LOAD` in flight settles, the client sends a media `STOP` for the current
   media session, revokes the relay tokens and reports idle, not casting. The
-  session stays `ready` with nothing playing; if the `STOP` gets no answer by
-  its deadline, the session ends. Linthra never reports that it stopped
+  session stays `ready` with nothing playing; if the `STOP` is rejected
+  (`INVALID_REQUEST`, `INVALID_PLAYER_STATE`) or gets no answer by its
+  deadline, the session ends. This is the one media command whose rejection
+  is not an operation-level failure, because the receiver may still be
+  playing. Linthra never reports that it stopped
   casting while the receiver may still be playing.
 - handoffs are ordered, with at most one `LOAD` in flight. Each handoff takes
   a sequence number, and a newer track supersedes older ones. A superseded
@@ -518,7 +532,11 @@ All with generated fixtures and a fake socket, so they run in CI.
   rejection path; no answer: session ends), with no token revoked before that.
 - **Session identity in `ready`:** a status with the same transport id but a
   missing or different session id ends the session, and no `STOP` is sent for
-  the stale id.
+  the stale id; an unsolicited `MEDIA_STATUS` for our item is applied, one for
+  another item or media session ends the session and stops the relay.
+- **Volume on a new handle:** a listener that subscribes after `connect()`
+  returns gets the launch volume at once, and volume control is available
+  without waiting for another receiver status.
 - **Sequencing:** any message before the challenge is sent; `RECEIVER_STATUS`
   before authentication; a second device-auth response; a response before the
   challenge; an unexpected namespace in each state; `CONNECT`/`LAUNCH`/`LOAD`
@@ -575,8 +593,8 @@ All with generated fixtures and a fake socket, so they run in CI.
   `ready`; backgrounding the app does the same for an attempt in flight and
   leaves a `ready` session alone.
 - **Handoff order:** a null track sends one media `STOP` after any `LOAD` in
-  flight settles, revokes the tokens and reports idle (a `STOP` with no
-  answer ends the session); two tracks in quick succession: the second `LOAD`
+  flight settles, revokes the tokens and reports idle (a `STOP` that is
+  rejected or gets no answer ends the session); two tracks in quick succession: the second `LOAD`
   waits for the first to settle; a first `LOAD` accepted while the second is
   rejected leaves the state and token on the first; a superseded handoff that
   never sent is dropped; a `LOAD` accepted before its first fetch keeps its
