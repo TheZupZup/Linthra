@@ -102,8 +102,10 @@ Rules that go with the table:
   reply to one of our own request ids fails that request only (the track
   handoff or the control command reports it) and the session stays `ready`:
   the receiver may still be playing the previous item, and a pause or seek
-  that races the end of a track gets `INVALID_PLAYER_STATE`. An error reply to a request id we never sent is a
-  protocol error.
+  that races the end of a track gets `INVALID_PLAYER_STATE`. An error reply
+  to a request id we never sent is a protocol error; a reply to one we sent
+  whose deadline has passed is ignored, not treated as unknown (see the
+  request deadlines below).
 - **The app going away is session loss.** If a `RECEIVER_STATUS` in `ready`
   stops listing the Default Media Receiver, or lists it with a transport id or
   session id that is missing or differs from the ones taken at launch, the app
@@ -125,8 +127,11 @@ Rules that go with the table:
 - **Timeouts are per state** (proposed: TLS 10 s, auth reply 5 s, launch 10 s;
   to be tuned on devices). A timeout is a failure, never a slow success.
 - **Every request in `ready` has a deadline** (proposed: `LOAD` 10 s, status
-  and control 5 s). A reply after it is ignored, and the request's entry is
-  removed when it expires. At most one status request is outstanding at a
+  and control 5 s). A reply after it is ignored, error replies included. When
+  an entry expires its id is kept as a tombstone in a bounded history
+  (proposed: the last 64 ids, or 60 s), so a late reply is recognised as late
+  and ignored rather than read as an unknown id; only an id this connection
+  never sent is a protocol error. At most one status request is outstanding at a
   time, so a periodic keep-alive never piles up entries. The session's
   liveness stays the heartbeat's job. What a timeout means depends on the
   request:
@@ -165,7 +170,10 @@ Rules that go with the table:
   protocol error that closes the connection in a controlled way. Numbers are
   checked for value as well as type: every numeric field must be finite and
   in its range (times and durations not negative and below a fixed bound,
-  volume level between 0 and 1, request ids positive integers), so
+  volume level between 0 and 1; request ids we allocate are positive
+  integers, and a reply must carry one of ours, while `0` is accepted only on
+  the unsolicited `MEDIA_STATUS` and `RECEIVER_STATUS` pushes the receiver
+  sends on its own and never matches a request), so
   `1e999` or a negative position is a protocol error, not a value that throws
   later. Parsing happens inside the frame handler, so nothing throws out of
   the socket listener.
@@ -318,7 +326,12 @@ exposes neither the peer certificate nor a binary channel. So:
   pin, wording), and its tests move to the new shape. Its decision runs
   **inside** the transport, at a checkpoint in `authenticated` before the
   platform `CONNECT` and `LAUNCH`: the transport hands it the verified
-  identity and writes nothing more until it answers. A refusal closes the
+  identity and writes nothing more until it answers. The checkpoint is
+  bounded like every other state (proposed: 60 s, enough for the first-use
+  confirmation), and just before writing `CONNECT` the transport rechecks the
+  earliest expiry of the peer certificate, chain and CRL; if the evidence has
+  expired while the user was deciding, the connection closes and the next
+  attempt authenticates from scratch. A refusal closes the
   connection with no app launched on the receiver, so "no verified identity,
   no session" holds for the app launch too, not only for media. The gate's
   refusal messages change with it: today's "didn't send anything to it" is no
@@ -360,6 +373,13 @@ exposes neither the peer certificate nor a binary channel. So:
   resolution fails, while another track is casting, leaves that track casting
   and only reports the message. Local playback never resumes while the
   receiver may still be playing.
+- a missing track is a handoff too. When the current track becomes null (the
+  queue cleared or ended), it is ordered like any other handoff: after a
+  `LOAD` in flight settles, the client sends a media `STOP` for the current
+  media session, revokes the relay tokens and reports idle, not casting. The
+  session stays `ready` with nothing playing; if the `STOP` gets no answer by
+  its deadline, the session ends. Linthra never reports that it stopped
+  casting while the receiver may still be playing.
 - handoffs are ordered, with at most one `LOAD` in flight. Each handoff takes
   a sequence number, and a newer track supersedes older ones. A superseded
   handoff that has not sent its `LOAD` never sends it and drops its token. A
@@ -488,7 +508,11 @@ All with generated fixtures and a fake socket, so they run in CI.
   sender; a broadcast answering one of our request ids; a platform message not
   from `receiver-0`; a media message from a transport id other than the app's.
 - **Requests in `ready`:** a status request never answered fails at its
-  deadline without ending the session; a late reply is ignored; a second
+  deadline without ending the session; a late reply is ignored, and so is a
+  late error reply (`LOAD_FAILED`, `INVALID_REQUEST`) to an expired id, while
+  a reply to an id never sent closes the connection; an unsolicited
+  `MEDIA_STATUS` or `RECEIVER_STATUS` with `requestId` 0 is accepted, and a
+  reply with 0 to one of our requests is not; a second
   keep-alive is not sent while one is outstanding; a `LOAD` that times out is
   reconciled by one status request (new item: success; previous item:
   rejection path; no answer: session ends), with no token revoked before that.
@@ -525,7 +549,9 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Session lifetime:** with a controlled clock, a `ready` session ends when
   the peer certificate, the chain or the CRL expires, whichever is first.
 - **Trust checkpoint:** a pin mismatch or unknown device refused at the
-  checkpoint writes no `CONNECT` or `LAUNCH`; a new fingerprint needs the
+  checkpoint writes no `CONNECT` or `LAUNCH`; with a controlled clock, a
+  confirmation that outlasts the checkpoint bound, or that arrives after the
+  evidence expired, closes the connection with no `CONNECT` or `LAUNCH`; a new fingerprint needs the
   user's confirmation, including under a known receiver's name; a trusted
   fingerprint under a new device id is recognised only with the per-unit
   uniqueness setting on; every refusal message promises only that no app,
@@ -548,8 +574,10 @@ All with generated fixtures and a fake socket, so they run in CI.
   the socket, writes nothing further, and never lets a stale attempt reach
   `ready`; backgrounding the app does the same for an attempt in flight and
   leaves a `ready` session alone.
-- **Handoff order:** two tracks in quick succession: the second `LOAD` waits
-  for the first to settle; a first `LOAD` accepted while the second is
+- **Handoff order:** a null track sends one media `STOP` after any `LOAD` in
+  flight settles, revokes the tokens and reports idle (a `STOP` with no
+  answer ends the session); two tracks in quick succession: the second `LOAD`
+  waits for the first to settle; a first `LOAD` accepted while the second is
   rejected leaves the state and token on the first; a superseded handoff that
   never sent is dropped; a `LOAD` accepted before its first fetch keeps its
   token through the next publish and a rejected next `LOAD`; a replacement
