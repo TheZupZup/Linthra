@@ -105,9 +105,13 @@ How it answers the questions this option was parked on:
   Each handoff also drops expired tokens and earlier handoffs the receiver
   never asked for, so at most two tokens are live at any time,
   every token also expires
-  after a fixed lifetime (6 hours by default, checked against both a
-  monotonic clock and the wall clock, so neither turning the time back nor
-  the device sleeping can stretch it), and unknown or expired tokens get
+  after a fixed lifetime (6 hours by default, measured on the kernel's boot
+  clock from `/proc/uptime`, which cannot be set and keeps counting through
+  suspend, so neither turning the time back nor the device sleeping, in any
+  order, can stretch it; the wall clock is checked too and can only end a
+  token early; if `/proc/uptime` cannot be read the relay falls back to a
+  stopwatch plus the wall clock, which still covers each case on its own but
+  not the clock turned back and then slept on), and unknown or expired tokens get
   the same bare 404 without touching the server. Only `GET` and `HEAD` on
   exactly `/cast/<token>` are served.
 - **Exposure.** It binds to the phone's private Wi-Fi/Ethernet IPv4 address on

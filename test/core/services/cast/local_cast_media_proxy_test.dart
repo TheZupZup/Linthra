@@ -381,6 +381,22 @@ void main() {
       expect((await _fetch(relayed.url)).status, HttpStatus.notFound);
     });
 
+    test('turning the clock back and then sleeping does not extend a token',
+        () async {
+      final LocalCastMediaProxy proxy = build();
+      await proxy.start();
+      final CastMedia relayed = proxy.publish(_media(upstream.streamUrl));
+
+      // Back six hours, then asleep for seven: the wall clock only moved one
+      // hour, but the boot clock counted the whole sleep.
+      wall = wall.subtract(const Duration(hours: 6));
+      wall = wall.add(const Duration(hours: 7));
+      now += const Duration(hours: 7);
+
+      expect((await _fetch(relayed.url)).status, HttpStatus.notFound);
+      expect(upstream.requests, isEmpty);
+    });
+
     test('the previous item keeps working until the receiver asks for the next',
         () async {
       final LocalCastMediaProxy proxy = build();
@@ -923,6 +939,82 @@ void main() {
       expect(proxy.isRunning, isFalse);
       await proxy.stop();
     });
+  });
+
+  group('the token clock', () {
+    test('reads the first field of /proc/uptime', () {
+      expect(
+        LocalCastMediaProxy.parseUptime('12345.67 54321.00\n'),
+        const Duration(seconds: 12345, milliseconds: 670),
+      );
+      expect(
+        LocalCastMediaProxy.parseUptime('3.5 1.0\n'),
+        const Duration(seconds: 3, milliseconds: 500),
+      );
+    });
+
+    test('rejects anything not shaped like /proc/uptime', () {
+      for (final String text in <String>[
+        '',
+        '12345 54321\n',
+        '-1.00 2.00\n',
+        '1.2.3 4.00\n',
+        '1.1234567 2.00\n',
+        'nan 2.00\n',
+        '12345.67',
+      ]) {
+        expect(LocalCastMediaProxy.parseUptime(text), isNull, reason: text);
+      }
+    });
+
+    test('follows the boot clock, suspend included', () {
+      String uptime = '100.00 0.00\n';
+      final Duration Function() clock =
+          LocalCastMediaProxy.bootClock(readUptime: () => uptime)!;
+      expect(clock(), const Duration(seconds: 100));
+
+      // Seven hours asleep: the boot clock counts them.
+      uptime = '25300.00 0.00\n';
+      expect(clock(), const Duration(seconds: 25300));
+    });
+
+    test('never steps back on a failed or backward read', () {
+      String? uptime = '100.00 0.00\n';
+      final Duration Function() clock = LocalCastMediaProxy.bootClock(
+        readUptime: () => uptime ?? (throw const FileSystemException('gone')),
+      )!;
+      expect(clock(), const Duration(seconds: 100));
+
+      uptime = null;
+      expect(clock(), greaterThanOrEqualTo(const Duration(seconds: 100)));
+
+      uptime = '5.00 0.00\n';
+      expect(clock(), greaterThanOrEqualTo(const Duration(seconds: 100)));
+
+      uptime = '200.00 0.00\n';
+      expect(clock(), const Duration(seconds: 200));
+    });
+
+    test('is not used when it cannot be read at all', () {
+      expect(
+        LocalCastMediaProxy.bootClock(
+          readUptime: () => throw const FileSystemException('no /proc'),
+        ),
+        isNull,
+      );
+      expect(LocalCastMediaProxy.bootClock(readUptime: () => 'junk'), isNull);
+    });
+
+    test('is the default on Linux and Android', () {
+      final Duration Function()? boot = LocalCastMediaProxy.bootClock();
+      expect(boot, isNotNull);
+      final Duration Function() tokens = LocalCastMediaProxy.tokenClock();
+      final Duration a = tokens();
+      final Duration b = boot!();
+      // A Stopwatch fallback would read close to zero here, not the uptime.
+      expect((a - b).abs(), lessThan(const Duration(milliseconds: 100)));
+      expect(tokens(), greaterThanOrEqualTo(a));
+    }, skip: Platform.isLinux || Platform.isAndroid ? false : 'Linux only');
   });
 
   group('following redirects', () {

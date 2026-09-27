@@ -65,7 +65,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
   })  : _lanAddress = lanAddress ?? findLanAddress,
         _bind = bind ?? _bindEphemeral,
         _httpClient = httpClient ?? HttpClient.new,
-        _elapsed = elapsed ?? _monotonicClock(),
+        _elapsed = elapsed ?? tokenClock(),
         _wallClock = wallClock ?? DateTime.now;
 
   /// The first path segment of every relayed URL.
@@ -105,17 +105,74 @@ class LocalCastMediaProxy implements CastMediaRelay {
     return () => stopwatch.elapsed;
   }
 
-  /// A monotonic reading used to age tokens, so turning the clock back cannot
-  /// stretch a token's lifetime. It stands still during suspend, which is why
-  /// [_wallClock] is checked too.
+  /// The clock tokens are aged on by default: the kernel's boot clock
+  /// ([bootClock]) when it can be read, otherwise a [Stopwatch].
+  @visibleForTesting
+  static Duration Function() tokenClock() => bootClock() ?? _monotonicClock();
+
+  /// Linux's boot clock (`CLOCK_BOOTTIME`), read from `/proc/uptime`, which
+  /// Android shares. It cannot be set and keeps counting while the device is
+  /// suspended, so neither turning the clock back nor sleeping, in any order,
+  /// stretches a token's life. Returns null when it cannot be read (another
+  /// platform, or a `/proc` this process may not see).
+  ///
+  /// A read that fails or goes backwards later on is not trusted: the clock
+  /// carries on from the last good reading on a [Stopwatch], so it never
+  /// steps back.
+  @visibleForTesting
+  static Duration Function()? bootClock({String Function()? readUptime}) {
+    if (readUptime == null && !Platform.isLinux && !Platform.isAndroid) {
+      return null;
+    }
+    final String Function() read = readUptime ?? _readProcUptime;
+    Duration? tryRead() {
+      try {
+        return parseUptime(read());
+      } on Exception {
+        return null;
+      }
+    }
+
+    Duration? last = tryRead();
+    if (last == null) return null;
+    final Stopwatch sinceLast = Stopwatch()..start();
+    return () {
+      final Duration? reading = tryRead();
+      if (reading == null || reading < last!) return last! + sinceLast.elapsed;
+      last = reading;
+      sinceLast.reset();
+      return reading;
+    };
+  }
+
+  static String _readProcUptime() => File('/proc/uptime').readAsStringSync();
+
+  static final RegExp _uptimeLine = RegExp(r'^(\d{1,12})\.(\d{1,6})\s');
+
+  /// The first field of `/proc/uptime` (`12345.67 54321.00`), or null when the
+  /// text is not in that shape.
+  @visibleForTesting
+  static Duration? parseUptime(String text) {
+    final RegExpMatch? match = _uptimeLine.firstMatch(text);
+    if (match == null) return null;
+    return Duration(
+      seconds: int.parse(match[1]!),
+      microseconds: int.parse(match[2]!.padRight(6, '0')),
+    );
+  }
+
+  /// A reading that cannot be moved back, used to age tokens: the boot clock
+  /// by default (see [bootClock]), which also counts time spent suspended.
+  /// Where that cannot be read it falls back to a [Stopwatch], which stands
+  /// still during suspend; [_wallClock] covers plain sleeping then, but not a
+  /// clock turned back and then slept on.
   final Duration Function() _elapsed;
 
-  /// The wall clock, read alongside [_elapsed]. The monotonic reading does not
-  /// advance while the device is suspended, and the wall clock can be moved
-  /// back by hand, so neither alone bounds a token's life. A token expires as
-  /// soon as either says its lifetime is up: sleeping past it expires it (wall
-  /// clock), and turning the clock back cannot extend it (monotonic). A clock
-  /// moved forward can only end it early, which is the safe direction.
+  /// The wall clock, read alongside [_elapsed]. A token expires as soon as
+  /// either says its lifetime is up. With the boot clock this only ever ends
+  /// a token early (a clock moved forward), which is the safe direction; with
+  /// the [Stopwatch] fallback it is what expires a token the device slept
+  /// past.
   final DateTime Function() _wallClock;
 
   static final Random _random = Random.secure();
@@ -658,7 +715,7 @@ class _PublishedItem {
   final Uri upstream;
   final String contentType;
 
-  /// When it was published, on the relay's monotonic clock.
+  /// When it was published, on the relay's token clock (`_elapsed`).
   final Duration issuedAt;
 
   /// When it was published, on the wall clock (see [LocalCastMediaProxy]'s
