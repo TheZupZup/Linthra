@@ -181,11 +181,17 @@ class _ChromecastSessionHandle implements CastSessionHandle {
 
   @override
   Future<void> requestStatus() async {
-    if (_mediaSessionId == null) return;
+    // With no known media session (a LOAD was just sent and not yet answered,
+    // or the receiver rejected it and kept the previous item), ask without an
+    // id: the Cast media protocol then reports every media session. That keeps
+    // the status, and the relay keep-alive riding on its reply, working while
+    // the receiver is still on the previous item. The reply also restores
+    // [_mediaSessionId] through [_onMediaStatus].
+    final int? id = _mediaSessionId;
     _session.sendMessage(cast.CastSession.kNamespaceMedia, <String, dynamic>{
       'type': 'GET_STATUS',
       'requestId': _requestId++,
-      'mediaSessionId': _mediaSessionId,
+      if (id != null) 'mediaSessionId': id,
     });
   }
 
