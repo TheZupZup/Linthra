@@ -14,7 +14,10 @@ What is worth pinning down, and why:
   * one bad week is tolerated and two are not, because the first is usually a
     runner blip and the second is a standing fault;
   * a workflow with no history yet is unknown, not broken;
-  * unreadable input fails loudly instead of reporting a healthy repository.
+  * unreadable input fails loudly instead of reporting a healthy repository;
+  * the report says where a failing updater stopped, because the updaters fail
+    for different reasons and #671 sent readers to the token when the Dart
+    updater had actually stopped at its allowlist guard.
 
 Run it directly: `python3 test/tooling/update_automation_health_test.py`.
 """
@@ -219,6 +222,62 @@ class ReportTest(unittest.TestCase):
         report = checker.render_report(checker.build_result(history(), 2))
         self.assertIn("Every scheduled update workflow is running.", report)
 
+    def test_the_failing_report_names_where_each_run_stopped(self) -> None:
+        # The #671 shape: two updaters red for two unrelated reasons.
+        dart = run("failure")
+        dart["failedSteps"] = [
+            "Resolve and prepare update PR / Resolve updates with the pinned SDK"
+        ]
+        android = run("failure")
+        android["failedSteps"] = [
+            "Draft PR for agp / Require workflow-triggering publication token",
+            "Draft PR for kotlin / Require workflow-triggering publication token",
+        ]
+        result = checker.build_result(
+            history(
+                **{
+                    "dart-dependency-updates.yml": [dart, run("failure")],
+                    "android-toolchain-updates.yml": [android, run("failure")],
+                }
+            ),
+            2,
+        )
+        report = checker.render_report(result)
+        self.assertIn("### Where the last scheduled run stopped", report)
+        self.assertIn(
+            "- `dart-dependency-updates.yml`: "
+            "`Resolve and prepare update PR / Resolve updates with the pinned SDK`",
+            report,
+        )
+        self.assertIn(
+            "`Draft PR for kotlin / Require workflow-triggering publication token`",
+            report,
+        )
+        self.assertNotIn("- `flutter-sdk-updates.yml`", report)
+
+    def test_failed_steps_never_change_the_verdict(self) -> None:
+        # Rendered only. A single failure with steps is still one week of grace,
+        # and a failing streak without them is still failing.
+        located = run("failure")
+        located["failedSteps"] = ["job / step"]
+        tolerated = checker.build_result(
+            history(**{"flutter-sdk-updates.yml": [located, run("success")]}), 2
+        )
+        self.assertEqual(tolerated["verdict"], "healthy")
+        self.assertNotIn("Where the last", checker.render_report(tolerated))
+
+        unlocated = checker.build_result(
+            history(**{"flutter-sdk-updates.yml": [run("failure"), run("failure")]}), 2
+        )
+        self.assertEqual(unlocated["verdict"], "failing")
+        self.assertNotIn("Where the last", checker.render_report(unlocated))
+
+    def test_malformed_failed_steps_are_an_error(self) -> None:
+        bad = run("failure")
+        bad["failedSteps"] = "Require workflow-triggering publication token"
+        with self.assertRaises(checker.CheckError):
+            checker.build_result(history(**{"flutter-sdk-updates.yml": [bad]}), 2)
+
 
 class CliTest(unittest.TestCase):
     def _run_cli(self, payload: object, *extra: str) -> subprocess.CompletedProcess:
@@ -388,6 +447,40 @@ class WorkflowWiringTest(unittest.TestCase):
 
     def test_it_runs_the_checker(self) -> None:
         self.assertIn("scripts/check_update_automation_health.py", self.text)
+
+    def test_it_looks_up_where_the_newest_failure_stopped(self) -> None:
+        self.assertIn("failedSteps", self.text)
+        self.assertIn("/actions/runs/$run_id/jobs", self.text)
+        # Best effort: a failed lookup warns rather than failing the report.
+        self.assertIn("::warning::Could not read the failed steps", self.text)
+
+    def test_the_guidance_names_steps_that_exist(self) -> None:
+        # The issue body tells the reader which step means what. If an updater
+        # renames one of those steps, the guidance silently stops matching the
+        # run it points at, so hold the names to the real workflows.
+        workflows = REPO_ROOT / ".github" / "workflows"
+        cited = {
+            "Require workflow-triggering publication token": (
+                "dart-dependency-updates.yml",
+                "flutter-sdk-updates.yml",
+                "android-toolchain-updates.yml",
+            ),
+            "Resolve updates with the pinned SDK": ("dart-dependency-updates.yml",),
+        }
+        for step, owners in cited.items():
+            self.assertIn(step, self.text)
+            for owner in owners:
+                self.assertIn(
+                    f"name: {step}",
+                    (workflows / owner).read_text(encoding="utf-8"),
+                    f"{owner} has no step named {step!r}, which the report cites",
+                )
+        # And the guard's own wording, which the guidance quotes.
+        guard = (REPO_ROOT / "scripts" / "check_dependency_update_files.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("files outside the allowed set", guard)
+        self.assertIn("files outside the allowed set", self.text)
 
 
 if __name__ == "__main__":

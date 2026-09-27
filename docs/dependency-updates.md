@@ -742,10 +742,24 @@ does the `gh api` call and nothing else:
 python3 test/tooling/update_automation_health_test.py
 ```
 
-**If that issue is open, check the failing run first.** If it stops at
-`DEPENDENCY_UPDATE_TOKEN is required`, the repository secret is missing or
-expired — and all three updaters fail the same way, because they share it. See
-the One-time setup sections above.
+**If that issue is open, check the failing run first.** The report names the job
+and step each failing updater's last scheduled run stopped at. The two known
+causes look different:
+
+- It stops at `Require workflow-triggering publication token` with
+  `DEPENDENCY_UPDATE_TOKEN is required`: the repository Actions secret is not
+  set. An expired or under-scoped token fails later instead, at the push or at
+  `gh pr create`, with an authentication or permission error. All three updaters
+  share the secret, but each only asks for it when it has something to publish,
+  so an updater that stays green on quiet weeks does not prove the secret
+  exists. See the One-time setup sections above.
+- The Dart updater stops at `Resolve updates with the pinned SDK` with
+  `changes files outside the allowed set`: the lockfile refresh also rewrote
+  another file, named in the log. Usually that is
+  `linux/flutter/generated_plugins.cmake`, because a new transitive package is a
+  Linux plugin. That is the allowlist doing its job and has nothing to do with
+  the token. The update brings in native code, so it needs a human PR (or a
+  human decision to hold that package back), not a wider allowlist.
 
 To silence the report, disable **Actions → Update automation health → ⋯ →
 Disable workflow**. Disabling it stops the reporting, not the updaters; they are
