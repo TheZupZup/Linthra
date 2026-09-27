@@ -162,9 +162,13 @@ Rules that go with the table:
 - **JSON payloads are parsed and checked, never trusted:** invalid JSON, a top
   level that is not an object, an unknown `type`, or a field of the wrong
   shape (a non-integer `requestId`, a non-string `transportId`, and so on) is a
-  protocol error that closes the connection in a controlled way. Parsing
-  happens inside the frame handler, so nothing throws out of the socket
-  listener.
+  protocol error that closes the connection in a controlled way. Numbers are
+  checked for value as well as type: every numeric field must be finite and
+  in its range (times and durations not negative and below a fixed bound,
+  volume level between 0 and 1, request ids positive integers), so
+  `1e999` or a negative position is a protocol error, not a value that throws
+  later. Parsing happens inside the frame handler, so nothing throws out of
+  the socket listener.
 
 ## Device authentication
 
@@ -276,6 +280,10 @@ app and needs refreshing through releases.
   included); until then it goes through the same confirmation. The store
   change and the confirmation land with the contract step, and the existing
   device-id store stays an open item until they do.
+- **Forgetting forgets the certificate.** The sheet's "forget this device"
+  removes the fingerprint from the trusted set together with every device id
+  it has been seen under, not only the entry that was picked. The next
+  connection to that receiver is a first use again, with the confirmation.
 - Closing, timing out, reconnecting, changing receiver or replacing the session
   drops the identity with the connection. A new attempt starts from `tls` with
   a new nonce, and nothing from a previous attempt is consulted.
@@ -347,7 +355,11 @@ exposes neither the peer certificate nor a binary channel. So:
   playback while the receiver may still be playing the previous item. With
   error replies surfacing from the receiver, a rejected handoff keeps the
   previous casting state, status and relay token, and only reports that this
-  track could not be cast.
+  track could not be cast. The same holds for a replacement that fails before
+  any `LOAD`: a track that cannot be cast (an on-device file) or whose
+  resolution fails, while another track is casting, leaves that track casting
+  and only reports the message. Local playback never resumes while the
+  receiver may still be playing.
 - handoffs are ordered, with at most one `LOAD` in flight. Each handoff takes
   a sequence number, and a newer track supersedes older ones. A superseded
   handoff that has not sent its `LOAD` never sends it and drops its token. A
@@ -355,6 +367,13 @@ exposes neither the peer certificate nor a binary channel. So:
   timeout) settles what the receiver is playing first, and only then does the
   newest handoff send its own `LOAD`. So the state and the live tokens always
   match what the receiver last accepted.
+- the relay learns about accepted `LOAD`s. Today it treats an item as playing
+  only once the receiver first fetches it, and publishing a new item drops
+  every token that is neither playing nor new. A `LOAD` accepted before its
+  first fetch would then lose its token when the next track is published.
+  So the service tells the relay when a `LOAD` is accepted, and the relay
+  keeps that item's token alongside the new one until the next `LOAD`
+  settles, whether or not it has been fetched yet.
 
 ## Keeping credential-bearing media behind the barrier
 
@@ -461,9 +480,10 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Framing:** fragmented and coalesced frames, a length over the maximum, a
   truncated frame, a frame that is not a `CastMessage`, the wrong payload type
   for the namespace.
-- **Payloads:** invalid JSON, a non-object top level, an unknown `type`, and
-  each field with the wrong type, all closing the connection without an
-  exception escaping the listener.
+- **Payloads:** invalid JSON, a non-object top level, an unknown `type`, each
+  field with the wrong type, and numbers that overflow (`1e999`), are negative
+  where they cannot be, or fall outside their range, all closing the
+  connection without an exception escaping the listener.
 - **Routing:** a wrong protocol version; a message addressed to another
   sender; a broadcast answering one of our request ids; a platform message not
   from `receiver-0`; a media message from a transport id other than the app's.
@@ -531,7 +551,12 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Handoff order:** two tracks in quick succession: the second `LOAD` waits
   for the first to settle; a first `LOAD` accepted while the second is
   rejected leaves the state and token on the first; a superseded handoff that
-  never sent is dropped.
+  never sent is dropped; a `LOAD` accepted before its first fetch keeps its
+  token through the next publish and a rejected next `LOAD`; a replacement
+  whose resolution fails, or that cannot be cast, leaves the current track
+  casting.
+- **Forget:** forgetting a receiver seen under several device ids removes the
+  fingerprint and all of them; the next connection asks again.
 - **`LOAD` reconciliation:** new item (success), previous item (rejection),
   idle on the first handoff (failed, session stays), idle after a previous
   item or an unrelated item (session ends).

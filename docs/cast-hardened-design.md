@@ -23,14 +23,16 @@ Five layers, each doing one job, and none of them a substitute for another:
 | --- | --- | --- |
 | 1. Transport | Is the channel private? | TLS exists today, and proves nothing about who is on the far end |
 | 2. Device authentication | Is this a genuine Cast receiver? | Not implemented anywhere in the tree, and the package we depend on cannot express the modern challenge |
-| 3. Device pinning | Is it *your* receiver, the same one as last time? | Built and tested (`cast_receiver_pinning.dart`), persistent in production, with the sheet's forget action |
+| 3. Device pinning | Is it *your* receiver, the same one as last time? | Plumbing built and tested (`cast_receiver_pinning.dart`, persistent, with the sheet's forget action), but keyed by the discovery id; trust by certificate fingerprint with a first-use confirmation is still open ([cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session)) |
 | 4. Least privilege | If it is, how little can it be handed? | Built and tested: the on-device relay keeps the server credential on the phone ([cast-media-access.md](cast-media-access.md)) |
 | 5. Fail-closed boundary | Does any doubt end in silence? | Built and tested (`trust_gated_cast_transport.dart`) |
 
 Layers 3 and 5 are app-side policy, so they were landed ahead of the protocol
 work: when a real handshake arrives it is reviewed on protocol grounds, not on
-whether the plumbing around it is sound. Layer 2 is the missing one, and it is
-the whole of the risk.
+whether the plumbing around it is sound. Layer 2 is the missing one and the
+largest risk. Layer 3 is not finished either: its store is keyed by an
+unauthenticated discovery id, and has to move to certificate fingerprints
+before the restoration.
 
 ## Layer 1: the channel
 
@@ -112,11 +114,14 @@ apply to a music player shipping a fresh implementation:
   signature. We would require SHA-256 and refuse SHA-1. This is a compatibility
   bet, and the device matrix is where it gets settled: if a supported device
   cannot do SHA-256, that is a finding, not a reason to quietly relax.
-- **CRL policy.** Upstream defaults to `kCrlOptional`, meaning a missing CRL is
-  tolerated. We would require one, with the honest caveat below. (Chromium
-  `main` now uses `CRL_REQUIRED_WITH_FALLBACK`, checking against a CRL bundled
-  in the browser when the device sends none; whether to do the same is an open
-  item in [cast-client-design.md](cast-client-design.md).)
+- **CRL policy.** The baseline is Chromium `main`, which uses
+  `CRL_REQUIRED_WITH_FALLBACK`: a device that sends no CRL, or an invalid one,
+  is checked against a CRL bundled in the browser, never simply accepted. (An
+  earlier revision of this page read the upstream default as `kCrlOptional`,
+  which tolerated a missing CRL; that is not the current behaviour.) We would
+  require the device's own CRL, with the honest caveat below; whether to ship
+  a bundled fallback like Chromium is an open item in
+  [cast-client-design.md](cast-client-design.md).
 - **Nonce echo.** Chromium does not enforce it: a missing or mismatched echo
   only sets a flag. Whether to enforce it is decided on the device matrix, see
   [cast-client-design.md](cast-client-design.md#strictness-decided-after-the-device-matrix).
