@@ -152,8 +152,10 @@ not in a public PR description.
 
 Restoring casting is one reviewed change, not a revert. It has to:
 
-- [ ] land a real `CastReceiverAuthenticator` and the transport that performs the
-      handshake, reviewed in the advisory;
+- [ ] land the transport that performs the handshake and only returns
+      authenticated, `ready` handles (authentication inside the transport, see
+      [cast-client-design.md](cast-client-design.md#contract-changes)), reviewed
+      in the advisory;
 - [ ] put the trust gate in front of the live transport in the production
       wiring, with no path around it and no runtime flag that skips it;
 - [x] ship a persistent `CastReceiverPinStore` and the cast sheet's "forget this

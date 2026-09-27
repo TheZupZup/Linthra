@@ -343,8 +343,13 @@ Staged, so that each step is reviewable and none of them relaxes the containment
    generated fixtures and negative cases. Not reachable from the app.
 3. **The Cast client**, narrow, with the challenge mandatory. Still not wired
    into production.
-4. **The authenticator** implementing `CastReceiverAuthenticator` on top of 2 and
-   3, plugged into the existing gate. Still not wired into production.
+4. **Authentication inside the transport**, on top of 2 and 3: the transport
+   only returns handles for authenticated, `ready` connections, and the
+   existing gate applies its policy to that identity. This replaces a separate
+   `CastReceiverAuthenticator` over a finished handle, which cannot see the
+   peer certificate (see
+   [cast-client-design.md](cast-client-design.md#contract-changes)). Still not
+   wired into production.
 5. ~~**A persistent pin store and the sheet's forget affordance.**~~ Done, see
    layer 3.
 6. **Device matrix by hand**, results to the advisory.

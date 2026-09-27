@@ -79,8 +79,9 @@ attempt.
 | `tls` | nothing | TLS handshake | Handshake completes and the peer certificate is captured, or timeout |
 | `awaitingAuth` | one `DeviceAuthMessage{challenge}` (sender-0 to receiver-0, deviceauth namespace, binary payload) | exactly one device-auth response | Response verified, or anything else arrives, or timeout |
 | `authenticated` | `CONNECT` to receiver-0 | nothing yet | `CONNECT` written |
-| `launching` | one `LAUNCH` of `CC1AD845` with a fresh request id; heartbeat `PONG` | heartbeat `PING`; `RECEIVER_STATUS` | A `RECEIVER_STATUS` answering that request id lists `CC1AD845`, or `LAUNCH_ERROR`, or timeout |
-| `ready` | `CONNECT` to the app's transport id, then media and volume commands | media and receiver status, heartbeat; media error replies (`LOAD_FAILED`, `LOAD_CANCELLED`, `INVALID_REQUEST`) to our own request ids | Close, error, heartbeat loss, or a `RECEIVER_STATUS` that no longer lists `CC1AD845` with the same transport id |
+| `launching` | one `LAUNCH` of `CC1AD845` with a fresh request id; heartbeat `PING` and `PONG` | heartbeat `PING` and `PONG`; `RECEIVER_STATUS` | A `RECEIVER_STATUS` answering that request id lists `CC1AD845`, or `LAUNCH_ERROR`, or timeout, or heartbeat loss |
+| `ready` | `CONNECT` to the app's transport id, then media and volume commands; heartbeat `PING` and `PONG` | media and receiver status, heartbeat `PING` and `PONG`; media error replies (`LOAD_FAILED`, `LOAD_CANCELLED`, `INVALID_REQUEST`) to our own request ids | `close()` (goes through `stopping`), error, heartbeat loss, or a `RECEIVER_STATUS` that no longer lists `CC1AD845` with the same transport id |
+| `stopping` | one receiver `STOP` for the app's session id, with a fresh request id; then `CLOSE` on both virtual connections | the `RECEIVER_STATUS` answering that request id; heartbeat | That status arrives, or a bounded wait (proposed 2 s) runs out; either way the socket is closed |
 | `closed` | nothing | nothing | Terminal. A new attempt is a new connection object. |
 
 Rules that go with the table:
@@ -90,11 +91,11 @@ Rules that go with the table:
   closed.
 - **Readiness has exactly one source:** the `RECEIVER_STATUS` that answers our
   own `LAUNCH` request id, in the `launching` state, listing the Default Media
-  Receiver with a non-empty transport id. The transport id is taken from that
-  entry and nowhere else, since `CONNECT` and every media message are addressed
-  to it. A status that arrives earlier, answers another request, lists only
-  another app, or lists the app with a missing or empty transport id never
-  produces readiness.
+  Receiver with a non-empty transport id and session id. Both are taken from
+  that entry and nowhere else: `CONNECT` and every media message are addressed
+  to the transport id, and `STOP` names the session id. A status that arrives
+  earlier, answers another request, lists only another app, or lists the app
+  with either id missing or empty never produces readiness.
 - **A rejected request is not a lost session.** In `ready`, a media error
   reply to one of our own request ids fails that request only (the track
   handoff reports it) and the session stays `ready`: the receiver may still be
@@ -105,6 +106,17 @@ Rules that go with the table:
   id, the app we connected to is gone even if the platform connection is
   healthy. The session ends as if the receiver had dropped (the relay stops
   with it); nothing relaunches on its own.
+- **Closing stops the app.** `close()` from `ready` sends the receiver a
+  `STOP` for our session id before dropping the connection, so the Default
+  Media Receiver does not keep playing on its own (the current adapter does the
+  same through `endSession`). The wait for the answer is bounded, and the
+  socket is closed whether or not it comes. A connection lost without
+  `close()` sends nothing; the relay stopping is what cuts the media then.
+- **Heartbeat both ways.** From the platform `CONNECT` on, the client sends a
+  `PING` on a fixed cadence (proposed every 5 s) and answers every receiver
+  `PING` with a `PONG`. Any inbound message counts as liveness; no inbound
+  traffic for a fixed window (proposed 10 s, Chromium's values, to be tuned on
+  devices) is heartbeat loss, which ends the session like a drop.
 - **One challenge, one response.** A second response, a response before the
   challenge was written, or a device-auth error message fails the attempt.
 - **Timeouts are per state** (proposed: TLS 10 s, auth reply 5 s, launch 10 s;
@@ -145,8 +157,11 @@ the attempt.
    that CRL comes from, the device only or a shipped fallback, follows the CRL
    policy.
 8. **Verify the signature** with the leaf's public key over the exact bytes
-   `sender_nonce || peer_certificate_DER`, RSASSA-PKCS1-v1_5, with the digests
-   the digest policy accepts.
+   `response_nonce || peer_certificate_DER`, RSASSA-PKCS1-v1_5, with the
+   digests the digest policy accepts. `response_nonce` is the nonce the
+   response carries, empty when it carries none. Under the strict nonce policy
+   step 5 has already required it to equal ours, so this is our nonce; under a
+   relaxed policy it is whatever the receiver echoed, as in Chromium.
 
 The TLS handshake proves the receiver holds the private key of the peer
 certificate. The signature proves a genuine Cast device vouched for that exact
@@ -207,6 +222,12 @@ exposes neither the peer certificate nor a binary channel. So:
 
 - authentication moves **into** the transport, between `tls` and
   `authenticated`;
+- `connect()` takes a cancellation signal. Cancelling closes the socket from
+  whatever state the attempt is in, writes nothing more (no `LAUNCH` after a
+  cancel during auth), and makes `connect()` fail with a cancellation that
+  `DefaultCastService` treats as stale. The service cancels its in-flight
+  attempt on disconnect, on a receiver change and on dispose, instead of
+  waiting for it to reach `ready` or time out;
 - the transport only ever returns a `CastSessionHandle` for a connection in the
   `ready` state, carrying the verified identity;
 - `TrustGatedCastTransport` keeps its role as policy over that identity (match,
@@ -229,10 +250,19 @@ exposes neither the peer certificate nor a binary channel. So:
   2. after `connect()` returns a `ready` handle, and before any track is
      resolved or `LOAD` built, the relay binds to the handle's local address.
      If that address is not on an allowed interface, or the bind fails, the
-     session is closed with the same message. The receiver has then seen TLS,
-     device auth and `LAUNCH`, but no media and no credential.
+     session is closed with its own message. The preflight's message promises
+     that nothing was sent to the cast device, which is no longer true here:
+     the receiver has seen TLS, device auth and `LAUNCH`. The new message
+     only promises what holds, that no music and no account details were sent.
 
   A running relay is never rebound: each session binds its own.
+- a rejected replacement `LOAD` keeps the cast as it was. Today
+  `DefaultCastService._handOff` clears the casting track and reports idle,
+  not casting, on any handoff failure, which hands control back to local
+  playback while the receiver may still be playing the previous item. With
+  error replies surfacing from the receiver, a rejected handoff keeps the
+  previous casting state, status and relay token, and only reports that this
+  track could not be cast.
 
 ## Keeping credential-bearing media behind the barrier
 
@@ -335,7 +365,9 @@ All with generated fixtures and a fake socket, so they run in CI.
   challenge; an unexpected namespace in each state; `CONNECT`/`LAUNCH`/`LOAD`
   never written before `authenticated`.
 - **Device auth:** no response (timeout); malformed response; missing fields;
-  device-auth error; missing, empty or altered nonce; a valid response for
+  device-auth error; missing, empty or altered nonce refused under the strict
+  policy, and accepted under a relaxed one with the signature checked over the
+  nonce the response carries (or none); a valid response for
   another challenge; a valid response recorded on another connection (replay);
   a valid response from another receiver.
 - **Peer certificate:** not yet valid, expired, lifetime over 4 days.
@@ -352,9 +384,18 @@ All with generated fixtures and a fake socket, so they run in CI.
   another app; the Default Media Receiver listed with a missing or empty
   transport id; `LAUNCH_ERROR`; launch timeout.
 - **In `ready`:** `LOAD_FAILED`, `LOAD_CANCELLED` and `INVALID_REQUEST` for our
-  own request keep the session ready and fail only that handoff; the same
-  replies for an unknown request id close it; a status without the app, or with
-  a different transport id, ends the session and stops the relay.
+  own request keep the session ready and fail only that handoff, and the
+  service keeps the previous casting state and token; the same replies for an
+  unknown request id close it; a status without the app, or with a different
+  transport id, ends the session and stops the relay.
+- **Heartbeat:** `PING`s go out on the cadence in `launching` and `ready`;
+  receiver `PING`s are answered; silence past the window ends the session.
+- **Closing:** `close()` sends one `STOP` with our session id, then closes
+  whether the answer comes or the bounded wait runs out; a lost connection
+  sends nothing.
+- **Cancellation:** cancelling in `tls`, `awaitingAuth` and `launching` closes
+  the socket, writes nothing further, and never lets a stale attempt reach
+  `ready`.
 - **Status requests:** a media status request works with no known media
   session (asked without a session id), so the relay keep-alive keeps
   working while a LOAD is pending or after the receiver rejected it and kept
@@ -390,11 +431,11 @@ is reachable from production until the restoration:
    Steps 3 and 4 build each open strictness choice (nonce presence and
    equality, accepted digests, device CRL or fallback) as an explicit setting
    with no default, both behaviours tested, because the matrix needs a working
-   client to run. The matrix picks the settings, and they are fixed, with the
-   steps and tests updated, before step 5 lands.
-5. Contract changes: the transport returns only `ready` handles, the trust gate
+   client to run. The matrix (step 5) picks the settings, and they are fixed,
+   with the steps and tests updated, before step 6 lands.
+5. Device matrix by hand, on the client from step 4. **Blocked on inventory.**
+6. Contract changes: the transport returns only `ready` handles, the trust gate
    and its tests move to the new shape; `cast` removed.
-6. Device matrix by hand. **Blocked on inventory.**
 7. The restoration, per the checklist in
    [cast-receiver-trust.md](cast-receiver-trust.md#restoration-checklist), as
    its own change and its own release.
