@@ -87,22 +87,55 @@ change to sign-out behaviour for every user, not only those who cast, so it
 belongs in its own change rather than riding along here. Subsonic has no
 equivalent: its credential is the password.
 
-**A media proxy on the device.** The app could stream from the server itself and
-re-serve to the receiver over the LAN, so the server credential never leaves the
-phone. It is a real option and it is not free:
+**A media proxy on the device.** Built, not yet reachable from production
+(`lib/core/services/cast/local_cast_media_proxy.dart`, behind the
+`CastMediaRelay` interface `DefaultCastService` now requires). The app streams
+from the server itself and re-serves the one item being cast over the LAN, so
+the server credential never leaves the phone. What a receiver is given instead
+is `http://<phone-lan-ip>:<port>/cast/<token>`, declared as
+`CastMediaAccess.localRelay`.
 
-- the proxy is an HTTP server on the user's network, which needs its own
-  authentication — and the receiver has no way to authenticate to it, so
-  whatever guards it is per-session and unguessable at best;
-- it doubles the network traffic and keeps the phone awake for the whole track,
-  which is exactly the cost casting exists to avoid;
-- it needs a lifecycle: bound to the session, torn down on disconnect, on app
-  exit, and on a crash, with nothing left listening afterwards;
-- on Android it interacts with foreground-service and network-security policy.
+How it answers the questions this option was parked on:
 
-Per #576 this gets its own security and operational review **before** any
-implementation, not as part of a cast restoration. It is written down here so the
-option is not rediscovered as a shortcut later.
+- **Authentication.** A receiver cannot send headers, so the proxy is guarded
+  by the URL alone: a 256-bit token from `Random.secure()`, minted per item.
+  Publishing the next item forgets the previous token, every token also expires
+  after a fixed lifetime (6 hours by default), and unknown or expired tokens get
+  the same bare 404 without touching the server. Only `GET` and `HEAD` on
+  exactly `/cast/<token>` are served.
+- **Exposure.** It binds to the phone's private Wi-Fi/Ethernet IPv4 address on
+  an OS-chosen port, not to every interface, so it is not offered on mobile data
+  or a VPN tunnel. It speaks plain HTTP because the receiver has no way to trust
+  a certificate the phone made up; what crosses the LAN is the token and the
+  audio, and the token only reaches that item for that session.
+- **What goes back.** Only media headers are relayed (`Content-Type`,
+  `Content-Length`, `Content-Range`, `Accept-Ranges`, `ETag`,
+  `Last-Modified`). `Range` is forwarded when it is a plain byte range, and
+  `206`/`416` come back as the server sent them, so seeking and buffering work.
+  Any other upstream status becomes an empty `502`: no server body, no cookies,
+  no auth challenge. Nothing in the proxy logs.
+- **Lifecycle.** The cast service starts it when a session starts and stops it
+  when the session ends (disconnect, receiver drop, failed connect, dispose).
+  Stopping closes the socket, drops every token and cuts transfers in flight.
+  It also stops itself after 30 minutes with no request, no transfer in flight
+  and no receiver status, as a safety net; the next track brings it back. It
+  runs in the main isolate, the same process as the background audio service.
+- **Failure.** If it cannot start (no private LAN address, the port cannot be
+  opened), the session is refused before the receiver is contacted and the
+  sheet says casting is off for this session. If it cannot come back mid-
+  session, the session ends. There is no path that hands the receiver the
+  server URL instead.
+- **Cost.** Every byte now goes server to phone to receiver, and the phone has
+  to stay awake and on the network for the whole session. That is the price of
+  keeping the credential home, and it is paid only while casting.
+
+What it does not change: the phone to server hop is the same request local
+playback already makes (for Jellyfin and Subsonic the credential is still in
+that URL's query, over HTTPS when the server offers it), and the proxy is not a
+substitute for authenticating the receiver. A token handed to a device nobody
+authenticated is still handed to that device; it just cannot be reused as an
+account credential, or at all once the session ends. Casting stays contained
+until [#575](https://github.com/TheZupZup/Linthra/issues/575) is done.
 
 **What is not on the table.** Client-side "restrictions" the server does not
 enforce; sending a credential to a receiver that has not been authenticated

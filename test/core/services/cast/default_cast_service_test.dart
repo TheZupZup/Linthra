@@ -8,6 +8,7 @@ import 'package:linthra/core/models/cast_volume.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/cast/cast_media_access.dart';
+import 'package:linthra/core/services/cast/cast_media_relay.dart';
 import 'package:linthra/core/services/cast/cast_media_resolver.dart';
 import 'package:linthra/core/services/cast/cast_receiver_trust.dart';
 import 'package:linthra/core/services/cast/cast_transport.dart';
@@ -167,6 +168,53 @@ class _FakeResolver implements CastMediaResolver {
   }
 }
 
+/// A relay that records what it was asked to re-serve and hands back a
+/// token-free address, or fails as configured.
+class _FakeRelay implements CastMediaRelay {
+  bool running = false;
+  Object? startError;
+  Object? publishError;
+  int startCount = 0;
+  int stopCount = 0;
+  int touchCount = 0;
+  final List<CastMedia> published = <CastMedia>[];
+
+  @override
+  bool get isRunning => running;
+
+  @override
+  Future<void> start() async {
+    startCount++;
+    if (startError != null) throw startError!;
+    running = true;
+  }
+
+  @override
+  CastMedia publish(CastMedia media) {
+    if (publishError != null) throw publishError!;
+    if (!running) {
+      throw const CastMediaRelayException(
+          CastMediaRelayException.unavailableMessage);
+    }
+    published.add(media);
+    return CastMedia(
+      url: Uri.parse('http://192.168.1.20:40000/cast/item${published.length}'),
+      contentType: media.contentType,
+      title: media.title,
+      access: CastMediaAccess.localRelay,
+    );
+  }
+
+  @override
+  void touch() => touchCount++;
+
+  @override
+  Future<void> stop() async {
+    stopCount++;
+    running = false;
+  }
+}
+
 const _d1 = CastDevice(id: 'd1', name: 'Living Room');
 const _jellyfinTrack = Track(id: 'j1', title: 'Streamed', uri: 'jellyfin:j1');
 const _localTrack = Track(id: 'l1', title: 'On device', uri: '/music/x.mp3');
@@ -174,12 +222,14 @@ const _localTrack = Track(id: 'l1', title: 'On device', uri: '/music/x.mp3');
 void main() {
   late _FakeTransport transport;
   late _FakeResolver resolver;
+  late _FakeRelay relay;
   late StreamController<Track?> trackChanges;
   Track? current;
 
   DefaultCastService build() => DefaultCastService(
         transport: transport,
         mediaResolver: resolver,
+        mediaRelay: relay,
         currentTrack: () => current,
         trackChanges: trackChanges.stream,
         discoveryTimeout: const Duration(milliseconds: 5),
@@ -189,6 +239,7 @@ void main() {
   setUp(() {
     transport = _FakeTransport();
     resolver = _FakeResolver();
+    relay = _FakeRelay();
     trackChanges = StreamController<Track?>.broadcast();
     current = null;
   });
@@ -245,10 +296,12 @@ void main() {
       expect(service.state.isConnected, isTrue);
       expect(service.state.isCasting, isTrue);
       expect(service.state.connectedDevice, _d1);
-      // The resolved, token-bearing URL reached the receiver.
+      // The receiver got the relay's address; the resolved, token-bearing URL
+      // went to the relay and no further.
       expect(handle.loaded, hasLength(1));
-      expect(handle.loaded.single.url.queryParameters['api_key'], 'TOKEN');
+      expect(handle.loaded.single.url.host, '192.168.1.20');
       expect(handle.loaded.single.title, 'Streamed');
+      expect(relay.published.single.url.queryParameters['api_key'], 'TOKEN');
     });
 
     test('a local file is reported as a clear limitation, not cast', () async {
@@ -575,11 +628,152 @@ void main() {
       addTearDown(service.dispose);
 
       await service.connect(_d1);
-      // The token rode only on the CastMedia handed to the receiver.
-      expect(handle.loaded.single.url.queryParameters['api_key'], 'TOKEN');
+      // The token stayed with the relay; the receiver never saw it.
+      expect(handle.loaded.single.url.toString(), isNot(contains('TOKEN')));
+      expect(handle.loaded.single.access, CastMediaAccess.localRelay);
       // Never in the user-facing state.
       expect(service.state.message ?? '', isNot(contains('TOKEN')));
       expect(service.state.message ?? '', isNot(contains('api_key')));
+    });
+  });
+
+  group('media relay', () {
+    test(
+        'a relay that cannot start refuses the session before any receiver '
+        'contact', () async {
+      current = _jellyfinTrack;
+      relay.startError = const CastMediaRelayException('boom');
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+
+      expect(transport.connectRequests, isEmpty);
+      expect(handle.loaded, isEmpty);
+      expect(resolver.resolved, isEmpty);
+      expect(service.state.hasError, isTrue);
+      expect(service.state.isCasting, isFalse);
+      expect(service.state.message, CastMediaRelayException.unavailableMessage);
+    });
+
+    test('the relay stops when the session ends', () async {
+      current = _jellyfinTrack;
+      transport.handle = _FakeHandle();
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      expect(relay.running, isTrue);
+
+      await service.disconnect();
+
+      expect(relay.running, isFalse);
+    });
+
+    test('the relay stops when the receiver drops the session', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      handle.drop();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(relay.running, isFalse);
+    });
+
+    test('the relay stops when connecting fails', () async {
+      current = _jellyfinTrack;
+      transport.connectError = Exception('no route');
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+
+      expect(relay.startCount, 1);
+      expect(relay.running, isFalse);
+    });
+
+    test('an idle-stopped relay is brought back for the next track', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      relay.running = false; // as if the idle timer fired
+      const Track next = Track(id: 'j2', title: 'Next', uri: 'jellyfin:j2');
+      current = next;
+      trackChanges.add(next);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(relay.startCount, 2);
+      expect(handle.loaded, hasLength(2));
+      expect(handle.loaded.last.url.toString(), isNot(contains('TOKEN')));
+      expect(service.state.isCasting, isTrue);
+    });
+
+    test(
+        'a relay that cannot come back ends the session, never falling back '
+        'to the server URL', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      relay.running = false;
+      relay.startError = const CastMediaRelayException('boom');
+      const Track next = Track(id: 'j2', title: 'Next', uri: 'jellyfin:j2');
+      current = next;
+      trackChanges.add(next);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(handle.loaded, hasLength(1));
+      for (final CastMedia media in handle.loaded) {
+        expect(media.url.toString(), isNot(contains('TOKEN')));
+      }
+      expect(handle.closed, isTrue);
+      expect(service.state.hasError, isTrue);
+      expect(service.state.isCasting, isFalse);
+      expect(service.state.message, CastMediaRelayException.unavailableMessage);
+    });
+
+    test('a publish failure hands the receiver nothing', () async {
+      current = _jellyfinTrack;
+      relay.publishError = StateError('nope');
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+
+      expect(handle.loaded, isEmpty);
+      expect(handle.closed, isTrue);
+      expect(relay.running, isFalse);
+      expect(service.state.message, CastMediaRelayException.unavailableMessage);
+    });
+
+    test('receiver status keeps the relay awake', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      handle
+          .pushStatus(const CastPlaybackStatus(status: PlaybackStatus.playing));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(relay.touchCount, 1);
     });
   });
 

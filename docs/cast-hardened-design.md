@@ -24,7 +24,7 @@ Five layers, each doing one job, and none of them a substitute for another:
 | 1. Transport | Is the channel private? | TLS exists today, and proves nothing about who is on the far end |
 | 2. Device authentication | Is this a genuine Cast receiver? | Not implemented anywhere in the tree, and the package we depend on cannot express the modern challenge |
 | 3. Device pinning | Is it *your* receiver, the same one as last time? | Built and tested (`cast_receiver_pinning.dart`), persistent in production, with the sheet's forget action |
-| 4. Least privilege | If it is, how little can it be handed? | Modelled and documented ([cast-media-access.md](cast-media-access.md)) |
+| 4. Least privilege | If it is, how little can it be handed? | Built and tested: the on-device relay keeps the server credential on the phone ([cast-media-access.md](cast-media-access.md)) |
 | 5. Fail-closed boundary | Does any doubt end in silence? | Built and tested (`trust_gated_cast_transport.dart`) |
 
 Layers 3 and 5 are app-side policy, so they were landed ahead of the protocol
@@ -277,11 +277,13 @@ What is left for the restoration is to hand the same store to
 
 ## Layer 4: hand over as little as possible
 
-Unchanged from [cast-media-access.md](cast-media-access.md), and worth restating
-because it is the layer people reach for first: for both servers Linthra can cast
-from, what a receiver ends up holding is an account credential, because neither
-Jellyfin nor Subsonic issues a per-item capability. Narrowing that is real
-defence in depth and it is not a substitute for layers 2 and 3. A scoped URL
+See [cast-media-access.md](cast-media-access.md). Neither Jellyfin nor
+Subsonic issues a per-item capability, so the server URL a resolver mints
+carries an account credential. The on-device relay
+(`local_cast_media_proxy.dart`) keeps that URL on the phone and hands the
+receiver a per-item token for an address on the phone instead, valid only for
+the session. Narrowing that is real defence in depth and it is not a substitute
+for layers 2 and 3. A scoped URL
 handed to a device nobody authenticated is still a handoff to an unknown device.
 
 ## Layer 5: any doubt ends in silence

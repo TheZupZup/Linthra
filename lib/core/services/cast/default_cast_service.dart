@@ -6,6 +6,7 @@ import '../../models/cast_state.dart';
 import '../../models/cast_volume.dart';
 import '../../models/playback_state.dart';
 import '../../models/track.dart';
+import 'cast_media_relay.dart';
 import 'cast_media_resolver.dart';
 import 'cast_receiver_trust.dart';
 import 'cast_service.dart';
@@ -36,20 +37,25 @@ import 'cast_transport.dart';
 /// particular it never auto-starts local playback when a session ends — the
 /// device returns to a paused, in-sync state instead of surprise-playing.
 ///
-/// Security: the resolved URL — which may embed a Jellyfin token — lives only on
-/// the [CastMedia] passed to the transport for this one load. It is never
-/// logged, never written to [CastState] or [CastPlaybackStatus], and never
-/// persisted.
+/// Security: the resolved URL, which carries the server credential, never
+/// reaches the receiver. It is handed to the [CastMediaRelay], which keeps it on
+/// the phone and gives the receiver a per-item address on the relay instead.
+/// The relay starts with the session and stops with it; if it cannot start,
+/// the session is refused with a clear message, and the original URL is never
+/// sent as a fallback. The URL is never logged, never written to [CastState] or
+/// [CastPlaybackStatus], and never persisted.
 class DefaultCastService implements CastService {
   DefaultCastService({
     required CastTransport transport,
     required CastMediaResolver mediaResolver,
+    required CastMediaRelay mediaRelay,
     required Track? Function() currentTrack,
     required Stream<Track?> trackChanges,
     Duration discoveryTimeout = const Duration(seconds: 5),
     Duration connectTimeout = const Duration(seconds: 12),
   })  : _transport = transport,
         _mediaResolver = mediaResolver,
+        _mediaRelay = mediaRelay,
         _currentTrack = currentTrack,
         _trackChanges = trackChanges,
         _discoveryTimeout = discoveryTimeout,
@@ -67,6 +73,7 @@ class DefaultCastService implements CastService {
 
   final CastTransport _transport;
   final CastMediaResolver _mediaResolver;
+  final CastMediaRelay _mediaRelay;
   final Track? Function() _currentTrack;
   final Stream<Track?> _trackChanges;
   final Duration _discoveryTimeout;
@@ -196,10 +203,24 @@ class DefaultCastService implements CastService {
       connectedDevice: device,
     ));
 
+    // The relay comes up before anything talks to the receiver: if it cannot,
+    // casting is off for this session and the receiver is never contacted.
+    try {
+      await _mediaRelay.start();
+    } catch (_) {
+      _emit(CastState(
+        availability: CastAvailability.error,
+        devices: _state.devices,
+        message: CastMediaRelayException.unavailableMessage,
+      ));
+      return;
+    }
+
     final CastSessionHandle handle;
     try {
       handle = await _transport.connect(device);
     } on CastReceiverTrustException catch (error) {
+      await _stopRelay();
       // A receiver that could not prove who it is failed for a reason worth
       // saying: "couldn't connect" would read as a flaky network and invite the
       // user to try again. The message is secret-free by contract.
@@ -210,6 +231,7 @@ class DefaultCastService implements CastService {
       ));
       return;
     } catch (_) {
+      await _stopRelay();
       _emit(CastState(
         availability: CastAvailability.error,
         devices: _state.devices,
@@ -223,6 +245,7 @@ class DefaultCastService implements CastService {
         .timeout(_connectTimeout, onTimeout: () => false);
     if (!ready) {
       await _safeClose(handle);
+      await _stopRelay();
       _emit(CastState(
         availability: CastAvailability.error,
         devices: _state.devices,
@@ -242,7 +265,11 @@ class DefaultCastService implements CastService {
     );
     // Mirror the receiver's media status out for the unified playback state.
     _statusSub = handle.statusStream.listen(
-      _emitPlayback,
+      (CastPlaybackStatus status) {
+        // The receiver is plainly still in use; keep the relay up.
+        _mediaRelay.touch();
+        _emitPlayback(status);
+      },
       onError: (_) {},
       cancelOnError: false,
     );
@@ -303,8 +330,27 @@ class DefaultCastService implements CastService {
     // A disconnect may have landed while resolving; don't load onto a dead
     // session.
     if (_handle != handle) return;
+
+    // Swap the server URL for a relay address. The relay may have shut itself
+    // down after a long idle spell, so bring it back first. If it cannot come
+    // back, the session ends: there is no path that sends [media] as is.
+    final CastMedia relayed;
     try {
-      await handle.loadMedia(media);
+      if (!_mediaRelay.isRunning) await _mediaRelay.start();
+      if (_handle != handle) return;
+      relayed = _mediaRelay.publish(media);
+    } catch (_) {
+      await _teardownSession();
+      _emit(CastState(
+        availability: CastAvailability.error,
+        devices: _state.devices,
+        message: CastMediaRelayException.unavailableMessage,
+      ));
+      return;
+    }
+
+    try {
+      await handle.loadMedia(relayed);
     } on CastReceiverTrustException catch (error) {
       // The handoff refused because trust in this receiver ended. Same reason
       // as above to say so plainly rather than blame playback.
@@ -455,7 +501,17 @@ class DefaultCastService implements CastService {
     final CastSessionHandle? handle = _handle;
     _handle = null;
     if (handle != null) await _safeClose(handle);
+    // Nothing stays listening once the session is over.
+    await _stopRelay();
     _emitPlayback(CastPlaybackStatus.idle);
+  }
+
+  Future<void> _stopRelay() async {
+    try {
+      await _mediaRelay.stop();
+    } catch (_) {
+      // Stopping is best-effort; a failure here must not break recovery.
+    }
   }
 
   Future<void> _safeClose(CastSessionHandle handle) async {
