@@ -140,6 +140,9 @@ class _FakeTransport implements CastTransport {
   /// Per-device handles, for tests that connect to more than one device.
   Map<String, _FakeHandle> handlesById = <String, _FakeHandle>{};
 
+  /// Per-device connect failures.
+  Map<String, Object> connectErrorById = <String, Object>{};
+
   int discoverCount = 0;
   final List<CastDevice> connectRequests = <CastDevice>[];
 
@@ -154,6 +157,8 @@ class _FakeTransport implements CastTransport {
   Future<CastSessionHandle> connect(CastDevice device) async {
     connectRequests.add(device);
     if (connectError != null) throw connectError!;
+    final Object? deviceError = connectErrorById[device.id];
+    if (deviceError != null) throw deviceError;
     return handlesById[device.id] ?? (handle ??= _FakeHandle());
   }
 }
@@ -196,6 +201,10 @@ class _FakeRelay implements CastMediaRelay {
   int touchCount = 0;
   final List<CastMedia> published = <CastMedia>[];
 
+  /// Holds the n-th [stop] call (1-based) until completed, after it has
+  /// already taken effect, like the real relay awaiting its socket close.
+  final Map<int, Completer<void>> stopGates = <int, Completer<void>>{};
+
   @override
   bool get isRunning => running;
 
@@ -229,6 +238,8 @@ class _FakeRelay implements CastMediaRelay {
   Future<void> stop() async {
     stopCount++;
     running = false;
+    final Completer<void>? gate = stopGates[stopCount];
+    if (gate != null) await gate.future;
   }
 }
 
@@ -862,6 +873,32 @@ void main() {
       expect(service.state.connectedDevice, _d2);
       expect(service.state.isCasting, isTrue);
       expect(service.state.hasError, isFalse);
+    });
+
+    test('a failed attempt that lost the race while cleaning up stays quiet',
+        () async {
+      current = _jellyfinTrack;
+      transport.connectErrorById = <String, Object>{'d1': Exception('no')};
+      transport.handlesById = <String, _FakeHandle>{'d2': _FakeHandle()};
+      // Stop #1 is the first attempt's teardown, #2 its cleanup after the
+      // failed connect: hold that one while the second attempt connects.
+      final Completer<void> slowStop = Completer<void>();
+      relay.stopGates[2] = slowStop;
+      final service = build();
+      addTearDown(service.dispose);
+
+      final Future<void> first = service.connect(_d1);
+      await Future<void>.delayed(Duration.zero);
+      await service.connect(_d2);
+      expect(service.state.isCasting, isTrue);
+
+      slowStop.complete();
+      await first;
+
+      expect(service.state.connectedDevice, _d2);
+      expect(service.state.isCasting, isTrue);
+      expect(service.state.hasError, isFalse);
+      expect(relay.running, isTrue);
     });
 
     test('receiver status keeps the relay awake', () async {

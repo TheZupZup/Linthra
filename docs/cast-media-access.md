@@ -118,7 +118,9 @@ How it answers the questions this option was parked on:
   challenge. So does a success that is a page rather than audio (a login
   screen behind a reverse proxy, a Subsonic error document), a redirect to
   another host (same-host redirects are followed, an http to https upgrade
-  included), and a server that sends no headers within 20 seconds. Only
+  included), and a server that sends no headers within 20 seconds. A body
+  that stops arriving for 30 seconds (while the receiver is still reading) is
+  cut rather than left hanging. Only
   requests carrying a live token count as activity, so traffic without one
   cannot keep an orphaned relay alive. Nothing in the proxy logs.
 - **Lifecycle.** The cast service starts it when a session starts and stops it

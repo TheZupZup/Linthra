@@ -245,6 +245,8 @@ class DefaultCastService implements CastService {
     } on CastReceiverTrustException catch (error) {
       if (superseded()) return;
       await _stopRelay();
+      // Stopping the relay awaits; a newer attempt may have started meanwhile.
+      if (superseded()) return;
       // A receiver that could not prove who it is failed for a reason worth
       // saying: "couldn't connect" would read as a flaky network and invite the
       // user to try again. The message is secret-free by contract.
@@ -257,6 +259,7 @@ class DefaultCastService implements CastService {
     } catch (_) {
       if (superseded()) return;
       await _stopRelay();
+      if (superseded()) return;
       _emit(CastState(
         availability: CastAvailability.error,
         devices: _state.devices,
@@ -276,6 +279,7 @@ class DefaultCastService implements CastService {
       await _safeClose(handle);
       if (superseded()) return;
       await _stopRelay();
+      if (superseded()) return;
       _emit(CastState(
         availability: CastAvailability.error,
         devices: _state.devices,

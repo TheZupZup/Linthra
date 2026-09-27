@@ -56,6 +56,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
     this.idleTimeout = const Duration(minutes: 30),
     this.tokenLifetime = const Duration(hours: 6),
     this.upstreamHeaderTimeout = const Duration(seconds: 20),
+    this.upstreamBodyIdleTimeout = const Duration(seconds: 30),
   })  : _lanAddress = lanAddress ?? findLanAddress,
         _bind = bind ?? _bindEphemeral,
         _httpClient = httpClient ?? HttpClient.new,
@@ -79,6 +80,13 @@ class LocalCastMediaProxy implements CastMediaRelay {
   /// or reverse proxy that accepts and then says nothing would otherwise hold
   /// the request, and the relay's idle shutdown, forever.
   final Duration upstreamHeaderTimeout;
+
+  /// How long the upstream body may go without delivering a byte. A server
+  /// that sends headers and then stalls without closing would otherwise hold
+  /// the transfer, and the idle shutdown, forever. The countdown pauses while
+  /// the receiver is not reading (backpressure), so only a stalled server
+  /// trips it.
+  final Duration upstreamBodyIdleTimeout;
 
   /// Redirects followed per request, same host only.
   static const int _maxRedirects = 3;
@@ -357,7 +365,10 @@ class LocalCastMediaProxy implements CastMediaRelay {
       await response.close();
       return;
     }
-    await response.addStream(upstream);
+    // A stall surfaces as a TimeoutException out of addStream: the upstream
+    // subscription is cancelled (closing that connection) and the receiver's
+    // transfer is cut, via the error path in [_handle].
+    await response.addStream(upstream.timeout(upstreamBodyIdleTimeout));
     await response.close();
   }
 

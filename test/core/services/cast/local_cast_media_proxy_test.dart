@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -55,6 +56,14 @@ class _Upstream {
     switch (request.uri.path) {
       case '/hang':
         // Accepts the request and never answers.
+        return;
+      case '/stall':
+        // Promises 1000 bytes, sends 100, then goes quiet without closing.
+        response
+          ..headers.contentType = ContentType('audio', 'flac')
+          ..contentLength = body.length
+          ..add(body.sublist(0, 100));
+        await response.flush();
         return;
       case '/redirect-same':
         response
@@ -482,6 +491,34 @@ void main() {
 
       expect(reply.status, HttpStatus.badGateway);
       expect(reply.body, isEmpty);
+    });
+
+    test('a body that stalls is cut, and the relay can still go idle',
+        () async {
+      final LocalCastMediaProxy proxy = LocalCastMediaProxy(
+        lanAddress: () async => InternetAddress.loopbackIPv4,
+        upstreamBodyIdleTimeout: const Duration(milliseconds: 100),
+        idleTimeout: const Duration(milliseconds: 200),
+      );
+      addTearDown(proxy.stop);
+      await proxy.start();
+      final CastMedia relayed = proxy.publish(_media(upstream.at('/stall')));
+
+      String outcome;
+      try {
+        final _Reply reply =
+            await _fetch(relayed.url).timeout(const Duration(seconds: 5));
+        outcome = reply.body.length < upstream.body.length ? 'cut' : 'full';
+      } on TimeoutException {
+        outcome = 'hung';
+      } on IOException {
+        outcome = 'cut';
+      }
+      expect(outcome, 'cut');
+
+      // Nothing is left in flight, so the idle shutdown can do its job.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(proxy.isRunning, isFalse);
     });
 
     test('a 416 keeps its status and range but never its body', () async {
