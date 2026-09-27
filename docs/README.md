@@ -32,7 +32,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | Streaming, buffering & recovery | [streaming.md](./streaming.md) |
 | Queue / Up Next | [queue.md](./queue.md) |
 | Offline cache & downloads | [offline-cache.md](./offline-cache.md) |
-| Cast / Chromecast | [cast.md](./cast.md) · [receiver trust](./cast-receiver-trust.md) · [hardened design](./cast-hardened-design.md) · [what a handoff delegates](./cast-media-access.md) |
+| Cast / Chromecast | [cast.md](./cast.md) · [receiver trust](./cast-receiver-trust.md) · [hardened design](./cast-hardened-design.md) · [what a handoff delegates](./cast-media-access.md) · [client design](./cast-client-design.md) |
 | Remote control (drive Linthra from another app) | [remote-control.md](./remote-control.md) |
 | Android Auto | [android-auto.md](./android-auto.md) |
 | Playlists & safe removal | [playlists-and-delete.md](./playlists-and-delete.md) |

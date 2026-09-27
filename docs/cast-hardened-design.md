@@ -80,8 +80,11 @@ The exchange, following Chromium's and Open Screen's implementation
    `intermediate_certificate[]` up to a pinned Cast root, and validate it at the
    current time: signatures, validity windows, `basicConstraints` (CA and path
    length), and key usage. The leaf must not be a CA and must be allowed to sign.
-5. **Revocation.** The response carries a CRL, itself signed and chaining to the
-   same roots. Check every certificate in the path against it.
+5. **Revocation.** The response carries a CRL. It is a Cast-specific protobuf,
+   not an X.509 CRL, and it chains to a separate Cast CRL Root CA rather than to
+   the device roots (see
+   [cast-client-design.md](cast-client-design.md#revocation)). Check every
+   certificate in the path against it.
 6. **Signature.** Verify `signature` over the byte string
    `sender_nonce || peer_certificate_DER`, using the leaf's public key,
    RSASSA-PKCS1-v1_5 with SHA-256. The peer certificate is the one captured in
@@ -103,7 +106,13 @@ apply to a music player shipping a fresh implementation:
   bet, and the device matrix is where it gets settled: if a supported device
   cannot do SHA-256, that is a finding, not a reason to quietly relax.
 - **CRL policy.** Upstream defaults to `kCrlOptional`, meaning a missing CRL is
-  tolerated. We would require one, with the honest caveat below.
+  tolerated. We would require one, with the honest caveat below. (Chromium
+  `main` now uses `CRL_REQUIRED_WITH_FALLBACK`, checking against a CRL bundled
+  in the browser when the device sends none; whether to do the same is an open
+  item in [cast-client-design.md](cast-client-design.md).)
+- **Nonce echo.** Chromium does not enforce it: a missing or mismatched echo
+  only sets a flag. Whether to enforce it is decided on the device matrix, see
+  [cast-client-design.md](cast-client-design.md#strictness-decided-after-the-device-matrix).
 
 ### What the current dependency cannot do
 
