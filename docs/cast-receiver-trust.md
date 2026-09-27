@@ -163,6 +163,10 @@ Restoring casting is one reviewed change, not a revert. It has to:
       receiver has a way back that is not a bypass. Landed ahead of the
       restoration: the pins a restored feature checks have to predate the
       release that restores it;
+- [ ] replace the device-id keying with trust by certificate fingerprint and a
+      first-use confirmation, since the device id comes from unauthenticated
+      discovery (see
+      [cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session));
 - [ ] flip `CastContainment.isActive` and update the production wiring, the
       transport guards, `scripts/check_cast_containment.py` and
       `scripts/verify_release_containment.py` together — the containment

@@ -82,7 +82,7 @@ attempt.
 | `awaitingAuth` | one `DeviceAuthMessage{challenge}` (sender-0 to receiver-0, deviceauth namespace, binary payload) | exactly one device-auth response | Response verified, or anything else arrives, or timeout |
 | `authenticated` | `CONNECT` to receiver-0 | nothing yet | `CONNECT` written |
 | `launching` | one `LAUNCH` of `CC1AD845` with a fresh request id; heartbeat `PING` and `PONG` | heartbeat `PING` and `PONG`; `RECEIVER_STATUS` | A `RECEIVER_STATUS` answering that request id lists `CC1AD845`, or `LAUNCH_ERROR`, or timeout, or heartbeat loss |
-| `ready` | `CONNECT` to the app's transport id, then media and volume commands; heartbeat `PING` and `PONG` | media and receiver status, heartbeat `PING` and `PONG`; media error replies (`LOAD_FAILED`, `LOAD_CANCELLED`, `INVALID_REQUEST`) to our own request ids | `close()` (goes through `stopping`), error, heartbeat loss, or a `RECEIVER_STATUS` that no longer lists `CC1AD845` with the same transport id and session id |
+| `ready` | `CONNECT` to the app's transport id, then media and volume commands; heartbeat `PING` and `PONG` | media and receiver status, heartbeat `PING` and `PONG`; media error replies (`LOAD_FAILED`, `LOAD_CANCELLED`, `INVALID_REQUEST`, `INVALID_PLAYER_STATE`) to our own request ids | `close()` (goes through `stopping`), error, heartbeat loss, or a `RECEIVER_STATUS` that no longer lists `CC1AD845` with the same transport id and session id |
 | `stopping` | one receiver `STOP` for the app's session id, with a fresh request id; then `CLOSE` on both virtual connections | the `RECEIVER_STATUS` answering that request id; heartbeat | That status arrives, or a bounded wait (proposed 2 s) runs out; either way the socket is closed |
 | `closed` | nothing | nothing | Terminal. A new attempt is a new connection object. |
 
@@ -100,8 +100,9 @@ Rules that go with the table:
   with either id missing or empty never produces readiness.
 - **A rejected request is not a lost session.** In `ready`, a media error
   reply to one of our own request ids fails that request only (the track
-  handoff reports it) and the session stays `ready`: the receiver may still be
-  playing the previous item. An error reply to a request id we never sent is a
+  handoff or the control command reports it) and the session stays `ready`:
+  the receiver may still be playing the previous item, and a pause or seek
+  that races the end of a track gets `INVALID_PLAYER_STATE`. An error reply to a request id we never sent is a
   protocol error.
 - **The app going away is session loss.** If a `RECEIVER_STATUS` in `ready`
   stops listing the Default Media Receiver, or lists it with a transport id or
@@ -130,8 +131,12 @@ Rules that go with the table:
   liveness stays the heartbeat's job. What a timeout means depends on the
   request:
   - a status request that times out fails only itself;
-  - a control command (play, pause, seek, volume) that times out changes no
+  - a media control command (play, pause, seek) that times out changes no
     local state; the next media status is what the state follows;
+  - a volume or mute command that times out changes no local state either,
+    but media status does not carry device volume, so it is followed by one
+    receiver `GET_STATUS`, and any valid `RECEIVER_STATUS` (late or
+    unsolicited) updates the volume;
   - a `LOAD` that times out is ambiguous, since the receiver may have taken it.
     Nothing changes yet, the relay tokens included: one status request
     reconciles it. Only the new item counts as success. The previous item is
@@ -266,8 +271,11 @@ app and needs refreshing through releases.
   before the first cast to it. If that new fingerprint arrives under the name
   of a receiver already trusted, the sheet says plainly that it is a different
   device from the one used before. A trusted fingerprint showing up under a
-  new device id is recognised as the same receiver. The store change and the
-  confirmation land with the contract step.
+  new device id is only recognised as the same receiver if the device matrix
+  shows the device-auth leaf is unique per unit (two units of the same model
+  included); until then it goes through the same confirmation. The store
+  change and the confirmation land with the contract step, and the existing
+  device-id store stays an open item until they do.
 - Closing, timing out, reconnecting, changing receiver or replacing the session
   drops the identity with the connection. A new attempt starts from `tls` with
   a new nonce, and nothing from a previous attempt is consulted.
@@ -304,7 +312,10 @@ exposes neither the peer certificate nor a binary channel. So:
   platform `CONNECT` and `LAUNCH`: the transport hands it the verified
   identity and writes nothing more until it answers. A refusal closes the
   connection with no app launched on the receiver, so "no verified identity,
-  no session" holds for the app launch too, not only for media.
+  no session" holds for the app launch too, not only for media. The gate's
+  refusal messages change with it: today's "didn't send anything to it" is no
+  longer true once the challenge has gone out, so every refusal from inside
+  the handshake says only that no app, music or account details were sent.
 - the handle also exposes the **local address of the receiver connection**
   (the connection's `address` getter, which in `dart:io` is this device's end
   of the connection; `remoteAddress` is the receiver). The on-device relay
@@ -370,7 +381,10 @@ Neither option removes this work, because no Dart library does it:
   intermediates, RSA-2048, pinned anchors, validity windows, `basicConstraints`
   (CA flag and path length, the Cast root asserts `pathlen:2`), key usage, the
   leaf not being a CA. Every extension's criticality is read, and a critical
-  extension the validator does not implement is refused. Anything outside the
+  extension the validator does not implement is refused. The algorithm
+  identifier inside `tbsCertificate` must equal the outer
+  `signatureAlgorithm`, so policy and verification look at the same
+  algorithm. Anything outside the
   profile is refused rather than interpreted.
 - **Cast CRL parsing and verification** (protobuf, its own root).
 - **Exact bytes:** signatures over certificates are checked against the
@@ -477,26 +491,31 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Peer certificate:** not yet valid, expired, lifetime over 4 days.
 - **Chain:** untrusted root, incomplete chain, wrong order, expired
   certificate, leaf presented as a CA, path longer than the root allows, bad
-  key usage, an unknown critical extension at every position, malformed DER at
-  every position, trailing data.
+  key usage, an unknown critical extension at every position, inner and outer
+  signature algorithms that differ, malformed DER at every position, trailing
+  data.
 - **Signature:** over the wrong peer certificate, over the wrong nonce, by the
   wrong key, SHA-1 or unknown digest (per the strictness decision), altered by
   one bit.
-- **Revocation:** a missing device CRL refused under the device-CRL policy,
-  and accepted against the bundled CRL under the fallback policy; CRL not
-  chaining to the pinned CRL root (including a chain to another root); expired
-  CRL; leaf revoked by key hash; intermediate revoked by serial range.
+- **Revocation:** a missing or invalid device CRL (expired, corrupt, chaining
+  to another root than the pinned CRL root) is refused under the device-CRL
+  policy, and checked against the bundled CRL under the fallback policy, which
+  refuses too if the bundled CRL is itself expired or invalid; leaf revoked by
+  key hash; intermediate revoked by serial range.
 - **Session lifetime:** with a controlled clock, a `ready` session ends when
   the peer certificate, the chain or the CRL expires, whichever is first.
 - **Trust checkpoint:** a pin mismatch or unknown device refused at the
   checkpoint writes no `CONNECT` or `LAUNCH`; a new fingerprint needs the
   user's confirmation, including under a known receiver's name; a trusted
-  fingerprint under a new device id is recognised.
+  fingerprint under a new device id is recognised only with the per-unit
+  uniqueness setting on; every refusal message promises only that no app,
+  music or account details were sent.
 - **Readiness:** a status answering another request id; a status listing only
   another app; the Default Media Receiver listed with a missing or empty
   transport id; `LAUNCH_ERROR`; launch timeout.
-- **In `ready`:** `LOAD_FAILED`, `LOAD_CANCELLED` and `INVALID_REQUEST` for our
-  own request keep the session ready and fail only that handoff, and the
+- **In `ready`:** `LOAD_FAILED`, `LOAD_CANCELLED`, `INVALID_REQUEST` and
+  `INVALID_PLAYER_STATE` for our own request keep the session ready and fail
+  only that operation; a volume timeout triggers one receiver status request, and the
   service keeps the previous casting state and token; the same replies for an
   unknown request id close it; a status without the app, or with a different
   transport id, ends the session and stops the relay.
@@ -536,7 +555,9 @@ All with generated fixtures and a fake socket, so they run in CI.
 ## Device matrix
 
 **TBD, pending inventory.** The strictness choices above, leaf stability for
-pinning, and timeout values all depend on it. Results go to the advisory.
+pinning, whether the device-auth leaf is unique per unit (checked on at least
+two units of the same model), and timeout values all depend on it. Results go
+to the advisory.
 
 ## Staging
 

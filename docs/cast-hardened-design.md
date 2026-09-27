@@ -350,8 +350,11 @@ Staged, so that each step is reviewable and none of them relaxes the containment
    peer certificate (see
    [cast-client-design.md](cast-client-design.md#contract-changes)). Still not
    wired into production.
-5. ~~**A persistent pin store and the sheet's forget affordance.**~~ Done, see
-   layer 3.
+5. **A persistent pin store and the sheet's forget affordance.** The store
+   keyed by device id and the forget action are done (layer 3). Still open:
+   trust keyed by certificate fingerprint with a first-use confirmation, which
+   replaces keying by the unauthenticated discovery id (see
+   [cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session)).
 6. **Device matrix by hand**, results to the advisory.
 7. **The restoration itself**, per the checklist in
    [cast-receiver-trust.md](cast-receiver-trust.md#restoration-checklist): the
