@@ -74,8 +74,9 @@ The exchange, following Chromium's and Open Screen's implementation
 2. **Response.** The receiver answers `AuthResponse{signature,
    client_auth_certificate, intermediate_certificate[], sender_nonce,
    hash_algorithm, crl}`.
-3. **Echo check.** `response.sender_nonce` must equal the nonce we sent. This is
-   the replay defence, and it has to be enforced, not merely compared.
+3. **Echo check.** `response.sender_nonce` equals the nonce we sent. This is
+   the replay defence we want enforced, not merely compared; whether it can be
+   on every supported receiver is a strictness choice (below).
 4. **Chain.** Build the path `client_auth_certificate` +
    `intermediate_certificate[]` up to a pinned Cast root, and validate it at the
    current time: signatures, validity windows, `basicConstraints` (CA and path
@@ -94,6 +95,12 @@ The exchange, following Chromium's and Open Screen's implementation
 
 Only if all seven hold is there an identity, and even then it is the identity of
 *a* receiver.
+
+The nonce equality in step 3, SHA-256 in step 6 and a device-supplied CRL in
+step 5 are the strict targets, not settled requirements: each is decided on the
+device matrix (see
+[cast-client-design.md](cast-client-design.md#strictness-decided-after-the-device-matrix)),
+and until then an implementation follows that section where the two differ.
 
 ### Where we would be stricter than upstream
 

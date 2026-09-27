@@ -90,9 +90,11 @@ Rules that go with the table:
   closed.
 - **Readiness has exactly one source:** the `RECEIVER_STATUS` that answers our
   own `LAUNCH` request id, in the `launching` state, listing the Default Media
-  Receiver. The transport id is taken from that entry and nowhere else. A
-  status that arrives earlier, answers another request, or lists only another
-  app never produces readiness.
+  Receiver with a non-empty transport id. The transport id is taken from that
+  entry and nowhere else, since `CONNECT` and every media message are addressed
+  to it. A status that arrives earlier, answers another request, lists only
+  another app, or lists the app with a missing or empty transport id never
+  produces readiness.
 - **One challenge, one response.** A second response, a response before the
   challenge was written, or a device-auth error message fails the attempt.
 - **Timeouts are per state** (proposed: TLS 10 s, auth reply 5 s, launch 10 s;
@@ -120,16 +122,21 @@ the attempt.
    treats the X.509 validity as the expiry of the signature below.
 3. **Send the challenge:** a 16-byte nonce from `Random.secure()`, fresh for
    this connection, and `hash_algorithm = SHA256`.
-4. **Parse the response strictly.** Exactly one `AuthResponse`; missing
-   signature, leaf certificate or nonce, unknown fields where a value is
-   required, or an error message instead of a response all fail.
-5. **Check the nonce echo** (policy open, see
+4. **Parse the response strictly.** Exactly one `AuthResponse`; a missing
+   signature or leaf certificate, unknown fields where a value is required, or
+   an error message instead of a response all fail. A missing nonce is left to
+   step 5.
+5. **Check the nonce echo:** presence and equality both follow the nonce
+   policy (open, see
    [Strictness](#strictness-decided-after-the-device-matrix)).
 6. **Validate the chain:** leaf plus intermediates up to a pinned Cast root, at
    the current time, within the profile in the crypto section.
-7. **Check revocation** against the CRL (see [Revocation](#revocation)).
+7. **Check revocation** against the CRL (see [Revocation](#revocation)); where
+   that CRL comes from, the device only or a shipped fallback, follows the CRL
+   policy.
 8. **Verify the signature** with the leaf's public key over the exact bytes
-   `sender_nonce || peer_certificate_DER`, RSASSA-PKCS1-v1_5.
+   `sender_nonce || peer_certificate_DER`, RSASSA-PKCS1-v1_5, with the digests
+   the digest policy accepts.
 
 The TLS handshake proves the receiver holds the private key of the peer
 certificate. The signature proves a genuine Cast device vouched for that exact
@@ -202,6 +209,20 @@ exposes neither the peer certificate nor a binary channel. So:
   example) hands the receiver an address it can actually reach. The `cast`
   package keeps its socket private, which is why the relay cannot do this
   today.
+- that changes the relay's lifecycle. Today `DefaultCastService` starts the
+  relay, which picks and binds its address, **before** `connect()`, so a relay
+  that cannot start refuses before the receiver is contacted. With the address
+  only known once the handle exists, the start splits in two:
+  1. before `connect()`, a preflight that at least one allowed LAN interface
+     exists. Failing it is the same refusal as today, still before any
+     receiver contact;
+  2. after `connect()` returns a `ready` handle, and before any track is
+     resolved or `LOAD` built, the relay binds to the handle's local address.
+     If that address is not on an allowed interface, or the bind fails, the
+     session is closed with the same message. The receiver has then seen TLS,
+     device auth and `LAUNCH`, but no media and no credential.
+
+  A running relay is never rebound: each session binds its own.
 
 ## Keeping credential-bearing media behind the barrier
 
@@ -249,7 +270,8 @@ Neither option removes this work, because no Dart library does it:
 
 | For | Against |
 | --- | --- |
-| Nothing new is shipped: dependency, license, Flatpak and F-Droid audits do not change | Every line is ours, including the DER reader, the historically bug-prone part |
+| Nothing new is shipped in the app itself | Every line is ours, including the DER reader, the historically bug-prone part |
+| | The oracle still lands in `pubspec.lock`, so it still needs license audit entries (the audit covers dev dependencies) and regenerated pinned Flatpak sources, even though it never ships |
 | The shipped surface is exactly the profile, so strictness is by construction | Correctness rests on our tests, the oracle and review, with no field-tested code underneath |
 | Identical behaviour on Android and Linux | `BigInt.modPow` is not constant-time; believed irrelevant for public-key verification, to be confirmed by the reviewer |
 
@@ -284,8 +306,11 @@ None is decided until the matrix exists:
 | Digest | SHA-256 only | SHA-1 accepted, flagged | Older receivers may sign with SHA-1 |
 | CRL | Device must send a valid one | Required, with a bundled fallback | Receivers that send none are refused, unless we ship a fallback |
 
-Whatever is chosen is enforced in code and covered by tests; a relaxed choice
-is written down with its reason, never left as a silent default.
+Until then, the steps that touch these (nonce presence and equality, accepted
+digests, where the CRL comes from) stay conditional, here and in the hardened
+design. When a choice is made, the definitive steps and their tests are updated
+together. Whatever is chosen is enforced in code and covered by tests; a relaxed
+choice is written down with its reason, never left as a silent default.
 
 ## Negative tests
 
@@ -312,7 +337,8 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Revocation:** missing CRL, CRL not chaining to the CRL root, expired CRL,
   leaf revoked by key hash, intermediate revoked by serial range.
 - **Readiness:** a status answering another request id; a status listing only
-  another app; `LAUNCH_ERROR`; launch timeout.
+  another app; the Default Media Receiver listed with a missing or empty
+  transport id; `LAUNCH_ERROR`; launch timeout.
 - **Status requests:** a media status request works with no known media
   session (asked without a session id), so the relay keep-alive keeps
   working while a LOAD is pending or after the receiver rejected it and kept
@@ -322,6 +348,10 @@ All with generated fixtures and a fake socket, so they run in CI.
   the new one; state cleared after every one of these.
 - **Credential gate:** the `LOAD` serializer spy is called zero times on every
   path that does not reach `ready`.
+- **Relay binding:** no allowed interface refuses before any receiver contact;
+  a handle whose local address is not on an allowed interface, or a bind
+  failure after `ready`, closes the session with no track resolved and no
+  `LOAD` built.
 
 ## Device matrix
 
