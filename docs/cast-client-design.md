@@ -127,11 +127,12 @@ Rules that go with the table:
 - **Timeouts are per state** (proposed: TLS 10 s, auth reply 5 s, launch 10 s;
   to be tuned on devices). A timeout is a failure, never a slow success.
 - **Every request in `ready` has a deadline** (proposed: `LOAD` 10 s, status
-  and control 5 s). A reply after it is ignored, error replies included. When
-  an entry expires its id is kept as a tombstone in a bounded history
-  (proposed: the last 64 ids, or 60 s), so a late reply is recognised as late
-  and ignored rather than read as an unknown id; only an id this connection
-  never sent is a protocol error. At most one status request is outstanding at a
+  and control 5 s). A reply after it is ignored, error replies included.
+  Request ids are allocated in increasing order per connection, so the client
+  keeps the highest id it has sent: a reply to an id at or below it that is
+  no longer outstanding is late and ignored, however late, and only an id
+  above it (never sent) is a protocol error. Nothing has to be remembered per
+  expired request. At most one status request is outstanding at a
   time, so a periodic keep-alive never piles up entries. The session's
   liveness stays the heartbeat's job. What a timeout means depends on the
   request:
@@ -177,10 +178,12 @@ Rules that go with the table:
   `1e999` or a negative position is a protocol error, not a value that throws
   later. Parsing happens inside the frame handler, so nothing throws out of
   the socket listener.
-- **Unsolicited media status is checked against what we loaded.** Another
-  sender can control the same receiver app, so a `MEDIA_STATUS` push is only
-  applied if it describes the item Linthra last had accepted (same content id
-  and media session). One for a different item, a new media session Linthra
+- **Every media status is checked against what we loaded.** Another sender
+  can control the same receiver app, so a `MEDIA_STATUS` is only applied if it
+  describes the item Linthra last had accepted (same content id and media
+  session), whether it is an unsolicited push or the reply to one of our own
+  status or control requests. (A `LOAD` reconciliation follows its own
+  rules, above.) One for a different item, a new media session Linthra
   did not load, or media gone without the item finishing means another
   controller has taken over: the session ends and the relay stops, rather
   than keeping stale casting state and a live token.
@@ -199,9 +202,10 @@ the attempt.
 2. **Sanity-check the peer certificate.** Not yet valid, expired, or valid for
    more than 4 days is a refusal. Chromium applies the same 4-day limit and
    treats the X.509 validity as the expiry of the signature below. The
-   evidence also bounds the session: a `ready` session ends at the earliest
-   expiry among the peer certificate, the validated device chain and the CRL
-   used. Continuing after that is a new connection with a full
+   evidence also bounds the connection: from the moment authentication
+   succeeds, a timer runs to the earliest expiry among the peer certificate,
+   the validated device chain and the CRL used, and the connection closes
+   when it fires, in `authenticated`, `launching` or `ready` alike. Continuing after that is a new connection with a full
    authentication, never an extension of the old one.
 3. **Send the challenge:** a 16-byte nonce from `Random.secure()`, fresh for
    this connection, and `hash_algorithm = SHA256`.
@@ -332,7 +336,10 @@ exposes neither the peer certificate nor a binary channel. So:
   `RECEIVER_STATUS` has already been processed by then, so the handle keeps
   the current volume and replays it to every new volume listener; a service
   that subscribes after `connect()` returns still sees the receiver's volume
-  and volume support straight away;
+  and volume support straight away. Some receivers leave volume out of the
+  launch status (the current adapter works around it), so if it is missing
+  the transport sends one receiver `GET_STATUS` right after `ready`, and the
+  handle replays its answer to listeners, early or late;
 - `TrustGatedCastTransport` keeps its role as policy over that identity (match,
   pin, wording), and its tests move to the new shape. Its decision runs
   **inside** the transport, at a checkpoint in `authenticated` before the
@@ -386,14 +393,16 @@ exposes neither the peer certificate nor a binary channel. So:
   receiver may still be playing.
 - a missing track is a handoff too. When the current track becomes null (the
   queue cleared or ended), it is ordered like any other handoff: after a
-  `LOAD` in flight settles, the client sends a media `STOP` for the current
-  media session, revokes the relay tokens and reports idle, not casting. The
+  `LOAD` in flight settles, if the receiver has an accepted media session,
+  the client sends a media `STOP` for it, revokes the relay tokens and reports idle, not casting. The
   session stays `ready` with nothing playing; if the `STOP` is rejected
   (`INVALID_REQUEST`, `INVALID_PLAYER_STATE`) or gets no answer by its
   deadline, the session ends. This is the one media command whose rejection
   is not an operation-level failure, because the receiver may still be
-  playing. Linthra never reports that it stopped
-  casting while the receiver may still be playing.
+  playing. If there is no accepted media session (nothing was cast yet, or
+  the only `LOAD` was rejected or reconciled to idle), no `STOP` is sent:
+  any pending token is revoked and idle is reported. Linthra never reports
+  that it stopped casting while the receiver may still be playing.
 - handoffs are ordered, with at most one `LOAD` in flight. Each handoff takes
   a sequence number, and a newer track supersedes older ones. A superseded
   handoff that has not sent its `LOAD` never sends it and drops its token. A
@@ -523,8 +532,9 @@ All with generated fixtures and a fake socket, so they run in CI.
   from `receiver-0`; a media message from a transport id other than the app's.
 - **Requests in `ready`:** a status request never answered fails at its
   deadline without ending the session; a late reply is ignored, and so is a
-  late error reply (`LOAD_FAILED`, `INVALID_REQUEST`) to an expired id, while
-  a reply to an id never sent closes the connection; an unsolicited
+  late error reply (`LOAD_FAILED`, `INVALID_REQUEST`) to an expired id, even
+  long after its deadline, while a reply to an id above the highest sent
+  closes the connection; an unsolicited
   `MEDIA_STATUS` or `RECEIVER_STATUS` with `requestId` 0 is accepted, and a
   reply with 0 to one of our requests is not; a second
   keep-alive is not sent while one is outstanding; a `LOAD` that times out is
@@ -532,11 +542,17 @@ All with generated fixtures and a fake socket, so they run in CI.
   rejection path; no answer: session ends), with no token revoked before that.
 - **Session identity in `ready`:** a status with the same transport id but a
   missing or different session id ends the session, and no `STOP` is sent for
-  the stale id; an unsolicited `MEDIA_STATUS` for our item is applied, one for
-  another item or media session ends the session and stops the relay.
+  the stale id; a `MEDIA_STATUS` for our item is applied, and one for another
+  item or media session ends the session and stops the relay, whether it is
+  unsolicited or the reply to our own status or control request.
 - **Volume on a new handle:** a listener that subscribes after `connect()`
   returns gets the launch volume at once, and volume control is available
-  without waiting for another receiver status.
+  without waiting for another receiver status; with a launch status that
+  carries no volume, the follow-up receiver status is sent and its volume
+  reaches early and late listeners.
+- **Evidence expiry:** with a controlled clock, evidence expiring in
+  `authenticated` or `launching` closes the connection just as it does in
+  `ready`.
 - **Sequencing:** any message before the challenge is sent; `RECEIVER_STATUS`
   before authentication; a second device-auth response; a response before the
   challenge; an unexpected namespace in each state; `CONNECT`/`LAUNCH`/`LOAD`
@@ -588,13 +604,17 @@ All with generated fixtures and a fake socket, so they run in CI.
 - **Closing:** `close()` sends one `STOP` with our session id, then closes
   whether the answer comes or the bounded wait runs out; a lost connection
   sends nothing.
-- **Cancellation:** cancelling in `tls`, `awaitingAuth` and `launching` closes
-  the socket, writes nothing further, and never lets a stale attempt reach
-  `ready`; backgrounding the app does the same for an attempt in flight and
+- **Cancellation:** cancelling in `tls`, `awaitingAuth`, `authenticated`
+  (while the trust checkpoint waits for the user) and `launching` closes the
+  socket, writes nothing further, and never lets a stale attempt reach
+  `ready`; an approval delivered after the cancellation writes no `CONNECT`
+  or `LAUNCH`; backgrounding the app does the same for an attempt in flight and
   leaves a `ready` session alone.
 - **Handoff order:** a null track sends one media `STOP` after any `LOAD` in
   flight settles, revokes the tokens and reports idle (a `STOP` that is
-  rejected or gets no answer ends the session); two tracks in quick succession: the second `LOAD`
+  rejected or gets no answer ends the session); with no accepted media
+  session, a null track sends no `STOP`, revokes any pending token and
+  reports idle; two tracks in quick succession: the second `LOAD`
   waits for the first to settle; a first `LOAD` accepted while the second is
   rejected leaves the state and token on the first; a superseded handoff that
   never sent is dropped; a `LOAD` accepted before its first fetch keeps its
