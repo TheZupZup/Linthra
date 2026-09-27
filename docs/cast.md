@@ -197,25 +197,31 @@ runs, because no handoff happens at all.
 The handoff resolves the current track's stream URL **only at cast time**
 (Jellyfin's or Subsonic's authenticated URL, the credential woven in on demand)
 and it is **never logged or persisted**. A track's stored reference stays the
-token-free `jellyfin:<id>` / `subsonic:<id>`; the receiver is told to fetch a
-freshly minted URL that never lands in `Track`, the catalog, a log, or app state.
+token-free `jellyfin:<id>` / `subsonic:<id>`, so the minted URL never lands in
+`Track`, the catalog, a log, or app state.
 
-- The token rides on exactly **one** field — the `contentId` (the stream URL the
-  receiver fetches). It must be there; the receiver pulls the bytes itself.
-- **Nothing else carries it.** The displayed metadata (title / artist / album /
-  artwork) never embeds the token; `CastMedia.toString()` redacts the stream URL
+- **The receiver never gets that URL.** `DefaultCastService` hands it to the
+  on-device relay (`LocalCastMediaProxy`), which keeps it on the phone and gives
+  the receiver `http://<phone-lan-ip>:<port>/cast/<token>` instead: a random
+  token for that one item, dead once the receiver starts fetching the next
+  item or the session ends. The phone fetches the stream itself and relays it, `Range` requests
+  included, so seeking still works.
+- **The relay lives only as long as the session.** It starts when casting
+  starts and stops on disconnect, on a dropped receiver, or after a long idle
+  spell. If it cannot start, casting is off for that session with a clear
+  message; there is no fallback that sends the server URL.
+- **Nothing else carries a credential.** The displayed metadata (title / artist
+  / album / artwork) never embeds one; `CastMedia.toString()` redacts the URL
   down to scheme/host/path; and the only diagnostics line emitted at cast time
   has no field for a token or full URL.
 - **Artwork follows the same rule**: a tokenised cover-art URL is never sent.
   Jellyfin's cover art is token-free (sent); Subsonic's needs the credential
   (omitted).
 
-How much authority that one field carries is a property of the server, not a
-choice: neither Jellyfin nor Subsonic issues a per-item capability, so the URL a
-receiver is given is backed by an account credential. Each source declares that
-in code (`CastMediaAccess`), so it can be stated rather than assumed — see
-[cast-media-access.md](cast-media-access.md) for the per-server matrix and what
-would have to change.
+What each server would otherwise force a handoff to carry, and how the relay is
+guarded (exposure, token lifetime, what it relays back, what it costs), is in
+[cast-media-access.md](cast-media-access.md). The relay does not replace
+receiver authentication: casting stays contained until that lands.
 
 ## Resilience while casting
 

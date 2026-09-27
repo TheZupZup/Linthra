@@ -87,22 +87,93 @@ change to sign-out behaviour for every user, not only those who cast, so it
 belongs in its own change rather than riding along here. Subsonic has no
 equivalent: its credential is the password.
 
-**A media proxy on the device.** The app could stream from the server itself and
-re-serve to the receiver over the LAN, so the server credential never leaves the
-phone. It is a real option and it is not free:
+**A media proxy on the device.** Built, not yet reachable from production
+(`lib/core/services/cast/local_cast_media_proxy.dart`, behind the
+`CastMediaRelay` interface `DefaultCastService` now requires). The app streams
+from the server itself and re-serves the one item being cast over the LAN, so
+the server credential never leaves the phone. What a receiver is given instead
+is `http://<phone-lan-ip>:<port>/cast/<token>`, declared as
+`CastMediaAccess.localRelay`.
 
-- the proxy is an HTTP server on the user's network, which needs its own
-  authentication — and the receiver has no way to authenticate to it, so
-  whatever guards it is per-session and unguessable at best;
-- it doubles the network traffic and keeps the phone awake for the whole track,
-  which is exactly the cost casting exists to avoid;
-- it needs a lifecycle: bound to the session, torn down on disconnect, on app
-  exit, and on a crash, with nothing left listening afterwards;
-- on Android it interacts with foreground-service and network-security policy.
+How it answers the questions this option was parked on:
 
-Per #576 this gets its own security and operational review **before** any
-implementation, not as part of a cast restoration. It is written down here so the
-option is not rediscovered as a shortcut later.
+- **Authentication.** A receiver cannot send headers, so the proxy is guarded
+  by the URL alone: a 256-bit token from `Random.secure()`, minted per item.
+  The previous token is forgotten when the receiver first asks for the next
+  item, the only reliable sign it has taken it (if handing it over fails, the
+  new token is dropped instead, so the item still playing keeps working).
+  Each handoff also drops expired tokens and earlier handoffs the receiver
+  never asked for, so at most two tokens are live at any time,
+  every token also expires
+  after a fixed lifetime (6 hours by default, measured on the kernel's boot
+  clock from `/proc/uptime`, which cannot be set and keeps counting through
+  suspend, so neither turning the time back nor the device sleeping, in any
+  order, can stretch it; the wall clock is checked too and can only end a
+  token early; if `/proc/uptime` cannot be read the relay falls back to a
+  stopwatch plus the wall clock, which still covers each case on its own but
+  not the clock turned back and then slept on), and unknown or expired tokens get
+  the same bare 404 without touching the server. Only `GET` and `HEAD` on
+  exactly `/cast/<token>` are served.
+- **Exposure.** It binds to the phone's private Wi-Fi/Ethernet IPv4 address on
+  an OS-chosen port, not to every interface, so it is not offered on mobile data
+  or a VPN tunnel. Interfaces are allowlisted (Wi-Fi, Ethernet, hotspot): an
+  unknown interface name is refused even with a private address. It speaks plain HTTP because the receiver has no way to trust
+  a certificate the phone made up; what crosses the LAN is the token and the
+  audio, and the token only reaches that item for that session.
+- **What goes back.** Only media headers are relayed (`Content-Type`,
+  `Content-Length`, `Content-Range`, `Accept-Ranges`, `ETag`,
+  `Last-Modified`). `Range` is forwarded when it is a plain byte range, and
+  `206` comes back as the server sent it, so seeking and buffering work; a
+  `416` keeps its status and `Content-Range` but not its body, which a server
+  may fill with diagnostics that include the credential. Any other upstream
+  status becomes an empty `502`: no server body, no cookies, no auth
+  challenge. So does a success that is a page rather than audio (a login
+  screen behind a reverse proxy, a Subsonic error document), a redirect to
+  another host (same-host redirects are followed, an http to https upgrade
+  included, a downgrade at any hop refused), and a server that sends no headers within 20 seconds. A body
+  that stops arriving for 30 seconds (while the receiver is still reading) is
+  cut rather than left hanging. Audio the server sends compressed although
+  the relay asked for it uncompressed is refused (it would reach the receiver
+  as garbage). Only
+  requests carrying a live token count as activity, so traffic without one
+  cannot keep an orphaned relay alive. Nothing in the proxy logs.
+- **Lifecycle.** The cast service starts it when a session starts and stops it
+  when the session ends (disconnect, receiver drop, failed connect, dispose).
+  Stopping closes the socket, drops every token and cuts transfers in flight.
+  While a session is connected, the cast service asks the receiver for its
+  status every few minutes and the receiver's reply keeps the relay awake, so a
+  long pause can still be resumed. Its own idle stop (30 minutes with no
+  request, no bytes moving and no reply; a transfer the receiver stopped reading does not count) catches a session that ended
+  without telling it, including a receiver that died silently; the next track
+  brings it back. Ending the session revokes the relay first, before waiting
+  on the receiver to close. A token still expires 6
+  hours after it was issued, so resuming the same item after a pause longer
+  than that needs the track to be cast again. It runs in the main isolate, the
+  same process as the background audio service.
+- **Failure.** If it cannot start (no private LAN address, the port cannot be
+  opened), the session is refused before the receiver is contacted and the
+  sheet says casting is off for this session. If it cannot come back mid-
+  session, the session ends. There is no path that hands the receiver the
+  server URL instead.
+- **Cost.** Every byte now goes server to phone to receiver, and the phone has
+  to stay awake and on the network for the whole session. That is the price of
+  keeping the credential home, and it is paid only while casting.
+- **Open: Android and a paused cast.** On a user pause the audio service
+  demotes its foreground service and releases its wake lock (#499), so a
+  backgrounded, screen-off phone can have its process frozen with the relay in
+  it. Resuming from the phone wakes it; a resume started from the receiver
+  side while the phone is frozen stalls until the app runs again. Keeping the
+  foreground service while a cast session is connected would close this, at a
+  battery cost while casting; that trade-off is decided before the
+  restoration, not here.
+
+What it does not change: the phone to server hop is the same request local
+playback already makes (for Jellyfin and Subsonic the credential is still in
+that URL's query, over HTTPS when the server offers it), and the proxy is not a
+substitute for authenticating the receiver. A token handed to a device nobody
+authenticated is still handed to that device; it just cannot be reused as an
+account credential, or at all once the session ends. Casting stays contained
+until [#575](https://github.com/TheZupZup/Linthra/issues/575) is done.
 
 **What is not on the table.** Client-side "restrictions" the server does not
 enforce; sending a credential to a receiver that has not been authenticated

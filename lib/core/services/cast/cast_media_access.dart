@@ -77,6 +77,24 @@ class CastMediaAccess {
     summary: 'Nothing is delegated to a receiver.',
   );
 
+  /// Media re-served by the on-device relay (`LocalCastMediaProxy`).
+  ///
+  /// The receiver is given an address on the phone, with a random token for
+  /// this one item, instead of the server URL. The relay enforces it: the token
+  /// reaches only that item, stops working once the receiver starts fetching
+  /// the next item or the cast session ends, and ending it touches nothing on the server. The
+  /// account credential never leaves the phone. That is a capability Linthra
+  /// issues and checks itself, not one the server does, which is why it is
+  /// declared here rather than by a resolver.
+  static const CastMediaAccess localRelay = CastMediaAccess(
+    delegation: CastMediaDelegation.scopedCapability,
+    scope: CastMediaScope.singleItem,
+    summary: 'The receiver is given a one-item address on this phone that '
+        'stops working when the cast session ends. The server credential stays '
+        'on the phone.',
+    revocableIndependently: true,
+  );
+
   /// The mechanism the receiver is given.
   final CastMediaDelegation delegation;
 
