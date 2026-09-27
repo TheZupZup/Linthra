@@ -101,7 +101,9 @@ How it answers the questions this option was parked on:
   by the URL alone: a 256-bit token from `Random.secure()`, minted per item.
   The previous token is forgotten when the receiver first asks for the next
   item, the only reliable sign it has taken it (if handing it over fails, the
-  new token is dropped instead, so the item still playing keeps working),
+  new token is dropped instead, so the item still playing keeps working).
+  Each handoff also drops expired tokens and earlier handoffs the receiver
+  never asked for, so at most two tokens are live at any time,
   every token also expires
   after a fixed lifetime (6 hours by default, measured on a monotonic clock so
   changing the phone's time cannot stretch or cut it), and unknown or expired tokens get

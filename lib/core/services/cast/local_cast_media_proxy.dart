@@ -132,6 +132,14 @@ class LocalCastMediaProxy implements CastMediaRelay {
   final Map<String, _PublishedItem> _items = <String, _PublishedItem>{};
   int _nextSerial = 0;
 
+  /// The item the receiver most recently asked for, i.e. the one playing.
+  int? _playingSerial;
+
+  /// How many tokens are live. Exposed for tests: it never grows past the
+  /// item playing plus the newest one handed over.
+  @visibleForTesting
+  int get liveItemCount => _items.length;
+
   @override
   bool get isRunning => _server != null;
 
@@ -188,14 +196,19 @@ class LocalCastMediaProxy implements CastMediaRelay {
         CastMediaRelayException.unavailableMessage,
       );
     }
-    // Earlier items stay live: the receiver keeps playing the previous one
-    // until it has taken this one, and the proof of that is its first request
-    // for this item (see [_lookup]).
+    // The item playing stays live: the receiver keeps playing it until it has
+    // taken this one, and the proof of that is its first request for this item
+    // (see [_lookup]). Anything else is dropped now: expired items, and earlier
+    // handoffs the receiver never asked for, which this one supersedes. So at
+    // most two tokens are ever live, and no upstream URL lingers unused.
+    final Duration now = _elapsed();
+    _items.removeWhere((_, _PublishedItem item) =>
+        now - item.issuedAt >= tokenLifetime || item.serial != _playingSerial);
     final String token = newToken();
     _items[token] = _PublishedItem(
       upstream: media.url,
       contentType: media.contentType,
-      issuedAt: _elapsed(),
+      issuedAt: now,
       serial: _nextSerial++,
     );
     _armIdleTimer();
@@ -242,6 +255,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
     _idleTimer?.cancel();
     _idleTimer = null;
     _items.clear();
+    _playingSerial = null;
     final HttpServer? server = _server;
     final HttpClient? client = _client;
     _server = null;
@@ -484,6 +498,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
     // it: every item published before it is dropped. Asking for an older item
     // (still finishing the previous track) drops nothing.
     _items.removeWhere((_, _PublishedItem other) => other.serial < item.serial);
+    _playingSerial = item.serial;
     return item;
   }
 

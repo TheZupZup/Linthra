@@ -332,6 +332,8 @@ void main() {
       final LocalCastMediaProxy proxy = build();
       await proxy.start();
       final CastMedia first = proxy.publish(_media(upstream.streamUrl));
+      // The receiver is playing the first item.
+      expect((await _fetch(first.url)).status, HttpStatus.ok);
       final CastMedia second = proxy.publish(_media(upstream.streamUrl));
 
       // A LOAD was sent, nothing more: the receiver is still on the first item,
@@ -344,6 +346,42 @@ void main() {
 
       expect((await _fetch(first.url)).status, HttpStatus.notFound);
       expect((await _fetch(second.url)).status, HttpStatus.ok);
+    });
+
+    test('handoffs the receiver never asked for do not pile up', () async {
+      final LocalCastMediaProxy proxy = build();
+      await proxy.start();
+      final CastMedia playing = proxy.publish(_media(upstream.streamUrl));
+      expect((await _fetch(playing.url)).status, HttpStatus.ok);
+
+      // A long session where the receiver answers status but never fetches
+      // any of the next items.
+      CastMedia? last;
+      final List<CastMedia> skipped = <CastMedia>[];
+      for (int i = 0; i < 50; i++) {
+        if (last != null) skipped.add(last);
+        last = proxy.publish(_media(upstream.streamUrl));
+      }
+
+      expect(proxy.liveItemCount, 2);
+      expect((await _fetch(skipped.first.url)).status, HttpStatus.notFound);
+      expect((await _fetch(skipped.last.url)).status, HttpStatus.notFound);
+      expect((await _fetch(playing.url)).status, HttpStatus.ok);
+      expect((await _fetch(last!.url)).status, HttpStatus.ok);
+    });
+
+    test('an expired item is dropped at the next handoff, fetched or not',
+        () async {
+      final LocalCastMediaProxy proxy =
+          build(tokenLifetime: const Duration(hours: 1));
+      await proxy.start();
+      final CastMedia playing = proxy.publish(_media(upstream.streamUrl));
+      expect((await _fetch(playing.url)).status, HttpStatus.ok);
+
+      now += const Duration(hours: 2);
+      proxy.publish(_media(upstream.streamUrl));
+
+      expect(proxy.liveItemCount, 1);
     });
 
     test('a revoked item goes, and the one still playing stays', () async {
