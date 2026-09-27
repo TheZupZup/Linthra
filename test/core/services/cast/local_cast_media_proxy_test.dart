@@ -325,15 +325,33 @@ void main() {
       expect((await _fetch(relayed.url)).status, HttpStatus.notFound);
     });
 
-    test('the previous item stops working once the next is published',
+    test('the previous item keeps working until the next is retained',
         () async {
       final LocalCastMediaProxy proxy = build();
       await proxy.start();
       final CastMedia first = proxy.publish(_media(upstream.streamUrl));
       final CastMedia second = proxy.publish(_media(upstream.streamUrl));
 
+      // The receiver is still on the first item until it accepts the second.
+      expect((await _fetch(first.url)).status, HttpStatus.ok);
+
+      proxy.retain(second);
+
       expect((await _fetch(first.url)).status, HttpStatus.notFound);
       expect((await _fetch(second.url)).status, HttpStatus.ok);
+    });
+
+    test('a revoked item goes, and the one still playing stays', () async {
+      final LocalCastMediaProxy proxy = build();
+      await proxy.start();
+      final CastMedia playing = proxy.publish(_media(upstream.streamUrl));
+      proxy.retain(playing);
+      final CastMedia refused = proxy.publish(_media(upstream.streamUrl));
+
+      proxy.revoke(refused);
+
+      expect((await _fetch(refused.url)).status, HttpStatus.notFound);
+      expect((await _fetch(playing.url)).status, HttpStatus.ok);
     });
 
     test('a token does not survive the session', () async {
@@ -691,19 +709,28 @@ void main() {
       // A scanner that found the port keeps knocking without a valid token,
       // well past the idle timeout. Once the relay is gone a knock fails to
       // connect, which is the point.
-      Future<void> knock(Uri url, {String method = 'GET'}) async {
+      // Knocks with a raw socket rather than HttpClient: a knock that lands
+      // while the relay is closing can be reset mid-request, and every error
+      // here has to stay inside the knock.
+      Future<void> knock(String requestLine) async {
         try {
-          await _fetch(url, method: method);
-        } on IOException {
+          final Socket socket = await Socket.connect(base.host, base.port,
+              timeout: const Duration(seconds: 1));
+          unawaited(socket.done.then<void>((_) {}, onError: (Object _) {}));
+          socket.write('$requestLine HTTP/1.1\r\nHost: relay\r\n'
+              'Connection: close\r\n\r\n');
+          await socket.flush();
+          await socket.drain<void>().timeout(const Duration(seconds: 1));
+          socket.destroy();
+        } catch (_) {
           // Nothing listening any more, or the relay went down mid-knock.
         }
       }
 
       final Stopwatch clock = Stopwatch()..start();
       while (clock.elapsed < const Duration(milliseconds: 450)) {
-        await knock(base.replace(
-            pathSegments: <String>['cast', LocalCastMediaProxy.newToken()]));
-        await knock(base, method: 'POST');
+        await knock('GET /cast/${LocalCastMediaProxy.newToken()}');
+        await knock('POST /');
         await Future<void>.delayed(const Duration(milliseconds: 30));
       }
 

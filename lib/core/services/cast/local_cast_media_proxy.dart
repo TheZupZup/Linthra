@@ -25,7 +25,9 @@ import 'cast_media_relay.dart';
 ///    itself after [idleTimeout] with no requests and nothing in flight, as a
 ///    safety net for a session that ended without telling it.
 ///  - **One live item.** [publish] mints a fresh 256-bit token from
-///    [Random.secure] per item and forgets every earlier one. A token also
+///    [Random.secure] per item; once the receiver accepts it, [retain] forgets
+///    every earlier one (and [revoke] drops it instead if the handoff failed,
+///    so the item still playing keeps working). A token also
 ///    expires after [tokenLifetime] even if the session is still up. Unknown
 ///    and expired tokens get the same bare 404.
 ///  - **Seeking works.** A `Range` request is forwarded upstream and the answer
@@ -177,8 +179,8 @@ class LocalCastMediaProxy implements CastMediaRelay {
         CastMediaRelayException.unavailableMessage,
       );
     }
-    // One live item: the receiver only ever needs the one it was just given.
-    _items.clear();
+    // Earlier items stay live until [retain]: the receiver is still playing
+    // the previous one until it accepts this.
     final String token = newToken();
     _items[token] = _PublishedItem(
       upstream: media.url,
@@ -196,6 +198,25 @@ class LocalCastMediaProxy implements CastMediaRelay {
       artworkUrl: media.artworkUrl,
       access: CastMediaAccess.localRelay,
     );
+  }
+
+  @override
+  void retain(CastMedia relayed) {
+    final String? token = _tokenOf(relayed);
+    _items.removeWhere((String key, _) => key != token);
+  }
+
+  @override
+  void revoke(CastMedia relayed) {
+    final String? token = _tokenOf(relayed);
+    if (token != null) _items.remove(token);
+  }
+
+  /// The token behind a URL this relay issued, or null for anything else.
+  String? _tokenOf(CastMedia relayed) {
+    final List<String> segments = relayed.url.pathSegments;
+    if (segments.length != 2 || segments[0] != pathPrefix) return null;
+    return segments[1];
   }
 
   @override

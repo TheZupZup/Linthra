@@ -403,6 +403,9 @@ class DefaultCastService implements CastService {
     try {
       await handle.loadMedia(relayed);
     } on CastReceiverTrustException catch (error) {
+      // The new item never reached the receiver: drop its token, keep the one
+      // still playing.
+      if (_handle == handle) _mediaRelay.revoke(relayed);
       // The handoff refused because trust in this receiver ended. Same reason
       // as above to say so plainly rather than blame playback.
       _castingTrackUri = null;
@@ -410,12 +413,17 @@ class DefaultCastService implements CastService {
       _emit(_connected(device, message: error.message));
       return;
     } catch (_) {
+      if (_handle == handle) _mediaRelay.revoke(relayed);
       _castingTrackUri = null;
       _emitPlayback(CastPlaybackStatus.idle);
       _emit(_connected(device,
           message: "Couldn't start playback on ${device.name}."));
       return;
     }
+    // The receiver took the new item: from here on only it is reachable. A
+    // session replaced during the LOAD already dropped every token with its
+    // relay, and must not have the new session's items pruned.
+    if (_handle == handle) _mediaRelay.retain(relayed);
     // Remember what is now loaded so a duplicate emission of the same track is a
     // no-op (see the guard above).
     _castingTrackUri = track.uri;

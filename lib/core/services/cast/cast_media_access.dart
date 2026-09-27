@@ -81,8 +81,8 @@ class CastMediaAccess {
   ///
   /// The receiver is given an address on the phone, with a random token for
   /// this one item, instead of the server URL. The relay enforces it: the token
-  /// reaches only that item, stops working when the next item is published or
-  /// the cast session ends, and ending it touches nothing on the server. The
+  /// reaches only that item, stops working once the receiver accepts the next
+  /// item or the cast session ends, and ending it touches nothing on the server. The
   /// account credential never leaves the phone. That is a capability Linthra
   /// issues and checks itself, not one the server does, which is why it is
   /// declared here rather than by a resolver.

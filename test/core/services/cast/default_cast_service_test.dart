@@ -244,6 +244,15 @@ class _FakeRelay implements CastMediaRelay {
   @override
   void touch() => touchCount++;
 
+  final List<CastMedia> retained = <CastMedia>[];
+  final List<CastMedia> revoked = <CastMedia>[];
+
+  @override
+  void retain(CastMedia relayed) => retained.add(relayed);
+
+  @override
+  void revoke(CastMedia relayed) => revoked.add(relayed);
+
   @override
   Future<void> stop() async {
     stopCount++;
@@ -967,6 +976,29 @@ void main() {
       expect(service.state.connectedDevice, _d2);
       expect(service.state.isCasting, isTrue);
       expect(service.state.hasError, isFalse);
+    });
+
+    test('the playing item stays reachable when the next LOAD fails', () async {
+      current = _jellyfinTrack;
+      final handle = _FakeHandle();
+      transport.handle = handle;
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.connect(_d1);
+      final CastMedia playing = handle.loaded.single;
+      expect(relay.retained, <CastMedia>[playing]);
+
+      handle.loadError = Exception('socket write failed');
+      const Track next = Track(id: 'j2', title: 'Next', uri: 'jellyfin:j2');
+      current = next;
+      trackChanges.add(next);
+      await Future<void>.delayed(Duration.zero);
+
+      // Only the refused item's token went; the playing one was never pruned.
+      expect(relay.revoked, hasLength(1));
+      expect(relay.revoked.single.url, isNot(playing.url));
+      expect(relay.retained, <CastMedia>[playing]);
     });
 
     test('receiver status keeps the relay awake', () async {

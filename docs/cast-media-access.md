@@ -99,7 +99,9 @@ How it answers the questions this option was parked on:
 
 - **Authentication.** A receiver cannot send headers, so the proxy is guarded
   by the URL alone: a 256-bit token from `Random.secure()`, minted per item.
-  Publishing the next item forgets the previous token, every token also expires
+  Once the receiver accepts the next item the previous token is forgotten (if
+  handing it over fails, the new token is dropped instead, so the item still
+  playing keeps working), every token also expires
   after a fixed lifetime (6 hours by default), and unknown or expired tokens get
   the same bare 404 without touching the server. Only `GET` and `HEAD` on
   exactly `/cast/<token>` are served.
