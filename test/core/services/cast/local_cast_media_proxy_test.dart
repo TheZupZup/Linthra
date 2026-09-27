@@ -187,7 +187,9 @@ CastMedia _media(Uri url) => CastMedia(
 
 void main() {
   late _Upstream upstream;
-  late DateTime now;
+
+  /// The relay's monotonic clock, driven by the tests.
+  late Duration now;
 
   LocalCastMediaProxy build({
     Duration idleTimeout = const Duration(minutes: 30),
@@ -195,7 +197,7 @@ void main() {
   }) {
     final LocalCastMediaProxy proxy = LocalCastMediaProxy(
       lanAddress: () async => InternetAddress.loopbackIPv4,
-      clock: () => now,
+      elapsed: () => now,
       idleTimeout: idleTimeout,
       tokenLifetime: tokenLifetime,
     );
@@ -205,7 +207,7 @@ void main() {
 
   setUp(() async {
     upstream = await _Upstream.start();
-    now = DateTime(2026, 9, 27, 12);
+    now = const Duration(hours: 1);
   });
 
   tearDown(() => upstream.close());
@@ -313,15 +315,15 @@ void main() {
       await proxy.start();
       final CastMedia relayed = proxy.publish(_media(upstream.streamUrl));
 
-      now = now.add(const Duration(minutes: 59));
+      now += const Duration(minutes: 59);
       expect((await _fetch(relayed.url)).status, HttpStatus.ok);
 
-      now = now.add(const Duration(minutes: 1));
+      now += const Duration(minutes: 1);
       final _Reply expired = await _fetch(relayed.url);
       expect(expired.status, HttpStatus.notFound);
       expect(upstream.requests, hasLength(1));
-      // Going back in time does not bring it back: an expired token is gone.
-      now = now.subtract(const Duration(hours: 2));
+      // Nothing brings an expired token back: it is gone, not just stale.
+      now -= const Duration(hours: 2);
       expect((await _fetch(relayed.url)).status, HttpStatus.notFound);
     });
 
@@ -865,6 +867,23 @@ void main() {
           c('enp0s31f6', '10.0.0.7'),
         ])?.address,
         '10.0.0.7',
+      );
+    });
+
+    test('refuses interfaces it does not know, even with a private address',
+        () {
+      // Mobile data and VPN interfaces on Linux, Android and Apple platforms.
+      expect(
+        LocalCastMediaProxy
+            .pickLanAddress(<({String interface, InternetAddress address})>[
+          c('wwan0', '10.64.0.2'),
+          c('pdp_ip0', '10.20.0.3'),
+          c('utun3', '10.8.0.9'),
+          c('rndis0', '192.168.42.129'),
+          c('usb0', '192.168.42.10'),
+          c('br0', '192.168.1.50'),
+        ]),
+        isNull,
       );
     });
 

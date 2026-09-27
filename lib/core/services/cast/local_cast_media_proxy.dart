@@ -54,7 +54,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
     Future<InternetAddress> Function()? lanAddress,
     Future<HttpServer> Function(InternetAddress address)? bind,
     HttpClient Function()? httpClient,
-    DateTime Function()? clock,
+    Duration Function()? elapsed,
     this.idleTimeout = const Duration(minutes: 30),
     this.tokenLifetime = const Duration(hours: 6),
     this.upstreamHeaderTimeout = const Duration(seconds: 20),
@@ -62,7 +62,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
   })  : _lanAddress = lanAddress ?? findLanAddress,
         _bind = bind ?? _bindEphemeral,
         _httpClient = httpClient ?? HttpClient.new,
-        _clock = clock ?? DateTime.now;
+        _elapsed = elapsed ?? _monotonicClock();
 
   /// The first path segment of every relayed URL.
   static const String pathPrefix = 'cast';
@@ -96,7 +96,15 @@ class LocalCastMediaProxy implements CastMediaRelay {
   final Future<InternetAddress> Function() _lanAddress;
   final Future<HttpServer> Function(InternetAddress address) _bind;
   final HttpClient Function() _httpClient;
-  final DateTime Function() _clock;
+  static Duration Function() _monotonicClock() {
+    final Stopwatch stopwatch = Stopwatch()..start();
+    return () => stopwatch.elapsed;
+  }
+
+  /// A monotonic reading used to age tokens. Deliberately not the wall clock:
+  /// a user changing the time, or a network time correction, must not stretch
+  /// or cut a token's lifetime.
+  final Duration Function() _elapsed;
 
   static final Random _random = Random.secure();
 
@@ -187,7 +195,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
     _items[token] = _PublishedItem(
       upstream: media.url,
       contentType: media.contentType,
-      issuedAt: _clock(),
+      issuedAt: _elapsed(),
       serial: _nextSerial++,
     );
     _armIdleTimer();
@@ -468,7 +476,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
     final String token = segments[1];
     final _PublishedItem? item = _items[token];
     if (item == null) return null;
-    if (_clock().difference(item.issuedAt) >= tokenLifetime) {
+    if (_elapsed() - item.issuedAt >= tokenLifetime) {
       _items.remove(token);
       return null;
     }
@@ -544,6 +552,12 @@ class LocalCastMediaProxy implements CastMediaRelay {
   ];
 
   /// Lower is better; null means never use this interface.
+  /// Lower is better; null means never use this interface. An allowlist: a
+  /// name that is not a known Wi-Fi, Ethernet or hotspot interface is refused
+  /// even with a private address, because mobile data and VPN interfaces go
+  /// by many names (`wwan0`, `pdp_ip0`, `utun0`, ...) and binding to one would
+  /// expose the relay where it must not be and hand the receiver an address it
+  /// cannot reach.
   static int? _interfaceRank(String name) {
     for (final String prefix in _excludedInterfaces) {
       if (name.startsWith(prefix)) return null;
@@ -551,7 +565,7 @@ class LocalCastMediaProxy implements CastMediaRelay {
     if (name.startsWith('wlan') || name.startsWith('wl')) return 0;
     if (name.startsWith('eth') || name.startsWith('en')) return 1;
     if (name.startsWith('ap') || name.startsWith('swlan')) return 2;
-    return 3;
+    return null;
   }
 
   static bool _isPrivateIPv4(InternetAddress address) {
@@ -575,7 +589,9 @@ class _PublishedItem {
   /// as the target of the proxy's own request.
   final Uri upstream;
   final String contentType;
-  final DateTime issuedAt;
+
+  /// When it was published, on the relay's monotonic clock.
+  final Duration issuedAt;
 
   /// Publication order, so a request for an item can retire older ones.
   final int serial;

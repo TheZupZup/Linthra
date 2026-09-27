@@ -103,12 +103,14 @@ How it answers the questions this option was parked on:
   item, the only reliable sign it has taken it (if handing it over fails, the
   new token is dropped instead, so the item still playing keeps working),
   every token also expires
-  after a fixed lifetime (6 hours by default), and unknown or expired tokens get
+  after a fixed lifetime (6 hours by default, measured on a monotonic clock so
+  changing the phone's time cannot stretch or cut it), and unknown or expired tokens get
   the same bare 404 without touching the server. Only `GET` and `HEAD` on
   exactly `/cast/<token>` are served.
 - **Exposure.** It binds to the phone's private Wi-Fi/Ethernet IPv4 address on
   an OS-chosen port, not to every interface, so it is not offered on mobile data
-  or a VPN tunnel. It speaks plain HTTP because the receiver has no way to trust
+  or a VPN tunnel. Interfaces are allowlisted (Wi-Fi, Ethernet, hotspot): an
+  unknown interface name is refused even with a private address. It speaks plain HTTP because the receiver has no way to trust
   a certificate the phone made up; what crosses the LAN is the token and the
   audio, and the token only reaches that item for that session.
 - **What goes back.** Only media headers are relayed (`Content-Type`,
