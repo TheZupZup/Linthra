@@ -23,14 +23,16 @@ Five layers, each doing one job, and none of them a substitute for another:
 | --- | --- | --- |
 | 1. Transport | Is the channel private? | TLS exists today, and proves nothing about who is on the far end |
 | 2. Device authentication | Is this a genuine Cast receiver? | Not implemented anywhere in the tree, and the package we depend on cannot express the modern challenge |
-| 3. Device pinning | Is it *your* receiver, the same one as last time? | Built and tested (`cast_receiver_pinning.dart`), persistent in production, with the sheet's forget action |
+| 3. Device pinning | Is it *your* receiver, the same one as last time? | Plumbing built and tested (`cast_receiver_pinning.dart`, persistent, with the sheet's forget action), but keyed by the discovery id; trust by certificate fingerprint with a first-use confirmation is still open ([cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session)) |
 | 4. Least privilege | If it is, how little can it be handed? | Built and tested: the on-device relay keeps the server credential on the phone ([cast-media-access.md](cast-media-access.md)) |
 | 5. Fail-closed boundary | Does any doubt end in silence? | Built and tested (`trust_gated_cast_transport.dart`) |
 
 Layers 3 and 5 are app-side policy, so they were landed ahead of the protocol
 work: when a real handshake arrives it is reviewed on protocol grounds, not on
-whether the plumbing around it is sound. Layer 2 is the missing one, and it is
-the whole of the risk.
+whether the plumbing around it is sound. Layer 2 is the missing one and the
+largest risk. Layer 3 is not finished either: its store is keyed by an
+unauthenticated discovery id, and has to move to certificate fingerprints
+before the restoration.
 
 ## Layer 1: the channel
 
@@ -74,14 +76,18 @@ The exchange, following Chromium's and Open Screen's implementation
 2. **Response.** The receiver answers `AuthResponse{signature,
    client_auth_certificate, intermediate_certificate[], sender_nonce,
    hash_algorithm, crl}`.
-3. **Echo check.** `response.sender_nonce` must equal the nonce we sent. This is
-   the replay defence, and it has to be enforced, not merely compared.
+3. **Echo check.** `response.sender_nonce` equals the nonce we sent. This is
+   the replay defence we want enforced, not merely compared; whether it can be
+   on every supported receiver is a strictness choice (below).
 4. **Chain.** Build the path `client_auth_certificate` +
    `intermediate_certificate[]` up to a pinned Cast root, and validate it at the
    current time: signatures, validity windows, `basicConstraints` (CA and path
    length), and key usage. The leaf must not be a CA and must be allowed to sign.
-5. **Revocation.** The response carries a CRL, itself signed and chaining to the
-   same roots. Check every certificate in the path against it.
+5. **Revocation.** The response carries a CRL. It is a Cast-specific protobuf,
+   not an X.509 CRL, and it chains to a separate Cast CRL Root CA rather than to
+   the device roots (see
+   [cast-client-design.md](cast-client-design.md#revocation)). Check every
+   certificate in the path against it.
 6. **Signature.** Verify `signature` over the byte string
    `sender_nonce || peer_certificate_DER`, using the leaf's public key,
    RSASSA-PKCS1-v1_5 with SHA-256. The peer certificate is the one captured in
@@ -91,6 +97,12 @@ The exchange, following Chromium's and Open Screen's implementation
 
 Only if all seven hold is there an identity, and even then it is the identity of
 *a* receiver.
+
+The nonce equality in step 3, SHA-256 in step 6 and a device-supplied CRL in
+step 5 are the strict targets, not settled requirements: each is decided on the
+device matrix (see
+[cast-client-design.md](cast-client-design.md#strictness-decided-after-the-device-matrix)),
+and until then an implementation follows that section where the two differ.
 
 ### Where we would be stricter than upstream
 
@@ -102,8 +114,17 @@ apply to a music player shipping a fresh implementation:
   signature. We would require SHA-256 and refuse SHA-1. This is a compatibility
   bet, and the device matrix is where it gets settled: if a supported device
   cannot do SHA-256, that is a finding, not a reason to quietly relax.
-- **CRL policy.** Upstream defaults to `kCrlOptional`, meaning a missing CRL is
-  tolerated. We would require one, with the honest caveat below.
+- **CRL policy.** The baseline is Chromium `main`, which uses
+  `CRL_REQUIRED_WITH_FALLBACK`: a device that sends no CRL, or an invalid one,
+  is checked against a CRL bundled in the browser, never simply accepted. (An
+  earlier revision of this page read the upstream default as `kCrlOptional`,
+  which tolerated a missing CRL; that is not the current behaviour.) We would
+  require the device's own CRL, with the honest caveat below; whether to ship
+  a bundled fallback like Chromium is an open item in
+  [cast-client-design.md](cast-client-design.md).
+- **Nonce echo.** Chromium does not enforce it: a missing or mismatched echo
+  only sets a flag. Whether to enforce it is decided on the device matrix, see
+  [cast-client-design.md](cast-client-design.md#strictness-decided-after-the-device-matrix).
 
 ### What the current dependency cannot do
 
@@ -243,8 +264,12 @@ The user-facing half is a distinct failure kind
 every other refusal this one has an action attached: if you really did replace
 the speaker, forget it and connect again.
 
-Both follow-ons this layer needed have landed, ahead of the protocol work and
-without touching the containment.
+The two follow-ons planned for this layer, persistence and the forget
+affordance, have landed ahead of the protocol work and without touching the
+containment. Its keying has not: the store is keyed by the discovery id, which
+is unauthenticated, and has to move to certificate fingerprints with a
+first-use confirmation before the restoration (see
+[cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session)).
 
 The store is persistent in production
 (`lib/data/repositories/shared_preferences_cast_receiver_pin_store.dart`). An
@@ -272,7 +297,8 @@ pin store that cannot answer still gets the menu item: whether the recovery is
 drawn is a UI question, not a trust one, and `TrustGatedCastTransport` refuses on
 that same throw regardless.
 
-What is left for the restoration is to hand the same store to
+What is left before the restoration: replace the device-id keying with trust
+by certificate fingerprint and first-use confirmation, then hand that store to
 `TrustGatedCastTransport`, which is step 7 below.
 
 ## Layer 4: hand over as little as possible
@@ -327,10 +353,18 @@ Staged, so that each step is reviewable and none of them relaxes the containment
    generated fixtures and negative cases. Not reachable from the app.
 3. **The Cast client**, narrow, with the challenge mandatory. Still not wired
    into production.
-4. **The authenticator** implementing `CastReceiverAuthenticator` on top of 2 and
-   3, plugged into the existing gate. Still not wired into production.
-5. ~~**A persistent pin store and the sheet's forget affordance.**~~ Done, see
-   layer 3.
+4. **Authentication inside the transport**, on top of 2 and 3: the transport
+   only returns handles for authenticated, `ready` connections, and the
+   existing gate applies its policy to that identity. This replaces a separate
+   `CastReceiverAuthenticator` over a finished handle, which cannot see the
+   peer certificate (see
+   [cast-client-design.md](cast-client-design.md#contract-changes)). Still not
+   wired into production.
+5. **A persistent pin store and the sheet's forget affordance.** The store
+   keyed by device id and the forget action are done (layer 3). Still open:
+   trust keyed by certificate fingerprint with a first-use confirmation, which
+   replaces keying by the unauthenticated discovery id (see
+   [cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session)).
 6. **Device matrix by hand**, results to the advisory.
 7. **The restoration itself**, per the checklist in
    [cast-receiver-trust.md](cast-receiver-trust.md#restoration-checklist): the
