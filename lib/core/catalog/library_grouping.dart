@@ -30,9 +30,11 @@ import 'text_folding.dart';
 ///     browsing.
 ///  3. `albumName + artistName` — the original fallback, so two different
 ///     artists' "Greatest Hits" still stay distinct without either signal.
-/// Tracks with no album title fold into one "Unknown Album" regardless of
-/// artist. Each tier's key is prefixed so ids from different tiers can never
-/// collide with one another. All ordering uses total comparators (every tie
+/// Tracks with no album title (and no [Track.albumId]) fold into one "Unknown
+/// Album" *per artist*, keyed exactly like [artistIdForTrack], so an artist
+/// page's Unknown Album only ever holds that artist's tracks (#682). Each
+/// tier's key is prefixed so ids from different tiers can never collide with
+/// one another. All ordering uses total comparators (every tie
 /// broken down to the stable id), so a given catalog always produces the exact
 /// same order — sorting is predictable and stable.
 
@@ -42,7 +44,6 @@ const String kUnknownAlbum = 'Unknown Album';
 /// Display label for tracks with no artist metadata.
 const String kUnknownArtist = 'Unknown Artist';
 
-const String _unknownAlbumId = 'unknown-album';
 const String _unknownArtistId = 'unknown-artist';
 
 String _encode(String key) =>
@@ -71,19 +72,25 @@ String? _nonBlank(String? value) {
 ///  3. `albumName + artistName`, behind an `ar:` tier prefix — the original
 ///     name-only fallback.
 ///
-/// Tracks with no album title (and no [Track.albumId]) share the single
-/// [_unknownAlbumId] regardless of tier. Every produced id is `al-` + a
-/// base64url encoding of the tiered key: every character is URL-safe (so the
-/// id can ride in a route path — or an Android Auto media id — untouched) and
-/// the `al-` prefix can never produce the unknown sentinel, so the two never
-/// collide.
+/// A track with no album title (and no [Track.albumId]) has no album to name,
+/// so it lands in its artist's Unknown Album: the folded [Track.artistName]
+/// behind an `un:` tier prefix. That is the same key [artistIdForTrack] uses,
+/// so the bucket always sits inside one artist page, and an artist-less track
+/// joins the one Unknown Album of the Unknown Artist. "Unknown Album" is only
+/// the display label; a track literally tagged "Unknown Album" still keys
+/// through tier 2/3 like any other title, so it never merges with this
+/// bucket. Every produced id is `al-` + a base64url encoding of the tiered
+/// key: every character is URL-safe, so the id can ride in a route path, or
+/// an Android Auto media id, untouched.
 String albumIdForTrack(Track track) {
   final String? albumId = _nonBlank(track.albumId);
   if (albumId != null) {
     return 'al-${_encode('id:$albumId')}';
   }
   final String album = foldText(track.albumName ?? '');
-  if (album.isEmpty) return _unknownAlbumId;
+  if (album.isEmpty) {
+    return 'al-${_encode('un:${foldText(track.artistName ?? '')}')}';
+  }
   final String? albumArtist = _nonBlank(foldText(track.albumArtistName ?? ''));
   if (albumArtist != null) {
     return 'al-${_encode('aa:${_albumKey(album, albumArtist)}')}';

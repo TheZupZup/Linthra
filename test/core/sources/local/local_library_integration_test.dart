@@ -6,6 +6,7 @@ import 'package:linthra/core/catalog/track_unifier.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/sources/local/local_audio_metadata.dart';
 import 'package:linthra/core/sources/local/local_track_mapper.dart';
+import 'package:linthra/core/sources/local/saf_document_lister.dart';
 
 /// End-to-end checks that a *locally mapped* track (built by the real
 /// [LocalTrackMapper], not a hand-made [Track]) flows through the same grouping
@@ -52,6 +53,43 @@ void main() {
       expect(forEmma.trackCount, 2);
       expect(
           artists.map((a) => a.name).toList(), <String>['Adele', 'Bon Iver']);
+    });
+
+    // Issue #682: the reporter's setup. A SAF scan has no folder-name album
+    // fallback, so artist-tagged files with no album tag reach grouping with
+    // no album at all, and must not pool across artists.
+    test('SAF files with an artist but no album stay under their artist', () {
+      Track saf(String name, {String? artist, String? album}) =>
+          LocalTrackMapper.fromSafDocument(SafAudioDocument(
+            uri: 'content://tree/music/document/$name',
+            name: name,
+            metadata: LocalAudioMetadata(artist: artist, album: album),
+          ));
+      final List<Track> tracks = <Track>[
+        saf('a1.mp3', artist: 'Artist A'),
+        saf('a2.mp3', artist: 'Artist A'),
+        saf('a3.mp3', artist: 'Artist A', album: 'Greatest Hits'),
+        saf('b1.mp3', artist: 'Artist B'),
+        saf('b2.mp3', artist: 'Artist B', album: 'Greatest Hits'),
+      ];
+      final String artistA = artistIdForTrack(tracks.first);
+
+      final albumsOfA = albumsForArtist(tracks, artistA);
+      final unknownOfA = albumsOfA.singleWhere((a) => a.title == kUnknownAlbum);
+
+      expect(albumsOfA.map((a) => a.title),
+          <String>['Greatest Hits', kUnknownAlbum]);
+      expect(
+        tracksForAlbum(tracks, unknownOfA.id).map((t) => t.title),
+        <String>['a1', 'a2'],
+      );
+      // Same real title by two artists stays two albums, like any source
+      // with no album id or album artist to say otherwise.
+      expect(
+        groupAlbums(tracks).where((a) => a.title == 'Greatest Hits'),
+        hasLength(2),
+      );
+      expect(groupAlbums(tracks), hasLength(4));
     });
 
     test('untagged files still fold into Unknown Album / Unknown Artist', () {
