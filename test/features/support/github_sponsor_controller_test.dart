@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/github_device_authorization.dart';
@@ -112,6 +114,36 @@ void main() {
     expect(await store.read(), 'new-token');
   });
 
+  test('a failed launch-time check is an error status, not a provider error',
+      () async {
+    // The card only offers Disconnect for a status it can read. If the check
+    // at launch threw, the saved token would be stuck and retried forever.
+    final InMemoryGitHubSponsorTokenStore store =
+        InMemoryGitHubSponsorTokenStore('saved-token');
+    final ProviderContainer container = ProviderContainer(
+      overrides: <Override>[
+        supportDistributionProvider.overrideWithValue(
+          SupportDistribution.githubRelease,
+        ),
+        githubSponsorTokenStoreProvider.overrideWithValue(store),
+        githubSponsorClientProvider.overrideWithValue(
+          _FakeGitHubSponsorClient(active: false, failVerification: true),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final GitHubSponsorStatus status =
+        await container.read(githubSponsorControllerProvider.future);
+
+    expect(status.access, GitHubSponsorAccess.error);
+    expect(status.message, isNotNull);
+    expect(await store.read(), 'saved-token');
+
+    await container.read(githubSponsorControllerProvider.notifier).disconnect();
+    expect(await store.read(), isNull);
+  });
+
   test('disconnect clears the stored GitHub authorization', () async {
     final InMemoryGitHubSponsorTokenStore store =
         InMemoryGitHubSponsorTokenStore('saved-token');
@@ -140,9 +172,13 @@ void main() {
 }
 
 class _FakeGitHubSponsorClient implements GitHubSponsorClient {
-  _FakeGitHubSponsorClient({required this.active});
+  _FakeGitHubSponsorClient({
+    required this.active,
+    this.failVerification = false,
+  });
 
   final bool active;
+  final bool failVerification;
 
   @override
   bool get isConfigured => true;
@@ -169,6 +205,9 @@ class _FakeGitHubSponsorClient implements GitHubSponsorClient {
   Future<GitHubSponsorVerification> verifySponsorship(
     String accessToken,
   ) async {
+    if (failVerification) {
+      throw const SocketException('offline');
+    }
     return GitHubSponsorVerification(
       login: 'music-fan',
       hasActiveMonthlySponsorship: active,

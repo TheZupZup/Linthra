@@ -34,7 +34,17 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
     if (accessToken == null) {
       return GitHubSponsorStatus.signedOut;
     }
-    return _verify(accessToken);
+    // Same handling as refresh(): a failed launch-time check (offline, a
+    // revoked token, a bad response) is an error status, not a provider
+    // error, so the card can still show why and offer to disconnect.
+    try {
+      return await _verify(accessToken);
+    } on Object catch (error) {
+      return GitHubSponsorStatus(
+        access: GitHubSponsorAccess.error,
+        message: _messageFor(error),
+      );
+    }
   }
 
   Future<GitHubDeviceAuthorization> beginAuthorization() async {
