@@ -89,11 +89,16 @@ fails the check rather than quietly passing.
 It looks for three shapes, never for keywords:
 
 - **URLs**: `scheme://host` for http, https, ws, wss, ftp and ftps, including
-  `scheme://user:pass@host`. The host has to be a literal. `http://$host:4533` or
-  `https://${server}` is a configured address and is skipped by construction.
-- **IPv4 literals** outside a URL, like `InternetAddress('203.0.113.9')`.
+  `scheme://user:pass@host`. The whole host has to be a literal.
+  `http://$host:4533`, `https://${server}` or `https://api.${domain}` is a
+  configured address and is skipped by construction.
+- **IP literals** outside a URL, like `InternetAddress('203.0.113.9')` or
+  `TcpStream::connect("[2001:db8::1]:443")`. An IPv6 candidate has to parse as
+  an address and contain a digit, so code paths like `std::vector` or `a::b`
+  don't count.
 - **A host passed as a bare string** to the common APIs that take one, in each
-  language the scan reads:
+  language the scan reads. These are matched across line breaks, so a call
+  formatted over several lines is still seen:
   - Dart: `Uri.https('host', ...)`, `host: '...'`, `Socket.connect('host', ...)`
     and other `.connect(...)` calls, `InternetAddress.lookup('host')`
   - Kotlin/Java: `InetAddress.getByName("host")`, `getAllByName`,

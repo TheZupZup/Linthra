@@ -34,13 +34,15 @@ toolchain.
 **How it reads.** Three structured shapes, never a keyword list:
 
   * `scheme://host` for http, https, ws, wss, ftp and ftps, including URLs
-    with `user:pass@` in front of the host. The host has to be a literal:
-    `http://$host` or `https://${server}` is a user-configured address and is
-    skipped by construction.
-  * IPv4 literals outside a URL, such as `InternetAddress('203.0.113.9')`.
+    with `user:pass@` in front of the host. The whole host has to be a
+    literal: `http://$host`, `https://${server}` or `https://api.${domain}` is
+    a user-configured address and is skipped by construction.
+  * IP literals outside a URL, such as `InternetAddress('203.0.113.9')` or an
+    IPv6 address (which has to parse as one and contain a digit).
   * A host passed as a bare string to the common APIs that take one, such as
     `Uri.https('host', ...)`, `InetAddress.getByName("host")`,
-    `getaddrinfo("host", ...)` or `TcpStream::connect("host:443")`.
+    `getaddrinfo("host", ...)` or `TcpStream::connect("host:443")`, matched
+    across line breaks.
 
 Reserved names are recognised and never need an entry: example domains
 (RFC 2606), the `.test`/`.example`/`.invalid`/`.localhost` TLDs, `localhost`,
@@ -128,10 +130,20 @@ _URL = re.compile(
     # Optional user information (`user:pass@`). Without it, the user name would
     # be read as the host and the real destination after the `@` never seen.
     r"(?:[^\s/?#@'\"<>]*@)?"
-    r"(?P<host>\[[0-9A-Fa-f:.]+\]|" + _HOST_LABEL + r"(?:\." + _HOST_LABEL + r")*)",
+    r"(?P<host>\[[0-9A-Fa-f:.]+\]|" + _HOST_LABEL + r"(?:\." + _HOST_LABEL + r")*)"
+    # The host has to end where the authority ends. `https://api.${domain}` or
+    # `https://cdn-$region.example.org` is a configured address, not a URL for
+    # the host `api` or `cdn`. A trailing full stop in prose still ends a host.
+    r"(?![\w$\{-])(?!\.[\w$\{])",
     re.IGNORECASE,
 )
 _IPV4 = re.compile(r"(?<![\w.])(?P<host>\d{1,3}(?:\.\d{1,3}){3})(?![\w.])")
+#: IPv6 literals outside a URL, bracketed or not. Candidates are only kept when
+#: they parse as an IPv6 address, which rules out times, MAC addresses and
+#: `a::b` style paths.
+_IPV6 = re.compile(
+    r"(?<![\w:.])\[?(?P<host>[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7})\]?(?![\w:.])"
+)
 
 #: A string literal holding a host, optionally with a `:port`. A literal
 #: containing `$` or `{` is an interpolation, which means a configured address,
@@ -481,19 +493,30 @@ def scan_text(text: str, source: str) -> list[Observation]:
                     f"{match.group('scheme').lower()} URL",
                 )
             )
-        for match in _IPV4.finditer(line):
-            start, end = match.span()
-            if any(low <= start and end <= high for low, high in spans):
-                continue
-            host = match.group("host")
-            if parse_ip(host) is None:
-                continue
-            found.append(Observation(host, source, number, "IP literal"))
-        for pattern, single_label in _HOST_ARGUMENTS:
+        for pattern in (_IPV4, _IPV6):
             for match in pattern.finditer(line):
+                start, end = match.span()
+                if any(low <= start and end <= high for low, high in spans):
+                    continue
                 host = normalise_host(match.group("host"))
-                if looks_like_host(host, single_label):
-                    found.append(Observation(host, source, number, "host argument"))
+                if parse_ip(host) is None:
+                    continue
+                if pattern is _IPV6 and not any(char.isdigit() for char in host):
+                    # `a::b` and `ff::` parse as IPv6 but read as code paths.
+                    # A real address worth reviewing has a digit somewhere.
+                    continue
+                found.append(Observation(host, source, number, "IP literal"))
+    # Calls are matched against the whole file rather than line by line, so a
+    # host written on the line after `Socket.connect(` is still seen.
+    for pattern, single_label in _HOST_ARGUMENTS:
+        for match in pattern.finditer(text):
+            host = normalise_host(match.group("host"))
+            if looks_like_host(host, single_label):
+                number = text.count("\n", 0, match.start("host")) + 1
+                found.append(Observation(host, source, number, "host argument"))
+    # Report in file order. The sort is stable, so literals on the same line
+    # keep the order they were found in.
+    found.sort(key=lambda observation: observation.line)
     return found
 
 

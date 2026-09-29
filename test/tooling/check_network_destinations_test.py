@@ -268,6 +268,35 @@ class ScanTest(unittest.TestCase):
         # destination, not a placeholder.
         self.assertEqual(self.hosts("'https://metrics/upload'"), ["metrics"])
 
+    def test_an_interpolated_authority_is_not_a_partial_host(self) -> None:
+        text = "'https://api.${domain}/x' \"https://cdn-$region.example.org/x\""
+        self.assertEqual(self.hosts(text), [])
+
+    def test_a_full_stop_after_a_url_in_prose_ends_the_host(self) -> None:
+        self.assertEqual(self.hosts("See https://github.com."), ["github.com"])
+
+    def test_a_call_split_across_lines_is_seen(self) -> None:
+        found = checker.scan_text(
+            "final s = await Socket.connect(\n  'collector.tracker.io',\n  443,\n);\n"
+            "getaddrinfo(\n    \"d.tracker.io\",\n    \"443\", &hints, &res);\n",
+            "lib/x.dart",
+        )
+        self.assertEqual(
+            [(o.host, o.line) for o in found],
+            [("collector.tracker.io", 2), ("d.tracker.io", 6)],
+        )
+
+    def test_a_bare_ipv6_literal_is_found(self) -> None:
+        text = (
+            "InternetAddress('2001:4860:4860::8888');\n"
+            'TcpStream::connect("[2606:4700::1111]:443");\n'
+        )
+        self.assertEqual(self.hosts(text), ["2001:4860:4860::8888", "2606:4700::1111"])
+
+    def test_code_paths_and_times_are_not_ipv6(self) -> None:
+        text = "std::vector a::b ff:: at 12:30:45, mac de:ad:be:ef:00:11"
+        self.assertEqual(self.hosts(text), [])
+
     def test_a_bare_string_that_is_not_a_host_is_ignored(self) -> None:
         text = (
             "Uri.http('$loopback:$port', '/id'); host: 'unknown'; "
