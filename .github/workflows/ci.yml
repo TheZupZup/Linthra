@@ -4,7 +4,8 @@ name: CI
 # main. Four independent jobs run in parallel:
 #   * flutter             — format, analyze, test, lockfile-enforced pub get.
 #   * secret-scan         — offline scan for committed secrets / private data,
-#                           plus the tracker-dependency audit (#504).
+#                           plus the tracker-dependency and fixed network
+#                           destination audits (#504).
 #   * cast-containment    — tripwire on the Cast containment's source markers.
 #   * release-bump-guard  — release/* PRs only: the bump must be version-only.
 #   * dependency-guard    — deps/* PRs only: the update must be lockfile-only.
@@ -108,6 +109,24 @@ jobs:
       # `python3 test/tooling/check_tracker_dependencies_test.py`.
       - name: Test the tracker dependency checker
         run: python3 test/tooling/check_tracker_dependencies_test.py
+
+      # The same promise, for Linthra's own code (#504). Every host name and IP
+      # literal written into the source that ships (lib/, the Android app
+      # module, the Linux runner and packaging metadata, native/ and the
+      # vendored packages) has to be in the reviewed inventory in
+      # scripts/network_destinations.json, and only in the files its entry
+      # covers. A new fixed destination, or a known one showing up in a new
+      # place, fails here until someone reviews it. Addresses the user types in
+      # are data, not code, and are never affected.
+      #
+      # It sees hosts written down in source, not ones built at run time or
+      # returned by a server. docs/network-destinations.md has the limits.
+      # Local twin: `python3 scripts/check_network_destinations.py`.
+      - name: Check fixed network destinations
+        run: python3 scripts/check_network_destinations.py
+
+      - name: Test the network destination checker
+        run: python3 test/tooling/check_network_destinations_test.py
 
   cast-containment:
     name: Cast containment markers

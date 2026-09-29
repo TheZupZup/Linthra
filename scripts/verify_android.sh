@@ -86,6 +86,13 @@ main() {
   run_step "tracker dependency audit" \
     python3 scripts/check_tracker_dependencies.py
 
+  # Same job, same idea, for Linthra's own code (#504): every host name or IP
+  # literal in the shipped source has to be in the reviewed inventory in
+  # scripts/network_destinations.json. docs/network-destinations.md has the
+  # limits. Offline and toolchain-free, like CI's step of the same name.
+  run_step "fixed network destination audit" \
+    python3 scripts/check_network_destinations.py
+
   # Also Flutter-independent, and the reason it is a check at all: a library
   # walk that drifts back onto the platform thread still compiles and still
   # passes every test — it only shows up as an ANR on a real library (#346).

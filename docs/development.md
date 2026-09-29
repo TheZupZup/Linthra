@@ -299,13 +299,14 @@ builds and optional release signing live in separate workflows.
 
 ### Privacy guardrails
 
-Two of the `ci.yml` jobs are there for the privacy posture rather than for code
-quality, and both are offline and toolchain-free, so you can run them from a
-checkout:
+Some of the `ci.yml` checks are there for the privacy posture rather than for
+code quality, and all of them are offline and toolchain-free, so you can run them
+from a checkout:
 
 ```bash
 ./scripts/check_secrets.sh                        # committed secrets / private data
 python3 scripts/check_tracker_dependencies.py     # known tracker dependencies (#504)
+python3 scripts/check_network_destinations.py     # fixed network destinations (#504)
 ```
 
 The second one reads the dependency files Linthra ships from and compares them
@@ -315,6 +316,14 @@ advertising, analytics, attribution, telemetry or crash-reporting SDK. The outpu
 names the dependency, the file it came in through and why it is on the list;
 [tracker-dependency-audit.md](./tracker-dependency-audit.md) covers what the
 check does and does not prove, and how to review a finding.
+
+The third one lists every host name and IP address written into the source
+Linthra ships and compares them against `scripts/network_destinations.json`. If
+it fails on your branch, you added a URL or address it has not seen before, or a
+known one in a file where it was not reviewed. Server addresses the user types in
+are never affected, and example names like `music.example.com` never need an
+entry. [network-destinations.md](./network-destinations.md) explains how to add
+one.
 
 ### Python tooling checks (Ruff)
 

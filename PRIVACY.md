@@ -1,6 +1,6 @@
 # Linthra Privacy Policy
 
-Last updated: 2026-09-17
+Last updated: 2026-09-29
 
 Linthra is an open-source Android music player focused on local music and user-controlled self-hosted music libraries.
 
@@ -13,7 +13,7 @@ This policy explains what information Linthra handles, where it is stored, and h
 - Linthra does not use third-party advertising trackers.
 - Linthra does not operate a cloud account system for users.
 - Linthra does not send personal data to TheZupZup or to a Linthra-owned server.
-- Server connections such as Jellyfin, Plex, and Subsonic/Navidrome are optional and are configured by the user.
+- Server connections such as Jellyfin, Plex, Subsonic/Navidrome, and Audiobookshelf are optional and are configured by the user.
 
 ## Data handled by the app
 
@@ -22,7 +22,7 @@ Depending on how the user chooses to use Linthra, the app may handle the followi
 - Local music file information, such as song titles, album names, artists, duration, and artwork references.
 - Playback state, queue information, favorites, playlists, and play history.
 - Self-hosted server settings, such as server URL, selected library, and connection state.
-- Authentication tokens or session details for user-configured music services such as Jellyfin, Plex, or Subsonic/Navidrome.
+- Authentication tokens or session details for user-configured music services such as Jellyfin, Plex, Subsonic/Navidrome, or Audiobookshelf.
 - Diagnostic information generated locally when the user chooses to report a problem.
 
 ## Local music
@@ -31,11 +31,20 @@ When the user grants access to local music files or folders, Linthra reads those
 
 ## Self-hosted and third-party music servers
 
-Linthra can connect to user-configured music services, including Jellyfin, Plex, and Subsonic/Navidrome-compatible servers.
+Linthra can connect to user-configured music services, including Jellyfin, Plex, Subsonic/Navidrome-compatible, and Audiobookshelf servers.
 
 When the user connects one of these services, Linthra may send requests to that server to browse libraries, stream music, display artwork, and report playback state where supported by the server.
 
 These connections are between the user's device and the server or service configured by the user. Linthra does not operate those servers. The privacy practices of those services are governed by the user's server configuration and the policies of the service provider.
+
+## Other services Linthra contacts
+
+Apart from the servers you configure, Linthra contacts two outside services, and only in these cases:
+
+- **Plex sign-in (plex.tv).** If you choose "Connect with Plex", Linthra talks to plex.tv, Plex's account service, to create a sign-in code, wait for you to approve it on the Plex page that opens in your browser, and then list the servers and Plex Home users on your account. Nothing contacts plex.tv at startup or in the background. Signing in with a server address and token instead does not use plex.tv at all.
+- **GitHub Sponsors check (GitHub Sponsor APK only).** The APK attached to GitHub Releases for sponsors can unlock supporter extras. If you choose "Connect GitHub", Linthra uses GitHub's device sign-in (github.com) and then asks GitHub's API (api.github.com) whether your account sponsors the project. Once you have signed in, that check runs again each time the app starts, until you disconnect. The F-Droid, Google Play, Flatpak and other builds do not contain this and never contact GitHub on their own.
+
+Links in the app, such as the project page, the privacy policy or the prefilled bug report, open in your browser when you tap them. Linthra does not fetch them itself.
 
 ## Authentication and tokens
 
@@ -97,6 +106,23 @@ graph. It does not prove that Linthra cannot track users, and it says nothing
 about Linthra's own network code. What it covers, what it does not, and how a
 future finding gets reviewed are written down in
 [docs/tracker-dependency-audit.md](docs/tracker-dependency-audit.md).
+
+A second check lists every host name and IP address written into the code
+Linthra ships, against a reviewed inventory that says what each one is for. A
+new fixed destination, or a known one turning up somewhere new, fails the pull
+request until a person reviews it. Today it finds three hosts Linthra's own code
+connects to (plex.tv, github.com and api.github.com, as described above) and
+nothing that is contacted without you doing something first:
+
+```
+python3 scripts/check_network_destinations.py
+```
+
+It only sees addresses written down in the source, not ones built at run time
+or returned by a server. The details are in
+[docs/network-destinations.md](docs/network-destinations.md), and
+[PRIVACY_AUDIT.md](PRIVACY_AUDIT.md) lists every check, what is still checked
+by hand, and the limits of both.
 
 ## Contact
 
