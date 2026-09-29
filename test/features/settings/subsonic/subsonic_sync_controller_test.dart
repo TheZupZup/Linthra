@@ -100,6 +100,10 @@ ProviderContainer _container({
   final container = ProviderContainer(
     overrides: <Override>[
       musicLibraryRepositoryProvider.overrideWithValue(repository),
+      // Same retries as production, without the real backoff waits.
+      subsonicSyncRetryDelaysProvider.overrideWithValue(
+        const <Duration>[Duration.zero, Duration.zero],
+      ),
       subsonicMusicSourceProvider.overrideWithValue(source),
       if (playlists != null)
         playlistRepositoryProvider.overrideWithValue(playlists),

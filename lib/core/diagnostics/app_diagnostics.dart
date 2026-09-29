@@ -25,6 +25,8 @@ class AppDiagnosticsData {
     this.jellyfinHost,
     this.subsonicState,
     this.subsonicHost,
+    this.subsonicSyncState,
+    this.subsonicTrackCount,
     this.libraryTrackCount,
     this.unavailableTrackCount,
     this.localFolderSelected,
@@ -102,6 +104,15 @@ class AppDiagnosticsData {
 
   /// The Subsonic/Navidrome server address. Rendered host-only.
   final String? subsonicHost;
+
+  /// The Subsonic/Navidrome library sync's state, as rendered by
+  /// `SubsonicSyncState.diagnosticsLabel` (e.g. `failed: notReachable (23990
+  /// saved, will retry)`). Null when there is nothing to report.
+  final String? subsonicSyncState;
+
+  /// How many Subsonic/Navidrome tracks the catalog holds right now, including
+  /// what an interrupted sync already saved.
+  final int? subsonicTrackCount;
 
   /// How many tracks are in the local catalog, when known. Counts every stored
   /// row, including those a currently-unreachable source has temporarily hidden —
@@ -253,6 +264,10 @@ abstract final class AppDiagnostics {
       if (jellyfinHost != null) 'Jellyfin host: $jellyfinHost',
       if (data.subsonicState != null) 'Subsonic: ${data.subsonicState}',
       if (subsonicHost != null) 'Subsonic host: $subsonicHost',
+      if (_has(data.subsonicSyncState))
+        'Subsonic sync: ${data.subsonicSyncState}',
+      if (data.subsonicTrackCount != null)
+        'Subsonic tracks: ${data.subsonicTrackCount}',
       if (data.libraryTrackCount != null)
         'Library tracks: ${data.libraryTrackCount}',
       if (data.unavailableTrackCount != null && data.unavailableTrackCount! > 0)

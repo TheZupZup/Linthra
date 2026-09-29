@@ -2,9 +2,11 @@ import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/local_file_stamp.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/catalog_track_counter.dart';
 import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/library_added_store.dart';
 import '../../core/repositories/music_library_repository.dart';
+import '../../core/repositories/reconciling_catalog_writer.dart';
 import '../../core/repositories/source_catalog_reader.dart';
 import '../../core/repositories/stamped_catalog_writer.dart';
 import '../../core/repositories/track_identity_reassignable.dart';
@@ -39,10 +41,19 @@ import '../../core/sources/music_provider.dart';
 /// library still feeds "Recently added" correctly; they delegate to the wrapped
 /// repository's [IncrementalCatalogWriter] when it has one (the production Drift
 /// repository does) and otherwise fall back to a whole-slice write.
+///
+/// Reconciling writes ([upsertTracks] / [removeTracksNotIn]) and
+/// [countTracks] pass through to the wrapped repository's
+/// [ReconcilingCatalogWriter] / [CatalogTrackCounter]. They have no safe
+/// fallback (an append is not an upsert, and a prune must never guess), so a
+/// wrapped repository without them fails loudly with [UnsupportedError]. The
+/// production Drift repository has both.
 class RecordingMusicLibraryRepository
     implements
         MusicLibraryRepository,
         IncrementalCatalogWriter,
+        ReconcilingCatalogWriter,
+        CatalogTrackCounter,
         SourceCatalogReader,
         StampedCatalogWriter,
         TrackIdentityReassignable {
@@ -203,6 +214,55 @@ class RecordingMusicLibraryRepository
     await _stampFirstSeen(tracks);
   }
 
+  /// Upserts one batch through the wrapped repository and stamps its new tracks,
+  /// exactly like an incremental append, so a reconciling sync still feeds
+  /// "Recently added".
+  @override
+  Future<void> upsertTracks({
+    required String sourceId,
+    required List<Track> tracks,
+  }) async {
+    await _migrateLegacyAddedKeysOnce();
+    final MusicLibraryRepository delegate = _delegate;
+    if (delegate is! ReconcilingCatalogWriter) {
+      throw UnsupportedError(
+        'the wrapped MusicLibraryRepository cannot upsert without replacing',
+      );
+    }
+    await (delegate as ReconcilingCatalogWriter)
+        .upsertTracks(sourceId: sourceId, tracks: tracks);
+    await _stampFirstSeen(tracks);
+  }
+
+  /// Prunes through the wrapped repository, then forgets the first-seen times
+  /// of the rows it removed, the same way [removeTracks] does, so a track that
+  /// disappears from the server and later returns counts as newly added.
+  @override
+  Future<List<String>> removeTracksNotIn({
+    required String sourceId,
+    required Set<String> keepUris,
+  }) async {
+    final MusicLibraryRepository delegate = _delegate;
+    if (delegate is! ReconcilingCatalogWriter) {
+      throw UnsupportedError(
+        'the wrapped MusicLibraryRepository cannot prune a source slice',
+      );
+    }
+    final List<String> removed = await (delegate as ReconcilingCatalogWriter)
+        .removeTracksNotIn(sourceId: sourceId, keepUris: keepUris);
+    await _forgetFirstSeen(removed);
+    return removed;
+  }
+
+  @override
+  Future<int> countTracks({String? sourceId}) {
+    final MusicLibraryRepository delegate = _delegate;
+    if (delegate is CatalogTrackCounter) {
+      return (delegate as CatalogTrackCounter).countTracks(sourceId: sourceId);
+    }
+    throw UnsupportedError('the wrapped MusicLibraryRepository cannot count');
+  }
+
   /// Records `now` as the first-seen time for any track not seen before,
   /// preserving earlier timestamps so a routine re-sync never resets "recently
   /// added". Shared by the whole-catalog and incremental write paths.
@@ -292,6 +352,12 @@ class RecordingMusicLibraryRepository
   @override
   Future<void> removeTracks(List<String> trackUris) async {
     await _delegate.removeTracks(trackUris);
+    await _forgetFirstSeen(trackUris);
+  }
+
+  /// Drops the first-seen times of [trackUris], shared by [removeTracks] and
+  /// [removeTracksNotIn].
+  Future<void> _forgetFirstSeen(List<String> trackUris) async {
     if (trackUris.isEmpty) return;
     final Map<String, DateTime> addedAt = await _addedStore.load();
     bool changed = false;

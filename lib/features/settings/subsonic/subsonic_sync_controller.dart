@@ -1,14 +1,21 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/models/album.dart';
+import '../../../core/models/artist.dart';
+import '../../../core/models/track.dart';
+import '../../../core/repositories/music_library_repository.dart';
+import '../../../core/repositories/reconciling_catalog_writer.dart';
 import '../../../core/repositories/remote_sync_result.dart';
 import '../../../core/repositories/subsonic_auto_sync_store.dart';
 import '../../../core/sources/subsonic/subsonic_account_fingerprint.dart';
+import '../../../core/sources/subsonic/subsonic_catalog_walk.dart';
 import '../../../core/sources/subsonic/subsonic_exception.dart';
 import '../../../core/sources/subsonic/subsonic_music_source.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../data/repositories/subsonic_auto_sync_store_provider.dart';
+import '../../../data/repositories/subsonic_sync_pending_store_provider.dart';
 import '../../library/library_controller.dart';
 import 'subsonic_settings_controller.dart';
 import 'subsonic_sync_state.dart';
@@ -31,6 +38,23 @@ import 'subsonic_sync_state.dart';
 /// Settings screen, or an app restart of an already-synced account — mirroring
 /// the Jellyfin onboarding. The manual [sync] is always available.
 ///
+/// Large libraries (issue #680): a Navidrome library of ~80k tracks takes
+/// thousands of requests to read, long enough for Android to freeze or kill the
+/// app partway. So the sync never holds the library back until the end:
+///
+///  - the source walks it in batches of [syncBatchSize] tracks, and each batch
+///    is **upserted** as soon as it arrives (nothing is deleted up front), so
+///    whatever was read survives an interruption, and an interrupted re-sync
+///    leaves the previous catalog in place;
+///  - rows the walk did not see are pruned only after a walk that is provably
+///    complete ([SubsonicCatalogWalk.isComplete]); a failed, stopped, truncated
+///    or doubtful walk prunes nothing;
+///  - an unfinished sync is recorded in [SubsonicSyncPendingStore] and
+///    [resumeIncompleteSync] runs it again on launch/resume for the same
+///    account. Re-running is safe: upserts and the prune are idempotent;
+///  - every batch first checks the signed-in account is still the one the sync
+///    started for, so signing out or switching account stops further writes.
+///
 /// Security: the source mints any authenticated stream/download URL lazily at
 /// use time, so nothing persisted here carries a credential. This controller
 /// never logs the session, and surfaces only friendly, secret-free messages.
@@ -38,14 +62,42 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// Guards against overlapping syncs (an auto-sync racing a manual tap). Set
   /// synchronously before any await so a second concurrent call simply bails,
   /// satisfying "never run two syncs at once" without cancelling the first.
+  ///
+  /// Riverpod keeps this notifier instance across `ref.invalidate` (sign-out
+  /// does that), so the flag can outlive the account it was set for; see
+  /// [_rerunQueued].
   bool _syncing = false;
+
+  /// The account (fingerprint) the running sync belongs to.
+  String? _runningAccount;
+
+  /// Set when a sync is requested for a *different* account while one is still
+  /// running (sign out, then straight into another account). The old walk stops
+  /// at its next batch; this makes the new account's sync run right after it
+  /// instead of being dropped.
+  bool _rerunQueued = false;
+  String? _rerunRecordFingerprint;
+
+  /// Set when [resumeIncompleteSync] lands while a sync is already running
+  /// (Android resumed the app with the frozen sync's request still in
+  /// flight). If that sync then fails in a way worth retrying, it runs once
+  /// more straight away instead of waiting for the next return to the app.
+  bool _resumeRequested = false;
+
+  /// Tracks per batch. Each batch costs a transaction plus a pass over the
+  /// whole "recently added" record (the Recording repository loads and saves
+  /// it per write), so small batches make a big library's sync quadratic: at
+  /// 80k tracks, 500-track batches measured ~20 s of bookkeeping against
+  /// ~7 s at 2000. An interruption still loses at most one batch of reading
+  /// (a couple of hundred albums).
+  static const int syncBatchSize = 2000;
 
   @override
   SubsonicSyncState build() => const SubsonicSyncState();
 
-  /// The manual "Sync Navidrome library" action. Pulls artists/albums/tracks and
-  /// upserts them into the local catalog, then refreshes Navidrome playlists and
-  /// favourites. Reflects loading/success/error through [state]; never throws.
+  /// The manual "Sync Navidrome library" action. Walks the library's tracks
+  /// into the local catalog, then refreshes Navidrome playlists and favourites.
+  /// Reflects loading/success/error through [state]; never throws.
   Future<void> sync() => _runSync();
 
   /// Runs the **first** automatic sync for a freshly connected server/account.
@@ -79,18 +131,98 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
     await _runSync(recordFingerprint: fingerprint);
   }
 
-  /// The shared sync path behind both [sync] and [autoSyncIfNeeded].
+  /// Re-runs a sync that started for the signed-in account but never finished:
+  /// the app was frozen, backgrounded or killed partway, or the server dropped
+  /// out. Called on launch and on every resume; a no-op unless such a sync is on
+  /// record for *this* account and nothing is running. A marker left by another
+  /// account is dropped. Never throws.
+  Future<void> resumeIncompleteSync() async {
+    if (_syncing) {
+      _resumeRequested = true;
+      return;
+    }
+    final String? account = await _pendingForCurrentAccount();
+    if (account == null) return;
+    // Pass the account along so a resumed *first* sync still marks the
+    // account as auto-synced once it lands, like the run it replaces would.
+    await _runSync(recordFingerprint: account);
+  }
+
+  /// The signed-in account's fingerprint when an unfinished sync is on record
+  /// for it, else null. A marker left by another account is dropped.
+  Future<String?> _pendingForCurrentAccount() async {
+    final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
+    if (source == null) return null;
+    final String account = subsonicAccountFingerprint(source.session);
+    final String? pending;
+    try {
+      pending = await ref.read(subsonicSyncPendingStoreProvider).read();
+    } catch (_) {
+      return null;
+    }
+    if (pending == null) return null;
+    if (pending != account) {
+      await _clearPending();
+      return null;
+    }
+    return account;
+  }
+
+  /// The shared sync path behind [sync], [autoSyncIfNeeded] and
+  /// [resumeIncompleteSync].
   ///
   /// When [recordFingerprint] is non-null (an auto-sync), the account is
-  /// remembered **only after a successful sync**, so a sync that failed (e.g.
-  /// the server became unreachable right after sign-in) is retried
+  /// remembered **only after the walk ran to its end**, so a sync that failed
+  /// (e.g. the server became unreachable right after sign-in) is retried
   /// automatically on the next fresh connection rather than being silently
   /// marked done — and the manual sync stays available meanwhile.
   Future<void> _runSync({String? recordFingerprint}) async {
     if (_syncing) {
       // A sync is already in flight; never stack a second concurrent one.
+      _queueIfAnotherAccount(recordFingerprint);
       return;
     }
+    _syncing = true;
+    try {
+      String? record = recordFingerprint;
+      do {
+        _rerunQueued = false;
+        _resumeRequested = false;
+        await _syncOnce(recordFingerprint: record);
+        record = _rerunRecordFingerprint;
+        _rerunRecordFingerprint = null;
+        if (!_rerunQueued && _resumeRequested) {
+          // A resume came in while this run was going. The marker is still
+          // set only if the run failed in a way worth retrying; then retry
+          // now, once per resume, rather than until the next resume.
+          final String? account = await _pendingForCurrentAccount();
+          if (account != null) {
+            _rerunQueued = true;
+            record = account;
+          }
+        }
+      } while (_rerunQueued);
+    } catch (_) {
+      // _syncOnce settles its own failures; this only catches one raised while
+      // doing so after the container was disposed, keeping "never throws".
+    } finally {
+      _syncing = false;
+      _runningAccount = null;
+    }
+  }
+
+  /// A request that lands while a sync runs is normally covered by that sync.
+  /// Only when the signed-in account is no longer the one being synced does it
+  /// queue a fresh run (the old walk is about to stop on its own).
+  void _queueIfAnotherAccount(String? recordFingerprint) {
+    final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
+    if (source == null) return;
+    if (subsonicAccountFingerprint(source.session) == _runningAccount) return;
+    _rerunQueued = true;
+    _rerunRecordFingerprint = recordFingerprint;
+  }
+
+  Future<void> _syncOnce({String? recordFingerprint}) async {
     final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
     if (source == null) {
       state = const SubsonicSyncState.error(
@@ -98,70 +230,202 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
       );
       return;
     }
+    final String account = subsonicAccountFingerprint(source.session);
+    _runningAccount = account;
 
-    _syncing = true;
+    final MusicLibraryRepository repository =
+        ref.read(musicLibraryRepositoryProvider);
+    // Production always reconciles. A repository without the capability (some
+    // test fakes) gets the old single write at the end, and only for a
+    // complete walk, since that write replaces the whole slice.
+    final ReconcilingCatalogWriter? writer =
+        repository is ReconcilingCatalogWriter
+            ? repository as ReconcilingCatalogWriter
+            : null;
+    final List<Track> collected = <Track>[];
+    // Every uri this walk saw: what the prune keeps, and the saved count.
+    final Set<String> seen = <String>{};
+    bool libraryShown = false;
+    int saved() => writer == null ? 0 : seen.length;
+
     state = const SubsonicSyncState.syncing();
     try {
-      final tracks = await source.fetchTracks();
-      final albums = await source.fetchAlbums();
-      final artists = await source.fetchArtists();
+      await _markPending(account);
+      final SubsonicCatalogWalk walk = await source.walkTracks(
+        batchSize: syncBatchSize,
+        retryDelays: ref.read(subsonicSyncRetryDelaysProvider),
+        onBatch: (List<Track> batch) async {
+          if (!_isCurrentAccount(account)) return false;
+          if (writer != null) {
+            await writer.upsertTracks(sourceId: source.id, tracks: batch);
+          } else {
+            collected.addAll(batch);
+          }
+          for (final Track track in batch) {
+            seen.add(track.uri);
+          }
+          if (!_isCurrentAccount(account)) return false;
+          state = SubsonicSyncState.syncing(savedTrackCount: saved());
+          if (writer != null && !libraryShown) {
+            // First batch visible right away, instead of an empty library
+            // until the whole walk is done.
+            libraryShown = true;
+            await _refreshLibrary();
+          }
+          return true;
+        },
+      );
 
-      if (tracks.isEmpty) {
-        // Still reconcile server playlists/favourites — the library may be
-        // empty locally but the account can still have hearts/playlists.
-        final PlaylistSyncResult playlists = await _refreshPlaylists();
-        final FavoritesSyncResult favorites = await _refreshFavorites();
-        state = SubsonicSyncState.success(
-          trackCount: 0,
-          playlistCount: playlists.playlistCount,
-          favoriteCount: favorites.favoriteCount,
-          playlistsFailed: playlists.didFail,
-          favoritesFailed: favorites.didFail,
-          message: _composeMessage(
-            trackCount: 0,
-            playlists: playlists,
-            favorites: favorites,
-            empty: true,
-          ),
-        );
-        await _recordAutoSynced(recordFingerprint);
+      if (walk.stopped || !_isCurrentAccount(account)) {
+        // Signed out or switched account mid-walk. Leave the catalog as it is
+        // and the card idle for whatever runs next; prune nothing.
+        state = const SubsonicSyncState();
         return;
       }
 
-      await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
+      if (walk.isComplete && seen.isNotEmpty) {
+        // Proven complete: whatever the walk didn't see is gone from the
+        // server. (An empty walk never prunes: a server that suddenly lists
+        // nothing is more likely broken than emptied.)
+        if (writer != null) {
+          await writer.removeTracksNotIn(sourceId: source.id, keepUris: seen);
+        } else {
+          await repository.upsertCatalog(
             sourceId: source.id,
-            tracks: tracks,
-            albums: albums,
-            artists: artists,
+            tracks: collected,
+            albums: const <Album>[],
+            artists: const <Artist>[],
           );
-      await ref.read(libraryControllerProvider.notifier).refresh();
+        }
+      }
+      if (seen.isNotEmpty) await _refreshLibrary();
+      // The walk ran to its end. A complete one leaves nothing to resume, and
+      // a page-capped one would only hit the cap again. One that lost too many
+      // albums mid-walk (a server rescan) is worth another pass, though: keep
+      // the marker so launch/resume reconciles the stale rows it had to keep.
+      if (walk.isComplete || walk.truncated) await _clearPending();
 
       // Import Navidrome playlists and adopt server favourites best-effort; a
-      // failure here is reported calmly but never fails the track sync.
+      // failure here is reported calmly but never fails the track sync. Done
+      // even for an empty library: the account can still have hearts and
+      // playlists.
       final PlaylistSyncResult playlists = await _refreshPlaylists();
       final FavoritesSyncResult favorites = await _refreshFavorites();
 
       state = SubsonicSyncState.success(
-        trackCount: tracks.length,
+        trackCount: seen.length,
+        complete: walk.isComplete,
         playlistCount: playlists.playlistCount,
         favoriteCount: favorites.favoriteCount,
         playlistsFailed: playlists.didFail,
         favoritesFailed: favorites.didFail,
         message: _composeMessage(
-          trackCount: tracks.length,
+          trackCount: seen.length,
           playlists: playlists,
           favorites: favorites,
+          empty: seen.isEmpty,
+          complete: walk.isComplete,
         ),
       );
       await _recordAutoSynced(recordFingerprint);
     } on SubsonicException catch (error) {
-      state = SubsonicSyncState.error(_friendlyMessage(error));
-    } catch (_) {
-      state = const SubsonicSyncState.error(
-        'Something went wrong saving your library. Please try again.',
+      await _fail(
+        account,
+        _friendlyMessage(error),
+        errorKind: error.kind.name,
+        saved: saved(),
+        retry: _worthRetrying(error.kind),
       );
-    } finally {
-      _syncing = false;
+    } catch (_) {
+      await _fail(
+        account,
+        'Something went wrong saving your library. Please try again.',
+        errorKind: SubsonicSyncState.unexpectedErrorKind,
+        saved: saved(),
+        retry: true,
+      );
+    }
+  }
+
+  /// Settles a sync that failed partway. Whatever it already saved stays, and
+  /// is shown; the unfinished-sync marker stays too when trying again later
+  /// could help, so the next launch/resume picks it up.
+  Future<void> _fail(
+    String account,
+    String message, {
+    required String errorKind,
+    required int saved,
+    required bool retry,
+  }) async {
+    if (!_isCurrentAccount(account)) {
+      // The failure belongs to an account that's no longer signed in.
+      state = const SubsonicSyncState();
+      return;
+    }
+    if (!retry) await _clearPending();
+    final String kept = saved == 1 ? '1 track was' : '$saved tracks were';
+    state = SubsonicSyncState.error(
+      saved == 0
+          ? message
+          : retry
+              ? '$message $kept saved; Linthra will try again when you come '
+                  'back to the app.'
+              : '$message $kept saved.',
+      errorKind: errorKind,
+      savedTrackCount: saved,
+    );
+    if (saved > 0) {
+      try {
+        await _refreshLibrary();
+      } catch (_) {
+        // Best-effort: the saved tracks show on the next library load anyway.
+      }
+    }
+  }
+
+  /// Failures a later attempt can plausibly get past on its own. The rest
+  /// (rejected credentials, a wrong or insecure address, ...) need the user to
+  /// change something first, so retrying them on every resume would only
+  /// repeat the same error.
+  static bool _worthRetrying(SubsonicErrorKind kind) =>
+      kind == SubsonicErrorKind.notReachable ||
+      kind == SubsonicErrorKind.serverError ||
+      kind == SubsonicErrorKind.unexpected;
+
+  /// Whether [account] is still the signed-in Subsonic account. False once the
+  /// app's container is gone too (shutdown while a walk was waiting on the
+  /// network): nothing may be written after that either.
+  bool _isCurrentAccount(String account) {
+    final SubsonicMusicSource? source;
+    try {
+      source = ref.read(subsonicMusicSourceProvider);
+    } on StateError {
+      return false;
+    }
+    return source != null &&
+        subsonicAccountFingerprint(source.session) == account;
+  }
+
+  Future<void> _refreshLibrary() =>
+      ref.read(libraryControllerProvider.notifier).refresh();
+
+  /// Records that a sync for [account] has started. Best-effort: without the
+  /// marker an interrupted sync just isn't resumed automatically.
+  Future<void> _markPending(String account) async {
+    try {
+      await ref.read(subsonicSyncPendingStoreProvider).write(account);
+    } catch (_) {
+      // Ignore: the manual sync stays available.
+    }
+  }
+
+  /// Forgets the unfinished-sync marker. Best-effort: a stale marker only
+  /// causes one extra (idempotent) sync on the next resume.
+  Future<void> _clearPending() async {
+    try {
+      await ref.read(subsonicSyncPendingStoreProvider).clear();
+    } catch (_) {
+      // Ignore.
     }
   }
 
@@ -206,6 +470,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
     required PlaylistSyncResult playlists,
     required FavoritesSyncResult favorites,
     bool empty = false,
+    bool complete = true,
   }) {
     final List<String> synced = <String>[];
     if (trackCount > 0) {
@@ -231,6 +496,10 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
           : 'Synced your library.');
     } else {
       message.write('Synced ${_join(synced)}.');
+    }
+    if (!complete) {
+      message.write(" Linthra couldn't confirm it read your whole library, "
+          'so nothing was removed this time.');
     }
     if (failures.isNotEmpty) {
       message.write(' Some items could not be synced (${_join(failures)}).');
@@ -277,4 +546,10 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
 final subsonicSyncControllerProvider =
     NotifierProvider<SubsonicSyncController, SubsonicSyncState>(
   SubsonicSyncController.new,
+);
+
+/// The waits between attempts when a sync request fails transiently. Its own
+/// provider so tests can run the retry path without real delays.
+final subsonicSyncRetryDelaysProvider = Provider<List<Duration>>(
+  (ref) => SubsonicMusicSource.defaultRetryDelays,
 );

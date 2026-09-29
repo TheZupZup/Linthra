@@ -35,6 +35,7 @@ import '../features/settings/playback/audio_output_controller.dart';
 import '../features/settings/playback/normalize_volume_controller.dart';
 import '../features/settings/plex/plex_settings_controller.dart';
 import '../features/settings/subsonic/subsonic_settings_controller.dart';
+import '../features/settings/subsonic/subsonic_sync_controller.dart';
 import '../shared/widgets/artwork_image.dart';
 
 export 'application_container.dart' show productionApplicationOverrides;
@@ -405,6 +406,17 @@ Future<ApplicationHandle> bootstrapApplication(
     // without touching anything the next container owns.
     unawaited(container.read(favoritesRepositoryProvider).refreshFromRemote());
     unawaited(container.read(playlistRepositoryProvider).refreshFromRemote());
+
+    // Resume a Navidrome/Subsonic library sync the previous run never finished
+    // (#680: Android froze or killed the app partway). A no-op unless one is on
+    // record for the account just restored above. Not owned, for the same
+    // reason as the refreshes: it is network-bound, it swallows its own
+    // failures, and whatever it already saved is kept if shutdown cuts it off.
+    unawaited(
+      container
+          .read(subsonicSyncControllerProvider.notifier)
+          .resumeIncompleteSync(),
+    );
 
     // Desktop volume: come back at the level the listener left, before anything
     // can play. Never blocks launch, and never restores a mute.
