@@ -109,6 +109,19 @@ abstract final class StabilityDiagnostics {
 
   static String describePlaybackError(String kind) => 'playback error: $kind';
 
+  /// An automatic recovery step the player took on its own after a track
+  /// failed: `retry` (one more try at the same track), `advance` (moving on to
+  /// the next one), or `settled` (stopped, waiting for the listener). A fixed
+  /// label, kept apart from [playbackError] so it never overwrites
+  /// [lastInterruptionKind]. Never a track, URL, or token.
+  static void playbackRecovery(String step) {
+    SafeEventLog.instance.record('recovery', step);
+    _log(describePlaybackRecovery(step));
+  }
+
+  static String describePlaybackRecovery(String step) =>
+      'playback recovery: $step';
+
   /// An audio-focus event for the on-device engine and how it was handled.
   /// [event] is a fixed structural label — e.g. `loss-transient:paused` (a real
   /// transient loss, so we paused), `loss-duck:ducked` (a duckable transient, so

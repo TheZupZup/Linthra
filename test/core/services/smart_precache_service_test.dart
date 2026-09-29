@@ -20,7 +20,11 @@ class _RecordingPrefetcher implements TrackPrefetcher {
   final List<String> prefetched = <String>[];
 
   @override
-  Future<void> prefetch(Track track) async {
+  Future<void> prefetch(
+    Track track, {
+    Iterable<Track> keep = const <Track>[],
+    bool Function()? isStillWanted,
+  }) async {
     prefetched.add(track.id);
   }
 }
@@ -34,7 +38,11 @@ class _GatedPrefetcher implements TrackPrefetcher {
   final Completer<void> gate = Completer<void>();
 
   @override
-  Future<void> prefetch(Track track) async {
+  Future<void> prefetch(
+    Track track, {
+    Iterable<Track> keep = const <Track>[],
+    bool Function()? isStillWanted,
+  }) async {
     started.add(track.id);
     await gate.future;
   }

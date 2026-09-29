@@ -34,6 +34,10 @@ void main() {
         StabilityDiagnostics.describePauseCommand('media-session'),
         'pause command: media-session',
       );
+      expect(
+        StabilityDiagnostics.describePlaybackRecovery('advance'),
+        'playback recovery: advance',
+      );
     });
 
     test('a breadcrumb carries only its label — no room to leak a secret', () {
@@ -45,6 +49,7 @@ void main() {
         StabilityDiagnostics.describeOutput('local'),
         StabilityDiagnostics.describePrecache('skip:repeat-one'),
         StabilityDiagnostics.describePlaybackError('networkDropped'),
+        StabilityDiagnostics.describePlaybackRecovery('settled'),
       ];
       for (final String line in lines) {
         expect(line, isNot(contains('://')));

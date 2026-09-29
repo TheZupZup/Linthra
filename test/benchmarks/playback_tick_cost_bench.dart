@@ -42,7 +42,11 @@ import '../features/player/fake_playback_controller.dart';
 /// Warms nothing: the benchmark measures the *deciding*, not the fetching.
 class _NoopPrefetcher implements TrackPrefetcher {
   @override
-  Future<void> prefetch(Track track) async {}
+  Future<void> prefetch(
+    Track track, {
+    Iterable<Track> keep = const <Track>[],
+    bool Function()? isStillWanted,
+  }) async {}
 }
 
 Track _t(int i) => Track(

@@ -12,7 +12,11 @@ class _RecordingPrefetcher implements TrackPrefetcher {
   final List<String> ids = <String>[];
 
   @override
-  Future<void> prefetch(Track track) async {
+  Future<void> prefetch(
+    Track track, {
+    Iterable<Track> keep = const <Track>[],
+    bool Function()? isStillWanted,
+  }) async {
     ids.add(track.id);
   }
 }

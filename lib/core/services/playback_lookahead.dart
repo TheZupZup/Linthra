@@ -1,5 +1,43 @@
 import '../models/playback_state.dart';
+import '../models/repeat_mode.dart';
 import '../models/track.dart';
+
+/// The tracks the controller is going to play after the current one, in the
+/// order it will play them, at most [count] of them.
+///
+/// This is the one definition of "what's coming" that automatic caching warms,
+/// so the cache predicts the controller instead of guessing:
+///
+///  * [PlaybackState.upNext] is already the *effective* order, so a shuffled
+///    queue yields its shuffled order. Nothing here reshuffles.
+///  * Repeat-all wraps: once up-next runs out the queue restarts from its first
+///    track in the same order, which is [PlaybackState.previous].
+///  * Repeat-one yields nothing, since the current track loops and nothing
+///    else plays soon.
+///  * A track listed twice (or the current track coming round again) is only
+///    warmed once.
+///
+/// Walks at most the first [count] entries it keeps, so a 5,000-track queue
+/// costs the same as a 5-track one.
+List<Track> upcomingTracks(PlaybackState state, {required int count}) {
+  final Track? current = state.currentTrack;
+  if (count <= 0 || current == null) return const <Track>[];
+  if (state.repeatMode == RepeatMode.one) return const <Track>[];
+  final List<Track> upcoming = <Track>[];
+  final Set<String> seen = <String>{current.uri};
+  bool take(List<Track> source) {
+    for (final Track track in source) {
+      if (upcoming.length >= count) return false;
+      if (seen.add(track.uri)) upcoming.add(track);
+    }
+    return upcoming.length < count;
+  }
+
+  if (take(state.upNext) && state.repeatMode == RepeatMode.all) {
+    take(state.previous);
+  }
+  return upcoming;
+}
 
 /// Whether two playback states describe the same *look-ahead work*: the same
 /// track playing, the same modes, and the same first [ahead] entries of
@@ -27,10 +65,14 @@ import '../models/track.dart';
 ///    reacting to it would be pure work for no benefit.
 ///
 /// A null state never matches, so a service's first emission always runs.
+///
+/// [wrapsIntoHistory] is for a caller that warms along [upcomingTracks], whose
+/// window wraps into [PlaybackState.previous] under repeat-all.
 bool samePlaybackLookahead(
   PlaybackState? a,
   PlaybackState? b, {
   required int ahead,
+  bool wrapsIntoHistory = false,
 }) {
   if (a == null || b == null) return false;
   if (identical(a, b)) return true;
@@ -40,7 +82,14 @@ bool samePlaybackLookahead(
   if (a.currentTrack?.uri != b.currentTrack?.uri) return false;
   if (a.shuffleEnabled != b.shuffleEnabled) return false;
   if (a.repeatMode != b.repeatMode) return false;
-  return _sameHead(a.upNext, b.upNext, ahead);
+  if (!_sameHead(a.upNext, b.upNext, ahead)) return false;
+  // Under repeat-all the queue's head comes round again after up-next, so what
+  // [upcomingTracks] returns depends on it too. Anywhere else it can't matter,
+  // and the common tick hands the same list object over anyway.
+  if (wrapsIntoHistory && a.repeatMode == RepeatMode.all) {
+    return _sameHead(a.previous, b.previous, ahead);
+  }
+  return true;
 }
 
 /// Whether the first [ahead] entries of [a] and [b] are the same tracks in the

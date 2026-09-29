@@ -33,7 +33,13 @@ class EvictionPlan {
 ///  - On-device tracks and zero-byte records don't count toward the budget and
 ///    are never evicted (they hold no app-managed bytes).
 ///  - The currently playing track is never evicted.
+///  - Any other key the caller protects (the tracks about to play) is never
+///    evicted either, so warming the third upcoming track can't throw away the
+///    first one it warmed a moment ago.
 ///  - Pinned ("Keep offline") tracks are never evicted.
+///  - With [plan]'s `onlyPreloaded`, only auto-preloaded entries are candidates:
+///    an automatic pre-cache makes room from other pre-caches or not at all, and
+///    never removes a track the user downloaded, pinned or not.
 ///  - Auto-preloaded tracks go before any user download: a prefetched copy is a
 ///    convenience, so it's sacrificed first to keep what the user chose to keep.
 ///  - Among entries of the same kind, least-recently-used goes first (oldest
@@ -49,6 +55,8 @@ class CacheEvictionPolicy {
     required int incomingBytes,
     required int maxBytes,
     String? protectKey,
+    Set<String> protectKeys = const <String>{},
+    bool onlyPreloaded = false,
     String? incomingKey,
   }) {
     int used = 0;
@@ -60,11 +68,14 @@ class CacheEvictionPolicy {
       // *different* provider is never mistaken for the incoming track's copy.
       if (track.cacheKey == incomingKey) continue;
       used += track.sizeBytes;
-      final bool evictable = track.isManaged &&
-          track.sizeBytes > 0 &&
-          !track.pinned &&
-          track.cacheKey != protectKey;
-      if (evictable) candidates.add(track);
+      if (isEvictable(
+        track,
+        protectKey: protectKey,
+        protectKeys: protectKeys,
+        onlyPreloaded: onlyPreloaded,
+      )) {
+        candidates.add(track);
+      }
     }
 
     if (used + incomingBytes <= maxBytes) return EvictionPlan.empty;
@@ -90,6 +101,22 @@ class CacheEvictionPolicy {
         ? EvictionPlan(evict: evict, fits: true)
         : const EvictionPlan(evict: <CachedTrack>[], fits: false);
   }
+
+  /// Whether [track] may be removed to make room, under the same rules [plan]
+  /// applies. Public so a caller deciding whether a best-effort pre-cache is
+  /// worth fetching at all asks exactly the question the commit will ask.
+  static bool isEvictable(
+    CachedTrack track, {
+    String? protectKey,
+    Set<String> protectKeys = const <String>{},
+    bool onlyPreloaded = false,
+  }) =>
+      track.isManaged &&
+      track.sizeBytes > 0 &&
+      !track.pinned &&
+      (!onlyPreloaded || track.preloaded) &&
+      track.cacheKey != protectKey &&
+      !protectKeys.contains(track.cacheKey);
 
   static int _leastRecentlyUsedFirst(CachedTrack a, CachedTrack b) {
     // Auto-preloaded entries are evicted before any user download.
