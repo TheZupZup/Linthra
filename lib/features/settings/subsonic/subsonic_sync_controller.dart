@@ -299,9 +299,11 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
         }
       }
       if (seen.isNotEmpty) await _refreshLibrary();
-      // The walk ran to its end, so there is nothing to resume: running a
-      // truncated walk again would only be truncated again.
-      await _clearPending();
+      // The walk ran to its end. A complete one leaves nothing to resume, and
+      // a page-capped one would only hit the cap again. One that lost too many
+      // albums mid-walk (a server rescan) is worth another pass, though: keep
+      // the marker so launch/resume reconciles the stale rows it had to keep.
+      if (walk.isComplete || walk.truncated) await _clearPending();
 
       // Import Navidrome playlists and adopt server favourites best-effort; a
       // failure here is reported calmly but never fails the track sync. Done

@@ -321,6 +321,43 @@ void main() {
       expect(await app.pending.read(), isNull);
     });
 
+    test(
+        'a walk that lost too many albums keeps the sync to resume, and the '
+        'resumed sync prunes', () async {
+      // A server rescan: 5 of 40 albums answer "not found" for now.
+      final _App first = _App(
+        SyntheticNavidrome(albums: 40, missingAlbums: <int>{1, 2, 3, 4, 5}),
+      );
+      await first.seed('subsonic', <String>['subsonic:gone-1']);
+      await first.signIn();
+      await first.sync.sync();
+
+      expect(first.state.status, SubsonicSyncStatus.incomplete);
+      expect(first.repository.prunes, 0);
+      expect(await first.subsonicUris(), contains('subsonic:gone-1'));
+      expect(await first.pending.read(), _account('alice'));
+      expect(
+        (await first.diagnostics()).label,
+        'incomplete (350 tracks, stale tracks kept, will retry)',
+      );
+
+      // Next launch, the rescan is done: the resumed sync completes and
+      // reconciles the stale rows.
+      final _App relaunch = _App(
+        SyntheticNavidrome(albums: 40),
+        db: first.db,
+        pending: first.pending,
+        restoredSession: _session('alice'),
+      );
+      await relaunch.restore();
+      await relaunch.sync.resumeIncompleteSync();
+
+      expect(relaunch.state.status, SubsonicSyncStatus.success);
+      _expectSameSet(
+          await relaunch.subsonicUris(), relaunch.server.urisFor('alice'));
+      expect(await relaunch.pending.read(), isNull);
+    });
+
     test('an album removed mid-walk (error 70) is skipped and its rows pruned',
         () async {
       final _App first = _App(SyntheticNavidrome(albums: 40));
@@ -613,6 +650,14 @@ void main() {
           complete: false,
         ).diagnosticsLabel(pendingRetry: false),
         'incomplete (5 tracks, stale tracks kept)',
+      );
+      expect(
+        const SubsonicSyncState.success(
+          trackCount: 5,
+          message: 'm',
+          complete: false,
+        ).diagnosticsLabel(pendingRetry: true),
+        'incomplete (5 tracks, stale tracks kept, will retry)',
       );
       expect(
         const SubsonicSyncState.error('m', errorKind: 'unauthorized')

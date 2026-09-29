@@ -117,7 +117,7 @@ class SubsonicSyncState {
       case SubsonicSyncStatus.success:
         return 'ok ($trackCount tracks)';
       case SubsonicSyncStatus.incomplete:
-        return 'incomplete ($trackCount tracks, stale tracks kept)';
+        return 'incomplete ($trackCount tracks, stale tracks kept$retry)';
       case SubsonicSyncStatus.error:
         return 'failed: ${errorKind ?? unexpectedErrorKind} '
             '($savedTrackCount saved$retry)';
