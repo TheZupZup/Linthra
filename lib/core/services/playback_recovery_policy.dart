@@ -92,14 +92,16 @@ class PlaybackFailureStreak {
 ///     failures in the same streak don't get one: they are almost certainly the
 ///     same outage, and retrying each of them would only slow the listener down
 ///     and hit the server more.
-///  3. **Then it moves on**, to the next track, or back to the first under
-///     repeat-all, waiting [advanceDelay] before the first move and twice as
-///     long before each later one (capped at [maxAdvanceDelay]). Cached and
-///     local tracks further on still play while a server is down.
+///  3. **Then it moves on**, to the next queue entry that hasn't already
+///     failed in this streak (wrapping to the start under repeat-all, never
+///     under repeat-one), waiting [advanceDelay] before the first move and
+///     twice as long before each later one (capped at [maxAdvanceDelay]).
+///     Cached and local tracks further on still play while a server is down.
 ///  4. **It stops** when [maxConsecutiveFailures] tracks have failed in a row,
-///     when the next track already failed in this streak (the queue has come
-///     all the way round, which is what stops repeat-all cycling through a dead
-///     server forever), or when there is nothing left to move to.
+///     or when every other entry has already failed in this streak (the queue
+///     has come all the way round, which is what stops repeat-all cycling
+///     through a dead server forever), or when there is nothing left to move
+///     to. The caller picks [decide]'s `nextUri` accordingly.
 ///
 /// Worst case with the defaults: one retry and five moves, about 33 seconds of
 /// waiting in total, then a stable error. The provider's own short

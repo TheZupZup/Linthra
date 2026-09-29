@@ -17,8 +17,8 @@ import '../models/track.dart';
 ///  * A track listed twice (or the current track coming round again) is only
 ///    warmed once.
 ///
-/// Walks at most the first [count] entries it keeps, so a 5,000-track queue
-/// costs the same as a 5-track one.
+/// Stops as soon as it has [count] tracks, so the length of the queue barely
+/// matters; only a long run of the same track repeated is walked past.
 List<Track> upcomingTracks(PlaybackState state, {required int count}) {
   final Track? current = state.currentTrack;
   if (count <= 0 || current == null) return const <Track>[];
@@ -43,10 +43,10 @@ List<Track> upcomingTracks(PlaybackState state, {required int count}) {
 /// track playing, the same modes, and the same first [ahead] entries of
 /// up-next.
 ///
-/// Every service that warms something ahead of playback — the smart pre-cache,
-/// the remote stream prebuffer, the media-session artwork prewarm — listens to
-/// the same unified [PlaybackState] stream, which emits several times a second
-/// while playing. Only a handful of those emissions change what there is to
+/// The services that warm something just ahead of playback (the remote stream
+/// prebuffer, the media-session artwork prewarm) listen to the same unified
+/// [PlaybackState] stream, which emits several times a second while playing.
+/// Smart pre-cache compares its de-duplicated [upcomingTracks] window instead. Only a handful of those emissions change what there is to
 /// warm; the rest are position ticks. This is the shared "did anything I care
 /// about actually move?" test they gate on.
 ///
@@ -65,14 +65,10 @@ List<Track> upcomingTracks(PlaybackState state, {required int count}) {
 ///    reacting to it would be pure work for no benefit.
 ///
 /// A null state never matches, so a service's first emission always runs.
-///
-/// [wrapsIntoHistory] is for a caller that warms along [upcomingTracks], whose
-/// window wraps into [PlaybackState.previous] under repeat-all.
 bool samePlaybackLookahead(
   PlaybackState? a,
   PlaybackState? b, {
   required int ahead,
-  bool wrapsIntoHistory = false,
 }) {
   if (a == null || b == null) return false;
   if (identical(a, b)) return true;
@@ -82,14 +78,7 @@ bool samePlaybackLookahead(
   if (a.currentTrack?.uri != b.currentTrack?.uri) return false;
   if (a.shuffleEnabled != b.shuffleEnabled) return false;
   if (a.repeatMode != b.repeatMode) return false;
-  if (!_sameHead(a.upNext, b.upNext, ahead)) return false;
-  // Under repeat-all the queue's head comes round again after up-next, so what
-  // [upcomingTracks] returns depends on it too. Anywhere else it can't matter,
-  // and the common tick hands the same list object over anyway.
-  if (wrapsIntoHistory && a.repeatMode == RepeatMode.all) {
-    return _sameHead(a.previous, b.previous, ahead);
-  }
-  return true;
+  return _sameHead(a.upNext, b.upNext, ahead);
 }
 
 /// Whether the first [ahead] entries of [a] and [b] are the same tracks in the

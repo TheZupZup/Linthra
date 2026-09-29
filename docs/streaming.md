@@ -143,28 +143,32 @@ track's own recovery is spent, the player (`PlaybackRecoveryPolicy`, the same
 on Android and Linux) takes a few bounded steps on its own:
 
 1. **One more try first.** For a source problem (`temporarySource`), the first
-   failure waits about ten seconds showing "Reconnecting…", then re-resolves
-   the same track at the same position with a fresh stream URL. That covers a
-   Wi-Fi/LTE handover or a server that blinked. The wait is as long as the
-   provider's "this server is down" memory, so the retry really asks the server
-   again instead of being answered from that memory.
+   failure waits about ten seconds, then re-resolves the same track with a
+   fresh stream URL: at the same position, showing "Reconnecting…", when it
+   was playing, or as a fresh load when it never started (so it isn't counted
+   as played). That covers a Wi-Fi/LTE handover or a server that blinked. The
+   wait is as long as the provider's "this server is down" memory, so the
+   retry really asks the server again instead of being answered from that
+   memory.
 2. **Then the next track.** If it still fails, playback moves to the next queue
-   item (back to the start under repeat-all). Downloaded, pre-cached and local
-   tracks keep playing while a server is down.
-3. **Then it stops.** After six failures in a row, when the queue comes back
-   round to a track that already failed in the same run (so repeat-all can't
-   cycle through a dead server), or at the end of the queue, the failure is
-   shown with its buttons and nothing else happens until you act.
+   entry that hasn't already failed in this run (back to the start under
+   repeat-all), so a song queued twice is passed over rather than mistaken for
+   the queue coming round. Downloaded, pre-cached and local tracks keep playing
+   while a server is down. Under repeat-one it stays on the track you chose.
+3. **Then it stops.** After six failures in a row, when every other entry has
+   already failed in the same run (so repeat-all can't cycle through a dead
+   server), or at the end of the queue, the failure is shown with its buttons
+   and nothing else happens until you act.
 
 The waits between moves back off (1, 2, 4, 8 s), so the whole run waits about
 33 seconds at most, and the per-server reachability memory means a down server
-is contacted about once every ten seconds at most while it runs. A track that plays to its end, or any
-action of yours (play, skip, Retry, a new queue), starts a fresh run. It never
-moves on for an audio engine failure (every track would fail the same way),
-after a restored session or the end of a cast (those never start audio on their
-own), after you pause, or once another app has taken over audio. During a call
-it can still load the next track, but starting it is left to the end of the
-call.
+is contacted about once every ten seconds at most while it runs. A track that
+plays to its end, or any action of yours (play, skip, Retry, a new queue),
+starts a fresh run. It never moves on for an audio engine failure (every track
+would fail the same way), after a restored session or the end of a cast (those
+never start audio on their own), after you pause, when headphones are
+unplugged, or once another app has taken over audio. During a call it can
+still load the next track, but starting it is left to the end of the call.
 
 ## Streaming over mobile data (LTE)
 

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:linthra/core/models/playback_failure.dart';
+import 'package:linthra/core/models/playback_history.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
@@ -12,6 +13,7 @@ import 'package:linthra/core/platform/host_platform.dart';
 import 'package:linthra/core/services/just_audio_playback_controller.dart';
 import 'package:linthra/core/services/linux_playback_controller.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
+import 'package:linthra/core/services/playback_history_recorder.dart';
 import 'package:linthra/core/services/playback_recovery_policy.dart';
 import 'package:linthra/core/services/provider_reachability.dart';
 import 'package:linthra/core/services/reachability_aware_playable_uri_resolver.dart';
@@ -169,8 +171,9 @@ void main() {
 
       await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
 
-      // Not an error, and not skipped: a retry is waiting to run.
-      expect(controller.state.status, PlaybackStatus.reconnecting);
+      // Not an error, and not skipped: a retry is waiting to run. The track
+      // never made a sound, so it waits as loading rather than reconnecting.
+      expect(controller.state.status, PlaybackStatus.loading);
       expect(controller.state.currentTrack?.id, 'a');
       expect(controller.hasPendingAutomaticRecovery, isTrue);
 
@@ -227,6 +230,45 @@ void main() {
       ]);
       expect(controller.state.currentTrack?.id, 'a');
       expect(resolver.calls, isNot(contains('jellyfin:b')));
+    });
+
+    test('a track that was playing waits as reconnecting, at its position',
+        () async {
+      final JustAudioPlaybackController controller = build(
+        policy: const PlaybackRecoveryPolicy(retryDelay: Duration(minutes: 5)),
+      );
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      controller.setPositionForTesting(const Duration(seconds: 42));
+      await _settle();
+
+      // The server goes away mid-song; the quick retry can't reach it either.
+      resolver.down.add('jellyfin:a');
+      player.emitError(Exception('connection reset by peer'));
+      await _settle();
+
+      expect(controller.hasPendingAutomaticRecovery, isTrue);
+      expect(controller.state.status, PlaybackStatus.reconnecting);
+      expect(controller.state.position, const Duration(seconds: 42));
+    });
+
+    test('a track that never made a sound is not counted as played', () async {
+      resolver.down.add('jellyfin:a');
+      final JustAudioPlaybackController controller = build();
+      final List<String> recorded = <String>[];
+      final PlaybackHistoryRecorder history = PlaybackHistoryRecorder(
+        states: controller.stateStream,
+        onPlayed: (Track track, PlaybackHistoryOutcome outcome, DateTime _) =>
+            recorded.add('${track.id}:${outcome.name}'),
+      )..start();
+      addTearDown(history.dispose);
+
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      await _settle();
+
+      expect(controller.state.currentTrack?.id, 'b');
+      // Leaving 'a' behind must not record it as a skipped play.
+      expect(recorded, isEmpty);
     });
 
     test('a mid-stream drop keeps playing the same track from a fresh URL',
@@ -345,6 +387,51 @@ void main() {
       ]);
       expect(controller.state.status, PlaybackStatus.error);
       expect(controller.hasPendingAutomaticRecovery, isFalse);
+    });
+
+    test('a song queued twice is passed over, not taken for a full loop',
+        () async {
+      resolver.down.add('jellyfin:a');
+      final JustAudioPlaybackController controller = build();
+
+      await controller
+          .playTracks(<Track>[_remote('a'), _remote('a'), _remote('b')]);
+      await _settle();
+
+      expect(
+          resolver.calls, <String>['jellyfin:a', 'jellyfin:a', 'jellyfin:b']);
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+    });
+
+    test('a song that already failed further on is passed over too', () async {
+      resolver.down.addAll(<String>['jellyfin:a', 'jellyfin:b']);
+      final JustAudioPlaybackController controller = build();
+
+      await controller.playTracks(
+          <Track>[_remote('a'), _remote('b'), _remote('a'), _remote('c')]);
+      await _settle();
+
+      expect(resolver.calls, <String>[
+        'jellyfin:a',
+        'jellyfin:a',
+        'jellyfin:b',
+        'jellyfin:c',
+      ]);
+      expect(controller.state.currentTrack?.id, 'c');
+    });
+
+    test('repeat-one stays on its track: one retry, then the error', () async {
+      resolver.down.add('jellyfin:a');
+      final JustAudioPlaybackController controller = build();
+      controller.setRepeatMode(RepeatMode.one);
+
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      await _settle();
+
+      expect(resolver.calls, <String>['jellyfin:a', 'jellyfin:a']);
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.currentTrack?.id, 'a');
     });
 
     test('a local track further on still plays while the server is down',
@@ -491,6 +578,21 @@ void main() {
       expect(resolver.calls, <String>['jellyfin:a']);
     });
 
+    test('unplugging headphones while a step waits starts nothing', () async {
+      resolver.down.add('jellyfin:a');
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      expect(controller.hasPendingAutomaticRecovery, isTrue);
+
+      controller.onBecomingNoisyForTesting();
+      await _settle();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.hasPendingAutomaticRecovery, isFalse);
+      expect(resolver.calls, <String>['jellyfin:a']);
+      expect(player.playCalls, 0);
+    });
+
     test('a skip while a step waits wins, and the step never runs', () async {
       resolver.down.add('jellyfin:a');
       final JustAudioPlaybackController controller = build(
@@ -575,7 +677,7 @@ void main() {
       final JustAudioPlaybackController controller = container
           .read(localPlaybackControllerProvider) as JustAudioPlaybackController;
       expect(controller.hasPendingAutomaticRecovery, isTrue);
-      expect(controller.state.status, PlaybackStatus.reconnecting);
+      expect(controller.state.status, PlaybackStatus.loading);
       await controller.stop();
     });
 

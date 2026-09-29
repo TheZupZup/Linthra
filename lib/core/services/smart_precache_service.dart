@@ -80,16 +80,18 @@ class SmartPrecacheService {
 
   /// The non-secret identity of the signed-in account a track would be fetched
   /// with (`jellyfin:<fingerprint>`, …), or `null` when signed out. Captured
-  /// when a fetch starts and compared again before its bytes are committed.
+  /// per provider when a queue is first seen; a track is only fetched, and its
+  /// bytes only kept, while its provider is still on that same account.
   final String? Function(Track track)? _sessionScopeOf;
 
   late final StreamSubscription<PlaybackState> _subscription;
   StreamSubscription<NetworkStatus>? _networkSubscription;
 
-  /// The last set of inputs we pre-cached against, so pure position/status
-  /// ticks (which don't change what to cache) don't re-trigger a pass.
+  /// The last state accepted, and the work it stands for, so position and
+  /// status ticks (which don't change what to cache) don't re-trigger a pass.
   PlaybackState? _lastInputs;
-  PlaybackState? _pendingState;
+  _PrecacheJob? _lastJob;
+  _PrecacheJob? _pending;
   bool _running = false;
   bool _disposed = false;
 
@@ -101,27 +103,46 @@ class SmartPrecacheService {
 
   void _onState(PlaybackState state) {
     if (_disposed) return;
-    // React only when something that affects *what to cache* changed — the
-    // playing track, the head of up-next, shuffle, or repeat — not on every
-    // position tick, which changes none of them. The comparison itself is
-    // allocation-free and short-circuits on an unchanged queue, so a tick costs
-    // a handful of reference checks (see [samePlaybackLookahead]).
-    if (samePlaybackLookahead(
-      state,
-      _lastInputs,
-      ahead: kMaxPrecacheCount,
-      wrapsIntoHistory: true,
-    )) {
+    final PlaybackState? last = _lastInputs;
+    final bool sameSurroundings = last != null &&
+        state.currentTrack?.uri == last.currentTrack?.uri &&
+        state.shuffleEnabled == last.shuffleEnabled &&
+        state.repeatMode == last.repeatMode;
+    // A position or status tick hands over the very same queue lists, so
+    // nothing that decides what to cache can have moved. A handful of
+    // reference checks, no allocation.
+    if (last != null &&
+        sameSurroundings &&
+        identical(state.upNext, last.upNext) &&
+        identical(state.previous, last.previous)) {
       return;
     }
+    // Otherwise compare what would actually be warmed. That is the
+    // de-duplicated window, not the raw head of the queue: `[A, A, …, B]`
+    // becoming `[A, A, …, C]` changes it even when the first entries match.
+    final List<Track> upcoming =
+        upcomingTracks(state, count: kMaxPrecacheCount);
+    final _PrecacheJob? lastJob = _lastJob;
     _lastInputs = state;
+    if (sameSurroundings &&
+        lastJob != null &&
+        _sameTracks(upcoming, lastJob.upcoming)) {
+      return;
+    }
     if (state.currentTrack == null) {
       // Nothing is playing any more: whatever pass is running is obsolete.
       _generation++;
-      _pendingState = null;
+      _pending = null;
+      _lastJob = null;
       return;
     }
-    _schedule(state);
+    final _PrecacheJob job = (
+      state: state,
+      upcoming: upcoming,
+      scopes: _scopesFor(upcoming),
+    );
+    _lastJob = job;
+    _schedule(job);
   }
 
   void _onNetwork(NetworkStatus status) {
@@ -131,18 +152,20 @@ class SmartPrecacheService {
     // Offline can't fetch anything; the pass would only skip. Everything else
     // (back online, or moved to an unmetered network) may let it run now.
     if (status == NetworkStatus.offline) return;
-    final PlaybackState? last = _lastInputs;
-    if (last == null || last.currentTrack == null) return;
+    final _PrecacheJob? last = _lastJob;
+    if (last == null) return;
     StabilityDiagnostics.precache('resume:network');
+    // Still bound to the accounts that were signed in when this queue was
+    // seen, not whatever is signed in now.
     _schedule(last);
   }
 
-  /// Makes [state] the queue to warm next, superseding any pass in progress.
-  void _schedule(PlaybackState state) {
+  /// Makes [job] the queue to warm next, superseding any pass in progress.
+  void _schedule(_PrecacheJob job) {
     _generation++;
-    // Remember the freshest state and drain; a pass already running stops at
+    // Remember the freshest work and drain; a pass already running stops at
     // its next item and the drain picks this up, so the latest queue wins.
-    _pendingState = state;
+    _pending = job;
     unawaited(_drain());
   }
 
@@ -150,10 +173,10 @@ class SmartPrecacheService {
     if (_running) return;
     _running = true;
     try {
-      while (_pendingState != null && !_disposed) {
-        final PlaybackState state = _pendingState!;
-        _pendingState = null;
-        await _precacheUpcoming(state, _generation);
+      while (_pending != null && !_disposed) {
+        final _PrecacheJob job = _pending!;
+        _pending = null;
+        await _precacheUpcoming(job, _generation);
       }
     } finally {
       _running = false;
@@ -162,7 +185,8 @@ class SmartPrecacheService {
 
   bool _isCurrent(int generation) => !_disposed && generation == _generation;
 
-  Future<void> _precacheUpcoming(PlaybackState state, int generation) async {
+  Future<void> _precacheUpcoming(_PrecacheJob job, int generation) async {
+    final PlaybackState state = job.state;
     if (state.upNext.isEmpty && state.previous.isEmpty) return;
     if (!await _preferences.preloadEnabled()) {
       StabilityDiagnostics.precache('skip:disabled');
@@ -182,7 +206,9 @@ class SmartPrecacheService {
     final int aheadCount = sanitizePrecacheCount(
       await _preferences.precacheCount(),
     );
-    final List<Track> upcoming = upcomingTracks(state, count: aheadCount);
+    // The first [aheadCount] of the window worked out when the queue was seen:
+    // [upcomingTracks] keeps order, so this is exactly the shorter window.
+    final List<Track> upcoming = job.upcoming.take(aheadCount).toList();
     if (upcoming.isEmpty || !_isCurrent(generation)) return;
     // What this pass must not evict while it makes room: the playing track and
     // everything it is about to warm.
@@ -197,7 +223,14 @@ class SmartPrecacheService {
         StabilityDiagnostics.precache('superseded');
         return;
       }
-      final String? scope = _scopeOf(track);
+      // The account this queue was built under. If the provider has since
+      // signed out or switched, this track belongs to a catalog the current
+      // session doesn't have: fetching it would store the wrong bytes.
+      final String? scope = job.scopes[_providerOf(track)];
+      if (_scopeOf(track) != scope) {
+        StabilityDiagnostics.precache('skip:session-changed');
+        continue;
+      }
       // Sequential on purpose: one warm fetch at a time keeps pre-cache off the
       // critical path and lets the cache limit settle between writes.
       await _prefetcher.prefetch(
@@ -206,6 +239,32 @@ class SmartPrecacheService {
         isStillWanted: () => !_disposed && _scopeOf(track) == scope,
       );
     }
+  }
+
+  /// The account each provider in [tracks] is signed in with right now, keyed
+  /// by provider. Worked out once per queue, when it is first seen.
+  Map<String, String?> _scopesFor(List<Track> tracks) {
+    if (_sessionScopeOf == null) return const <String, String?>{};
+    final Map<String, String?> scopes = <String, String?>{};
+    for (final Track track in tracks) {
+      scopes.putIfAbsent(_providerOf(track), () => _scopeOf(track));
+    }
+    return scopes;
+  }
+
+  /// The provider part of a track's opaque uri (`jellyfin`, `plex`, …), or an
+  /// empty string for a local path.
+  static String _providerOf(Track track) {
+    final int colon = track.uri.indexOf(':');
+    return colon <= 0 ? '' : track.uri.substring(0, colon);
+  }
+
+  static bool _sameTracks(List<Track> a, List<Track> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i].uri != b[i].uri) return false;
+    }
+    return true;
   }
 
   String? _scopeOf(Track track) {
@@ -222,7 +281,7 @@ class SmartPrecacheService {
   Future<void> dispose() async {
     _disposed = true;
     _generation++;
-    _pendingState = null;
+    _pending = null;
     // No event reaches [_onNetwork] once cancel is called. Cancelling a
     // platform event stream waits on the native side to acknowledge, which
     // must never hold up shutdown, so that wait isn't awaited.
@@ -232,3 +291,12 @@ class SmartPrecacheService {
     await _subscription.cancel();
   }
 }
+
+/// One queue's worth of pre-cache work: the state it came from, the tracks it
+/// would warm (up to the largest count a user can pick), and the account each
+/// provider was signed in with when the queue was seen.
+typedef _PrecacheJob = ({
+  PlaybackState state,
+  List<Track> upcoming,
+  Map<String, String?> scopes,
+});

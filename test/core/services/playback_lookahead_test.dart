@@ -252,33 +252,5 @@ void main() {
         isFalse,
       );
     });
-
-    test('under repeat-all a different queue start is different work', () {
-      PlaybackState wrapped(List<Track> previous) => PlaybackState(
-            status: PlaybackStatus.playing,
-            currentTrack: _t('3'),
-            previous: previous,
-            repeatMode: RepeatMode.all,
-          );
-
-      expect(
-        samePlaybackLookahead(
-          wrapped(<Track>[_t('1'), _t('2')]),
-          wrapped(<Track>[_t('9'), _t('2')]),
-          ahead: 3,
-          wrapsIntoHistory: true,
-        ),
-        isFalse,
-      );
-      // Callers that never wrap keep ignoring history entirely.
-      expect(
-        samePlaybackLookahead(
-          wrapped(<Track>[_t('1'), _t('2')]),
-          wrapped(<Track>[_t('9'), _t('2')]),
-          ahead: 3,
-        ),
-        isTrue,
-      );
-    });
   });
 }

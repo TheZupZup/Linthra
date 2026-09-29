@@ -240,6 +240,21 @@ void main() {
           <String>['jellyfin:b', 'jellyfin:c', 'jellyfin:n']);
     });
 
+    test('a change behind a long run of one repeated track is still seen',
+        () async {
+      service(repository(), count: 2);
+      final List<Track> repeated = <Track>[
+        for (int i = 0; i < 250; i++) _t('same'),
+      ];
+
+      await play(_playing(_t('now'), <Track>[...repeated, _t('b')]));
+      expect(downloader.fetched, <String>['jellyfin:same', 'jellyfin:b']);
+
+      // The first 250 entries are unchanged, but what gets warmed is not.
+      await play(_playing(_t('now'), <Track>[...repeated, _t('c')]));
+      expect(downloader.fetched.last, 'jellyfin:c');
+    });
+
     test('an already cached track is not downloaded again', () async {
       final CacheDownloadRepository repo = repository();
       await repo.requestDownload(_t('c')); // the user's own download
@@ -396,6 +411,34 @@ void main() {
 
       expect(await store.loadDownloads(), isEmpty);
       expect(files.bytesFor('jellyfin_b.mp3'), isNull);
+    });
+
+    test('after an account switch the rest of the old queue is not fetched',
+        () async {
+      service(repository());
+      final Completer<void> b = downloader.holdNext('jellyfin:b');
+
+      await play(_playing(_t('a'), <Track>[_t('b'), _t('c')]));
+      account = 'jellyfin:account-2';
+      b.complete();
+      await _settle();
+
+      // 'c' came from the old account's catalog: never asked of the new one.
+      expect(downloader.fetched, <String>['jellyfin:b']);
+      expect(await store.loadDownloads(), isEmpty);
+    });
+
+    test('network recovery never warms an old queue with a new account',
+        () async {
+      connectivity.status = NetworkStatus.offline;
+      service(repository());
+
+      await play(_playing(_t('a'), <Track>[_t('b')]));
+      account = 'jellyfin:account-2';
+      connectivity.change(NetworkStatus.wifi);
+      await _settle();
+
+      expect(downloader.fetched, isEmpty);
     });
 
     test('a sign-out mid-download writes nothing', () async {

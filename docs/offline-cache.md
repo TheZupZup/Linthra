@@ -144,8 +144,10 @@ It warms what the player is actually going to play next:
   written). When the connection comes back, or moves from metered data to
   Wi-Fi, the current queue is warmed again on Android. On Linux, where there's
   no network-status signal, that happens at the next queue change.
-- **Stale work is dropped.** If you sign out or switch server/account while a
-  pre-cache is downloading, its bytes are discarded instead of being saved.
+- **Stale work is dropped.** Each queue is tied to the accounts signed in when
+  it was seen. If you sign out or switch server/account, a pre-cache already
+  downloading is discarded instead of saved, and the rest of that queue isn't
+  fetched with the new account.
 
 A pre-cached track is **not** the same thing as a download, and the library rows
 say so: a copy the user asked for reads as **Downloaded**, while one the app
