@@ -1,0 +1,317 @@
+{
+  "_about": [
+    "Linthra's reviewed inventory of fixed network destinations (#504).",
+    "",
+    "scripts/check_network_destinations.py reads the source Linthra ships",
+    "(lib/, the Android app module, the Linux runner and packaging metadata,",
+    "native/ and the vendored packages in third_party/) and fails when a host",
+    "name or IP literal turns up that this file does not list, or turns up in a",
+    "file its entry does not cover.",
+    "",
+    "Addresses the user types in (their Jellyfin, Navidrome/Subsonic, Plex or",
+    "Audiobookshelf server) are data, not code, and never belong here.",
+    "",
+    "Each entry says what Linthra does with the host (kind), when it is",
+    "contacted if it is contacted at all (trigger, app-request only), which",
+    "builds carry it, which files may mention it and why. An entry whose paths",
+    "stop matching fails the check too, so a reason cannot outlive what it",
+    "explains.",
+    "",
+    "Entries are sorted by (host, kind) and paths are sorted within an entry.",
+    "The checker enforces both. docs/network-destinations.md explains how to",
+    "review a new host and what this check does not prove."
+  ],
+  "version": 1,
+  "kinds": {
+    "app-request": "Linthra's own code connects to this host",
+    "browser-link": "Handed to the browser or mail client when the user taps a link; Linthra never fetches it",
+    "reference": "Only mentioned in comments, hint text, licence headers, XML namespaces or packaging metadata; never contacted"
+  },
+  "destinations": [
+    {
+      "host": "192.168.1.10",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "lib/core/sources/plex/plex_server_url.dart",
+        "lib/features/settings/plex/plex_settings_section.dart"
+      ],
+      "rationale": "Example LAN address in the Plex server field's hint text and validation message."
+    },
+    {
+      "host": "192.168.1.50",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "android/app/src/main/AndroidManifest.xml",
+        "android/app/src/main/res/xml/network_security_config.xml"
+      ],
+      "rationale": "Example LAN server address in the comments that explain why cleartext HTTP is allowed."
+    },
+    {
+      "host": "api.github.com",
+      "kind": "app-request",
+      "trigger": "automatic-after-opt-in",
+      "builds": "github-sponsor",
+      "paths": [
+        "lib/data/services/http_github_sponsor_client.dart"
+      ],
+      "rationale": "GitHub GraphQL call that checks whether the signed-in user sponsors the project. Only in the GitHub Sponsor APK, and only after the user has signed in with GitHub: from then on it runs at launch with the token they granted. F-Droid, Play, Flatpak and default builds never make it."
+    },
+    {
+      "host": "app.plex.tv",
+      "kind": "browser-link",
+      "builds": "all",
+      "paths": [
+        "lib/core/sources/plex/plex_tv_endpoints.dart"
+      ],
+      "rationale": "Plex's sign-in page, opened in the browser during Connect with Plex so the user can approve Linthra on their Plex account."
+    },
+    {
+      "host": "connect.microsoft.com",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/libflac/include/share/compat.h"
+      ],
+      "rationale": "Part of an archived Microsoft Connect bug report URL in an upstream libFLAC source comment."
+    },
+    {
+      "host": "developer.android.com",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "android/app/src/main/AndroidManifest.xml"
+      ],
+      "rationale": "Documentation link in a manifest comment."
+    },
+    {
+      "host": "developer.mozilla.org",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/just_audio/lib/just_audio.dart"
+      ],
+      "rationale": "Upstream just_audio doc comment linking the HTMLMediaElement reference."
+    },
+    {
+      "host": "foo.com",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/just_audio/lib/just_audio.dart"
+      ],
+      "rationale": "Placeholder URL in an upstream just_audio usage example (doc comment)."
+    },
+    {
+      "host": "github.com",
+      "kind": "app-request",
+      "trigger": "user-action",
+      "builds": "github-sponsor",
+      "paths": [
+        "lib/data/services/http_github_sponsor_client.dart"
+      ],
+      "rationale": "GitHub's OAuth device flow (device code request and token polling). Only in the GitHub Sponsor APK, and only after the user taps Connect GitHub."
+    },
+    {
+      "host": "github.com",
+      "kind": "browser-link",
+      "builds": "all",
+      "paths": [
+        "lib/core/diagnostics/bug_report.dart",
+        "lib/features/settings/about/support_section.dart",
+        "lib/features/settings/hub/about_screen.dart",
+        "lib/features/support/support_actions_provider.dart"
+      ],
+      "rationale": "Project, releases, licence, privacy policy, sponsors and prefilled bug report links. They open in the browser when tapped; Linthra fetches none of them and posts nothing."
+    },
+    {
+      "host": "github.com",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "lib/core/models/playback_history.dart",
+        "lib/core/services/cast/cast_containment.dart",
+        "lib/core/services/cast/cast_media_access.dart",
+        "lib/core/services/cast/cast_receiver_trust.dart",
+        "lib/core/services/cast/trust_gated_cast_transport.dart",
+        "lib/data/repositories/cast_receiver_pin_store_provider.dart",
+        "lib/data/repositories/shared_preferences_cast_receiver_pin_store.dart",
+        "lib/features/player/cast/cast_providers.dart",
+        "linux/packaging/io.github.thezupzup.linthra.metainfo.xml",
+        "third_party/just_audio/android/src/main/java/com/ryanheise/just_audio/AudioPlayer.java",
+        "third_party/just_audio/lib/just_audio.dart",
+        "third_party/just_audio_media_kit/lib/just_audio_media_kit.dart",
+        "third_party/just_audio_media_kit/lib/mediakit_player.dart"
+      ],
+      "rationale": "Issue links in doc comments (Linthra's own and upstream's), plus the homepage, bug tracker and source links in the AppStream metadata that software centres display."
+    },
+    {
+      "host": "graphics.stanford.edu",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/libflac/src/libFLAC/bitreader.c"
+      ],
+      "rationale": "Upstream libFLAC source comment citing the bit-twiddling hacks page."
+    },
+    {
+      "host": "host",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "lib/core/sources/subsonic/subsonic_server_url.dart"
+      ],
+      "rationale": "Placeholder name in a doc comment showing the shape of a Subsonic server address (`http://host:4533/rest`)."
+    },
+    {
+      "host": "linthra.ca",
+      "kind": "browser-link",
+      "builds": "all",
+      "paths": [
+        "lib/features/settings/about/bug_report_email.dart",
+        "lib/features/settings/about/support_section.dart"
+      ],
+      "rationale": "The support address (support@linthra.ca). Contact and Report a bug open a draft in the user's mail app; Linthra sends nothing itself and never contacts linthra.ca."
+    },
+    {
+      "host": "mpv.io",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/just_audio_media_kit/lib/just_audio_media_kit.dart"
+      ],
+      "rationale": "Upstream doc comment linking mpv's manual."
+    },
+    {
+      "host": "plex.tv",
+      "kind": "app-request",
+      "trigger": "user-action",
+      "builds": "all",
+      "paths": [
+        "lib/core/sources/plex/plex_tv_api.dart",
+        "lib/core/sources/plex/plex_tv_endpoints.dart"
+      ],
+      "rationale": "Plex's account service, used only by Connect with Plex: mint a sign-in PIN, poll it until the user approves, then list the account's servers and Plex Home users. Nothing calls it at startup or in the background."
+    },
+    {
+      "host": "pub.dev",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/just_audio/lib/just_audio.dart"
+      ],
+      "rationale": "Upstream just_audio doc comment linking the audio_session package."
+    },
+    {
+      "host": "reddit.com",
+      "kind": "browser-link",
+      "builds": "all",
+      "paths": [
+        "lib/features/settings/hub/about_screen.dart"
+      ],
+      "rationale": "Community link on the About screen, opened in the browser when tapped."
+    },
+    {
+      "host": "schemas.android.com",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "android/app/src/**/*.xml",
+        "third_party/just_audio/android/src/main/AndroidManifest.xml"
+      ],
+      "rationale": "Android XML namespace URI. It is an identifier, never fetched."
+    },
+    {
+      "host": "somewhere.com",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/just_audio/android/src/main/java/com/ryanheise/just_audio/AudioPlayer.java"
+      ],
+      "rationale": "Placeholder URL in an upstream just_audio code comment."
+    },
+    {
+      "host": "sourceforge.net",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/libflac/src/libFLAC/lpc.c"
+      ],
+      "rationale": "Upstream libFLAC source comment citing a bug report."
+    },
+    {
+      "host": "supertech.csail.mit.edu",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/libflac/src/libFLAC/include/private/bitmath.h"
+      ],
+      "rationale": "Upstream libFLAC source comment citing a paper."
+    },
+    {
+      "host": "web.archive.org",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/libflac/include/share/compat.h"
+      ],
+      "rationale": "Upstream libFLAC source comment citing an archived page."
+    },
+    {
+      "host": "www.apache.org",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/media3_decoder_flac/src/main/**"
+      ],
+      "rationale": "Apache License URL in the licence header of every vendored Media3 FLAC decoder file."
+    },
+    {
+      "host": "www.cl.cam.ac.uk",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/libflac/src/libFLAC/format.c"
+      ],
+      "rationale": "Upstream libFLAC source comment citing the UTF-8 reference."
+    },
+    {
+      "host": "www.gnu.org",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/libflac/include/FLAC/export.h"
+      ],
+      "rationale": "Upstream libFLAC source comment linking the libtool versioning manual."
+    },
+    {
+      "host": "www.securecoding.cert.org",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/libflac/include/share/alloc.h"
+      ],
+      "rationale": "Upstream libFLAC source comment citing a secure coding rule."
+    },
+    {
+      "host": "www.unicode.org",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/libflac/src/libFLAC/format.c"
+      ],
+      "rationale": "Upstream libFLAC source comment citing the Unicode standard."
+    },
+    {
+      "host": "xiph.org",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "third_party/libflac/include/FLAC/format.h",
+        "third_party/libflac/include/FLAC/stream_decoder.h"
+      ],
+      "rationale": "Upstream libFLAC doc comments linking the FLAC format specification."
+    }
+  ]
+}

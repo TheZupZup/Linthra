@@ -55,6 +55,8 @@ The full index of Linthra's docs. New to the project? Start with the
 | Dependency update bots | [dependency-updates.md](./dependency-updates.md) |
 | PR security surface guard | [pr-security-guard.md](./pr-security-guard.md) |
 | Tracker dependency audit (no ads/analytics/telemetry SDKs) | [tracker-dependency-audit.md](./tracker-dependency-audit.md) |
+| Fixed network destinations (every host the shipped code names) | [network-destinations.md](./network-destinations.md) |
+| Privacy audit status (what is checked, and the limits) | [PRIVACY_AUDIT.md](../PRIVACY_AUDIT.md) |
 | F-Droid readiness | [fdroid-readiness.md](./fdroid-readiness.md) |
 | Google Play readiness | [play-store-readiness.md](./play-store-readiness.md) |
 | Flatpak build CI | [flatpak-ci.md](./flatpak-ci.md) |

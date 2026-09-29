@@ -16,9 +16,11 @@ step of the "Secret & privacy scan" job in [`ci.yml`](../.github/workflows/ci.ym
 `./scripts/verify_android.sh` runs it locally alongside the other guardrails.
 
 This is one part of [#504](https://github.com/TheZupZup/Linthra/issues/504),
-which asks for several independent kinds of evidence. The others (fixed network
-destinations, the Android manifest surface, a report tied to the release APK's
-SHA-256, and a runtime outbound-network smoke test) are separate work. **Nothing
+which asks for several independent kinds of evidence. Fixed network destinations
+are covered by [network-destinations.md](./network-destinations.md). The others
+(the Android manifest surface, a report tied to the release APK's SHA-256, and a
+runtime outbound-network smoke test) are separate work, and
+[PRIVACY_AUDIT.md](../PRIVACY_AUDIT.md) tracks where each one stands. **Nothing
 on this page substitutes for them** — see [Limits](#limits).
 
 ## What it proves
@@ -221,6 +223,8 @@ python3 scripts/check_tracker_dependencies.py --json
 ## See also
 
 - [`PRIVACY.md`](../PRIVACY.md) — the policy this check backs up
+- [network-destinations.md](./network-destinations.md): the same question for
+  Linthra's own code
 - [dependency-license-audit.md](./dependency-license-audit.md) — the other audit
   of the same dependency set, for licensing
 - [dependency-updates.md](./dependency-updates.md) — how dependency bumps reach
