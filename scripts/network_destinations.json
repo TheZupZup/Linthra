@@ -156,6 +156,15 @@
       "rationale": "Upstream libFLAC source comment citing the bit-twiddling hacks page."
     },
     {
+      "host": "host",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "lib/core/sources/subsonic/subsonic_server_url.dart"
+      ],
+      "rationale": "Placeholder name in a doc comment showing the shape of a Subsonic server address (`http://host:4533/rest`)."
+    },
+    {
       "host": "mpv.io",
       "kind": "reference",
       "builds": "all",

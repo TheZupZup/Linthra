@@ -88,24 +88,38 @@ fails the check rather than quietly passing.
 
 It looks for three shapes, never for keywords:
 
-- **URLs**: `scheme://host` for http, https, ws, wss, ftp and ftps. The host has
-  to be a literal. `http://$host:4533` or `https://${server}` is a configured
-  address and is skipped by construction.
+- **URLs**: `scheme://host` for http, https, ws, wss, ftp and ftps, including
+  `scheme://user:pass@host`. The host has to be a literal. `http://$host:4533` or
+  `https://${server}` is a configured address and is skipped by construction.
 - **IPv4 literals** outside a URL, like `InternetAddress('203.0.113.9')`.
-- **A host passed as a bare string** to the few APIs that take one:
-  `Uri.https('host', ...)`, `host: '...'`, `.connect('host', ...)`,
-  `lookup('host')`, `InetAddress.getByName("host")` and
-  `InetSocketAddress("host", ...)`.
+- **A host passed as a bare string** to the common APIs that take one, in each
+  language the scan reads:
+  - Dart: `Uri.https('host', ...)`, `host: '...'`, `Socket.connect('host', ...)`
+    and other `.connect(...)` calls, `InternetAddress.lookup('host')`
+  - Kotlin/Java: `InetAddress.getByName("host")`, `getAllByName`,
+    `InetSocketAddress("host", ...)`, `Socket("host", ...)`, `SSLSocket(...)`
+  - C/C++: `getaddrinfo("host", ...)`, `gethostbyname("host")`
+  - Rust: `TcpStream::connect("host:443")` and other `::connect(...)` calls,
+    `"host:443".to_socket_addrs()`
 
 Reserved names are recognised and never need an entry: the example domains
 (`example.com`, `example.net`, `example.org` and anything under them), the
-`.test`, `.example`, `.invalid` and `.localhost` top-level domains, single-label
-placeholders like `host` or `localhost`, loopback, and the documentation address
-ranges (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`).
+`.test`, `.example`, `.invalid` and `.localhost` top-level domains, `localhost`,
+loopback, and the documentation address ranges (`192.0.2.0/24`,
+`198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`).
 
-A private LAN address is **not** reserved. A hard-coded `192.168.1.1` could be a
-real destination on somebody's network, so it gets reviewed like anything else.
-That is why the two example LAN addresses in hint text and comments have entries.
+Two things are deliberately **not** reserved:
+
+- **A private LAN address.** A hard-coded `192.168.1.1` could be a real
+  destination on somebody's network, so it gets reviewed like anything else.
+  That is why the two example LAN addresses in hint text and comments have
+  entries.
+- **A dotless name.** `https://metrics/upload` can resolve through a search
+  domain, so `metrics` is a destination, not a placeholder. That is why the
+  `http://host:4533/rest` example in a Subsonic doc comment has an entry. (A
+  bare word in a `host:` named argument or a `lookup(...)` call is the
+  exception: those shapes are too common outside networking code to read as a
+  destination.)
 
 Every entry lists the files allowed to mention its host. That is the part that
 makes the check useful for review: `github.com` is fine as a browser link on the
@@ -122,6 +136,8 @@ Read this before quoting the check anywhere.
 **It does not prove Linthra cannot contact anything else.** It lists hosts that
 are written down in source. Specifically, it:
 
+- **only knows the APIs listed above.** A host handed to some other networking
+  call as a bare string, without a scheme, is not seen.
 - **can't see a host built at run time.** A host assembled from pieces, decoded
   from base64, read from a file or returned by a server (like Plex's
   `*.plex.direct` addresses) is invisible to it.

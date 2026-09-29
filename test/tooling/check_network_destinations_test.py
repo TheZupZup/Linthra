@@ -21,6 +21,7 @@ import copy
 import importlib.util
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -45,6 +46,21 @@ def _load(name: str, filename: str):
 checker = _load("check_network_destinations", "check_network_destinations.py")
 
 INVENTORY_PATH = SCRIPTS / "network_destinations.json"
+
+#: The canonical policy and the published copy on the project site. Both have
+#: to name every host Linthra's own code contacts.
+PRIVACY_POLICIES = (ROOT / "PRIVACY.md", ROOT / "docs" / "privacy.html")
+
+
+def mentions_host(text: str, host: str) -> bool:
+    """Whether `host` appears as a whole name, not inside a longer one.
+
+    `hub.com` must not count as disclosed just because `github.com` is.
+    """
+    pattern = (
+        r"(?<![A-Za-z0-9.-])" + re.escape(host) + r"(?![A-Za-z0-9-]|\.[A-Za-z0-9])"
+    )
+    return re.search(pattern, text) is not None
 
 KINDS = {
     "app-request": "Linthra connects to it",
@@ -146,15 +162,24 @@ class RealRepositoryTest(unittest.TestCase):
         self.assertEqual(checker.automatic_hosts(inventory), [])
 
     def test_every_app_request_is_documented_in_the_privacy_policy(self) -> None:
-        privacy = (ROOT / "PRIVACY.md").read_text(encoding="utf-8")
         inventory = checker.load_inventory(INVENTORY_PATH)
-        for entry in inventory.entries:
-            if entry.kind == "app-request":
-                self.assertTrue(
-                    entry.host in privacy,
-                    f"PRIVACY.md does not mention {entry.host}, which Linthra "
-                    "contacts itself",
-                )
+        for path in PRIVACY_POLICIES:
+            policy = path.read_text(encoding="utf-8")
+            for entry in inventory.entries:
+                if entry.kind == "app-request":
+                    self.assertTrue(
+                        mentions_host(policy, entry.host),
+                        f"{path.relative_to(ROOT)} does not mention {entry.host}, "
+                        "which Linthra contacts itself",
+                    )
+
+    def test_a_host_is_only_disclosed_by_its_whole_name(self) -> None:
+        text = "Linthra asks GitHub (github.com) and https://api.github.com/graphql."
+        self.assertTrue(mentions_host(text, "github.com"))
+        self.assertTrue(mentions_host(text, "api.github.com"))
+        self.assertFalse(mentions_host(text, "hub.com"))
+        self.assertFalse(mentions_host(text, "github.co"))
+        self.assertFalse(mentions_host(text, "com"))
 
     def test_the_repository_json_report_is_well_formed(self) -> None:
         inventory = checker.load_inventory(INVENTORY_PATH)
@@ -212,8 +237,42 @@ class ScanTest(unittest.TestCase):
             self.hosts(text), ["tracker.io", "beacon.io", "collector.io", "metrics.io"]
         )
 
+    def test_user_information_does_not_hide_the_host(self) -> None:
+        text = (
+            "'https://user:pass@collector.tracker.io/upload' "
+            "'ftp://anonymous@files.tracker.io'"
+        )
+        self.assertEqual(self.hosts(text), ["collector.tracker.io", "files.tracker.io"])
+
+    def test_socket_and_resolver_calls_in_every_scanned_language(self) -> None:
+        text = (
+            'Socket("a.tracker.io", 443);\n'
+            'SSLSocket("b.tracker.io", 443);\n'
+            'InetAddress.getAllByName("c.tracker.io");\n'
+            'getaddrinfo("d.tracker.io", "443", &hints, &res);\n'
+            'gethostbyname("e.tracker.io");\n'
+            'TcpStream::connect("f.tracker.io:443")?;\n'
+            '"g.tracker.io:443".to_socket_addrs()?;\n'
+        )
+        self.assertEqual(
+            self.hosts(text),
+            [f"{letter}.tracker.io" for letter in "abcdefg"],
+        )
+
+    def test_a_dotless_name_passed_to_a_network_call_is_a_host(self) -> None:
+        text = "Socket.connect('metrics', 443); getaddrinfo(\"collector\", \"80\")"
+        self.assertEqual(self.hosts(text), ["metrics", "collector"])
+
+    def test_a_dotless_url_host_is_a_host(self) -> None:
+        # `metrics` can resolve through a search domain, so it is a real
+        # destination, not a placeholder.
+        self.assertEqual(self.hosts("'https://metrics/upload'"), ["metrics"])
+
     def test_a_bare_string_that_is_not_a_host_is_ignored(self) -> None:
-        text = "Uri.http('$loopback:$port', '/id'); host: 'unknown'"
+        text = (
+            "Uri.http('$loopback:$port', '/id'); host: 'unknown'; "
+            "table.lookup('title')"
+        )
         self.assertEqual(self.hosts(text), [])
 
 
@@ -226,7 +285,6 @@ class ReservedTest(unittest.TestCase):
             "server.test",
             "a.invalid",
             "localhost",
-            "host",
             "127.0.0.1",
             "0.0.0.0",
             "::1",
@@ -243,6 +301,8 @@ class ReservedTest(unittest.TestCase):
         for host in (
             "example.co",
             "notexample.com",
+            "metrics",
+            "host",
             "plex.tv",
             "192.168.1.1",
             "10.0.0.1",
@@ -317,7 +377,7 @@ class AuditTest(unittest.TestCase):
             {
                 "lib/hint.dart": (
                     "hint: 'https://music.example.com', 'http://localhost:4533',\n"
-                    "'http://127.0.0.1:8096', 'http://host:4533/rest'\n"
+                    "'http://127.0.0.1:8096', 'http://192.0.2.10:4533/rest'\n"
                 )
             }
         )
@@ -325,6 +385,14 @@ class AuditTest(unittest.TestCase):
             report = f.audit()
             self.assertTrue(report.ok, checker.render_text(report))
             self.assertEqual(len(report.reserved), 4)
+        finally:
+            f.close()
+
+    def test_a_dotless_host_needs_review(self) -> None:
+        f = fixture({"lib/upload.dart": "post('https://metrics/upload');\n"})
+        try:
+            report = f.audit()
+            self.assertEqual(sorted(report.unreviewed_hosts), ["metrics"])
         finally:
             f.close()
 

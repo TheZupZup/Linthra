@@ -33,19 +33,21 @@ toolchain.
 
 **How it reads.** Three structured shapes, never a keyword list:
 
-  * `scheme://host` for http, https, ws, wss, ftp and ftps. The host has to be
-    a literal: `http://$host` or `https://${server}` is a user-configured
-    address and is skipped by construction.
+  * `scheme://host` for http, https, ws, wss, ftp and ftps, including URLs
+    with `user:pass@` in front of the host. The host has to be a literal:
+    `http://$host` or `https://${server}` is a user-configured address and is
+    skipped by construction.
   * IPv4 literals outside a URL, such as `InternetAddress('203.0.113.9')`.
-  * A host passed as a bare string to the few APIs that take one, such as
-    `Uri.https('host', ...)` or `InetAddress.getByName("host")`.
+  * A host passed as a bare string to the common APIs that take one, such as
+    `Uri.https('host', ...)`, `InetAddress.getByName("host")`,
+    `getaddrinfo("host", ...)` or `TcpStream::connect("host:443")`.
 
 Reserved names are recognised and never need an entry: example domains
-(RFC 2606), the `.test`/`.example`/`.invalid`/`.localhost` TLDs, single-label
-placeholders like `host`, loopback, and the RFC 5737 / RFC 3849 documentation
-address ranges. A private LAN address is *not* reserved: a hard-coded
-`192.168.1.1` could be a real destination on somebody's network, so it gets
-reviewed like any other.
+(RFC 2606), the `.test`/`.example`/`.invalid`/`.localhost` TLDs, `localhost`,
+loopback, and the RFC 5737 / RFC 3849 documentation address ranges. A private
+LAN address is *not* reserved: a hard-coded `192.168.1.1` could be a real
+destination on somebody's network, so it gets reviewed like any other. Nor is a
+dotless name like `metrics`: it can resolve through a search domain.
 
 **What this does not prove.** It lists hosts written down in source. It cannot
 see a host assembled from pieces, decoded from base64, or returned by a server
@@ -123,29 +125,50 @@ EXCLUDED_DIRS = frozenset(
 _HOST_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
 _URL = re.compile(
     r"\b(?P<scheme>https?|wss?|ftps?)://"
+    # Optional user information (`user:pass@`). Without it, the user name would
+    # be read as the host and the real destination after the `@` never seen.
+    r"(?:[^\s/?#@'\"<>]*@)?"
     r"(?P<host>\[[0-9A-Fa-f:.]+\]|" + _HOST_LABEL + r"(?:\." + _HOST_LABEL + r")*)",
     re.IGNORECASE,
 )
 _IPV4 = re.compile(r"(?<![\w.])(?P<host>\d{1,3}(?:\.\d{1,3}){3})(?![\w.])")
 
-#: APIs that take a host as a bare string rather than inside a URL. Best
-#: effort, and deliberately few: each one is a shape that has turned up in
-#: Dart, Kotlin or Java networking code. A literal containing `$` or `{` is an
-#: interpolation, which means a configured address, and is skipped.
-_HOST_ARGUMENTS = tuple(
-    re.compile(pattern)
-    for pattern in (
-        r"\bUri\.(?:https?|wss?)\(\s*['\"](?P<host>[^'\"$\{\s]+?)(?::\d+)?['\"]",
-        r"\bhost\s*:\s*['\"](?P<host>[^'\"$\{\s]+)['\"]",
-        r"\.connect\(\s*['\"](?P<host>[^'\"$\{\s]+)['\"]",
-        r"\blookup\(\s*['\"](?P<host>[^'\"$\{\s]+)['\"]",
-        r"\bgetByName\(\s*\"(?P<host>[^\"$\{\s]+)\"",
-        r"\bInetSocketAddress\(\s*\"(?P<host>[^\"$\{\s]+)\"",
+#: A string literal holding a host, optionally with a `:port`. A literal
+#: containing `$` or `{` is an interpolation, which means a configured address,
+#: and never matches.
+_HOST_LITERAL = r"['\"](?P<host>[^'\"$\{\s:]+)(?::\d+)?['\"]"
+
+#: APIs that take a host as a bare string rather than inside a URL, one or two
+#: per language the scan reads (Dart, Kotlin/Java, C/C++, Rust). Best effort,
+#: not a parser: see docs/network-destinations.md for what it cannot see.
+#:
+#: The flag says whether a dotless name counts. For the networking calls it
+#: does, because `metrics` can resolve through a search domain. For a `host:`
+#: named argument or a `lookup(...)` call it does not, because those shapes are
+#: too common outside networking code to read a bare word as a destination.
+_HOST_ARGUMENTS: tuple[tuple[re.Pattern[str], bool], ...] = tuple(
+    (re.compile(pattern), single_label)
+    for pattern, single_label in (
+        (r"\bUri\.(?:https?|wss?)\(\s*" + _HOST_LITERAL, True),
+        (r"\bhost\s*:\s*" + _HOST_LITERAL, False),
+        # Dart Socket.connect / WebSocket.connect, Rust TcpStream::connect.
+        (r"(?:\.|::)connect\(\s*" + _HOST_LITERAL, True),
+        # `lookup` is also an ordinary map/table method, so only a dotted name
+        # or an IP counts there.
+        (r"\blookup\(\s*" + _HOST_LITERAL, False),
+        # Kotlin/Java.
+        (r"\bget(?:All)?ByName\(\s*" + _HOST_LITERAL, True),
+        (r"\b(?:InetSocketAddress|Socket|SSLSocket)\(\s*" + _HOST_LITERAL, True),
+        # C/C++.
+        (r"\b(?:getaddrinfo|gethostbyname2?)\(\s*" + _HOST_LITERAL, True),
+        # Rust: "host:443".to_socket_addrs()
+        (_HOST_LITERAL + r"\s*\.to_socket_addrs\(", True),
     )
 )
 
 _RESERVED_DOMAINS = ("example.com", "example.net", "example.org")
 _RESERVED_TLDS = ("example", "invalid", "localhost", "test")
+_RESERVED_NAMES = ("localhost",)
 _DOCUMENTATION_NETWORKS = tuple(
     ipaddress.ip_network(network)
     for network in (
@@ -251,8 +274,8 @@ def reserved_reason(host: str) -> str | None:
         if any(address in network for network in _DOCUMENTATION_NETWORKS):
             return "documentation address range (RFC 5737 / RFC 3849)"
         return None
-    if "." not in host:
-        return "single-label placeholder name"
+    if host in _RESERVED_NAMES:
+        return "loopback name"
     if any(host == name or host.endswith("." + name) for name in _RESERVED_DOMAINS):
         return "reserved example domain (RFC 2606)"
     if host.rsplit(".", 1)[-1] in _RESERVED_TLDS:
@@ -260,10 +283,11 @@ def reserved_reason(host: str) -> str | None:
     return None
 
 
-def looks_like_host(value: str) -> bool:
-    """A bare-string argument worth classifying: a dotted name or an IP."""
+def looks_like_host(value: str, single_label: bool = True) -> bool:
+    """A bare-string argument worth classifying: a host name or an IP."""
+    repeat = "*" if single_label else "+"
     return parse_ip(value) is not None or bool(
-        re.fullmatch(_HOST_LABEL + r"(?:\." + _HOST_LABEL + r")+", value)
+        re.fullmatch(_HOST_LABEL + r"(?:\." + _HOST_LABEL + r")" + repeat, value)
     )
 
 
@@ -465,10 +489,10 @@ def scan_text(text: str, source: str) -> list[Observation]:
             if parse_ip(host) is None:
                 continue
             found.append(Observation(host, source, number, "IP literal"))
-        for pattern in _HOST_ARGUMENTS:
+        for pattern, single_label in _HOST_ARGUMENTS:
             for match in pattern.finditer(line):
                 host = normalise_host(match.group("host"))
-                if looks_like_host(host):
+                if looks_like_host(host, single_label):
                     found.append(Observation(host, source, number, "host argument"))
     return found
 
@@ -576,7 +600,7 @@ def render_text(report: Report) -> str:
         lines.append(f"  {(name + '/').ljust(width + 1)}  {count} files")
     lines.append(
         f"  {report.literals} host literals found, {len(report.reserved)} of them "
-        "reserved example or placeholder names"
+        "reserved example or loopback names"
     )
     lines.append("")
 

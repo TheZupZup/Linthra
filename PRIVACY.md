@@ -23,6 +23,7 @@ Depending on how the user chooses to use Linthra, the app may handle the followi
 - Playback state, queue information, favorites, playlists, and play history.
 - Self-hosted server settings, such as server URL, selected library, and connection state.
 - Authentication tokens or session details for user-configured music services such as Jellyfin, Plex, Subsonic/Navidrome, or Audiobookshelf.
+- In the GitHub Sponsor APK only, and only if the user chooses to connect GitHub: a GitHub access token, used to check sponsorship.
 - Diagnostic information generated locally when the user chooses to report a problem.
 
 ## Local music
@@ -48,7 +49,9 @@ Links in the app, such as the project page, the privacy policy or the prefilled 
 
 ## Authentication and tokens
 
-Authentication tokens and session information are stored locally on the user's device. Linthra uses them only to connect to the music servers configured by the user.
+Authentication tokens and session information are stored locally on the user's device, in the platform's secure storage. Linthra uses music server tokens only to connect to the music servers configured by the user.
+
+In the GitHub Sponsor APK, if the user connects GitHub, Linthra also stores the GitHub access token that GitHub issues for it. The token is limited to reading the user's GitHub profile (the `read:user` scope). Linthra sends it only to GitHub's API (api.github.com), only to check whether the account sponsors the project, and deletes it when the user disconnects GitHub. No other build stores a GitHub token.
 
 Linthra is designed to avoid storing tokenized stream URLs in long-term storage, logs, diagnostics, or cache metadata.
 
@@ -56,7 +59,7 @@ Linthra is designed to avoid storing tokenized stream URLs in long-term storage,
 
 Linthra does not sell or share user data with advertisers or data brokers.
 
-Linthra may communicate with user-configured music servers only when needed for app functionality, such as signing in, browsing a library, streaming tracks, fetching artwork, syncing metadata, or reporting playback state.
+Linthra may communicate with user-configured music servers only when needed for app functionality, such as signing in, browsing a library, streaming tracks, fetching artwork, syncing metadata, or reporting playback state. The only other services it contacts are the ones listed under "Other services Linthra contacts" above, in the situations described there.
 
 ## Data storage and deletion
 
