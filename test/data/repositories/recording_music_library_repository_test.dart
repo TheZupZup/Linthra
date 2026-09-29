@@ -1,9 +1,12 @@
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
+import 'package:linthra/data/database/linthra_database.dart';
+import 'package:linthra/data/repositories/drift_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_library_added_store.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/recording_music_library_repository.dart';
@@ -196,6 +199,87 @@ void main() {
       expect(
           stamped.map((StampedTrack s) => s.track.uri), <String>['jellyfin:1']);
       expect(stamped.single.stamp, isNull);
+    });
+
+    group('reconciling writes and counting (#680)', () {
+      late LinthraDatabase db;
+      late RecordingMusicLibraryRepository repo;
+      final DateTime now = DateTime(2026, 9, 28, 12);
+
+      setUp(() {
+        db = LinthraDatabase.forTesting(NativeDatabase.memory());
+        repo = RecordingMusicLibraryRepository(
+          delegate: DriftMusicLibraryRepository(db),
+          addedStore: addedStore,
+          now: () => now,
+        );
+      });
+
+      tearDown(() => db.close());
+
+      test('upsertTracks reaches the delegate and stamps new tracks', () async {
+        await repo.upsertTracks(
+          sourceId: 'jellyfin',
+          tracks: <Track>[_t('a'), _t('b')],
+        );
+
+        expect((await repo.getAllTracks()).map((Track t) => t.uri),
+            unorderedEquals(<String>['jellyfin:a', 'jellyfin:b']));
+        final Map<String, DateTime> added = await addedStore.load();
+        expect(added['jellyfin:a'], now);
+        expect(added['jellyfin:b'], now);
+      });
+
+      test('removeTracksNotIn prunes through the delegate and forgets stamps',
+          () async {
+        await repo.upsertTracks(
+          sourceId: 'jellyfin',
+          tracks: <Track>[_t('a'), _t('b')],
+        );
+
+        final List<String> removed = await repo.removeTracksNotIn(
+          sourceId: 'jellyfin',
+          keepUris: <String>{'jellyfin:a'},
+        );
+
+        expect(removed, <String>['jellyfin:b']);
+        expect((await repo.getAllTracks()).map((Track t) => t.uri),
+            <String>['jellyfin:a']);
+        final Map<String, DateTime> added = await addedStore.load();
+        expect(added.containsKey('jellyfin:a'), isTrue);
+        expect(added.containsKey('jellyfin:b'), isFalse);
+      });
+
+      test('countTracks reaches the delegate', () async {
+        await repo.upsertTracks(sourceId: 'jellyfin', tracks: <Track>[_t('a')]);
+
+        expect(await repo.countTracks(), 1);
+        expect(await repo.countTracks(sourceId: 'jellyfin'), 1);
+        expect(await repo.countTracks(sourceId: 'plex'), 0);
+      });
+
+      test('a delegate without the capabilities fails loudly', () async {
+        // Never a silent fallback: an append is not an upsert, and a prune
+        // must never guess.
+        final RecordingMusicLibraryRepository blind =
+            RecordingMusicLibraryRepository(
+          delegate: _SliceBlindRepository(),
+          addedStore: addedStore,
+        );
+
+        expect(
+          () => blind.upsertTracks(sourceId: 'jellyfin', tracks: <Track>[]),
+          throwsUnsupportedError,
+        );
+        expect(
+          () => blind.removeTracksNotIn(
+            sourceId: 'jellyfin',
+            keepUris: <String>{},
+          ),
+          throwsUnsupportedError,
+        );
+        expect(() => blind.countTracks(), throwsUnsupportedError);
+      });
     });
 
     test('a delegate that cannot read a slice fails loudly', () async {

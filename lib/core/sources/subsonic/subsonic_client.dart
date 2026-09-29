@@ -37,6 +37,17 @@ abstract interface class SubsonicClient {
   /// album in one call.
   Future<List<SubsonicAlbumDto>> getAlbums(SubsonicSession session);
 
+  /// One page of the ID3 album list (`getAlbumList2`, alphabetical): at most
+  /// [size] entries starting at [offset]. A page whose
+  /// [SubsonicAlbumPage.entryCount] is below [size] is the last one. Lets a
+  /// caller that must know whether it saw *every* album (the library sync)
+  /// walk the pages itself.
+  Future<SubsonicAlbumPage> getAlbumListPage(
+    SubsonicSession session, {
+    required int size,
+    required int offset,
+  });
+
   /// The songs of one album.
   Future<List<SubsonicSongDto>> getAlbumSongs(
     SubsonicSession session,

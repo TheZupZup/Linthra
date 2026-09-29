@@ -137,6 +137,18 @@ class FakeSubsonicClient implements SubsonicClient {
   }
 
   @override
+  Future<SubsonicAlbumPage> getAlbumListPage(
+    SubsonicSession session, {
+    required int size,
+    required int offset,
+  }) async {
+    final SubsonicException? error = listError;
+    if (error != null) throw error;
+    final List<SubsonicAlbumDto> page = albums.skip(offset).take(size).toList();
+    return SubsonicAlbumPage(albums: page, entryCount: page.length);
+  }
+
+  @override
   Future<List<SubsonicSongDto>> getAlbumSongs(
     SubsonicSession session,
     String albumId,

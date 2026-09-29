@@ -103,10 +103,14 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
   first sync fails (server unreachable right after sign-in) the account stays
   connected and the sync retries on the next fresh connection — with manual sync
   always available.
-- **Sync library** (“Sync Navidrome library”): artists, albums, and tracks are
-  fetched (walking the ID3 album lists) and upserted into the local catalog
-  under the `subsonic` source id. The same sync also imports **playlists** and
-  adopts server **favourites** (below), best-effort.
+- **Sync library** (“Sync Navidrome library”): tracks are read by walking the
+  ID3 album lists and saved into the local catalog under the `subsonic` source
+  id in batches as they arrive, so a large library fills in progressively.
+  Tracks removed on the server are dropped only after a sync that read the
+  whole library; an interrupted sync keeps everything already saved (and the
+  previous catalog), and is retried the next time the app opens or comes back
+  to the foreground. The same sync also imports **playlists** and adopts server
+  **favourites** (below), best-effort.
 - **Favourites / hearts**: the heart on a Subsonic track mirrors two-way with
   the server. Hearting sends `star`, un-hearting sends `unstar`, and a **Sync
   library** (or app launch) reads `getStarred2` to reflect stars set on another
