@@ -382,6 +382,20 @@ class ScanTest(unittest.TestCase):
             self.hosts(text), ["a.tracker.io", "b.tracker.io", "c.tracker.io"]
         )
 
+    def test_raw_string_literals_in_bare_host_calls(self) -> None:
+        text = (
+            "Socket.connect(r'a.tracker.io', 443);\n"
+            'TcpStream::connect(r#"b.tracker.io:443"#);\n'
+            'getaddrinfo(R"(c.tracker.io)", "443", &h, &r);\n'
+        )
+        self.assertEqual(
+            self.hosts(text), ["a.tracker.io", "b.tracker.io", "c.tracker.io"]
+        )
+
+    def test_a_single_label_mailto_domain_is_read(self) -> None:
+        text = "launch('mailto:ops@metrics'); final pkg = 'name@1.2';"
+        self.assertEqual(self.hosts(text), ["metrics"])
+
     def test_code_paths_and_times_are_not_ipv6(self) -> None:
         text = "std::vector a::b ff:: at 12:30:45, mac de:ad:be:ef:00:11"
         self.assertEqual(self.hosts(text), [])
@@ -538,6 +552,73 @@ class AuditTest(unittest.TestCase):
             self.assertEqual(
                 sorted(report.unreviewed_hosts),
                 ["a.tracker.io", "b.tracker.io", "c.tracker.io", "e.tracker.io"],
+            )
+        finally:
+            f.close()
+
+    def test_a_utf16_asset_is_decoded(self) -> None:
+        f = fixture()
+        try:
+            raw = f.root / "android" / "app" / "src" / "main" / "res" / "raw"
+            raw.mkdir(parents=True)
+            (raw / "bom.json").write_bytes(
+                '"https://a.tracker.io"'.encode("utf-16")
+            )
+            (raw / "nobom.txt").write_bytes(
+                "https://b.tracker.io".encode("utf-16-le")
+            )
+            report = f.audit()
+            self.assertEqual(
+                sorted(report.unreviewed_hosts), ["a.tracker.io", "b.tracker.io"]
+            )
+        finally:
+            f.close()
+
+    def test_an_unreadable_asset_of_unknown_type_fails_closed(self) -> None:
+        f = fixture()
+        try:
+            raw = f.root / "android" / "app" / "src" / "main" / "assets"
+            raw.mkdir(parents=True)
+            (raw / "model.tflite").write_bytes(b"\x00\x01\xff\xfe\x80\x81\x00")
+            code, _, err = f.run()
+            self.assertEqual(code, 2)
+            self.assertIn("model.tflite", err)
+        finally:
+            f.close()
+
+    def test_nested_asset_metadata_is_not_an_asset(self) -> None:
+        f = fixture(
+            {
+                "pubspec.yaml": (
+                    "name: app\nflutter:\n  assets:\n"
+                    "    - path: assets/extra.txt\n"
+                    "      flavors:\n        - development\n        - production\n"
+                ),
+                "assets/extra.txt": "nothing to see\n",
+            }
+        )
+        try:
+            self.assertTrue(f.audit().ok)
+        finally:
+            f.close()
+
+    def test_build_files_that_inject_values_are_read(self) -> None:
+        f = fixture(
+            {
+                "android/app/build.gradle": (
+                    "android { defaultConfig {\n"
+                    '  buildConfigField "String", "API", "\\"https://a.tracker.io\\""\n'
+                    "} }\n"
+                ),
+                "android/gradle.properties": "endpoint=https://b.tracker.io\n",
+                "third_party/pkg/build.gradle": 'resValue "string", "u", "https://c.tracker.io"\n',
+            }
+        )
+        try:
+            report = f.audit()
+            self.assertEqual(
+                sorted(report.unreviewed_hosts),
+                ["a.tracker.io", "b.tracker.io", "c.tracker.io"],
             )
         finally:
             f.close()

@@ -247,17 +247,19 @@ class _GitHubSponsorLockedContent extends ConsumerWidget {
               children: <Widget>[
                 // A connected account's token is checked again at every
                 // launch, so it has to be removable whatever the check said,
-                // not only once a sponsorship is verified.
-                TextButton.icon(
-                  key: const Key('custom-theme-disconnect-github'),
-                  onPressed: checking
-                      ? null
-                      : () => ref
-                          .read(githubSponsorControllerProvider.notifier)
-                          .disconnect(),
-                  icon: const Icon(Icons.logout),
-                  label: const Text('Disconnect GitHub'),
-                ),
+                // not only once a sponsorship is verified. A sign-in that
+                // failed before any token was stored has nothing to remove.
+                if (status?.connected ?? false)
+                  TextButton.icon(
+                    key: const Key('custom-theme-disconnect-github'),
+                    onPressed: checking
+                        ? null
+                        : () => ref
+                            .read(githubSponsorControllerProvider.notifier)
+                            .disconnect(),
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Disconnect GitHub'),
+                  ),
                 TextButton.icon(
                   key: const Key('custom-theme-refresh-sponsorship'),
                   onPressed: checking

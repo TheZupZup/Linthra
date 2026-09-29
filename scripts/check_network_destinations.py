@@ -129,6 +129,52 @@ SOURCE_SUFFIXES = frozenset(
 #: `res/raw*/`.
 ASSET_ROOT_NAME = "declared assets"
 
+#: Asset types that are binary by nature and are skipped. Any other asset has
+#: to decode as text (UTF-8, or UTF-16/32 with a byte-order mark, or BOM-less
+#: UTF-16), or the check fails: an asset it cannot read is a hole, not a pass.
+#: A new binary format goes on this list in a reviewed change.
+BINARY_ASSET_SUFFIXES = frozenset(
+    {
+        ".aac",
+        ".bin",
+        ".bmp",
+        ".flac",
+        ".gif",
+        ".gz",
+        ".ico",
+        ".jpeg",
+        ".jpg",
+        ".m4a",
+        ".mp3",
+        ".mp4",
+        ".ogg",
+        ".opus",
+        ".otf",
+        ".png",
+        ".ttf",
+        ".wav",
+        ".webm",
+        ".webp",
+        ".woff",
+        ".woff2",
+        ".xz",
+        ".zip",
+    }
+)
+
+#: Build files that put values into the shipped app (Gradle's
+#: `buildConfigField`, `resValue` and manifest placeholders, Gradle
+#: properties) for the app module and the vendored Android modules. Globs from
+#: the repository root; they may match nothing.
+BUILD_INPUT_GLOBS: tuple[str, ...] = (
+    "android/app/*.gradle",
+    "android/app/*.gradle.kts",
+    "android/gradle.properties",
+    "third_party/*/build.gradle",
+    "third_party/*/android/build.gradle",
+)
+BUILD_INPUT_ROOT_NAME = "build inputs"
+
 #: Directory names that never ship: tests, examples, and the vendored plugins'
 #: Apple platforms (Linthra builds for Android and Linux only).
 EXCLUDED_DIRS = frozenset(
@@ -169,14 +215,23 @@ _QUOTED_IPV6 = re.compile(
 #: Mail recipients: a `mailto:` link, or an address written as a whole string
 #: literal (`'support@example.org'`). The domain is what gets reviewed.
 _MAIL = re.compile(
-    r"(?:\bmailto:[^@\s'\"<>?]+@|['\"][A-Za-z0-9._%+-]+@)"
-    r"(?P<host>" + _HOST_LABEL + r"(?:\." + _HOST_LABEL + r")+)"
+    # A mailto: link, whose domain may be a single label (`ops@metrics`).
+    r"\bmailto:[^@\s'\"<>?]+@(?P<host>" + _HOST_LABEL + r"(?:\." + _HOST_LABEL + r")*)"
+    # Or an address written as a whole string literal. A dot is required here,
+    # because `'name@version'` style strings are common outside mail.
+    r"|['\"][A-Za-z0-9._%+-]+@(?P<literal_host>"
+    + _HOST_LABEL
+    + r"(?:\."
+    + _HOST_LABEL
+    + r")+)"
 )
 
 #: A string literal holding a host, optionally with a `:port`. A literal
 #: containing `$` or `{` is an interpolation, which means a configured address,
 #: and never matches.
-_HOST_LITERAL = r"['\"](?P<host>[^'\"$\{\s:]+)(?::\d+)?['\"]"
+#: Raw literals count too: Dart `r'host'`, Rust `r"host"` / `r#"host"#`, C++
+#: `R"(host)"`.
+_HOST_LITERAL = r"(?:r#*|R)?['\"]\(?(?P<host>[^'\"$\{\s:()]+)(?::\d+)?\)?['\"]#*"
 
 #: APIs that take a host as a bare string rather than inside a URL, one or two
 #: per language the scan reads (Dart, Kotlin/Java, C/C++, Rust). Best effort,
@@ -556,9 +611,14 @@ def scan_text(text: str, source: str) -> list[Observation]:
                     continue
                 found.append(Observation(host, source, number, "IP literal"))
         for match in _MAIL.finditer(line):
+            literal = match.group("literal_host")
+            if literal and literal.rsplit(".", 1)[-1].isdigit():
+                # `'name@1.2'` is a version, not an address: a real top-level
+                # domain always has a letter in it.
+                continue
             found.append(
                 Observation(
-                    normalise_host(match.group("host")),
+                    normalise_host(match.group("host") or match.group("literal_host")),
                     source,
                     number,
                     "mail recipient",
@@ -587,6 +647,7 @@ def flutter_asset_paths(pubspec: str) -> list[str]:
     paths: list[str] = []
     in_flutter = in_assets = False
     assets_indent = 0
+    item_indent: int | None = None
     for line in pubspec.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -597,13 +658,17 @@ def flutter_asset_paths(pubspec: str) -> list[str]:
             in_assets = False
             continue
         if in_flutter and stripped == "assets:":
-            in_assets, assets_indent = True, indent
+            in_assets, assets_indent, item_indent = True, indent, None
             continue
         if in_assets:
             if indent <= assets_indent:
                 in_assets = False
                 continue
-            if stripped.startswith("- "):
+            # Only items at the list's own indentation are assets. Deeper ones
+            # are metadata of a map-form entry (`flavors: [...]` as a list).
+            if stripped.startswith("- ") and item_indent is None:
+                item_indent = indent
+            if stripped.startswith("- ") and indent == item_indent:
                 value = stripped[2:].strip()
                 if value.startswith("path:"):
                     value = value[len("path:") :].strip()
@@ -618,15 +683,48 @@ def is_android_asset(parts: tuple[str, ...]) -> bool:
     )
 
 
-def is_text(path: Path) -> bool:
-    data = path.read_bytes()
-    if b"\0" in data:
-        return False
-    try:
-        data.decode("utf-8")
-    except UnicodeDecodeError:
-        return False
-    return True
+def decode_text(data: bytes) -> str | None:
+    """Text in the encodings an app asset realistically uses, or None."""
+    boms = (
+        (b"\xef\xbb\xbf", "utf-8-sig"),
+        (b"\xff\xfe\x00\x00", "utf-32"),
+        (b"\x00\x00\xfe\xff", "utf-32"),
+        (b"\xff\xfe", "utf-16"),
+        (b"\xfe\xff", "utf-16"),
+    )
+    for bom, encoding in boms:
+        if data.startswith(bom):
+            try:
+                return data.decode(encoding)
+            except UnicodeDecodeError:
+                return None
+    if b"\0" not in data:
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    # BOM-less UTF-16: every other byte of ASCII-range text is NUL.
+    if len(data) % 2 == 0:
+        encoding = "utf-16-le" if data[1::2].count(0) > len(data) // 4 else "utf-16-be"
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            return None
+    return None
+
+
+def read_asset(root: Path, path: Path) -> str | None:
+    """An asset's text, None for a known binary type, or a SourceError."""
+    if path.suffix.lower() in BINARY_ASSET_SUFFIXES:
+        return None
+    text = decode_text(path.read_bytes())
+    if text is None:
+        raise SourceError(
+            f"{path.relative_to(root).as_posix()}: a packaged asset that is "
+            "neither a known binary type nor readable text. If it is binary, add "
+            "its suffix to BINARY_ASSET_SUFFIXES in a reviewed change."
+        )
+    return text
 
 
 def asset_files(root: Path) -> list[Path]:
@@ -652,7 +750,16 @@ def asset_files(root: Path) -> list[Path]:
             for path in android.rglob("*")
             if path.is_file() and is_android_asset(path.relative_to(root).parts)
         )
-    return sorted(path for path in found if is_text(path))
+    return sorted(
+        path for path in found if path.suffix.lower() not in BINARY_ASSET_SUFFIXES
+    )
+
+
+def build_input_files(root: Path) -> list[Path]:
+    found: set[Path] = set()
+    for pattern in BUILD_INPUT_GLOBS:
+        found.update(path for path in root.glob(pattern) if path.is_file())
+    return sorted(found)
 
 
 def shipped_files(root: Path) -> tuple[list[Path], list[tuple[str, int]]]:
@@ -686,6 +793,9 @@ def shipped_files(root: Path) -> tuple[list[Path], list[tuple[str, int]]]:
         counts.append((relative, len(found)))
     files.extend(assets)
     counts.append((ASSET_ROOT_NAME, len(assets)))
+    build_inputs = [path for path in build_input_files(root) if path not in files]
+    files.extend(build_inputs)
+    counts.append((BUILD_INPUT_ROOT_NAME, len(build_inputs)))
     return files, counts
 
 
@@ -693,13 +803,19 @@ def audit(root: Path, inventory: Inventory) -> Report:
     files, counts = shipped_files(root)
     report = Report(inventory=inventory, files_read=len(files), roots=counts)
 
+    assets = set(asset_files(root))
     observations: list[Observation] = []
     for path in files:
         relative = path.relative_to(root).as_posix()
-        try:
-            text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError as error:
-            raise SourceError(f"{relative}: not UTF-8 text ({error})") from error
+        if path in assets:
+            text = read_asset(root, path)
+            if text is None:
+                continue
+        else:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError as error:
+                raise SourceError(f"{relative}: not UTF-8 text ({error})") from error
         observations.extend(scan_text(text, relative))
     report.literals = len(observations)
 
@@ -759,7 +875,7 @@ def render_text(report: Report) -> str:
     ]
     width = max(len(name) for name, _ in report.roots)
     for name, count in report.roots:
-        label = name if name == ASSET_ROOT_NAME else name + "/"
+        label = name if name in (ASSET_ROOT_NAME, BUILD_INPUT_ROOT_NAME) else name + "/"
         lines.append(f"  {label.ljust(width + 1)}  {count} files")
     lines.append(
         f"  {report.literals} host literals found, {len(report.reserved)} of them "

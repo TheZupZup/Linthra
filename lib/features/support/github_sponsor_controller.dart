@@ -43,6 +43,7 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
       return GitHubSponsorStatus(
         access: GitHubSponsorAccess.error,
         message: _messageFor(error),
+        connected: true,
       );
     }
   }
@@ -57,6 +58,7 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
         GitHubSponsorStatus(
           access: GitHubSponsorAccess.error,
           message: _messageFor(error),
+          connected: await _hasStoredAuthorization(),
         ),
       );
       rethrow;
@@ -78,6 +80,7 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
       final GitHubSponsorStatus status = GitHubSponsorStatus(
         access: GitHubSponsorAccess.error,
         message: _messageFor(error),
+        connected: await _hasStoredAuthorization(),
       );
       state = AsyncData(status);
       return status;
@@ -101,6 +104,7 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
       final GitHubSponsorStatus status = GitHubSponsorStatus(
         access: GitHubSponsorAccess.error,
         message: _messageFor(error),
+        connected: await _hasStoredAuthorization(),
       );
       state = AsyncData(status);
       return status;
@@ -124,7 +128,19 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
       message: verification.hasActiveMonthlySponsorship
           ? null
           : 'This GitHub account does not have an active monthly sponsorship.',
+      connected: true,
     );
+  }
+
+  /// Whether a token is stored, so an error status can say whether there is
+  /// anything to disconnect. A store that cannot be read counts as nothing
+  /// stored: there is then nothing Linthra could send either.
+  Future<bool> _hasStoredAuthorization() async {
+    try {
+      return await ref.read(githubSponsorTokenStoreProvider).read() != null;
+    } on Object {
+      return false;
+    }
   }
 
   String _messageFor(Object error) {

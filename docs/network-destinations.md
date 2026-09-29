@@ -72,18 +72,21 @@ The source that ends up in a shipped build:
 | `native/` | The Rust and C++ libraries |
 | `third_party/` | Vendored packages (just_audio, just_audio_media_kit, libFLAC, the Media3 FLAC decoder) |
 | declared assets | Files `pubspec.yaml` lists under `flutter: assets:`, and anything under an Android source set's `assets/` or `res/raw*/` |
+| build inputs | `android/app/*.gradle(.kts)`, `android/gradle.properties` and the vendored modules' `build.gradle`: they can put values into the app (`buildConfigField`, `resValue`, manifest placeholders) |
 
 In the source roots, only source file types are read (`.dart`, `.kt`, `.java`,
 `.xml`, `.c`, `.cc`, `.cpp`, `.h`, `.hpp`, `.rs`, `.desktop`). Packaged assets
 are read whatever their type (JSON, text, config), because the app can load a
-URL from one at run time; only binary files like images are skipped, and an
-asset `pubspec.yaml` declares but that doesn't exist fails the check. There are
-no packaged assets today. Directories that never ship are
+URL from one at run time. Text is decoded as UTF-8, or UTF-16/32 (with or
+without a byte-order mark). Known binary types like images and audio are
+skipped; any other asset that isn't readable text fails the check, as does an
+asset `pubspec.yaml` declares but that doesn't exist. There are no packaged
+assets today. Directories that never ship are
 skipped: `test`, `tests`, `androidTest`, `example`, `build`, and the vendored
 plugins' Apple platforms (`darwin`, `ios`, `macos`).
 
-Build files are out of scope on purpose. Gradle repositories and the Flatpak
-manifests describe what the build downloads, not what the app contacts, and
+Other build files are out of scope on purpose. The Flatpak manifests and
+CMake files describe what the build downloads, not what the app contacts, and
 they are pinned by their own checks
 ([flatpak-source-pinning.md](./flatpak-source-pinning.md)).
 
@@ -104,8 +107,9 @@ It looks for four shapes, never for keywords:
   an address. Written as a string literal it always counts, even letter-only
   like `'dead:beef::cafe'`. Outside a string it also needs a digit, so code
   paths like `std::vector` or `a::b` don't count.
-- **Mail recipients**: a `mailto:` link or an address written as a whole string
-  literal (`'support@example.org'`). The domain is what gets reviewed.
+- **Mail recipients**: a `mailto:` link (its domain can be a single label, like
+  `ops@metrics`) or an address written as a whole string literal
+  (`'support@example.org'`). The domain is what gets reviewed.
 - **A host passed as a bare string** to the common APIs that take one, in each
   language the scan reads. These are matched across line breaks, so a call
   formatted over several lines is still seen:
@@ -160,7 +164,12 @@ Read this before quoting the check anywhere.
 are written down in source. Specifically, it:
 
 - **only knows the APIs listed above.** A host handed to some other networking
-  call as a bare string, without a scheme, is not seen.
+  call as a bare string, without a scheme, is not seen. Raw string literals
+  (`r'host'`, `r#"host"#`, `R"(host)"`) are handled for those APIs.
+- **doesn't see values passed at build time.** A value given to
+  `flutter build --dart-define` lives in the workflow, not the source. None of
+  Linthra's dart-defines carries a host today; a new one that does would need
+  a reviewer to spot it.
 - **can't see a host built at run time.** A host assembled from pieces, decoded
   from base64, read from a file or returned by a server (like Plex's
   `*.plex.direct` addresses) is invisible to it.
