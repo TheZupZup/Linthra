@@ -171,15 +171,38 @@ BUILD_INPUT_GLOBS: tuple[str, ...] = (
     "android/app/*.gradle.kts",
     "android/gradle.properties",
     "third_party/*/build.gradle",
+    "third_party/*/build.gradle.kts",
     "third_party/*/android/build.gradle",
+    "third_party/*/android/build.gradle.kts",
 )
 BUILD_INPUT_ROOT_NAME = "build inputs"
 
-#: Directory names that never ship: tests, examples, and the vendored plugins'
-#: Apple platforms (Linthra builds for Android and Linux only).
-EXCLUDED_DIRS = frozenset(
-    {"androidTest", "build", "darwin", "example", "ios", "macos", "test", "tests"}
+#: Directories that never ship, by *position* rather than by name alone, so a
+#: `lib/build/` or `lib/test/` holding shipped code is still read:
+#:   * directly under a vendored or native package (`third_party/<pkg>/test`,
+#:     `native/<pkg>/tests`): its tests, examples, build output, and the Apple
+#:     platforms Linthra does not build for;
+#:   * an Android test source set (`src/test`, `src/androidTest`), in the app
+#:     module or a vendored module.
+PACKAGE_EXCLUDED_DIRS = frozenset(
+    {"build", "darwin", "example", "ios", "macos", "test", "tests"}
 )
+ANDROID_TEST_SOURCE_SETS = frozenset({"androidTest", "test"})
+
+
+def is_excluded(parts: tuple[str, ...]) -> bool:
+    """Whether a file (given as its path parts) sits somewhere that never ships."""
+    if (
+        parts[0] in ("third_party", "native")
+        and len(parts) > 3
+        and parts[2] in PACKAGE_EXCLUDED_DIRS
+    ):
+        return True
+    return any(
+        parts[index] == "src" and parts[index + 1] in ANDROID_TEST_SOURCE_SETS
+        for index in range(len(parts) - 2)
+    )
+
 
 #: One label of a host name. Underscores are not valid in DNS host names, but
 #: private resolvers answer for them (`api_v2.internal`), so they count.
@@ -196,10 +219,14 @@ _URL = re.compile(
     # `https://cdn-$region.example.org` is a configured address, not a URL for
     # the host `api` or `cdn`, and in `ftp://anonymous@$server` or
     # `https://user:pass@${host}` the name before the `@` is not a host at all.
-    # A trailing full stop in prose still ends a host.
-    r"(?![\w$\{@-])(?!\.[\w$\{])(?![:][^\s/?#@'\"<>]*@)",
+    # A trailing full stop in prose still ends a host. An interpolation right
+    # after a *dotted* host (`https://collector.example.io$path`) is a path, and
+    # the host is kept; after a single label (`https://api$x`) it is skipped in
+    # scan_text().
+    r"(?![\w@-])(?!\.[\w$\{])(?![:][^\s/?#@'\"<>]*@)",
     re.IGNORECASE,
 )
+_URL_TOKEN_END = re.compile(r"[^\s'\"<>`]*")
 _IPV4 = re.compile(r"(?<![\w.])(?P<host>\d{1,3}(?:\.\d{1,3}){3})(?![\w.])")
 #: IPv6 literals outside a URL, bracketed or not. Candidates are only kept when
 #: they parse as an IPv6 address, which rules out times, MAC addresses and
@@ -216,14 +243,18 @@ _QUOTED_IPV6 = re.compile(
 #: literal (`'support@example.org'`). The domain is what gets reviewed.
 _MAIL = re.compile(
     # A mailto: link, whose domain may be a single label (`ops@metrics`).
-    r"\bmailto:[^@\s'\"<>?]+@(?P<host>" + _HOST_LABEL + r"(?:\." + _HOST_LABEL + r")*)"
+    r"\bmailto:[^@\s'\"<>?]+@(?P<host>"
+    + _HOST_LABEL
+    + r"(?:\."
+    + _HOST_LABEL
+    + r")*)(?![\w$\{@-])(?!\.[\w$\{])"
     # Or an address written as a whole string literal. A dot is required here,
     # because `'name@version'` style strings are common outside mail.
     r"|['\"][A-Za-z0-9._%+-]+@(?P<literal_host>"
     + _HOST_LABEL
     + r"(?:\."
     + _HOST_LABEL
-    + r")+)"
+    + r")+)(?=['\"])"
 )
 
 #: A string literal holding a host, optionally with a `:port`. A literal
@@ -268,6 +299,12 @@ _HOST_ARGUMENTS: tuple[tuple[re.Pattern[str], bool], ...] = tuple(
             True,
         ),
         (r"\.open\(\s*['\"][A-Za-z]+['\"]\s*,\s*" + _HOST_LITERAL, True),
+        # Android XML that holds a host without a scheme: a network security
+        # config `<domain>`, a manifest `android:host`, and a string resource
+        # whose whole value is a host name.
+        (r"<domain\b[^>]*>\s*(?P<host>[^<\s]+)\s*</domain>", True),
+        (r"\bandroid:host\s*=\s*\"(?P<host>[^\"$\{\s]+)\"", True),
+        (r"<string\b[^>]*>\s*(?P<host>[^<\s]+)\s*</string>", False),
     )
 )
 
@@ -579,7 +616,15 @@ def scan_text(text: str, source: str) -> list[Observation]:
     for number, line in enumerate(text.splitlines(), start=1):
         spans: list[tuple[int, int]] = []
         for match in _URL.finditer(line):
-            spans.append(match.span())
+            host = normalise_host(match.group("host"))
+            if "." not in host and line[match.end() : match.end() + 1] in ("$", "{"):
+                # `https://api$suffix`: the host itself is interpolated.
+                continue
+            # The whole URL token, path and query included, so an IP-shaped
+            # value carried in it (`/check/8.8.8.8`) is not read as a second
+            # destination.
+            token_end = _URL_TOKEN_END.match(line, match.end()).end()
+            spans.append((match.start(), token_end))
             found.append(
                 Observation(
                     normalise_host(match.group("host")),
@@ -629,6 +674,10 @@ def scan_text(text: str, source: str) -> list[Observation]:
     for pattern, single_label in _HOST_ARGUMENTS:
         for match in pattern.finditer(text):
             host = normalise_host(match.group("host"))
+            if parse_ip(host) is None and host.rsplit(".", 1)[-1].isdigit():
+                # `1.2.3` is a version, not a host: a real top-level domain
+                # always has a letter in it.
+                continue
             if looks_like_host(host, single_label):
                 number = text.count("\n", 0, match.start("host")) + 1
                 found.append(Observation(host, source, number, "host argument"))
@@ -657,8 +706,23 @@ def flutter_asset_paths(pubspec: str) -> list[str]:
             in_flutter = stripped == "flutter:"
             in_assets = False
             continue
-        if in_flutter and stripped == "assets:":
-            in_assets, assets_indent, item_indent = True, indent, None
+        if in_flutter and stripped.startswith("assets:"):
+            rest = stripped[len("assets:") :].strip()
+            if not rest:
+                in_assets, assets_indent, item_indent = True, indent, None
+                continue
+            # Flow style, `assets: [a, b]`. Anything else is a shape this
+            # reader does not know, and an asset list it cannot read is a hole.
+            if not (rest.startswith("[") and rest.endswith("]")):
+                raise SourceError(
+                    f"pubspec.yaml: cannot read `assets: {rest}`. Write the "
+                    "list as `- path` lines or `[a, b]` on one line."
+                )
+            paths.extend(
+                item.strip().strip("'\"")
+                for item in rest[1:-1].split(",")
+                if item.strip()
+            )
             continue
         if in_assets:
             if indent <= assets_indent:
@@ -703,13 +767,27 @@ def decode_text(data: bytes) -> str | None:
             return data.decode("utf-8")
         except UnicodeDecodeError:
             return None
-    # BOM-less UTF-16: every other byte of ASCII-range text is NUL.
+    # BOM-less UTF-32 before UTF-16: ASCII-range UTF-32 has three NULs in every
+    # four bytes, which UTF-16 would decode "successfully" into garbage.
+    candidates: list[str] = []
+    if len(data) % 4 == 0:
+        quarter = len(data) // 4
+        if all(data[i::4].count(0) == quarter for i in (1, 2, 3)):
+            candidates.append("utf-32-le")
+        elif all(data[i::4].count(0) == quarter for i in (0, 1, 2)):
+            candidates.append("utf-32-be")
     if len(data) % 2 == 0:
-        encoding = "utf-16-le" if data[1::2].count(0) > len(data) // 4 else "utf-16-be"
+        candidates.append(
+            "utf-16-le" if data[1::2].count(0) > len(data) // 4 else "utf-16-be"
+        )
+    for encoding in candidates:
         try:
-            return data.decode(encoding)
+            text = data.decode(encoding)
         except UnicodeDecodeError:
-            return None
+            continue
+        # A wrong guess decodes into text full of NULs; that is not text.
+        if "\0" not in text:
+            return text
     return None
 
 
@@ -782,7 +860,7 @@ def shipped_files(root: Path) -> tuple[list[Path], list[tuple[str, int]]]:
             if path.is_file()
             and path.suffix in SOURCE_SUFFIXES
             and path not in assets
-            and not EXCLUDED_DIRS.intersection(path.relative_to(root).parts[:-1])
+            and not is_excluded(path.relative_to(root).parts)
         )
         if not found and required:
             raise SourceError(

@@ -70,6 +70,28 @@ def disclosure_section(path: Path) -> str:
     return body if end == -1 else body[:end]
 
 
+#: What a disclosure item has to say for each inventory value, so the policy
+#: cannot keep calling a request user-initiated, or limited to one build, after
+#: the inventory records otherwise. `automatic` has no phrase on purpose: the
+#: policy says nothing is contacted without a user action, and
+#: test_nothing_is_contacted_without_a_user_action holds that line.
+TRIGGER_PHRASES = {
+    "user-action": "If you choose",
+    "automatic-after-opt-in": "each time the app starts",
+}
+BUILD_PHRASES = {"github-sponsor": "GitHub Sponsor APK only"}
+
+
+def disclosure_items(section: str) -> list[str]:
+    """The section's list items, as plain text with whitespace collapsed."""
+    if "<li>" in section:
+        raw = re.findall(r"<li>(.*?)</li>", section, flags=re.S)
+    else:
+        raw = re.split(r"\n(?=- )", section)
+        raw = [item for item in raw if item.startswith("- ")]
+    return [" ".join(re.sub(r"<[^>]+>", " ", item).split()) for item in raw]
+
+
 def mentions_host(text: str, host: str) -> bool:
     """Whether `host` appears as a whole name, not inside a longer one.
 
@@ -190,6 +212,26 @@ class RealRepositoryTest(unittest.TestCase):
                         f"{path.relative_to(ROOT)} does not disclose {entry.host} "
                         f"under '{DISCLOSURE_HEADING}', but Linthra contacts it",
                     )
+
+    def test_each_app_request_disclosure_states_its_trigger_and_build(self) -> None:
+        inventory = checker.load_inventory(INVENTORY_PATH)
+        for path in PRIVACY_POLICIES:
+            items = disclosure_items(disclosure_section(path))
+            for entry in inventory.entries:
+                if entry.kind != "app-request":
+                    continue
+                matching = [item for item in items if mentions_host(item, entry.host)]
+                where = f"{path.relative_to(ROOT)}, {entry.host}"
+                self.assertTrue(matching, f"{where}: no disclosure item names it")
+                item = " ".join(matching)
+                phrase = TRIGGER_PHRASES.get(entry.trigger or "")
+                self.assertIsNotNone(phrase, f"{where}: no phrase for {entry.trigger}")
+                self.assertIn(phrase, item, f"{where}: trigger {entry.trigger}")
+                for build, build_phrase in BUILD_PHRASES.items():
+                    if entry.builds == build:
+                        self.assertIn(build_phrase, item, f"{where}: build {build}")
+                    else:
+                        self.assertNotIn(build_phrase, item, f"{where}: all builds")
 
     def test_a_mention_outside_the_disclosure_section_does_not_count(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -396,6 +438,30 @@ class ScanTest(unittest.TestCase):
         text = "launch('mailto:ops@metrics'); final pkg = 'name@1.2';"
         self.assertEqual(self.hosts(text), ["metrics"])
 
+    def test_a_fixed_host_followed_by_an_interpolated_path_is_kept(self) -> None:
+        text = "'https://collector.tracker.io$path' 'https://api$suffix/x'"
+        self.assertEqual(self.hosts(text), ["collector.tracker.io"])
+
+    def test_an_ip_in_a_url_path_or_query_is_not_a_destination(self) -> None:
+        text = "'https://api.tracker.io/check/8.8.8.8?ip=1.1.1.1' then 9.9.9.9"
+        self.assertEqual(self.hosts(text), ["api.tracker.io", "9.9.9.9"])
+
+    def test_an_interpolated_mailto_domain_is_not_a_partial_host(self) -> None:
+        text = "'mailto:ops@api.${domain}' 'mailto:ops@team-$domain' 'ops@x.${d}'"
+        self.assertEqual(self.hosts(text), [])
+
+    def test_android_xml_hosts_without_a_scheme(self) -> None:
+        text = (
+            '<domain includeSubdomains="true">a.tracker.io</domain>\n'
+            '<data android:scheme="https" android:host="b.tracker.io" />\n'
+            '<string name="endpoint">c.tracker.io</string>\n'
+            '<string name="version">1.2.3</string>\n'
+            '<string name="title">Linthra</string>\n'
+        )
+        self.assertEqual(
+            self.hosts(text), ["a.tracker.io", "b.tracker.io", "c.tracker.io"]
+        )
+
     def test_code_paths_and_times_are_not_ipv6(self) -> None:
         text = "std::vector a::b ff:: at 12:30:45, mac de:ad:be:ef:00:11"
         self.assertEqual(self.hosts(text), [])
@@ -571,6 +637,77 @@ class AuditTest(unittest.TestCase):
             self.assertEqual(
                 sorted(report.unreviewed_hosts), ["a.tracker.io", "b.tracker.io"]
             )
+        finally:
+            f.close()
+
+    def test_a_bomless_utf32_asset_is_decoded(self) -> None:
+        f = fixture()
+        try:
+            raw = f.root / "android" / "app" / "src" / "main" / "res" / "raw"
+            raw.mkdir(parents=True)
+            (raw / "le.txt").write_bytes("https://a.tracker.io".encode("utf-32-le"))
+            (raw / "be.txt").write_bytes("https://b.tracker.io".encode("utf-32-be"))
+            report = f.audit()
+            self.assertEqual(
+                sorted(report.unreviewed_hosts), ["a.tracker.io", "b.tracker.io"]
+            )
+        finally:
+            f.close()
+
+    def test_flow_style_asset_lists_are_read(self) -> None:
+        f = fixture(
+            {
+                "pubspec.yaml": (
+                    "name: app\nflutter:\n  assets: [assets/a.json, 'assets/b.txt']\n"
+                ),
+                "assets/a.json": '"https://a.tracker.io"\n',
+                "assets/b.txt": "https://b.tracker.io\n",
+            }
+        )
+        try:
+            report = f.audit()
+            self.assertEqual(
+                sorted(report.unreviewed_hosts), ["a.tracker.io", "b.tracker.io"]
+            )
+        finally:
+            f.close()
+
+    def test_an_unreadable_assets_value_fails_closed(self) -> None:
+        f = fixture({"pubspec.yaml": "name: app\nflutter:\n  assets: *shared\n"})
+        try:
+            code, _, err = f.run()
+            self.assertEqual(code, 2)
+            self.assertIn("cannot read `assets: *shared`", err)
+        finally:
+            f.close()
+
+    def test_shipped_code_in_a_directory_named_build_or_test_is_read(self) -> None:
+        f = fixture(
+            {
+                "lib/build/endpoints.dart": "'https://a.tracker.io'\n",
+                "lib/test/helpers.dart": "'https://b.tracker.io'\n",
+                "android/app/src/test/kotlin/T.kt": "\"https://c.tracker.io\"\n",
+                "third_party/pkg/android/src/androidTest/T.java": "\"https://d.tracker.io\"\n",
+            }
+        )
+        try:
+            report = f.audit()
+            self.assertEqual(
+                sorted(report.unreviewed_hosts), ["a.tracker.io", "b.tracker.io"]
+            )
+        finally:
+            f.close()
+
+    def test_vendored_kotlin_gradle_files_are_read(self) -> None:
+        f = fixture(
+            {
+                "third_party/pkg/android/build.gradle.kts": (
+                    'buildConfigField("String", "API", "\\"https://a.tracker.io\\"")\n'
+                ),
+            }
+        )
+        try:
+            self.assertEqual(sorted(f.audit().unreviewed_hosts), ["a.tracker.io"])
         finally:
             f.close()
 

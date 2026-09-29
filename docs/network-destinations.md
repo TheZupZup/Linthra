@@ -72,7 +72,7 @@ The source that ends up in a shipped build:
 | `native/` | The Rust and C++ libraries |
 | `third_party/` | Vendored packages (just_audio, just_audio_media_kit, libFLAC, the Media3 FLAC decoder) |
 | declared assets | Files `pubspec.yaml` lists under `flutter: assets:`, and anything under an Android source set's `assets/` or `res/raw*/` |
-| build inputs | `android/app/*.gradle(.kts)`, `android/gradle.properties` and the vendored modules' `build.gradle`: they can put values into the app (`buildConfigField`, `resValue`, manifest placeholders) |
+| build inputs | `android/app/*.gradle(.kts)`, `android/gradle.properties` and the vendored modules' `build.gradle(.kts)`: they can put values into the app (`buildConfigField`, `resValue`, manifest placeholders) |
 
 In the source roots, only source file types are read (`.dart`, `.kt`, `.java`,
 `.xml`, `.c`, `.cc`, `.cpp`, `.h`, `.hpp`, `.rs`, `.desktop`). Packaged assets
@@ -81,9 +81,17 @@ URL from one at run time. Text is decoded as UTF-8, or UTF-16/32 (with or
 without a byte-order mark). Known binary types like images and audio are
 skipped; any other asset that isn't readable text fails the check, as does an
 asset `pubspec.yaml` declares but that doesn't exist. There are no packaged
-assets today. Directories that never ship are
-skipped: `test`, `tests`, `androidTest`, `example`, `build`, and the vendored
-plugins' Apple platforms (`darwin`, `ios`, `macos`).
+assets today. `pubspec.yaml` asset lists are read in block form (`- path`,
+`- path: path`) or one-line flow form (`[a, b]`); any other shape fails the
+check.
+
+Directories that never ship are skipped by where they sit, not by name alone,
+so shipped code in a `lib/build/` or `lib/test/` is still read:
+
+- directly under a vendored or native package (`third_party/<pkg>/test`,
+  `native/<pkg>/tests`): `test`, `tests`, `example`, `build`, and the Apple
+  platforms (`darwin`, `ios`, `macos`);
+- Android test source sets (`src/test`, `src/androidTest`).
 
 Other build files are out of scope on purpose. The Flatpak manifests and
 CMake files describe what the build downloads, not what the app contacts, and
@@ -101,7 +109,9 @@ It looks for four shapes, never for keywords:
   network schemes the Linux player (mpv) accepts (rtp, rtsp, rtmp, udp, tcp,
   tls, mms, srt), including `scheme://user:pass@host`. The whole host has to be a literal.
   `http://$host:4533`, `https://${server}` or `https://api.${domain}` is a
-  configured address and is skipped by construction.
+  configured address and is skipped by construction. A fixed host followed by
+  an interpolated path (`https://collector.example.io$path`) is still read, and
+  an IP address in a URL's path or query is data, not a second destination.
 - **IP literals** outside a URL, like `InternetAddress('203.0.113.9')` or
   `TcpStream::connect("[2001:db8::1]:443")`. An IPv6 candidate has to parse as
   an address. Written as a string literal it always counts, even letter-only
@@ -109,7 +119,8 @@ It looks for four shapes, never for keywords:
   paths like `std::vector` or `a::b` don't count.
 - **Mail recipients**: a `mailto:` link (its domain can be a single label, like
   `ops@metrics`) or an address written as a whole string literal
-  (`'support@example.org'`). The domain is what gets reviewed.
+  (`'support@example.org'`). The domain is what gets reviewed; an interpolated
+  domain (`ops@api.${domain}`) is skipped as configured.
 - **A host passed as a bare string** to the common APIs that take one, in each
   language the scan reads. These are matched across line breaks, so a call
   formatted over several lines is still seen:
@@ -122,6 +133,8 @@ It looks for four shapes, never for keywords:
   - C/C++: `getaddrinfo("host", ...)`, `gethostbyname("host")`
   - Rust: `TcpStream::connect("host:443")` and other `::connect(...)` calls,
     `"host:443".to_socket_addrs()`
+  - Android XML: a network security config `<domain>`, a manifest
+    `android:host`, and a string resource whose whole value is a host name
 
 Host names may contain underscores (`api_v2.internal`): they aren't valid DNS
 names, but private resolvers answer for them.
