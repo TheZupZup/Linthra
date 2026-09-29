@@ -104,6 +104,10 @@ ProviderContainer _container({
       subsonicAutoSyncStoreProvider
           .overrideWithValue(autoSyncStore ?? InMemorySubsonicAutoSyncStore()),
       musicLibraryRepositoryProvider.overrideWithValue(repository),
+      // Same retries as production, without the real backoff waits.
+      subsonicSyncRetryDelaysProvider.overrideWithValue(
+        const <Duration>[Duration.zero, Duration.zero],
+      ),
       if (playlists != null)
         playlistRepositoryProvider.overrideWithValue(playlists),
       if (favorites != null)

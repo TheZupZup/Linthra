@@ -95,30 +95,48 @@ class HttpSubsonicClient implements SubsonicClient {
 
   @override
   Future<List<SubsonicAlbumDto>> getAlbums(SubsonicSession session) async {
-    final SubsonicCredentials credentials = _credentials(session);
     final List<SubsonicAlbumDto> albums = <SubsonicAlbumDto>[];
     // Walk pages until one comes back short of a full page (the last page).
     for (int page = 0; page < _maxAlbumPages; page++) {
-      final Uri uri = SubsonicEndpoints.getAlbumList2(
-        session.baseUrl,
-        username: session.username,
-        credentials: credentials,
+      final SubsonicAlbumPage list = await getAlbumListPage(
+        session,
         size: _albumPageSize,
         offset: page * _albumPageSize,
       );
-      final SubsonicEnvelope envelope = await _get(uri);
-      final Object? root = envelope.data['albumList2'];
-      final Object? list = root is Map<String, dynamic> ? root['album'] : null;
-      if (list is! List || list.isEmpty) break;
-      for (final Object? entry in list) {
-        if (entry is Map<String, dynamic>) {
-          final SubsonicAlbumDto? dto = SubsonicAlbumDto.fromJson(entry);
-          if (dto != null) albums.add(dto);
-        }
-      }
-      if (list.length < _albumPageSize) break;
+      albums.addAll(list.albums);
+      if (list.entryCount < _albumPageSize) break;
     }
     return albums;
+  }
+
+  @override
+  Future<SubsonicAlbumPage> getAlbumListPage(
+    SubsonicSession session, {
+    required int size,
+    required int offset,
+  }) async {
+    final Uri uri = SubsonicEndpoints.getAlbumList2(
+      session.baseUrl,
+      username: session.username,
+      credentials: _credentials(session),
+      size: size,
+      offset: offset,
+    );
+    final SubsonicEnvelope envelope = await _get(uri);
+    final Object? root = envelope.data['albumList2'];
+    final Object? list = root is Map<String, dynamic> ? root['album'] : null;
+    if (list is! List) {
+      return const SubsonicAlbumPage(
+          albums: <SubsonicAlbumDto>[], entryCount: 0);
+    }
+    final List<SubsonicAlbumDto> albums = <SubsonicAlbumDto>[];
+    for (final Object? entry in list) {
+      if (entry is Map<String, dynamic>) {
+        final SubsonicAlbumDto? dto = SubsonicAlbumDto.fromJson(entry);
+        if (dto != null) albums.add(dto);
+      }
+    }
+    return SubsonicAlbumPage(albums: albums, entryCount: list.length);
   }
 
   @override
@@ -498,7 +516,11 @@ class HttpSubsonicClient implements SubsonicClient {
     if (code == 401 || code == 403) {
       throw SubsonicException.unauthorized();
     }
-    if (code >= 500) {
+    // 429 Too Many Requests: a server or reverse proxy rate-limiting the
+    // thousands of requests a large library sync makes. That is transient,
+    // so it maps to the retryable server-error kind rather than "not
+    // Subsonic".
+    if (code >= 500 || code == 429) {
       throw SubsonicException.serverError(code);
     }
     // Other 4xx (wrong path, proxy 4xx, …): the address probably isn't a

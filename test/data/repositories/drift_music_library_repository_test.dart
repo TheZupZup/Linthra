@@ -300,6 +300,99 @@ void main() {
     test('a source with nothing stored reads as empty', () async {
       expect(await repository.getTracksForSource('local'), isEmpty);
     });
+
+    group('reconciling writes (#680)', () {
+      Future<Set<String>> urisOf(String sourceId) async => <String>{
+            for (final Track t in await repository.getTracksForSource(sourceId))
+              t.uri,
+          };
+
+      test('upsertTracks inserts and updates by uri, and never deletes',
+          () async {
+        await repository.upsertTracks(
+          sourceId: 'subsonic',
+          tracks: <Track>[
+            _providerTrack('subsonic:1', id: '1'),
+            _providerTrack('subsonic:2', id: '2'),
+          ],
+        );
+        await repository.upsertTracks(
+          sourceId: 'subsonic',
+          tracks: <Track>[
+            _providerTrack('subsonic:2', id: '2', durationMs: 5000),
+            _providerTrack('subsonic:3', id: '3'),
+          ],
+        );
+
+        expect(await urisOf('subsonic'),
+            <String>{'subsonic:1', 'subsonic:2', 'subsonic:3'});
+        final Track? updated = await repository.getTrackByUri('subsonic:2');
+        expect(updated!.duration, const Duration(milliseconds: 5000));
+      });
+
+      test('removeTracksNotIn prunes only unseen rows of that source',
+          () async {
+        await repository.upsertTracks(
+          sourceId: 'subsonic',
+          tracks: <Track>[
+            _providerTrack('subsonic:1', id: '1'),
+            _providerTrack('subsonic:2', id: '2'),
+            _providerTrack('subsonic:3', id: '3'),
+          ],
+        );
+        await repository.upsertTracks(
+          sourceId: 'jellyfin',
+          tracks: <Track>[_providerTrack('jellyfin:1', id: '1')],
+        );
+
+        final List<String> removed = await repository.removeTracksNotIn(
+          sourceId: 'subsonic',
+          keepUris: <String>{'subsonic:1', 'subsonic:3'},
+        );
+
+        expect(removed, <String>['subsonic:2']);
+        expect(await urisOf('subsonic'), <String>{'subsonic:1', 'subsonic:3'});
+        expect(await urisOf('jellyfin'), <String>{'jellyfin:1'});
+      });
+
+      test('removeTracksNotIn handles more stale rows than one delete chunk',
+          () async {
+        // Well past SQLite's bound-parameter limit for a single IN (...).
+        final List<Track> tracks = <Track>[
+          for (int i = 0; i < 2500; i++)
+            _providerTrack('subsonic:$i', id: '$i'),
+        ];
+        await repository.upsertTracks(sourceId: 'subsonic', tracks: tracks);
+
+        final List<String> removed = await repository.removeTracksNotIn(
+          sourceId: 'subsonic',
+          keepUris: <String>{'subsonic:7'},
+        );
+
+        expect(removed, hasLength(2499));
+        expect(await urisOf('subsonic'), <String>{'subsonic:7'});
+      });
+
+      test('countTracks counts every row, or one source, without loading them',
+          () async {
+        expect(await repository.countTracks(), 0);
+        await repository.upsertTracks(
+          sourceId: 'subsonic',
+          tracks: <Track>[
+            _providerTrack('subsonic:1', id: '1'),
+            _providerTrack('subsonic:2', id: '2'),
+          ],
+        );
+        await repository.upsertTracks(
+          sourceId: 'local',
+          tracks: <Track>[_track('a')],
+        );
+
+        expect(await repository.countTracks(), 3);
+        expect(await repository.countTracks(sourceId: 'subsonic'), 2);
+        expect(await repository.countTracks(sourceId: 'plex'), 0);
+      });
+    });
   });
 
   group('LinthraDatabase v1 -> v2 migration (tracks re-keyed id -> uri)', () {

@@ -222,6 +222,97 @@ void main() {
       expect(captured!.url.queryParameters['type'], 'alphabeticalByName');
     });
 
+    test('getAlbums walks every getAlbumList2 page by offset', () async {
+      final List<int> offsets = <int>[];
+      // 1,234 albums: two full pages of 500, then a short last page.
+      final client = _client(MockClient((http.Request request) async {
+        final int size = int.parse(request.url.queryParameters['size']!);
+        final int offset = int.parse(request.url.queryParameters['offset']!);
+        offsets.add(offset);
+        final int end = (offset + size).clamp(0, 1234);
+        return _ok(<String, dynamic>{
+          'albumList2': <String, dynamic>{
+            'album': <Map<String, dynamic>>[
+              for (int i = offset; i < end; i++)
+                <String, dynamic>{'id': 'al-$i', 'name': 'Album $i'},
+            ],
+          },
+        });
+      }));
+
+      final albums = await client.getAlbums(_session);
+
+      expect(offsets, <int>[0, 500, 1000]);
+      expect(albums, hasLength(1234));
+      expect(albums.first.id, 'al-0');
+      expect(albums.last.id, 'al-1233');
+    });
+
+    test('a malformed album entry does not end the paging early', () async {
+      // A full first page with one unusable entry must still be read as a
+      // full page, or everything after it would be silently dropped.
+      final List<int> offsets = <int>[];
+      final client = _client(MockClient((http.Request request) async {
+        final int offset = int.parse(request.url.queryParameters['offset']!);
+        offsets.add(offset);
+        return _ok(<String, dynamic>{
+          'albumList2': <String, dynamic>{
+            'album': <Map<String, dynamic>>[
+              if (offset == 0) ...<Map<String, dynamic>>[
+                <String, dynamic>{'name': 'No id'},
+                for (int i = 1; i < 500; i++)
+                  <String, dynamic>{'id': 'al-$i', 'name': 'Album $i'},
+              ] else
+                <String, dynamic>{'id': 'al-last', 'name': 'Last'},
+            ],
+          },
+        });
+      }));
+
+      final page =
+          await client.getAlbumListPage(_session, size: 500, offset: 0);
+      expect(page.entryCount, 500);
+      expect(page.albums, hasLength(499));
+
+      offsets.clear();
+      final albums = await client.getAlbums(_session);
+      expect(offsets, <int>[0, 500]);
+      expect(albums.last.id, 'al-last');
+    });
+
+    test('HTTP 429 (rate limited) is a retryable server error', () async {
+      final client = _client(
+        MockClient((_) async => http.Response('Too Many Requests', 429)),
+      );
+
+      await expectLater(
+        client.getAlbumListPage(_session, size: 500, offset: 0),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.kind, 'kind', SubsonicErrorKind.serverError)
+            .having((e) => e.statusCode, 'statusCode', 429)),
+      );
+    });
+
+    test('getAlbumListPage sends size and offset', () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        return _ok(<String, dynamic>{
+          'albumList2': <String, dynamic>{'album': <Map<String, dynamic>>[]},
+        });
+      }));
+
+      final page =
+          await client.getAlbumListPage(_session, size: 500, offset: 1500);
+
+      expect(page.entryCount, 0);
+      expect(page.albums, isEmpty);
+      expect(captured!.url.path, '/rest/getAlbumList2.view');
+      expect(captured!.url.queryParameters['size'], '500');
+      expect(captured!.url.queryParameters['offset'], '1500');
+      expect(captured!.url.queryParameters['type'], 'alphabeticalByName');
+    });
+
     test('getAlbumSongs parses the album child list', () async {
       final client = _client(MockClient((_) async {
         return _ok(<String, dynamic>{
