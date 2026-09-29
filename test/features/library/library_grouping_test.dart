@@ -316,15 +316,18 @@ void main() {
       expect(albums.single.artistName, 'Adele');
     });
 
-    test('a track with no album folds into Unknown Album despite an artist',
-        () {
+    test('a track with no album gets its own artist\'s Unknown Album', () {
       final List<Album> albums = groupAlbums(<Track>[
         _jelly('1', title: 'a', artist: 'Adele'),
         _jelly('2', title: 'b', artist: 'Queen'),
       ]);
 
-      expect(albums, hasLength(1));
-      expect(albums.single.title, kUnknownAlbum);
+      expect(albums, hasLength(2));
+      expect(albums.every((Album a) => a.title == kUnknownAlbum), isTrue);
+      expect(
+        albums.map((Album a) => a.artistName).toSet(),
+        <String>{'Adele', 'Queen'},
+      );
     });
 
     test('the three tiers never collide on identical raw strings', () {
@@ -353,6 +356,180 @@ void main() {
       expect(albums.single.title, 'Unknown Album');
       expect(albums.single.artistName, isNull);
       expect(albums.single.trackCount, 3);
+    });
+  });
+
+  // Issue #682: every track with no album title and no source album id used to
+  // share one global "Unknown Album" id, so opening one artist's Unknown Album
+  // listed (and queued) every other artist's album-less tracks too.
+  group('album grouping: missing album title (#682)', () {
+    final List<Track> catalog = <Track>[
+      _local('/a/1.mp3').copyWith(artistName: 'Artist A', trackNumber: 2),
+      _local('/a/2.mp3').copyWith(artistName: 'Artist A', trackNumber: 1),
+      _local('/b/1.mp3').copyWith(artistName: 'Artist B'),
+      _local('/b/2.mp3').copyWith(artistName: 'Artist B'),
+      _local('/x/1.mp3'),
+      _local('/x/2.mp3'),
+      _local('/a/lp.mp3')
+          .copyWith(artistName: 'Artist A', albumName: 'Real Album'),
+    ];
+    final String artistA = artistIdForTrack(catalog[0]);
+    final String artistB = artistIdForTrack(catalog[2]);
+
+    Album unknownAlbumOf(String artistId) => albumsForArtist(catalog, artistId)
+        .singleWhere((Album a) => a.title == kUnknownAlbum);
+
+    test('two artists\' album-less tracks do not share one album', () {
+      final List<Album> unknown = groupAlbums(catalog)
+          .where((Album a) => a.title == kUnknownAlbum)
+          .toList();
+
+      // Artist A, Artist B, and the fully untagged pair.
+      expect(unknown, hasLength(3));
+      expect(unknown.map((Album a) => a.id).toSet(), hasLength(3));
+      expect(
+        unknown.map((Album a) => a.artistName).toSet(),
+        <String?>{'Artist A', 'Artist B', null},
+      );
+    });
+
+    test('opening Artist A\'s Unknown Album returns only Artist A\'s tracks',
+        () {
+      final Album album = unknownAlbumOf(artistA);
+
+      expect(album.artistName, 'Artist A');
+      expect(album.trackCount, 2);
+      // The album detail page resolves the id against the whole catalog.
+      expect(albumById(catalog, album.id)?.trackCount, 2);
+      expect(
+        tracksForAlbum(catalog, album.id).map((Track t) => t.id),
+        <String>['/a/2.mp3', '/a/1.mp3'],
+      );
+    });
+
+    test('Artist B\'s Unknown Album stays separate', () {
+      final Album a = unknownAlbumOf(artistA);
+      final Album b = unknownAlbumOf(artistB);
+
+      expect(b.id, isNot(a.id));
+      expect(
+        tracksForAlbum(catalog, b.id).map((Track t) => t.id).toSet(),
+        <String>{'/b/1.mp3', '/b/2.mp3'},
+      );
+    });
+
+    test('an album-less track never joins a real album by the same artist', () {
+      final List<Album> albums = albumsForArtist(catalog, artistA);
+
+      expect(
+        albums.map((Album a) => a.title),
+        <String>['Real Album', kUnknownAlbum],
+      );
+      expect(groupArtists(catalog).first.albumCount, 2);
+    });
+
+    test('missing artist + missing album groups deterministically', () {
+      final List<Track> reversed = catalog.reversed.toList();
+      final Album untagged = groupAlbums(catalog).singleWhere(
+          (Album a) => a.title == kUnknownAlbum && a.artistName == null);
+
+      expect(untagged.trackCount, 2);
+      expect(
+        tracksForAlbum(catalog, untagged.id).map((Track t) => t.id),
+        <String>['/x/1.mp3', '/x/2.mp3'],
+      );
+      // Same id and same members whatever order the catalog arrives in.
+      expect(albumIdForTrack(catalog[4]), albumIdForTrack(catalog[5]));
+      expect(
+        groupAlbums(reversed).map((Album a) => a.id),
+        groupAlbums(catalog).map((Album a) => a.id),
+      );
+    });
+
+    test('a literal "Unknown Album" tag is not the missing-album fallback', () {
+      final List<Track> tracks = <Track>[
+        _local('/a/1.mp3').copyWith(artistName: 'Artist A'),
+        _local('/a/2.mp3')
+            .copyWith(artistName: 'Artist A', albumName: 'Unknown Album'),
+        _local('/b/1.mp3')
+            .copyWith(artistName: 'Artist B', albumName: 'Unknown Album'),
+        _local('/x/1.mp3'),
+        _local('/x/2.mp3').copyWith(albumName: 'Unknown Album'),
+      ];
+
+      final List<Album> albums = groupAlbums(tracks);
+
+      // Every track is its own album: tagged and untagged never collide, and
+      // the literal tag is still keyed by its artist like any other title.
+      expect(albums, hasLength(5));
+      expect(albums.every((Album a) => a.title == kUnknownAlbum), isTrue);
+      expect(albums.map((Album a) => a.id).toSet(), hasLength(5));
+    });
+
+    test('blank and whitespace album titles count as missing', () {
+      final List<Track> tracks = <Track>[
+        _local('/a/1.mp3').copyWith(artistName: 'Artist A'),
+        _local('/a/2.mp3').copyWith(artistName: 'Artist A', albumName: ''),
+        _local('/a/3.mp3').copyWith(artistName: 'Artist A', albumName: '  '),
+      ];
+
+      expect(groupAlbums(tracks).single.trackCount, 3);
+    });
+
+    test('case and accents do not split one artist\'s Unknown Album', () {
+      final List<Track> tracks = <Track>[
+        _local('/1.mp3').copyWith(artistName: 'Sigur Rós'),
+        _local('/2.mp3').copyWith(artistName: 'sigur ros'),
+      ];
+
+      // Matches the artist grouping, which also folds these into one artist.
+      expect(groupArtists(tracks), hasLength(1));
+      expect(groupAlbums(tracks).single.trackCount, 2);
+    });
+
+    test('a source album id still wins over a missing album title', () {
+      // e.g. Android MediaStore, which reports an ALBUM_ID even for a track
+      // whose album tag is unknown.
+      final List<Track> tracks = <Track>[
+        _local('/1.mp3')
+            .copyWith(artistName: 'Artist A', albumId: 'android-mediastore:7'),
+        _local('/2.mp3')
+            .copyWith(artistName: 'Artist B', albumId: 'android-mediastore:7'),
+        _local('/3.mp3').copyWith(artistName: 'Artist A'),
+      ];
+
+      final List<Album> albums = groupAlbums(tracks);
+
+      expect(albums, hasLength(2));
+      expect(
+        albums.map((Album a) => a.trackCount).toList()..sort(),
+        <int>[1, 2],
+      );
+    });
+
+    test('an artist page\'s Unknown Album only holds that artist\'s tracks',
+        () {
+      // A collaboration credit, an album artist, an untagged track and a
+      // same-titled real album across two artists, all mixed together.
+      final List<Track> tracks = <Track>[
+        ...catalog,
+        _jelly('j1', title: 'a', artist: 'X feat. Y', albumArtist: 'X'),
+        _jelly('j2', title: 'b', artist: 'X'),
+        _jelly('j3', title: 'c', artist: 'X', album: 'Hits'),
+        _jelly('j4', title: 'd', artist: 'Artist A', album: 'Hits'),
+      ];
+
+      for (final Artist artist in groupArtists(tracks)) {
+        final Set<Track> own = tracksForArtist(tracks, artist.id).toSet();
+        for (final Album album in albumsForArtist(tracks, artist.id)) {
+          if (album.title != kUnknownAlbum) continue;
+          expect(
+            own.containsAll(tracksForAlbum(tracks, album.id)),
+            isTrue,
+            reason: '${album.title} on ${artist.name}\'s page leaked tracks',
+          );
+        }
+      }
     });
   });
 

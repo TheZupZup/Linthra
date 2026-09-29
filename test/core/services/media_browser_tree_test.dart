@@ -340,6 +340,27 @@ void main() {
             isNull);
         expect(await _kids(treeOf(catalog), MediaId.album('nope')), isEmpty);
       });
+
+      // Issue #682: album-less tracks by different artists used to share one
+      // Unknown Album, so playing it queued every artist's loose tracks.
+      test('an Unknown Album queue holds only its own artist\'s tracks',
+          () async {
+        final loose = <Track>[
+          _track('a2', artist: 'Artist A', trackNumber: 2),
+          _track('b1', artist: 'Artist B', trackNumber: 1),
+          _track('a1', artist: 'Artist A', trackNumber: 1),
+          _track('x1'),
+        ];
+        final tree = treeOf(loose);
+        final albumId = albumIdForTrack(loose.first);
+
+        final albums = await _kids(tree, MediaId.albums);
+        final request = await _pick(tree, MediaId.albumTrack(albumId, 0));
+
+        expect(albums.where((n) => n.title == kUnknownAlbum), hasLength(3));
+        expect(request, isNotNull);
+        expect(request!.tracks.map((t) => t.id), ['a1', 'a2']);
+      });
     });
 
     group('artists', () {
