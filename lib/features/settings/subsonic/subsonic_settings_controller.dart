@@ -15,6 +15,7 @@ import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../data/repositories/remote_cache_index_provider.dart';
 import '../../../data/repositories/subsonic_session_store_provider.dart';
+import '../../../data/repositories/subsonic_sync_pending_store_provider.dart';
 import '../../library/source_preference_controller.dart';
 import 'subsonic_settings_providers.dart';
 import 'subsonic_settings_state.dart';
@@ -235,6 +236,14 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
           .clearRemote(source: PlaylistSource.subsonic);
     } catch (_) {
       // Same: never let a playlist-store hiccup block sign-out.
+    }
+    // Forget any unfinished sync too: it belongs to the account being signed
+    // out, and the in-flight one (if any) stops at its next batch on its own.
+    try {
+      await ref.read(subsonicSyncPendingStoreProvider).clear();
+    } catch (_) {
+      // Never let a preferences hiccup block sign-out; a leftover marker is
+      // dropped the next time a different account resumes.
     }
     ref.invalidate(subsonicSyncControllerProvider);
     state = const SubsonicSettingsState(

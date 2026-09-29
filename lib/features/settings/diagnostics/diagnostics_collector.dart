@@ -7,6 +7,8 @@ import '../../../core/diagnostics/app_diagnostics.dart';
 import '../../../core/models/active_playback_output.dart';
 import '../../../core/models/cast_state.dart';
 import '../../../core/models/playback_state.dart';
+import '../../../core/repositories/catalog_track_counter.dart';
+import '../../../core/repositories/music_library_repository.dart';
 import '../../../core/services/active_playback_controller.dart';
 import '../../../core/services/audio_decoder_capabilities.dart';
 import '../../../core/services/notification_permission.dart';
@@ -17,8 +19,11 @@ import '../../../core/sources/local/folder_location.dart';
 import '../../../core/sources/local/local_scan_diagnostics.dart';
 import '../../../core/sources/local/local_scan_report.dart';
 import '../../../core/sources/source_availability.dart';
+import '../../../core/sources/subsonic/subsonic_account_fingerprint.dart';
+import '../../../core/sources/subsonic/subsonic_music_source.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../../data/repositories/selected_music_folder_repository_provider.dart';
+import '../../../data/repositories/subsonic_sync_pending_store_provider.dart';
 import '../../downloads/download_providers.dart';
 import '../../library/library_providers.dart';
 import '../../library/source_availability_providers.dart';
@@ -29,6 +34,8 @@ import '../jellyfin/jellyfin_settings_controller.dart';
 import '../jellyfin/jellyfin_settings_state.dart';
 import '../subsonic/subsonic_settings_controller.dart';
 import '../subsonic/subsonic_settings_state.dart';
+import '../subsonic/subsonic_sync_controller.dart';
+import '../subsonic/subsonic_sync_state.dart';
 
 /// Gathers the live, display-safe app state into an [AppDiagnosticsData] and
 /// renders it through [AppDiagnostics].
@@ -76,6 +83,7 @@ class DiagnosticsCollector {
         await _persistedPermission(selectedFolder, isContentFolder);
     final LocalScanReport? scan = LocalScanDiagnostics.last;
     final AudioDecoderCapabilities? audio = await _audioCapabilities();
+    final SubsonicSyncDiagnostics subsonicSync = await collectSubsonicSync();
 
     return AppDiagnosticsData(
       appVersion: AppInfo.version,
@@ -94,7 +102,9 @@ class DiagnosticsCollector {
       jellyfinHost: jellyfin.baseUrl,
       subsonicState: _subsonicStateLabel(subsonic),
       subsonicHost: subsonic.baseUrl,
-      libraryTrackCount: await _libraryTrackCount(),
+      subsonicSyncState: subsonicSync.label,
+      subsonicTrackCount: subsonicSync.trackCount,
+      libraryTrackCount: await _trackCount(),
       unavailableTrackCount: _unavailableTrackCount(),
       localFolderSelected: folderSelected,
       localPersistedPermission: persistedPermission,
@@ -116,6 +126,7 @@ class DiagnosticsCollector {
       currentTrackIdHash: _currentTrackIdHash(),
       lastErrorKind: jellyfin.errorKind?.name ??
           subsonic.errorKind?.name ??
+          subsonicSync.errorKind ??
           _playbackFailureKind(),
       notificationPermission: (await _notificationPermission()).label,
       lastLifecycleState: StabilityDiagnostics.lastLifecycleState,
@@ -216,11 +227,54 @@ class DiagnosticsCollector {
     }
   }
 
-  Future<int?> _libraryTrackCount() async {
+  /// The Subsonic/Navidrome library sync's slice of the report: its state
+  /// line, how many Subsonic tracks are stored, and the kind of its last
+  /// failure (which feeds "Last error"; before #680 a failed sync never reached
+  /// the report, so it read "Last error: none" beside an empty library).
+  ///
+  /// The state line also reports a sync that an earlier run left unfinished
+  /// (the process was killed partway), which the in-memory state alone can't
+  /// know. Public so it can be tested without the playback/cast plugins the
+  /// rest of [collect] reads. Best-effort throughout.
+  Future<SubsonicSyncDiagnostics> collectSubsonicSync() async {
+    final SubsonicSyncState sync = _ref.read(subsonicSyncControllerProvider);
+    final bool present =
+        _subsonicStateLabel(_ref.read(subsonicSettingsControllerProvider)) !=
+            null;
+    final SubsonicMusicSource? source = _ref.read(subsonicMusicSourceProvider);
+    bool pendingRetry = false;
+    if (source != null) {
+      try {
+        pendingRetry =
+            await _ref.read(subsonicSyncPendingStoreProvider).read() ==
+                subsonicAccountFingerprint(source.session);
+      } catch (_) {
+        // Unknown reads as "nothing pending".
+      }
+    }
+    return (
+      label: sync.diagnosticsLabel(pendingRetry: pendingRetry),
+      trackCount: present
+          ? await _trackCount(sourceId: SubsonicMusicSource.sourceId)
+          : null,
+      errorKind: sync.errorKind,
+    );
+  }
+
+  /// How many tracks are stored (only [sourceId]'s, when given). A `COUNT(*)`
+  /// when the repository can count, so the report never loads a large library
+  /// just for one number; otherwise (in-memory/test repositories) the whole
+  /// catalog's length. Best-effort: a storage hiccup omits the line.
+  Future<int?> _trackCount({String? sourceId}) async {
     try {
-      final tracks =
-          await _ref.read(musicLibraryRepositoryProvider).getAllTracks();
-      return tracks.length;
+      final MusicLibraryRepository repository =
+          _ref.read(musicLibraryRepositoryProvider);
+      if (repository is CatalogTrackCounter) {
+        return await (repository as CatalogTrackCounter)
+            .countTracks(sourceId: sourceId);
+      }
+      if (sourceId != null) return null;
+      return (await repository.getAllTracks()).length;
     } catch (_) {
       // A storage hiccup must not break the report; just omit the count.
       return null;
@@ -303,6 +357,14 @@ class DiagnosticsCollector {
     return PlaybackDiagnostics.redactId(id);
   }
 }
+
+/// The Subsonic sync slice of the report (see
+/// [DiagnosticsCollector.collectSubsonicSync]).
+typedef SubsonicSyncDiagnostics = ({
+  String? label,
+  int? trackCount,
+  String? errorKind,
+});
 
 /// Builds the secret-free diagnostics report text on demand.
 typedef DiagnosticsReportBuilder = Future<String> Function();

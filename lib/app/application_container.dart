@@ -34,6 +34,7 @@ import '../data/repositories/selected_music_folder_repository_provider.dart';
 import '../data/repositories/share_service_provider.dart';
 import '../data/repositories/subsonic_auto_sync_store_provider.dart';
 import '../data/repositories/subsonic_session_store_provider.dart';
+import '../data/repositories/subsonic_sync_pending_store_provider.dart';
 import '../data/repositories/theme_mode_store_provider.dart';
 import '../features/appearance/desktop_density_controller.dart';
 import '../features/appearance/theme_mode_controller.dart';
@@ -93,6 +94,7 @@ List<Override> productionApplicationOverrides({
     sharedPreferencesJellyfinAutoSyncStoreOverride,
     secureSubsonicSessionStoreOverride,
     sharedPreferencesSubsonicAutoSyncStoreOverride,
+    sharedPreferencesSubsonicSyncPendingStoreOverride,
     securePlexSessionStoreOverride,
     sharedPreferencesPlexSyncCacheStoreOverride,
     // The audiobook seam's own credential, stored the same encrypted way as

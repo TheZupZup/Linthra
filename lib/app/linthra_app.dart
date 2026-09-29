@@ -22,6 +22,7 @@ import '../features/onboarding/onboarding_controller.dart';
 import '../features/player/player_providers.dart';
 import '../features/settings/desktop/desktop_window_providers.dart';
 import '../features/settings/jellyfin/jellyfin_availability_controller.dart';
+import '../features/settings/subsonic/subsonic_sync_controller.dart';
 import '../features/support/support_actions_provider.dart';
 import '../features/support/supporter_entitlement.dart';
 import '../shared/scroll/app_scroll_behavior.dart';
@@ -140,6 +141,14 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
         controller.onAppResumed();
       }
       ref.read(remoteLibraryRefresherProvider).refresh();
+      // Pick up a Navidrome/Subsonic library sync that Android froze or killed
+      // partway (#680). A no-op unless one is on record for the signed-in
+      // account; the sync is idempotent, so running it again is always safe.
+      unawaited(
+        ref
+            .read(subsonicSyncControllerProvider.notifier)
+            .resumeIncompleteSync(),
+      );
       // Re-probe the configured music server: coming back to the app is the
       // moment a LAN server the user walked away from is most likely reachable
       // again. Requirement of #536 — the library restores itself, with no

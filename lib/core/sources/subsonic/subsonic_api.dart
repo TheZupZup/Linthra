@@ -174,6 +174,19 @@ class SubsonicArtistDto {
   }
 }
 
+/// One page of `getAlbumList2`: the albums that mapped, plus how many entries
+/// the server actually returned.
+class SubsonicAlbumPage {
+  const SubsonicAlbumPage({required this.albums, required this.entryCount});
+
+  final List<SubsonicAlbumDto> albums;
+
+  /// Every entry on the page, including any too malformed to map. Paging
+  /// decides "this was the last page" on this count, never on [albums], so a
+  /// skipped entry can't end a walk early and silently drop the rest.
+  final int entryCount;
+}
+
 /// An album from `getAlbumList2` (the ID3 album list).
 class SubsonicAlbumDto {
   const SubsonicAlbumDto({

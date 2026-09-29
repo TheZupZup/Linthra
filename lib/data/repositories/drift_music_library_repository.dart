@@ -1,11 +1,15 @@
+import 'dart:math' as math;
+
 import 'package:drift/drift.dart';
 
 import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/local_file_stamp.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/catalog_track_counter.dart';
 import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/music_library_repository.dart';
+import '../../core/repositories/reconciling_catalog_writer.dart';
 import '../../core/repositories/source_catalog_reader.dart';
 import '../../core/repositories/stamped_catalog_writer.dart';
 import '../database/linthra_database.dart';
@@ -19,13 +23,17 @@ import '../mappers/track_mapper.dart';
 /// [getAllArtists] return empty lists. Only tracks are stored at v1.
 ///
 /// Also implements [IncrementalCatalogWriter] so a large remote sync (Plex) can
-/// fill a source's slice batch by batch instead of one monolithic write.
+/// fill a source's slice batch by batch instead of one monolithic write, and
+/// [ReconcilingCatalogWriter] so a long sync (Subsonic) can persist each batch
+/// as it arrives and only prune stale rows once it knows it saw everything.
 class DriftMusicLibraryRepository
     implements
         MusicLibraryRepository,
         IncrementalCatalogWriter,
+        ReconcilingCatalogWriter,
         SourceCatalogReader,
-        StampedCatalogWriter {
+        StampedCatalogWriter,
+        CatalogTrackCounter {
   DriftMusicLibraryRepository(this._db);
 
   final LinthraDatabase _db;
@@ -124,6 +132,65 @@ class DriftMusicLibraryRepository
     required List<Track> tracks,
   }) async {
     await _insertTracks(sourceId, tracks);
+  }
+
+  /// Inserts or replaces [tracks] by uri, deleting nothing. Same write as
+  /// [appendToCatalog], exposed under the reconciling contract.
+  @override
+  Future<void> upsertTracks({
+    required String sourceId,
+    required List<Track> tracks,
+  }) =>
+      _insertTracks(sourceId, tracks);
+
+  /// Reads only the `uri` column of [sourceId]'s slice (off the `source_id`
+  /// index), works out which rows were not kept, and deletes them in chunks, all
+  /// in one transaction so a reader never sees half a prune.
+  @override
+  Future<List<String>> removeTracksNotIn({
+    required String sourceId,
+    required Set<String> keepUris,
+  }) {
+    return _db.transaction(() async {
+      final List<String> stale = <String>[
+        for (final String uri in await _urisForSource(sourceId))
+          if (!keepUris.contains(uri)) uri,
+      ];
+      for (int i = 0; i < stale.length; i += _deleteChunkSize) {
+        final List<String> chunk =
+            stale.sublist(i, math.min(i + _deleteChunkSize, stale.length));
+        await (_db.delete(_db.tracks)
+              ..where((t) => t.sourceId.equals(sourceId) & t.uri.isIn(chunk)))
+            .go();
+      }
+      return stale;
+    });
+  }
+
+  /// Keeps each `DELETE ... WHERE uri IN (...)` well under SQLite's
+  /// bound-parameter limit.
+  static const int _deleteChunkSize = 500;
+
+  Future<List<String>> _urisForSource(String sourceId) async {
+    final query = _db.selectOnly(_db.tracks)
+      ..addColumns(<Expression<Object>>[_db.tracks.uri])
+      ..where(_db.tracks.sourceId.equals(sourceId));
+    return <String>[
+      for (final TypedResult row in await query.get())
+        row.read(_db.tracks.uri)!,
+    ];
+  }
+
+  /// A `COUNT(*)`, so reporting the library size never loads the rows.
+  @override
+  Future<int> countTracks({String? sourceId}) async {
+    final Expression<int> count = countAll();
+    final query = _db.selectOnly(_db.tracks)
+      ..addColumns(<Expression<Object>>[count]);
+    if (sourceId != null) {
+      query.where(_db.tracks.sourceId.equals(sourceId));
+    }
+    return (await query.getSingle()).read(count) ?? 0;
   }
 
   Future<void> _deleteSource(String sourceId) =>
