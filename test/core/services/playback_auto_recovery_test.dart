@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -94,6 +95,10 @@ class _Resolver implements PlayableUriResolver {
   final Map<String, int> failuresLeft = <String, int>{};
   final Map<String, PlaybackResolutionException> failWith =
       <String, PlaybackResolutionException>{};
+
+  /// Resolving a uri listed here waits for its completer, so a test can act
+  /// while that load is still in flight.
+  final Map<String, Completer<void>> holds = <String, Completer<void>>{};
   final List<String> calls = <String>[];
   int _minted = 0;
 
@@ -103,6 +108,8 @@ class _Resolver implements PlayableUriResolver {
   @override
   Future<ResolvedPlayable> resolve(Track track) async {
     calls.add(track.uri);
+    final Completer<void>? hold = holds.remove(track.uri);
+    if (hold != null) await hold.future;
     final PlaybackResolutionException? failure = failWith[track.uri];
     if (failure != null) throw failure;
     if (down.contains(track.uri)) throw _serverDown;
@@ -591,6 +598,63 @@ void main() {
       expect(controller.hasPendingAutomaticRecovery, isFalse);
       expect(resolver.calls, <String>['jellyfin:a']);
       expect(player.playCalls, 0);
+    });
+
+    final Map<String, Future<void> Function(JustAudioPlaybackController)>
+        standDowns =
+        <String, Future<void> Function(JustAudioPlaybackController)>{
+      'a pause': (JustAudioPlaybackController c) => c.pause(),
+      'headphones unplugged': (JustAudioPlaybackController c) async =>
+          c.onBecomingNoisyForTesting(),
+      'another app taking audio': (JustAudioPlaybackController c) async =>
+          c.onAudioInterruption(
+            AudioInterruptionEvent(true, AudioInterruptionType.unknown),
+          ),
+      'a cast taking over': (JustAudioPlaybackController c) => c.suspend(),
+    };
+    for (final MapEntry<String,
+            Future<void> Function(JustAudioPlaybackController)> standDown
+        in standDowns.entries) {
+      test('${standDown.key} while a move is still loading starts nothing',
+          () async {
+        resolver.down.add('jellyfin:a');
+        final Completer<void> loadingB = Completer<void>();
+        resolver.holds['jellyfin:b'] = loadingB;
+        final JustAudioPlaybackController controller = build();
+
+        await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+        await _settle();
+        // The retry failed and the move to 'b' is resolving right now.
+        expect(
+            resolver.calls, <String>['jellyfin:a', 'jellyfin:a', 'jellyfin:b']);
+
+        await standDown.value(controller);
+        loadingB.complete();
+        await _settle();
+
+        expect(controller.state.currentTrack?.id, 'b');
+        expect(player.playCalls, 0);
+      });
+    }
+
+    test('a move told to stand down that then fails settles on the error',
+        () async {
+      resolver.down.addAll(<String>['jellyfin:a', 'jellyfin:b']);
+      final Completer<void> loadingB = Completer<void>();
+      resolver.holds['jellyfin:b'] = loadingB;
+      final JustAudioPlaybackController controller = build();
+
+      await controller
+          .playTracks(<Track>[_remote('a'), _remote('b'), _remote('c')]);
+      await _settle();
+      await controller.pause();
+      loadingB.complete();
+      await _settle();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(controller.hasPendingAutomaticRecovery, isFalse);
+      expect(resolver.calls, isNot(contains('jellyfin:c')));
     });
 
     test('a skip while a step waits wins, and the step never runs', () async {
