@@ -71,9 +71,14 @@ The source that ends up in a shipped build:
 | `linux/packaging/` | The desktop entry and AppStream metadata |
 | `native/` | The Rust and C++ libraries |
 | `third_party/` | Vendored packages (just_audio, just_audio_media_kit, libFLAC, the Media3 FLAC decoder) |
+| declared assets | Files `pubspec.yaml` lists under `flutter: assets:`, and anything under an Android source set's `assets/` or `res/raw*/` |
 
-Only source file types are read (`.dart`, `.kt`, `.java`, `.xml`, `.c`, `.cc`,
-`.cpp`, `.h`, `.hpp`, `.rs`, `.desktop`). Directories that never ship are
+In the source roots, only source file types are read (`.dart`, `.kt`, `.java`,
+`.xml`, `.c`, `.cc`, `.cpp`, `.h`, `.hpp`, `.rs`, `.desktop`). Packaged assets
+are read whatever their type (JSON, text, config), because the app can load a
+URL from one at run time; only binary files like images are skipped, and an
+asset `pubspec.yaml` declares but that doesn't exist fails the check. There are
+no packaged assets today. Directories that never ship are
 skipped: `test`, `tests`, `androidTest`, `example`, `build`, and the vendored
 plugins' Apple platforms (`darwin`, `ios`, `macos`).
 
@@ -105,21 +110,29 @@ It looks for four shapes, never for keywords:
   language the scan reads. These are matched across line breaks, so a call
   formatted over several lines is still seen:
   - Dart: `Uri.https('host', ...)`, `host: '...'`, `Socket.connect('host', ...)`
-    and other `.connect(...)` calls, `InternetAddress.lookup('host')`
+    and other `.connect(...)` calls, `InternetAddress.lookup('host')`, and
+    `HttpClient`'s host-and-port methods (`get('host', port, path)` and the
+    other verbs, `open('GET', 'host', port, path)`)
   - Kotlin/Java: `InetAddress.getByName("host")`, `getAllByName`,
     `InetSocketAddress("host", ...)`, `Socket("host", ...)`, `SSLSocket(...)`
   - C/C++: `getaddrinfo("host", ...)`, `gethostbyname("host")`
   - Rust: `TcpStream::connect("host:443")` and other `::connect(...)` calls,
     `"host:443".to_socket_addrs()`
 
-Reserved names are recognised and never need an entry: the example domains
-(`example.com`, `example.net`, `example.org` and anything under them), the
+Host names may contain underscores (`api_v2.internal`): they aren't valid DNS
+names, but private resolvers answer for them.
+
+Reserved names are recognised and never need an entry: names under the example
+domains (`music.example.com`, `plex.example.org`), the
 `.test`, `.example`, `.invalid` and `.localhost` top-level domains, `localhost`,
 loopback, and the documentation address ranges (`192.0.2.0/24`,
 `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`).
 
-Two things are deliberately **not** reserved:
+Three things are deliberately **not** reserved:
 
+- **The example domains themselves.** `example.com`, `example.net` and
+  `example.org` resolve and accept connections, so `https://example.com/collect`
+  needs an entry. Only names under them are reserved.
 - **A private LAN address.** A hard-coded `192.168.1.1` could be a real
   destination on somebody's network, so it gets reviewed like anything else.
   That is why the two example LAN addresses in hint text and comments have

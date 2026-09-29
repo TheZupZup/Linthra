@@ -367,6 +367,21 @@ class ScanTest(unittest.TestCase):
             self.hosts(text), ["collector.tracker.io", "mail.tracker.io"]
         )
 
+    def test_underscores_in_a_host_name_are_read(self) -> None:
+        text = "'https://api_v2.internal/upload' Socket.connect('db_1.internal', 5432)"
+        self.assertEqual(self.hosts(text), ["api_v2.internal", "db_1.internal"])
+
+    def test_dart_http_client_host_and_port_methods(self) -> None:
+        text = (
+            "HttpClient().get('a.tracker.io', 443, '/upload');\n"
+            "client.post(\n  'b.tracker.io',\n  443,\n  '/x',\n);\n"
+            "client.open('GET', 'c.tracker.io', 443, '/');\n"
+            "settings.get('theme'); cache.get('a.b', fallback);\n"
+        )
+        self.assertEqual(
+            self.hosts(text), ["a.tracker.io", "b.tracker.io", "c.tracker.io"]
+        )
+
     def test_code_paths_and_times_are_not_ipv6(self) -> None:
         text = "std::vector a::b ff:: at 12:30:45, mac de:ad:be:ef:00:11"
         self.assertEqual(self.hosts(text), [])
@@ -382,7 +397,6 @@ class ScanTest(unittest.TestCase):
 class ReservedTest(unittest.TestCase):
     def test_reserved_names_are_recognised(self) -> None:
         for host in (
-            "example.com",
             "music.example.com",
             "plex.example.org",
             "server.test",
@@ -404,6 +418,10 @@ class ReservedTest(unittest.TestCase):
         for host in (
             "example.co",
             "notexample.com",
+            # The example domains themselves resolve and answer, so only names
+            # under them are reserved.
+            "example.com",
+            "example.org",
             "metrics",
             "host",
             "plex.tv",
@@ -496,6 +514,50 @@ class AuditTest(unittest.TestCase):
         try:
             report = f.audit()
             self.assertEqual(sorted(report.unreviewed_hosts), ["metrics"])
+        finally:
+            f.close()
+
+    def test_a_packaged_text_asset_is_read(self) -> None:
+        f = fixture(
+            {
+                "pubspec.yaml": (
+                    "name: app\nflutter:\n  uses-material-design: true\n"
+                    "  assets:\n    - assets/config/\n    - path: assets/extra.txt\n"
+                ),
+                "assets/config/endpoints.json": '{"u": "https://a.tracker.io/x"}\n',
+                "assets/extra.txt": "https://b.tracker.io\n",
+                "android/app/src/main/res/raw/defaults.json": '"https://c.tracker.io"\n',
+                "android/app/src/main/assets/hosts.conf": "d.tracker.io mailto:x@e.tracker.io\n",
+            }
+        )
+        try:
+            (f.root / "assets" / "config" / "icon.png").write_bytes(
+                b"\x89PNG\x00https://f.tracker.io"
+            )
+            report = f.audit()
+            self.assertEqual(
+                sorted(report.unreviewed_hosts),
+                ["a.tracker.io", "b.tracker.io", "c.tracker.io", "e.tracker.io"],
+            )
+        finally:
+            f.close()
+
+    def test_a_declared_asset_that_is_missing_fails_closed(self) -> None:
+        f = fixture(
+            {"pubspec.yaml": "name: app\nflutter:\n  assets:\n    - assets/gone.json\n"}
+        )
+        try:
+            code, _, err = f.run()
+            self.assertEqual(code, 2)
+            self.assertIn("assets/gone.json", err)
+        finally:
+            f.close()
+
+    def test_the_bare_example_domain_needs_review(self) -> None:
+        f = fixture({"lib/collect.dart": "post('https://example.com/collect');\n"})
+        try:
+            report = f.audit()
+            self.assertEqual(sorted(report.unreviewed_hosts), ["example.com"])
         finally:
             f.close()
 

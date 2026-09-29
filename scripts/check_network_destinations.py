@@ -48,8 +48,8 @@ toolchain.
     `getaddrinfo("host", ...)` or `TcpStream::connect("host:443")`, matched
     across line breaks.
 
-Reserved names are recognised and never need an entry: example domains
-(RFC 2606), the `.test`/`.example`/`.invalid`/`.localhost` TLDs, `localhost`,
+Reserved names are recognised and never need an entry: names under the
+example domains (RFC 2606; the domains themselves resolve, so they don't), the `.test`/`.example`/`.invalid`/`.localhost` TLDs, `localhost`,
 loopback, and the RFC 5737 / RFC 3849 documentation address ranges. A private
 LAN address is *not* reserved: a hard-coded `192.168.1.1` could be a real
 destination on somebody's network, so it gets reviewed like any other. Nor is a
@@ -122,13 +122,22 @@ SOURCE_SUFFIXES = frozenset(
     }
 )
 
+#: Files Flutter or Android package as assets are read whatever their type
+#: (JSON, text, config), because an asset can hold a URL the app loads at run
+#: time. Binary files (images, audio) are skipped. Flutter assets are the ones
+#: pubspec.yaml declares; Android ones live under a source set's `assets/` or
+#: `res/raw*/`.
+ASSET_ROOT_NAME = "declared assets"
+
 #: Directory names that never ship: tests, examples, and the vendored plugins'
 #: Apple platforms (Linthra builds for Android and Linux only).
 EXCLUDED_DIRS = frozenset(
     {"androidTest", "build", "darwin", "example", "ios", "macos", "test", "tests"}
 )
 
-_HOST_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+#: One label of a host name. Underscores are not valid in DNS host names, but
+#: private resolvers answer for them (`api_v2.internal`), so they count.
+_HOST_LABEL = r"[A-Za-z0-9_](?:[A-Za-z0-9_-]*[A-Za-z0-9_])?"
 _URL = re.compile(
     # Web, WebSocket and FTP, plus the network schemes the Linux player (mpv)
     # accepts, so a fixed stream handed straight to the player is seen too.
@@ -194,9 +203,21 @@ _HOST_ARGUMENTS: tuple[tuple[re.Pattern[str], bool], ...] = tuple(
         (r"\b(?:getaddrinfo|gethostbyname2?)\(\s*" + _HOST_LITERAL, True),
         # Rust: "host:443".to_socket_addrs()
         (_HOST_LITERAL + r"\s*\.to_socket_addrs\(", True),
+        # Dart HttpClient's host-and-port methods: get/post/put/delete/patch/
+        # head(host, port, path) and open(method, host, port, path). Scoped to
+        # the three-argument shape so `map.get('key')` never matches.
+        (
+            r"\.(?:get|post|put|delete|patch|head)\(\s*"
+            + _HOST_LITERAL
+            + r"\s*,\s*[^,()]+,\s*['\"]",
+            True,
+        ),
+        (r"\.open\(\s*['\"][A-Za-z]+['\"]\s*,\s*" + _HOST_LITERAL, True),
     )
 )
 
+#: Names *under* these are reserved. The three domains themselves resolve and
+#: answer connections, so `https://example.com/collect` needs an entry.
 _RESERVED_DOMAINS = ("example.com", "example.net", "example.org")
 _RESERVED_TLDS = ("example", "invalid", "localhost", "test")
 _RESERVED_NAMES = ("localhost",)
@@ -307,8 +328,8 @@ def reserved_reason(host: str) -> str | None:
         return None
     if host in _RESERVED_NAMES:
         return "loopback name"
-    if any(host == name or host.endswith("." + name) for name in _RESERVED_DOMAINS):
-        return "reserved example domain (RFC 2606)"
+    if any(host.endswith("." + name) for name in _RESERVED_DOMAINS):
+        return "name under a reserved example domain (RFC 2606)"
     if host.rsplit(".", 1)[-1] in _RESERVED_TLDS:
         return "reserved top-level domain (RFC 2606 / RFC 6761)"
     return None
@@ -557,10 +578,88 @@ def scan_text(text: str, source: str) -> list[Observation]:
     return found
 
 
+def flutter_asset_paths(pubspec: str) -> list[str]:
+    """The `flutter: assets:` entries of a pubspec, as written.
+
+    Hand-read rather than YAML-parsed so the check needs no PyYAML. Handles
+    both the plain `- path` form and the newer `- path: path` map form.
+    """
+    paths: list[str] = []
+    in_flutter = in_assets = False
+    assets_indent = 0
+    for line in pubspec.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0:
+            in_flutter = stripped == "flutter:"
+            in_assets = False
+            continue
+        if in_flutter and stripped == "assets:":
+            in_assets, assets_indent = True, indent
+            continue
+        if in_assets:
+            if indent <= assets_indent:
+                in_assets = False
+                continue
+            if stripped.startswith("- "):
+                value = stripped[2:].strip()
+                if value.startswith("path:"):
+                    value = value[len("path:") :].strip()
+                paths.append(value.strip("'\""))
+    return paths
+
+
+def is_android_asset(parts: tuple[str, ...]) -> bool:
+    """`android/app/src/<set>/assets/...` or `.../res/raw*/...`."""
+    return len(parts) > 5 and (
+        parts[4] == "assets" or (parts[4] == "res" and parts[5].startswith("raw"))
+    )
+
+
+def is_text(path: Path) -> bool:
+    data = path.read_bytes()
+    if b"\0" in data:
+        return False
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def asset_files(root: Path) -> list[Path]:
+    """Text files Flutter or Android package as assets."""
+    found: set[Path] = set()
+    pubspec = root / "pubspec.yaml"
+    if pubspec.is_file():
+        for entry in flutter_asset_paths(pubspec.read_text(encoding="utf-8")):
+            target = root / entry
+            if target.is_dir():
+                found.update(p for p in target.iterdir() if p.is_file())
+            elif target.is_file():
+                found.add(target)
+            else:
+                raise SourceError(
+                    f"pubspec.yaml declares the asset {entry!r}, which does not "
+                    "exist. An asset the check cannot read is a hole, not a pass."
+                )
+    android = root / "android" / "app" / "src"
+    if android.is_dir():
+        found.update(
+            path
+            for path in android.rglob("*")
+            if path.is_file() and is_android_asset(path.relative_to(root).parts)
+        )
+    return sorted(path for path in found if is_text(path))
+
+
 def shipped_files(root: Path) -> tuple[list[Path], list[tuple[str, int]]]:
     """The files the check reads, in a stable order, and a count per root."""
     files: list[Path] = []
     counts: list[tuple[str, int]] = []
+    assets = asset_files(root)
     for relative, required in SCAN_ROOTS:
         directory = root / relative
         if not directory.is_dir():
@@ -575,6 +674,7 @@ def shipped_files(root: Path) -> tuple[list[Path], list[tuple[str, int]]]:
             for path in directory.rglob("*")
             if path.is_file()
             and path.suffix in SOURCE_SUFFIXES
+            and path not in assets
             and not EXCLUDED_DIRS.intersection(path.relative_to(root).parts[:-1])
         )
         if not found and required:
@@ -584,6 +684,8 @@ def shipped_files(root: Path) -> tuple[list[Path], list[tuple[str, int]]]:
             )
         files.extend(found)
         counts.append((relative, len(found)))
+    files.extend(assets)
+    counts.append((ASSET_ROOT_NAME, len(assets)))
     return files, counts
 
 
@@ -657,7 +759,8 @@ def render_text(report: Report) -> str:
     ]
     width = max(len(name) for name, _ in report.roots)
     for name, count in report.roots:
-        lines.append(f"  {(name + '/').ljust(width + 1)}  {count} files")
+        label = name if name == ASSET_ROOT_NAME else name + "/"
+        lines.append(f"  {label.ljust(width + 1)}  {count} files")
     lines.append(
         f"  {report.literals} host literals found, {len(report.reserved)} of them "
         "reserved example or loopback names"
