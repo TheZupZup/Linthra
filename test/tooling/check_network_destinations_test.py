@@ -462,6 +462,20 @@ class ScanTest(unittest.TestCase):
             self.hosts(text), ["a.tracker.io", "b.tracker.io", "c.tracker.io"]
         )
 
+    def test_triple_quoted_literals_in_bare_host_calls(self) -> None:
+        text = (
+            "Socket.connect('''a.tracker.io''', 443);\n"
+            'InetAddress.getByName("""b.tracker.io""")\n'
+        )
+        self.assertEqual(self.hosts(text), ["a.tracker.io", "b.tracker.io"])
+
+    def test_http_client_with_a_computed_path(self) -> None:
+        text = (
+            "client.get('a.tracker.io', 443, requestPath);\n"
+            "cache.get('x.y', fallback); map.get('key');\n"
+        )
+        self.assertEqual(self.hosts(text), ["a.tracker.io"])
+
     def test_code_paths_and_times_are_not_ipv6(self) -> None:
         text = "std::vector a::b ff:: at 12:30:45, mac de:ad:be:ef:00:11"
         self.assertEqual(self.hosts(text), [])
@@ -694,6 +708,53 @@ class AuditTest(unittest.TestCase):
             report = f.audit()
             self.assertEqual(
                 sorted(report.unreviewed_hosts), ["a.tracker.io", "b.tracker.io"]
+            )
+        finally:
+            f.close()
+
+    def test_the_root_android_gradle_files_are_read(self) -> None:
+        f = fixture(
+            {
+                "android/build.gradle": (
+                    'subprojects { ext.api = "https://a.tracker.io" }\n'
+                ),
+                "android/settings.gradle.kts": 'val b = "https://b.tracker.io"\n',
+            }
+        )
+        try:
+            self.assertEqual(
+                sorted(f.audit().unreviewed_hosts), ["a.tracker.io", "b.tracker.io"]
+            )
+        finally:
+            f.close()
+
+    def test_vendored_android_module_assets_are_read(self) -> None:
+        f = fixture(
+            {
+                "third_party/pkg/android/src/main/assets/endpoints.json": (
+                    '"https://a.tracker.io"\n'
+                ),
+                "third_party/lib/src/main/res/raw/hosts.txt": "https://b.tracker.io\n",
+            }
+        )
+        try:
+            self.assertEqual(
+                sorted(f.audit().unreviewed_hosts), ["a.tracker.io", "b.tracker.io"]
+            )
+        finally:
+            f.close()
+
+    def test_a_src_test_path_outside_android_modules_is_read(self) -> None:
+        f = fixture(
+            {
+                "lib/src/test/endpoints.dart": "'https://a.tracker.io'\n",
+                "native/core/src/test/endpoints.rs": '"https://b.tracker.io"\n',
+                "third_party/pkg/android/src/test/T.java": '"https://c.tracker.io"\n',
+            }
+        )
+        try:
+            self.assertEqual(
+                sorted(f.audit().unreviewed_hosts), ["a.tracker.io", "b.tracker.io"]
             )
         finally:
             f.close()

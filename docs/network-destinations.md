@@ -71,8 +71,8 @@ The source that ends up in a shipped build:
 | `linux/packaging/` | The desktop entry and AppStream metadata |
 | `native/` | The Rust and C++ libraries |
 | `third_party/` | Vendored packages (just_audio, just_audio_media_kit, libFLAC, the Media3 FLAC decoder) |
-| declared assets | Files `pubspec.yaml` lists under `flutter: assets:`, and anything under an Android source set's `assets/` or `res/raw*/` |
-| build inputs | `android/app/*.gradle(.kts)`, `android/gradle.properties` and the vendored modules' `build.gradle(.kts)`: they can put values into the app (`buildConfigField`, `resValue`, manifest placeholders) |
+| declared assets | Files `pubspec.yaml` lists under `flutter: assets:`, and anything under an Android source set's `assets/` or `res/raw*/`, in the app module or a vendored Android module |
+| build inputs | `android/*.gradle(.kts)`, `android/app/*.gradle(.kts)`, `android/gradle.properties` and the vendored modules' `build.gradle(.kts)`: they can put values into the app (`buildConfigField`, `resValue`, manifest placeholders) |
 
 In the source roots, only source file types are read (`.dart`, `.kt`, `.java`,
 `.xml`, `.c`, `.cc`, `.cpp`, `.h`, `.hpp`, `.rs`, `.desktop`). Packaged assets
@@ -91,7 +91,8 @@ so shipped code in a `lib/build/` or `lib/test/` is still read:
 - directly under a vendored or native package (`third_party/<pkg>/test`,
   `native/<pkg>/tests`): `test`, `tests`, `example`, `build`, and the Apple
   platforms (`darwin`, `ios`, `macos`);
-- Android test source sets (`src/test`, `src/androidTest`).
+- Android test source sets (`src/test`, `src/androidTest`) inside an Android
+  module: the app module or a vendored one. A `src/test` anywhere else is read.
 
 Other build files are out of scope on purpose. The Flatpak manifests and
 CMake files describe what the build downloads, not what the app contacts, and
@@ -127,7 +128,8 @@ It looks for four shapes, never for keywords:
   - Dart: `Uri.https('host', ...)`, `host: '...'`, `Socket.connect('host', ...)`
     and other `.connect(...)` calls, `InternetAddress.lookup('host')`, and
     `HttpClient`'s host-and-port methods (`get('host', port, path)` and the
-    other verbs, `open('GET', 'host', port, path)`)
+    other verbs, with a literal or computed path, and
+    `open('GET', 'host', port, path)`)
   - Kotlin/Java: `InetAddress.getByName("host")`, `getAllByName`,
     `InetSocketAddress("host", ...)`, `Socket("host", ...)`, `SSLSocket(...)`
   - C/C++: `getaddrinfo("host", ...)`, `gethostbyname("host")`
@@ -177,8 +179,9 @@ Read this before quoting the check anywhere.
 are written down in source. Specifically, it:
 
 - **only knows the APIs listed above.** A host handed to some other networking
-  call as a bare string, without a scheme, is not seen. Raw string literals
-  (`r'host'`, `r#"host"#`, `R"(host)"`) are handled for those APIs.
+  call as a bare string, without a scheme, is not seen. Raw and triple-quoted
+  string literals (`r'host'`, `r#"host"#`, `R"(host)"`, `'''host'''`,
+  `"""host"""`) are handled for those APIs.
 - **doesn't see values passed at build time.** A value given to
   `flutter build --dart-define` lives in the workflow, not the source. None of
   Linthra's dart-defines carries a host today; a new one that does would need

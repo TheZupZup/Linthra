@@ -167,6 +167,8 @@ BINARY_ASSET_SUFFIXES = frozenset(
 #: properties) for the app module and the vendored Android modules. Globs from
 #: the repository root; they may match nothing.
 BUILD_INPUT_GLOBS: tuple[str, ...] = (
+    "android/*.gradle",
+    "android/*.gradle.kts",
     "android/app/*.gradle",
     "android/app/*.gradle.kts",
     "android/gradle.properties",
@@ -190,6 +192,20 @@ PACKAGE_EXCLUDED_DIRS = frozenset(
 ANDROID_TEST_SOURCE_SETS = frozenset({"androidTest", "test"})
 
 
+def android_source_set(parts: tuple[str, ...]) -> int | None:
+    """Index of the source-set name when a path is inside an Android module's
+    `src/`: the app module, or a vendored module at `third_party/<pkg>/src` or
+    `third_party/<pkg>/android/src`. None anywhere else."""
+    for prefix_length, matches in (
+        (3, parts[:3] == ("android", "app", "src")),
+        (3, parts[0] == "third_party" and parts[2:3] == ("src",)),
+        (4, parts[0] == "third_party" and parts[2:4] == ("android", "src")),
+    ):
+        if matches and len(parts) > prefix_length + 1:
+            return prefix_length
+    return None
+
+
 def is_excluded(parts: tuple[str, ...]) -> bool:
     """Whether a file (given as its path parts) sits somewhere that never ships."""
     if (
@@ -198,10 +214,8 @@ def is_excluded(parts: tuple[str, ...]) -> bool:
         and parts[2] in PACKAGE_EXCLUDED_DIRS
     ):
         return True
-    return any(
-        parts[index] == "src" and parts[index + 1] in ANDROID_TEST_SOURCE_SETS
-        for index in range(len(parts) - 2)
-    )
+    source_set = android_source_set(parts)
+    return source_set is not None and parts[source_set] in ANDROID_TEST_SOURCE_SETS
 
 
 #: One label of a host name. Underscores are not valid in DNS host names, but
@@ -260,9 +274,13 @@ _MAIL = re.compile(
 #: A string literal holding a host, optionally with a `:port`. A literal
 #: containing `$` or `{` is an interpolation, which means a configured address,
 #: and never matches.
-#: Raw literals count too: Dart `r'host'`, Rust `r"host"` / `r#"host"#`, C++
-#: `R"(host)"`.
-_HOST_LITERAL = r"(?:r#*|R)?['\"]\(?(?P<host>[^'\"$\{\s:()]+)(?::\d+)?\)?['\"]#*"
+#: Raw and triple-quoted literals count too: Dart `r'host'` and
+#: `'''host'''`, Kotlin `"""host"""`, Rust `r"host"` / `r#"host"#`,
+#: C++ `R"(host)"`.
+_HOST_LITERAL = (
+    r"(?:r#*|R)?(?:'''|\"\"\"|['\"])"
+    r"\(?(?P<host>[^'\"$\{\s:()]+)(?::\d+)?\)?['\"]#*"
+)
 
 #: APIs that take a host as a bare string rather than inside a URL, one or two
 #: per language the scan reads (Dart, Kotlin/Java, C/C++, Rust). Best effort,
@@ -291,11 +309,12 @@ _HOST_ARGUMENTS: tuple[tuple[re.Pattern[str], bool], ...] = tuple(
         (_HOST_LITERAL + r"\s*\.to_socket_addrs\(", True),
         # Dart HttpClient's host-and-port methods: get/post/put/delete/patch/
         # head(host, port, path) and open(method, host, port, path). Scoped to
-        # the three-argument shape so `map.get('key')` never matches.
+        # the exact three-argument shape (the path may be computed), so
+        # `map.get('key')` or `cache.get('a.b', fallback)` never matches.
         (
             r"\.(?:get|post|put|delete|patch|head)\(\s*"
             + _HOST_LITERAL
-            + r"\s*,\s*[^,()]+,\s*['\"]",
+            + r"\s*,\s*[^,()]+,\s*[^,()]+,?\s*\)",
             True,
         ),
         (r"\.open\(\s*['\"][A-Za-z]+['\"]\s*,\s*" + _HOST_LITERAL, True),
@@ -741,9 +760,18 @@ def flutter_asset_paths(pubspec: str) -> list[str]:
 
 
 def is_android_asset(parts: tuple[str, ...]) -> bool:
-    """`android/app/src/<set>/assets/...` or `.../res/raw*/...`."""
-    return len(parts) > 5 and (
-        parts[4] == "assets" or (parts[4] == "res" and parts[5].startswith("raw"))
+    """`<module>/src/<set>/assets/...` or `.../res/raw*/...`, in the app module
+    or a vendored Android module."""
+    source_set = android_source_set(parts)
+    if source_set is None or len(parts) < source_set + 3:
+        return False
+    kind = parts[source_set + 1]
+    if kind == "assets":
+        return True
+    return (
+        kind == "res"
+        and len(parts) >= source_set + 4
+        and parts[source_set + 2].startswith("raw")
     )
 
 
@@ -821,11 +849,15 @@ def asset_files(root: Path) -> list[Path]:
                     f"pubspec.yaml declares the asset {entry!r}, which does not "
                     "exist. An asset the check cannot read is a hole, not a pass."
                 )
-    android = root / "android" / "app" / "src"
-    if android.is_dir():
+    module_sources = [root / "android" / "app" / "src"]
+    module_sources += sorted(root.glob("third_party/*/src"))
+    module_sources += sorted(root.glob("third_party/*/android/src"))
+    for sources in module_sources:
+        if not sources.is_dir():
+            continue
         found.update(
             path
-            for path in android.rglob("*")
+            for path in sources.rglob("*")
             if path.is_file() and is_android_asset(path.relative_to(root).parts)
         )
     return sorted(
