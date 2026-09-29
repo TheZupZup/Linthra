@@ -2201,6 +2201,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _emitError(Track track, PlaybackFailure failure) {
     _cancelAutomaticRecovery();
     _cancelBufferingWatchdog();
+    // An error has nothing to resume. A transient focus loss (a call) that is
+    // still held would otherwise have the focus regain call play() on whatever
+    // source the engine last had, underneath the error.
+    if (_resumeAfterTransientLoss) _armTransientResume(false);
     _emit(PlaybackState(
       status: PlaybackStatus.error,
       currentTrack: track,
@@ -2361,6 +2365,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _armTransientResume(false);
     _supersedeFocusTransport();
     _restoreDuckedVolume();
+    // Any explicit play is the listener taking over: whatever failed before
+    // this is history, and the next failure gets a fresh bounded recovery.
+    _failureStreak.clear();
     // After a server outage the engine may be in error with no loaded source,
     // or waiting on an automatic retry or move. Re-resolve at the preserved
     // position now, so a returned server (or a sibling copy) can recover
@@ -2423,9 +2430,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   @override
   Future<void> seek(Duration position) async {
     if (_suspended) return;
-    // There is nothing loaded to seek while an automatic step is pending: show
-    // the failure instead of leaving the step to be silently dropped below.
-    _cancelAutomaticRecovery(settle: true);
+    // While an automatic retry or move is waiting or still loading there is
+    // nothing loaded to seek in, and the generation bump below would silently
+    // drop that step and leave the player on "Loading…". Seeking there is the
+    // listener taking over: start afresh from the spot they chose.
+    if ((_pendingRecovery != null || _runningRecoveryStep != null) &&
+        _queue.current != null) {
+      _retriesForCurrent = 0;
+      _startFreshAfterFailures();
+      await _playCurrent(startAt: position);
+      return;
+    }
     // A seek is a playback action too: bump the generation so a still-resolving
     // earlier load can't complete afterwards and yank playback off the spot the
     // user just chose (or onto a different track). In normal flow nothing is

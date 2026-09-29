@@ -431,6 +431,8 @@ class CacheDownloadRepository
     }
     final int incoming = data.bytes.length;
     final int maxBytes = await _preferences.maxCacheBytes();
+    // Asked again after every await below: a sign-out can land in any of them.
+    if (preloaded && !_stillWanted(isStillWanted)) return;
     final EvictionPlan plan = _policy.plan(
       cached: _downloads.values,
       incomingBytes: incoming,
@@ -462,6 +464,17 @@ class CacheDownloadRepository
       data.bytes,
       extension: data.fileExtension,
     );
+    if (preloaded && !_stillWanted(isStillWanted)) {
+      // The session changed while the bytes were being written: take the file
+      // back out instead of publishing it, and persist the evictions already
+      // made so the metadata matches what is on disk.
+      await _files.delete(fileName);
+      if (plan.evict.isNotEmpty) {
+        await _save();
+        _emitCache();
+      }
+      return;
+    }
     final DateTime now = _now();
     _downloads[key] = CachedTrack(
       trackId: track.id,

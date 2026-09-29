@@ -6,6 +6,7 @@ import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_repository.dart';
 import 'package:linthra/core/repositories/download_store.dart';
+import 'package:linthra/core/repositories/offline_file_store.dart';
 import 'package:linthra/core/services/connectivity_service.dart';
 import 'package:linthra/core/services/offline_first_playable_uri_resolver.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
@@ -69,6 +70,40 @@ class _Downloader implements RemoteTrackDownloader {
       fileExtension: 'mp3',
     );
   }
+}
+
+/// Writes through to an in-memory store, but can hold a write open after the
+/// bytes land, so a test can act while a commit is still saving them.
+class _HeldWrites implements OfflineFileStore {
+  _HeldWrites(this._inner);
+
+  final InMemoryOfflineFileStore _inner;
+  Completer<void>? _hold;
+
+  Completer<void> holdNextWrite() => _hold = Completer<void>();
+
+  @override
+  Future<String> write(
+    String trackId,
+    List<int> bytes, {
+    String? extension,
+  }) async {
+    final String name =
+        await _inner.write(trackId, bytes, extension: extension);
+    final Completer<void>? hold = _hold;
+    _hold = null;
+    if (hold != null) await hold.future;
+    return name;
+  }
+
+  @override
+  Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);
+
+  @override
+  Future<int?> sizeFor(String fileName) => _inner.sizeFor(fileName);
+
+  @override
+  Future<void> delete(String fileName) => _inner.delete(fileName);
 }
 
 /// A streaming source that is always unreachable: the device is offline.
@@ -439,6 +474,28 @@ void main() {
       await _settle();
 
       expect(downloader.fetched, isEmpty);
+    });
+
+    test('a sign-out while the bytes are being saved publishes nothing',
+        () async {
+      final _HeldWrites held = _HeldWrites(files);
+      service(CacheDownloadRepository(
+        store: store,
+        files: held,
+        downloader: downloader,
+        connectivity: connectivity,
+        preferences: InMemoryDownloadPreferences(),
+        currentlyPlayingTrack: () => playing,
+      ));
+      final Completer<void> saving = held.holdNextWrite();
+
+      await play(_playing(_t('a'), <Track>[_t('b')]));
+      account = null;
+      saving.complete();
+      await _settle();
+
+      expect(await store.loadDownloads(), isEmpty);
+      expect(files.bytesFor('jellyfin_b.mp3'), isNull);
     });
 
     test('a sign-out mid-download writes nothing', () async {

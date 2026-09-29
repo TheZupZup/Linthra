@@ -163,8 +163,8 @@ on Android and Linux) takes a few bounded steps on its own:
 The waits between moves back off (1, 2, 4, 8 s), so the whole run waits about
 33 seconds at most, and the per-server reachability memory means a down server
 is contacted about once every ten seconds at most while it runs. A track that
-plays to its end, or any action of yours (play, skip, Retry, a new queue),
-starts a fresh run. It never moves on for an audio engine failure (every track
+plays to its end, or any action of yours (play, skip, seek, Retry, a new
+queue), starts a fresh run. It never moves on for an audio engine failure (every track
 would fail the same way), after a restored session or the end of a cast (those
 never start audio on their own), after you pause, when headphones are
 unplugged, or once another app has taken over audio. During a call it can
