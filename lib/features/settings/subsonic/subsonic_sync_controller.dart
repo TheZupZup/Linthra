@@ -78,6 +78,12 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   bool _rerunQueued = false;
   String? _rerunRecordFingerprint;
 
+  /// Set when [resumeIncompleteSync] lands while a sync is already running
+  /// (Android resumed the app with the frozen sync's request still in
+  /// flight). If that sync then fails in a way worth retrying, it runs once
+  /// more straight away instead of waiting for the next return to the app.
+  bool _resumeRequested = false;
+
   /// Tracks per batch. Each batch costs a transaction plus a pass over the
   /// whole "recently added" record (the Recording repository loads and saves
   /// it per write), so small batches make a big library's sync quadratic: at
@@ -131,24 +137,35 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// record for *this* account and nothing is running. A marker left by another
   /// account is dropped. Never throws.
   Future<void> resumeIncompleteSync() async {
-    if (_syncing) return;
+    if (_syncing) {
+      _resumeRequested = true;
+      return;
+    }
+    final String? account = await _pendingForCurrentAccount();
+    if (account == null) return;
+    // Pass the account along so a resumed *first* sync still marks the
+    // account as auto-synced once it lands, like the run it replaces would.
+    await _runSync(recordFingerprint: account);
+  }
+
+  /// The signed-in account's fingerprint when an unfinished sync is on record
+  /// for it, else null. A marker left by another account is dropped.
+  Future<String?> _pendingForCurrentAccount() async {
     final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
-    if (source == null) return;
+    if (source == null) return null;
     final String account = subsonicAccountFingerprint(source.session);
     final String? pending;
     try {
       pending = await ref.read(subsonicSyncPendingStoreProvider).read();
     } catch (_) {
-      return;
+      return null;
     }
-    if (pending == null) return;
+    if (pending == null) return null;
     if (pending != account) {
       await _clearPending();
-      return;
+      return null;
     }
-    // Pass the account along so a resumed *first* sync still marks the
-    // account as auto-synced once it lands, like the run it replaces would.
-    await _runSync(recordFingerprint: account);
+    return account;
   }
 
   /// The shared sync path behind [sync], [autoSyncIfNeeded] and
@@ -170,9 +187,20 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
       String? record = recordFingerprint;
       do {
         _rerunQueued = false;
+        _resumeRequested = false;
         await _syncOnce(recordFingerprint: record);
         record = _rerunRecordFingerprint;
         _rerunRecordFingerprint = null;
+        if (!_rerunQueued && _resumeRequested) {
+          // A resume came in while this run was going. The marker is still
+          // set only if the run failed in a way worth retrying; then retry
+          // now, once per resume, rather than until the next resume.
+          final String? account = await _pendingForCurrentAccount();
+          if (account != null) {
+            _rerunQueued = true;
+            record = account;
+          }
+        }
       } while (_rerunQueued);
     } catch (_) {
       // _syncOnce settles its own failures; this only catches one raised while

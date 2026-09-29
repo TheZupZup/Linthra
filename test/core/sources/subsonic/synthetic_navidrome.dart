@@ -25,6 +25,8 @@ class SyntheticNavidrome {
     Set<int>? failingAlbumCalls,
     this.failAlbumCallsFrom,
     this.serverErrorAlbumCalls = const <int>{},
+    this.rateLimitedAlbumCalls = const <int>{},
+    this.rateLimitAlbumCallsFrom,
     this.rejectCredentialsFromAlbumCall,
     this.stallAtAlbumCall,
   })  : missingAlbums = missingAlbums ?? <int>{},
@@ -51,6 +53,13 @@ class SyntheticNavidrome {
 
   /// 1-based `getAlbum` call numbers that answer HTTP 503, once each.
   final Set<int> serverErrorAlbumCalls;
+
+  /// 1-based `getAlbum` call numbers a rate-limiting proxy answers with HTTP
+  /// 429, once each.
+  final Set<int> rateLimitedAlbumCalls;
+
+  /// From this 1-based `getAlbum` call on, every call answers HTTP 429.
+  final int? rateLimitAlbumCallsFrom;
 
   /// From this 1-based `getAlbum` call on, the server rejects the credential
   /// (Subsonic error 40): a failure no retry can fix.
@@ -128,6 +137,11 @@ class SyntheticNavidrome {
         if (rejectCredentialsFromAlbumCall != null &&
             call >= rejectCredentialsFromAlbumCall!) {
           return _failed(40, 'Wrong username or password');
+        }
+        if (rateLimitedAlbumCalls.contains(call) ||
+            (rateLimitAlbumCallsFrom != null &&
+                call >= rateLimitAlbumCallsFrom!)) {
+          return http.Response('Too Many Requests', 429);
         }
         if (serverErrorAlbumCalls.contains(call)) {
           return http.Response('Service Unavailable', 503);

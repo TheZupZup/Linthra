@@ -192,6 +192,20 @@ void main() {
       expect(server.albumCalls, 29 + 3);
     });
 
+    test('a rate-limited request (HTTP 429) is retried', () async {
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 20,
+        rateLimitedAlbumCalls: <int>{5, 12},
+      );
+
+      final (SubsonicCatalogWalk walk, List<List<Track>> batches) =
+          await _walk(server);
+
+      expect(walk.isComplete, isTrue);
+      _expectSameSet(_uris(batches), server.urisFor('alice'));
+      expect(server.albumCalls, 20 + 2);
+    });
+
     test('a rejected credential is not retried', () async {
       final SyntheticNavidrome server =
           SyntheticNavidrome(albums: 10, rejectCredentialsFromAlbumCall: 4);

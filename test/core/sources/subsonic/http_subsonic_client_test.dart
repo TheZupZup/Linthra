@@ -280,6 +280,19 @@ void main() {
       expect(albums.last.id, 'al-last');
     });
 
+    test('HTTP 429 (rate limited) is a retryable server error', () async {
+      final client = _client(
+        MockClient((_) async => http.Response('Too Many Requests', 429)),
+      );
+
+      await expectLater(
+        client.getAlbumListPage(_session, size: 500, offset: 0),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.kind, 'kind', SubsonicErrorKind.serverError)
+            .having((e) => e.statusCode, 'statusCode', 429)),
+      );
+    });
+
     test('getAlbumListPage sends size and offset', () async {
       http.Request? captured;
       final client = _client(MockClient((http.Request request) async {

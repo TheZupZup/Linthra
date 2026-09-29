@@ -516,7 +516,11 @@ class HttpSubsonicClient implements SubsonicClient {
     if (code == 401 || code == 403) {
       throw SubsonicException.unauthorized();
     }
-    if (code >= 500) {
+    // 429 Too Many Requests: a server or reverse proxy rate-limiting the
+    // thousands of requests a large library sync makes. That is transient,
+    // so it maps to the retryable server-error kind rather than "not
+    // Subsonic".
+    if (code >= 500 || code == 429) {
       throw SubsonicException.serverError(code);
     }
     // Other 4xx (wrong path, proxy 4xx, …): the address probably isn't a

@@ -355,6 +355,65 @@ void main() {
       _expectSameSet(await app.subsonicUris(), app.server.urisFor('alice'));
     });
 
+    test('persistent rate limiting (HTTP 429) keeps the sync to resume',
+        () async {
+      final _App app = _App(
+        SyntheticNavidrome(albums: 400, rateLimitAlbumCallsFrom: 300),
+      );
+      await app.signIn();
+
+      await app.sync.sync();
+
+      expect(app.state.status, SubsonicSyncStatus.error);
+      expect(app.state.errorKind, 'serverError');
+      expect(await app.subsonicRows(), 2000);
+      // Rate limiting passes, so the next launch/resume tries again.
+      expect(await app.pending.read(), _account('alice'));
+      expect(app.state.message, contains('will try again'));
+    });
+
+    test('a resume during a sync that then fails retries it right away',
+        () async {
+      // Android resumes the app while the frozen sync's request is still in
+      // flight; that request then fails (with both retries) once it thaws.
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 1000,
+        stallAtAlbumCall: 500,
+        failingAlbumCalls: <int>{500, 501, 502},
+      );
+      final _App app = _App(server);
+      await app.signIn();
+
+      final Future<void> running = app.sync.sync();
+      await server.stalled;
+      await app.sync.resumeIncompleteSync();
+      server.releaseStall();
+      await running;
+
+      // The failed run was retried at once, from the start, and finished.
+      expect(app.state.status, SubsonicSyncStatus.success);
+      _expectSameSet(await app.subsonicUris(), server.urisFor('alice'));
+      expect(await app.pending.read(), isNull);
+      expect(server.albumCalls, 499 + 3 + 1000);
+    });
+
+    test('a resume during a sync that succeeds does not run it again',
+        () async {
+      final SyntheticNavidrome server =
+          SyntheticNavidrome(albums: 1000, stallAtAlbumCall: 500);
+      final _App app = _App(server);
+      await app.signIn();
+
+      final Future<void> running = app.sync.sync();
+      await server.stalled;
+      await app.sync.resumeIncompleteSync();
+      server.releaseStall();
+      await running;
+
+      expect(app.state.status, SubsonicSyncStatus.success);
+      expect(server.albumCalls, 1000);
+    });
+
     test('a failure no retry can fix does not leave a sync to resume',
         () async {
       final _App app = _App(
