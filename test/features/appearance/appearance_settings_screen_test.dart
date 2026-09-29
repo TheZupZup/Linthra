@@ -2,13 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/custom_theme_settings.dart';
+import 'package:linthra/core/models/github_device_authorization.dart';
+import 'package:linthra/core/models/github_sponsor_verification.dart';
 import 'package:linthra/core/models/theme_mode_preference.dart';
+import 'package:linthra/core/services/github_sponsor_client.dart';
 import 'package:linthra/data/repositories/app_icon_variant_store_provider.dart';
 import 'package:linthra/data/repositories/custom_theme_store_provider.dart';
+import 'package:linthra/data/repositories/github_sponsor_token_store_provider.dart';
 import 'package:linthra/data/repositories/in_memory_app_icon_variant_store.dart';
 import 'package:linthra/data/repositories/in_memory_custom_theme_store.dart';
+import 'package:linthra/data/repositories/in_memory_github_sponsor_token_store.dart';
 import 'package:linthra/data/repositories/in_memory_theme_mode_store.dart';
 import 'package:linthra/data/repositories/theme_mode_store_provider.dart';
+import 'package:linthra/data/services/github_sponsor_client_provider.dart';
 import 'package:linthra/features/appearance/app_icon_controller.dart';
 import 'package:linthra/features/appearance/app_icon_variant.dart';
 import 'package:linthra/features/appearance/appearance_settings_screen.dart';
@@ -29,6 +35,7 @@ void main() {
       String? initialIcon,
       SupporterEntitlement entitlement = SupporterEntitlement.locked,
       SupportDistribution distribution = SupportDistribution.fdroid,
+      List<Override> extraOverrides = const <Override>[],
     }) async {
       iconStore = InMemoryAppIconVariantStore(initialIcon);
       themeStore = InMemoryCustomThemeStore();
@@ -42,6 +49,7 @@ void main() {
           customThemeStoreProvider.overrideWithValue(themeStore),
           supporterEntitlementProvider.overrideWithValue(entitlement),
           supportDistributionProvider.overrideWithValue(distribution),
+          ...extraOverrides,
         ],
       );
       addTearDown(container.dispose);
@@ -152,6 +160,40 @@ void main() {
       expect(find.byKey(const Key('custom-theme-enabled')), findsNothing);
     });
 
+    testWidgets('GitHub APK lets a connected non-sponsor disconnect',
+        (tester) async {
+      // The token is checked again at every launch, so it has to be removable
+      // even when the account turned out not to be an active sponsor.
+      final InMemoryGitHubSponsorTokenStore tokenStore =
+          InMemoryGitHubSponsorTokenStore('saved-token');
+      await pump(
+        tester,
+        entitlement: SupporterEntitlement.locked,
+        distribution: SupportDistribution.githubRelease,
+        extraOverrides: <Override>[
+          githubSponsorTokenStoreProvider.overrideWithValue(tokenStore),
+          githubSponsorClientProvider.overrideWithValue(
+            const _InactiveGitHubSponsorClient(),
+          ),
+        ],
+      );
+
+      final Finder disconnect =
+          find.byKey(const Key('custom-theme-disconnect-github'));
+      expect(disconnect, findsOneWidget);
+      expect(
+        find.byKey(const Key('custom-theme-refresh-sponsorship')),
+        findsOneWidget,
+      );
+
+      await tester.ensureVisible(disconnect);
+      await tester.tap(disconnect);
+      await tester.pumpAndSettle();
+
+      expect(await tokenStore.read(), isNull);
+      expect(disconnect, findsNothing);
+    });
+
     testWidgets('offers System, Light, and Dark, starting on System',
         (tester) async {
       final ProviderContainer container = await pump(tester);
@@ -221,4 +263,39 @@ void main() {
       expect(mark.bars, AppIconVariants.neon.bars);
     });
   });
+}
+
+class _InactiveGitHubSponsorClient implements GitHubSponsorClient {
+  const _InactiveGitHubSponsorClient();
+
+  @override
+  bool get isConfigured => true;
+
+  @override
+  Future<GitHubDeviceAuthorization> requestDeviceAuthorization() async {
+    return GitHubDeviceAuthorization(
+      deviceCode: 'device-code',
+      userCode: 'ABCD-EFGH',
+      verificationUri: Uri.parse('https://github.com/login/device'),
+      expiresAt: DateTime.now().add(const Duration(minutes: 15)),
+      pollInterval: Duration.zero,
+    );
+  }
+
+  @override
+  Future<String> pollForAccessToken(
+    GitHubDeviceAuthorization authorization,
+  ) async {
+    return 'new-token';
+  }
+
+  @override
+  Future<GitHubSponsorVerification> verifySponsorship(
+    String accessToken,
+  ) async {
+    return const GitHubSponsorVerification(
+      login: 'music-fan',
+      hasActiveMonthlySponsorship: false,
+    );
+  }
 }

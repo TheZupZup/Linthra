@@ -272,6 +272,23 @@ class ScanTest(unittest.TestCase):
         text = "'https://api.${domain}/x' \"https://cdn-$region.example.org/x\""
         self.assertEqual(self.hosts(text), [])
 
+    def test_user_information_before_a_configured_host_is_not_a_host(self) -> None:
+        text = (
+            "'ftp://anonymous@$server/path' 'https://user@${host}/x' "
+            "'https://user:pass@${host}/x'"
+        )
+        self.assertEqual(self.hosts(text), [])
+
+    def test_the_linux_players_network_schemes_are_read(self) -> None:
+        text = (
+            "rtp://a.tracker.io/live udp://b.tracker.io:1234 tcp://c.tracker.io:9 "
+            "tls://d.tracker.io rtsp://e.tracker.io rtmp://f.tracker.io "
+            "mms://g.tracker.io srt://h.tracker.io"
+        )
+        self.assertEqual(
+            self.hosts(text), [f"{letter}.tracker.io" for letter in "abcdefgh"]
+        )
+
     def test_a_full_stop_after_a_url_in_prose_ends_the_host(self) -> None:
         self.assertEqual(self.hosts("See https://github.com."), ["github.com"])
 

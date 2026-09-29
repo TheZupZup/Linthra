@@ -33,8 +33,9 @@ toolchain.
 
 **How it reads.** Three structured shapes, never a keyword list:
 
-  * `scheme://host` for http, https, ws, wss, ftp and ftps, including URLs
-    with `user:pass@` in front of the host. The whole host has to be a
+  * `scheme://host` for http, https, ws, wss, ftp and ftps, plus the network
+    schemes the Linux player accepts (rtp, rtsp, rtmp, udp, tcp, tls, mms,
+    srt), including URLs with `user:pass@` in front of the host. The whole host has to be a
     literal: `http://$host`, `https://${server}` or `https://api.${domain}` is
     a user-configured address and is skipped by construction.
   * IP literals outside a URL, such as `InternetAddress('203.0.113.9')` or an
@@ -126,15 +127,19 @@ EXCLUDED_DIRS = frozenset(
 
 _HOST_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
 _URL = re.compile(
-    r"\b(?P<scheme>https?|wss?|ftps?)://"
+    # Web, WebSocket and FTP, plus the network schemes the Linux player (mpv)
+    # accepts, so a fixed stream handed straight to the player is seen too.
+    r"\b(?P<scheme>https?|wss?|ftps?|rtmps?|rtsp|rtp|udp|tcp|tls|mms|srt)://"
     # Optional user information (`user:pass@`). Without it, the user name would
     # be read as the host and the real destination after the `@` never seen.
     r"(?:[^\s/?#@'\"<>]*@)?"
     r"(?P<host>\[[0-9A-Fa-f:.]+\]|" + _HOST_LABEL + r"(?:\." + _HOST_LABEL + r")*)"
     # The host has to end where the authority ends. `https://api.${domain}` or
     # `https://cdn-$region.example.org` is a configured address, not a URL for
-    # the host `api` or `cdn`. A trailing full stop in prose still ends a host.
-    r"(?![\w$\{-])(?!\.[\w$\{])",
+    # the host `api` or `cdn`, and in `ftp://anonymous@$server` or
+    # `https://user:pass@${host}` the name before the `@` is not a host at all.
+    # A trailing full stop in prose still ends a host.
+    r"(?![\w$\{@-])(?!\.[\w$\{])(?![:][^\s/?#@'\"<>]*@)",
     re.IGNORECASE,
 )
 _IPV4 = re.compile(r"(?<![\w.])(?P<host>\d{1,3}(?:\.\d{1,3}){3})(?![\w.])")

@@ -88,8 +88,9 @@ fails the check rather than quietly passing.
 
 It looks for three shapes, never for keywords:
 
-- **URLs**: `scheme://host` for http, https, ws, wss, ftp and ftps, including
-  `scheme://user:pass@host`. The whole host has to be a literal.
+- **URLs**: `scheme://host` for http, https, ws, wss, ftp and ftps, plus the
+  network schemes the Linux player (mpv) accepts (rtp, rtsp, rtmp, udp, tcp,
+  tls, mms, srt), including `scheme://user:pass@host`. The whole host has to be a literal.
   `http://$host:4533`, `https://${server}` or `https://api.${domain}` is a
   configured address and is skipped by construction.
 - **IP literals** outside a URL, like `InternetAddress('203.0.113.9')` or
