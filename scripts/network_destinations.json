@@ -165,6 +165,16 @@
       "rationale": "Placeholder name in a doc comment showing the shape of a Subsonic server address (`http://host:4533/rest`)."
     },
     {
+      "host": "linthra.ca",
+      "kind": "browser-link",
+      "builds": "all",
+      "paths": [
+        "lib/features/settings/about/bug_report_email.dart",
+        "lib/features/settings/about/support_section.dart"
+      ],
+      "rationale": "The support address (support@linthra.ca). Contact and Report a bug open a draft in the user's mail app; Linthra sends nothing itself and never contacts linthra.ca."
+    },
+    {
       "host": "mpv.io",
       "kind": "reference",
       "builds": "all",

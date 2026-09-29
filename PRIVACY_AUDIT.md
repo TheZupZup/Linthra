@@ -51,14 +51,16 @@ the binary users install, and the planned APK privacy report builds on it.
 
 ## Checked by hand
 
-These were reviewed by reading the source at commit `1319070` (2026-09-29). They
-are not automated, so they are only as current as that review.
+These were reviewed by reading the source on 2026-09-29: `main` at `de23474`
+plus the changes in the pull request that added this page. They are not
+automated, so they are only as current as that review.
 
 - **Nothing is contacted at startup on a clean install.** With no server
   configured, the app bootstrap starts local services only. The background
   work that does use the network (artwork prewarm, precaching, playback
-  reporting, the Jellyfin availability check and control socket) only runs
-  against a server you have configured.
+  reporting, resuming an unfinished Navidrome/Subsonic library sync, the
+  Jellyfin availability check and control socket) only runs against a server
+  you have configured.
 - **The Android platform code has no networking of its own.** The Kotlin in
   `android/app/src/main/kotlin` reads connectivity state (metered or not) and
   does nothing else with the network. Playback goes through Media3, which
@@ -70,8 +72,8 @@ are not automated, so they are only as current as that review.
   all. The release artifact check above confirms the Cast code is absent from
   the compiled app.
 - **Links are links.** The project, privacy policy, sponsor and bug report links
-  open in your browser when tapped. The prefilled bug report is never submitted
-  for you.
+  open in your browser when tapped, and the support address opens a draft in
+  your mail app. Nothing is submitted or sent for you.
 
 ## Still to do in #504
 

@@ -31,7 +31,7 @@ the Flatpak manifests) are not runtime destinations and are pinned by their own
 checks. Everything read is committed, so the check needs no network and no
 toolchain.
 
-**How it reads.** Three structured shapes, never a keyword list:
+**How it reads.** Four structured shapes, never a keyword list:
 
   * `scheme://host` for http, https, ws, wss, ftp and ftps, plus the network
     schemes the Linux player accepts (rtp, rtsp, rtmp, udp, tcp, tls, mms,
@@ -39,7 +39,10 @@ toolchain.
     literal: `http://$host`, `https://${server}` or `https://api.${domain}` is
     a user-configured address and is skipped by construction.
   * IP literals outside a URL, such as `InternetAddress('203.0.113.9')` or an
-    IPv6 address (which has to parse as one and contain a digit).
+    IPv6 address (which has to parse as one, and outside a string literal
+    also contain a digit).
+  * Mail recipients: a `mailto:` link or an address written as a whole string
+    literal. The domain is what gets reviewed.
   * A host passed as a bare string to the common APIs that take one, such as
     `Uri.https('host', ...)`, `InetAddress.getByName("host")`,
     `getaddrinfo("host", ...)` or `TcpStream::connect("host:443")`, matched
@@ -148,6 +151,17 @@ _IPV4 = re.compile(r"(?<![\w.])(?P<host>\d{1,3}(?:\.\d{1,3}){3})(?![\w.])")
 #: `a::b` style paths.
 _IPV6 = re.compile(
     r"(?<![\w:.])\[?(?P<host>[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7})\]?(?![\w:.])"
+)
+#: An IPv6 literal that is the whole of a string literal, optionally bracketed
+#: and with a port: `'dead:beef::cafe'` or `"[face::feed]:443"`.
+_QUOTED_IPV6 = re.compile(
+    r"['\"]\[?(?P<host>[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7})\]?(?::\d+)?['\"]"
+)
+#: Mail recipients: a `mailto:` link, or an address written as a whole string
+#: literal (`'support@example.org'`). The domain is what gets reviewed.
+_MAIL = re.compile(
+    r"(?:\bmailto:[^@\s'\"<>?]+@|['\"][A-Za-z0-9._%+-]+@)"
+    r"(?P<host>" + _HOST_LABEL + r"(?:\." + _HOST_LABEL + r")+)"
 )
 
 #: A string literal holding a host, optionally with a `:port`. A literal
@@ -498,6 +512,9 @@ def scan_text(text: str, source: str) -> list[Observation]:
                     f"{match.group('scheme').lower()} URL",
                 )
             )
+        quoted = {
+            normalise_host(match.group("host")) for match in _QUOTED_IPV6.finditer(line)
+        }
         for pattern in (_IPV4, _IPV6):
             for match in pattern.finditer(line):
                 start, end = match.span()
@@ -506,11 +523,26 @@ def scan_text(text: str, source: str) -> list[Observation]:
                 host = normalise_host(match.group("host"))
                 if parse_ip(host) is None:
                     continue
-                if pattern is _IPV6 and not any(char.isdigit() for char in host):
-                    # `a::b` and `ff::` parse as IPv6 but read as code paths.
-                    # A real address worth reviewing has a digit somewhere.
+                if (
+                    pattern is _IPV6
+                    and host not in quoted
+                    and not any(char.isdigit() for char in host)
+                ):
+                    # Outside a string literal, `a::b` and `ff::` are code paths
+                    # that happen to parse as IPv6. A letter-only address still
+                    # counts when it is written as a string, like
+                    # `'dead:beef::cafe'`.
                     continue
                 found.append(Observation(host, source, number, "IP literal"))
+        for match in _MAIL.finditer(line):
+            found.append(
+                Observation(
+                    normalise_host(match.group("host")),
+                    source,
+                    number,
+                    "mail recipient",
+                )
+            )
     # Calls are matched against the whole file rather than line by line, so a
     # host written on the line after `Socket.connect(` is still seen.
     for pattern, single_label in _HOST_ARGUMENTS:

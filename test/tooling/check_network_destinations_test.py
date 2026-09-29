@@ -48,8 +48,26 @@ checker = _load("check_network_destinations", "check_network_destinations.py")
 INVENTORY_PATH = SCRIPTS / "network_destinations.json"
 
 #: The canonical policy and the published copy on the project site. Both have
-#: to name every host Linthra's own code contacts.
+#: to name every host Linthra's own code contacts, in the section that says
+#: when and why. A mention anywhere else (a footer link, the source URL) is not
+#: a disclosure.
 PRIVACY_POLICIES = (ROOT / "PRIVACY.md", ROOT / "docs" / "privacy.html")
+DISCLOSURE_HEADING = "Other services Linthra contacts"
+
+
+def disclosure_section(path: Path) -> str:
+    """The text of the policy's contacted-services section, and nothing else."""
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".html":
+        start_marker, next_marker = f"<h2>{DISCLOSURE_HEADING}</h2>", "<h2>"
+    else:
+        start_marker, next_marker = f"## {DISCLOSURE_HEADING}\n", "\n## "
+    start = text.find(start_marker)
+    if start == -1:
+        raise AssertionError(f"{path.name} has no '{DISCLOSURE_HEADING}' section")
+    body = text[start + len(start_marker) :]
+    end = body.find(next_marker)
+    return body if end == -1 else body[:end]
 
 
 def mentions_host(text: str, host: str) -> bool:
@@ -164,14 +182,35 @@ class RealRepositoryTest(unittest.TestCase):
     def test_every_app_request_is_documented_in_the_privacy_policy(self) -> None:
         inventory = checker.load_inventory(INVENTORY_PATH)
         for path in PRIVACY_POLICIES:
-            policy = path.read_text(encoding="utf-8")
+            policy = disclosure_section(path)
             for entry in inventory.entries:
                 if entry.kind == "app-request":
                     self.assertTrue(
                         mentions_host(policy, entry.host),
-                        f"{path.relative_to(ROOT)} does not mention {entry.host}, "
-                        "which Linthra contacts itself",
+                        f"{path.relative_to(ROOT)} does not disclose {entry.host} "
+                        f"under '{DISCLOSURE_HEADING}', but Linthra contacts it",
                     )
+
+    def test_a_mention_outside_the_disclosure_section_does_not_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            md = Path(tmp) / "PRIVACY.md"
+            md.write_text(
+                "# Policy\n\n## Other services Linthra contacts\n\n- plex.tv sign-in\n"
+                "\n## Open source\n\nhttps://github.com/TheZupZup/Linthra\n",
+                encoding="utf-8",
+            )
+            section = disclosure_section(md)
+            self.assertTrue(mentions_host(section, "plex.tv"))
+            self.assertFalse(mentions_host(section, "github.com"))
+            html = Path(tmp) / "privacy.html"
+            html.write_text(
+                "<h2>Other services Linthra contacts</h2><p>plex.tv</p>"
+                "<h2>Open source</h2><a>https://github.com/x</a>",
+                encoding="utf-8",
+            )
+            section = disclosure_section(html)
+            self.assertTrue(mentions_host(section, "plex.tv"))
+            self.assertFalse(mentions_host(section, "github.com"))
 
     def test_a_host_is_only_disclosed_by_its_whole_name(self) -> None:
         text = "Linthra asks GitHub (github.com) and https://api.github.com/graphql."
@@ -309,6 +348,24 @@ class ScanTest(unittest.TestCase):
             'TcpStream::connect("[2606:4700::1111]:443");\n'
         )
         self.assertEqual(self.hosts(text), ["2001:4860:4860::8888", "2606:4700::1111"])
+
+    def test_a_letter_only_ipv6_string_is_found(self) -> None:
+        text = (
+            "InternetAddress('dead:beef::cafe');\n"
+            'TcpStream::connect("[face::feed]:443");\n'
+        )
+        self.assertEqual(self.hosts(text), ["dead:beef::cafe", "face::feed"])
+
+    def test_mail_recipients_are_read_by_domain(self) -> None:
+        text = (
+            "const to = 'support@collector.tracker.io';\n"
+            "launch('mailto:ops@mail.tracker.io?subject=x');\n"
+            "Uri.parse('mailto:$recipient?$query');\n"
+            "// written by someone@somewhere in a comment\n"
+        )
+        self.assertEqual(
+            self.hosts(text), ["collector.tracker.io", "mail.tracker.io"]
+        )
 
     def test_code_paths_and_times_are_not_ipv6(self) -> None:
         text = "std::vector a::b ff:: at 12:30:45, mac de:ad:be:ef:00:11"

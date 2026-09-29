@@ -31,10 +31,11 @@ Hosts Linthra's own code connects to:
 | `github.com` | Only after you tap **Connect GitHub**: GitHub's device sign-in | GitHub Sponsor APK only |
 | `api.github.com` | Checks whether your GitHub account sponsors the project. After you have connected GitHub, this runs again at each launch until you disconnect | GitHub Sponsor APK only |
 
-Hosts that are only handed to your browser when you tap a link (Linthra never
-fetches them): `github.com` (project, releases, privacy policy, sponsors,
-prefilled bug report), `app.plex.tv` (Plex's sign-in page) and `reddit.com`
-(community link).
+Hosts that are only handed to your browser or mail app when you tap a link
+(Linthra never contacts them itself): `github.com` (project, releases, privacy
+policy, sponsors, prefilled bug report), `app.plex.tv` (Plex's sign-in page),
+`reddit.com` (community link) and `linthra.ca` (the support address the
+Contact and Report a bug actions open a mail draft to).
 
 Everything else the check finds is a **reference**: an issue link in a doc
 comment, an example address in hint text, a licence header in vendored code, an
@@ -86,7 +87,7 @@ fails the check rather than quietly passing.
 
 ## How it matches
 
-It looks for three shapes, never for keywords:
+It looks for four shapes, never for keywords:
 
 - **URLs**: `scheme://host` for http, https, ws, wss, ftp and ftps, plus the
   network schemes the Linux player (mpv) accepts (rtp, rtsp, rtmp, udp, tcp,
@@ -95,8 +96,11 @@ It looks for three shapes, never for keywords:
   configured address and is skipped by construction.
 - **IP literals** outside a URL, like `InternetAddress('203.0.113.9')` or
   `TcpStream::connect("[2001:db8::1]:443")`. An IPv6 candidate has to parse as
-  an address and contain a digit, so code paths like `std::vector` or `a::b`
-  don't count.
+  an address. Written as a string literal it always counts, even letter-only
+  like `'dead:beef::cafe'`. Outside a string it also needs a digit, so code
+  paths like `std::vector` or `a::b` don't count.
+- **Mail recipients**: a `mailto:` link or an address written as a whole string
+  literal (`'support@example.org'`). The domain is what gets reviewed.
 - **A host passed as a bare string** to the common APIs that take one, in each
   language the scan reads. These are matched across line breaks, so a call
   formatted over several lines is still seen:
