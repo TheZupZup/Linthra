@@ -893,6 +893,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // map to a still-`playing` session) and a real pause/completion/error is
     // unaffected.
     if (status == PlaybackStatus.idle) return;
+    // After a failure the engine still holds a dead or earlier source, and the
+    // pause that often follows (a listener pause, an unplug, a focus loss) makes
+    // it report paused, loading or even completed. None of that is news about
+    // the failed track: letting it through would drop the failure (so the next
+    // Play would skip the re-resolve) or, for a completion, move the queue on.
+    // Only real sound ends the error from here.
+    if (_state.status == PlaybackStatus.error &&
+        status != PlaybackStatus.playing) {
+      return;
+    }
     // While a bounded reconnect owns the UI, ignore engine buffering/loading
     // noise that would replace "Reconnecting…" with plain "Buffering…".
     if (_state.status == PlaybackStatus.reconnecting &&

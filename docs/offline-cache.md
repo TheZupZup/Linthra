@@ -77,9 +77,9 @@ wanted.
 
 Only a download **you** asked for can make room from step 2. Smart pre-cache
 only ever replaces older pre-cached tracks, never one of your downloads (pinned
-or not) and never the tracks it is keeping for what's about to play. If that
-isn't enough room, it just doesn't cache, and the track streams when it's
-reached.
+or not), the track playing, or a track that plays sooner than the one it is
+warming. If that isn't enough room, it just doesn't cache, and the track
+streams when it's reached.
 
 ## Downloading a whole album or playlist
 

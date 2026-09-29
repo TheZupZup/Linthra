@@ -41,6 +41,7 @@ import '../../core/sources/jellyfin/jellyfin_remote_control_receiver.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../core/sources/plex/plex_playable_uri_resolver.dart';
 import '../../core/sources/plex/plex_playback_reporter.dart';
+import '../../core/sources/plex/plex_session_fingerprint.dart';
 import '../../core/sources/plex/plex_track_mapper.dart';
 import '../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
@@ -146,7 +147,8 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
 
 /// The signed-in Jellyfin server + account as a non-secret key, or `null` when
 /// signed out. Shared by the reachability memory and smart pre-cache, so both
-/// agree on when "the same session" stops being the same.
+/// agree on when "the same session" stops being the same (Plex aside: see
+/// [_accountKeyForTrack]).
 String? _jellyfinAccountKey(Ref ref) {
   final source = ref.read(jellyfinMusicSourceProvider);
   return source == null
@@ -167,7 +169,9 @@ String? _plexAccountKey(Ref ref) {
 }
 
 /// The account key for whichever provider owns [track], or `null` for a local
-/// track or a provider that is signed out.
+/// track or a provider that is signed out. What smart pre-cache binds a queue
+/// to, so it is as narrow as the provider allows: for Plex that includes the
+/// Home profile, not just the server.
 String? _accountKeyForTrack(Ref ref, Track track) {
   final String uri = track.uri;
   if (uri.startsWith(JellyfinTrackMapper.uriScheme)) {
@@ -176,7 +180,12 @@ String? _accountKeyForTrack(Ref ref, Track track) {
   if (uri.startsWith(SubsonicTrackMapper.uriScheme)) {
     return _subsonicAccountKey(ref);
   }
-  if (uri.startsWith(PlexTrackMapper.uriScheme)) return _plexAccountKey(ref);
+  if (uri.startsWith(PlexTrackMapper.uriScheme)) {
+    final source = ref.read(plexMusicSourceProvider);
+    return source == null
+        ? null
+        : 'plex:${plexSessionFingerprint(source.session)}';
+  }
   return null;
 }
 

@@ -387,6 +387,19 @@ void main() {
       expect(cached, hasLength(3));
     });
 
+    test('under a tight limit the next track wins over one further on',
+        () async {
+      // Room for one track, already holding a copy of 'd'.
+      service(repository(maxBytes: 4), count: 2);
+      await play(_playing(_t('a'), <Track>[_t('d')]));
+      expect(await cachedIds(), <String>{'d'});
+
+      // Now 'b' plays before 'd': it gets the room.
+      await play(_playing(_t('a2'), <Track>[_t('b'), _t('d')]));
+
+      expect(await cachedIds(), <String>{'b'});
+    });
+
     test('warming further ahead never evicts the next track', () async {
       // Room for two: the third upcoming track must not push out the first.
       service(repository(maxBytes: 8));

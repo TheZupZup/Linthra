@@ -702,6 +702,50 @@ void main() {
       expect(controller.hasPendingAutomaticRecovery, isFalse);
     });
 
+    test('a pause that settles a waiting step keeps the error and its reload',
+        () async {
+      final JustAudioPlaybackController controller = build(
+        policy: const PlaybackRecoveryPolicy(retryDelay: Duration(minutes: 5)),
+      );
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+      resolver.down.add('jellyfin:a');
+      player.emitError(Exception('connection reset by peer'));
+      await _settle();
+      expect(controller.hasPendingAutomaticRecovery, isTrue);
+
+      await controller.pause();
+      // The engine reports that pause on the source it still holds.
+      player.emitState(PlayerState(false, ProcessingState.ready));
+      await _settle();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.failure, isNotNull);
+
+      // So Play still reloads the track instead of poking the dead source.
+      final int before = resolver.calls.length;
+      resolver.down.clear();
+      await controller.play();
+      await _settle();
+      expect(resolver.calls, hasLength(before + 1));
+    });
+
+    test('a completion from the source left behind an error changes nothing',
+        () async {
+      resolver.down.add('jellyfin:b');
+      final JustAudioPlaybackController controller = build(policy: null);
+      await controller.playTracks(<Track>[_remote('b'), _remote('c')]);
+      expect(controller.state.status, PlaybackStatus.error);
+
+      player.emitState(PlayerState(false, ProcessingState.completed));
+      await _settle();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(resolver.calls, <String>['jellyfin:b']);
+    });
+
     test('an error during a call is not resumed when the call ends', () async {
       final JustAudioPlaybackController controller = build()
         ..focusPauseDebounce = Duration.zero;

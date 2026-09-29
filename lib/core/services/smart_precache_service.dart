@@ -210,13 +210,17 @@ class SmartPrecacheService {
     // [upcomingTracks] keeps order, so this is exactly the shorter window.
     final List<Track> upcoming = job.upcoming.take(aheadCount).toList();
     if (upcoming.isEmpty || !_isCurrent(generation)) return;
-    // What this pass must not evict while it makes room: the playing track and
-    // everything it is about to warm.
-    final List<Track> keep = <Track>[state.currentTrack!, ...upcoming];
-    // Secret-free count only — never which tracks. A real pre-cache pass per
-    // queue change (not per position tick — see [_onState]) reads as one log.
+    // What a warm must not evict to make room: the playing track and the
+    // tracks that play before the one being warmed. Farther ones stay fair
+    // game, so under a tight limit the queue order decides what is kept: the
+    // next track can push out a stale copy of one further on, never the other
+    // way round.
+    final List<Track> keep = <Track>[state.currentTrack!];
+    // Secret-free count only, never which tracks. A real pre-cache pass per
+    // queue change (not per position tick, see [_onState]) reads as one log.
     StabilityDiagnostics.precache('start:${upcoming.length}');
     for (final Track track in upcoming) {
+      keep.add(track);
       // The queue moved on while the previous track was fetching: this list is
       // obsolete, so stop and let the drain start the current queue's pass.
       if (!_isCurrent(generation)) {
@@ -235,7 +239,7 @@ class SmartPrecacheService {
       // critical path and lets the cache limit settle between writes.
       await _prefetcher.prefetch(
         track,
-        keep: keep,
+        keep: List<Track>.of(keep),
         isStillWanted: () => !_disposed && _scopeOf(track) == scope,
       );
     }
