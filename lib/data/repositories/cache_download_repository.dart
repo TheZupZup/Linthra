@@ -135,8 +135,9 @@ class CacheDownloadRepository
   /// Track ids whose in-flight fetch must NOT commit, because the user removed
   /// or cleared the download while its bytes were still downloading. Checked at
   /// commit time so a late fetch can't resurrect a cancelled download or leave a
-  /// stray file behind. A fresh [requestDownload] clears any stale entry, and
-  /// the commit/cleanup paths drop it once handled.
+  /// stray file behind, and before a queued download takes its slot so it
+  /// isn't fetched at all. A fresh [requestDownload] clears any stale entry,
+  /// and the cancelled request's own cleanup drops it once handled.
   final Set<String> _canceled = <String>{};
 
   /// Live byte progress for in-flight downloads, surfaced via [progressStream].
@@ -293,7 +294,19 @@ class CacheDownloadRepository
       }
       return DownloadRequestOutcome.started;
     } finally {
-      _canceled.remove(key);
+      // Every path out of a request ends here, so a cancellation is settled
+      // here. The step that noticed it (the wait for a slot, or the commit)
+      // stopped without touching the status, which can still read "queued" or
+      // "downloading": the slot can come after the cancel, and Clear all only
+      // resets rows it can see. A cancelled download must not end there, or
+      // the row sticks and pre-cache skips the track, so it goes back to not
+      // downloaded, unless its bytes were committed before the cancel landed.
+      final CachedTrack? committed = _downloads[key];
+      if (_canceled.remove(key) &&
+          (committed == null || committed.preloaded) &&
+          _statuses.containsKey(key)) {
+        _set(key, DownloadStatus.notDownloaded);
+      }
       _inFlight.remove(key);
       _clearProgress(key);
     }
@@ -382,6 +395,10 @@ class CacheDownloadRepository
     // Accepted: show "queued" until a concurrency slot frees up, then fetch.
     _set(key, DownloadStatus.queued);
     await _scheduler.schedule(() async {
+      // Removed or cleared while it waited for this slot: skip the fetch, so a
+      // cancelled download spends no data and the slot goes straight to the
+      // next one. [requestDownload] settles its status on the way out.
+      if (_canceled.contains(key)) return;
       _set(key, DownloadStatus.downloading);
       final RemoteTrackData data = await _downloader.fetch(
         track,
@@ -414,7 +431,8 @@ class CacheDownloadRepository
     // The user removed or cleared this download while its bytes were still in
     // flight: honour that and commit nothing — no file write, no metadata, no
     // status — so a late fetch can't resurrect it or leave a stray file.
-    if (_canceled.remove(key)) return;
+    // The mark stays for the request's own cleanup, which settles the status.
+    if (_canceled.contains(key)) return;
     if (preloaded) {
       // The session that asked for these bytes is gone (sign-out, a different
       // server or account, or the pre-cache driver was disposed). They were
@@ -664,10 +682,23 @@ class CacheDownloadRepository
     _canceled.addAll(_inFlight);
     _canceled.addAll(_preloading);
     await _ensureLoaded();
+    // Those downloads have no entry among the victims below, so their queued
+    // or downloading rows are reset here, as a single remove does, rather than
+    // only once their fetches end. One requested again meanwhile is no longer
+    // cancelled and keeps its row.
+    bool resetARow = false;
+    for (final String key in _inFlight) {
+      if (_canceled.contains(key) && _statuses.remove(key) != null) {
+        resetARow = true;
+      }
+    }
     final List<CachedTrack> victims = _downloads.values
         .where((CachedTrack c) => !(keepPinned && c.pinned))
         .toList();
-    if (victims.isEmpty) return;
+    if (victims.isEmpty) {
+      if (resetARow) _emitStatus();
+      return;
+    }
     for (final CachedTrack victim in victims) {
       await _deleteManagedFile(victim);
       final String victimKey = _keyForCached(victim);
