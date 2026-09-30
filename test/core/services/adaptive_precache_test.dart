@@ -87,14 +87,21 @@ class _Downloader implements RemoteTrackDownloader {
 }
 
 /// Writes through to an in-memory store, but can hold a write open after the
-/// bytes land, so a test can act while a commit is still saving them.
+/// bytes land (or a delete before it happens), so a test can act while a
+/// commit is still saving them or making room.
 class _HeldWrites implements OfflineFileStore {
   _HeldWrites(this._inner);
 
   final InMemoryOfflineFileStore _inner;
   Completer<void>? _hold;
+  Completer<void>? _holdDelete;
+
+  /// The base name of every file written, in order.
+  final List<String> written = <String>[];
 
   Completer<void> holdNextWrite() => _hold = Completer<void>();
+
+  Completer<void> holdNextDelete() => _holdDelete = Completer<void>();
 
   @override
   Future<String> write(
@@ -102,6 +109,7 @@ class _HeldWrites implements OfflineFileStore {
     List<int> bytes, {
     String? extension,
   }) async {
+    written.add(trackId);
     final String name =
         await _inner.write(trackId, bytes, extension: extension);
     final Completer<void>? hold = _hold;
@@ -117,7 +125,12 @@ class _HeldWrites implements OfflineFileStore {
   Future<int?> sizeFor(String fileName) => _inner.sizeFor(fileName);
 
   @override
-  Future<void> delete(String fileName) => _inner.delete(fileName);
+  Future<void> delete(String fileName) async {
+    final Completer<void>? hold = _holdDelete;
+    _holdDelete = null;
+    if (hold != null) await hold.future;
+    await _inner.delete(fileName);
+  }
 }
 
 /// A streaming source that is always unreachable: the device is offline.
@@ -178,10 +191,13 @@ void main() {
 
   tearDown(() => states.close());
 
-  CacheDownloadRepository repository({int maxBytes = 1 << 20}) =>
+  CacheDownloadRepository repository({
+    int maxBytes = 1 << 20,
+    OfflineFileStore? over,
+  }) =>
       CacheDownloadRepository(
         store: store,
-        files: files,
+        files: over ?? files,
         downloader: downloader,
         connectivity: connectivity,
         preferences: InMemoryDownloadPreferences(maxCacheBytes: maxBytes),
@@ -433,6 +449,49 @@ void main() {
       // dropped and 'b' never has to be fetched again.
       expect(await cachedIds(), <String>{'b'});
       expect(downloader.fetched, <String>['jellyfin:b', 'jellyfin:c']);
+    });
+
+    test('a fetch the queue moved past stops making room once it has',
+        () async {
+      // Room for two songs, holding 'b' and 'c'.
+      final _HeldWrites held = _HeldWrites(files);
+      service(repository(maxBytes: 8, over: held), count: 2);
+      await play(_playing(_t('a'), <Track>[_t('b'), _t('c')]));
+      expect(await cachedIds(), <String>{'b', 'c'});
+
+      // A long track next needs both gone. The queue goes back to 'b' and 'c'
+      // while the first of them is being deleted.
+      downloader.sizes['jellyfin:long'] = 8;
+      final Completer<void> deleting = held.holdNextDelete();
+      await play(_playing(_t('a2'), <Track>[_t('long')]));
+      await play(_playing(_t('a3'), <Track>[_t('b'), _t('c')]));
+      deleting.complete();
+      await _settle();
+
+      // Only the one already being deleted went, and 'long' was never
+      // written, so a single song had to be fetched again.
+      expect(await cachedIds(), <String>{'b', 'c'});
+      expect(downloader.fetched, hasLength(4));
+      expect(held.written, isNot(contains('jellyfin_long')));
+    });
+
+    test('room made for a queue that moved on is left for the new one',
+        () async {
+      // Room for one song, holding 'b'.
+      final _HeldWrites held = _HeldWrites(files);
+      service(repository(maxBytes: 4, over: held), count: 1);
+      await play(_playing(_t('a'), <Track>[_t('b')]));
+
+      // 'c' needs 'b' gone; the queue moves on to 'd' while 'b' is deleted.
+      final Completer<void> deleting = held.holdNextDelete();
+      await play(_playing(_t('a2'), <Track>[_t('c')]));
+      await play(_playing(_t('a3'), <Track>[_t('d')]));
+      deleting.complete();
+      await _settle();
+
+      // 'c' is never written; the space goes straight to 'd'.
+      expect(held.written, <String>['jellyfin_b', 'jellyfin_d']);
+      expect(await cachedIds(), <String>{'d'});
     });
 
     test('one big download does not make every song look too big', () async {

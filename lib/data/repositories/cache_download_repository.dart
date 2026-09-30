@@ -451,16 +451,32 @@ class CacheDownloadRepository
       _set(key, DownloadStatus.notDownloaded);
       throw const CacheStorageException();
     }
-    // A pre-cache whose queue has moved on may still keep its copy, but only
-    // in free space: what it would evict may be what the new queue needs.
-    if (preloaded && plan.evict.isNotEmpty && !_passes(mayMakeRoom)) return;
-
     bool evictedAStatus = false;
+    bool evictedAny = false;
     for (final CachedTrack victim in plan.evict) {
+      // A pre-cache whose queue has moved on (or whose session is gone) may
+      // still keep its copy, but only in free space: what it would evict may
+      // be what the new queue needs. Asked before every eviction, since either
+      // can change while the previous one is being deleted.
+      if (preloaded && !(_passes(mayMakeRoom) && _passes(isStillWanted))) {
+        if (evictedAny) {
+          await _save();
+          _emitCache();
+        }
+        return;
+      }
       await _deleteManagedFile(victim);
       final String victimKey = _keyForCached(victim);
       _downloads.remove(victimKey);
       if (_statuses.remove(victimKey) != null) evictedAStatus = true;
+      evictedAny = true;
+    }
+    // Room made for a queue that has moved on since goes to the new one, not
+    // to this copy.
+    if (preloaded && evictedAny && !_passes(mayMakeRoom)) {
+      await _save();
+      _emitCache();
+      return;
     }
 
     final String fileName = await _files.write(
