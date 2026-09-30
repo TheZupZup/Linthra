@@ -1976,12 +1976,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     }
     _currentHasPlayed = before.played;
     _resetPositionFlush();
-    if (_state.position != before.position ||
-        _state.duration != before.duration) {
-      _emit(_state.copyWith(
-        position: before.position,
-        duration: before.duration,
-      ));
+    // A seek the listener made while it opened is theirs, not the engine's:
+    // it stands.
+    final Duration position = _seekDuringLoad ?? before.position;
+    if (_state.position != position || _state.duration != before.duration) {
+      _emit(_state.copyWith(position: position, duration: before.duration));
     }
   }
 
@@ -2396,14 +2395,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           failure,
           decision.delay,
           // A track that already played resumes where it stopped; one that
-          // never started simply loads again.
+          // never started loads again, from where the listener put it if
+          // they moved it while it loaded (otherwise the start).
           (bool Function() mayStart) => _currentHasPlayed
               ? _playCurrent(
                   startAt: _state.position,
                   isRetry: true,
                   mayStart: mayStart,
                 )
-              : _playCurrent(mayStart: mayStart),
+              : _playCurrent(startAt: _state.position, mayStart: mayStart),
         );
       case PlaybackRecoveryStep.advance:
         _failureStreak.record(track.uri);

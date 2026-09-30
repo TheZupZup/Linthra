@@ -537,6 +537,43 @@ void main() {
       expect(controller.state.currentTrack, b);
       expect(controller.state.duration, isNot(const Duration(minutes: 4)));
     });
+
+    test('a seek made while the new source opened is where the retry starts',
+        () async {
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: engine,
+        resolver: resolver,
+        automaticRecovery: const PlaybackRecoveryPolicy(
+          retryDelay: Duration.zero,
+          advanceDelay: Duration.zero,
+          maxAdvanceDelay: Duration.zero,
+        ),
+      );
+      addTearDown(controller.dispose);
+      await controller.playTracks(<Track>[a, b]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // While B opens, the listener moves it to 1:30 (MPRIS, a lyric tap),
+      // and A's last position comes in. Then B fails to open, once.
+      engine.failingOnce.add(_url(b));
+      final Completer<void> open = engine.openGate = Completer<void>();
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      await controller.seek(const Duration(minutes: 1, seconds: 30));
+      engine.emitPosition(const Duration(minutes: 1, seconds: 23));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      engine.openGate = null;
+      open.complete();
+      await skip;
+      await _settle();
+
+      expect(engine.loadedUrls, <String>[_url(a), _url(b), _url(b)]);
+      expect(engine.calls, contains('seek:90000'),
+          reason: 'the retry starts where the listener put it');
+      expect(engine.calls, isNot(contains('seek:83000')));
+    });
   });
 
   group('a skip that fails leaves no previous song playing under it', () {
