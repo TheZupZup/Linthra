@@ -20,11 +20,11 @@ class WhatsNewSection extends StatelessWidget {
   /// handful of concise bullets and updated when cutting a new build; exposed so
   /// the widget test can assert each line renders without duplicating the copy.
   static const List<String> releaseNotes = <String>[
-    'Android Auto Next and Previous controls now change tracks reliably again.',
-    'Linux local libraries handle multiple folders, removable drives, moved files and permission problems more gracefully.',
-    'Desktop playback is easier to control with a queue side panel, quick search, keyboard navigation and configurable shortcuts.',
-    'Linux audio output, device hotplug, notifications and libmpv error reporting are more robust.',
-    'Casting remains temporarily unavailable while the receiver-trust security work is completed.',
+    'Smart pre-cache now follows the queue you are actually playing, shuffle and repeat included, and never removes songs you downloaded yourself.',
+    'When a stream drops, Linthra retries once and then moves on to the next playable track, within limits, instead of stopping on an error.',
+    'Large Navidrome and Subsonic libraries now sync in batches, keep their progress and pick up again after an interruption.',
+    'Each artist now gets their own Unknown Album instead of one shared by the whole library.',
+    'On Android, FLAC plays on devices without a built-in FLAC decoder, and audio the device cannot decode shows an error instead of silence.',
   ];
 
   @override
