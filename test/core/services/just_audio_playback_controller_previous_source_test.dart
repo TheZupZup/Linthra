@@ -8,6 +8,7 @@ import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/just_audio_playback_controller.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
+import 'package:linthra/core/services/playback_candidate_source.dart';
 import 'package:linthra/core/services/playback_recovery_policy.dart';
 
 /// An engine whose state, position and duration streams the test drives by
@@ -33,7 +34,7 @@ class _Engine extends Fake implements AudioPlayer {
   /// the new source.
   Completer<void>? openGate;
 
-  /// While set, a seek waits on it before it lands.
+  /// While set, the next seek waits on it before it lands.
   Completer<void>? seekGate;
 
   void emitState(bool playing, ProcessingState processing) =>
@@ -90,6 +91,7 @@ class _Engine extends Fake implements AudioPlayer {
   Future<void> seek(Duration? position, {int? index}) async {
     calls.add('seek:${position?.inMilliseconds}');
     final Completer<void>? gate = seekGate;
+    seekGate = null;
     if (gate != null) await gate.future;
   }
 
@@ -128,6 +130,16 @@ class _Resolver implements PlayableUriResolver {
   void gate(Track track) => gates[track.uri] = Completer<void>();
 
   void release(Track track) => gates.remove(track.uri)!.complete();
+}
+
+/// Other copies of the same song, tried in order when one will not play.
+class _Copies implements PlaybackCandidateSource {
+  _Copies(this.copies);
+
+  final Map<String, List<Track>> copies;
+
+  @override
+  List<Track> candidatesFor(Track track) => copies[track.uri] ?? <Track>[track];
 }
 
 Track _track(String id) => Track(
@@ -304,6 +316,112 @@ void main() {
       expect(engine.loadedUrls.last, _url(c));
     });
 
+    test(
+        'an end from a copy that failed to open is not taken for the next '
+        'copy\'s', () async {
+      final Track b2 = _track('b2');
+      completed = <Track>[];
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: engine,
+        resolver: resolver,
+        onTrackCompleted: completed.add,
+        candidates: _Copies(<String, List<Track>>{
+          b.uri: <Track>[b, b2],
+        }),
+      );
+      addTearDown(controller.dispose);
+      await controller.playTracks(<Track>[a, b, c]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // B's copy loads, reports an end, then fails to open; the other copy
+      // opens fine.
+      engine.failingUrls.add(_url(b));
+      engine.openGate = Completer<void>();
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      engine.emitState(true, ProcessingState.loading);
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      engine.openGate!.complete();
+      engine.openGate = null;
+      await skip;
+      await _settle();
+
+      expect(engine.loadedUrls, <String>[_url(a), _url(b), _url(b2)]);
+      expect(completed, isEmpty,
+          reason: 'the other copy has not played, let alone ended');
+      expect(engine.loadedUrls, isNot(contains(_url(c))));
+      expect(engine.lastTransport, 'play');
+    });
+
+    test('a seek back during the load undoes an end reported before it',
+        () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b, c]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // The load is moving B to its end, which it reports, when the listener
+      // seeks back to 1:00.
+      resolver.gate(b);
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      await controller.seek(const Duration(minutes: 3));
+      engine.seekGate = Completer<void>();
+      final Completer<void> toEnd = engine.seekGate!;
+      resolver.release(b);
+      await _settle();
+      engine.emitDuration(const Duration(minutes: 3));
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      await controller.seek(const Duration(minutes: 1));
+      toEnd.complete();
+      await skip;
+      await _settle();
+
+      expect(engine.calls, contains('seek:60000'));
+      expect(completed, isEmpty);
+      expect(controller.state.currentTrack, b);
+      expect(engine.lastTransport, 'play');
+    });
+
+    test(
+        'an end reported during a load that then starts nothing settles paused',
+        () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      resolver.gate(b);
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      await controller.seek(const Duration(minutes: 3));
+      engine.seekGate = Completer<void>();
+      final Completer<void> toEnd = engine.seekGate!;
+      resolver.release(b);
+      await _settle();
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      await controller.pause();
+      toEnd.complete();
+      await skip;
+      await _settle();
+
+      expect(controller.state.currentTrack, b);
+      expect(controller.state.status, PlaybackStatus.paused,
+          reason: 'not left on Loading with nothing coming');
+      expect(completed, isEmpty);
+
+      // Play flips the engine's playing flag, and the end comes again.
+      await controller.play();
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      expect(completed, <Track>[b]);
+    });
+
     test('a source that reports an end and then fails to open is an error',
         () async {
       final JustAudioPlaybackController controller = build();
@@ -342,13 +460,12 @@ void main() {
       final Future<void> skip = controller.skipToNext();
       await _settle();
       await controller.seek(const Duration(minutes: 3));
-      engine.seekGate = Completer<void>();
+      final Completer<void> toEnd = engine.seekGate = Completer<void>();
       resolver.release(b);
       await _settle();
       engine.emitState(true, ProcessingState.completed);
       await _settle();
-      engine.seekGate!.complete();
-      engine.seekGate = null;
+      toEnd.complete();
       await skip;
       await _settle();
 
@@ -593,13 +710,13 @@ void main() {
 
       // The end starts the rewind; a pause lands before it does, on an engine
       // still reporting completed.
-      engine.seekGate = Completer<void>();
+      final Completer<void> rewind = engine.seekGate = Completer<void>();
       engine.emitState(true, ProcessingState.completed);
       await _settle();
       await controller.pause();
       engine.emitState(false, ProcessingState.completed);
       await _settle();
-      engine.seekGate!.complete();
+      rewind.complete();
       await _settle();
 
       expect(completed, <Track>[a]);
@@ -639,6 +756,28 @@ void main() {
 
       await controller.seek(const Duration(minutes: 3));
       engine.emitState(true, ProcessingState.ready);
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      expect(completed, <Track>[a]);
+    });
+
+    test(
+        'an older seek back landing after a newer seek to the end re-arms '
+        'nothing', () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a]);
+      engine.emitState(true, ProcessingState.ready);
+      engine.emitDuration(const Duration(minutes: 3));
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      engine.seekGate = Completer<void>();
+      final Completer<void> back = engine.seekGate!;
+      final Future<void> seekBack = controller.seek(const Duration(minutes: 1));
+      await controller.seek(const Duration(minutes: 3));
+      back.complete();
+      await seekBack;
       engine.emitState(true, ProcessingState.completed);
       await _settle();
 
