@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -156,6 +157,42 @@ void main() {
       expect(metadata.trackNumber, 7);
     });
 
+    test('an M4A gives its iTunes atoms and a real duration', () async {
+      final String path = write(
+        'song.m4a',
+        AudioTagFixtures.m4a(
+          title: 'Take Five',
+          artist: 'The Dave Brubeck Quartet',
+          album: 'Time Out',
+          track: 3,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+
+      final LocalAudioMetadata? metadata = await reader.readFromPath(path);
+
+      expect(metadata!.title, 'Take Five');
+      expect(metadata.artist, 'The Dave Brubeck Quartet');
+      expect(metadata.album, 'Time Out');
+      expect(metadata.trackNumber, 3);
+      expect(metadata.duration, const Duration(seconds: 5));
+    });
+
+    test('an M4A whose meta box has no version/flags word still reads',
+        () async {
+      // The QuickTime layout, children straight after the header. The parser
+      // probes for it; the box check in front of the parser has to follow the
+      // same probe or it would refuse these files.
+      final String path = write(
+        'quicktime.m4a',
+        AudioTagFixtures.m4a(title: 'Blue in Green', metaVersionFlags: false),
+      );
+
+      final LocalAudioMetadata? metadata = await reader.readFromPath(path);
+
+      expect(metadata!.title, 'Blue in Green');
+    });
+
     test('non-ASCII tags survive the round trip', () async {
       final String path = write(
         'accents.flac',
@@ -237,6 +274,166 @@ void main() {
 
       await expectLater(
           reader.readFromPath(directory.path), completion(isNull));
+    });
+  });
+
+  group('MP4 box sizes the tag parser would loop on', () {
+    // The package's MP4 parser moves from box to box by each box's declared
+    // size and never checks that the size moves it forward. A size of 0 (legal,
+    // "runs to the end of the file", and what an interrupted ffmpeg encode
+    // leaves in `mdat`) sends it back to the same header forever, synchronously
+    // and without throwing, which froze a desktop scan at 100% CPU. Other bad
+    // sizes leave it reading headers out of the middle of other data, where a
+    // zero size is one unlucky byte run away.
+    //
+    // So these read on their own isolate (see [_readOnOwnIsolate]): a loop on
+    // the test's isolate would never let a timeout fire and would hang the
+    // whole run. Each file here must come back promptly, and as "no tags"
+    // (null): the track still shows, from its filename.
+    Future<LocalAudioMetadata?> readIsolated(Uint8List bytes) =>
+        _readOnOwnIsolate(write('broken.m4a', bytes), artworkDir.path);
+
+    test('an unfinished encode (mdat still sized 0) is refused, not looped on',
+        () async {
+      // What ffmpeg leaves when it is stopped mid-write: `mdat` keeps the 0 it
+      // writes as a placeholder, and `moov` (written at the end) never comes.
+      final Uint8List bytes = Uint8List.fromList(<int>[
+        ...AudioTagFixtures.mp4Ftyp(),
+        ...AudioTagFixtures.mp4Box('free'),
+        ...AudioTagFixtures.mp4BoxHeader(0, 'mdat'),
+        ...Uint8List(4096),
+      ]);
+
+      expect(await readIsolated(bytes), isNull);
+    });
+
+    test('a last box sized 0 after good tags is refused, not looped on',
+        () async {
+      // Legal ISO BMFF, and the tags come first, but the parser reads on to
+      // the end of the file and loops there all the same.
+      final Uint8List bytes = AudioTagFixtures.m4a(
+        title: 'Never Finishes',
+        trailing: <int>[
+          ...AudioTagFixtures.mp4BoxHeader(0, 'free'),
+          ...Uint8List(64),
+        ],
+      );
+
+      expect(await readIsolated(bytes), isNull);
+    });
+
+    for (final String container in <String>['moov', 'udta', 'meta', 'ilst']) {
+      test('a box sized 0 inside $container is refused, not looped on',
+          () async {
+        final Uint8List bytes = AudioTagFixtures.m4a(
+          title: 'Nested',
+          appendTo: <String, List<int>>{
+            container: AudioTagFixtures.mp4BoxHeader(0, 'free'),
+          },
+        );
+
+        expect(await readIsolated(bytes), isNull);
+      });
+    }
+
+    test('a 64-bit box size (size field 1) is refused', () async {
+      // Size 1 means "the real size is the 64-bit number after the type", how
+      // an `mdat` over 4 GiB is written. The parser has no such case: it takes
+      // the 1 at face value, steps back seven bytes, and reads box headers out
+      // of the middle of this one. Where those land depends on the media bytes.
+      // Here the first misread (bytes 1..4 of the header, `00 00 01 6D`, taken
+      // as a size) lands on four zero bytes, as a run of silence can, and the
+      // parser re-reads that header forever.
+      const int landsAt = 1 + 0x16D;
+      final Uint8List media = Uint8List(512);
+      media.setRange(landsAt - 16, landsAt - 16 + 8, <int>[
+        ...<int>[0, 0, 0, 0],
+        ...'free'.codeUnits,
+      ]);
+      final Uint8List bytes = AudioTagFixtures.m4a(
+        title: 'Over Four Gigabytes',
+        trailing: <int>[
+          ...AudioTagFixtures.mp4BoxHeader(1, 'mdat'),
+          ...<int>[0, 0, 0, 0], // 64-bit size, high word
+          ...<int>[0, 0, 0x02, 0x10], // low word: 16 + 512
+          ...media,
+        ],
+      );
+
+      expect(await readIsolated(bytes), isNull);
+    });
+
+    test('a size-1 box with no 64-bit size after it is refused', () async {
+      final Uint8List bytes = AudioTagFixtures.m4a(
+        title: 'Cut Off',
+        trailing: AudioTagFixtures.mp4BoxHeader(1, 'mdat'),
+      );
+
+      expect(await readIsolated(bytes), isNull);
+    });
+
+    test('a box sized smaller than its own header is refused', () async {
+      final Uint8List bytes = AudioTagFixtures.m4a(
+        title: 'Three Bytes',
+        appendTo: <String, List<int>>{
+          'ilst': AudioTagFixtures.mp4BoxHeader(3, 'aART'),
+        },
+      );
+
+      expect(await readIsolated(bytes), isNull);
+    });
+
+    test('a box running past the end of the file is refused', () async {
+      final Uint8List bytes = AudioTagFixtures.m4a(
+        title: 'Truncated',
+        trailing: <int>[
+          ...AudioTagFixtures.mp4BoxHeader(1 << 20, 'free'),
+          ...Uint8List(32),
+        ],
+      );
+
+      expect(await readIsolated(bytes), isNull);
+    });
+
+    test('a box running past the end of its parent is refused', () async {
+      final Uint8List bytes = AudioTagFixtures.m4a(
+        title: 'Overrun',
+        appendTo: <String, List<int>>{
+          'udta': AudioTagFixtures.mp4BoxHeader(64, 'free'),
+        },
+      );
+
+      expect(await readIsolated(bytes), isNull);
+    });
+
+    test('a QuickTime udta ending in a 32-bit zero terminator is refused',
+        () async {
+      // QuickTime allows `udta` to end with four zero bytes. The parser reads
+      // them plus the next box's size field as one more header, a box of size
+      // 0, and loops on it.
+      final Uint8List bytes = AudioTagFixtures.m4a(
+        title: 'Terminated',
+        appendTo: <String, List<int>>{
+          'udta': <int>[0, 0, 0, 0],
+        },
+      );
+
+      expect(await readIsolated(bytes), isNull);
+    });
+
+    test('an MP4 with an ID3v1 tag on the end still reads, as the MP3 parser',
+        () async {
+      // The package picks its parser by content, and an ID3v1 trailer wins
+      // over `ftyp`. That file never reaches the MP4 parser, so the box check
+      // must not stand in its way (its trailer is not a box and would fail).
+      final Uint8List bytes = Uint8List.fromList(<int>[
+        ...AudioTagFixtures.m4a(title: 'From MP4 atoms'),
+        ...AudioTagFixtures.id3v1(title: 'From ID3v1'),
+      ]);
+
+      final LocalAudioMetadata? metadata = await readIsolated(bytes);
+
+      expect(metadata?.title, 'From ID3v1');
     });
   });
 
@@ -677,4 +874,54 @@ void main() {
       expect(File(again.artworkUri!.toFilePath()).existsSync(), isTrue);
     });
   });
+}
+
+/// How long a read may take before a test calls it a hang. Generous: reading
+/// one of these few-hundred-byte files takes milliseconds.
+const Duration _hangTimeout = Duration(seconds: 10);
+
+/// Runs [FilesystemLocalMetadataReader.readFromPath] for [path] on a fresh
+/// isolate and fails the test if it has not answered within [_hangTimeout].
+///
+/// A parser stuck in a synchronous loop never gives its isolate back to the
+/// event loop, so no timeout on that isolate can fire. Here the loop is on
+/// someone else's isolate, the test's own timer still runs, and the stuck
+/// isolate is killed rather than left spinning a core for the rest of the run.
+Future<LocalAudioMetadata?> _readOnOwnIsolate(
+  String path,
+  String artworkPath,
+) async {
+  final ReceivePort port = ReceivePort();
+  final Isolate isolate = await Isolate.spawn(
+    _readFromPathEntry,
+    (port.sendPort, path, artworkPath),
+    onError: port.sendPort,
+  );
+  try {
+    final Object? reply = await port.first.timeout(
+      _hangTimeout,
+      onTimeout: () => fail(
+        'readFromPath did not return within $_hangTimeout: the tag parser '
+        'is stuck in a loop',
+      ),
+    );
+    // An uncaught error arrives as [error, stack] rather than a result.
+    if (reply is List) fail('readFromPath threw: ${reply.first}');
+    return reply as LocalAudioMetadata?;
+  } finally {
+    isolate.kill(priority: Isolate.immediate);
+    port.close();
+  }
+}
+
+/// [_readOnOwnIsolate]'s entry point: a reader of its own (nothing crosses the
+/// isolate boundary but strings), pointed at the test's artwork directory.
+Future<void> _readFromPathEntry((SendPort, String, String) message) async {
+  final (SendPort reply, String path, String artworkPath) = message;
+  final FilesystemLocalMetadataReader reader = FilesystemLocalMetadataReader(
+    artworkCache: LocalArtworkCache(
+      directory: () async => Directory(artworkPath),
+    ),
+  );
+  reply.send(await reader.readFromPath(path));
 }

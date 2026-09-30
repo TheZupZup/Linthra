@@ -6,6 +6,7 @@ import '../../models/local_file_stamp.dart';
 import '../../services/local_artwork_cache.dart';
 import 'local_audio_metadata.dart';
 import 'local_metadata_reader.dart';
+import 'mp4_box_guard.dart';
 import 'vorbis_comment_fields.dart';
 
 /// Reads audio tags — and embedded cover art — from a real file on disk: the
@@ -26,9 +27,10 @@ import 'vorbis_comment_fields.dart';
 /// picture back out of a parse nobody needs is exactly the cost that skips.
 ///
 /// Deliberately total, like the SAF reader it mirrors: an unreadable file, an
-/// unsupported container, a truncated tag or a format the package has no parser
-/// for all return `null`, so the track still appears with its filename-derived
-/// metadata instead of vanishing from the library.
+/// unsupported container, a truncated tag, a format the package has no parser
+/// for, or an MP4 whose boxes would send the parser into a loop
+/// ([Mp4BoxGuard]) all return `null`, so the track still appears with its
+/// filename-derived metadata instead of vanishing from the library.
 class FilesystemLocalMetadataReader
     implements LocalMetadataReader, LocalArtworkMaintainer {
   FilesystemLocalMetadataReader({LocalArtworkCache? artworkCache})
@@ -68,6 +70,13 @@ class FilesystemLocalMetadataReader
         sizeBytes: stat.size,
         modifiedAtMs: stat.modified.millisecondsSinceEpoch,
       );
+
+      // The package's MP4 parser loops forever, synchronously and without
+      // throwing, on some box layouts an interrupted encode leaves behind (see
+      // [Mp4BoxGuard]). The catch below could never end that, so such a file
+      // is refused before it gets there: no tags, but the scan finishes and
+      // the track still shows by its filename.
+      if (!Mp4BoxGuard.isSafeToParse(file)) return null;
 
       // A cover cached from an earlier scan needs no re-extraction: checking
       // first means a hit costs nothing beyond this stat, and only a genuine
