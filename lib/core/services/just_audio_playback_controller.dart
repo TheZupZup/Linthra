@@ -579,8 +579,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           StabilityDiagnostics.audioFocus('regain:churn-absorbed');
         } else if (_resumeAfterTransientLoss) {
           _armTransientResume(false);
-          StabilityDiagnostics.audioFocus('regain:resumed');
-          _enqueueFocusResume();
+          if (_automaticRecoveryUnderway) {
+            // The engine still holds the source that failed (or the track
+            // before it). The waiting or loading step starts its own track
+            // once it lands, now that it may; playing the engine here would
+            // sound the old source until the step replaced it.
+            StabilityDiagnostics.audioFocus('regain:recovery-starts');
+          } else {
+            StabilityDiagnostics.audioFocus('regain:resumed');
+            _enqueueFocusResume();
+          }
         } else {
           // Focus came back but the loss was permanent (or we weren't playing):
           // the screen-wake / app-return / exit-Doze case — never auto-resume.

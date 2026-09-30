@@ -914,6 +914,71 @@ void main() {
       expect(player.playCalls, playsBefore);
     });
 
+    test('a call that ends while a step waits leaves the start to the step',
+        () async {
+      final JustAudioPlaybackController controller = build(
+        policy: const PlaybackRecoveryPolicy(retryDelay: Duration(minutes: 5)),
+      )..focusPauseDebounce = Duration.zero;
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+      resolver.down.add('jellyfin:a');
+      player.emitError(Exception('connection reset by peer'));
+      await _settle();
+      expect(controller.hasPendingAutomaticRecovery, isTrue);
+      final int playsBefore = player.playCalls;
+
+      // A short call comes and goes while the retry waits.
+      controller.onAudioInterruption(
+        AudioInterruptionEvent(true, AudioInterruptionType.pause),
+      );
+      await _settle();
+      controller.onAudioInterruption(
+        AudioInterruptionEvent(false, AudioInterruptionType.pause),
+      );
+      await _settle();
+
+      // Nothing played the dead source the engine still holds, and the retry
+      // is still there to start the track.
+      expect(player.playCalls, playsBefore);
+      expect(controller.hasPendingAutomaticRecovery, isTrue);
+    });
+
+    test('a call that ends while a retry loads lets the retry start it',
+        () async {
+      final JustAudioPlaybackController controller = build()
+        ..focusPauseDebounce = Duration.zero;
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+      // A call comes in. While it holds focus the stream drops, the quick
+      // retry fails, and the delayed one is slow to answer.
+      controller.onAudioInterruption(
+        AudioInterruptionEvent(true, AudioInterruptionType.pause),
+      );
+      await _settle();
+      final Completer<void> loadingA = Completer<void>();
+      resolver
+        ..failuresLeft['jellyfin:a'] = 1
+        ..holds['jellyfin:a'] = loadingA
+        ..holdSkips['jellyfin:a'] = 1;
+      player.emitError(Exception('connection reset by peer'));
+      await _settle();
+      final int playsBefore = player.playCalls;
+
+      controller.onAudioInterruption(
+        AudioInterruptionEvent(false, AudioInterruptionType.pause),
+      );
+      await _settle();
+      // The call is over, but the engine still holds the source that dropped.
+      expect(player.playCalls, playsBefore);
+
+      loadingA.complete();
+      await _settle();
+      expect(player.playCalls, playsBefore + 1);
+      expect(player.setUrlCalls.last, 'https://server.example/stream/a?n=2');
+    });
+
     test('a move told to stand down that then fails settles on the error',
         () async {
       resolver.down.addAll(<String>['jellyfin:a', 'jellyfin:b']);
