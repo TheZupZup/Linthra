@@ -214,10 +214,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Timer? _automaticRecoveryTimer;
   ({Track track, PlaybackFailure failure})? _pendingRecovery;
 
-  /// The automatic step now running, whose load may still be resolving. Only
-  /// that step may start sound when its load lands; halting recovery clears
-  /// it. Null when none is running.
+  /// The automatic step now running, whose load may still be resolving. It
+  /// stays set until that load lands, even after the step is told to stand
+  /// down, so a Play or seek in the meantime still takes over from it. Any
+  /// other load supersedes it. Null when none is running.
   Object? _runningRecoveryStep;
+
+  /// Whether [_runningRecoveryStep] may still start sound when its load
+  /// lands. Halting recovery clears this without forgetting the load.
+  bool _runningStepMayStart = false;
 
   /// Whether an automatic step is waiting to run or still loading. Either way
   /// it owns the current failure, and the engine may still hold the failed
@@ -917,6 +922,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // reconnecting then, but it is still the failure's.
     if ((_state.status == PlaybackStatus.error || _pendingRecovery != null) &&
         status != PlaybackStatus.playing) {
+      return;
+    }
+    // Nor can anything an automatic step is still loading have finished: a
+    // completion then is the old source's, and would record the wrong track
+    // and move the queue past the one being loaded.
+    if (status == PlaybackStatus.completed && _runningRecoveryStep != null) {
       return;
     }
     // While a bounded reconnect owns the UI, ignore engine buffering/loading
@@ -1635,8 +1646,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // one still resolving/loading. Captured locally so the awaits below can tell
     // when a newer skip/seek has taken over and bail before clobbering it.
     final int generation = ++_playbackGeneration;
-    // This load supersedes any automatic retry or move still waiting to run.
+    // This load supersedes any automatic retry or move still waiting to run,
+    // and, unless it is that step's own load, one still loading.
     _cancelAutomaticRecovery();
+    if (mayStart == null) _runningRecoveryStep = null;
     final track = _queue.current;
     if (track == null) return;
 
@@ -2151,8 +2164,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       if (_queue.current?.uri != track.uri) return;
       final Object token = Object();
       _runningRecoveryStep = token;
+      _runningStepMayStart = true;
       bool mayStart() =>
           identical(_runningRecoveryStep, token) &&
+          _runningStepMayStart &&
           !_suspended &&
           !_disposed &&
           !_resumeAfterTransientLoss;
@@ -2211,8 +2226,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   /// Stops automatic recovery outright: a pending step never runs, and one
   /// whose load is still resolving lands paused instead of starting sound.
+  /// That load stays recorded until it lands, so a Play meanwhile still
+  /// re-resolves instead of starting the source the engine holds.
   void _haltAutomaticRecovery({bool settle = false}) {
-    _runningRecoveryStep = null;
+    _runningStepMayStart = false;
     _cancelAutomaticRecovery(settle: settle);
   }
 
@@ -2220,6 +2237,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// before is history, so the next failure starts a fresh bounded recovery.
   void _startFreshAfterFailures() {
     _failureStreak.clear();
+    _runningRecoveryStep = null;
     _haltAutomaticRecovery();
   }
 

@@ -139,6 +139,10 @@ class CacheDownloadRepository
   /// the commit/cleanup paths drop it once handled.
   final Set<String> _canceled = <String>{};
 
+  /// The room a pre-cache had the last time a track it fetched turned out not
+  /// to fit (see [_hasRoomForPrecache]). Null until that happens.
+  int? _precacheRoomAtLastMiss;
+
   /// Live byte progress for in-flight downloads, surfaced via [progressStream].
   final Map<String, DownloadProgress> _progress = <String, DownloadProgress>{};
 
@@ -408,6 +412,7 @@ class CacheDownloadRepository
     bool preloaded = false,
     Set<String> protectKeys = const <String>{},
     bool Function()? isStillWanted,
+    bool Function()? mayMakeRoom,
   }) async {
     final String key = _keyForTrack(track);
     // The user removed or cleared this download while its bytes were still in
@@ -419,7 +424,7 @@ class CacheDownloadRepository
       // server or account, or the pre-cache driver was disposed). They were
       // fetched with that session's credentials, so they must not land under a
       // key the new session would read.
-      if (!_stillWanted(isStillWanted)) return;
+      if (!_passes(isStillWanted)) return;
       final CachedTrack? existing = _downloads[key];
       // A user download for the same track raced this preload (commits are
       // serialized, so by now the winner is known). Don't clobber or duplicate
@@ -432,7 +437,7 @@ class CacheDownloadRepository
     final int incoming = data.bytes.length;
     final int maxBytes = await _preferences.maxCacheBytes();
     // Asked again after every await below: a sign-out can land in any of them.
-    if (preloaded && !_stillWanted(isStillWanted)) return;
+    if (preloaded && !_passes(isStillWanted)) return;
     final EvictionPlan plan = _policy.plan(
       cached: _downloads.values,
       incomingBytes: incoming,
@@ -446,10 +451,18 @@ class CacheDownloadRepository
     );
 
     if (!plan.fits) {
-      if (preloaded) return;
+      if (preloaded) {
+        // Remember how much room that was, so the next pre-cache doesn't spend
+        // data on another track that most likely won't fit either.
+        _precacheRoomAtLastMiss = _precacheRoom(maxBytes, protectKeys);
+        return;
+      }
       _set(key, DownloadStatus.notDownloaded);
       throw const CacheStorageException();
     }
+    // A pre-cache whose queue has moved on may still keep its copy, but only
+    // in free space: what it would evict may be what the new queue needs.
+    if (preloaded && plan.evict.isNotEmpty && !_passes(mayMakeRoom)) return;
 
     bool evictedAStatus = false;
     for (final CachedTrack victim in plan.evict) {
@@ -464,7 +477,7 @@ class CacheDownloadRepository
       data.bytes,
       extension: data.fileExtension,
     );
-    if (preloaded && !_stillWanted(isStillWanted)) {
+    if (preloaded && !_passes(isStillWanted)) {
       // The session changed while the bytes were being written: take the file
       // back out instead of publishing it, and persist the evictions already
       // made so the metadata matches what is on disk.
@@ -502,6 +515,7 @@ class CacheDownloadRepository
     Track track, {
     Iterable<Track> keep = const <Track>[],
     bool Function()? isStillWanted,
+    bool Function()? mayMakeRoom,
   }) async {
     await _ensureLoaded();
     // Only remote tracks have bytes to fetch; local ones are already on disk.
@@ -531,7 +545,7 @@ class CacheDownloadRepository
           await _preferences.maxCacheBytes(), protectKeys)) {
         return;
       }
-      if (!_stillWanted(isStillWanted)) return;
+      if (!_passes(isStillWanted)) return;
       final RemoteTrackData data = await _downloader.fetch(track);
       // Share the one commit lock so a preload write can't race a user
       // download's and overshoot the limit.
@@ -541,6 +555,7 @@ class CacheDownloadRepository
             preloaded: true,
             protectKeys: protectKeys,
             isStillWanted: isStillWanted,
+            mayMakeRoom: mayMakeRoom,
           ));
     } catch (_) {
       // Best-effort: a failed preload caches nothing and changes no status; the
@@ -652,28 +667,33 @@ class CacheDownloadRepository
     await _progressChanges.close();
   }
 
-  /// Whether a best-effort pre-cache could plausibly fit right now, counting
-  /// only the room it is allowed to take: free space under the limit plus the
-  /// pre-cached entries it may displace (never a user download, a pinned track,
-  /// the playing track, or anything in [protectKeys]).
+  /// Whether a best-effort pre-cache is worth fetching right now.
   ///
-  /// The incoming size isn't known until the bytes arrive, so the average
-  /// managed entry stands in for it. Without that, a cache nearly full of the
-  /// user's downloads would fetch every upcoming track on every queue change
-  /// and throw the bytes away at commit. A cheap, in-memory scan; the exact fit
-  /// is still decided by [CacheEvictionPolicy] at commit time.
+  /// The incoming size isn't known until the bytes arrive, and the sizes
+  /// already cached say little about it (one long download would make every
+  /// song look too big). So this only skips on evidence: when there is no
+  /// room at all, or no more room than the last time a track that was
+  /// actually fetched didn't fit. That keeps a cache nearly full of the user's
+  /// downloads from fetching and discarding tracks on every queue change,
+  /// while more room (a download removed, a higher limit) lets it try again.
+  /// The exact fit is still decided by [CacheEvictionPolicy] at commit time.
   bool _hasRoomForPrecache(int maxBytes, Set<String> protectKeys) {
+    final int room = _precacheRoom(maxBytes, protectKeys);
+    if (room <= 0) return false;
+    final int? lastMiss = _precacheRoomAtLastMiss;
+    return lastMiss == null || room > lastMiss;
+  }
+
+  /// The room a pre-cache may take: free space under the limit plus the
+  /// pre-cached entries it may displace (never a user download, a pinned
+  /// track, the playing track, or anything in [protectKeys]). A cheap,
+  /// in-memory scan.
+  int _precacheRoom(int maxBytes, Set<String> protectKeys) {
     final String? protectKey = _protectKey();
     int used = 0;
     int reclaimable = 0;
-    int managedBytes = 0;
-    int managedCount = 0;
     for (final CachedTrack c in _downloads.values) {
       used += c.sizeBytes;
-      if (c.isManaged && c.sizeBytes > 0) {
-        managedBytes += c.sizeBytes;
-        managedCount++;
-      }
       if (CacheEvictionPolicy.isEvictable(
         c,
         protectKey: protectKey,
@@ -683,17 +703,13 @@ class CacheDownloadRepository
         reclaimable += c.sizeBytes;
       }
     }
-    final int room = maxBytes - used + reclaimable;
-    if (room <= 0) return false;
-    final int typicalTrack =
-        managedCount == 0 ? 0 : managedBytes ~/ managedCount;
-    return room >= typicalTrack;
+    return maxBytes - used + reclaimable;
   }
 
-  /// Asks a pre-cache's [check] whether its bytes are still wanted. A missing
-  /// check means yes; a check that throws means no, since a failing check can't
-  /// vouch for the session the bytes were fetched with.
-  static bool _stillWanted(bool Function()? check) {
+  /// Asks one of a pre-cache's checks. A missing check passes; one that throws
+  /// doesn't, since a failing check can't vouch for the session the bytes
+  /// were fetched with or the queue they were fetched for.
+  static bool _passes(bool Function()? check) {
     if (check == null) return true;
     try {
       return check();

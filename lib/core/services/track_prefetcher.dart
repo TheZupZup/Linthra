@@ -27,9 +27,15 @@ abstract interface class TrackPrefetcher {
   /// for the track signed out or switched, or whoever asked has gone away)
   /// nothing is written, so stale work can't fill the cache for a session that
   /// no longer exists.
+  ///
+  /// [mayMakeRoom] is asked when the bytes are committed. When it answers
+  /// `false` (the queue [keep] was taken from has moved on) the copy is kept
+  /// only if it fits without evicting anything, since what it would evict may
+  /// be exactly what the new queue plays next.
   Future<void> prefetch(
     Track track, {
     Iterable<Track> keep = const <Track>[],
     bool Function()? isStillWanted,
+    bool Function()? mayMakeRoom,
   });
 }

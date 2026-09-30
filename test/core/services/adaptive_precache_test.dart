@@ -43,12 +43,13 @@ class _Connectivity implements ConnectivityService {
   Future<NetworkStatus> currentStatus() async => status;
 }
 
-/// Returns four canned bytes per track; a test can hold any track's fetch
-/// open with [holdNext] to act while it is in flight.
+/// Returns four canned bytes per track (or what [sizes] says); a test can
+/// hold any track's fetch open with [holdNext] to act while it is in flight.
 class _Downloader implements RemoteTrackDownloader {
   static const int size = 4;
 
   final List<String> fetched = <String>[];
+  final Map<String, int> sizes = <String, int>{};
   final Map<String, Completer<void>> _held = <String, Completer<void>>{};
 
   /// Holds the next fetch of [uri] until the returned completer completes.
@@ -66,7 +67,7 @@ class _Downloader implements RemoteTrackDownloader {
     final Completer<void>? held = _held.remove(track.uri);
     if (held != null) await held.future;
     return RemoteTrackData(
-      bytes: List<int>.filled(size, 7),
+      bytes: List<int>.filled(sizes[track.uri] ?? size, 7),
       fileExtension: 'mp3',
     );
   }
@@ -398,6 +399,61 @@ void main() {
       await play(_playing(_t('a2'), <Track>[_t('b'), _t('d')]));
 
       expect(await cachedIds(), <String>{'b'});
+    });
+
+    test('a fetch the queue moved past never evicts what plays next now',
+        () async {
+      // Room for one track, holding a copy of 'b'.
+      service(repository(maxBytes: 4), count: 1);
+      await play(_playing(_t('a'), <Track>[_t('b')]));
+      expect(await cachedIds(), <String>{'b'});
+
+      // A new queue wants 'c'; while it downloads, the queue changes again
+      // and 'b' is next once more.
+      final Completer<void> fetchingC = downloader.holdNext('jellyfin:c');
+      await play(_playing(_t('a2'), <Track>[_t('c')]));
+      await play(_playing(_t('a3'), <Track>[_t('b')]));
+      fetchingC.complete();
+      await _settle();
+
+      // 'c' would only fit by evicting 'b', which plays next now, so it's
+      // dropped and 'b' never has to be fetched again.
+      expect(await cachedIds(), <String>{'b'});
+      expect(downloader.fetched, <String>['jellyfin:b', 'jellyfin:c']);
+    });
+
+    test('one big download does not make every song look too big', () async {
+      // A long recording fills most of the cache; a normal song still fits.
+      downloader.sizes['jellyfin:mix'] = 40;
+      final CacheDownloadRepository repo = repository(maxBytes: 48);
+      await repo.requestDownload(_t('mix'));
+      service(repo, count: 1);
+
+      await play(_playing(_t('a'), <Track>[_t('b')]));
+
+      expect(await cachedIds(), <String>{'mix', 'b'});
+    });
+
+    test('after a song that did not fit, it waits for more room', () async {
+      // The user's download leaves 3 bytes free; songs are 4.
+      downloader.sizes['jellyfin:big'] = 45;
+      final CacheDownloadRepository repo = repository(maxBytes: 48);
+      await repo.requestDownload(_t('big'));
+      downloader.fetched.clear();
+      service(repo, count: 1);
+
+      await play(_playing(_t('a'), <Track>[_t('b')]));
+      await play(_playing(_t('a2'), <Track>[_t('c')]));
+
+      // One song was fetched to find out, and none since.
+      expect(downloader.fetched, <String>['jellyfin:b']);
+      expect(await cachedIds(), <String>{'big'});
+
+      // Removing the download makes room, so it tries again.
+      await repo.removeDownload(_t('big'));
+      await play(_playing(_t('a3'), <Track>[_t('d')]));
+      expect(downloader.fetched, <String>['jellyfin:b', 'jellyfin:d']);
+      expect(await cachedIds(), <String>{'d'});
     });
 
     test('warming further ahead never evicts the next track', () async {

@@ -16,6 +16,7 @@ class _RecordingPrefetcher implements TrackPrefetcher {
     Track track, {
     Iterable<Track> keep = const <Track>[],
     bool Function()? isStillWanted,
+    bool Function()? mayMakeRoom,
   }) async {
     ids.add(track.id);
   }

@@ -873,6 +873,73 @@ void main() {
       expect(player.playCalls, 1);
     });
 
+    test('the old source finishing while a move loads changes nothing',
+        () async {
+      resolver.down.add('jellyfin:a');
+      final Completer<void> loadingB = Completer<void>();
+      resolver.holds['jellyfin:b'] = loadingB;
+      final JustAudioPlaybackController controller = build();
+      await controller
+          .playTracks(<Track>[_remote('a'), _remote('b'), _remote('c')]);
+      await _settle();
+
+      player.emitState(PlayerState(true, ProcessingState.completed));
+      await _settle();
+      loadingB.complete();
+      await _settle();
+
+      // Still the move to 'b', not a finished track and a skip to 'c'.
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(resolver.calls, isNot(contains('jellyfin:c')));
+      expect(player.playCalls, 1);
+    });
+
+    test('play after a pause while a move still loads loads it afresh',
+        () async {
+      resolver.down.add('jellyfin:a');
+      final Completer<void> loadingB = Completer<void>();
+      resolver.holds['jellyfin:b'] = loadingB;
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      await _settle();
+
+      await controller.pause();
+      await controller.play();
+      loadingB.complete();
+      await _settle();
+
+      // Play re-resolved 'b' instead of starting the source the engine held,
+      // and the paused move it replaced never loaded.
+      expect(resolver.calls,
+          <String>['jellyfin:a', 'jellyfin:a', 'jellyfin:b', 'jellyfin:b']);
+      expect(player.setUrlCalls.single, contains('/stream/b'));
+      expect(player.playCalls, 1);
+    });
+
+    test('a load after a cast hands back supersedes a move still loading',
+        () async {
+      resolver.down.add('jellyfin:a');
+      final Completer<void> loadingB = Completer<void>();
+      resolver.holds['jellyfin:b'] = loadingB;
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      await _settle();
+      // A cast takes over while the move to 'b' resolves, then hands back.
+      await controller.suspend();
+      await controller.resume(play: true);
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+
+      // 'b' drops mid-song while the old move is still stuck resolving: the
+      // drop is recovered like any other, not taken for that move's.
+      final int before = resolver.calls.length;
+      player.emitError(Exception('connection reset by peer'));
+      await _settle();
+      expect(resolver.calls, hasLength(before + 1));
+      loadingB.complete();
+      await _settle();
+    });
+
     test('a completion from the source left behind an error changes nothing',
         () async {
       resolver.down.add('jellyfin:b');

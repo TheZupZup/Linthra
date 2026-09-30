@@ -135,7 +135,8 @@ It warms what the player is actually going to play next:
   to the start of the queue; under repeat-one it warms nothing.
 - **The latest queue wins.** Skipping, Play Next, Add to Queue, a new album or
   playlist, or toggling shuffle stops the old pass after the download already in
-  flight (which is kept, not thrown away) and starts on the new queue. One
+  flight and starts on the new queue. That last download is kept if it fits in
+  free space, but never by evicting something the new queue needs. One
   download at a time, and never more than the configured count.
 - **Nothing twice.** A track already downloaded or pre-cached isn't fetched
   again.

@@ -24,6 +24,7 @@ class _RecordingPrefetcher implements TrackPrefetcher {
     Track track, {
     Iterable<Track> keep = const <Track>[],
     bool Function()? isStillWanted,
+    bool Function()? mayMakeRoom,
   }) async {
     prefetched.add(track.id);
   }
@@ -42,6 +43,7 @@ class _GatedPrefetcher implements TrackPrefetcher {
     Track track, {
     Iterable<Track> keep = const <Track>[],
     bool Function()? isStillWanted,
+    bool Function()? mayMakeRoom,
   }) async {
     started.add(track.id);
     await gate.future;

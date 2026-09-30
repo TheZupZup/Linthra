@@ -46,6 +46,7 @@ class _NoopPrefetcher implements TrackPrefetcher {
     Track track, {
     Iterable<Track> keep = const <Track>[],
     bool Function()? isStillWanted,
+    bool Function()? mayMakeRoom,
   }) async {}
 }
 

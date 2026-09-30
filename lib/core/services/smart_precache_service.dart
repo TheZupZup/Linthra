@@ -241,6 +241,10 @@ class SmartPrecacheService {
         track,
         keep: List<Track>.of(keep),
         isStillWanted: () => !_disposed && _scopeOf(track) == scope,
+        // Only while this is still the queue being warmed (a network resume
+        // keeps the same one): once another queue replaces it, [keep] no
+        // longer says what must stay, so a late copy may only use free space.
+        mayMakeRoom: () => !_disposed && identical(_lastJob, job),
       );
     }
   }
