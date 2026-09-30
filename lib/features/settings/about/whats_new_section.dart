@@ -21,10 +21,10 @@ class WhatsNewSection extends StatelessWidget {
   /// the widget test can assert each line renders without duplicating the copy.
   static const List<String> releaseNotes = <String>[
     'Smart pre-cache now follows the queue you are actually playing, shuffle and repeat included, and never removes songs you downloaded yourself.',
-    'When a stream drops, Linthra retries once and then moves on to the next playable track, within limits, instead of stopping on an error.',
-    'Large Navidrome and Subsonic libraries now sync in batches, keep their progress and pick up again after an interruption.',
+    'When a track won\'t play, Linthra retries network and server problems, then moves on to the next playable track, within limits, instead of stopping on an error.',
+    'Large Navidrome and Subsonic libraries now sync in batches, keep what they have already saved, and sync again on their own after an interruption.',
     'Each artist now gets their own Unknown Album instead of one shared by the whole library.',
-    'On Android, FLAC plays on devices without a built-in FLAC decoder, and audio the device cannot decode shows an error instead of silence.',
+    'On Android, FLAC plays on devices without a built-in FLAC decoder, and audio the device cannot decode is caught as unsupported instead of playing in silence.',
   ];
 
   @override
