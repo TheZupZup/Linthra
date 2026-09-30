@@ -121,10 +121,11 @@ class PlaybackState {
   final bool interruptedByTransientFocus;
 
   /// Why the current track isn't playing and what the listener can do about it,
-  /// set when [status] is [PlaybackStatus.error]. Deliberately *not* carried by
-  /// [copyWith]: it is set only on a freshly built error state and clears on the
-  /// next state change, so a stale failure can never ride along onto a later
-  /// playing/paused state.
+  /// set when [status] is [PlaybackStatus.error]. [copyWith] carries it only
+  /// while the copy is still an error for the same track, so a stale failure can
+  /// never ride along onto a later playing/paused state or another track, yet a
+  /// queue edit, a shuffle toggle or a position tick in the meantime doesn't
+  /// wipe the reason and the recoveries off the error panel.
   ///
   /// The controller decides the offered recoveries when it builds this, because
   /// only it knows whether the song has another provider copy and whether the
@@ -176,10 +177,17 @@ class PlaybackState {
     double? volume,
     bool? muted,
     bool? interruptedByTransientFocus,
+    PlaybackFailure? failure,
   }) {
+    final PlaybackStatus nextStatus = status ?? this.status;
+    final Track? nextTrack = currentTrack ?? this.currentTrack;
+    // Compared by uri: Track == is the bare id, which two providers' copies of
+    // one song share, and a failure belongs to the copy that failed.
+    final bool sameFailedTrack = nextStatus == PlaybackStatus.error &&
+        nextTrack?.uri == this.currentTrack?.uri;
     return PlaybackState(
-      status: status ?? this.status,
-      currentTrack: currentTrack ?? this.currentTrack,
+      status: nextStatus,
+      currentTrack: nextTrack,
       upNext: upNext ?? this.upNext,
       previous: previous ?? this.previous,
       hasPrevious: hasPrevious ?? this.hasPrevious,
@@ -192,12 +200,15 @@ class PlaybackState {
       muted: muted ?? this.muted,
       interruptedByTransientFocus:
           interruptedByTransientFocus ?? this.interruptedByTransientFocus,
+      failure: nextStatus == PlaybackStatus.error
+          ? (failure ?? (sameFailedTrack ? this.failure : null))
+          : null,
     );
   }
 
   /// Returns this state with [interruptedByTransientFocus] set to [value].
   ///
-  /// Unlike [copyWith] this preserves [failure], because it re-stamps a state
+  /// Like [copyWith] this preserves [failure], because it re-stamps a state
   /// the controller has *already* built rather than deriving a new one: the
   /// focus hold is orthogonal to why playback stopped, so an error state must
   /// keep its failure when the flag is stamped onto it.

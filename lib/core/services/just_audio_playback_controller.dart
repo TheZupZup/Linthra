@@ -1281,7 +1281,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _emit(PlaybackState next, {bool force = false}) {
     // Stamp the foreground focus hold on from one place, so no emit path can
     // publish a state that disagrees with the current hold.
-    final PlaybackState stamped = next
+    final PlaybackState stamped = _withCurrentRecoveries(next)
         .withTransientFocusInterruption(_foregroundHeldForFocus)
         // Stamped from one place like the focus hold, so the paths that build a
         // fresh state (an error, a restore) can never publish a stale level.
@@ -1295,6 +1295,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (!force && stamped == _state) return;
     _state = stamped;
     if (!_states.isClosed) _states.add(stamped);
+  }
+
+  /// [next] with its failure's offered recoveries worked out for the queue as
+  /// it is now. The error panel stays up while the listener edits the queue,
+  /// so it should offer Skip once there is something to skip to, and stop once
+  /// there isn't.
+  PlaybackState _withCurrentRecoveries(PlaybackState next) {
+    final PlaybackFailure? failure = next.failure;
+    final Track? track = next.currentTrack;
+    if (failure == null || track == null) return next;
+    final PlaybackFailure current = _refreshedFailure(track, failure);
+    return current == failure ? next : next.copyWith(failure: current);
   }
 
   /// Emits the latest coalesced position. When nothing new has arrived since the
@@ -2438,12 +2450,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // still held would otherwise have the focus regain call play() on whatever
     // source the engine last had, underneath the error.
     if (_resumeAfterTransientLoss) _armTransientResume(false);
+    // Keep where the track stopped: Retry and Play resume from there, as the
+    // failure panel promises, rather than from the top of a half-heard song.
+    final bool sameTrack = _state.currentTrack?.uri == track.uri;
     _emit(PlaybackState(
       status: PlaybackStatus.error,
       currentTrack: track,
       upNext: _queue.upNext,
       previous: _queue.history,
       hasPrevious: _queue.hasPrevious,
+      position: sameTrack ? _state.position : Duration.zero,
+      duration: sameTrack ? _state.duration : Duration.zero,
       shuffleEnabled: _shuffleEnabled,
       repeatMode: _repeatMode,
       failure: failure,
