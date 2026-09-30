@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
@@ -491,6 +493,176 @@ void main() {
       expect(repo.pendingRemoteWriteCount, 0);
     });
   });
+
+  // A refresh waits on the network, and the user keeps hearting (or signs out)
+  // meanwhile. The server's answer must be adopted into the favourites as they
+  // are when it lands, never written over them.
+  group('SyncedFavoritesRepository (changes during an in-flight refresh)', () {
+    late InMemoryFavoritesStore store;
+    late _FakeFavoritesGateway gateway;
+
+    setUp(() {
+      store = InMemoryFavoritesStore();
+      gateway = _FakeFavoritesGateway('subsonic:');
+    });
+
+    SyncedFavoritesRepository build([List<RemoteFavoritesGateway>? gateways]) =>
+        SyncedFavoritesRepository(
+          store: store,
+          gateways: gateways ?? <RemoteFavoritesGateway>[gateway],
+        );
+
+    /// Runs [repo]'s refresh with [gateway]'s fetch held until [during] has
+    /// finished, the way a slow server leaves the user time to act first.
+    Future<FavoritesSyncResult> refreshAround(
+      SyncedFavoritesRepository repo,
+      Future<void> Function() during,
+    ) async {
+      gateway.holdFetch();
+      final Future<FavoritesSyncResult> refresh = repo.refreshFromRemote();
+      await gateway.fetchStarted;
+      await during();
+      gateway.releaseFetch();
+      return refresh;
+    }
+
+    test('a heart made during a refresh survives it', () async {
+      final repo = build();
+      gateway.serverUris.add('subsonic:mf-old');
+
+      await refreshAround(
+          repo, () => repo.setFavorite(_subsonic('mf-1'), true));
+
+      expect(repo.isFavorite('subsonic:mf-1'), isTrue);
+      expect(repo.isFavorite('subsonic:mf-old'), isTrue);
+      expect(
+        (await store.load()).remoteIds,
+        <String>{'subsonic:mf-1', 'subsonic:mf-old'},
+      );
+    });
+
+    test('an un-heart made during a refresh stays un-hearted', () async {
+      final repo = build();
+      await repo.setFavorite(_subsonic('mf-1'), true);
+
+      // The held fetch answered while mf-1 was still starred on the server.
+      await refreshAround(
+        repo,
+        () => repo.setFavorite(_subsonic('mf-1'), false),
+      );
+
+      expect(repo.isFavorite('subsonic:mf-1'), isFalse);
+      expect((await store.load()).remoteIds, isEmpty);
+    });
+
+    test('signing out during a refresh that then fails keeps it cleared',
+        () async {
+      final repo = build();
+      await repo.setFavorite(_subsonic('mf-1'), true);
+      gateway.fetchFails = true;
+
+      final FavoritesSyncResult result = await refreshAround(
+        repo,
+        () => repo.clearRemote(providerScheme: 'subsonic:'),
+      );
+
+      expect(result.didFail, isTrue);
+      expect(repo.isFavorite('subsonic:mf-1'), isFalse);
+      expect((await store.load()).remoteIds, isEmpty);
+    });
+
+    test('signing out during a refresh that then succeeds keeps it cleared',
+        () async {
+      final repo = build();
+      await repo.setFavorite(_subsonic('mf-1'), true);
+      gateway.serverUris.add('subsonic:mf-2');
+
+      // The gateway stays "connected": only the clear itself says the answer
+      // belongs to an account that is gone.
+      await refreshAround(
+        repo,
+        () => repo.clearRemote(providerScheme: 'subsonic:'),
+      );
+
+      expect(repo.isFavorite('subsonic:mf-1'), isFalse);
+      expect(repo.isFavorite('subsonic:mf-2'), isFalse);
+      expect((await store.load()).remoteIds, isEmpty);
+    });
+
+    test('signing out of one provider during a refresh still adopts the other',
+        () async {
+      final _FakeFavoritesGateway jellyfin = _FakeFavoritesGateway('jellyfin:')
+        ..serverUris.add('jellyfin:j-1');
+      final repo = build(<RemoteFavoritesGateway>[jellyfin, gateway]);
+      gateway.serverUris.add('subsonic:mf-1');
+
+      await refreshAround(
+        repo,
+        () => repo.clearRemote(providerScheme: 'jellyfin:'),
+      );
+
+      expect(repo.isFavorite('jellyfin:j-1'), isFalse);
+      expect(repo.isFavorite('subsonic:mf-1'), isTrue);
+      expect((await store.load()).remoteIds, <String>{'subsonic:mf-1'});
+    });
+
+    test('signing out while a refresh retries queued hearts does not throw',
+        () async {
+      gateway.pushFails = true;
+      final repo = build();
+      await repo.setFavorite(_subsonic('mf-1'), true);
+      await repo.setFavorite(_subsonic('mf-2'), true);
+      expect(repo.pendingRemoteWriteCount, 2);
+
+      final Completer<void> slow = Completer<void>();
+      gateway.pushGate = slow;
+      final Future<FavoritesSyncResult> refresh = repo.refreshFromRemote();
+      await pumpEventQueue(); // the retry of mf-1 is on the wire
+      await repo.clearRemote(providerScheme: 'subsonic:');
+      gateway.pushGate = null;
+      slow.complete();
+      await refresh;
+
+      expect(repo.isFavorite('subsonic:mf-1'), isFalse);
+      expect(repo.isFavorite('subsonic:mf-2'), isFalse);
+      expect(repo.pendingRemoteWriteCount, 0);
+      // mf-2's queued write was dropped by the sign-out, so it is not retried.
+      expect(
+        gateway.pushes.where((p) => p.uri == 'subsonic:mf-2'),
+        hasLength(1),
+      );
+    });
+
+    test('a toggle made while its retry is on the wire keeps the newer intent',
+        () async {
+      gateway.pushFails = true;
+      final repo = build();
+      await repo.setFavorite(_subsonic('mf-1'), true); // queued: heart
+
+      // The refresh retries the heart, slowly; it will land on the server.
+      gateway.pushFails = false;
+      final Completer<void> slow = Completer<void>();
+      gateway.pushGate = slow;
+      final Future<FavoritesSyncResult> refresh = repo.refreshFromRemote();
+      await pumpEventQueue();
+      // Meanwhile the user un-hearts it, and that push fails.
+      gateway.pushGate = null;
+      gateway.pushFails = true;
+      await repo.setFavorite(_subsonic('mf-1'), false); // queued: un-heart
+      gateway.pushFails = false;
+      slow.complete();
+      await refresh;
+
+      expect(repo.isFavorite('subsonic:mf-1'), isFalse);
+      expect(repo.pendingRemoteWriteCount, 1);
+
+      // The next refresh lands the un-heart instead of adopting the old star.
+      await repo.refreshFromRemote();
+      expect(repo.isFavorite('subsonic:mf-1'), isFalse);
+      expect(gateway.serverUris, isNot(contains('subsonic:mf-1')));
+      expect(repo.pendingRemoteWriteCount, 0);
+    });
+  });
 }
 
 /// A minimal [RemoteFavoritesGateway] whose push-failure and server starred set
@@ -511,12 +683,47 @@ class _FakeFavoritesGateway implements RemoteFavoritesGateway {
   @override
   bool get isConnected => connected;
 
+  /// Makes the next fetches throw (after any hold) like an unreachable server.
+  bool fetchFails = false;
+
+  /// While set, a push waits on it before landing, like a slow network.
+  Completer<void>? pushGate;
+
+  Completer<void>? _fetchGate;
+  Completer<void> _fetchStarted = Completer<void>();
+
+  /// Holds every fetch from now until [releaseFetch].
+  void holdFetch() {
+    _fetchGate = Completer<void>();
+    _fetchStarted = Completer<void>();
+  }
+
+  /// Completes once a fetch has read the server set (and, if held, is waiting
+  /// for [releaseFetch]).
+  Future<void> get fetchStarted => _fetchStarted.future;
+
+  void releaseFetch() {
+    _fetchGate?.complete();
+    _fetchGate = null;
+  }
+
+  // The starred set is read when the fetch starts, like a server that
+  // answered before anything done during the hold reached it.
   @override
-  Future<Set<String>> fetchFavoriteUris() async => <String>{...serverUris};
+  Future<Set<String>> fetchFavoriteUris() async {
+    final Set<String> answer = <String>{...serverUris};
+    final Completer<void>? gate = _fetchGate;
+    if (!_fetchStarted.isCompleted) _fetchStarted.complete();
+    if (gate != null) await gate.future;
+    if (fetchFails) throw const RemoteSyncException('unreachable');
+    return answer;
+  }
 
   @override
   Future<void> pushFavorite(String trackUri, bool favorite) async {
     pushes.add((uri: trackUri, favorite: favorite));
+    final Completer<void>? gate = pushGate;
+    if (gate != null) await gate.future;
     if (pushFails) throw const RemoteSyncException('unreachable');
     if (favorite) {
       serverUris.add(trackUri);
