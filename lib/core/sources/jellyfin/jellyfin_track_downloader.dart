@@ -61,7 +61,10 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
       final http.StreamedResponse response =
           await _client.send(http.Request('GET', uri)).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        await response.stream.drain<void>();
+        // Cancel the body rather than read it to the end: a server that
+        // stalls, or keeps a chunked body open, would otherwise hold this
+        // download and its slot for good. Same for the refusal below.
+        await response.stream.listen(null).cancel();
         throw StateError(
             'Jellyfin download failed (HTTP ${response.statusCode}).');
       }
@@ -69,7 +72,7 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
       // track, it would be served ahead of the stream and fail every play, so
       // refuse it on the header, before buffering any of the body.
       if (MediaContentType.isDocument(response.headers['content-type'])) {
-        await response.stream.drain<void>();
+        await response.stream.listen(null).cancel();
         throw StateError(
             'Jellyfin download failed (the server did not send audio).');
       }

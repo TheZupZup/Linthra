@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -220,6 +223,53 @@ void main() {
             .fetch(_track);
 
         expect(data.bytes, <int>[1, 2, 3]);
+      });
+    }
+  });
+
+  group('a refused response whose body never ends', () {
+    // A server that sends the headers and then stalls, or keeps a chunked
+    // body open, must not hold the download (and its scheduler slot) open:
+    // the refusal cancels the body instead of reading it to the end.
+    for (final (String what, int status) in <(String, int)>[
+      ('a 200 login page', 200),
+      ('an error status', 503),
+    ]) {
+      test('fails at once for $what', () async {
+        bool cancelled = false;
+        final StreamController<List<int>> body = StreamController<List<int>>(
+          onCancel: () => cancelled = true,
+        )..add(utf8.encode('<!doctype html><html><body>Sign in'));
+        addTearDown(body.close);
+        final client = MockClient.streaming(
+          (http.BaseRequest request, http.ByteStream _) async =>
+              http.StreamedResponse(
+            body.stream,
+            status,
+            headers: <String, String>{
+              'content-type': 'text/html; charset=utf-8',
+            },
+          ),
+        );
+        final downloader = PlexTrackDownloader(
+          () => _FakeDownloadSource(
+            downloadUri: Uri.parse(
+                'https://plex.example.com:32400/library/parts/9001/167/file.flac'),
+          ),
+          httpClient: client,
+        );
+
+        await expectLater(
+          downloader.fetch(_track).timeout(const Duration(seconds: 5)),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              startsWith('Plex download failed'),
+            ),
+          ),
+        );
+        expect(cancelled, isTrue);
       });
     }
   });
