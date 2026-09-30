@@ -273,5 +273,88 @@ void main() {
       expect(plan.evict.single.trackId, 'j');
       expect(plan.evict.single.sourceType, 'jellyfin');
     });
+
+    group('automatic pre-cache', () {
+      test('only ever evicts other pre-cached entries, never a user download',
+          () {
+        final plan = policy.plan(
+          cached: <CachedTrack>[
+            // The user's download is the least recently used, but it is theirs.
+            _managed('mine', source: 'jellyfin', accessed: DateTime(2020)),
+            _managed('warm', source: 'jellyfin', preloaded: true),
+          ],
+          incomingBytes: 100,
+          maxBytes: 200,
+          onlyPreloaded: true,
+        );
+
+        expect(plan.fits, isTrue);
+        expect(plan.evict.map((e) => e.trackId), <String>['warm']);
+      });
+
+      test('does not fit rather than touch a user download', () {
+        final plan = policy.plan(
+          cached: <CachedTrack>[
+            _managed('mine', source: 'jellyfin'),
+            _managed('also-mine', source: 'plex'),
+          ],
+          incomingBytes: 100,
+          maxBytes: 200,
+          onlyPreloaded: true,
+        );
+
+        expect(plan.fits, isFalse);
+        expect(plan.evict, isEmpty);
+      });
+
+      test('never evicts the tracks it was told are coming up', () {
+        final plan = policy.plan(
+          cached: <CachedTrack>[
+            _managed('next', source: 'jellyfin', preloaded: true),
+            _managed('after', source: 'jellyfin', preloaded: true),
+            _managed('stale', source: 'jellyfin', preloaded: true),
+          ],
+          incomingBytes: 100,
+          maxBytes: 300,
+          protectKeys: <String>{
+            _key('next', source: 'jellyfin'),
+            _key('after', source: 'jellyfin'),
+          },
+          onlyPreloaded: true,
+        );
+
+        expect(plan.fits, isTrue);
+        expect(plan.evict.map((e) => e.trackId), <String>['stale']);
+      });
+
+      test('reports no room when everything evictable is coming up', () {
+        final plan = policy.plan(
+          cached: <CachedTrack>[
+            _managed('next', source: 'jellyfin', preloaded: true),
+          ],
+          incomingBytes: 100,
+          maxBytes: 100,
+          protectKeys: <String>{_key('next', source: 'jellyfin')},
+          onlyPreloaded: true,
+        );
+
+        expect(plan.fits, isFalse);
+      });
+    });
+
+    test('a user download may still make room from unpinned downloads', () {
+      // Explicit downloads keep their long-standing behaviour: least recently
+      // used, unpinned copies give way to a new one the user asked for.
+      final plan = policy.plan(
+        cached: <CachedTrack>[
+          _managed('old', source: 'jellyfin', accessed: DateTime(2020)),
+        ],
+        incomingBytes: 100,
+        maxBytes: 100,
+      );
+
+      expect(plan.fits, isTrue);
+      expect(plan.evict.single.trackId, 'old');
+    });
   });
 }

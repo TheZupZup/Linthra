@@ -1,14 +1,52 @@
 import '../models/playback_state.dart';
+import '../models/repeat_mode.dart';
 import '../models/track.dart';
+
+/// The tracks the controller is going to play after the current one, in the
+/// order it will play them, at most [count] of them.
+///
+/// This is the one definition of "what's coming" that automatic caching warms,
+/// so the cache predicts the controller instead of guessing:
+///
+///  * [PlaybackState.upNext] is already the *effective* order, so a shuffled
+///    queue yields its shuffled order. Nothing here reshuffles.
+///  * Repeat-all wraps: once up-next runs out the queue restarts from its first
+///    track in the same order, which is [PlaybackState.previous].
+///  * Repeat-one yields nothing, since the current track loops and nothing
+///    else plays soon.
+///  * A track listed twice (or the current track coming round again) is only
+///    warmed once.
+///
+/// Stops as soon as it has [count] tracks, so the length of the queue barely
+/// matters; only a long run of the same track repeated is walked past.
+List<Track> upcomingTracks(PlaybackState state, {required int count}) {
+  final Track? current = state.currentTrack;
+  if (count <= 0 || current == null) return const <Track>[];
+  if (state.repeatMode == RepeatMode.one) return const <Track>[];
+  final List<Track> upcoming = <Track>[];
+  final Set<String> seen = <String>{current.uri};
+  bool take(List<Track> source) {
+    for (final Track track in source) {
+      if (upcoming.length >= count) return false;
+      if (seen.add(track.uri)) upcoming.add(track);
+    }
+    return upcoming.length < count;
+  }
+
+  if (take(state.upNext) && state.repeatMode == RepeatMode.all) {
+    take(state.previous);
+  }
+  return upcoming;
+}
 
 /// Whether two playback states describe the same *look-ahead work*: the same
 /// track playing, the same modes, and the same first [ahead] entries of
 /// up-next.
 ///
-/// Every service that warms something ahead of playback — the smart pre-cache,
-/// the remote stream prebuffer, the media-session artwork prewarm — listens to
-/// the same unified [PlaybackState] stream, which emits several times a second
-/// while playing. Only a handful of those emissions change what there is to
+/// The services that warm something just ahead of playback (the remote stream
+/// prebuffer, the media-session artwork prewarm) listen to the same unified
+/// [PlaybackState] stream, which emits several times a second while playing.
+/// Smart pre-cache compares its de-duplicated [upcomingTracks] window instead. Only a handful of those emissions change what there is to
 /// warm; the rest are position ticks. This is the shared "did anything I care
 /// about actually move?" test they gate on.
 ///

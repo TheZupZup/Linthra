@@ -12,6 +12,7 @@ import 'linux_playback_runtime.dart';
 import 'local_playable_uri_resolver.dart';
 import 'playable_uri_resolver.dart';
 import 'playback_candidate_source.dart';
+import 'playback_recovery_policy.dart';
 
 typedef LinuxPlaybackBackendRegistration = void Function();
 
@@ -237,6 +238,7 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
     PlayableUriResolver? streamingFallbackResolver,
     Random? random,
     TrackCompletionCallback? onTrackCompleted,
+    PlaybackRecoveryPolicy? automaticRecovery,
     LinuxPlaybackBackendInitializer? backend,
   }) {
     // The production path registers media_kit before the superclass can
@@ -260,6 +262,7 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
       streamingFallbackResolver: streamingFallbackResolver,
       random: random,
       onTrackCompleted: onTrackCompleted,
+      automaticRecovery: automaticRecovery,
     );
   }
 
@@ -271,6 +274,7 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
     super.streamingFallbackResolver,
     super.random,
     super.onTrackCompleted,
+    super.automaticRecovery,
   })  : _backend = backend,
         super(recoverPlaybackAfterSuspend: true);
 

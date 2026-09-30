@@ -25,6 +25,10 @@ import '../../core/services/track_prefetcher.dart';
 ///    pin). Auto-*preloaded* tracks ([prefetch]) are cached ahead of play too,
 ///    but they never take on a user-download status: they stay invisible to the
 ///    downloads UI, count toward the limit, and are the first to be evicted.
+///  - **Automatic caching never removes a user download.** A pre-cache makes
+///    room only by evicting other pre-cached entries, and never the ones that
+///    are playing or about to play. If that isn't enough it simply doesn't
+///    cache; the track streams when it's reached.
 ///  - **Bounded parallelism.** Several downloads fetch their bytes at once (via
 ///    a [DownloadScheduler]) so caching feels fast, but never more than the
 ///    scheduler's small limit — the app never opens an unbounded number of
@@ -402,6 +406,9 @@ class CacheDownloadRepository
     Track track,
     RemoteTrackData data, {
     bool preloaded = false,
+    Set<String> protectKeys = const <String>{},
+    bool Function()? isStillWanted,
+    bool Function()? mayMakeRoom,
   }) async {
     final String key = _keyForTrack(track);
     // The user removed or cleared this download while its bytes were still in
@@ -409,6 +416,11 @@ class CacheDownloadRepository
     // status — so a late fetch can't resurrect it or leave a stray file.
     if (_canceled.remove(key)) return;
     if (preloaded) {
+      // The session that asked for these bytes is gone (sign-out, a different
+      // server or account, or the pre-cache driver was disposed). They were
+      // fetched with that session's credentials, so they must not land under a
+      // key the new session would read.
+      if (!_passes(isStillWanted)) return;
       final CachedTrack? existing = _downloads[key];
       // A user download for the same track raced this preload (commits are
       // serialized, so by now the winner is known). Don't clobber or duplicate
@@ -420,11 +432,17 @@ class CacheDownloadRepository
     }
     final int incoming = data.bytes.length;
     final int maxBytes = await _preferences.maxCacheBytes();
+    // Asked again after every await below: a sign-out can land in any of them.
+    if (preloaded && !_passes(isStillWanted)) return;
     final EvictionPlan plan = _policy.plan(
       cached: _downloads.values,
       incomingBytes: incoming,
       maxBytes: maxBytes,
       protectKey: _protectKey(),
+      protectKeys: protectKeys,
+      // A pre-cache may only displace other pre-caches: automatic caching
+      // never removes something the user chose to download.
+      onlyPreloaded: preloaded,
       incomingKey: key,
     );
 
@@ -433,13 +451,32 @@ class CacheDownloadRepository
       _set(key, DownloadStatus.notDownloaded);
       throw const CacheStorageException();
     }
-
     bool evictedAStatus = false;
+    bool evictedAny = false;
     for (final CachedTrack victim in plan.evict) {
+      // A pre-cache whose queue has moved on (or whose session is gone) may
+      // still keep its copy, but only in free space: what it would evict may
+      // be what the new queue needs. Asked before every eviction, since either
+      // can change while the previous one is being deleted.
+      if (preloaded && !(_passes(mayMakeRoom) && _passes(isStillWanted))) {
+        if (evictedAny) {
+          await _save();
+          _emitCache();
+        }
+        return;
+      }
       await _deleteManagedFile(victim);
       final String victimKey = _keyForCached(victim);
       _downloads.remove(victimKey);
       if (_statuses.remove(victimKey) != null) evictedAStatus = true;
+      evictedAny = true;
+    }
+    // Room made for a queue that has moved on since goes to the new one, not
+    // to this copy.
+    if (preloaded && evictedAny && !_passes(mayMakeRoom)) {
+      await _save();
+      _emitCache();
+      return;
     }
 
     final String fileName = await _files.write(
@@ -447,6 +484,17 @@ class CacheDownloadRepository
       data.bytes,
       extension: data.fileExtension,
     );
+    if (preloaded && !_passes(isStillWanted)) {
+      // The session changed while the bytes were being written: take the file
+      // back out instead of publishing it, and persist the evictions already
+      // made so the metadata matches what is on disk.
+      await _files.delete(fileName);
+      if (plan.evict.isNotEmpty) {
+        await _save();
+        _emitCache();
+      }
+      return;
+    }
     final DateTime now = _now();
     _downloads[key] = CachedTrack(
       trackId: track.id,
@@ -470,7 +518,12 @@ class CacheDownloadRepository
   }
 
   @override
-  Future<void> prefetch(Track track) async {
+  Future<void> prefetch(
+    Track track, {
+    Iterable<Track> keep = const <Track>[],
+    bool Function()? isStillWanted,
+    bool Function()? mayMakeRoom,
+  }) async {
     await _ensureLoaded();
     // Only remote tracks have bytes to fetch; local ones are already on disk.
     if (!_downloader.isRemote(track)) return;
@@ -487,15 +540,42 @@ class CacheDownloadRepository
       // Preload is best-effort and network-heavy, so it honours the mobile-data
       // policy and simply skips (rather than queueing) when it can't run now.
       if (!await _allowedToDownloadNow()) return;
-      // Respect the cache limit *before* spending data: if the cache is already
-      // full and nothing is safe to evict (every entry pinned or playing), a
-      // best-effort preload can never fit — skip the fetch rather than pull
-      // bytes we'd immediately discard. The exact fit is re-checked at commit.
-      if (!_hasRoomForPrecache(await _preferences.maxCacheBytes())) return;
-      final RemoteTrackData data = await _downloader.fetch(track);
+      final Set<String> protectKeys = <String>{
+        for (final Track kept in keep) _keyForTrack(kept),
+      };
+      // Respect the cache limit *before* spending data: if the only way to fit
+      // would be evicting a user download, a pinned track, or what is playing
+      // or about to play, a best-effort preload can never fit, so skip the
+      // fetch rather than pull bytes we'd immediately discard.
+      final int room =
+          _precacheRoom(await _preferences.maxCacheBytes(), protectKeys);
+      if (room <= 0) return;
+      if (!_passes(isStillWanted)) return;
+      final RemoteTrackData data = await _downloader.fetch(
+        track,
+        // Its size isn't known until the server says so, and other tracks'
+        // sizes say little about it. So once the body is arriving and it's
+        // clear this track can't fit, stop the download there instead of
+        // pulling the rest just to throw it away. Checked on bytes, not on the
+        // headers alone, so the stream is cancelled rather than left unread.
+        // The exact fit is still decided at commit, where the room may have
+        // changed.
+        onProgress: (int received, int? total) {
+          if (received > 0 && (total ?? received) > room) {
+            throw const _PreloadTooBig();
+          }
+        },
+      );
       // Share the one commit lock so a preload write can't race a user
       // download's and overshoot the limit.
-      await _commit(() => _cacheRemote(track, data, preloaded: true));
+      await _commit(() => _cacheRemote(
+            track,
+            data,
+            preloaded: true,
+            protectKeys: protectKeys,
+            isStillWanted: isStillWanted,
+            mayMakeRoom: mayMakeRoom,
+          ));
     } catch (_) {
       // Best-effort: a failed preload caches nothing and changes no status; the
       // track still streams normally when it's reached.
@@ -606,26 +686,38 @@ class CacheDownloadRepository
     await _progressChanges.close();
   }
 
-  /// Whether a best-effort pre-cache could plausibly fit right now: either the
-  /// cache is below its limit, or there is at least one entry the policy could
-  /// evict (a prior pre-cache, or an unpinned download that isn't playing). When
-  /// the cache is full of pinned/playing tracks there is no room a pre-cache
-  /// could ever take, so the caller skips the fetch entirely. A cheap, in-memory
-  /// scan — the exact fit is decided by [CacheEvictionPolicy] at commit time.
-  bool _hasRoomForPrecache(int maxBytes) {
+  /// The room a pre-cache may take: free space under the limit plus the
+  /// pre-cached entries it may displace (never a user download, a pinned
+  /// track, the playing track, or anything in [protectKeys]). A cheap,
+  /// in-memory scan.
+  int _precacheRoom(int maxBytes, Set<String> protectKeys) {
     final String? protectKey = _protectKey();
     int used = 0;
-    bool hasEvictable = false;
+    int reclaimable = 0;
     for (final CachedTrack c in _downloads.values) {
       used += c.sizeBytes;
-      if (c.isManaged &&
-          c.sizeBytes > 0 &&
-          !c.pinned &&
-          c.cacheKey != protectKey) {
-        hasEvictable = true;
+      if (CacheEvictionPolicy.isEvictable(
+        c,
+        protectKey: protectKey,
+        protectKeys: protectKeys,
+        onlyPreloaded: true,
+      )) {
+        reclaimable += c.sizeBytes;
       }
     }
-    return used < maxBytes || hasEvictable;
+    return maxBytes - used + reclaimable;
+  }
+
+  /// Asks one of a pre-cache's checks. A missing check passes; one that throws
+  /// doesn't, since a failing check can't vouch for the session the bytes
+  /// were fetched with or the queue they were fetched for.
+  static bool _passes(bool Function()? check) {
+    if (check == null) return true;
+    try {
+      return check();
+    } catch (_) {
+      return false;
+    }
   }
 
   /// The provider-aware cache key of the currently playing track (or `null`),
@@ -791,3 +883,9 @@ class CacheDownloadRepository
 /// doesn't: held for Wi-Fi (mobile data not allowed) or waiting for a
 /// connection (offline).
 enum _NetworkDecision { allowed, needsWifi, offline }
+
+/// Thrown from a pre-cache's progress callback to stop a download that can't
+/// fit. Never surfaces: the pre-cache swallows it like any failed fetch.
+class _PreloadTooBig implements Exception {
+  const _PreloadTooBig();
+}

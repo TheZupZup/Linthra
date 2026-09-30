@@ -44,10 +44,15 @@ abstract interface class ProviderReachability {
 /// without sleeping, and so the TTL logic is exercised without flakiness.
 class CachingProviderReachability implements ProviderReachability {
   CachingProviderReachability({
-    Duration ttl = const Duration(seconds: 10),
+    Duration ttl = defaultTtl,
     DateTime Function()? clock,
   })  : _ttl = ttl,
         _now = clock ?? DateTime.now;
+
+  /// How long an outage is remembered by default. Anything that wants its next
+  /// attempt to really reach the server, rather than be answered from this
+  /// memory, waits at least this long.
+  static const Duration defaultTtl = Duration(seconds: 10);
 
   /// How long a remembered status stays valid. Short by design: it only needs to
   /// span a burst of plays (an album), not a long absence — a server that

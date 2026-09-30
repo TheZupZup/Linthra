@@ -214,10 +214,11 @@ and *what* gets evicted.
   running batch, and `features/downloads/collection_download_actions.dart` is
   the confirm-then-start action the album and playlist screens call.
 - **Smart pre-cache.** `lib/core/services/smart_precache_service.dart` watches
-  playback and quietly warms the next few upcoming tracks. It's best-effort and
-  invisible: pre-cached entries don't show up as downloads and are evicted
-  before any track you explicitly kept. Settings live in
-  `features/settings/precache/`.
+  playback and quietly warms the next few upcoming tracks, in the order
+  `upcomingTracks` (`playback_lookahead.dart`) says the player will play them.
+  It's best-effort and invisible: pre-cached entries don't show up as downloads,
+  are evicted before any track you explicitly kept, and only ever displace
+  other pre-cached entries. Settings live in `features/settings/precache/`.
 - **Wi-Fi vs. mobile data.** There is exactly one chokepoint — the
   `_networkDecision()` check inside `CacheDownloadRepository`. Both manual
   downloads and pre-cache pass through it: Wi-Fi is always allowed, mobile data

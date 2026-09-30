@@ -75,6 +75,13 @@ playing right now. If a new download still won't fit, it's refused with a
 friendly "not enough cache space" message instead of deleting something you
 wanted.
 
+Only a download **you** asked for can make room from step 2. Smart pre-cache
+only ever replaces older pre-cached tracks, never one of your downloads (pinned
+or not), the track playing, or a track that plays sooner than the one it is
+warming. If that isn't enough room, it just doesn't cache, and the track
+streams when it's reached. A download that turns out bigger than the room left
+is stopped as soon as that's clear, rather than pulled in full and discarded.
+
 ## Downloading a whole album or playlist
 
 Open an album or a playlist and use **Download all** (the download button in an
@@ -121,6 +128,28 @@ is deliberately modest and **never downloads the whole library**. It follows the
 only when you've allowed it, and never offline. Pre-cache is best-effort — when the connection isn't allowed
 it simply skips (it doesn't queue), and pre-cached tracks are the first to be
 evicted under the cache limit.
+
+It warms what the player is actually going to play next:
+
+- **The real queue order.** With shuffle on, that's the shuffled order the
+  player already made; nothing reshuffles for caching. Under repeat-all it wraps
+  to the start of the queue; under repeat-one it warms nothing.
+- **The latest queue wins.** Skipping, Play Next, Add to Queue, a new album or
+  playlist, or toggling shuffle stops the old pass after the download already in
+  flight and starts on the new queue. That last download is kept if it fits in
+  free space, but never by evicting something the new queue needs. One
+  download at a time, and never more than the configured count.
+- **Nothing twice.** A track already downloaded or pre-cached isn't fetched
+  again.
+- **Network loss.** Pre-cached tracks play offline like any download, and
+  nothing is evicted while offline (eviction only happens when a new copy is
+  written). When the connection comes back, or moves from metered data to
+  Wi-Fi, the current queue is warmed again on Android. On Linux, where there's
+  no network-status signal, that happens at the next queue change.
+- **Stale work is dropped.** Each queue is tied to the accounts signed in when
+  it was seen. If you sign out or switch server/account, a pre-cache already
+  downloading is discarded instead of saved, and the rest of that queue isn't
+  fetched with the new account.
 
 A pre-cached track is **not** the same thing as a download, and the library rows
 say so: a copy the user asked for reads as **Downloaded**, while one the app

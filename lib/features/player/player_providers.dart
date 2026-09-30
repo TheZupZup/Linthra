@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../../core/lifecycle/async_disposal_registry.dart';
 import '../../core/models/playback_state.dart';
+import '../../core/models/track.dart';
 import '../../core/platform/host_platform.dart';
 import '../../core/services/active_playback_controller.dart';
 import '../../core/services/just_audio_playback_controller.dart';
@@ -16,6 +17,7 @@ import '../../core/services/platform_playback_support.dart';
 import '../../core/services/playable_uri_resolver.dart';
 import '../../core/services/playback_candidate_source.dart';
 import '../../core/services/playback_controller.dart';
+import '../../core/services/playback_recovery_policy.dart';
 import '../../core/services/playback_reporting_service.dart';
 import '../../core/services/provider_reachability.dart';
 import '../../core/services/reachability.dart';
@@ -39,9 +41,12 @@ import '../../core/sources/jellyfin/jellyfin_remote_control_receiver.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../core/sources/plex/plex_playable_uri_resolver.dart';
 import '../../core/sources/plex/plex_playback_reporter.dart';
+import '../../core/sources/plex/plex_session_fingerprint.dart';
+import '../../core/sources/plex/plex_track_mapper.dart';
 import '../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import '../../core/sources/subsonic/subsonic_playback_reporter.dart';
+import '../../core/sources/subsonic/subsonic_track_mapper.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../data/repositories/host_platform_provider.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
@@ -114,12 +119,7 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
   return RoutingPlayableUriResolver(<PlayableUriResolver>[
     reachabilityAware(
       JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
-      () {
-        final source = ref.read(jellyfinMusicSourceProvider);
-        return source == null
-            ? null
-            : 'jellyfin:${jellyfinAccountFingerprint(source.session)}';
-      },
+      () => _jellyfinAccountKey(ref),
       // Let the library learn from what the player just found out: the first
       // track that can't reach the server flips Jellyfin to unreachable (and the
       // first that succeeds flips it back) without waiting for the background
@@ -132,28 +132,62 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
     ),
     reachabilityAware(
       SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
-      () {
-        final source = ref.read(subsonicMusicSourceProvider);
-        return source == null
-            ? null
-            : 'subsonic:${subsonicAccountFingerprint(source.session)}';
-      },
+      () => _subsonicAccountKey(ref),
     ),
     // With no Plex session the source provider is null and a plex: track
     // resolves to a friendly "not signed in" rather than falling through
     // as unplayable.
     reachabilityAware(
       PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
-      () {
-        final source = ref.read(plexMusicSourceProvider);
-        return source == null
-            ? null
-            : 'plex:${source.session.machineIdentifier}';
-      },
+      () => _plexAccountKey(ref),
     ),
     LocalPlayableUriResolver(presence: ref.read(localFilePresenceProvider)),
   ]);
 });
+
+/// The signed-in Jellyfin server + account as a non-secret key, or `null` when
+/// signed out. Shared by the reachability memory and smart pre-cache, so both
+/// agree on when "the same session" stops being the same (Plex aside: see
+/// [_accountKeyForTrack]).
+String? _jellyfinAccountKey(Ref ref) {
+  final source = ref.read(jellyfinMusicSourceProvider);
+  return source == null
+      ? null
+      : 'jellyfin:${jellyfinAccountFingerprint(source.session)}';
+}
+
+String? _subsonicAccountKey(Ref ref) {
+  final source = ref.read(subsonicMusicSourceProvider);
+  return source == null
+      ? null
+      : 'subsonic:${subsonicAccountFingerprint(source.session)}';
+}
+
+String? _plexAccountKey(Ref ref) {
+  final source = ref.read(plexMusicSourceProvider);
+  return source == null ? null : 'plex:${source.session.machineIdentifier}';
+}
+
+/// The account key for whichever provider owns [track], or `null` for a local
+/// track or a provider that is signed out. What smart pre-cache binds a queue
+/// to, so it is as narrow as the provider allows: for Plex that includes the
+/// Home profile, not just the server.
+String? _accountKeyForTrack(Ref ref, Track track) {
+  final String uri = track.uri;
+  if (uri.startsWith(JellyfinTrackMapper.uriScheme)) {
+    return _jellyfinAccountKey(ref);
+  }
+  if (uri.startsWith(SubsonicTrackMapper.uriScheme)) {
+    return _subsonicAccountKey(ref);
+  }
+  if (uri.startsWith(PlexTrackMapper.uriScheme)) {
+    final source = ref.read(plexMusicSourceProvider);
+    return source == null
+        ? null
+        : 'plex:${plexSessionFingerprint(source.session)}';
+  }
+  return null;
+}
 
 /// The seam that answers whether an on-device file is still at the path the
 /// catalog holds for it, so a track whose file was moved, deleted or unplugged
@@ -267,6 +301,7 @@ final localPlaybackControllerProvider =
           onTrackCompleted: (track) => unawaited(
             ref.read(playHistoryRepositoryProvider).recordCompletion(track),
           ),
+          automaticRecovery: ref.read(playbackRecoveryPolicyProvider),
         )
       : JustAudioPlaybackController(
           resolver: ref.read(playableUriResolverProvider),
@@ -286,10 +321,20 @@ final localPlaybackControllerProvider =
           // on-device. Casting suspends the engine, so cast plays aren't counted.
           onTrackCompleted: (track) => unawaited(
               ref.read(playHistoryRepositoryProvider).recordCompletion(track)),
+          automaticRecovery: ref.read(playbackRecoveryPolicyProvider),
         );
   ref.onDisposeAsync(controller.dispose);
   return controller;
 });
+
+/// How far the on-device engine goes on its own when a track can't be played:
+/// one more try, then along the queue, then a stable error (see
+/// [PlaybackRecoveryPolicy]). The same bounds on Android and Linux; a test that
+/// wants the historic "wait on the error panel" behavior overrides it with
+/// null.
+final playbackRecoveryPolicyProvider = Provider<PlaybackRecoveryPolicy?>(
+  (ref) => const PlaybackRecoveryPolicy(),
+);
 
 /// The single [PlaybackController] the UI drives playback through, routing
 /// between the local engine and a cast receiver and exposing one unified
@@ -330,11 +375,23 @@ final playbackStateProvider = StreamProvider<PlaybackState>((ref) {
 /// download stores or preferences can't tear it down mid-session. It does its
 /// work as a side effect of listening, so `main` instantiates it once after
 /// startup; nothing in the UI reads its value.
+///
+/// Network recovery resumes it on Android, the one platform with a live
+/// network-status channel. Elsewhere the next queue change does, since
+/// listening to a channel with no native side only reports a missing plugin.
 final smartPrecacheServiceProvider = Provider<SmartPrecacheService>((ref) {
+  final bool hasNetworkEvents =
+      ref.read(hostPlatformProvider) == HostPlatform.android;
   final service = SmartPrecacheService(
     playbackStates: ref.read(playbackControllerProvider).stateStream,
     prefetcher: ref.read(trackPrefetcherProvider),
     preferences: ref.read(downloadPreferencesProvider),
+    networkChanges: hasNetworkEvents
+        ? ref.read(connectivityServiceProvider).statusStream
+        : null,
+    // Read live at each check, so a sign-out or account switch mid-fetch is
+    // seen before the bytes are committed.
+    sessionScopeOf: (Track track) => _accountKeyForTrack(ref, track),
   );
   ref.onDisposeAsync(service.dispose);
   return service;

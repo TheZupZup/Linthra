@@ -136,6 +136,40 @@ now-playing screen shows the message and the buttons in place of the source
 badge (no dialog, and nothing else in the app is blocked), and the
 mini-player's second line says, briefly, that the track is failing.
 
+### Moving on by itself, within bounds
+
+Linthra doesn't sit on that panel forever while other tracks could play. Once a
+track's own recovery is spent, the player (`PlaybackRecoveryPolicy`, the same
+on Android and Linux) takes a few bounded steps on its own:
+
+1. **One more try first.** For a source problem (`temporarySource`), the first
+   failure waits about ten seconds, then re-resolves the same track with a
+   fresh stream URL: at the same position, showing "Reconnecting…", when it
+   was playing, or as a fresh load when it never started (so it isn't counted
+   as played). That covers a Wi-Fi/LTE handover or a server that blinked. The
+   wait is as long as the provider's "this server is down" memory, so the
+   retry really asks the server again instead of being answered from that
+   memory.
+2. **Then the next track.** If it still fails, playback moves to the next queue
+   entry that hasn't already failed in this run (back to the start under
+   repeat-all), so a song queued twice is passed over rather than mistaken for
+   the queue coming round. Downloaded, pre-cached and local tracks keep playing
+   while a server is down. Under repeat-one it stays on the track you chose.
+3. **Then it stops.** After six failures in a row, when every other entry has
+   already failed in the same run (so repeat-all can't cycle through a dead
+   server), or at the end of the queue, the failure is shown with its buttons
+   and nothing else happens until you act.
+
+The waits between moves back off (1, 2, 4, 8 s), so the whole run waits about
+33 seconds at most, and the per-server reachability memory means a down server
+is contacted about once every ten seconds at most while it runs. A track that
+plays to its end, or any action of yours (play, skip, seek, Retry, a new
+queue), starts a fresh run. It never moves on for an audio engine failure (every track
+would fail the same way), after a restored session or the end of a cast (those
+never start audio on their own), after you pause, when headphones are
+unplugged, or once another app has taken over audio. During a call it can
+still load the next track, but starting it is left to the end of the call.
+
 ## Streaming over mobile data (LTE)
 
 - **Streaming works over LTE by default** when you've chosen to stream — normal
@@ -182,8 +216,10 @@ behaviour is in [cast.md](cast.md).
 
 - **No low-level buffer-size knob.** `just_audio` exposes ExoPlayer's
   buffer *durations*, not a per-request byte budget; tuning is at that level.
-- **One retry per drop.** Mid-stream recovery attempts a single retry by design
-  (never an endless loop); a persistent outage surfaces a friendly error.
+- **One retry per drop.** Mid-stream recovery attempts a single quick retry by
+  design (never an endless loop); a persistent outage gets one delayed retry,
+  then playback moves on within the bounds above and finally surfaces a
+  friendly error.
 - **Preload warms one track ahead.** Only the immediate next remote track's URL
   is warmed in memory; warming further ahead to *disk* is smart pre-cache's job.
 - **Direct play only** — no server-side transcoding fallback for exotic formats.

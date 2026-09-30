@@ -216,7 +216,11 @@ song starts instantly. It is deliberately modest (see
   would waste data and storage).
 - It runs **one fetch at a time**, off the playback path, bounded by your
   pre-cache count and the cache size limit, and its entries are evicted before
-  any track you pinned with "Keep offline".
+  any track you pinned with "Keep offline". It only ever makes room from older
+  pre-cached tracks, never from your downloads.
+- When the queue changes it **stops the old pass** after the download in flight
+  instead of finishing it, and network recovery re-runs it from the connectivity
+  event (Android) rather than from any polling.
 
 ### Diagnostics cost nothing in normal playback
 
