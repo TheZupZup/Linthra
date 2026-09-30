@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../../models/track.dart';
 import '../../services/remote_track_downloader.dart';
 import '../audio_file_extension.dart';
+import '../media_content_type.dart';
 import 'jellyfin_download_source.dart';
 import 'jellyfin_track_mapper.dart';
 
@@ -60,9 +61,20 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
       final http.StreamedResponse response =
           await _client.send(http.Request('GET', uri)).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        await response.stream.drain<void>();
+        // Cancel the body rather than read it to the end: a server that
+        // stalls, or keeps a chunked body open, would otherwise hold this
+        // download and its slot for good. Same for the refusal below.
+        await response.stream.listen(null).cancel();
         throw StateError(
             'Jellyfin download failed (HTTP ${response.statusCode}).');
+      }
+      // A reverse-proxy/SSO login page answers 200 with HTML. Cached as the
+      // track, it would be served ahead of the stream and fail every play, so
+      // refuse it on the header, before buffering any of the body.
+      if (MediaContentType.isDocument(response.headers['content-type'])) {
+        await response.stream.listen(null).cancel();
+        throw StateError(
+            'Jellyfin download failed (the server did not send audio).');
       }
 
       final int? total =
@@ -84,8 +96,8 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
             AudioFileExtension.forContentType(response.headers['content-type']),
       );
     } on StateError {
-      // Our own friendly, token-free messages (bad status / not signed in):
-      // surface them as-is.
+      // Our own friendly, token-free messages (bad status / not audio / not
+      // signed in): surface them as-is.
       rethrow;
     } on Exception {
       // Never rethrow the original error: a ClientException/SocketException (or
