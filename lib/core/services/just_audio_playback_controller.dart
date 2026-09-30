@@ -2039,6 +2039,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _seekDuringLoad = null;
         _seekDuringLoadAfterEnd = false;
         if (target == null) break;
+        final int attempt = _sourceAttempt;
         await _player.seek(target);
         // A seek back puts the source under way again, so an end it reported
         // before is not where it is now. With a known end, anything before it
@@ -2046,7 +2047,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         // they made after the end was reported counts as going back; the
         // load's own start does not (a source with nothing in it reports its
         // end before that start, and again if the seek ends it).
-        if (_endedAttempt == _sourceAttempt &&
+        // Only for this load's own source: a newer load may have handed over
+        // (and heard the end of) its source while this seek was on its way.
+        if (generation == _playbackGeneration &&
+            _sourceAttempt == attempt &&
+            _endedAttempt == attempt &&
             (_state.duration > Duration.zero
                 ? target < _state.duration
                 : soughtAfterEnd)) {

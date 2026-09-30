@@ -418,6 +418,45 @@ void main() {
     });
 
     test(
+        'a superseded load\'s seek landing late does not undo the next '
+        'source\'s end', () async {
+      final Track d = _track('d');
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b, c, d]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // B's load is moving it to 3:00 when the listener skips on to C.
+      resolver.gate(b);
+      final Future<void> toB = controller.skipToNext();
+      await _settle();
+      await controller.seek(const Duration(minutes: 3));
+      final Completer<void> bSeek = engine.seekGate = Completer<void>();
+      resolver.release(b);
+      await _settle();
+      final Completer<void> cOpen = engine.openGate = Completer<void>();
+      final Future<void> toC = controller.skipToNext();
+      await _settle();
+
+      // C is empty: it loads, gives its length and ends while still opening.
+      engine.emitState(true, ProcessingState.loading);
+      engine.emitDuration(const Duration(minutes: 5));
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      // Only then does B's old seek land.
+      bSeek.complete();
+      await toB;
+      await _settle();
+      engine.openGate = null;
+      cOpen.complete();
+      await toC;
+      await _settle();
+
+      expect(completed, <Track>[c]);
+      expect(engine.loadedUrls.last, _url(d));
+    });
+
+    test(
         'an end reported during a load that then starts nothing settles paused',
         () async {
       final JustAudioPlaybackController controller = build();
