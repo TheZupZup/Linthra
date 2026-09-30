@@ -276,6 +276,34 @@ void main() {
       expect(completed, isEmpty);
     });
 
+    test(
+        'a new source that loads and ends before it has finished opening is '
+        'acted on', () async {
+      // just_audio's setUrl only returns once the processing state has left
+      // loading, so an empty or instantly ending source reports its end first.
+      // It reports loading before that, which the replaced song's late end
+      // never follows.
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b, c]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      engine.openGate = Completer<void>();
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      engine.emitState(true, ProcessingState.loading);
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      engine.openGate!.complete();
+      engine.openGate = null;
+      await skip;
+      await _settle();
+
+      expect(completed, <Track>[b]);
+      expect(controller.state.currentTrack, c);
+      expect(engine.loadedUrls.last, _url(c));
+    });
+
     test('a source that reports an end and then fails to open is an error',
         () async {
       final JustAudioPlaybackController controller = build();

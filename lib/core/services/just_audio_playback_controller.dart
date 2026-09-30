@@ -461,6 +461,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// returned). From then on, what the engine reports is that source's.
   int? _openedSourceGeneration;
 
+  /// The load generation whose handed-over source has reported loading: the
+  /// engine has switched to it, so every report after that one is its own.
+  /// The replaced song's last reports, still on their way, come before it.
+  /// setUrl only returns once loading is over, so this comes first, and a
+  /// source that ends at once reports that end before setUrl returns.
+  int? _engineLoadingGeneration;
+
   /// A load generation whose own source ended while the load was still moving
   /// it to its start (a start at or past its end). The end is acted on once
   /// the load settles: starting an engine whose playing flag never dropped
@@ -971,6 +978,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // status underneath the cast session.
     if (_suspended) return;
     final status = _statusFor(playerState);
+    if (_loadInFlight &&
+        _engineSourceGeneration == _loadingGeneration &&
+        playerState.processingState == ProcessingState.loading) {
+      _engineLoadingGeneration = _loadingGeneration;
+    }
     // just_audio pushes a fresh, default PlaybackEvent — whose processingState
     // is `idle` — synchronously at the *start* of every setAudioSource/setUrl
     // call, before the new source begins loading. That happens on every track
@@ -1018,13 +1030,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // queue past it), and a play or pause is about a song on its way out.
     if (_engineHoldsPreviousSource) return;
     // Nor is an end reported before the load has settled (the new source is
-    // open and at its starting point) acted on here. Until the engine has
-    // opened the new source, it may be the replaced song's, still on its way,
-    // or one from a source that then fails to open. After that it is the new
-    // source's own, reached as the load moved it to a start at or past its
-    // end, and it is acted on once the load settles.
+    // open and at its starting point) acted on here. Until the handed-over
+    // source has reported loading, it may be the replaced song's, still on its
+    // way. After that it is the new source's own (an empty or instantly ending
+    // source, or a start at or past its end), and it is acted on once the load
+    // settles, if the source opened.
     if (status == PlaybackStatus.completed && _loadInFlight) {
-      if (_openedSourceGeneration == _loadingGeneration) {
+      if (_openedSourceGeneration == _loadingGeneration ||
+          _engineLoadingGeneration == _loadingGeneration) {
         _endedWhileLoading = _loadingGeneration;
       }
       return;
