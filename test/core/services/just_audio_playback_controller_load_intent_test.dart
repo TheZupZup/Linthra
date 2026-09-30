@@ -277,6 +277,19 @@ void main() {
       expect(setup.player.lastTransport, 'play');
     });
 
+    test('a cast taking over during the load keeps the phone silent', () async {
+      final setup = await playingAWithBGated();
+      final Future<void> skip = setup.controller.skipToNext();
+      await _settle();
+      await setup.controller.suspend();
+      setup.resolver.release(b);
+      await skip;
+      await _settle();
+
+      expect(setup.player.lastTransport, 'pause',
+          reason: 'the receiver plays now; the phone must not play too');
+    });
+
     test('a skip after a pause is a request to play the next track', () async {
       final setup = await playingAWithBGated();
       await setup.controller.pause();

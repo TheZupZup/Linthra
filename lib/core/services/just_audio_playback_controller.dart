@@ -1905,6 +1905,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // already moved past.
     if (generation != _playbackGeneration) return;
     // play()'s future completes when playback ends, so we don't await it.
+    // A cast receiver that took over while this loaded owns the audio now.
+    if (_suspended) return;
     if (autoplay &&
         _playWhenLoaded &&
         !_heldForTransientFocus &&
