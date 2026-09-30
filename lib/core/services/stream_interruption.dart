@@ -16,6 +16,17 @@ enum StreamInterruptionKind {
 
   /// Anything else; treated as a transient glitch worth a single retry.
   unknown,
+
+  /// An on-device file stopped being readable: deleted or moved, on an SD card
+  /// or USB drive that was taken out, or a document whose access was revoked.
+  ///
+  /// Never produced by [classifyEngineError], because the engine's words don't
+  /// say where the bytes came from: Android reports a file that can't be read
+  /// and a stream that dropped with the same "Source error". The player picks
+  /// this kind when the source it has loaded is an on-device file. Not worth a
+  /// quick retry: no connection is involved, and a removed card or a deleted
+  /// file is still gone a second later.
+  localFileUnavailable,
 }
 
 /// A classified stream interruption: a [kind], a friendly, **secret-free**

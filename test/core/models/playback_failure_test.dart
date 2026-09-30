@@ -119,6 +119,8 @@ void main() {
             PlaybackFailureKind.sourceSignInRequired,
         StreamInterruptionKind.formatUnsupported:
             PlaybackFailureKind.unplayableMedia,
+        StreamInterruptionKind.localFileUnavailable:
+            PlaybackFailureKind.localFileUnavailable,
       };
 
       expect(expected.keys, containsAll(StreamInterruptionKind.values));

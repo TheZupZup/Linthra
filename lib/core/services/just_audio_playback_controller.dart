@@ -981,6 +981,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// shows a friendly, secret-free message. The raw [error] (which can carry a
   /// tokenized URL) is never logged or surfaced — only its classification is
   /// used.
+  ///
+  /// What an error means depends on what is playing: see [_interruptionFor].
   void _onEngineError(Object error, StackTrace _) {
     if (_suspended) return;
     if (_state.status != PlaybackStatus.playing &&
@@ -1000,7 +1002,43 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       if (track != null) _emitError(track, _failureFrom(track, engineFailure));
       return;
     }
-    _handleStreamFailure(classifyEngineError(error));
+    _handleStreamFailure(_interruptionFor(error));
+  }
+
+  /// Whether [classified] is the engine failing to read its source (Android's
+  /// "Source error" and the I/O failures the classifier files with it) rather
+  /// than a decode, auth or unrecognised failure. Only that one says anything
+  /// about an on-device file being gone.
+  static bool _isSourceError(StreamInterruption classified) =>
+      classified.kind == StreamInterruptionKind.networkDropped;
+
+  /// Classifies a mid-playback engine [error] for the source that is loaded.
+  ///
+  /// Android raises the same "Source error" for a stream that dropped and for
+  /// an on-device file it can no longer read (deleted or moved, on an SD card
+  /// or USB drive that was taken out, or behind a revoked grant), so for an
+  /// on-device file those words say nothing about a connection. There, a
+  /// source error is the file going missing: the words the resolver uses for a
+  /// vanished path, and the local-file recovery (Retry for when the card is
+  /// back) rather than "Reconnecting…" and a retry. An error that isn't a
+  /// source error keeps its own classification, since claiming the file is
+  /// gone would be a guess. Another copy of the song, if there is one, is
+  /// still tried at the same position.
+  ///
+  /// There is no quick re-open first. It would read "Reconnecting…" for a
+  /// file, and a removed card or a deleted document is still gone a second
+  /// later. Every other source keeps [classifyEngineError]'s answer.
+  StreamInterruption _interruptionFor(Object error) {
+    final StreamInterruption classified = classifyEngineError(error);
+    if (_state.source != PlaybackSource.localFile ||
+        !_isSourceError(classified)) {
+      return classified;
+    }
+    return const StreamInterruption(
+      StreamInterruptionKind.localFileUnavailable,
+      LocalPlayableUriResolver.missingFileMessage,
+      retryable: false,
+    );
   }
 
   /// Shared recovery for a classified mid-stream failure (from the engine or
@@ -1987,8 +2025,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// tokenized stream URL), and only to answer one question: were these bytes
   /// undecodable, or did the source stop answering? They take different
   /// recoveries (another copy of the song vs. trying again), so the error UI
-  /// needs them apart. Anything the classifier can't place keeps the previous
-  /// wording and kind, so only a recognised decode failure changes behaviour.
+  /// needs them apart. For an on-device file, a source that won't open is the
+  /// file being missing (see below). For any other source, anything the
+  /// classifier can't place keeps the previous wording and kind.
   ///
   /// Overridable for the same reason [engineUnavailableFailure] exists: a
   /// native runtime that loads but is the wrong one fails here, at the first
@@ -2005,6 +2044,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         "This track's format isn't supported on this device.",
         kind: PlaybackResolutionErrorKind.mediaUnsupported,
       );
+    }
+    // An on-device file the engine could not open. Android says "Source error"
+    // for a document that was deleted or moved, sits on a card or drive that
+    // was taken out, or lost its grant, and those documents aren't probed
+    // before the load (see [LocalPlayableUriResolver]), so this is where a
+    // missing one shows up. It is the failure the resolver reports for a
+    // vanished path, not a stream that couldn't start. A load cut short by a
+    // newer one says nothing about the file, so it keeps the generic failure.
+    if (source == PlaybackSource.localFile &&
+        error is! PlayerInterruptedException &&
+        _isSourceError(classifyEngineError(error))) {
+      return LocalPlayableUriResolver.missingFile;
     }
     return PlaybackResolutionException(
       _loadErrorFor(source),

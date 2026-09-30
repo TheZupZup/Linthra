@@ -53,11 +53,27 @@ class IoLocalFilePresence implements LocalFilePresence {
 /// `content://` documents are deliberately *not* probed: answering "does this
 /// document exist" means a content-resolver round trip through the platform
 /// channel on every single track load, and Android already reports a revoked or
-/// deleted document clearly through the open itself.
+/// deleted document through the open itself. The player reads that failed open
+/// of an on-device source as this same [missingFile], with the same words, so
+/// it is not mistaken for a stream that dropped.
 class LocalPlayableUriResolver implements PlayableUriResolver {
   const LocalPlayableUriResolver({
     LocalFilePresence presence = const IoLocalFilePresence(),
   }) : _presence = presence;
+
+  /// What a listener is told when an on-device file can't be found or read.
+  /// Fixed text: never a path, a document URI or an engine error.
+  static const String missingFileMessage =
+      "This file isn't where Linthra last saw it. It may have been moved or "
+      'deleted, or the drive it lives on may not be connected. Rescan your '
+      'music folders to update the library.';
+
+  /// The failure for an on-device file that isn't there any more.
+  static const PlaybackResolutionException missingFile =
+      PlaybackResolutionException(
+    missingFileMessage,
+    kind: PlaybackResolutionErrorKind.localFileMissing,
+  );
 
   final LocalFilePresence _presence;
 
@@ -77,12 +93,7 @@ class LocalPlayableUriResolver implements PlayableUriResolver {
     final Uri playable = playableUriFor(track.uri);
     if (playable.isScheme('file') &&
         !_presence.existsAt(playable.toFilePath())) {
-      throw const PlaybackResolutionException(
-        "This file isn't where Linthra last saw it. It may have been moved or "
-        'deleted, or the drive it lives on may not be connected. Rescan your '
-        'music folders to update the library.',
-        kind: PlaybackResolutionErrorKind.localFileMissing,
-      );
+      throw missingFile;
     }
     PlaybackDiagnostics.resolved(
       source: 'local',
