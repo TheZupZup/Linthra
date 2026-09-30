@@ -219,6 +219,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// it. Null when none is running.
   Object? _runningRecoveryStep;
 
+  /// Whether an automatic step is waiting to run or still loading. Either way
+  /// it owns the current failure, and the engine may still hold the failed
+  /// source.
+  bool get _automaticRecoveryUnderway =>
+      _pendingRecovery != null || _runningRecoveryStep != null;
+
   final StreamController<PlaybackState> _states =
       StreamController<PlaybackState>.broadcast();
   final List<StreamSubscription<void>> _subscriptions =
@@ -898,8 +904,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // it report paused, loading or even completed. None of that is news about
     // the failed track: letting it through would drop the failure (so the next
     // Play would skip the re-resolve) or, for a completion, move the queue on.
-    // Only real sound ends the error from here.
-    if (_state.status == PlaybackStatus.error &&
+    // Only real sound ends the error from here. The same goes while an
+    // automatic retry or move waits to run: the state reads loading or
+    // reconnecting then, but it is still the failure's.
+    if ((_state.status == PlaybackStatus.error || _pendingRecovery != null) &&
         status != PlaybackStatus.playing) {
       return;
     }
@@ -978,9 +986,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Future<void> _beginStreamRecovery(StreamInterruption interruption) async {
     if (_suspended) return;
     if (_streamRecoveryInFlight) return;
-    // An automatic retry or move is already scheduled for this failure; a late
-    // engine error from the same dead source must not start a second one.
-    if (_pendingRecovery != null) return;
+    // An automatic retry or move is already scheduled for this failure, or is
+    // loading right now; a late engine error from the same dead source, or
+    // the watchdog that step armed, must not start a second one. The step
+    // settles its own outcome.
+    if (_automaticRecoveryUnderway) return;
     final Track? track = _queue.current;
     if (track == null) return;
 
@@ -1045,7 +1055,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _onBufferingTimeout() {
     _bufferingWatchdog = null;
     if (_suspended) return;
-    if (_pendingRecovery != null) return;
+    if (_automaticRecoveryUnderway) return;
     if (_state.status != PlaybackStatus.buffering &&
         _state.status != PlaybackStatus.reconnecting) {
       return;
@@ -2141,6 +2151,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       unawaited(step(mayStart).whenComplete(() {
         if (identical(_runningRecoveryStep, token)) {
           _runningRecoveryStep = null;
+          // The watchdog is ignored while the step runs, so bound whatever
+          // wait it leaves behind, as the quick retry does when it finishes.
+          _armBufferingWatchdogIfBuffering();
         }
       }));
     });
@@ -2379,10 +2392,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // this is history, and the next failure gets a fresh bounded recovery.
     _failureStreak.clear();
     // After a server outage the engine may be in error with no loaded source,
-    // or waiting on an automatic retry or move. Re-resolve at the preserved
-    // position now, so a returned server (or a sibling copy) can recover
-    // without rebuilding the queue.
-    if ((_state.status == PlaybackStatus.error || _pendingRecovery != null) &&
+    // or an automatic retry or move may be waiting or still loading (with the
+    // engine holding the source that failed). Re-resolve the queue's current
+    // track at the preserved position now, so a returned server (or a sibling
+    // copy) can recover without rebuilding the queue.
+    if ((_state.status == PlaybackStatus.error || _automaticRecoveryUnderway) &&
         _queue.current != null) {
       _retriesForCurrent = 0;
       _startFreshAfterFailures();
@@ -2444,13 +2458,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // nothing loaded to seek in, and the generation bump below would silently
     // drop that step and leave the player on "Loading…". Seeking there is the
     // listener taking over: start afresh from the spot they chose.
-    if ((_pendingRecovery != null || _runningRecoveryStep != null) &&
-        _queue.current != null) {
+    if (_automaticRecoveryUnderway && _queue.current != null) {
       _retriesForCurrent = 0;
       _startFreshAfterFailures();
       await _playCurrent(startAt: position);
       return;
     }
+    // Any seek is the listener acting, like play(): what failed before it is
+    // history, and the next failure gets a fresh bounded recovery.
+    _failureStreak.clear();
     // A seek is a playback action too: bump the generation so a still-resolving
     // earlier load can't complete afterwards and yank playback off the spot the
     // user just chose (or onto a different track). In normal flow nothing is
