@@ -148,5 +148,74 @@ void main() {
         expect(error.toString(), isNot(contains('api_key')));
       }
     });
+
+    test('refuses a 200 login page instead of saving it as the track',
+        () async {
+      // A reverse-proxy/SSO login page answers 200 text/html; its bytes are
+      // not the audio file and must never be handed back as the download.
+      final uri = Uri.parse(
+        'https://music.example.com/Items/t1/Download?api_key=SECRET-TOKEN',
+      );
+      final source = _FakeDownloadSource(downloadUri: uri);
+      final client = MockClient((request) async {
+        return http.Response(
+          '<!doctype html><html><body>Sign in</body></html>',
+          200,
+          headers: <String, String>{'content-type': 'text/html; charset=utf-8'},
+        );
+      });
+      final downloader =
+          JellyfinTrackDownloader(() => source, httpClient: client);
+      final List<int> progress = <int>[];
+
+      await expectLater(
+        downloader.fetch(
+          _track,
+          onProgress: (int received, int? total) => progress.add(received),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              startsWith('Jellyfin download failed'),
+              isNot(contains('SECRET-TOKEN')),
+              isNot(contains('api_key')),
+              isNot(contains('Sign in')),
+            ),
+          ),
+        ),
+      );
+      // Rejected on the headers alone, before any of the body is buffered.
+      expect(progress, isEmpty);
+    });
+
+    for (final String? contentType in <String?>[
+      'application/octet-stream',
+      'binary/octet-stream',
+      null,
+    ]) {
+      test('keeps accepting a ${contentType ?? 'missing'} content type',
+          () async {
+        final source = _FakeDownloadSource(
+          downloadUri: Uri.parse('https://x/Items/t1/Download?api_key=t'),
+        );
+        final client = MockClient((request) async {
+          return http.Response.bytes(
+            <int>[1, 2, 3],
+            200,
+            headers: <String, String>{
+              if (contentType != null) 'content-type': contentType,
+            },
+          );
+        });
+
+        final data =
+            await JellyfinTrackDownloader(() => source, httpClient: client)
+                .fetch(_track);
+
+        expect(data.bytes, <int>[1, 2, 3]);
+      });
+    }
   });
 }

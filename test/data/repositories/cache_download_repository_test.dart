@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:linthra/core/models/download_progress.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
@@ -16,6 +18,8 @@ import 'package:linthra/core/services/offline_first_playable_uri_resolver.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/services/remote_track_downloader.dart';
 import 'package:linthra/core/services/smart_precache_service.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_stream_source.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_track_downloader.dart';
 import 'package:linthra/data/repositories/cache_download_repository.dart';
 import 'package:linthra/data/repositories/in_memory_download_preferences.dart';
 import 'package:linthra/data/repositories/in_memory_download_store.dart';
@@ -1849,6 +1853,94 @@ void main() {
       expect(fallback.resolved, track);
     });
   });
+
+  group('a server error document is never cached as the track', () {
+    // End to end through the real Subsonic downloader: download.view refuses
+    // with HTTP 200 and a subsonic-response error document. Were it cached,
+    // the offline-first resolver would serve it ahead of the stream and every
+    // play would fail.
+    late InMemoryDownloadStore store;
+    late InMemoryOfflineFileStore files;
+    late InMemoryDownloadPreferences preferences;
+
+    CacheDownloadRepository build() {
+      final MockClient server = MockClient((http.Request request) async {
+        return http.Response(
+          '{"subsonic-response":{"status":"failed","version":"1.16.1",'
+          '"error":{"code":70,"message":"The requested data was not found"}}}',
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      });
+      return CacheDownloadRepository(
+        store: store,
+        files: files,
+        downloader: SubsonicTrackDownloader(
+          () => _SubsonicDownloadSource(),
+          httpClient: server,
+        ),
+        connectivity: _FakeConnectivity(NetworkStatus.wifi),
+        preferences: preferences,
+      );
+    }
+
+    Future<ResolvedPlayable> resolve(Track track) =>
+        OfflineFirstPlayableUriResolver(
+          locator: StoreCachedTrackLocator(store, files),
+          fallback: _RecordingStreamResolver(),
+        ).resolve(track);
+
+    setUp(() {
+      store = InMemoryDownloadStore();
+      files = InMemoryOfflineFileStore();
+      preferences = InMemoryDownloadPreferences();
+    });
+
+    test('an explicit download fails and stores nothing', () async {
+      final CacheDownloadRepository repo = build();
+
+      await repo.requestDownload(_subsonic('s1'));
+
+      expect(await repo.statusFor('s1'), DownloadStatus.failed);
+      expect(await store.loadDownloads(), isEmpty);
+      expect(files.bytesFor('subsonic_s1'), isNull);
+      expect(
+        (await resolve(_subsonic('s1'))).source,
+        PlaybackSource.streamingDirect,
+      );
+    });
+
+    test('a pre-cache caches nothing', () async {
+      final CacheDownloadRepository repo = build();
+
+      await repo.prefetch(_subsonic('s1'));
+
+      expect(await repo.statusFor('s1'), DownloadStatus.notDownloaded);
+      expect(await store.loadDownloads(), isEmpty);
+      expect(files.bytesFor('subsonic_s1'), isNull);
+      expect(
+        (await resolve(_subsonic('s1'))).source,
+        PlaybackSource.streamingDirect,
+      );
+    });
+  });
+}
+
+/// A signed-in Subsonic connection that always mints the same download URL,
+/// so the real [SubsonicTrackDownloader] can run against a [MockClient].
+class _SubsonicDownloadSource implements SubsonicStreamSource {
+  static final Uri _download = Uri.parse(
+    'https://music.example.com/rest/download.view?id=s1&t=token&s=salt',
+  );
+
+  @override
+  Future<void> verifyReachable() async {}
+
+  @override
+  Future<Uri?> resolvePlayableUri(Track track) async => _download;
+
+  @override
+  Future<Uri?> resolveDownloadUri(Track track) async => _download;
 }
 
 /// Lets the broadcast stream deliver any pending events.
