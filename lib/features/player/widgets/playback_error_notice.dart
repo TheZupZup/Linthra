@@ -36,6 +36,18 @@ class PlaybackErrorNotice extends ConsumerStatefulWidget {
   static ValueKey<String> keyForAction(PlaybackRecoveryAction action) =>
       ValueKey<String>('playback-error-action-${action.name}');
 
+  /// The icon for a failure of [kind], shared by every panel that explains a
+  /// failure so the same problem always looks the same.
+  static IconData iconFor(PlaybackFailureKind kind) => switch (kind) {
+        PlaybackFailureKind.temporarySource => Icons.cloud_off,
+        PlaybackFailureKind.localFileUnavailable => Icons.folder_off,
+        PlaybackFailureKind.sourceSignInRequired => Icons.lock_outline,
+        PlaybackFailureKind.unplayableMedia => Icons.music_off,
+        // Not a music icon on purpose: nothing here is about the song, and the
+        // panel's one Retry is a retry of the machine, not of the track.
+        PlaybackFailureKind.playbackEngineUnavailable => Icons.extension_off,
+      };
+
   @override
   ConsumerState<PlaybackErrorNotice> createState() =>
       _PlaybackErrorNoticeState();
@@ -76,7 +88,8 @@ class _PlaybackErrorNoticeState extends ConsumerState<PlaybackErrorNotice> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Icon(_iconFor(widget.failure.kind), size: 20, color: onError),
+                Icon(PlaybackErrorNotice.iconFor(widget.failure.kind),
+                    size: 20, color: onError),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Text(
@@ -163,16 +176,6 @@ class _PlaybackErrorNoticeState extends ConsumerState<PlaybackErrorNotice> {
       ),
     );
   }
-
-  static IconData _iconFor(PlaybackFailureKind kind) => switch (kind) {
-        PlaybackFailureKind.temporarySource => Icons.cloud_off,
-        PlaybackFailureKind.localFileUnavailable => Icons.folder_off,
-        PlaybackFailureKind.sourceSignInRequired => Icons.lock_outline,
-        PlaybackFailureKind.unplayableMedia => Icons.music_off,
-        // Not a music icon on purpose: nothing here is about the song, and the
-        // panel's one Retry is a retry of the machine, not of the track.
-        PlaybackFailureKind.playbackEngineUnavailable => Icons.extension_off,
-      };
 
   static IconData _actionIconFor(PlaybackRecoveryAction action) =>
       switch (action) {

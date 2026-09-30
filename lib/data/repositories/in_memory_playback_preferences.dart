@@ -7,13 +7,16 @@ class InMemoryPlaybackPreferences implements PlaybackPreferences {
     bool normalizeVolume = false,
     double volume = 1.0,
     String? audioOutputDeviceId,
+    bool? autoSkipUnplayable,
   })  : _normalizeVolume = normalizeVolume,
         _volume = PlaybackState.sanitizeVolume(volume),
-        _audioOutputDeviceId = audioOutputDeviceId;
+        _audioOutputDeviceId = audioOutputDeviceId,
+        _autoSkipUnplayable = autoSkipUnplayable;
 
   bool _normalizeVolume;
   double _volume;
   String? _audioOutputDeviceId;
+  bool? _autoSkipUnplayable;
 
   @override
   Future<bool> normalizeVolume() async => _normalizeVolume;
@@ -37,5 +40,13 @@ class InMemoryPlaybackPreferences implements PlaybackPreferences {
   @override
   Future<void> setAudioOutputDeviceId(String? id) async {
     _audioOutputDeviceId = (id == null || id.isEmpty) ? null : id;
+  }
+
+  @override
+  Future<bool?> autoSkipUnplayable() async => _autoSkipUnplayable;
+
+  @override
+  Future<void> setAutoSkipUnplayable(bool value) async {
+    _autoSkipUnplayable = value;
   }
 }

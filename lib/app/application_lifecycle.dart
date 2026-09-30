@@ -32,6 +32,7 @@ import '../features/settings/desktop/close_behavior_controller.dart';
 import '../features/settings/desktop/desktop_window_providers.dart';
 import '../features/settings/jellyfin/jellyfin_settings_controller.dart';
 import '../features/settings/playback/audio_output_controller.dart';
+import '../features/settings/playback/auto_skip_controller.dart';
 import '../features/settings/playback/normalize_volume_controller.dart';
 import '../features/settings/plex/plex_settings_controller.dart';
 import '../features/settings/subsonic/subsonic_settings_controller.dart';
@@ -305,6 +306,22 @@ Future<ApplicationHandle> bootstrapApplication(
           container
               .read(localPlaybackControllerProvider)
               .setVolumeNormalizationEnabled(next.valueOrNull ?? false);
+        },
+        fireImmediately: true,
+      ),
+    );
+
+    // Mirror "Automatically skip tracks that can't play" the same way. The
+    // controller enforces it, so every surface (the phone and desktop UI,
+    // the notification, Android Auto, MPRIS) gets the same behaviour, and
+    // not having chosen yet counts as off.
+    handle.ownSubscription(
+      container.listen<AsyncValue<bool?>>(
+        autoSkipControllerProvider,
+        (_, next) {
+          container
+              .read(localPlaybackControllerProvider)
+              .setAutomaticSkipEnabled(next.valueOrNull ?? false);
         },
         fireImmediately: true,
       ),

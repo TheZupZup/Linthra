@@ -7,6 +7,8 @@ import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/playback_controller.dart';
+import 'package:linthra/data/repositories/in_memory_playback_preferences.dart';
+import 'package:linthra/data/repositories/playback_preferences_provider.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/player_screen.dart';
 import 'package:linthra/features/player/widgets/album_artwork.dart';
@@ -23,6 +25,11 @@ Future<void> _pumpScreen(
     ProviderScope(
       overrides: [
         playbackControllerProvider.overrideWithValue(controller),
+        // A listener who already answered the automatic-skip question, so a
+        // failure shows the ordinary error panel these tests are about.
+        playbackPreferencesProvider.overrideWithValue(
+          InMemoryPlaybackPreferences(autoSkipUnplayable: false),
+        ),
       ],
       child: const MaterialApp(home: PlayerScreen()),
     ),

@@ -214,6 +214,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Timer? _automaticRecoveryTimer;
   ({Track track, PlaybackFailure failure})? _pendingRecovery;
 
+  /// Whether the listener allows moving past a track whose recovery is spent
+  /// ([setAutomaticSkipEnabled]). Off until they say so: without it the player
+  /// stops on the failed track rather than changing songs by itself.
+  bool _automaticSkipEnabled = false;
+
+  /// The countdown to the automatic skip [_automaticRecoveryTimer] is waiting
+  /// out, stamped onto every emitted state. Null whenever no skip is pending,
+  /// including while a retry (not a skip) waits.
+  PendingAutoSkip? _pendingAutoSkip;
+
   /// The automatic step now running, whose load may still be resolving. It
   /// stays set until that load lands, even after the step is told to stand
   /// down, so a Play or seek in the meantime still takes over from it. Any
@@ -1285,7 +1295,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         .withTransientFocusInterruption(_foregroundHeldForFocus)
         // Stamped from one place like the focus hold, so the paths that build a
         // fresh state (an error, a restore) can never publish a stale level.
-        .withVolume(volume: _volume, muted: _muted);
+        .withVolume(volume: _volume, muted: _muted)
+        // And the countdown, from the timer that will actually skip: a state
+        // can't show a skip that isn't pending or hide one that is.
+        .withAutoSkip(_pendingAutoSkip);
     // [force] bypasses the equality guard for a state that differs only in a way
     // PlaybackState == can't see — namely a same-bare-id provider swap, where
     // Track == compares only the bare id (jellyfin:101 == subsonic:101), so the
@@ -1548,6 +1561,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   @override
+  Future<void> cancelAutomaticSkip() async {
+    // Only a countdown can be called off. Once it has run, the skip's own load
+    // is under way, and that is the listener's to stop with a pause or a skip.
+    if (_pendingAutoSkip == null) return;
+    StabilityDiagnostics.playbackRecovery('auto-skip-cancelled');
+    _haltAutomaticRecovery(settle: true);
+  }
+
+  @override
   void clearQueue() {
     _queue = _queue.cleared();
     // Clearing keeps only the current track, so both the up-next list and the
@@ -1589,6 +1611,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // next track. Best-effort and silent: a volume tweak must never surface as a
     // playback error or interrupt audio.
     unawaited(_applyVolume());
+  }
+
+  @override
+  void setAutomaticSkipEnabled(bool enabled) {
+    if (enabled == _automaticSkipEnabled) return;
+    _automaticSkipEnabled = enabled;
+    // Turned off mid-countdown: the setting wins over a skip already pending,
+    // which settles on the failure with the listener's own actions instead.
+    if (!enabled && _pendingAutoSkip != null) {
+      _haltAutomaticRecovery(settle: true);
+    }
   }
 
   @override
@@ -2278,6 +2311,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         );
       case PlaybackRecoveryStep.advance:
         _failureStreak.record(track.uri);
+        if (!_automaticSkipEnabled) {
+          // The listener hasn't allowed Linthra to change songs by itself:
+          // stop here with the reason, and leave Skip to them.
+          StabilityDiagnostics.playbackRecovery('settled:auto-skip-off');
+          _emitError(track, failure);
+          return;
+        }
         StabilityDiagnostics.playbackRecovery('advance');
         _scheduleAutomaticRecovery(
           track,
@@ -2285,6 +2325,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           decision.delay,
           (bool Function() mayStart) =>
               _advancePastFailure(track, failure, mayStart),
+          autoSkip: true,
         );
       case PlaybackRecoveryStep.settle:
         if (policy.movesPast(failure.kind)) {
@@ -2327,15 +2368,26 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// still resolving: a pause, an unplug, another app taking audio, a call or a
   /// cast taking over all make it false, so the load still lands (paused) but
   /// never starts sound.
+  ///
+  /// With [autoSkip] the wait is the countdown to moving past [track], and it
+  /// is published as [PlaybackState.autoSkip] for as long as it runs.
   void _scheduleAutomaticRecovery(
     Track track,
     PlaybackFailure failure,
     Duration delay,
-    Future<void> Function(bool Function() mayStart) step,
-  ) {
+    Future<void> Function(bool Function() mayStart) step, {
+    bool autoSkip = false,
+  }) {
     _cancelAutomaticRecovery();
     _cancelBufferingWatchdog();
     _pendingRecovery = (track: track, failure: failure);
+    if (autoSkip) {
+      _pendingAutoSkip = PendingAutoSkip(
+        failure: failure,
+        skipsAt: DateTime.now().add(delay),
+        countdown: delay,
+      );
+    }
     _emit(PlaybackState(
       status: _currentHasPlayed
           ? PlaybackStatus.reconnecting
@@ -2353,6 +2405,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _automaticRecoveryTimer = Timer(delay, () {
       _automaticRecoveryTimer = null;
       _pendingRecovery = null;
+      // The countdown is over; the step's own load says what happens next.
+      _pendingAutoSkip = null;
       if (_disposed || _suspended) return;
       // A skip, a new queue, a seek or a stop got there first and owns
       // playback now.
@@ -2409,9 +2463,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _automaticRecoveryTimer = null;
     final ({Track track, PlaybackFailure failure})? pending = _pendingRecovery;
     _pendingRecovery = null;
+    final bool hadCountdown = _pendingAutoSkip != null;
+    _pendingAutoSkip = null;
     if (settle && pending != null) {
       _emitError(
           pending.track, _refreshedFailure(pending.track, pending.failure));
+    } else if (hadCountdown) {
+      // Whatever called the skip off may not emit a state of its own (a cast
+      // taking over, say), and a countdown left on screen would promise a
+      // skip that is no longer coming.
+      _emit(_state);
     }
   }
 

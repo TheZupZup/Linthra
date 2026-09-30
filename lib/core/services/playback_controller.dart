@@ -94,6 +94,15 @@ abstract interface class PlaybackController {
   /// budget is spent, or when nothing is loaded.
   Future<void> tryAnotherSource();
 
+  /// Calls off the automatic skip counting down on
+  /// [PlaybackState.autoSkip] and stays on the failed track, which then shows
+  /// its failure with the usual Retry / Try another source / Skip.
+  ///
+  /// The listener's "not this time" for one countdown; it leaves the automatic
+  /// skip preference alone. A no-op when no skip is pending, so a late tap on
+  /// a countdown that already ran (or was called off) does nothing.
+  Future<void> cancelAutomaticSkip();
+
   /// Steps back to the previous track in the queue, if any. A no-op when the
   /// current track is the first one.
   Future<void> skipToPrevious();

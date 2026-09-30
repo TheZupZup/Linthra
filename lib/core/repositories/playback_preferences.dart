@@ -10,6 +10,10 @@
 ///    and reopened comes back at the level it was left at.
 ///  - "Audio output": which output device desktop playback is routed to. Unset
 ///    by default, which means the system default.
+///  - "Automatically skip tracks that can't play": whether, once its recovery
+///    for a track is spent, playback moves on to the next playable track after
+///    a visible countdown instead of stopping. Unset until the listener
+///    chooses, and unset behaves as off.
 abstract interface class PlaybackPreferences {
   /// Whether volume normalization (ReplayGain) is applied during playback.
   /// Defaults to `false`, so audio plays untouched out of the box.
@@ -39,4 +43,15 @@ abstract interface class PlaybackPreferences {
 
   /// Stores [id], or clears the preference when it is `null`.
   Future<void> setAudioOutputDeviceId(String? id);
+
+  /// Whether the listener allows automatic skipping of tracks that can't play,
+  /// or `null` while they haven't chosen.
+  ///
+  /// The difference between `null` and `false` is only whether to ask: both
+  /// mean playback stops on a failed track. The question is asked once, the
+  /// first time a track can't be recovered, and never again once answered.
+  Future<bool?> autoSkipUnplayable();
+
+  /// Records the listener's choice, which also stops the question being asked.
+  Future<void> setAutoSkipUnplayable(bool value);
 }

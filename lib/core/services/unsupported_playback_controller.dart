@@ -132,6 +132,14 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
   @override
   Future<void> tryAnotherSource() async => _refuse(null);
 
+  // Nothing here ever fails a track into a countdown, so there is none to
+  // call off and no skip to allow.
+  @override
+  Future<void> cancelAutomaticSkip() async {}
+
+  @override
+  void setAutomaticSkipEnabled(bool enabled) {}
+
   // Everything below either has no audio to act on or is a mode the UI may set
   // before anything plays. These stay quiet no-ops so the settings and queue
   // screens behave normally instead of erroring at rest.

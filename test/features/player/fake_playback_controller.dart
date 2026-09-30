@@ -205,6 +205,20 @@ class FakePlaybackController implements LocalPlaybackController {
     retryCount++;
   }
 
+  /// How many times [cancelAutomaticSkip] was called.
+  int cancelAutoSkipCount = 0;
+
+  @override
+  Future<void> cancelAutomaticSkip() async {
+    cancelAutoSkipCount++;
+  }
+
+  /// The last value [setAutomaticSkipEnabled] was given, or null if never.
+  bool? automaticSkipEnabled;
+
+  @override
+  void setAutomaticSkipEnabled(bool enabled) => automaticSkipEnabled = enabled;
+
   @override
   Future<void> tryAnotherSource() async {
     anotherSourceCount++;

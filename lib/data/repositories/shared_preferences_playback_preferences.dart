@@ -12,6 +12,7 @@ class SharedPreferencesPlaybackPreferences implements PlaybackPreferences {
   static const String _normalizeVolumeKey = 'playback_normalize_volume';
   static const String _volumeKey = 'playback_volume';
   static const String _audioOutputDeviceKey = 'playback_audio_output_device';
+  static const String _autoSkipUnplayableKey = 'playback_auto_skip_unplayable';
 
   @override
   Future<bool> normalizeVolume() async {
@@ -60,5 +61,20 @@ class SharedPreferencesPlaybackPreferences implements PlaybackPreferences {
       return;
     }
     await prefs.setString(_audioOutputDeviceKey, id);
+  }
+
+  @override
+  Future<bool?> autoSkipUnplayable() async {
+    final prefs = await SharedPreferences.getInstance();
+    // Read as an Object so a value of the wrong type (a hand-edited or
+    // half-written store) counts as "not chosen yet" rather than throwing.
+    final Object? stored = prefs.get(_autoSkipUnplayableKey);
+    return stored is bool ? stored : null;
+  }
+
+  @override
+  Future<void> setAutoSkipUnplayable(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_autoSkipUnplayableKey, value);
   }
 }

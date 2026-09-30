@@ -168,6 +168,10 @@ void main() {
   late _Player player;
   late _Resolver resolver;
 
+  /// A controller whose listener has allowed automatic skip, so a walk past
+  /// failed tracks runs. With it off (the default until they choose), the walk
+  /// stops at the first track that stays down; `playback_auto_skip_test.dart`
+  /// covers that side.
   JustAudioPlaybackController build({
     PlaybackRecoveryPolicy? policy = _instant,
   }) {
@@ -175,7 +179,9 @@ void main() {
       player: player,
       resolver: resolver,
       automaticRecovery: policy,
-    )..streamRetryBackoff = Duration.zero;
+    )
+      ..streamRetryBackoff = Duration.zero
+      ..setAutomaticSkipEnabled(true);
     addTearDown(controller.dispose);
     return controller;
   }
@@ -1169,7 +1175,7 @@ void main() {
         player: player,
         resolver: resolver,
         automaticRecovery: _instant,
-      );
+      )..setAutomaticSkipEnabled(true);
       addTearDown(controller.dispose);
 
       await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
