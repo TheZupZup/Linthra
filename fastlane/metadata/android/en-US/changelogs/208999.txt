@@ -1,8 +1,8 @@
 Linthra 0.2.8
 
 - Smart pre-cache follows your real queue and never removes songs you downloaded.
-- A dropped stream is retried once, then playback moves on to the next track, within limits.
-- Large Navidrome/Subsonic libraries sync in batches and resume after an interruption.
+- Tracks that won't play are retried on network problems, then playback moves on, within limits.
+- Large Navidrome/Subsonic libraries sync in batches and keep what was saved if interrupted.
 - Each artist gets their own Unknown Album.
 - Android: FLAC plays on devices without a FLAC decoder.
 - Album page: Play next and Add to queue.
