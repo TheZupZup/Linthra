@@ -999,6 +999,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // (crediting it would record the loading track as played and move the
     // queue past it), and a play or pause is about a song on its way out.
     if (_engineHoldsPreviousSource) return;
+    // Nor is an end reported before the load has settled (the new source is
+    // open and at its starting point) the new track's: the replaced song's
+    // end can still be on its way, and a source that fails to open may report
+    // one. A track that really does end straight away reports it again once it
+    // is started, after the load.
+    if (status == PlaybackStatus.completed && _loadInFlight) return;
     // While a bounded reconnect owns the UI, ignore engine buffering/loading
     // noise that would replace "Reconnecting…" with plain "Buffering…".
     if (_state.status == PlaybackStatus.reconnecting &&
@@ -1711,10 +1717,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// Replays the current track from the start without re-resolving its URI, so
   /// repeat-one never re-mints a stream URL or re-hits the cache each loop.
   Future<void> _replayCurrent() async {
-    // The same source plays again, so its next end is a new one, even on an
-    // engine that reports nothing between the seek and that end.
-    _completedSourceGeneration = null;
+    final int source = _engineSourceGeneration;
     await _player.seek(Duration.zero);
+    // The same source plays again, so its next end is a new one, even on an
+    // engine that reports nothing between the seek and that end. Only once
+    // the rewind has landed: until then, what the engine reports (a pause
+    // re-sending completed, say) is still about the end just handled.
+    if (_engineSourceGeneration == source) _completedSourceGeneration = null;
     // A stream may re-buffer to get back to the start, and a pause that lands
     // meanwhile must hold.
     if (_playWhenLoaded && !_heldForTransientFocus) {
@@ -2717,11 +2726,22 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // A seek is a playback action too: bump the generation, like every other
     // transition, so nothing captured before it can act after it.
     _playbackGeneration++;
-    // A seek into a source that has ended puts it under way again, so its
-    // next end is a new one, even on an engine that stays on completed across
-    // the seek (as the repeat-one replay allows for).
-    _completedSourceGeneration = null;
-    return _player.seek(position);
+    // A seek back into a source that has ended puts it under way again, so
+    // its next end is a new one, even on an engine that stays on completed
+    // across the seek (as the repeat-one replay allows for). Only a seek back,
+    // and only once it has landed: a seek to where it ended is not a replay,
+    // and until the seek lands the engine still reports the end just handled.
+    // With no known end to compare against, a seek counts as going back: a
+    // replay left uncounted is worse than a re-sent end counted once more.
+    final int source = _engineSourceGeneration;
+    final Duration end =
+        _state.duration > Duration.zero ? _state.duration : _state.position;
+    final bool rewinds = _completedSourceGeneration == source &&
+        (end == Duration.zero || position < end);
+    await _player.seek(position);
+    if (rewinds && _engineSourceGeneration == source) {
+      _completedSourceGeneration = null;
+    }
   }
 
   @override

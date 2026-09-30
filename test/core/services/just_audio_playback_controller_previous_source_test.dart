@@ -25,6 +25,13 @@ class _Engine extends Fake implements AudioPlayer {
   /// URLs the engine refuses to open, like a source it can't decode.
   final Set<String> failingUrls = <String>{};
 
+  /// While set, opening a source waits on it: the engine is still opening
+  /// the new source.
+  Completer<void>? openGate;
+
+  /// While set, a seek waits on it before it lands.
+  Completer<void>? seekGate;
+
   void emitState(bool playing, ProcessingState processing) =>
       _states.add(PlayerState(playing, processing));
   void emitPosition(Duration position) => _positions.add(position);
@@ -59,6 +66,8 @@ class _Engine extends Fake implements AudioPlayer {
     dynamic tag,
   }) async {
     calls.add('setUrl:$url');
+    final Completer<void>? gate = openGate;
+    if (gate != null) await gate.future;
     if (failingUrls.contains(url)) throw Exception('could not open source');
     return const Duration(minutes: 3);
   }
@@ -72,8 +81,12 @@ class _Engine extends Fake implements AudioPlayer {
   @override
   Future<void> stop() async => calls.add('stop');
   @override
-  Future<void> seek(Duration? position, {int? index}) async =>
-      calls.add('seek:${position?.inMilliseconds}');
+  Future<void> seek(Duration? position, {int? index}) async {
+    calls.add('seek:${position?.inMilliseconds}');
+    final Completer<void>? gate = seekGate;
+    if (gate != null) await gate.future;
+  }
+
   @override
   Future<void> dispose() async {
     await _states.close();
@@ -230,6 +243,54 @@ void main() {
 
       resolver.release(b);
       await skip;
+    });
+
+    test(
+        'the previous song ending while the new source opens is not the new '
+        'track ending', () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b, c]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // B resolved and went to the engine, which is still opening it when
+      // A's end, queued just before, is delivered.
+      engine.openGate = Completer<void>();
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      expect(engine.loadedUrls.last, _url(b));
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      engine.openGate!.complete();
+      await skip;
+      await _settle();
+
+      expect(controller.state.currentTrack, b);
+      expect(engine.loadedUrls, isNot(contains(_url(c))));
+      expect(completed, isEmpty);
+    });
+
+    test('a source that reports an end and then fails to open is an error',
+        () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b, c]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      engine.failingUrls.add(_url(b));
+      engine.openGate = Completer<void>();
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      engine.emitState(false, ProcessingState.completed);
+      await _settle();
+      engine.openGate!.complete();
+      await skip;
+      await _settle();
+
+      expect(controller.state.currentTrack, b,
+          reason: 'B failed; it is not skipped as though it had played');
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(completed, isEmpty);
     });
 
     test('once the new source is in the engine, its reports flow again',
@@ -413,6 +474,50 @@ void main() {
       await _settle();
 
       expect(completed, <Track>[a, a]);
+    });
+
+    test('a pause during the repeat-one rewind does not end the track again',
+        () async {
+      final JustAudioPlaybackController controller = build();
+      controller.setRepeatMode(RepeatMode.one);
+      await controller.playTracks(<Track>[a]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // The end starts the rewind; a pause lands before it does, on an engine
+      // still reporting completed.
+      engine.seekGate = Completer<void>();
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      await controller.pause();
+      engine.emitState(false, ProcessingState.completed);
+      await _settle();
+      engine.seekGate!.complete();
+      await _settle();
+
+      expect(completed, <Track>[a]);
+      expect(
+        engine.calls.where((String call) => call == 'seek:0').length,
+        1,
+      );
+    });
+
+    test('a seek to where the track already ended does not end it again',
+        () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a]);
+      engine.emitState(true, ProcessingState.ready);
+      engine.emitDuration(const Duration(minutes: 3));
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      // The progress bar or MPRIS SetPosition at the end, on an engine that
+      // re-sends its unchanged completed state.
+      await controller.seek(const Duration(minutes: 3));
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      expect(completed, <Track>[a]);
     });
 
     test('a seek back after the end lets the next end count', () async {
