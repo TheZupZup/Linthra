@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 
 import '../../core/models/playlist.dart';
 import '../../core/models/track.dart';
@@ -77,6 +77,20 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   Future<PlaylistSyncResult>? _refreshInFlight;
   Map<PlaylistSource, int> _refreshInFlightClears =
       const <PlaylistSource, int>{};
+
+  /// Numbers each provider fetch in the order it was sent, so a later request
+  /// (a newer answer) can be told from an earlier one.
+  int _fetchesSent = 0;
+
+  /// How many refreshes have fetches out, and, while any do, which playlist
+  /// object each merge left in place and the number of the fetch it came
+  /// from. Two refreshes overlap when a provider signs in or out while one is
+  /// out; this is how each tells the other's merge from the user's edit (see
+  /// [_mergeRemote]). Only a refresh already out when a merge landed can ask
+  /// about it, so it is dropped once none are.
+  int _refreshesOut = 0;
+  final Map<String, ({Playlist playlist, int fetch})> _mergedBy =
+      <String, ({Playlist playlist, int fetch})>{};
 
   static String Function() _defaultIdGenerator() {
     int counter = 0;
@@ -339,17 +353,16 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     // Startup, resume, opening the Playlists tab and the end of every library
     // sync all ask for a refresh, often at once. A caller joins the one in
     // flight rather than stacking another 1 + N round-trips per provider, but
-    // only when that one is asking every provider connected now, under the
-    // same sign-in: one that started before a sign-in (or a sign-out) would
-    // answer for the wrong set of accounts.
+    // only when that one is asking exactly the providers connected now, under
+    // the same sign-in: one that started before a sign-in (or a sign-out)
+    // would answer for the wrong set of accounts, and could still be waiting
+    // on one that is gone.
     final Map<PlaylistSource, int> clears = <PlaylistSource, int>{
       for (final RemotePlaylistGateway g in connected)
         g.source: _clearsOf(g.source),
     };
     final Future<PlaylistSyncResult>? inFlight = _refreshInFlight;
-    if (inFlight != null &&
-        clears.entries.every((MapEntry<PlaylistSource, int> e) =>
-            _refreshInFlightClears[e.key] == e.value)) {
+    if (inFlight != null && mapEquals(clears, _refreshInFlightClears)) {
       return inFlight;
     }
     final Future<PlaylistSyncResult> refresh =
@@ -374,6 +387,18 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     List<RemotePlaylistGateway> connected,
     Map<PlaylistSource, int> clears,
   ) async {
+    _refreshesOut++;
+    try {
+      return await _fetchAndMergeOnce(connected, clears);
+    } finally {
+      if (--_refreshesOut == 0) _mergedBy.clear();
+    }
+  }
+
+  Future<PlaylistSyncResult> _fetchAndMergeOnce(
+    List<RemotePlaylistGateway> connected,
+    Map<PlaylistSource, int> clears,
+  ) async {
     // Playlists are immutable and every edit replaces the object, so keeping
     // the ones present now lets the merge tell, by identity, which playlists
     // were created, edited or deleted while the fetch was in flight.
@@ -381,12 +406,22 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       for (final Playlist p in _playlists) p.id: p,
     };
 
-    final Map<RemotePlaylistGateway, List<RemotePlaylistData>> fetched =
-        <RemotePlaylistGateway, List<RemotePlaylistData>>{};
+    final Map<RemotePlaylistGateway,
+            ({List<RemotePlaylistData> answer, int fetch})>
+        fetched = <RemotePlaylistGateway,
+            ({List<RemotePlaylistData> answer, int fetch})>{};
     int failures = 0;
     for (final RemotePlaylistGateway gateway in connected) {
+      // Signed out while an earlier provider answered: don't ask for an
+      // account that is gone.
+      if (!gateway.isConnected ||
+          _clearsOf(gateway.source) != clears[gateway.source]) {
+        continue;
+      }
+      final int fetch = ++_fetchesSent;
       try {
-        fetched[gateway] = await gateway.fetchPlaylists();
+        fetched[gateway] =
+            (answer: await gateway.fetchPlaylists(), fetch: fetch);
       } on RemoteSyncException {
         // Offline or transient for this provider: keep its synced playlists and
         // move on to the others.
@@ -398,7 +433,8 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     bool changed = false;
     int total = 0;
     int applied = 0;
-    for (final MapEntry<RemotePlaylistGateway, List<RemotePlaylistData>> entry
+    for (final MapEntry<RemotePlaylistGateway,
+            ({List<RemotePlaylistData> answer, int fetch})> entry
         in fetched.entries) {
       final RemotePlaylistGateway gateway = entry.key;
       // Signed out (or cleared) while the fetch was in flight: the answer is
@@ -410,8 +446,15 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         continue;
       }
       applied++;
-      total += entry.value.length;
-      if (_mergeRemote(gateway.source, entry.value, before)) changed = true;
+      total += entry.value.answer.length;
+      if (_mergeRemote(
+        gateway.source,
+        entry.value.answer,
+        before,
+        entry.value.fetch,
+      )) {
+        changed = true;
+      }
     }
 
     if (changed) await _persistAndEmit();
@@ -423,9 +466,10 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     return PlaylistSyncResult.synced(total);
   }
 
-  /// Folds one provider's server playlists ([remote], fetched while [before]
-  /// was the list) into the current [_playlists], returning whether anything
-  /// changed. Synchronous on purpose: see [_fetchAndMerge].
+  /// Folds one provider's server playlists ([remote], the answer to request
+  /// number [fetch], sent while [before] was the list) into the current
+  /// [_playlists], returning whether anything changed. Synchronous on purpose:
+  /// see [_fetchAndMerge].
   ///
   /// The server is the source of truth for synced playlists, but only as of
   /// the fetch. A synced playlist the user created, edited or deleted while it
@@ -435,10 +479,16 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// was pushed (or marked syncFailed) as usual, and the next refresh
   /// reconciles it against a server that has seen it. Local-only playlists are
   /// never touched.
+  ///
+  /// A refresh that overlaps this one (a provider signed in while it was out)
+  /// replaces playlists too, and that is not an edit: whichever of the two
+  /// asked the server later has the newer answer, and it wins, whichever
+  /// order they land in.
   bool _mergeRemote(
     PlaylistSource source,
     List<RemotePlaylistData> remote,
     Map<String, Playlist> before,
+    int fetch,
   ) {
     final Map<String, RemotePlaylistData> server = <String, RemotePlaylistData>{
       for (final RemotePlaylistData dto in remote) dto.remoteId: dto,
@@ -453,13 +503,21 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     };
     bool changed = false;
     final List<Playlist> next = <Playlist>[];
+    final List<Playlist> merged = <Playlist>[];
     for (final Playlist p in _playlists) {
       if (p.source != source || p.remoteId == null) {
         next.add(p);
         continue;
       }
       known.add(p.remoteId!);
-      if (!identical(before[p.id], p)) {
+      final ({Playlist playlist, int fetch})? last = _mergedBy[p.id];
+      if (last != null && identical(last.playlist, p)) {
+        // Last set by another refresh's merge, not by the user since.
+        if (last.fetch > fetch) {
+          next.add(p); // Its answer is newer than this one: keep it.
+          continue;
+        }
+      } else if (!identical(before[p.id], p)) {
         next.add(p); // Created or edited during the fetch: keep it as is.
         continue;
       }
@@ -471,22 +529,29 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       final Playlist adopted = _adoptServerCopy(p, dto);
       if (!identical(adopted, p)) changed = true;
       next.add(adopted);
+      merged.add(adopted);
     }
     for (final RemotePlaylistData dto in remote) {
       if (!known.add(dto.remoteId)) continue;
-      next.add(
-        Playlist(
-          id: _newId(),
-          name: dto.name,
-          source: source,
-          remoteId: dto.remoteId,
-          trackIds: dto.trackUris,
-          createdAt: _now(),
-          updatedAt: _now(),
-          syncState: PlaylistSyncState.synced,
-        ),
+      final Playlist imported = Playlist(
+        id: _newId(),
+        name: dto.name,
+        source: source,
+        remoteId: dto.remoteId,
+        trackIds: dto.trackUris,
+        createdAt: _now(),
+        updatedAt: _now(),
+        syncState: PlaylistSyncState.synced,
       );
+      next.add(imported);
+      merged.add(imported);
       changed = true;
+    }
+    if (_refreshesOut > 1) {
+      // Another refresh is still out and will ask what set these.
+      for (final Playlist p in merged) {
+        _mergedBy[p.id] = (playlist: p, fetch: fetch);
+      }
     }
     if (changed) _playlists = next;
     return changed;
