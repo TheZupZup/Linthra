@@ -388,6 +388,36 @@ void main() {
     });
 
     test(
+        'a seek back after the end, on a source with no known length, undoes '
+        'the end', () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b, c]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // A stream that never reports its duration: the load moves it on, it
+      // reports an end, and then the listener goes back to the start.
+      resolver.gate(b);
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      await controller.seek(const Duration(minutes: 3));
+      final Completer<void> toEnd = engine.seekGate = Completer<void>();
+      resolver.release(b);
+      await _settle();
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      await controller.seek(Duration.zero);
+      toEnd.complete();
+      await skip;
+      await _settle();
+
+      expect(engine.calls, contains('seek:0'));
+      expect(completed, isEmpty);
+      expect(controller.state.currentTrack, b);
+      expect(engine.lastTransport, 'play');
+    });
+
+    test(
         'an end reported during a load that then starts nothing settles paused',
         () async {
       final JustAudioPlaybackController controller = build();

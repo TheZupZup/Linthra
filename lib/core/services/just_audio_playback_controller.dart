@@ -449,6 +449,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// load starts there instead of where it was asked to.
   Duration? _seekDuringLoad;
 
+  /// Whether [_seekDuringLoad] came after the loading source had already
+  /// reported its end ([_endedAttempt]).
+  bool _seekDuringLoadAfterEnd = false;
+
   /// The [_engineSourceGeneration] whose end has already been acted on, so
   /// the completed state the engine keeps reporting afterwards is not taken
   /// for a second end. Null while the loaded source has not finished. Only a
@@ -1953,6 +1957,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _beginLoad(int generation) {
     _loadingGeneration = generation;
     _seekDuringLoad = null;
+    _seekDuringLoadAfterEnd = false;
     _endedAttempt = null;
     _beforeLoad = (
       position: _state.position,
@@ -1989,6 +1994,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (_loadingGeneration != generation) return;
     _loadingGeneration = null;
     _seekDuringLoad = null;
+    _seekDuringLoadAfterEnd = false;
   }
 
   /// Whether a load is in flight for the transition that owns playback now.
@@ -2027,16 +2033,23 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       await _applyVolume();
       Duration? target = startAt > Duration.zero ? startAt : null;
       while (generation == _playbackGeneration) {
-        target = _seekDuringLoad ?? target;
+        final Duration? sought = _seekDuringLoad;
+        final bool soughtAfterEnd = sought != null && _seekDuringLoadAfterEnd;
+        target = sought ?? target;
         _seekDuringLoad = null;
+        _seekDuringLoadAfterEnd = false;
         if (target == null) break;
         await _player.seek(target);
         // A seek back puts the source under way again, so an end it reported
-        // before is not where it is now. With no known end to compare
-        // against, the end it reported stands.
+        // before is not where it is now. With a known end, anything before it
+        // is back. With none, the listener can't aim at the end, so a seek
+        // they made after the end was reported counts as going back; the
+        // load's own start does not (a source with nothing in it reports its
+        // end before that start, and again if the seek ends it).
         if (_endedAttempt == _sourceAttempt &&
-            _state.duration > Duration.zero &&
-            target < _state.duration) {
+            (_state.duration > Duration.zero
+                ? target < _state.duration
+                : soughtAfterEnd)) {
           _endedAttempt = null;
         }
         target = null;
@@ -2836,6 +2849,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // SetPosition, a remote command or a lyric tap can. Aim the load instead.
     if (_loadInFlight) {
       _seekDuringLoad = position;
+      _seekDuringLoadAfterEnd = _endedAttempt == _sourceAttempt;
       _emit(_state.copyWith(position: position));
       return;
     }
