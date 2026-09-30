@@ -145,6 +145,25 @@ void main() {
     expect(window.quitCount, 0);
   });
 
+  test('a failure with the window hidden keeps the app running', () async {
+    // Pause pressed in the shell while a dropped stream was reconnecting
+    // settles on the failure; quitting then threw away the queue and the only
+    // way back (the shell's Play) with it.
+    service.start();
+    service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+    playback.emit(_playing());
+    await pumpEventQueue();
+    await window.report(DesktopWindowVisibility.hidden);
+
+    playback.emit(const PlaybackState(
+      status: PlaybackStatus.error,
+      currentTrack: _track,
+    ));
+    await pumpEventQueue();
+
+    expect(window.quitCount, 0);
+  });
+
   test('a visible Linthra never quits itself when playback ends', () async {
     service.start();
     service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
