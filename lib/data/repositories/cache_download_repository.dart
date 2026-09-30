@@ -139,10 +139,6 @@ class CacheDownloadRepository
   /// the commit/cleanup paths drop it once handled.
   final Set<String> _canceled = <String>{};
 
-  /// The room a pre-cache had the last time a track it fetched turned out not
-  /// to fit (see [_hasRoomForPrecache]). Null until that happens.
-  int? _precacheRoomAtLastMiss;
-
   /// Live byte progress for in-flight downloads, surfaced via [progressStream].
   final Map<String, DownloadProgress> _progress = <String, DownloadProgress>{};
 
@@ -451,12 +447,7 @@ class CacheDownloadRepository
     );
 
     if (!plan.fits) {
-      if (preloaded) {
-        // Remember how much room that was, so the next pre-cache doesn't spend
-        // data on another track that most likely won't fit either.
-        _precacheRoomAtLastMiss = _precacheRoom(maxBytes, protectKeys);
-        return;
-      }
+      if (preloaded) return;
       _set(key, DownloadStatus.notDownloaded);
       throw const CacheStorageException();
     }
@@ -539,14 +530,26 @@ class CacheDownloadRepository
       // Respect the cache limit *before* spending data: if the only way to fit
       // would be evicting a user download, a pinned track, or what is playing
       // or about to play, a best-effort preload can never fit, so skip the
-      // fetch rather than pull bytes we'd immediately discard. The exact fit is
-      // re-checked at commit.
-      if (!_hasRoomForPrecache(
-          await _preferences.maxCacheBytes(), protectKeys)) {
-        return;
-      }
+      // fetch rather than pull bytes we'd immediately discard.
+      final int room =
+          _precacheRoom(await _preferences.maxCacheBytes(), protectKeys);
+      if (room <= 0) return;
       if (!_passes(isStillWanted)) return;
-      final RemoteTrackData data = await _downloader.fetch(track);
+      final RemoteTrackData data = await _downloader.fetch(
+        track,
+        // Its size isn't known until the server says so, and other tracks'
+        // sizes say little about it. So once the body is arriving and it's
+        // clear this track can't fit, stop the download there instead of
+        // pulling the rest just to throw it away. Checked on bytes, not on the
+        // headers alone, so the stream is cancelled rather than left unread.
+        // The exact fit is still decided at commit, where the room may have
+        // changed.
+        onProgress: (int received, int? total) {
+          if (received > 0 && (total ?? received) > room) {
+            throw const _PreloadTooBig();
+          }
+        },
+      );
       // Share the one commit lock so a preload write can't race a user
       // download's and overshoot the limit.
       await _commit(() => _cacheRemote(
@@ -665,23 +668,6 @@ class CacheDownloadRepository
     await _changes.close();
     await _cacheChanges.close();
     await _progressChanges.close();
-  }
-
-  /// Whether a best-effort pre-cache is worth fetching right now.
-  ///
-  /// The incoming size isn't known until the bytes arrive, and the sizes
-  /// already cached say little about it (one long download would make every
-  /// song look too big). So this only skips on evidence: when there is no
-  /// room at all, or no more room than the last time a track that was
-  /// actually fetched didn't fit. That keeps a cache nearly full of the user's
-  /// downloads from fetching and discarding tracks on every queue change,
-  /// while more room (a download removed, a higher limit) lets it try again.
-  /// The exact fit is still decided by [CacheEvictionPolicy] at commit time.
-  bool _hasRoomForPrecache(int maxBytes, Set<String> protectKeys) {
-    final int room = _precacheRoom(maxBytes, protectKeys);
-    if (room <= 0) return false;
-    final int? lastMiss = _precacheRoomAtLastMiss;
-    return lastMiss == null || room > lastMiss;
   }
 
   /// The room a pre-cache may take: free space under the limit plus the
@@ -881,3 +867,9 @@ class CacheDownloadRepository
 /// doesn't: held for Wi-Fi (mobile data not allowed) or waiting for a
 /// connection (offline).
 enum _NetworkDecision { allowed, needsWifi, offline }
+
+/// Thrown from a pre-cache's progress callback to stop a download that can't
+/// fit. Never surfaces: the pre-cache swallows it like any failed fetch.
+class _PreloadTooBig implements Exception {
+  const _PreloadTooBig();
+}

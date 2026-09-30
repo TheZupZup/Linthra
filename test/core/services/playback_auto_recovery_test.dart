@@ -37,6 +37,10 @@ class _Player extends Fake implements AudioPlayer {
   /// while the engine is opening it.
   bool Function(String url) fails = (String _) => false;
 
+  /// Called as a URL is opened, so a test can have the engine report state
+  /// while it loads, the way a real one does.
+  void Function(String url)? onSetUrl;
+
   void emitState(PlayerState state) => _states.add(state);
 
   void emitError(Object error) => _events.addError(error, StackTrace.empty);
@@ -59,6 +63,7 @@ class _Player extends Fake implements AudioPlayer {
     dynamic tag,
   }) async {
     setUrlCalls.add(url);
+    onSetUrl?.call(url);
     if (fails(url)) throw Exception('connection reset while opening');
     return const Duration(minutes: 3);
   }
@@ -1044,6 +1049,52 @@ void main() {
       await _settle();
       expect(player.playCalls, playsBefore + 1);
       expect(player.setUrlCalls.last, 'https://server.example/stream/a?n=2');
+    });
+
+    test('the old source playing again while a move loads is not the next one',
+        () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+      // 'a' drops for good, and the move to 'b' is slow to resolve.
+      final Completer<void> loadingB = Completer<void>();
+      resolver
+        ..down.add('jellyfin:a')
+        ..holds['jellyfin:b'] = loadingB;
+      player.emitError(Exception('connection reset by peer'));
+      await _settle();
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(controller.state.status, PlaybackStatus.loading);
+
+      // The connection blinks back and the engine resumes what it still holds.
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+
+      // That's 'a' playing, not 'b': 'b' is still loading.
+      expect(controller.state.status, PlaybackStatus.loading);
+      loadingB.complete();
+      await _settle();
+      expect(player.setUrlCalls.last, contains('/stream/b'));
+    });
+
+    test('a move told to stand down lands paused, not stuck loading', () async {
+      resolver.down.add('jellyfin:a');
+      final Completer<void> loadingB = Completer<void>();
+      resolver.holds['jellyfin:b'] = loadingB;
+      // The engine reports the new source ready, and not playing, as it opens.
+      player.onSetUrl = (String _) =>
+          player.emitState(PlayerState(false, ProcessingState.ready));
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      await _settle();
+
+      await controller.pause();
+      loadingB.complete();
+      await _settle();
+
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(controller.state.status, PlaybackStatus.paused);
     });
 
     test('a move told to stand down that then fails settles on the error',

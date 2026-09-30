@@ -37,7 +37,9 @@ abstract interface class RemoteTrackDownloader {
   /// and the [total] size when the server reported one (otherwise `null`,
   /// meaning indeterminate). It carries byte counts only — never a URL or
   /// token — so it is safe to surface in the UI. Implementations may omit it
-  /// (a one-shot fetch simply never calls it).
+  /// (a one-shot fetch simply never calls it). If [onProgress] throws, the
+  /// fetch stops there and fails: that is how a caller abandons bytes it
+  /// already knows it can't use.
   Future<RemoteTrackData> fetch(
     Track track, {
     void Function(int received, int? total)? onProgress,

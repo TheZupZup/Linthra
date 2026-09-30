@@ -224,6 +224,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// lands. Halting recovery clears this without forgetting the load.
   bool _runningStepMayStart = false;
 
+  /// The playback generation whose source was last handed to the engine.
+  /// While an automatic step's load hasn't got that far, the engine still
+  /// holds the old source, so what it reports isn't about the track being
+  /// loaded.
+  int _engineSourceGeneration = 0;
+
   /// Whether an automatic step is waiting to run or still loading. Either way
   /// it owns the current failure, and the engine may still hold the failed
   /// source.
@@ -924,9 +930,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         status != PlaybackStatus.playing) {
       return;
     }
-    // Nor can anything an automatic step is still loading have finished: a
-    // completion then is the old source's, and would record the wrong track
-    // and move the queue past the one being loaded.
+    // While an automatic step's load hasn't reached the engine, everything
+    // the engine reports comes from the old source: a late "playing" would
+    // pass the old sound off as the track being loaded (and have it counted
+    // as played), and a completion would record the wrong track and move the
+    // queue past the one being loaded.
+    if (_runningRecoveryStep != null &&
+        _engineSourceGeneration != _playbackGeneration) {
+      return;
+    }
+    // Once it has, nothing it loaded can have finished yet.
     if (status == PlaybackStatus.completed && _runningRecoveryStep != null) {
       return;
     }
@@ -1834,6 +1847,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         // so local files, SAF documents, and remote streams share one path. The
         // resolver guarantees this is never a bare `jellyfin:`/`subsonic:` scheme
         // — that is turned into an authenticated stream URL before it gets here.
+        _engineSourceGeneration = generation;
         await _player.setUrl(resolved.uri.toString());
         return (track: candidate, resolved: resolved);
       } catch (error) {
@@ -1919,6 +1933,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // seeked while the stream resolved.
     if (generation != _playbackGeneration) return null;
     try {
+      _engineSourceGeneration = generation;
       await _player.setUrl(streamed.uri.toString());
       return (track: candidate, resolved: streamed);
     } catch (error) {
