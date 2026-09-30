@@ -288,6 +288,58 @@ void main() {
       expect(controller.state.failure, isNotNull);
     });
 
+    test('the silenced song\'s position does not wipe the failure', () async {
+      // just_audio publishes a playback event when it pauses, and its
+      // position stream turns each one into a position: A's, arriving after
+      // B's failure is already showing. Later ticks are A's too.
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      resolver.down.add(b.uri);
+      await controller.skipToNext();
+      engine.emitPosition(const Duration(minutes: 1, seconds: 23));
+      engine.emitDuration(const Duration(minutes: 4));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.failure, isNotNull,
+          reason: 'the reason and its recoveries must stay on screen');
+      expect(controller.state.position, Duration.zero);
+      expect(controller.state.duration, isNot(const Duration(minutes: 4)));
+
+      // Retry starts B from its own start, not from where A was.
+      resolver.down.remove(b.uri);
+      await controller.retryCurrentTrack();
+      await _settle();
+      expect(engine.loadedUrls.last, _url(b));
+      expect(engine.calls, isNot(contains('seek:83000')));
+    });
+
+    test('play after a stop reloads the failed track, not the silenced one',
+        () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      resolver.down.add(b.uri);
+      await controller.skipToNext();
+      await _settle();
+      await controller.stop();
+      resolver.down.remove(b.uri);
+      engine.calls.clear();
+
+      await controller.play();
+      await _settle();
+
+      expect(engine.loadedUrls, <String>[_url(b)],
+          reason: 'the engine still holds A; a bare play would resume it '
+              'under B\'s title');
+      expect(controller.state.currentTrack, b);
+    });
+
     test('a load that failed in the engine has nothing earlier to silence',
         () async {
       // B's source was handed over and the engine couldn't open it: A is
@@ -343,6 +395,24 @@ void main() {
         engine.calls.where((String call) => call == 'seek:0').length,
         3,
       );
+    });
+
+    test(
+        'a seek back after the end counts the next end, even with nothing '
+        'reported in between', () async {
+      // An engine that stays on completed across the seek (media_kit can),
+      // as in the repeat-one replay above.
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a]);
+      engine.emitState(true, ProcessingState.ready);
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      await controller.seek(const Duration(minutes: 2));
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      expect(completed, <Track>[a, a]);
     });
 
     test('a seek back after the end lets the next end count', () async {
