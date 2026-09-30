@@ -8,6 +8,7 @@ import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/just_audio_playback_controller.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
+import 'package:linthra/core/services/playback_recovery_policy.dart';
 
 /// An engine whose state, position and duration streams the test drives by
 /// hand, recording every transport call in order. Like just_audio, it goes on
@@ -24,6 +25,9 @@ class _Engine extends Fake implements AudioPlayer {
 
   /// URLs the engine refuses to open, like a source it can't decode.
   final Set<String> failingUrls = <String>{};
+
+  /// URLs the engine refuses to open once, then opens.
+  final Set<String> failingOnce = <String>{};
 
   /// While set, opening a source waits on it: the engine is still opening
   /// the new source.
@@ -68,7 +72,9 @@ class _Engine extends Fake implements AudioPlayer {
     calls.add('setUrl:$url');
     final Completer<void>? gate = openGate;
     if (gate != null) await gate.future;
-    if (failingUrls.contains(url)) throw Exception('could not open source');
+    if (failingUrls.contains(url) || failingOnce.remove(url)) {
+      throw Exception('could not open source');
+    }
     return const Duration(minutes: 3);
   }
 
@@ -293,6 +299,36 @@ void main() {
       expect(completed, isEmpty);
     });
 
+    test(
+        'the new source ending while the load moves it to its start is acted '
+        'on once the load settles', () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b, c]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // Next, then a seek to B's very end while it still resolves. B opens,
+      // and ends as the load moves it there: on an engine whose playing flag
+      // never dropped, that end is the only report there will be.
+      resolver.gate(b);
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      await controller.seek(const Duration(minutes: 3));
+      engine.seekGate = Completer<void>();
+      resolver.release(b);
+      await _settle();
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      engine.seekGate!.complete();
+      engine.seekGate = null;
+      await skip;
+      await _settle();
+
+      expect(completed, <Track>[b]);
+      expect(controller.state.currentTrack, c);
+      expect(engine.loadedUrls.last, _url(c));
+    });
+
     test('once the new source is in the engine, its reports flow again',
         () async {
       final JustAudioPlaybackController controller = build();
@@ -312,6 +348,49 @@ void main() {
 
       expect(controller.state.status, PlaybackStatus.playing);
       expect(controller.state.duration, const Duration(minutes: 5));
+    });
+  });
+
+  group('a source that fails to open takes none of the old song with it', () {
+    test(
+        'the old song\'s reports while the new source opened do not decide '
+        'where the retry starts', () async {
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: engine,
+        resolver: resolver,
+        automaticRecovery: const PlaybackRecoveryPolicy(
+          retryDelay: Duration.zero,
+          advanceDelay: Duration.zero,
+          maxAdvanceDelay: Duration.zero,
+        ),
+      );
+      addTearDown(controller.dispose);
+      await controller.playTracks(<Track>[a, b]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // B goes to the engine, which is still opening it when A's last
+      // reports come in: playing, 1:23 in, four minutes long. Then B fails to
+      // open, once.
+      engine.failingOnce.add(_url(b));
+      engine.openGate = Completer<void>();
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      engine.emitState(true, ProcessingState.ready);
+      engine.emitPosition(const Duration(minutes: 1, seconds: 23));
+      engine.emitDuration(const Duration(minutes: 4));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      engine.openGate!.complete();
+      engine.openGate = null;
+      await skip;
+      await _settle();
+
+      // The automatic retry opens B from its start: B never played.
+      expect(engine.loadedUrls, <String>[_url(a), _url(b), _url(b)]);
+      expect(engine.calls, isNot(contains('seek:83000')));
+      expect(controller.state.currentTrack, b);
+      expect(controller.state.duration, isNot(const Duration(minutes: 4)));
     });
   });
 
@@ -514,6 +593,24 @@ void main() {
       // The progress bar or MPRIS SetPosition at the end, on an engine that
       // re-sends its unchanged completed state.
       await controller.seek(const Duration(minutes: 3));
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      expect(completed, <Track>[a]);
+    });
+
+    test(
+        'a seek to the end that passes through ready does not end the track '
+        'again', () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a]);
+      engine.emitState(true, ProcessingState.ready);
+      engine.emitDuration(const Duration(minutes: 3));
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      await controller.seek(const Duration(minutes: 3));
+      engine.emitState(true, ProcessingState.ready);
       engine.emitState(true, ProcessingState.completed);
       await _settle();
 
