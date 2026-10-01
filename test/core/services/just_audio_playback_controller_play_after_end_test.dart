@@ -20,9 +20,6 @@ class _JustAudioLikeEngine extends Fake implements AudioPlayer {
       StreamController<Duration?>.broadcast();
   final List<String> loaded = <String>[];
   final List<Duration?> seeks = <Duration?>[];
-
-  /// When set, the next seek waits on it before it lands.
-  Completer<void>? seekGate;
   bool _playing = false;
   ProcessingState _processing = ProcessingState.idle;
 
@@ -74,12 +71,9 @@ class _JustAudioLikeEngine extends Fake implements AudioPlayer {
   Future<void> setVolume(double volume) async {}
   @override
   Future<void> seek(Duration? position, {int? index}) async {
+    // Like media_kit can, it stays on completed across a seek in a source
+    // that has ended, and reports nothing about it.
     seeks.add(position);
-    final Completer<void>? gate = seekGate;
-    seekGate = null;
-    if (gate != null) await gate.future;
-    // Like media_kit, the engine can stay on completed across a seek back:
-    // nothing is reported until the source ends again.
   }
 
   @override
@@ -187,20 +181,47 @@ void main() {
     expect(controller.state.status, PlaybackStatus.playing);
   });
 
-  test('Play after a seek back into the finished track resumes it there',
+  test('a seek back into the finished track opens it there and plays on',
       () async {
     await playToTheEnd();
     final int loads = engine.loaded.length;
 
     await controller.seek(const Duration(minutes: 1));
     await _settle();
+
+    expect(controller.state.status, PlaybackStatus.playing,
+        reason: 'the sound is back, so the controls must say so');
+    // Opened afresh at that spot, so nothing the engine says next can be
+    // taken for the end it already reported.
+    expect(engine.loaded.length, loads + 1);
+    expect(engine.loaded.last, 'file:///music/b');
+    expect(engine.seeks.last, const Duration(minutes: 1));
+    expect(controller.state.currentTrack, b);
+
     await controller.play();
     await _settle();
 
-    expect(engine.loaded.length, loads,
-        reason: 'the listener chose a spot in this track, not a restart');
+    expect(engine.loaded.length, loads + 1, reason: 'Play is a no-op here');
     expect(controller.state.currentTrack, b);
-    expect(engine.seeks, <Duration?>[const Duration(minutes: 1)]);
+  });
+
+  test('a seek back after pausing at the end waits there for Play', () async {
+    await playToTheEnd();
+    await controller.pause();
+    await _settle();
+    final int loads = engine.loaded.length;
+
+    await controller.seek(const Duration(minutes: 1));
+    await _settle();
+    expect(controller.state.status, PlaybackStatus.paused);
+    expect(controller.state.currentTrack, b);
+
+    await controller.play();
+    await _settle();
+
+    expect(engine.loaded.length, loads + 1);
+    expect(controller.state.currentTrack, b);
+    expect(controller.state.status, PlaybackStatus.playing);
   });
 
   test('Play sent right behind a seek back waits for it, not the top',
@@ -209,51 +230,50 @@ void main() {
     // back to back: Play arrives before the seek has landed.
     await playToTheEnd();
     final int loads = engine.loaded.length;
-    final Completer<void> landing = engine.seekGate = Completer<void>();
 
     final Future<void> seeking = controller.seek(Duration.zero);
     await controller.play();
-    landing.complete();
     await seeking;
     await _settle();
 
-    expect(engine.loaded.length, loads);
+    expect(engine.loaded.length, loads + 1);
+    expect(engine.loaded.last, 'file:///music/b');
     expect(controller.state.currentTrack, b);
+    expect(controller.state.status, PlaybackStatus.playing);
   });
 
-  test('a pause after a seek back is a pause, not the track ending again',
+  test('a pause and Play after a seek back resume it, not end it again',
       () async {
     await playToTheEnd();
     final int loads = engine.loaded.length;
     await controller.seek(const Duration(minutes: 1));
     await _settle();
 
-    // The engine stayed on completed, so its pause re-sends that state.
     await controller.pause();
     await _settle();
     expect(controller.state.status, PlaybackStatus.paused);
-    expect(completed, <Track>[a, b], reason: 'b did not play to its end');
-
     await controller.play();
     await _settle();
 
-    expect(engine.loaded.length, loads);
+    expect(completed, <Track>[a, b], reason: 'b did not play to its end');
+    expect(engine.loaded.length, loads + 1);
     expect(controller.state.currentTrack, b);
+    expect(controller.state.status, PlaybackStatus.playing);
   });
 
-  test('a seek back and then to the very end leaves a finished queue',
-      () async {
+  test('a seek back and then to the end finishes the queue again', () async {
     await playToTheEnd();
     await controller.seek(const Duration(minutes: 1));
     await _settle();
     await controller.seek(const Duration(minutes: 3));
+    engine.finish();
     await _settle();
+    expect(controller.state.status, PlaybackStatus.completed);
 
     await controller.play();
     await _settle();
 
-    expect(engine.loaded.last, 'file:///music/a',
-        reason: 'Play did nothing: the earlier seek back still counted');
+    expect(engine.loaded.last, 'file:///music/a');
     expect(controller.state.currentTrack, a);
   });
 
@@ -265,12 +285,12 @@ void main() {
     engine.finish();
     await _settle();
     expect(controller.state.status, PlaybackStatus.completed);
+    expect(completed, <Track>[a, b, b]);
 
     await controller.play();
     await _settle();
 
-    expect(engine.loaded.last, 'file:///music/a',
-        reason: 'Play did nothing: the old seek back was taken as current');
+    expect(engine.loaded.last, 'file:///music/a');
     expect(controller.state.currentTrack, a);
   });
 
