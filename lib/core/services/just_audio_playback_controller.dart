@@ -615,8 +615,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         // pauses). Re-reading `isPlaying` on the 2nd event would see the
         // already-paused state and wrongly disarm, so the eventual regain would
         // never resume (the "voice ends and Linthra stays silent" bug).
-        _armTransientResume(
-            _state.isPlaying || _state.isBusy || _resumeAfterTransientLoss);
+        //
+        // Busy is not enough on its own: a track still loading reads busy
+        // after the listener paused it (the old source's paused report is not
+        // this track's), so there their latest intent decides.
+        _armTransientResume(_state.isPlaying ||
+            (_state.isBusy && _playWhenLoaded) ||
+            _resumeAfterTransientLoss);
         // A real transient loss supersedes a duck: clear it so the resume (or a
         // later manual play) is at full volume, never stuck at the duck level.
         _restoreDuckedVolume();
@@ -1867,10 +1872,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _armBufferingWatchdog();
     } else {
       // Reset position/duration up front so the UI doesn't show the previous
-      // track's progress while the new one loads.
+      // track's progress while the new one loads. A reload of the same track
+      // (Retry, or Play on its error) keeps its length and shows where it will
+      // start, so a reload that fails again still knows where the track was.
+      final bool sameTrack = _state.currentTrack?.uri == track.uri;
       _emit(PlaybackState(
         status: PlaybackStatus.loading,
         currentTrack: track,
+        position: startAt,
+        duration: sameTrack ? _state.duration : Duration.zero,
         upNext: _queue.upNext,
         previous: _queue.history,
         hasPrevious: _queue.hasPrevious,

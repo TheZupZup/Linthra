@@ -208,6 +208,26 @@ void main() {
       expect(setup.player.lastTransport, 'pause');
     });
 
+    test(
+        'a pause during the load survives a call that comes and goes before '
+        'it lands', () async {
+      final setup = await playingAWithBGated();
+      final Future<void> skip = setup.controller.skipToNext();
+      await _settle();
+      await setup.controller.pause();
+      // A call while it still loads, past the debounce, then over.
+      setup.controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      setup.controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+      setup.resolver.release(b);
+      await skip;
+      await _settle();
+
+      expect(setup.player.lastTransport, 'pause',
+          reason: 'the listener paused; the call ending is no reason to play');
+    });
+
     test('another app taking audio during the load keeps us paused', () async {
       final setup = await playingAWithBGated();
       final Future<void> skip = setup.controller.skipToNext();
