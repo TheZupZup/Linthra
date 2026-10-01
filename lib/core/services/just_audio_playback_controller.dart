@@ -245,10 +245,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// for the failure [_heldForSavedChoice] keeps.
   bool? _automaticSkipEnabled;
 
-  /// How many times the listener has said to stay put: a pause, or Stay on
-  /// this track. Neither moves a generation on (they aren't transitions), but
-  /// a move waiting on the listener's earlier answer must still give way to
-  /// them (see [skipPastFailedTrack]).
+  /// How many times automatic recovery has been stopped outright
+  /// ([_haltAutomaticRecovery]): a pause, Stay on this track, headphones
+  /// pulled, another app taking audio for good, a cast taking over, or a
+  /// listener action starting afresh. Most of these move no generation on
+  /// (they aren't transitions), but a move waiting on the listener's earlier
+  /// answer must still give way to every one of them (see
+  /// [skipPastFailedTrack]).
   int _holds = 0;
 
   /// What [setAutomaticSkipEnabled] last said, or null before it has said
@@ -1762,7 +1765,6 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // Only a countdown can be called off. Once it has run, the skip's own load
     // is under way, and that is the listener's to stop with a pause or a skip.
     if (_pendingAutoSkip == null) return;
-    _holds++;
     StabilityDiagnostics.playbackRecovery('auto-skip-cancelled');
     _haltAutomaticRecovery(settle: true);
   }
@@ -2897,6 +2899,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// That load stays recorded until it lands, so a Play meanwhile still
   /// re-resolves instead of starting the source the engine holds.
   void _haltAutomaticRecovery({bool settle = false}) {
+    _holds++;
     _runningStepMayStart = false;
     _cancelAutomaticRecovery(settle: settle);
   }
@@ -3129,7 +3132,6 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   @override
   Future<void> pause() {
-    _holds++;
     // A track still loading has nothing in the engine to pause yet: this is
     // what stops it starting when it lands.
     _playWhenLoaded = false;

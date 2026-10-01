@@ -584,6 +584,41 @@ void main() {
       expect(engine.loaded, isEmpty, reason: 'nothing started after a pause');
     });
 
+    test('headphones pulled while the choice is saved hold', () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false);
+      await failA(controller);
+      await _pastCountdown();
+      final Completer<void> saved = Completer<void>();
+      final Future<void> moving =
+          controller.skipPastFailedTrack(a, after: saved.future);
+
+      controller.onBecomingNoisyForTesting();
+      saved.complete();
+      await moving;
+      await _settle();
+
+      expect(controller.state.currentTrack, a);
+      expect(engine.loaded, isEmpty,
+          reason: 'nothing may start through the speaker');
+    });
+
+    test('a cast taking over while the choice is saved holds', () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false);
+      await failA(controller);
+      await _pastCountdown();
+      final Completer<void> saved = Completer<void>();
+      final Future<void> moving =
+          controller.skipPastFailedTrack(a, after: saved.future);
+
+      await controller.suspend();
+      saved.complete();
+      await moving;
+      await _settle();
+
+      expect(controller.state.currentTrack, a,
+          reason: 'the receiver owns playback now');
+    });
+
     test('Stay on a countdown while the choice is saved holds', () async {
       // A failure held at startup gets its countdown once the saved choice
       // reads on, while an Allow from the question is still being saved.
