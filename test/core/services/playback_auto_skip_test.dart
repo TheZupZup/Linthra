@@ -398,6 +398,20 @@ void main() {
       expect(engine.loaded, isEmpty);
     });
 
+    test('a held failure does not count down under a cast', () async {
+      final JustAudioPlaybackController controller = untold();
+      await failA(controller);
+      await _pastCountdown();
+      await controller.suspend();
+
+      controller.setAutomaticSkipEnabled(true);
+
+      expect(controller.state.autoSkip, isNull,
+          reason: 'the receiver owns playback; no local skip to promise');
+      await _pastCountdown();
+      expect(engine.loaded, isEmpty);
+    });
+
     test('a failure the listener has acted on since stays theirs', () async {
       final JustAudioPlaybackController controller = untold();
       await failA(controller);
@@ -500,6 +514,7 @@ void main() {
       await controller.playTracks(<Track>[a, b, c], startIndex: 2);
       await _pastCountdown();
 
+      controller.setAutomaticSkipEnabled(true);
       await controller.skipPastFailedTrack(c);
       await _settle();
 
@@ -518,6 +533,8 @@ void main() {
           controller.skipPastFailedTrack(a, after: saved.future);
       await _settle();
       expect(controller.state.currentTrack, a, reason: 'not saved yet');
+      // The save landing publishes "on", which the app hands to playback.
+      controller.setAutomaticSkipEnabled(true);
       saved.complete();
       await moving;
       await _settle();
@@ -558,6 +575,8 @@ void main() {
       await controller.retryCurrentTrack();
       await _pastCountdown();
       expect(controller.state.status, PlaybackStatus.error);
+      // The save landing publishes "on", which the app hands to playback.
+      controller.setAutomaticSkipEnabled(true);
       saved.complete();
       await moving;
       await _settle();
@@ -576,6 +595,8 @@ void main() {
           controller.skipPastFailedTrack(a, after: saved.future);
 
       await controller.pause();
+      // The save landing publishes "on", which the app hands to playback.
+      controller.setAutomaticSkipEnabled(true);
       saved.complete();
       await moving;
       await _settle();
@@ -593,6 +614,8 @@ void main() {
           controller.skipPastFailedTrack(a, after: saved.future);
 
       controller.onBecomingNoisyForTesting();
+      // The save landing publishes "on", which the app hands to playback.
+      controller.setAutomaticSkipEnabled(true);
       saved.complete();
       await moving;
       await _settle();
@@ -611,6 +634,8 @@ void main() {
           controller.skipPastFailedTrack(a, after: saved.future);
 
       await controller.suspend();
+      // The save landing publishes "on", which the app hands to playback.
+      controller.setAutomaticSkipEnabled(true);
       saved.complete();
       await moving;
       await _settle();
@@ -647,6 +672,26 @@ void main() {
       expect(engine.loaded, isEmpty);
     });
 
+    test('a newer Not now while the Allow save runs is the last word',
+        () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false);
+      await failA(controller);
+      await _pastCountdown();
+      final Completer<void> saved = Completer<void>();
+      final Future<void> moving =
+          controller.skipPastFailedTrack(a, after: saved.future);
+
+      // Not now, from a reopened question, publishes off at once; the older
+      // Allow save then lands without turning it back on.
+      controller.setAutomaticSkipEnabled(false);
+      saved.complete();
+      await moving;
+      await _settle();
+
+      expect(controller.state.currentTrack, a);
+      expect(engine.loaded, isEmpty);
+    });
+
     test('does nothing once playback has moved on without it', () async {
       final JustAudioPlaybackController controller = build(autoSkip: false);
       await failA(controller);
@@ -656,6 +701,7 @@ void main() {
       await _settle();
       expect(controller.state.currentTrack, b);
 
+      controller.setAutomaticSkipEnabled(true);
       await controller.skipPastFailedTrack(a);
       await _settle();
 

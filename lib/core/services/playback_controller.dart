@@ -110,9 +110,10 @@ abstract interface class PlaybackController {
   ///
   /// With [after] (saving that choice), the move waits for it, and doesn't
   /// happen if it fails, whose error this then throws. Either way it happens
-  /// only if nothing has happened to playback since this call (a Next, a
-  /// Retry, a pause, a new queue) and [failed] is still the current track and
-  /// still failed. Nor does it when there is nowhere to go.
+  /// only while automatic skip is on, if nothing has happened to playback
+  /// since this call (a Next, a Retry, a pause, a new queue) and [failed] is
+  /// still the current track and still failed. Nor does it when there is
+  /// nowhere to go.
   Future<void> skipPastFailedTrack(Track failed, {Future<void>? after});
 
   /// Steps back to the previous track in the queue, if any. A no-op when the

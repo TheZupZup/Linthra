@@ -1780,6 +1780,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final int holds = _holds;
     if (after != null) await after;
     if (generation != _playbackGeneration || holds != _holds) return;
+    // It is the automatic skip, allowed: only while automatic skip is on. A
+    // newer choice of off (a Not now after the Allow, its save still running)
+    // is the listener's last word, and the older save landing doesn't undo it.
+    if (_automaticSkipEnabled != true) return;
     final PlaybackFailure? failure = _state.failure;
     if (_state.status != PlaybackStatus.error ||
         failure == null ||
@@ -1862,6 +1866,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         held != null &&
         held.generation == _playbackGeneration &&
         _playWhenLoaded &&
+        // A cast receiver owns playback: nothing local counts down under it.
+        !_suspended &&
         _state.status == PlaybackStatus.error &&
         _queue.current?.uri == held.track.uri &&
         // The queue may have been edited while the choice was read: a
