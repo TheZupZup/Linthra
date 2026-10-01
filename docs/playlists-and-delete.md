@@ -130,6 +130,12 @@ Each refresh (startup or Sync library):
 - **drops** a synced playlist whose server copy is gone (it was deleted on the
   server). Local-only playlists are never touched by a refresh.
 
+A refresh takes a moment to hear back from the server, and anything you do in
+the meantime wins: a playlist you create, edit or delete while one is loading
+keeps your change. The server's answer predates it, so that playlist is left as
+you left it and the next refresh reconciles it. Signing out of a server while a
+refresh is loading discards that server's answer.
+
 On **sign-out**, this account's imported Jellyfin playlists (and its server
 favourites) are cleared so they can't linger — or be confused with a different
 account — after disconnecting; your local-only playlists stay on-device.

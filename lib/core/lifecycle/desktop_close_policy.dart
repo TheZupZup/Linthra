@@ -29,12 +29,16 @@ abstract final class DesktopClosePolicy {
   /// Looser than [hidesOnClose] on purpose: once the window is away, the
   /// desktop media controls are the only interface left, so a pause taken from
   /// a shell's media widget has to keep the app alive for the resume that
-  /// follows. What ends a hidden session is the queue running out (or being
-  /// stopped): no current track, or a status that is not going to produce
-  /// sound again on its own.
+  /// follows. A failed track is the same: its queue and position are still
+  /// there, and the shell's Play or Next is how the listener recovers (a Pause
+  /// pressed there while a dropped stream reconnects settles on exactly this).
+  /// What ends a hidden session is the queue running out (or being stopped):
+  /// no current track, or the end of the queue.
   static bool keepsRunningWhileHidden(PlaybackState state) {
     if (_isProducingAudio(state)) return true;
-    return state.status == PlaybackStatus.paused && state.hasTrack;
+    return (state.status == PlaybackStatus.paused ||
+            state.status == PlaybackStatus.error) &&
+        state.hasTrack;
   }
 
   /// Sound now, or the engine working toward it: the states in which stopping
