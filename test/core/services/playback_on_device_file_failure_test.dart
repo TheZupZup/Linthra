@@ -361,6 +361,16 @@ void main() {
   });
 
   group('an on-device path the engine cannot read', () {
+    /// A path that is still there but couldn't be read: not called missing,
+    /// not called damaged for certain, and Retry kept for a read that clears.
+    void expectUnreadablePath(PlaybackState state) {
+      expect(state.status, PlaybackStatus.error);
+      expect(state.failure?.kind, PlaybackFailureKind.localFileUnavailable);
+      expect(state.errorMessage, isNot(missingFileWording));
+      expect(state.errorMessage, contains('still there'));
+      expect(state.failure?.canRetry, isTrue);
+    }
+
     const String path = '/music/Album/01.flac';
     final String fileUri = Uri.file(path).toString();
     final Track pathTrack = _track(path);
@@ -377,21 +387,17 @@ void main() {
       expect(presence.probed, <String>[path]);
     });
 
-    test('still there: a file that cannot be played, not a missing one',
+    test('still there: a file that could not be read, with Retry kept',
         () async {
-      // A damaged or truncated file fails with the same "Source error".
+      // A damaged file, a read the permissions refuse, or a mounted drive
+      // throwing I/O errors all fail with the same "Source error", and only
+      // the first is for good.
       engine.openErrors[fileUri] = _sourceError();
       final JustAudioPlaybackController controller = build();
 
       await controller.playTracks(<Track>[pathTrack]);
 
-      expect(controller.state.status, PlaybackStatus.error);
-      expect(
-        controller.state.failure?.kind,
-        PlaybackFailureKind.unplayableMedia,
-      );
-      expect(controller.state.errorMessage, isNot(missingFileWording));
-      expect(controller.state.errorMessage, contains('damaged'));
+      expectUnreadablePath(controller.state);
       expect(controller.state.errorMessage, isNot(contains(path)));
     });
 
@@ -412,7 +418,7 @@ void main() {
       expect(engine.opened, <String>[fileUri]);
     });
 
-    test('unreadable mid-playback while still there: not called missing',
+    test('unreadable mid-playback while still there: Retry kept, not missing',
         () async {
       final JustAudioPlaybackController controller = build();
       await startPlaying(controller, pathTrack);
@@ -423,12 +429,7 @@ void main() {
       await pumpEventQueue();
 
       expect(statuses, isNot(contains(PlaybackStatus.reconnecting)));
-      expect(controller.state.status, PlaybackStatus.error);
-      expect(
-        controller.state.failure?.kind,
-        PlaybackFailureKind.unplayableMedia,
-      );
-      expect(controller.state.errorMessage, isNot(missingFileWording));
+      expectUnreadablePath(controller.state);
     });
   });
 

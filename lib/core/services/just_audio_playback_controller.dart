@@ -33,7 +33,9 @@ enum _LocalReadFailure {
   /// The path is not there any more.
   missing,
 
-  /// The path is there, but the engine couldn't read what is in it.
+  /// The path is there, but the engine couldn't read it. That alone doesn't
+  /// say why: damaged bytes, a read the permissions refused, or a drive that
+  /// is mounted but failing all look the same.
   unreadable,
 
   /// A document whose presence can't be checked from here.
@@ -1163,9 +1165,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// the same "Source error", for a file that is gone (deleted or moved, on an
   /// SD card or USB drive that was taken out, behind a revoked grant) and for
   /// one that is there but damaged or cut short. A filesystem path can be
-  /// looked at again, once, now that reading it failed, and that settles it.
-  /// A `content://` document can't be without a platform round trip, so for
-  /// one this answers only what is known: it could not be read.
+  /// looked at again, once, now that reading it failed: that settles whether
+  /// it is gone, though a path that is still there may be unreadable for a
+  /// reason that clears (permissions, a failing drive). A `content://`
+  /// document can't be looked at without a platform round trip, so for one
+  /// this answers only what is known: it could not be read.
   _LocalReadFailure _localReadFailure() {
     final Uri? uri = _engineUri;
     if (uri == null || !uri.isScheme('file')) return _LocalReadFailure.unknown;
@@ -1177,8 +1181,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// Said of an on-device file that is where it should be but couldn't be
   /// read. Fixed text: never a path, a document URI or an engine error.
   static const String _unreadableFileMessage =
-      "This file is still there, but it couldn't be read. It may be damaged "
-      'or incomplete.';
+      "This file is still there, but Linthra couldn't read it. It may be "
+      "damaged, or the drive it's on or its permissions may be getting in the "
+      'way.';
 
   /// Said of an on-device document that couldn't be read when nothing says
   /// why: gone and damaged look the same from here. Fixed text, as above.
@@ -1194,11 +1199,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// words say nothing about a connection, and "Reconnecting…" and a retry
   /// would point the listener at their Wi-Fi. What the failure is instead
   /// comes from [_localReadFailure]: a path that is gone is the missing file
-  /// the resolver reports for a vanished path; a path that is still there is
-  /// a file that can't be played, not a missing one; a document is a file
-  /// that couldn't be read, with Retry for when the card is back. An error
-  /// that isn't a source error keeps its own classification. Another copy of
-  /// the song, if there is one, is still tried at the same position.
+  /// the resolver reports for a vanished path; anything else is a file that
+  /// couldn't be read, worded for what is known, with Retry kept, since
+  /// nothing says the bytes themselves are bad. An error that isn't a source
+  /// error keeps its own classification. Another copy of the song, if there
+  /// is one, is still tried at the same position.
   ///
   /// There is no quick re-open first. It would read "Reconnecting…" for a
   /// file, and a removed card or a deleted document is still gone a second
@@ -1216,7 +1221,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           retryable: false,
         ),
       _LocalReadFailure.unreadable => const StreamInterruption(
-          StreamInterruptionKind.formatUnsupported,
+          StreamInterruptionKind.localFileUnavailable,
           _unreadableFileMessage,
           retryable: false,
         ),
@@ -2459,9 +2464,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // was taken out, or lost its grant, and those documents aren't probed
     // before the load (see [LocalPlayableUriResolver]), so this is where a
     // missing one shows up. It says the same for a file that is there but
-    // damaged or cut short, so [_localReadFailure] decides which this is.
-    // Neither is a stream that couldn't start. A load cut short by a newer one
-    // says nothing about the file, so it keeps the generic failure.
+    // can't be read, so [_localReadFailure] decides what can be said: missing
+    // only when the path is gone, otherwise a file that couldn't be read,
+    // still worth a Retry. Neither is a stream that couldn't start. A load cut
+    // short by a newer one says nothing about the file, so it keeps the
+    // generic failure.
     if (source == PlaybackSource.localFile &&
         error is! PlayerInterruptedException &&
         _isSourceError(classifyEngineError(error))) {
@@ -2469,7 +2476,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _LocalReadFailure.missing => LocalPlayableUriResolver.missingFile,
         _LocalReadFailure.unreadable => const PlaybackResolutionException(
             _unreadableFileMessage,
-            kind: PlaybackResolutionErrorKind.mediaUnsupported,
+            kind: PlaybackResolutionErrorKind.localFileMissing,
           ),
         _LocalReadFailure.unknown => const PlaybackResolutionException(
             _unreadableDocumentMessage,
