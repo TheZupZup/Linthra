@@ -25,9 +25,13 @@ class AutoSkipController extends AsyncNotifier<bool?> {
   /// newer choice has come along since.
   int _choices = 0;
 
-  /// Takes effect at once, then saves. A countdown already running must stop
-  /// the moment the listener switches automatic skip off, not when a slow
-  /// write comes back, by which time the skip may have happened.
+  /// Switching it off takes effect at once, then saves: a countdown already
+  /// running must stop the moment the listener says so, not when a slow write
+  /// comes back, by which time the skip may have happened. Switching it on
+  /// takes effect once it is saved: until then nothing may skip on its
+  /// strength (a held countdown included), since a save that fails would
+  /// leave a song changed on a choice that wasn't kept. Off is the safe side
+  /// to be on while a save runs.
   ///
   /// Saves run one at a time, in the order the choices were made, so two
   /// quick taps on the switch store the last one, whichever write is slower.
@@ -39,7 +43,7 @@ class AutoSkipController extends AsyncNotifier<bool?> {
   /// comes after it.
   Future<void> setEnabled(bool value) async {
     final int choice = ++_choices;
-    state = AsyncData<bool?>(value);
+    if (!value) state = const AsyncData<bool?>(false);
     final PlaybackPreferences preferences =
         ref.read(playbackPreferencesProvider);
     final Future<void> save =
@@ -47,6 +51,7 @@ class AutoSkipController extends AsyncNotifier<bool?> {
     _saving = save.then((_) {}, onError: (Object _) {});
     try {
       await save;
+      if (value && choice == _choices) state = const AsyncData<bool?>(true);
     } catch (_) {
       if (choice == _choices) {
         bool? stored;

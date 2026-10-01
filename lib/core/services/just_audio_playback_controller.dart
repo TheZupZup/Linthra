@@ -245,10 +245,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// for the failure [_heldForSavedChoice] keeps.
   bool? _automaticSkipEnabled;
 
-  /// How many times the listener has paused. A pause moves no generation on
-  /// (it isn't a transition), but a move waiting on the listener's earlier
-  /// answer must still give way to it (see [skipPastFailedTrack]).
-  int _pauses = 0;
+  /// How many times the listener has said to stay put: a pause, or Stay on
+  /// this track. Neither moves a generation on (they aren't transitions), but
+  /// a move waiting on the listener's earlier answer must still give way to
+  /// them (see [skipPastFailedTrack]).
+  int _holds = 0;
 
   /// What [setAutomaticSkipEnabled] last said, or null before it has said
   /// anything.
@@ -1761,6 +1762,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // Only a countdown can be called off. Once it has run, the skip's own load
     // is under way, and that is the listener's to stop with a pause or a skip.
     if (_pendingAutoSkip == null) return;
+    _holds++;
     StabilityDiagnostics.playbackRecovery('auto-skip-cancelled');
     _haltAutomaticRecovery(settle: true);
   }
@@ -1773,9 +1775,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // make: it would override what they did, or go ahead on a choice that
     // wasn't kept.
     final int generation = _playbackGeneration;
-    final int pauses = _pauses;
+    final int holds = _holds;
     if (after != null) await after;
-    if (generation != _playbackGeneration || pauses != _pauses) return;
+    if (generation != _playbackGeneration || holds != _holds) return;
     final PlaybackFailure? failure = _state.failure;
     if (_state.status != PlaybackStatus.error ||
         failure == null ||
@@ -3127,7 +3129,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   @override
   Future<void> pause() {
-    _pauses++;
+    _holds++;
     // A track still loading has nothing in the engine to pause yet: this is
     // what stops it starting when it lands.
     _playWhenLoaded = false;

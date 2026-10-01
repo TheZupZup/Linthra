@@ -584,6 +584,34 @@ void main() {
       expect(engine.loaded, isEmpty, reason: 'nothing started after a pause');
     });
 
+    test('Stay on a countdown while the choice is saved holds', () async {
+      // A failure held at startup gets its countdown once the saved choice
+      // reads on, while an Allow from the question is still being saved.
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: engine,
+        resolver: resolver,
+        automaticRecovery: _policy,
+      );
+      addTearDown(controller.dispose);
+      await failA(controller);
+      await _pastCountdown();
+      final Completer<void> saved = Completer<void>();
+      final Future<void> moving =
+          controller.skipPastFailedTrack(a, after: saved.future);
+      controller.setAutomaticSkipEnabled(true);
+      expect(controller.state.autoSkip, isNotNull);
+
+      await controller.cancelAutomaticSkip();
+      saved.complete();
+      await moving;
+      await _pastCountdown();
+
+      expect(controller.state.currentTrack, a,
+          reason: 'Stay on this track is the listener\'s last word');
+      expect(engine.loaded, isEmpty);
+    });
+
     test('does nothing once playback has moved on without it', () async {
       final JustAudioPlaybackController controller = build(autoSkip: false);
       await failA(controller);

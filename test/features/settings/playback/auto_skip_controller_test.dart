@@ -81,6 +81,25 @@ void main() {
     expect(await preferences.autoSkipUnplayable(), isFalse);
   });
 
+  test('switching it on reaches playback only once it is saved', () async {
+    final _Preferences preferences = _Preferences()..gate = Completer<void>();
+    final (ProviderContainer container, List<bool?> seen) = build(preferences);
+    await container.read(autoSkipControllerProvider.future);
+    seen.clear();
+
+    final Future<void> saving =
+        container.read(autoSkipControllerProvider.notifier).setEnabled(true);
+
+    // Nothing may skip on a choice that isn't kept yet.
+    expect(seen, isEmpty);
+    expect(container.read(autoSkipControllerProvider).value, isNull);
+
+    preferences.gate!.complete();
+    await saving;
+    expect(seen, <bool?>[true]);
+    expect(await preferences.autoSkipUnplayable(), isTrue);
+  });
+
   test('a save that fails puts the choice back and says so', () async {
     final _Preferences preferences = _Preferences()..fail = true;
     final (ProviderContainer container, List<bool?> seen) = build(preferences);
@@ -92,8 +111,8 @@ void main() {
       throwsStateError,
     );
 
-    expect(seen, <bool?>[true, null],
-        reason: 'playback follows what is stored, so it goes back too');
+    expect(seen, isNot(contains(true)),
+        reason: 'playback follows what is stored, and on was never stored');
     expect(container.read(autoSkipControllerProvider).value, isNull);
     expect(await preferences.autoSkipUnplayable(), isNull);
   });

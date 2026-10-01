@@ -157,8 +157,8 @@ class _AutoSkipIntroPanelState extends ConsumerState<AutoSkipIntroPanel> {
   /// repeat-all), past the track this panel was shown for. It waits for the
   /// choice to be saved, so a save that fails moves nothing, and the
   /// controller takes its snapshot of playback in this same tap, so anything
-  /// the listener does while the save runs (a Retry, a pause, a skip, with
-  /// the panel already gone) wins over the late move.
+  /// the listener does while the save runs (a pause or a Next from a headset
+  /// or the car, say) wins over the late move.
   Future<void> _allow() async {
     if (_busy) return;
     final PlaybackController playback = ref.read(playbackControllerProvider);
