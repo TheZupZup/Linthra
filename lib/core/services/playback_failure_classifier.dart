@@ -55,6 +55,8 @@ PlaybackFailureKind playbackFailureKindForInterruption(
       return PlaybackFailureKind.sourceSignInRequired;
     case StreamInterruptionKind.formatUnsupported:
       return PlaybackFailureKind.unplayableMedia;
+    case StreamInterruptionKind.localFileUnavailable:
+      return PlaybackFailureKind.localFileUnavailable;
     case StreamInterruptionKind.networkDropped:
     case StreamInterruptionKind.serverUnreachable:
     // An interruption Linthra can't place is treated as a glitch, here as in
