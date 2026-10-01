@@ -136,6 +136,36 @@ void main() {
     expect(controller.state.upNext, <Track>[b]);
   });
 
+  test('Play after the end plays what was queued since, not the top', () async {
+    final Track c = _track('c');
+    await playToTheEnd();
+    controller.playNext(c);
+    await _settle();
+    expect(controller.state.status, PlaybackStatus.completed);
+
+    await controller.play();
+    await _settle();
+
+    expect(engine.loaded.last, 'file:///music/c');
+    expect(controller.state.currentTrack, c);
+    expect(controller.state.status, PlaybackStatus.playing);
+    expect(controller.state.previous, <Track>[a, b]);
+  });
+
+  test('a track added to the queue after the end plays next too', () async {
+    final Track c = _track('c');
+    await playToTheEnd();
+    controller.addToQueue(c);
+    await _settle();
+
+    await controller.play();
+    await _settle();
+
+    expect(engine.loaded.last, 'file:///music/c');
+    expect(controller.state.currentTrack, c);
+    expect(controller.state.status, PlaybackStatus.playing);
+  });
+
   test('the restarted queue keeps shuffle and repeat as they were', () async {
     controller.setShuffleEnabled(true);
     await playToTheEnd();

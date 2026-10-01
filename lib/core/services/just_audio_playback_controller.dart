@@ -2580,10 +2580,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     }
     // The queue ran out. just_audio keeps `playing` true at the end of a
     // source, so asking the engine to play would do nothing at all, from the
-    // app, the notification, a headset or MPRIS alike. Start the queue over,
-    // in the order it played, as repeat-all would have.
+    // app, the notification, a headset or MPRIS alike. Anything queued since
+    // the end plays next; otherwise start the queue over, in the order it
+    // played, as repeat-all would have.
     if (_state.status == PlaybackStatus.completed && _queue.current != null) {
-      await restartQueue();
+      if (_queue.hasNext) {
+        await skipToNext();
+      } else {
+        await restartQueue();
+      }
       return;
     }
     // play()'s future completes when playback ends, so we don't await it.
