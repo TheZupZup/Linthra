@@ -2806,6 +2806,19 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       await _playCurrent(startAt: _state.position);
       return;
     }
+    // The queue ran out. just_audio keeps `playing` true at the end of a
+    // source, so asking the engine to play would do nothing at all, from the
+    // app, the notification, a headset or MPRIS alike. Anything queued since
+    // the end plays next; otherwise start the queue over, in the order it
+    // played, as repeat-all would have.
+    if (_state.status == PlaybackStatus.completed && _queue.current != null) {
+      if (_queue.hasNext) {
+        await skipToNext();
+      } else {
+        await restartQueue();
+      }
+      return;
+    }
     // play()'s future completes when playback ends, so we don't await it.
     unawaited(_player.play());
   }
@@ -2883,6 +2896,20 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _seekDuringLoad = position;
       _seekDuringLoadAfterEnd = _endedAttempt == _sourceAttempt;
       _emit(_state.copyWith(position: position));
+      return;
+    }
+    // The queue ran out, and the engine holds a source that has ended. Some
+    // engines stay on completed across a seek in it and report nothing more,
+    // so what they said next could not be told from that end. A spot before
+    // the end is the listener going back into the track: open it there, so
+    // everything after comes from a source under way, and it starts as the
+    // engine would have (playing, unless they paused). The end itself is
+    // where the track already is.
+    if (_state.status == PlaybackStatus.completed && _queue.current != null) {
+      final Duration end =
+          _state.duration > Duration.zero ? _state.duration : _state.position;
+      if (end > Duration.zero && position >= end) return;
+      await _playCurrent(startAt: position, autoplay: _playWhenLoaded);
       return;
     }
     // A seek is a playback action too: bump the generation, like every other

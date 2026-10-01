@@ -869,8 +869,8 @@ void main() {
     });
 
     test(
-        'an older seek back landing after a newer seek to the end re-arms '
-        'nothing', () async {
+        'a seek to the end while a finished track reopens sends it to its '
+        'end', () async {
       final JustAudioPlaybackController controller = build();
       await controller.playTracks(<Track>[a]);
       engine.emitState(true, ProcessingState.ready);
@@ -878,16 +878,27 @@ void main() {
       engine.emitState(true, ProcessingState.completed);
       await _settle();
 
+      // The seek back opens the finished track again, at its spot; the newer
+      // seek to the end reaches that load before it starts.
       engine.seekGate = Completer<void>();
       final Completer<void> back = engine.seekGate!;
       final Future<void> seekBack = controller.seek(const Duration(minutes: 1));
+      await _settle();
       await controller.seek(const Duration(minutes: 3));
       back.complete();
       await seekBack;
-      engine.emitState(true, ProcessingState.completed);
       await _settle();
 
-      expect(completed, <Track>[a]);
+      expect(
+        engine.calls.where((String call) => call.startsWith('seek:')).last,
+        'seek:180000',
+        reason: 'the newer seek is where the reopened track goes',
+      );
+      // That fresh source then ends where it was sent, and the end is its own.
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.completed);
+      expect(completed, <Track>[a, a]);
     });
 
     test('a seek back after the end lets the next end count', () async {
