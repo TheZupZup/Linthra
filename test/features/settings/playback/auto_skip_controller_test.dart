@@ -7,17 +7,27 @@ import 'package:linthra/data/repositories/playback_preferences_provider.dart';
 import 'package:linthra/features/settings/playback/auto_skip_controller.dart';
 
 /// Preferences whose automatic-skip save waits on [gate], and fails instead
-/// when [fail] is set, like a slow or full disk.
+/// when [fail] is set, like a slow or full disk. [gates] and [failures], when
+/// given, apply to the saves in turn, so each one can be slow or fail on its
+/// own; [order] records the values written, in the order they landed.
 class _Preferences extends InMemoryPlaybackPreferences {
   _Preferences({super.autoSkipUnplayable});
 
   Completer<void>? gate;
   bool fail = false;
+  final List<Completer<void>?> gates = <Completer<void>?>[];
+  final List<bool> failures = <bool>[];
+  final List<bool> order = <bool>[];
+  int _saves = 0;
 
   @override
   Future<void> setAutoSkipUnplayable(bool value) async {
-    await gate?.future;
-    if (fail) throw StateError('disk full');
+    final int save = _saves++;
+    await (save < gates.length ? gates[save] : gate)?.future;
+    if (save < failures.length ? failures[save] : fail) {
+      throw StateError('disk full');
+    }
+    order.add(value);
     await super.setAutoSkipUnplayable(value);
   }
 }
@@ -79,5 +89,46 @@ void main() {
         reason: 'playback follows what is stored, so it goes back too');
     expect(container.read(autoSkipControllerProvider).value, isNull);
     expect(await preferences.autoSkipUnplayable(), isNull);
+  });
+
+  test('two quick choices store the last one, whichever save is slower',
+      () async {
+    final Completer<void> slowFirst = Completer<void>();
+    final _Preferences preferences = _Preferences()
+      ..gates.addAll(<Completer<void>?>[slowFirst, null]);
+    final (ProviderContainer container, List<bool?> _) = build(preferences);
+    await container.read(autoSkipControllerProvider.future);
+    final AutoSkipController choice =
+        container.read(autoSkipControllerProvider.notifier);
+
+    final Future<void> on = choice.setEnabled(true);
+    final Future<void> off = choice.setEnabled(false);
+    expect(container.read(autoSkipControllerProvider).value, isFalse);
+    slowFirst.complete();
+    await Future.wait(<Future<void>>[on, off]);
+
+    expect(preferences.order, <bool>[true, false],
+        reason: 'one at a time, in the order they were made');
+    expect(await preferences.autoSkipUnplayable(), isFalse);
+    expect(container.read(autoSkipControllerProvider).value, isFalse);
+  });
+
+  test('an older save that fails leaves the newer choice in place', () async {
+    final _Preferences preferences = _Preferences()
+      ..failures.addAll(<bool>[true, false]);
+    final (ProviderContainer container, List<bool?> _) = build(preferences);
+    await container.read(autoSkipControllerProvider.future);
+    final AutoSkipController choice =
+        container.read(autoSkipControllerProvider.notifier);
+
+    final Future<void> on = choice.setEnabled(true);
+    final Future<void> off = choice.setEnabled(false);
+    await expectLater(on, throwsStateError);
+    await off;
+
+    expect(container.read(autoSkipControllerProvider).value, isFalse,
+        reason: 'the newer choice was saved; the old failure must not undo '
+            'it');
+    expect(await preferences.autoSkipUnplayable(), isFalse);
   });
 }

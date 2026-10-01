@@ -338,6 +338,64 @@ void main() {
     });
   });
 
+  group('before the saved choice has been read', () {
+    JustAudioPlaybackController untold() {
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: engine,
+        resolver: resolver,
+        automaticRecovery: _policy,
+      );
+      addTearDown(controller.dispose);
+      return controller;
+    }
+
+    test('a failure that stopped meanwhile counts down once it reads on',
+        () async {
+      // A play from the car or MPRIS right at startup, failing before the
+      // preference has come back.
+      final JustAudioPlaybackController controller = untold();
+      await failA(controller);
+      await _pastCountdown();
+      expect(controller.state.status, PlaybackStatus.error);
+
+      controller.setAutomaticSkipEnabled(true);
+
+      expect(controller.state.autoSkip, isNotNull,
+          reason: 'the countdown it would have had');
+      await _pastCountdown();
+      expect(controller.state.currentTrack, b);
+      expect(engine.loaded, <String>[_url(b)]);
+    });
+
+    test('stays stopped when the saved choice reads off', () async {
+      final JustAudioPlaybackController controller = untold();
+      await failA(controller);
+      await _pastCountdown();
+
+      controller.setAutomaticSkipEnabled(false);
+      controller.setAutomaticSkipEnabled(true);
+      await _pastCountdown();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(engine.loaded, isEmpty,
+          reason: 'turning it on later never skips a stopped track');
+    });
+
+    test('a failure the listener has acted on since stays theirs', () async {
+      final JustAudioPlaybackController controller = untold();
+      await failA(controller);
+      await _pastCountdown();
+      await controller.pause();
+
+      controller.setAutomaticSkipEnabled(true);
+      await _pastCountdown();
+
+      expect(controller.state.autoSkip, isNull);
+      expect(engine.loaded, isEmpty);
+    });
+  });
+
   group('a countdown whose target goes away', () {
     test('removing the track it would land on calls it off at once', () async {
       final JustAudioPlaybackController controller = build();

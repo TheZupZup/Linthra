@@ -207,7 +207,7 @@ void main() {
       expect(find.byKey(AutoSkipIntroPanel.panelKey), findsOneWidget);
     });
 
-    testWidgets('Allow moves past the track it was shown for, not a later one',
+    testWidgets('Allow moves on in the same tap, not after a slow save',
         (WidgetTester tester) async {
       final FakePlaybackController controller =
           FakePlaybackController(initial: _failed());
@@ -216,6 +216,11 @@ void main() {
 
       await tester.tap(find.byKey(AutoSkipIntroPanel.allowKey));
       await tester.pump();
+
+      // The save hasn't come back, and the move has already been asked for:
+      // nothing the listener does from here can be overridden by a late one.
+      expect(controller.skippedPastFailed, <Track>[_track]);
+
       // A Next from the car lands while the choice is still being saved.
       controller.emit(const PlaybackState(
         status: PlaybackStatus.playing,
@@ -225,8 +230,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(controller.skippedPastFailed, <Track>[_track],
-          reason: 'only the failed track is moved past; the controller '
-              'checks it is still the one failing');
+          reason: 'once, past the failed track, and nothing after the save');
+      expect(await preferences.autoSkipUnplayable(), isTrue);
     });
 
     testWidgets('Not now saves the choice and leaves the usual recoveries',

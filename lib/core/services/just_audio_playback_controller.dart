@@ -240,8 +240,26 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   /// Whether the listener allows moving past a track whose recovery is spent
   /// ([setAutomaticSkipEnabled]). Off until they say so: without it the player
-  /// stops on the failed track rather than changing songs by itself.
-  bool _automaticSkipEnabled = false;
+  /// stops on the failed track rather than changing songs by itself. Null
+  /// until the saved choice has been read, which counts as off too, except
+  /// for the failure [_heldForSavedChoice] keeps.
+  bool? _automaticSkipEnabled;
+
+  /// What [setAutomaticSkipEnabled] last said, or null before it has said
+  /// anything.
+  @visibleForTesting
+  bool? get automaticSkipEnabled => _automaticSkipEnabled;
+
+  /// A failure that stopped instead of counting down only because the saved
+  /// choice hadn't been read yet (a play from the car or MPRIS right at
+  /// startup), with the generation it stopped in and the countdown it would
+  /// have had. If the choice turns out to be on, it gets that countdown.
+  ({
+    Track track,
+    PlaybackFailure failure,
+    Duration delay,
+    int generation
+  })? _heldForSavedChoice;
 
   /// The countdown to the automatic skip [_automaticRecoveryTimer] is waiting
   /// out, stamped onto every emitted state. Null whenever no skip is pending,
@@ -1809,12 +1827,37 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   @override
   void setAutomaticSkipEnabled(bool enabled) {
-    if (enabled == _automaticSkipEnabled) return;
+    final bool? known = _automaticSkipEnabled;
+    final held = _heldForSavedChoice;
+    _heldForSavedChoice = null;
+    if (enabled == known) return;
     _automaticSkipEnabled = enabled;
     // Turned off mid-countdown: the setting wins over a skip already pending,
     // which settles on the failure with the listener's own actions instead.
     if (!enabled && _pendingAutoSkip != null) {
       _haltAutomaticRecovery(settle: true);
+    }
+    // The saved choice, read for the first time, is on: a failure that
+    // stopped only because it wasn't known yet gets the countdown it would
+    // have had, if nothing has happened to playback since. A listener turning
+    // the setting on later is a different thing, and never skips a track that
+    // has already stopped.
+    if (enabled &&
+        known == null &&
+        held != null &&
+        held.generation == _playbackGeneration &&
+        _playWhenLoaded &&
+        _state.status == PlaybackStatus.error &&
+        _queue.current?.uri == held.track.uri) {
+      StabilityDiagnostics.playbackRecovery('advance');
+      _scheduleAutomaticRecovery(
+        held.track,
+        held.failure,
+        held.delay,
+        (bool Function() mayStart) =>
+            _advancePastFailure(held.track, held.failure, mayStart),
+        autoSkip: true,
+      );
     }
   }
 
@@ -2637,11 +2680,19 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         );
       case PlaybackRecoveryStep.advance:
         _failureStreak.record(track.uri);
-        if (!_automaticSkipEnabled) {
+        if (_automaticSkipEnabled != true) {
           // The listener hasn't allowed Linthra to change songs by itself:
           // stop here with the reason, and leave Skip to them.
           StabilityDiagnostics.playbackRecovery('settled:auto-skip-off');
           _emitError(track, failure);
+          if (_automaticSkipEnabled == null) {
+            _heldForSavedChoice = (
+              track: track,
+              failure: failure,
+              delay: decision.delay,
+              generation: _playbackGeneration,
+            );
+          }
           return;
         }
         StabilityDiagnostics.playbackRecovery('advance');

@@ -319,6 +319,11 @@ Future<ApplicationHandle> bootstrapApplication(
       container.listen<AsyncValue<bool?>>(
         autoSkipControllerProvider,
         (_, next) {
+          // Nothing to say while the saved choice is still being read: the
+          // controller treats "not read yet" as off, and keeps a failure that
+          // stopped meanwhile for when the choice turns out to be on. Telling
+          // it "off" now would make that a real off. A read that fails is off.
+          if (!next.hasValue && !next.hasError) return;
           container
               .read(localPlaybackControllerProvider)
               .setAutomaticSkipEnabled(next.valueOrNull ?? false);

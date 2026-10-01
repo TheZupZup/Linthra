@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/repositories/playback_preferences.dart';
 import '../../../data/repositories/playback_preferences_provider.dart';
 
 /// Owns the "Automatically skip tracks that can't play" choice: loads the
@@ -17,18 +18,38 @@ class AutoSkipController extends AsyncNotifier<bool?> {
     return ref.read(playbackPreferencesProvider).autoSkipUnplayable();
   }
 
+  /// The saves still to come, chained so they run one at a time.
+  Future<void> _saving = Future<void>.value();
+
+  /// How many choices have been made, so a failed save can tell whether a
+  /// newer choice has come along since.
+  int _choices = 0;
+
   /// Takes effect at once, then saves. A countdown already running must stop
   /// the moment the listener switches automatic skip off, not when a slow
-  /// write comes back, by which time the skip may have happened. If the save
-  /// fails, the choice goes back to what it was (and the error is rethrown),
-  /// so what playback follows never disagrees with what was stored.
+  /// write comes back, by which time the skip may have happened.
+  ///
+  /// Saves run one at a time, in the order the choices were made, so two
+  /// quick taps on the switch store the last one, whichever write is slower.
+  /// If the save of the latest choice fails, the choice goes back to what is
+  /// actually stored (and the error is rethrown), so what playback follows
+  /// never disagrees with it. An older choice that failed leaves things to the
+  /// newer one, whose save comes after it.
   Future<void> setEnabled(bool value) async {
-    final AsyncValue<bool?> previous = state;
+    final int choice = ++_choices;
     state = AsyncData<bool?>(value);
+    final PlaybackPreferences preferences =
+        ref.read(playbackPreferencesProvider);
+    final Future<void> save =
+        _saving.then((_) => preferences.setAutoSkipUnplayable(value));
+    _saving = save.then((_) {}, onError: (Object _) {});
     try {
-      await ref.read(playbackPreferencesProvider).setAutoSkipUnplayable(value);
+      await save;
     } catch (_) {
-      state = previous;
+      if (choice == _choices) {
+        final bool? stored = await preferences.autoSkipUnplayable();
+        if (choice == _choices) state = AsyncData<bool?>(stored);
+      }
       rethrow;
     }
   }
