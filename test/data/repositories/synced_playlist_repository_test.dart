@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/playlist.dart';
@@ -719,4 +721,637 @@ void main() {
       expect(after.single.source, PlaylistSource.jellyfin);
     });
   });
+
+  // A refresh waits on the network (1 + N requests per provider), and the user
+  // keeps editing meanwhile: opening the Playlists tab starts one, then "New
+  // playlist" is right there. Whatever lands must be folded into the playlists
+  // as they are when the server answers, never written over them.
+  group('SyncedPlaylistRepository (edits during an in-flight refresh)', () {
+    late _CountingPlaylistStore store;
+    late _GatedPlaylistGateway gateway;
+    late SyncedPlaylistRepository repository;
+    late int counter;
+
+    setUp(() {
+      store = _CountingPlaylistStore();
+      gateway = _GatedPlaylistGateway(PlaylistSource.subsonic)
+        ..server = <RemotePlaylistData>[
+          const RemotePlaylistData(
+            remoteId: 'srv-1',
+            name: 'Server Mix',
+            trackUris: <String>['subsonic:a'],
+          ),
+        ];
+      counter = 0;
+      repository = SyncedPlaylistRepository(
+        store: store,
+        gateways: <RemotePlaylistGateway>[gateway],
+        idGenerator: () => 'pl-${counter++}',
+        now: () => DateTime(2024, 1, 1),
+      );
+    });
+
+    /// Runs a refresh whose fetch is held until [during] has finished, the way
+    /// a slow server leaves the user time to edit before it answers.
+    Future<PlaylistSyncResult> refreshAround(
+      Future<void> Function() during,
+    ) async {
+      gateway.hold();
+      final Future<PlaylistSyncResult> refresh = repository.refreshFromRemote();
+      await gateway.fetchStarted;
+      await during();
+      gateway.release();
+      return refresh;
+    }
+
+    Future<List<String>> names() async => <String>[
+          for (final Playlist p in await repository.getAllPlaylists()) p.name,
+        ];
+
+    Future<List<String>> storedNames() async => <String>[
+          for (final Playlist p in await store.load()) p.name,
+        ];
+
+    test('a playlist created during a refresh survives it', () async {
+      await refreshAround(() => repository.createPlaylist('Road trip'));
+
+      expect(
+          await names(), unorderedEquals(<String>['Server Mix', 'Road trip']));
+      expect(
+        await storedNames(),
+        unorderedEquals(<String>['Server Mix', 'Road trip']),
+      );
+    });
+
+    test('a local playlist deleted during a refresh stays deleted', () async {
+      final Playlist doomed = await repository.createPlaylist('Old mix');
+
+      await refreshAround(() => repository.deletePlaylist(doomed.id));
+
+      expect(await repository.getPlaylistById(doomed.id), isNull);
+      expect(await storedNames(), <String>['Server Mix']);
+    });
+
+    test('edits to a local playlist during a refresh survive it', () async {
+      final Playlist mix = await repository.createPlaylist('Mix');
+      await repository.addTracks(mix.id, <String>['a', 'b', 'c']);
+
+      await refreshAround(() async {
+        await repository.addTrack(mix.id, 'd');
+        await repository.renamePlaylist(mix.id, 'Renamed');
+        await repository.reorderTracks(mix.id, 0, 4); // 'a' to the end
+      });
+
+      final Playlist? after = await repository.getPlaylistById(mix.id);
+      expect(after!.name, 'Renamed');
+      expect(after.trackIds, <String>['b', 'c', 'd', 'a']);
+      final Playlist stored =
+          (await store.load()).singleWhere((Playlist p) => p.id == mix.id);
+      expect(stored.name, 'Renamed');
+      expect(stored.trackIds, <String>['b', 'c', 'd', 'a']);
+    });
+
+    test('the server still wins for synced playlists nobody edited', () async {
+      gateway.server = <RemotePlaylistData>[
+        const RemotePlaylistData(
+          remoteId: 'srv-keep',
+          name: 'Keep',
+          trackUris: <String>['subsonic:a'],
+        ),
+        const RemotePlaylistData(
+          remoteId: 'srv-gone',
+          name: 'Gone',
+          trackUris: <String>['subsonic:b'],
+        ),
+      ];
+      await repository.refreshFromRemote();
+      // Changed on the server from another client: renamed + re-membered,
+      // deleted, and created.
+      gateway.server = <RemotePlaylistData>[
+        const RemotePlaylistData(
+          remoteId: 'srv-keep',
+          name: 'Kept',
+          trackUris: <String>['subsonic:a', 'subsonic:c'],
+        ),
+        const RemotePlaylistData(
+          remoteId: 'srv-new',
+          name: 'New',
+          trackUris: <String>['subsonic:d'],
+        ),
+      ];
+
+      await refreshAround(() => repository.createPlaylist('Road trip'));
+
+      for (final List<Playlist> all in <List<Playlist>>[
+        await repository.getAllPlaylists(),
+        await store.load(),
+      ]) {
+        final Playlist kept =
+            all.singleWhere((Playlist p) => p.remoteId == 'srv-keep');
+        expect(kept.name, 'Kept');
+        expect(kept.trackIds, <String>['subsonic:a', 'subsonic:c']);
+        expect(kept.syncState, PlaylistSyncState.synced);
+        expect(all.where((Playlist p) => p.remoteId == 'srv-gone'), isEmpty);
+        expect(
+          all.singleWhere((Playlist p) => p.remoteId == 'srv-new').name,
+          'New',
+        );
+        expect(all.where((Playlist p) => p.name == 'Road trip'), hasLength(1));
+      }
+    });
+
+    test('a synced playlist edited during a refresh keeps the edit', () async {
+      await repository.refreshFromRemote();
+      final Playlist mix = (await repository.getAllPlaylists()).single;
+
+      // The held fetch answered before the add reached the server, so its copy
+      // is older than the edit and must not revert it.
+      await refreshAround(() => repository.addTrack(mix.id, 'subsonic:b'));
+      expect(
+        (await repository.getPlaylistById(mix.id))!.trackIds,
+        <String>['subsonic:a', 'subsonic:b'],
+      );
+
+      // The next refresh sees the pushed edit and agrees.
+      await repository.refreshFromRemote();
+      expect(
+        (await repository.getPlaylistById(mix.id))!.trackIds,
+        <String>['subsonic:a', 'subsonic:b'],
+      );
+    });
+
+    test('a synced playlist deleted during a refresh is not brought back',
+        () async {
+      await repository.refreshFromRemote();
+      final Playlist mix = (await repository.getAllPlaylists()).single;
+
+      await refreshAround(() => repository.deletePlaylist(mix.id));
+
+      expect(gateway.deletedRemoteIds, <String>['srv-1']);
+      expect(await repository.getAllPlaylists(), isEmpty);
+      expect(await store.load(), isEmpty);
+    });
+
+    test('a synced playlist created during a refresh is not dropped', () async {
+      // The held fetch answers from before the create, so it doesn't list it.
+      await refreshAround(
+        () => repository.createPlaylist(
+          'Road trip',
+          source: PlaylistSource.subsonic,
+        ),
+      );
+
+      for (final List<Playlist> all in <List<Playlist>>[
+        await repository.getAllPlaylists(),
+        await store.load(),
+      ]) {
+        final Playlist trip =
+            all.singleWhere((Playlist p) => p.name == 'Road trip');
+        expect(trip.remoteId, 'srv-new-0');
+        expect(trip.syncState, PlaylistSyncState.synced);
+      }
+    });
+
+    test('signing out during a refresh keeps that provider cleared', () async {
+      await repository.refreshFromRemote();
+      final Playlist local = await repository.createPlaylist('Local Mix');
+      gateway.server = <RemotePlaylistData>[
+        ...gateway.server,
+        const RemotePlaylistData(
+          remoteId: 'srv-2',
+          name: 'Another',
+          trackUris: <String>['subsonic:z'],
+        ),
+      ];
+
+      // The gateway stays "connected": the Subsonic one keeps using the session
+      // it captured before sign-out, so only the clear itself can say so.
+      await refreshAround(
+        () => repository.clearRemote(source: PlaylistSource.subsonic),
+      );
+
+      for (final List<Playlist> all in <List<Playlist>>[
+        await repository.getAllPlaylists(),
+        await store.load(),
+      ]) {
+        expect(all, hasLength(1));
+        expect(all.single.id, local.id);
+      }
+    });
+
+    test('a provider that disconnects during a refresh is not imported',
+        () async {
+      final PlaylistSyncResult result = await refreshAround(() async {
+        gateway.connected = false;
+      });
+
+      expect(result.outcome, RemoteSyncOutcome.notConfigured);
+      expect(await repository.getAllPlaylists(), isEmpty);
+      expect(await store.load(), isEmpty);
+    });
+
+    test('a refresh that changes nothing does not rewrite the store', () async {
+      await repository.refreshFromRemote();
+      final int saves = store.saves;
+      final Playlist before = (await repository.getAllPlaylists()).single;
+
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+
+      expect(result.didSync, isTrue);
+      expect(result.playlistCount, 1);
+      expect(store.saves, saves);
+      expect(
+        (await repository.getAllPlaylists()).single,
+        same(before),
+      );
+    });
+
+    test('overlapping refreshes share one fetch', () async {
+      gateway.hold();
+      final Future<PlaylistSyncResult> first = repository.refreshFromRemote();
+      await gateway.fetchStarted;
+      final Future<PlaylistSyncResult> second = repository.refreshFromRemote();
+      await pumpEventQueue();
+      gateway.release();
+
+      final List<PlaylistSyncResult> results =
+          await Future.wait(<Future<PlaylistSyncResult>>[first, second]);
+
+      expect(gateway.fetchCount, 1);
+      for (final PlaylistSyncResult result in results) {
+        expect(result.didSync, isTrue);
+        expect(result.playlistCount, 1);
+      }
+      expect(await repository.getAllPlaylists(), hasLength(1));
+    });
+
+    test('a provider connected after a refresh started gets its own fetch',
+        () async {
+      final _GatedPlaylistGateway jellyfin =
+          _GatedPlaylistGateway(PlaylistSource.jellyfin)
+            ..server = <RemotePlaylistData>[
+              const RemotePlaylistData(
+                remoteId: 'j-1',
+                name: 'Jelly Mix',
+                trackUris: <String>['jellyfin:a'],
+              ),
+            ];
+      gateway.connected = false;
+      repository = SyncedPlaylistRepository(
+        store: store,
+        gateways: <RemotePlaylistGateway>[jellyfin, gateway],
+        idGenerator: () => 'pl-${counter++}',
+        now: () => DateTime(2024, 1, 1),
+      );
+
+      jellyfin.hold();
+      final Future<PlaylistSyncResult> first = repository.refreshFromRemote();
+      await jellyfin.fetchStarted;
+      // Signing in to Navidrome now: the refresh in flight never asked it.
+      gateway.connected = true;
+      final Future<PlaylistSyncResult> second = repository.refreshFromRemote();
+      await pumpEventQueue();
+      jellyfin.release();
+      await first;
+      final PlaylistSyncResult result = await second;
+
+      expect(gateway.fetchCount, 1);
+      expect(result.playlistCount, 2);
+      expect(
+        <String>[
+          for (final Playlist p in await repository.getAllPlaylists()) p.name,
+        ],
+        unorderedEquals(<String>['Jelly Mix', 'Server Mix']),
+      );
+    });
+
+    test(
+        'a refresh for a newly connected provider still applies its newer answer',
+        () async {
+      final _GatedPlaylistGateway jellyfin =
+          _GatedPlaylistGateway(PlaylistSource.jellyfin)
+            ..server = <RemotePlaylistData>[
+              const RemotePlaylistData(
+                remoteId: 'j-1',
+                name: 'One',
+                trackUris: <String>['jellyfin:a'],
+              ),
+              const RemotePlaylistData(
+                remoteId: 'j-2',
+                name: 'Two',
+                trackUris: <String>['jellyfin:b'],
+              ),
+            ];
+      gateway.connected = false;
+      repository = SyncedPlaylistRepository(
+        store: store,
+        gateways: <RemotePlaylistGateway>[jellyfin, gateway],
+        idGenerator: () => 'pl-${counter++}',
+        now: () => DateTime(2024, 1, 1),
+      );
+      await repository.refreshFromRemote();
+
+      // Changed from another client, twice: the first refresh reads the first
+      // change, then the second change lands before the next refresh asks.
+      jellyfin.server = <RemotePlaylistData>[
+        const RemotePlaylistData(
+          remoteId: 'j-1',
+          name: 'One, renamed',
+          trackUris: <String>['jellyfin:a'],
+        ),
+        const RemotePlaylistData(
+          remoteId: 'j-2',
+          name: 'Two, renamed',
+          trackUris: <String>['jellyfin:b'],
+        ),
+      ];
+      jellyfin.hold();
+      final Future<PlaylistSyncResult> first = repository.refreshFromRemote();
+      await jellyfin.fetchStarted;
+      jellyfin.server = <RemotePlaylistData>[
+        const RemotePlaylistData(
+          remoteId: 'j-1',
+          name: 'One, renamed again',
+          trackUris: <String>['jellyfin:a', 'jellyfin:c'],
+        ),
+      ];
+      // Signing in to Navidrome now starts a refresh the first can't serve.
+      gateway.connected = true;
+      final Future<PlaylistSyncResult> second = repository.refreshFromRemote();
+      await pumpEventQueue();
+      jellyfin.release();
+      await first;
+      await second;
+
+      // The first refresh's merge is not an edit by the user: the second,
+      // newer, answer applies over it, deletion included.
+      for (final List<Playlist> all in <List<Playlist>>[
+        await repository.getAllPlaylists(),
+        await store.load(),
+      ]) {
+        final Playlist one =
+            all.singleWhere((Playlist p) => p.remoteId == 'j-1');
+        expect(one.name, 'One, renamed again');
+        expect(one.trackIds, <String>['jellyfin:a', 'jellyfin:c']);
+        expect(all.where((Playlist p) => p.remoteId == 'j-2'), isEmpty);
+        expect(all.where((Playlist p) => p.name == 'Server Mix'), hasLength(1));
+      }
+    });
+
+    test('an older answer landing after a newer one does not undo it',
+        () async {
+      final _GatedPlaylistGateway jellyfin =
+          _GatedPlaylistGateway(PlaylistSource.jellyfin)
+            ..server = <RemotePlaylistData>[
+              const RemotePlaylistData(
+                remoteId: 'j-1',
+                name: 'One',
+                trackUris: <String>['jellyfin:a'],
+              ),
+              const RemotePlaylistData(
+                remoteId: 'j-2',
+                name: 'Two',
+                trackUris: <String>['jellyfin:b'],
+              ),
+            ];
+      gateway.connected = false;
+      repository = SyncedPlaylistRepository(
+        store: store,
+        gateways: <RemotePlaylistGateway>[jellyfin, gateway],
+        idGenerator: () => 'pl-${counter++}',
+        now: () => DateTime(2024, 1, 1),
+      );
+      await repository.refreshFromRemote();
+
+      jellyfin.server = <RemotePlaylistData>[
+        const RemotePlaylistData(
+          remoteId: 'j-1',
+          name: 'One, renamed',
+          trackUris: <String>['jellyfin:a'],
+        ),
+        const RemotePlaylistData(
+          remoteId: 'j-2',
+          name: 'Two, briefly',
+          trackUris: <String>['jellyfin:b'],
+        ),
+      ];
+      jellyfin.hold();
+      final Future<PlaylistSyncResult> first = repository.refreshFromRemote();
+      await jellyfin.fetchStarted;
+      // Renamed again, and the brief rename undone, before the next request.
+      jellyfin.server = <RemotePlaylistData>[
+        const RemotePlaylistData(
+          remoteId: 'j-1',
+          name: 'One, renamed again',
+          trackUris: <String>['jellyfin:a'],
+        ),
+        const RemotePlaylistData(
+          remoteId: 'j-2',
+          name: 'Two',
+          trackUris: <String>['jellyfin:b'],
+        ),
+      ];
+      gateway.connected = true;
+      final Future<PlaylistSyncResult> second = repository.refreshFromRemote();
+      await pumpEventQueue();
+      expect(jellyfin.fetchCount, 3);
+
+      // The newer answer lands first, then the older one.
+      jellyfin.releaseOne(1);
+      await second;
+      jellyfin.release();
+      await first;
+
+      for (final List<Playlist> all in <List<Playlist>>[
+        await repository.getAllPlaylists(),
+        await store.load(),
+      ]) {
+        expect(
+          all.singleWhere((Playlist p) => p.remoteId == 'j-1').name,
+          'One, renamed again',
+        );
+        expect(
+          all.singleWhere((Playlist p) => p.remoteId == 'j-2').name,
+          'Two',
+          reason: 'the newer answer left it as it was, and that still counts',
+        );
+      }
+    });
+
+    test('a refresh after a provider signs out does not wait on it', () async {
+      final _GatedPlaylistGateway jellyfin =
+          _GatedPlaylistGateway(PlaylistSource.jellyfin)
+            ..server = <RemotePlaylistData>[
+              const RemotePlaylistData(
+                remoteId: 'j-1',
+                name: 'Jelly Mix',
+                trackUris: <String>['jellyfin:a'],
+              ),
+            ];
+      repository = SyncedPlaylistRepository(
+        store: store,
+        gateways: <RemotePlaylistGateway>[jellyfin, gateway],
+        idGenerator: () => 'pl-${counter++}',
+        now: () => DateTime(2024, 1, 1),
+      );
+
+      gateway.hold();
+      final Future<PlaylistSyncResult> first = repository.refreshFromRemote();
+      await gateway.fetchStarted;
+      // Signed out of Navidrome while its request is still out, maybe to a
+      // server that will only time out.
+      gateway.connected = false;
+      await repository.clearRemote(source: PlaylistSource.subsonic);
+      PlaylistSyncResult? result;
+      unawaited(
+        repository.refreshFromRemote().then((PlaylistSyncResult r) {
+          result = r;
+        }),
+      );
+      await pumpEventQueue();
+
+      expect(result, isNotNull, reason: 'it did not wait for Navidrome');
+      expect(result!.playlistCount, 1);
+      expect(jellyfin.fetchCount, 2);
+      expect(gateway.fetchCount, 1);
+
+      gateway.release();
+      await first;
+      expect(
+        <String>[
+          for (final Playlist p in await repository.getAllPlaylists()) p.name,
+        ],
+        <String>['Jelly Mix'],
+      );
+    });
+  });
+}
+
+/// An [InMemoryPlaylistStore] that counts writes, so a test can tell a no-op
+/// refresh from one that rewrote the store.
+class _CountingPlaylistStore extends InMemoryPlaylistStore {
+  int saves = 0;
+
+  @override
+  Future<void> save(List<Playlist> playlists) {
+    saves++;
+    return super.save(playlists);
+  }
+}
+
+/// A [RemotePlaylistGateway] whose [fetchPlaylists] can be held mid-flight, so
+/// a test can edit playlists while a refresh waits on the network. The server
+/// list is read when the fetch starts, like a server that answered before the
+/// edit reached it; pushes update it, so a later fetch sees them.
+class _GatedPlaylistGateway implements RemotePlaylistGateway {
+  _GatedPlaylistGateway(this.source);
+
+  @override
+  final PlaylistSource source;
+
+  bool connected = true;
+  List<RemotePlaylistData> server = <RemotePlaylistData>[];
+  int fetchCount = 0;
+  final List<String> deletedRemoteIds = <String>[];
+  int _created = 0;
+
+  bool _holding = false;
+  final List<Completer<void>> _held = <Completer<void>>[];
+  Completer<void> _fetchStarted = Completer<void>();
+
+  /// Holds every fetch from now until [release].
+  void hold() {
+    _holding = true;
+    _fetchStarted = Completer<void>();
+  }
+
+  /// Completes once a fetch has read the server list (and, if held, is
+  /// waiting for [release]).
+  Future<void> get fetchStarted => _fetchStarted.future;
+
+  void release() {
+    _holding = false;
+    for (final Completer<void> held in _held) {
+      if (!held.isCompleted) held.complete();
+    }
+    _held.clear();
+  }
+
+  /// Lets only the [index]th fetch held since [hold] answer.
+  void releaseOne(int index) => _held[index].complete();
+
+  @override
+  bool get isConnected => connected;
+
+  @override
+  bool get pushesRename => true;
+
+  @override
+  bool get pushesReorder => true;
+
+  @override
+  Future<List<RemotePlaylistData>> fetchPlaylists() async {
+    fetchCount++;
+    final List<RemotePlaylistData> answer = List<RemotePlaylistData>.of(server);
+    Completer<void>? gate;
+    if (_holding) _held.add(gate = Completer<void>());
+    if (!_fetchStarted.isCompleted) _fetchStarted.complete();
+    if (gate != null) await gate.future;
+    return answer;
+  }
+
+  @override
+  Future<String> createRemotePlaylist(
+    String name,
+    List<String> trackUris,
+  ) async {
+    final String remoteId = 'srv-new-${_created++}';
+    server = <RemotePlaylistData>[
+      ...server,
+      RemotePlaylistData(remoteId: remoteId, name: name, trackUris: trackUris),
+    ];
+    return remoteId;
+  }
+
+  @override
+  Future<void> syncMembership(
+    String remoteId, {
+    required List<String> orderedTrackUris,
+    required List<String> added,
+    required List<String> removed,
+  }) async {
+    server = <RemotePlaylistData>[
+      for (final RemotePlaylistData p in server)
+        p.remoteId == remoteId
+            ? RemotePlaylistData(
+                remoteId: remoteId,
+                name: p.name,
+                trackUris: List<String>.of(orderedTrackUris),
+              )
+            : p,
+    ];
+  }
+
+  @override
+  Future<void> renameRemote(String remoteId, String name) async {
+    server = <RemotePlaylistData>[
+      for (final RemotePlaylistData p in server)
+        p.remoteId == remoteId
+            ? RemotePlaylistData(
+                remoteId: remoteId,
+                name: name,
+                trackUris: p.trackUris,
+              )
+            : p,
+    ];
+  }
+
+  @override
+  Future<void> deleteRemote(String remoteId) async {
+    deletedRemoteIds.add(remoteId);
+    server = <RemotePlaylistData>[
+      for (final RemotePlaylistData p in server)
+        if (p.remoteId != remoteId) p,
+    ];
+  }
 }
