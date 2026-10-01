@@ -11,8 +11,12 @@
 // server that was never involved.
 //
 // What decides it is where the audio comes from, which the player already
-// knows: an on-device file that cannot be read is a missing file, whatever the
-// engine's words were. Everything else keeps the classification it had.
+// knows: an on-device file that cannot be read is a file problem, whatever the
+// engine's words were. Those words are the same for a file that is gone and
+// one that is there but damaged or cut short, so they can't say which: a path
+// is looked at again when reading it fails, and a document, which can't be,
+// is described as a file that couldn't be read. Everything else keeps the
+// classification it had.
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -214,12 +218,14 @@ void main() {
   JustAudioPlaybackController build({
     PlaybackRecoveryPolicy? automaticRecovery,
     PlayableUriResolver? streamingFallback,
+    LocalFilePresence? localFilePresence,
   }) {
     final JustAudioPlaybackController controller = JustAudioPlaybackController(
       player: engine,
       resolver: resolver,
       streamingFallbackResolver: streamingFallback,
       automaticRecovery: automaticRecovery,
+      localFilePresence: localFilePresence ?? FakeLocalFilePresence.all(),
     )..streamRetryBackoff = Duration.zero;
     addTearDown(controller.dispose);
     controller.stateStream
@@ -246,14 +252,26 @@ void main() {
     expect(state.failure?.canRetry, isTrue);
   }
 
+  /// A document that couldn't be read, when nothing says whether it is gone
+  /// or damaged: a file problem, worded as both, and never claimed missing.
+  void expectUnreadableDocument(PlaybackState state) {
+    expect(state.status, PlaybackStatus.error);
+    expect(state.failure?.kind, PlaybackFailureKind.localFileUnavailable);
+    expect(state.errorMessage, isNot(missingFileWording));
+    expect(state.errorMessage, contains("couldn't read this file"));
+    expect(state.errorMessage, contains('moved or deleted'));
+    expect(state.errorMessage, contains('damaged'));
+    expect(state.failure?.canRetry, isTrue);
+  }
+
   group('an on-device document the engine cannot open', () {
-    test('is reported as a missing file, not as a network problem', () async {
+    test('is a file that could not be read, not a network problem', () async {
       engine.openErrors[_sdCardDocument] = _sourceError();
       final JustAudioPlaybackController controller = build();
 
       await controller.playTracks(<Track>[sdCardTrack]);
 
-      expectMissingFile(controller.state);
+      expectUnreadableDocument(controller.state);
       expect(engine.playCalls, 0);
     });
 
@@ -263,7 +281,7 @@ void main() {
 
       await controller.playTracks(<Track>[mediaStoreTrack]);
 
-      expectMissingFile(controller.state);
+      expectUnreadableDocument(controller.state);
     });
 
     test('says nothing that could be the document or the raw error', () async {
@@ -288,14 +306,15 @@ void main() {
       await controller.playTracks(<Track>[sdCardTrack]);
       await _settle();
 
-      expectMissingFile(controller.state);
+      expectUnreadableDocument(controller.state);
       expect(resolver.calls, <String>[_sdCardDocument]);
       expect(engine.opened, <String>[_sdCardDocument]);
     });
   });
 
   group('an on-device document that stops being readable mid-playback', () {
-    test('ends as a missing file, never as "Reconnecting…"', () async {
+    test('ends as a file that could not be read, never "Reconnecting…"',
+        () async {
       final JustAudioPlaybackController controller = build();
       await startPlaying(controller, sdCardTrack);
       expect(controller.state.source, PlaybackSource.localFile);
@@ -306,7 +325,7 @@ void main() {
       await pumpEventQueue();
 
       expect(statuses, isNot(contains(PlaybackStatus.reconnecting)));
-      expectMissingFile(controller.state);
+      expectUnreadableDocument(controller.state);
       // No reconnect attempt: nothing was re-resolved or re-opened.
       expect(resolver.calls, <String>[_sdCardDocument]);
       expect(engine.opened, <String>[_sdCardDocument]);
@@ -322,7 +341,7 @@ void main() {
       await _settle();
 
       expect(statuses, isNot(contains(PlaybackStatus.reconnecting)));
-      expectMissingFile(controller.state);
+      expectUnreadableDocument(controller.state);
       expect(resolver.calls, <String>[_sdCardDocument]);
     });
 
@@ -331,13 +350,85 @@ void main() {
       await startPlaying(controller, sdCardTrack);
       engine.events.addError(_sourceError());
       await pumpEventQueue();
-      expectMissingFile(controller.state);
+      expectUnreadableDocument(controller.state);
 
       await controller.retryCurrentTrack();
 
       expect(controller.state.status, isNot(PlaybackStatus.error));
       expect(controller.state.source, PlaybackSource.localFile);
       expect(engine.opened, <String>[_sdCardDocument, _sdCardDocument]);
+    });
+  });
+
+  group('an on-device path the engine cannot read', () {
+    const String path = '/music/Album/01.flac';
+    final String fileUri = Uri.file(path).toString();
+    final Track pathTrack = _track(path);
+
+    test('gone by the time it fails: a missing file', () async {
+      engine.openErrors[fileUri] = _sourceError();
+      final FakeLocalFilePresence presence = FakeLocalFilePresence(<String>{});
+      final JustAudioPlaybackController controller =
+          build(localFilePresence: presence);
+
+      await controller.playTracks(<Track>[pathTrack]);
+
+      expectMissingFile(controller.state);
+      expect(presence.probed, <String>[path]);
+    });
+
+    test('still there: a file that cannot be played, not a missing one',
+        () async {
+      // A damaged or truncated file fails with the same "Source error".
+      engine.openErrors[fileUri] = _sourceError();
+      final JustAudioPlaybackController controller = build();
+
+      await controller.playTracks(<Track>[pathTrack]);
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(
+        controller.state.failure?.kind,
+        PlaybackFailureKind.unplayableMedia,
+      );
+      expect(controller.state.errorMessage, isNot(missingFileWording));
+      expect(controller.state.errorMessage, contains('damaged'));
+      expect(controller.state.errorMessage, isNot(contains(path)));
+    });
+
+    test('gone mid-playback: a missing file, never "Reconnecting…"', () async {
+      final FakeLocalFilePresence presence = FakeLocalFilePresence(null);
+      final JustAudioPlaybackController controller =
+          build(localFilePresence: presence);
+      await startPlaying(controller, pathTrack);
+      statuses.clear();
+
+      // The USB drive is pulled while the track plays.
+      presence.present = <String>{};
+      engine.events.addError(_sourceError());
+      await pumpEventQueue();
+
+      expect(statuses, isNot(contains(PlaybackStatus.reconnecting)));
+      expectMissingFile(controller.state);
+      expect(engine.opened, <String>[fileUri]);
+    });
+
+    test('unreadable mid-playback while still there: not called missing',
+        () async {
+      final JustAudioPlaybackController controller = build();
+      await startPlaying(controller, pathTrack);
+      statuses.clear();
+
+      // The file is cut short partway through.
+      engine.events.addError(_sourceError());
+      await pumpEventQueue();
+
+      expect(statuses, isNot(contains(PlaybackStatus.reconnecting)));
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(
+        controller.state.failure?.kind,
+        PlaybackFailureKind.unplayableMedia,
+      );
+      expect(controller.state.errorMessage, isNot(missingFileWording));
     });
   });
 

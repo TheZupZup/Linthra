@@ -23,9 +23,10 @@ enum StreamInterruptionKind {
   /// Never produced by [classifyEngineError], because the engine's words don't
   /// say where the bytes came from: Android reports a file that can't be read
   /// and a stream that dropped with the same "Source error". The player picks
-  /// this kind when the source it has loaded is an on-device file. Not worth a
-  /// quick retry: no connection is involved, and a removed card or a deleted
-  /// file is still gone a second later.
+  /// this kind for an on-device file it has loaded that turns out to be gone,
+  /// or a document that couldn't be read (which can't be checked further).
+  /// Not worth a quick retry: no connection is involved, and a removed card or
+  /// a deleted file is still gone a second later.
   localFileUnavailable,
 }
 

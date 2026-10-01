@@ -53,9 +53,10 @@ class IoLocalFilePresence implements LocalFilePresence {
 /// `content://` documents are deliberately *not* probed: answering "does this
 /// document exist" means a content-resolver round trip through the platform
 /// channel on every single track load, and Android already reports a revoked or
-/// deleted document through the open itself. The player reads that failed open
-/// of an on-device source as this same [missingFile], with the same words, so
-/// it is not mistaken for a stream that dropped.
+/// deleted document through the open itself. The player tells that failed open
+/// apart from a stream that dropped. Since Android words it the same for a
+/// document that is damaged, it reports a document as one that couldn't be
+/// read, and a path that is gone when reading it fails as this [missingFile].
 class LocalPlayableUriResolver implements PlayableUriResolver {
   const LocalPlayableUriResolver({
     LocalFilePresence presence = const IoLocalFilePresence(),
