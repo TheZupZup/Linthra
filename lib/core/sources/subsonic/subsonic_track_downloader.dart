@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../../models/track.dart';
 import '../../services/remote_track_downloader.dart';
 import '../audio_file_extension.dart';
+import '../media_content_type.dart';
 import 'subsonic_stream_source.dart';
 import 'subsonic_track_mapper.dart';
 
@@ -60,8 +61,20 @@ class SubsonicTrackDownloader implements RemoteTrackDownloader {
       final http.StreamedResponse response =
           await _client.send(http.Request('GET', uri)).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        await response.stream.drain<void>();
+        // Cancel the body rather than read it to the end: a server that
+        // stalls, or keeps a chunked body open, would otherwise hold this
+        // download and its slot for good. Same for the refusal below.
+        await response.stream.listen(null).cancel();
         throw StateError('Download failed (HTTP ${response.statusCode}).');
+      }
+      // download.view refuses (no download permission, downloads disabled, a
+      // song deleted since the last sync) with HTTP 200 and a subsonic-response
+      // error document, and a reverse-proxy login page is a 200 too. Cached as
+      // the track, either would be served ahead of the stream and fail every
+      // play, so refuse it on the header, before buffering any of the body.
+      if (MediaContentType.isDocument(response.headers['content-type'])) {
+        await response.stream.listen(null).cancel();
+        throw StateError('Download failed (the server did not send audio).');
       }
 
       final int? total =
@@ -83,8 +96,8 @@ class SubsonicTrackDownloader implements RemoteTrackDownloader {
             AudioFileExtension.forContentType(response.headers['content-type']),
       );
     } on StateError {
-      // Our own friendly, credential-free messages (bad status / not signed in):
-      // surface them as-is.
+      // Our own friendly, credential-free messages (bad status / not audio / not
+      // signed in): surface them as-is.
       rethrow;
     } on Exception {
       // Never rethrow the original error: a ClientException/SocketException (or

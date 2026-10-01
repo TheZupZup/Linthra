@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -154,5 +157,120 @@ void main() {
         expect(error.toString(), isNot(contains('X-Plex-Token')));
       }
     });
+
+    test('refuses a 200 login page instead of saving it as the track',
+        () async {
+      // A reverse-proxy/SSO login page answers 200 text/html; its bytes are
+      // not the audio file and must never be handed back as the download.
+      final uri = Uri.parse(
+        'https://plex.example.com:32400/library/parts/9001/167/file.flac'
+        '?download=1&X-Plex-Token=SECRET-TOKEN',
+      );
+      final source = _FakeDownloadSource(downloadUri: uri);
+      final client = MockClient((request) async {
+        return http.Response(
+          '<!doctype html><html><body>Sign in</body></html>',
+          200,
+          headers: <String, String>{'content-type': 'text/html; charset=utf-8'},
+        );
+      });
+      final downloader = PlexTrackDownloader(() => source, httpClient: client);
+      final List<int> progress = <int>[];
+
+      await expectLater(
+        downloader.fetch(
+          _track,
+          onProgress: (int received, int? total) => progress.add(received),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              startsWith('Plex download failed'),
+              isNot(contains('SECRET-TOKEN')),
+              isNot(contains('X-Plex-Token')),
+              isNot(contains('Sign in')),
+            ),
+          ),
+        ),
+      );
+      // Rejected on the headers alone, before any of the body is buffered.
+      expect(progress, isEmpty);
+    });
+
+    for (final String? contentType in <String?>[
+      'application/octet-stream',
+      'binary/octet-stream',
+      null,
+    ]) {
+      test('keeps accepting a ${contentType ?? 'missing'} content type',
+          () async {
+        final source = _FakeDownloadSource(
+          downloadUri: Uri.parse('https://x/library/parts/1/f?download=1'),
+        );
+        final client = MockClient((request) async {
+          return http.Response.bytes(
+            <int>[1, 2, 3],
+            200,
+            headers: <String, String>{
+              if (contentType != null) 'content-type': contentType,
+            },
+          );
+        });
+
+        final data = await PlexTrackDownloader(() => source, httpClient: client)
+            .fetch(_track);
+
+        expect(data.bytes, <int>[1, 2, 3]);
+      });
+    }
+  });
+
+  group('a refused response whose body never ends', () {
+    // A server that sends the headers and then stalls, or keeps a chunked
+    // body open, must not hold the download (and its scheduler slot) open:
+    // the refusal cancels the body instead of reading it to the end.
+    for (final (String what, int status) in <(String, int)>[
+      ('a 200 login page', 200),
+      ('an error status', 503),
+    ]) {
+      test('fails at once for $what', () async {
+        bool cancelled = false;
+        final StreamController<List<int>> body = StreamController<List<int>>(
+          onCancel: () => cancelled = true,
+        )..add(utf8.encode('<!doctype html><html><body>Sign in'));
+        addTearDown(body.close);
+        final client = MockClient.streaming(
+          (http.BaseRequest request, http.ByteStream _) async =>
+              http.StreamedResponse(
+            body.stream,
+            status,
+            headers: <String, String>{
+              'content-type': 'text/html; charset=utf-8',
+            },
+          ),
+        );
+        final downloader = PlexTrackDownloader(
+          () => _FakeDownloadSource(
+            downloadUri: Uri.parse(
+                'https://plex.example.com:32400/library/parts/9001/167/file.flac'),
+          ),
+          httpClient: client,
+        );
+
+        await expectLater(
+          downloader.fetch(_track).timeout(const Duration(seconds: 5)),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              startsWith('Plex download failed'),
+            ),
+          ),
+        );
+        expect(cancelled, isTrue);
+      });
+    }
   });
 }
