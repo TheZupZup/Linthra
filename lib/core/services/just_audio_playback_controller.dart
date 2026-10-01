@@ -615,8 +615,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         // pauses). Re-reading `isPlaying` on the 2nd event would see the
         // already-paused state and wrongly disarm, so the eventual regain would
         // never resume (the "voice ends and Linthra stays silent" bug).
-        _armTransientResume(
-            _state.isPlaying || _state.isBusy || _resumeAfterTransientLoss);
+        //
+        // Busy is not enough on its own: a track still loading reads busy
+        // after the listener paused it (the old source's paused report is not
+        // this track's), so there their latest intent decides.
+        _armTransientResume(_state.isPlaying ||
+            (_state.isBusy && _playWhenLoaded) ||
+            _resumeAfterTransientLoss);
         // A real transient loss supersedes a duck: clear it so the resume (or a
         // later manual play) is at full volume, never stuck at the duck level.
         _restoreDuckedVolume();
@@ -1342,7 +1347,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _emit(PlaybackState next, {bool force = false}) {
     // Stamp the foreground focus hold on from one place, so no emit path can
     // publish a state that disagrees with the current hold.
-    final PlaybackState stamped = next
+    final PlaybackState stamped = _withCurrentRecoveries(next)
         .withTransientFocusInterruption(_foregroundHeldForFocus)
         // Stamped from one place like the focus hold, so the paths that build a
         // fresh state (an error, a restore) can never publish a stale level.
@@ -1356,6 +1361,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (!force && stamped == _state) return;
     _state = stamped;
     if (!_states.isClosed) _states.add(stamped);
+  }
+
+  /// [next] with its failure's offered recoveries worked out for the queue as
+  /// it is now. The error panel stays up while the listener edits the queue,
+  /// so it should offer Skip once there is something to skip to, and stop once
+  /// there isn't.
+  PlaybackState _withCurrentRecoveries(PlaybackState next) {
+    final PlaybackFailure? failure = next.failure;
+    final Track? track = next.currentTrack;
+    if (failure == null || track == null) return next;
+    final PlaybackFailure current = _refreshedFailure(track, failure);
+    return current == failure ? next : next.copyWith(failure: current);
   }
 
   /// Emits the latest coalesced position. When nothing new has arrived since the
@@ -1855,10 +1872,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _armBufferingWatchdog();
     } else {
       // Reset position/duration up front so the UI doesn't show the previous
-      // track's progress while the new one loads.
+      // track's progress while the new one loads. A reload of the same track
+      // (Retry, or Play on its error) keeps its length and shows where it will
+      // start, so a reload that fails again still knows where the track was.
+      final bool sameTrack = _state.currentTrack?.uri == track.uri;
       _emit(PlaybackState(
         status: PlaybackStatus.loading,
         currentTrack: track,
+        position: startAt,
+        duration: sameTrack ? _state.duration : Duration.zero,
         upNext: _queue.upNext,
         previous: _queue.history,
         hasPrevious: _queue.hasPrevious,
@@ -2597,12 +2619,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // still held would otherwise have the focus regain call play() on whatever
     // source the engine last had, underneath the error.
     if (_resumeAfterTransientLoss) _armTransientResume(false);
+    // Keep where the track stopped: Retry and Play resume from there, as the
+    // failure panel promises, rather than from the top of a half-heard song.
+    final bool sameTrack = _state.currentTrack?.uri == track.uri;
     _emit(PlaybackState(
       status: PlaybackStatus.error,
       currentTrack: track,
       upNext: _queue.upNext,
       previous: _queue.history,
       hasPrevious: _queue.hasPrevious,
+      position: sameTrack ? _state.position : Duration.zero,
+      duration: sameTrack ? _state.duration : Duration.zero,
       shuffleEnabled: _shuffleEnabled,
       repeatMode: _repeatMode,
       failure: failure,

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/playback_failure.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 
@@ -47,6 +48,53 @@ void main() {
               currentTrack: _jelly('101'), upNext: <Track>[_jelly('2')]);
       expect(a, b);
       expect(a.hashCode, b.hashCode);
+    });
+  });
+
+  group('copyWith and the failure', () {
+    const PlaybackFailure failure = PlaybackFailure(
+      kind: PlaybackFailureKind.temporarySource,
+      message: "Couldn't reach your music server.",
+      canRetry: true,
+    );
+    final PlaybackState failed = PlaybackState(
+      status: PlaybackStatus.error,
+      currentTrack: _jelly('1'),
+      position: const Duration(seconds: 42),
+      failure: failure,
+    );
+
+    test('an unrelated change to an error state keeps its failure', () {
+      expect(failed.copyWith(position: Duration.zero).failure, failure);
+      expect(failed.copyWith(shuffleEnabled: true).failure, failure);
+      expect(failed.copyWith(upNext: <Track>[_jelly('2')]).failure, failure);
+    });
+
+    test('leaving the error state drops it', () {
+      expect(failed.copyWith(status: PlaybackStatus.playing).failure, isNull);
+      expect(failed.copyWith(status: PlaybackStatus.loading).failure, isNull);
+    });
+
+    test('another track, even one sharing the bare id, drops it', () {
+      expect(failed.copyWith(currentTrack: _jelly('2')).failure, isNull);
+      expect(failed.copyWith(currentTrack: _sub('1')).failure, isNull);
+    });
+
+    test('a replacement failure can be given explicitly', () {
+      const PlaybackFailure refreshed = PlaybackFailure(
+        kind: PlaybackFailureKind.temporarySource,
+        message: "Couldn't reach your music server.",
+        canRetry: true,
+        canSkip: true,
+      );
+      expect(failed.copyWith(failure: refreshed).failure, refreshed);
+      expect(
+        const PlaybackState(status: PlaybackStatus.playing)
+            .copyWith(failure: refreshed)
+            .failure,
+        isNull,
+        reason: 'a failure only ever rides on an error state',
+      );
     });
   });
 }
