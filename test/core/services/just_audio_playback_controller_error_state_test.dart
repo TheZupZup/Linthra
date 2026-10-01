@@ -218,6 +218,40 @@ void main() {
           reason: 'Retry picks the song up where it stopped, not at 0:00');
     });
 
+    test('a Retry that fails again still keeps where the track stopped',
+        () async {
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: engine, resolver: resolver)
+            ..streamRetryBackoff = Duration.zero;
+      addTearDown(controller.dispose);
+      await controller.playTracks(<Track>[a]);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+      controller.setPositionForTesting(const Duration(seconds: 42));
+      resolver.down.add(a.uri);
+      await controller.handleStreamFailureForTestingAsync(
+        const StreamInterruption(
+          StreamInterruptionKind.networkDropped,
+          'The connection dropped while streaming.',
+          retryable: true,
+        ),
+      );
+      await _settle();
+      expect(controller.state.position, const Duration(seconds: 42));
+
+      // The server is still down for the first Retry.
+      await controller.retryCurrentTrack();
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.failure, isNotNull);
+      expect(controller.state.position, const Duration(seconds: 42),
+          reason: 'the reload that failed again did not start from 0:00');
+
+      resolver.down.clear();
+      await controller.retryCurrentTrack();
+      await _settle();
+      expect(engine.seeks.last, const Duration(seconds: 42));
+    });
+
     test('a track that failed before playing starts from the top', () async {
       final JustAudioPlaybackController controller = await failedOnA();
       expect(controller.state.position, Duration.zero);
