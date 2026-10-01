@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart' hide RepeatMode;
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/dimens.dart';
@@ -6,7 +6,6 @@ import '../../app/shortcuts/shortcut_action.dart';
 import '../../app/shortcuts/shortcut_surface.dart';
 import '../../core/models/playback_failure.dart';
 import '../../core/models/playback_state.dart';
-import '../../core/models/repeat_mode.dart';
 import '../../core/models/track.dart';
 import '../../data/repositories/host_platform_provider.dart';
 import '../../shared/focus/focus_handoff.dart';
@@ -682,14 +681,14 @@ class _LiveControls extends ConsumerWidget {
     // actions), so it replaces the slot instead of squeezing into it.
     final PlaybackFailure? failure = state.failure;
     final PendingAutoSkip? autoSkip = state.autoSkip;
-    // The first failure the next song could get past, while the listener
-    // hasn't said whether Linthra may move on by itself: ask, once. Still
-    // loading counts as "don't know", which never asks.
+    // The first failure an automatic skip could get past (wrapping under
+    // repeat-all, never under repeat-one), while the listener hasn't said
+    // whether Linthra may move on by itself: ask, once. Still loading counts
+    // as "don't know", which never asks.
     final AsyncValue<bool?> autoSkipChoice =
         ref.watch(autoSkipControllerProvider);
     final bool askAboutAutoSkip = failure != null &&
-        failure.canSkip &&
-        state.repeatMode != RepeatMode.one &&
+        failure.canAutoSkip &&
         autoSkipChoice.hasValue &&
         autoSkipChoice.value == null;
     return Column(

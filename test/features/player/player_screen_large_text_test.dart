@@ -35,6 +35,7 @@ const PlaybackState _failed = PlaybackState(
         'connected right now.',
     canRetry: true,
     canSkip: true,
+    canAutoSkip: true,
   ),
 );
 
@@ -121,7 +122,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(allow);
     await tester.pumpAndSettle();
-    expect(controller.skipCount, 1);
+    expect(controller.skippedPastFailed, hasLength(1));
   });
 
   testWidgets('a short, wide window at a large text size scrolls too',

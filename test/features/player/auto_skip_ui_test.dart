@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,7 +26,19 @@ const PlaybackFailure _unreachable = PlaybackFailure(
   message: "Couldn't reach your Jellyfin server.",
   canRetry: true,
   canSkip: true,
+  canAutoSkip: true,
 );
+
+/// Preferences whose automatic-skip save waits on [gate], like a slow disk.
+class _SlowPreferences extends InMemoryPlaybackPreferences {
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<void> setAutoSkipUnplayable(bool value) async {
+    await gate.future;
+    await super.setAutoSkipUnplayable(value);
+  }
+}
 
 PlaybackState _failed({
   PlaybackFailure failure = _unreachable,
@@ -57,8 +71,9 @@ Future<InMemoryPlaybackPreferences> _pumpPlayer(
   FakePlaybackController controller, {
   bool? autoSkip,
   bool settle = true,
+  InMemoryPlaybackPreferences? withPreferences,
 }) async {
-  final InMemoryPlaybackPreferences preferences =
+  final InMemoryPlaybackPreferences preferences = withPreferences ??
       InMemoryPlaybackPreferences(autoSkipUnplayable: autoSkip);
   await tester.pumpWidget(
     ProviderScope(
@@ -119,7 +134,8 @@ void main() {
     testWidgets('does not ask about a failure a skip could not get past',
         (WidgetTester tester) async {
       // Last in the queue, an engine failure, and repeat-one: automatic skip
-      // would not move on from any of these, so it isn't offered.
+      // would not move on from any of these, so the controller says so and it
+      // isn't offered, even where the listener's own Skip still is.
       final List<PlaybackState> states = <PlaybackState>[
         _failed(
           failure: const PlaybackFailure(
@@ -135,7 +151,15 @@ void main() {
             canRetry: true,
           ),
         ),
-        _failed(repeatMode: RepeatMode.one),
+        _failed(
+          repeatMode: RepeatMode.one,
+          failure: const PlaybackFailure(
+            kind: PlaybackFailureKind.temporarySource,
+            message: "Couldn't reach your Jellyfin server.",
+            canRetry: true,
+            canSkip: true,
+          ),
+        ),
       ];
       for (final PlaybackState state in states) {
         await _pumpPlayer(tester, FakePlaybackController(initial: state));
@@ -157,8 +181,52 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(await preferences.autoSkipUnplayable(), isTrue);
-      expect(controller.skipCount, 1,
+      expect(controller.skippedPastFailed, <Track>[_track],
           reason: 'a double tap must not move the queue twice');
+      expect(controller.skipCount, 0,
+          reason: 'the move is the automatic skip, not a plain Next');
+    });
+
+    testWidgets('asks at the end of a repeat-all queue, where a skip wraps',
+        (WidgetTester tester) async {
+      await _pumpPlayer(
+        tester,
+        FakePlaybackController(
+          initial: _failed(
+            repeatMode: RepeatMode.all,
+            failure: const PlaybackFailure(
+              kind: PlaybackFailureKind.temporarySource,
+              message: "Couldn't reach your Jellyfin server.",
+              canRetry: true,
+              canAutoSkip: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byKey(AutoSkipIntroPanel.panelKey), findsOneWidget);
+    });
+
+    testWidgets('Allow moves past the track it was shown for, not a later one',
+        (WidgetTester tester) async {
+      final FakePlaybackController controller =
+          FakePlaybackController(initial: _failed());
+      final _SlowPreferences preferences = _SlowPreferences();
+      await _pumpPlayer(tester, controller, withPreferences: preferences);
+
+      await tester.tap(find.byKey(AutoSkipIntroPanel.allowKey));
+      await tester.pump();
+      // A Next from the car lands while the choice is still being saved.
+      controller.emit(const PlaybackState(
+        status: PlaybackStatus.playing,
+        currentTrack: _next,
+      ));
+      preferences.gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(controller.skippedPastFailed, <Track>[_track],
+          reason: 'only the failed track is moved past; the controller '
+              'checks it is still the one failing');
     });
 
     testWidgets('Not now saves the choice and leaves the usual recoveries',
@@ -290,6 +358,7 @@ void main() {
                 'on may not be connected right now.',
             canRetry: true,
             canSkip: true,
+            canAutoSkip: true,
           ),
         ),
       );

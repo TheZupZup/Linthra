@@ -122,6 +122,7 @@ class PlaybackFailure {
     this.canRetry = false,
     this.canTryAnotherSource = false,
     this.canSkip = false,
+    this.canAutoSkip = false,
   });
 
   /// What broadly went wrong, for the UI to branch on instead of matching text.
@@ -142,6 +143,13 @@ class PlaybackFailure {
 
   /// Whether there is a next track in the queue to move on to.
   final bool canSkip;
+
+  /// Whether an automatic skip would have somewhere to go: the next track
+  /// that hasn't failed, wrapping to the start under repeat-all, and never
+  /// under repeat-one. Wider than [canSkip], which is the listener's own Skip
+  /// and follows the queue as it reads. Not an action of its own: it is what
+  /// decides whether asking about automatic skip can help with this failure.
+  final bool canAutoSkip;
 
   /// The offered recoveries, in the order the UI should show them: the cheapest
   /// and most likely to work first, giving up last. Empty when nothing can be
@@ -166,17 +174,19 @@ class PlaybackFailure {
           other.message == message &&
           other.canRetry == canRetry &&
           other.canTryAnotherSource == canTryAnotherSource &&
-          other.canSkip == canSkip);
+          other.canSkip == canSkip &&
+          other.canAutoSkip == canAutoSkip);
 
   @override
-  int get hashCode =>
-      Object.hash(kind, message, canRetry, canTryAnotherSource, canSkip);
+  int get hashCode => Object.hash(
+      kind, message, canRetry, canTryAnotherSource, canSkip, canAutoSkip);
 
   /// Safe to log: the kind and the flags, never the message (which is fixed
   /// text anyway) and never anything derived from the underlying error.
   @override
   String toString() => 'PlaybackFailure(${kind.name}, '
-      'retry: $canRetry, anotherSource: $canTryAnotherSource, skip: $canSkip)';
+      'retry: $canRetry, anotherSource: $canTryAnotherSource, skip: $canSkip, '
+      'autoSkip: $canAutoSkip)';
 }
 
 /// An automatic move past a track that could not be recovered, counting down.

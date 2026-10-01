@@ -17,9 +17,20 @@ class AutoSkipController extends AsyncNotifier<bool?> {
     return ref.read(playbackPreferencesProvider).autoSkipUnplayable();
   }
 
+  /// Takes effect at once, then saves. A countdown already running must stop
+  /// the moment the listener switches automatic skip off, not when a slow
+  /// write comes back, by which time the skip may have happened. If the save
+  /// fails, the choice goes back to what it was (and the error is rethrown),
+  /// so what playback follows never disagrees with what was stored.
   Future<void> setEnabled(bool value) async {
-    await ref.read(playbackPreferencesProvider).setAutoSkipUnplayable(value);
+    final AsyncValue<bool?> previous = state;
     state = AsyncData<bool?>(value);
+    try {
+      await ref.read(playbackPreferencesProvider).setAutoSkipUnplayable(value);
+    } catch (_) {
+      state = previous;
+      rethrow;
+    }
   }
 }
 

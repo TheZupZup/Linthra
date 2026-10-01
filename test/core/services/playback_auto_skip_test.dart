@@ -338,6 +338,120 @@ void main() {
     });
   });
 
+  group('a countdown whose target goes away', () {
+    test('removing the track it would land on calls it off at once', () async {
+      final JustAudioPlaybackController controller = build();
+      await failA(controller, queue: <Track>[a, b]);
+      expect(controller.state.autoSkip, isNotNull);
+
+      controller.removeFromQueue(0);
+
+      expect(controller.state.autoSkip, isNull,
+          reason: 'no skip is coming, so none may be promised');
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.currentTrack, a);
+      expect(controller.state.failure?.canSkip, isFalse);
+      await _pastCountdown();
+      expect(engine.loaded, isEmpty);
+    });
+
+    test('clearing the queue calls it off at once', () async {
+      final JustAudioPlaybackController controller = build();
+      await failA(controller);
+
+      controller.clearQueue();
+
+      expect(controller.state.autoSkip, isNull);
+      expect(controller.state.status, PlaybackStatus.error);
+      await _pastCountdown();
+      expect(engine.loaded, isEmpty);
+    });
+
+    test('switching to repeat-one calls it off at once', () async {
+      final JustAudioPlaybackController controller = build();
+      await failA(controller);
+
+      controller.setRepeatMode(RepeatMode.one);
+
+      expect(controller.state.autoSkip, isNull);
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.repeatMode, RepeatMode.one);
+      await _pastCountdown();
+      expect(engine.loaded, isEmpty);
+    });
+
+    test('a countdown that still has somewhere to go carries on', () async {
+      final JustAudioPlaybackController controller = build();
+      await failA(controller);
+
+      controller.removeFromQueue(0);
+      expect(controller.state.autoSkip, isNotNull);
+      await _pastCountdown();
+
+      expect(controller.state.currentTrack, c);
+      expect(engine.loaded, <String>[_url(c)]);
+    });
+  });
+
+  group('Allow automatic skip, from the question on a failed track', () {
+    test('a failure says when automatic skip could move on', () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false)
+        ..setRepeatMode(RepeatMode.all);
+      // Last in a repeat-all queue: Skip follows the queue and has nowhere to
+      // go, but an automatic skip wraps to the start.
+      resolver.down.add(c.uri);
+      await controller.playTracks(<Track>[a, b, c], startIndex: 2);
+      await _pastCountdown();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.failure?.canSkip, isFalse);
+      expect(controller.state.failure?.canAutoSkip, isTrue);
+    });
+
+    test('nor under repeat-one, which never moves', () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false)
+        ..setRepeatMode(RepeatMode.one);
+      await failA(controller);
+      await _pastCountdown();
+
+      expect(controller.state.failure?.canSkip, isTrue);
+      expect(controller.state.failure?.canAutoSkip, isFalse);
+    });
+
+    test('moves past the failed track where an automatic skip would go',
+        () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false)
+        ..setRepeatMode(RepeatMode.all);
+      resolver.down.add(c.uri);
+      await controller.playTracks(<Track>[a, b, c], startIndex: 2);
+      await _pastCountdown();
+
+      await controller.skipPastFailedTrack(c);
+      await _settle();
+
+      expect(controller.state.currentTrack, a);
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+      expect(engine.loaded, <String>[_url(a)]);
+    });
+
+    test('does nothing once playback has moved on without it', () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false);
+      await failA(controller);
+      await _pastCountdown();
+      // A Next from a headset lands while the choice is being saved.
+      await controller.skipToNext();
+      await _settle();
+      expect(controller.state.currentTrack, b);
+
+      await controller.skipPastFailedTrack(a);
+      await _settle();
+
+      expect(controller.state.currentTrack, b,
+          reason: 'b is playing fine and nobody gave up on it');
+      expect(engine.loaded, <String>[_url(b)]);
+    });
+  });
+
   group('driving: the media session and car controls', () {
     test('the session stays active through the countdown and follows the move',
         () async {

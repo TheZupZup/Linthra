@@ -138,6 +138,9 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
   Future<void> cancelAutomaticSkip() async {}
 
   @override
+  Future<void> skipPastFailedTrack(Track failed) async {}
+
+  @override
   void setAutomaticSkipEnabled(bool enabled) {}
 
   // Everything below either has no audio to act on or is a mode the UI may set

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
 import '../../../core/models/playback_failure.dart';
+import '../../../core/models/track.dart';
+import '../../../core/services/playback_controller.dart';
 import '../../settings/playback/auto_skip_controller.dart';
 import '../player_providers.dart';
 import 'playback_error_notice.dart';
@@ -150,12 +152,19 @@ class _AutoSkipIntroPanelState extends ConsumerState<AutoSkipIntroPanel> {
 
   /// Saves the choice and gets the music going again past the failed track,
   /// which is what the listener just asked for.
+  ///
+  /// The move is to where an automatic skip would go (wrapping under
+  /// repeat-all), and only past the track this panel was shown for: the save
+  /// can take a moment, and a Next from a headset or the car meanwhile has
+  /// already moved on, so the controller checks before going anywhere.
   Future<void> _allow() async {
     if (_busy) return;
+    final PlaybackController playback = ref.read(playbackControllerProvider);
+    final Track? failed = playback.state.currentTrack;
     setState(() => _busy = true);
     try {
       await ref.read(autoSkipControllerProvider.notifier).setEnabled(true);
-      await ref.read(playbackControllerProvider).skipToNext();
+      if (failed != null) await playback.skipPastFailedTrack(failed);
     } catch (_) {
       // Saving failed, so the panel is still up and must not be left with its
       // buttons disabled. On success they stay disabled until it goes, so a

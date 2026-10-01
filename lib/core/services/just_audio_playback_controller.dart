@@ -1594,6 +1594,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final updated = _queue.removeUpNextAt(upNextIndex);
     if (identical(updated, _queue)) return; // out of range: nothing to do
     _queue = updated;
+    _dropAutoSkipWithoutTarget();
     // Only the up-next list shrank; the current track and its audio are
     // untouched — no reload, no restart.
     _emit(_state.copyWith(upNext: _queue.upNext));
@@ -1742,8 +1743,27 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   @override
+  Future<void> skipPastFailedTrack(Track failed) async {
+    // Only the failure the listener answered. Anything that has happened to
+    // playback since (a Next from a headset, a Retry, a new queue) owns it
+    // now, and moving on again would skip a track nobody gave up on.
+    final PlaybackFailure? failure = _state.failure;
+    if (_state.status != PlaybackStatus.error ||
+        failure == null ||
+        _queue.current?.uri != failed.uri) {
+      return;
+    }
+    StabilityDiagnostics.playbackRecovery('advance:allowed');
+    // The move an automatic skip would make, wrapping under repeat-all. The
+    // streak is kept, so a run of failures from here stays bounded as it would
+    // have been had the skip been allowed all along.
+    await _advancePastFailure(failed, failure, null);
+  }
+
+  @override
   void clearQueue() {
     _queue = _queue.cleared();
+    _dropAutoSkipWithoutTarget();
     // Clearing keeps only the current track, so both the up-next list and the
     // history collapse to empty; the current track's audio is untouched.
     _emit(_state.copyWith(
@@ -1760,6 +1780,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // Reorder in place: the current track keeps playing; only the up-next list
     // (and whether a previous track now exists) changes — no reload.
     _queue = enabled ? _queue.shuffled(_random) : _queue.unshuffled();
+    _dropAutoSkipWithoutTarget();
     _emit(_state.copyWith(
       upNext: _queue.upNext,
       previous: _queue.history,
@@ -1772,6 +1793,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void setRepeatMode(RepeatMode mode) {
     if (mode == _repeatMode) return;
     _repeatMode = mode;
+    _dropAutoSkipWithoutTarget();
     _emit(_state.copyWith(repeatMode: _repeatMode));
   }
 
@@ -2739,10 +2761,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// Moves past [failed] to the position [_automaticAdvanceIndex] names now.
   /// The queue may have been edited while the move was pending, so the target
   /// is read again, and a queue that has nowhere new to go settles instead.
+  ///
+  /// [mayStart] is the automatic step's check (see
+  /// [_scheduleAutomaticRecovery]); null when the listener asked for the move,
+  /// which makes its load a request for sound like any skip they make.
   Future<void> _advancePastFailure(
     Track failed,
     PlaybackFailure failure,
-    bool Function() mayStart,
+    bool Function()? mayStart,
   ) async {
     final int? index = _automaticAdvanceIndex(failed.uri);
     if (index == null) {
@@ -2757,6 +2783,20 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       originalOrder: _queue.originalOrder,
     );
     await _playCurrent(mayStart: mayStart);
+  }
+
+  /// Calls off a countdown whose skip has nowhere left to go: the entries it
+  /// would land on were removed, the queue was cleared, or repeat-one or a
+  /// different order left nothing after the failed track. It settles on the
+  /// failure at once, rather than promising a skip for the whole countdown and
+  /// only then finding there is none. A countdown that still has a target
+  /// carries on, and reads that target again when it runs.
+  void _dropAutoSkipWithoutTarget() {
+    final ({Track track, PlaybackFailure failure})? pending = _pendingRecovery;
+    if (_pendingAutoSkip == null || pending == null) return;
+    if (_automaticAdvanceIndex(pending.track.uri) != null) return;
+    StabilityDiagnostics.playbackRecovery('settled');
+    _cancelAutomaticRecovery(settle: true);
   }
 
   /// Calls off a pending automatic step. With [settle] the failure it was
@@ -2869,6 +2909,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           hasAttemptsLeft &&
           _alternateSourcesFor(track).isNotEmpty,
       canSkip: !engineFailure && _queue.hasNext,
+      canAutoSkip: !engineFailure && _automaticAdvanceIndex(track.uri) != null,
     );
   }
 
