@@ -118,6 +118,7 @@ void main() {
 
   late _JustAudioLikeEngine engine;
   late JustAudioPlaybackController controller;
+  late List<Track> completed;
 
   /// Plays [a, b] through to the end of the queue.
   Future<void> playToTheEnd() async {
@@ -133,9 +134,11 @@ void main() {
 
   setUp(() {
     engine = _JustAudioLikeEngine();
+    completed = <Track>[];
     controller = JustAudioPlaybackController(
       player: engine,
       resolver: _Resolver(),
+      onTrackCompleted: completed.add,
     );
     addTearDown(controller.dispose);
   });
@@ -216,6 +219,42 @@ void main() {
 
     expect(engine.loaded.length, loads);
     expect(controller.state.currentTrack, b);
+  });
+
+  test('a pause after a seek back is a pause, not the track ending again',
+      () async {
+    await playToTheEnd();
+    final int loads = engine.loaded.length;
+    await controller.seek(const Duration(minutes: 1));
+    await _settle();
+
+    // The engine stayed on completed, so its pause re-sends that state.
+    await controller.pause();
+    await _settle();
+    expect(controller.state.status, PlaybackStatus.paused);
+    expect(completed, <Track>[a, b], reason: 'b did not play to its end');
+
+    await controller.play();
+    await _settle();
+
+    expect(engine.loaded.length, loads);
+    expect(controller.state.currentTrack, b);
+  });
+
+  test('a seek back and then to the very end leaves a finished queue',
+      () async {
+    await playToTheEnd();
+    await controller.seek(const Duration(minutes: 1));
+    await _settle();
+    await controller.seek(const Duration(minutes: 3));
+    await _settle();
+
+    await controller.play();
+    await _settle();
+
+    expect(engine.loaded.last, 'file:///music/a',
+        reason: 'Play did nothing: the earlier seek back still counted');
+    expect(controller.state.currentTrack, a);
   });
 
   test('a track that ends again after a seek back is a finished queue again',

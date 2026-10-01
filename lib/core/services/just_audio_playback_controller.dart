@@ -461,10 +461,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// a new load, with a new generation.
   int? _completedSourceGeneration;
 
-  /// The [_playbackGeneration] of the latest seek back into a source that had
-  /// ended. While that seek is still the latest thing that happened, landed
-  /// or not, the source is the listener's to resume, not a finished queue.
-  int? _rewindGeneration;
+  /// The [_engineSourceGeneration] the listener seeked back into after its
+  /// end, and not to its end again since. From the seek on, landed or not,
+  /// the source is theirs to resume, not a finished queue. Null once it ends
+  /// again, and stale as soon as another source goes in.
+  int? _rewoundSourceGeneration;
 
   /// Counts the sources handed to the engine, one per setUrl. A load can
   /// hand over more than one (another copy of the song, or the stream after
@@ -1093,6 +1094,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // is sent again), which must not record the track a second time or move
       // the queue on again.
       if (_completedSourceGeneration == _engineSourceGeneration) return;
+      // A paused engine has not reached an end. One that stayed on completed
+      // across a seek back re-sends that state when paused: the listener
+      // paused the track they went back into, it did not end again.
+      if (_rewoundSourceGeneration == _engineSourceGeneration &&
+          !playerState.playing) {
+        _emit(_state.copyWith(status: PlaybackStatus.paused));
+        return;
+      }
       _completedSourceGeneration = _engineSourceGeneration;
       _onCompleted();
       return;
@@ -1762,7 +1771,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // next failure gets a fresh bounded recovery.
     _startFreshAfterFailures();
     // Any seek back into it has played out: this end is a real one.
-    _rewindGeneration = null;
+    _rewoundSourceGeneration = null;
     // The track that just finished is still current here, before any advance.
     // Record the completed play once, regardless of what plays next.
     final Track? finished = _queue.current;
@@ -2820,11 +2829,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // played, as repeat-all would have. A seek back since the end is not a
     // finished queue, even on an engine that stays on completed across it:
     // that is the listener picking a spot in this track, so resume there.
-    final bool rewound =
-        _completedSourceGeneration != _engineSourceGeneration ||
-            _rewindGeneration == _playbackGeneration;
     if (_state.status == PlaybackStatus.completed &&
-        !rewound &&
+        _rewoundSourceGeneration != _engineSourceGeneration &&
         _queue.current != null) {
       if (_queue.hasNext) {
         await skipToNext();
@@ -2925,9 +2931,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final int source = _engineSourceGeneration;
     final Duration end =
         _state.duration > Duration.zero ? _state.duration : _state.position;
-    final bool rewinds = _completedSourceGeneration == source &&
-        (end == Duration.zero || position < end);
-    if (rewinds) _rewindGeneration = seekGeneration;
+    final bool back = end == Duration.zero || position < end;
+    final bool rewinds = _completedSourceGeneration == source && back;
+    // Where the listener leaves a finished track decides what Play does: a
+    // spot before its end is theirs to resume, and the end itself is a
+    // finished queue again. The latest seek wins, landed or not.
+    if (_state.status == PlaybackStatus.completed ||
+        _rewoundSourceGeneration == source) {
+      _rewoundSourceGeneration = back ? source : null;
+    }
     await _player.seek(position);
     // Only while this seek is still the latest: an older seek back landing
     // after a newer seek to the end must not re-arm it.
