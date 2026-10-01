@@ -32,9 +32,11 @@ class AutoSkipController extends AsyncNotifier<bool?> {
   /// Saves run one at a time, in the order the choices were made, so two
   /// quick taps on the switch store the last one, whichever write is slower.
   /// If the save of the latest choice fails, the choice goes back to what is
-  /// actually stored (and the error is rethrown), so what playback follows
-  /// never disagrees with it. An older choice that failed leaves things to the
-  /// newer one, whose save comes after it.
+  /// actually stored (and the save's error is rethrown), so what playback
+  /// follows never disagrees with it. When even that can't be read, it fails
+  /// closed: off, which stops on a failed track rather than changing songs.
+  /// An older choice that failed leaves things to the newer one, whose save
+  /// comes after it.
   Future<void> setEnabled(bool value) async {
     final int choice = ++_choices;
     state = AsyncData<bool?>(value);
@@ -47,7 +49,12 @@ class AutoSkipController extends AsyncNotifier<bool?> {
       await save;
     } catch (_) {
       if (choice == _choices) {
-        final bool? stored = await preferences.autoSkipUnplayable();
+        bool? stored;
+        try {
+          stored = await preferences.autoSkipUnplayable();
+        } catch (_) {
+          stored = false;
+        }
         if (choice == _choices) state = AsyncData<bool?>(stored);
       }
       rethrow;

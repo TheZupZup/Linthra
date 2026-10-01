@@ -15,10 +15,17 @@ class _Preferences extends InMemoryPlaybackPreferences {
 
   Completer<void>? gate;
   bool fail = false;
+  bool failRead = false;
   final List<Completer<void>?> gates = <Completer<void>?>[];
   final List<bool> failures = <bool>[];
   final List<bool> order = <bool>[];
   int _saves = 0;
+
+  @override
+  Future<bool?> autoSkipUnplayable() async {
+    if (failRead) throw StateError('unreadable');
+    return super.autoSkipUnplayable();
+  }
 
   @override
   Future<void> setAutoSkipUnplayable(bool value) async {
@@ -130,5 +137,27 @@ void main() {
         reason: 'the newer choice was saved; the old failure must not undo '
             'it');
     expect(await preferences.autoSkipUnplayable(), isFalse);
+  });
+
+  test('a failed save that cannot be read back either fails closed', () async {
+    final _Preferences preferences = _Preferences()..fail = true;
+    final (ProviderContainer container, List<bool?> _) = build(preferences);
+    await container.read(autoSkipControllerProvider.future);
+    preferences.failRead = true;
+
+    await expectLater(
+      container.read(autoSkipControllerProvider.notifier).setEnabled(true),
+      throwsA(
+        isA<StateError>().having(
+          (StateError e) => e.message,
+          'message',
+          'disk full',
+        ),
+      ),
+      reason: "the save's own error, not the read's",
+    );
+
+    expect(container.read(autoSkipControllerProvider).value, isFalse,
+        reason: 'not the unsaved choice: off, which only ever stops');
   });
 }

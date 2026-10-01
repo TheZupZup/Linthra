@@ -29,13 +29,16 @@ const PlaybackFailure _unreachable = PlaybackFailure(
   canAutoSkip: true,
 );
 
-/// Preferences whose automatic-skip save waits on [gate], like a slow disk.
+/// Preferences whose automatic-skip save waits on [gate], like a slow disk,
+/// and then fails when [fail] is set.
 class _SlowPreferences extends InMemoryPlaybackPreferences {
   final Completer<void> gate = Completer<void>();
+  bool fail = false;
 
   @override
   Future<void> setAutoSkipUnplayable(bool value) async {
     await gate.future;
+    if (fail) throw StateError('disk full');
     await super.setAutoSkipUnplayable(value);
   }
 }
@@ -207,7 +210,7 @@ void main() {
       expect(find.byKey(AutoSkipIntroPanel.panelKey), findsOneWidget);
     });
 
-    testWidgets('Allow moves on in the same tap, not after a slow save',
+    testWidgets('Allow moves on once the choice is saved',
         (WidgetTester tester) async {
       final FakePlaybackController controller =
           FakePlaybackController(initial: _failed());
@@ -216,22 +219,45 @@ void main() {
 
       await tester.tap(find.byKey(AutoSkipIntroPanel.allowKey));
       await tester.pump();
+      expect(controller.skippedPastFailed, isEmpty, reason: 'not saved yet');
 
-      // The save hasn't come back, and the move has already been asked for:
-      // nothing the listener does from here can be overridden by a late one.
-      expect(controller.skippedPastFailed, <Track>[_track]);
-
-      // A Next from the car lands while the choice is still being saved.
-      controller.emit(const PlaybackState(
-        status: PlaybackStatus.playing,
-        currentTrack: _next,
-      ));
       preferences.gate.complete();
       await tester.pumpAndSettle();
 
-      expect(controller.skippedPastFailed, <Track>[_track],
-          reason: 'once, past the failed track, and nothing after the save');
+      expect(controller.skippedPastFailed, <Track>[_track]);
       expect(await preferences.autoSkipUnplayable(), isTrue);
+    });
+
+    testWidgets('a save that fails moves nothing and asks again',
+        (WidgetTester tester) async {
+      final FakePlaybackController controller =
+          FakePlaybackController(initial: _failed());
+      final _SlowPreferences preferences = _SlowPreferences()..fail = true;
+      await _pumpPlayer(tester, controller, withPreferences: preferences);
+
+      // The panel rethrows the save's error, so it reaches the error zone
+      // rather than vanishing: catch it there.
+      final List<Object> uncaught = <Object>[];
+      await runZonedGuarded(
+        () async {
+          await tester.tap(find.byKey(AutoSkipIntroPanel.allowKey));
+          preferences.gate.complete();
+          await tester.pumpAndSettle();
+        },
+        (Object error, StackTrace _) => uncaught.add(error),
+      );
+      expect(uncaught, <Matcher>[isStateError]);
+
+      expect(controller.skippedPastFailed, isEmpty);
+      expect(await preferences.autoSkipUnplayable(), isNull);
+      expect(find.byKey(AutoSkipIntroPanel.panelKey), findsOneWidget,
+          reason: 'nothing was kept, so the question is still open');
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(AutoSkipIntroPanel.allowKey))
+            .onPressed,
+        isNotNull,
+      );
     });
 
     testWidgets('Not now saves the choice and leaves the usual recoveries',

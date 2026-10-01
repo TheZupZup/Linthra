@@ -108,10 +108,12 @@ abstract interface class PlaybackController {
   /// that hasn't failed, wrapping to the start under repeat-all. The
   /// listener's "allow automatic skip, and go on now".
   ///
-  /// Only while [failed] is still the current track and still failed: a Next,
-  /// a Retry or a new queue that got there first owns playback, and this does
-  /// nothing. Nor does it when there is nowhere to go.
-  Future<void> skipPastFailedTrack(Track failed);
+  /// With [after] (saving that choice), the move waits for it, and doesn't
+  /// happen if it fails, whose error this then throws. Either way it happens
+  /// only if nothing has happened to playback since this call (a Next, a
+  /// Retry, a pause, a new queue) and [failed] is still the current track and
+  /// still failed. Nor does it when there is nowhere to go.
+  Future<void> skipPastFailedTrack(Track failed, {Future<void>? after});
 
   /// Steps back to the previous track in the queue, if any. A no-op when the
   /// current track is the first one.

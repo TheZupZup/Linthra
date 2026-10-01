@@ -382,6 +382,22 @@ void main() {
           reason: 'turning it on later never skips a stopped track');
     });
 
+    test('a held failure whose next track was removed does not count down',
+        () async {
+      final JustAudioPlaybackController controller = untold();
+      await failA(controller, queue: <Track>[a, b]);
+      await _pastCountdown();
+      controller.removeFromQueue(0);
+
+      controller.setAutomaticSkipEnabled(true);
+
+      expect(controller.state.autoSkip, isNull,
+          reason: 'nowhere to go, so no skip may be promised');
+      expect(controller.state.status, PlaybackStatus.error);
+      await _pastCountdown();
+      expect(engine.loaded, isEmpty);
+    });
+
     test('a failure the listener has acted on since stays theirs', () async {
       final JustAudioPlaybackController controller = untold();
       await failA(controller);
@@ -490,6 +506,82 @@ void main() {
       expect(controller.state.currentTrack, a);
       expect(controller.state.status, isNot(PlaybackStatus.error));
       expect(engine.loaded, <String>[_url(a)]);
+    });
+
+    test('waits for the choice to be saved, then moves', () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false);
+      await failA(controller);
+      await _pastCountdown();
+      final Completer<void> saved = Completer<void>();
+
+      final Future<void> moving =
+          controller.skipPastFailedTrack(a, after: saved.future);
+      await _settle();
+      expect(controller.state.currentTrack, a, reason: 'not saved yet');
+      saved.complete();
+      await moving;
+      await _settle();
+
+      expect(controller.state.currentTrack, b);
+      expect(engine.loaded, <String>[_url(b)]);
+    });
+
+    test('a save that fails moves nothing, and says so', () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false);
+      await failA(controller);
+      await _pastCountdown();
+
+      await expectLater(
+        controller.skipPastFailedTrack(
+          a,
+          after: Future<void>.error(StateError('disk full')),
+        ),
+        throwsStateError,
+      );
+      await _settle();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.currentTrack, a);
+      expect(engine.loaded, isEmpty);
+    });
+
+    test('a Retry while the choice is saved is the listener\'s', () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false);
+      await failA(controller);
+      await _pastCountdown();
+      final Completer<void> saved = Completer<void>();
+      final Future<void> moving =
+          controller.skipPastFailedTrack(a, after: saved.future);
+
+      // The panel is gone at once; the listener retries, and it fails again
+      // on the same track.
+      await controller.retryCurrentTrack();
+      await _pastCountdown();
+      expect(controller.state.status, PlaybackStatus.error);
+      saved.complete();
+      await moving;
+      await _settle();
+
+      expect(controller.state.currentTrack, a,
+          reason: 'the late move must not override the Retry');
+      expect(engine.loaded, isEmpty);
+    });
+
+    test('a pause while the choice is saved holds', () async {
+      final JustAudioPlaybackController controller = build(autoSkip: false);
+      await failA(controller);
+      await _pastCountdown();
+      final Completer<void> saved = Completer<void>();
+      final Future<void> moving =
+          controller.skipPastFailedTrack(a, after: saved.future);
+
+      await controller.pause();
+      saved.complete();
+      await moving;
+      await _settle();
+
+      expect(controller.state.currentTrack, a);
+      expect(engine.loaded, isEmpty, reason: 'nothing started after a pause');
     });
 
     test('does nothing once playback has moved on without it', () async {

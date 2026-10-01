@@ -245,6 +245,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// for the failure [_heldForSavedChoice] keeps.
   bool? _automaticSkipEnabled;
 
+  /// How many times the listener has paused. A pause moves no generation on
+  /// (it isn't a transition), but a move waiting on the listener's earlier
+  /// answer must still give way to it (see [skipPastFailedTrack]).
+  int _pauses = 0;
+
   /// What [setAutomaticSkipEnabled] last said, or null before it has said
   /// anything.
   @visibleForTesting
@@ -1761,10 +1766,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   @override
-  Future<void> skipPastFailedTrack(Track failed) async {
-    // Only the failure the listener answered. Anything that has happened to
-    // playback since (a Next from a headset, a Retry, a new queue) owns it
-    // now, and moving on again would skip a track nobody gave up on.
+  Future<void> skipPastFailedTrack(Track failed, {Future<void>? after}) async {
+    // What playback was when the listener answered. A save that fails, or
+    // anything the listener does while it runs (a Retry, a pause, a skip, a
+    // new queue, a Next from a headset), means the move is no longer theirs to
+    // make: it would override what they did, or go ahead on a choice that
+    // wasn't kept.
+    final int generation = _playbackGeneration;
+    final int pauses = _pauses;
+    if (after != null) await after;
+    if (generation != _playbackGeneration || pauses != _pauses) return;
     final PlaybackFailure? failure = _state.failure;
     if (_state.status != PlaybackStatus.error ||
         failure == null ||
@@ -1848,7 +1859,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         held.generation == _playbackGeneration &&
         _playWhenLoaded &&
         _state.status == PlaybackStatus.error &&
-        _queue.current?.uri == held.track.uri) {
+        _queue.current?.uri == held.track.uri &&
+        // The queue may have been edited while the choice was read: a
+        // countdown with nowhere to go would only promise a skip.
+        _automaticAdvanceIndex(held.track.uri) != null) {
       StabilityDiagnostics.playbackRecovery('advance');
       _scheduleAutomaticRecovery(
         held.track,
@@ -3113,6 +3127,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   @override
   Future<void> pause() {
+    _pauses++;
     // A track still loading has nothing in the engine to pause yet: this is
     // what stops it starting when it lands.
     _playWhenLoaded = false;

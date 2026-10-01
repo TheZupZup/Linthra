@@ -213,11 +213,13 @@ class FakePlaybackController implements LocalPlaybackController {
     cancelAutoSkipCount++;
   }
 
-  /// The tracks [skipPastFailedTrack] was asked to move past, in order.
+  /// The tracks [skipPastFailedTrack] moved past, in order: recorded once
+  /// what it was told to wait for has succeeded, as the real one moves.
   final List<Track> skippedPastFailed = <Track>[];
 
   @override
-  Future<void> skipPastFailedTrack(Track failed) async {
+  Future<void> skipPastFailedTrack(Track failed, {Future<void>? after}) async {
+    await after;
     skippedPastFailed.add(failed);
   }
 

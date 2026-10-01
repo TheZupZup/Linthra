@@ -154,10 +154,11 @@ class _AutoSkipIntroPanelState extends ConsumerState<AutoSkipIntroPanel> {
   /// which is what the listener just asked for.
   ///
   /// The move is to where an automatic skip would go (wrapping under
-  /// repeat-all), past the track this panel was shown for, and it starts in
-  /// this same tap, alongside the choice taking effect. Waiting for the save
-  /// first would leave a window in which the listener, with the panel already
-  /// gone, could Retry, pause or skip, and a late move would override them.
+  /// repeat-all), past the track this panel was shown for. It waits for the
+  /// choice to be saved, so a save that fails moves nothing, and the
+  /// controller takes its snapshot of playback in this same tap, so anything
+  /// the listener does while the save runs (a Retry, a pause, a skip, with
+  /// the panel already gone) wins over the late move.
   Future<void> _allow() async {
     if (_busy) return;
     final PlaybackController playback = ref.read(playbackControllerProvider);
@@ -166,10 +167,12 @@ class _AutoSkipIntroPanelState extends ConsumerState<AutoSkipIntroPanel> {
     final Track? failed = playback.state.currentTrack;
     setState(() => _busy = true);
     try {
-      await Future.wait<void>(<Future<void>>[
-        if (failed != null) playback.skipPastFailedTrack(failed),
-        choice.setEnabled(true),
-      ]);
+      final Future<void> saving = choice.setEnabled(true);
+      if (failed == null) {
+        await saving;
+      } else {
+        await playback.skipPastFailedTrack(failed, after: saving);
+      }
     } catch (_) {
       // Saving failed, so the panel is still up and must not be left with its
       // buttons disabled. On success they stay disabled until it goes, so a

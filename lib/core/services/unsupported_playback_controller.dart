@@ -138,7 +138,11 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
   Future<void> cancelAutomaticSkip() async {}
 
   @override
-  Future<void> skipPastFailedTrack(Track failed) async {}
+  Future<void> skipPastFailedTrack(Track failed, {Future<void>? after}) async {
+    // Nothing plays here, so there is nothing to move past; a save it was
+    // told to wait for still reports how it went.
+    await after;
+  }
 
   @override
   void setAutomaticSkipEnabled(bool enabled) {}

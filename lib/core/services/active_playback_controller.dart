@@ -308,8 +308,8 @@ class ActivePlaybackController implements PlaybackController {
   Future<void> cancelAutomaticSkip() => _local.cancelAutomaticSkip();
 
   @override
-  Future<void> skipPastFailedTrack(Track failed) =>
-      _local.skipPastFailedTrack(failed);
+  Future<void> skipPastFailedTrack(Track failed, {Future<void>? after}) =>
+      _local.skipPastFailedTrack(failed, after: after);
 
   @override
   void clearQueue() => _local.clearQueue();
