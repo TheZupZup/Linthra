@@ -326,8 +326,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(client.hanging, hasLength(1));
 
-      // Meanwhile the listener signs in through the server's public address,
-      // which answers.
+      // Meanwhile the listener signs out and back in through the server's
+      // public address, which answers.
+      await c.read(jellyfinSettingsControllerProvider.notifier).clear();
       final bool signedIn =
           await c.read(jellyfinSettingsControllerProvider.notifier).signIn(
                 url: 'https://music.example.com',
