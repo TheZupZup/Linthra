@@ -387,9 +387,9 @@ void main() {
           LinthraDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
 
-      // onCreate's createAll() includes every entity declared on the table,
-      // the index among them -- unlike an upgrade, which needs the explicit
-      // v3 -> v4 step because createTable alone does not.
+      // onCreate creates every entity declared on the table, the index
+      // among them -- unlike an upgrade, which needs the explicit v3 -> v4
+      // step because createTable alone does not.
       await db.select(db.tracks).get();
       expect(await _hasSourceIdIndex(db), isTrue);
     });
@@ -585,6 +585,73 @@ void main() {
           );
 
       expect(await db.select(db.tracks).get(), hasLength(2));
+    });
+  });
+
+  group('a first launch cut off before its version was recorded', () {
+    // Drift writes the schema version only after onCreate returns, and none
+    // of it is one transaction. A first launch killed in between, or out of
+    // disk, leaves schema in the file at user_version 0, so the next launch
+    // runs onCreate again over it.
+    late Directory dir;
+    late File file;
+
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('linthra_db_');
+      file = File('${dir.path}/linthra.sqlite');
+    });
+
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    /// The next launch, over the file as the cut left it: the schema created
+    /// up to [indexCreated], and no version.
+    Future<LinthraDatabase> relaunchAfterTheCut({
+      required bool indexCreated,
+    }) async {
+      final LinthraDatabase first =
+          LinthraDatabase.forTesting(NativeDatabase(file));
+      await first.select(first.tracks).get();
+      await first.close();
+
+      final LinthraDatabase db = LinthraDatabase.forTesting(
+        NativeDatabase(
+          file,
+          setup: (sqlite) {
+            if (!indexCreated) sqlite.execute('DROP INDEX tracks_source_id;');
+            sqlite.execute('PRAGMA user_version = 0;');
+          },
+        ),
+      );
+      addTearDown(db.close);
+      return db;
+    }
+
+    Future<void> expectALibraryThatWorks(LinthraDatabase db) async {
+      expect(await db.select(db.tracks).get(), isEmpty);
+      await db.into(db.tracks).insert(
+            TracksCompanion.insert(
+              id: '/music/one.mp3',
+              sourceId: 'local',
+              title: 'One',
+              uri: '/music/one.mp3',
+              fileSizeBytes: const Value(4096),
+            ),
+          );
+      expect(await db.select(db.tracks).get(), hasLength(1));
+      expect(await _hasSourceIdIndex(db), isTrue);
+      expect(await _userVersion(db), 5);
+    }
+
+    test('after the whole schema was created', () async {
+      await expectALibraryThatWorks(
+        await relaunchAfterTheCut(indexCreated: true),
+      );
+    });
+
+    test('between the table and its index', () async {
+      await expectALibraryThatWorks(
+        await relaunchAfterTheCut(indexCreated: false),
+      );
     });
   });
 }
