@@ -207,6 +207,10 @@ final remoteCacheResolverProvider = Provider<RemoteCacheResolver>((ref) {
   return RemoteCacheResolver(
     inner: ref.watch(remoteSourceRouterProvider),
     cache: ref.watch(remotePlaybackCacheProvider),
+    // A warmed URL carries the credentials of the account it was minted for:
+    // it is only served while that account is still the one signed in. Read
+    // live at each play.
+    accountScopeOf: (Track track) => _accountKeyForTrack(ref, track),
   );
 });
 
@@ -221,6 +225,9 @@ final remoteStreamPrebuffererProvider =
     // cache's knowledge survives a restart. Best-effort and never on the
     // playback path; only the opaque key is stored, never the stream URL.
     index: ref.watch(remoteCacheIndexProvider),
+    // Each warm is stamped with the account it was minted for, and dropped
+    // if that account signs out or changes while it resolves.
+    accountScopeOf: (Track track) => _accountKeyForTrack(ref, track),
   );
 });
 
