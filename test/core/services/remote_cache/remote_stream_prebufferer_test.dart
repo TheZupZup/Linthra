@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/playable_uri_resolver.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_entry.dart';
 import 'package:linthra/core/services/remote_cache/remote_cache_index.dart';
 import 'package:linthra/core/services/remote_cache/remote_cache_key.dart';
 import 'package:linthra/core/services/remote_cache/remote_cache_record.dart';
@@ -16,6 +18,20 @@ Track _plex(String id) => Track(id: id, title: id, uri: 'plex:$id');
 Track _local(String id) => Track(id: id, title: id, uri: '/music/$id.mp3');
 Track _saf(String id) =>
     Track(id: id, title: id, uri: 'content://media/external/audio/media/$id');
+
+/// Mints a URL like [FakeStreamResolver], but runs [onResolve] first: the
+/// account signing out while the warm is resolving.
+class _SigningOutResolver extends FakeStreamResolver {
+  _SigningOutResolver({required this.onResolve});
+
+  final void Function() onResolve;
+
+  @override
+  Future<ResolvedPlayable> resolve(Track track) {
+    onResolve();
+    return super.resolve(track);
+  }
+}
 
 void main() {
   final DateTime now = DateTime(2026, 1, 1, 12, 0, 0);
@@ -34,6 +50,60 @@ void main() {
 
       expect(inner.resolved, <String>['a']);
       expect(cache.contains(RemoteCacheKey.forUri('jellyfin:a')!, now), isTrue);
+    });
+
+    test('stamps each warm with the account it was minted for', () async {
+      final FakeStreamResolver inner = FakeStreamResolver();
+      final RemotePlaybackCache cache = RemotePlaybackCache();
+      await RemoteStreamPrebufferer(
+        resolver: inner,
+        cache: cache,
+        accountScopeOf: (Track _) => 'jellyfin:alice',
+      ).preload(_jellyfin('a'));
+
+      final RemoteCacheEntry? entry =
+          cache.peek(RemoteCacheKey.forTrack(_jellyfin('a'))!, DateTime.now());
+      expect(entry?.accountScope, 'jellyfin:alice');
+    });
+
+    test('a track warm for another account is warmed again for this one',
+        () async {
+      String? signedIn = 'jellyfin:alice';
+      final FakeStreamResolver inner = FakeStreamResolver();
+      final RemotePlaybackCache cache = RemotePlaybackCache();
+      final RemoteStreamPrebufferer prebufferer = RemoteStreamPrebufferer(
+        resolver: inner,
+        cache: cache,
+        accountScopeOf: (Track _) => signedIn,
+      );
+
+      await prebufferer.preload(_jellyfin('a'));
+      await prebufferer.preload(_jellyfin('a')); // still warm: no resolve
+      expect(inner.resolved, <String>['a']);
+
+      signedIn = 'jellyfin:bob';
+      await prebufferer.preload(_jellyfin('a'));
+
+      expect(inner.resolved, <String>['a', 'a']);
+      final RemoteCacheEntry? entry =
+          cache.peek(RemoteCacheKey.forTrack(_jellyfin('a'))!, DateTime.now());
+      expect(entry?.accountScope, 'jellyfin:bob');
+    });
+
+    test('a warm whose account changes while it resolves is not stored',
+        () async {
+      String? signedIn = 'jellyfin:alice';
+      final _SigningOutResolver inner =
+          _SigningOutResolver(onResolve: () => signedIn = null);
+      final RemotePlaybackCache cache = RemotePlaybackCache();
+
+      await RemoteStreamPrebufferer(
+        resolver: inner,
+        cache: cache,
+        accountScopeOf: (Track _) => signedIn,
+      ).preload(_jellyfin('a'));
+
+      expect(cache.length, 0);
     });
 
     test('routes Jellyfin, Plex and Subsonic tracks (all are cached)',
