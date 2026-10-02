@@ -84,6 +84,7 @@ List<Override> productionApplicationOverrides({
     remoteTrackDownloaderOverride,
     playbackCandidateSourceOverride,
     currentlyPlayingTrackOverride,
+    downloadAccountScopeOverride,
     nowPlayingOverride,
     secureJellyfinSessionStoreOverride,
     jellyfinAvailabilityPollOverride,

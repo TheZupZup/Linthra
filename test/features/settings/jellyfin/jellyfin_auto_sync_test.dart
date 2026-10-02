@@ -112,6 +112,9 @@ class _SpyDownloadRepository implements DownloadRepository {
 
   @override
   Future<List<String>> downloadedTrackKeys() async => const <String>[];
+
+  @override
+  Future<void> retryHeldDownloads() async {}
 }
 
 ProviderContainer _container({
