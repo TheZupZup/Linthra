@@ -21,6 +21,7 @@ class RemoteCacheEntry {
     required this.source,
     required this.resolvedAt,
     required this.expiresAt,
+    this.accountScope,
   });
 
   /// The credential-free identity of the cached track.
@@ -40,6 +41,13 @@ class RemoteCacheEntry {
 
   /// When it goes stale and must not be reused.
   final DateTime expiresAt;
+
+  /// The non-secret identity of the account [streamUri] was minted for
+  /// (`jellyfin:<fingerprint>`, …), or null where no account is tracked. The
+  /// URL carries that account's credentials, so it may only be served while
+  /// the same account is signed in: never after a sign-out, and never to
+  /// another account on the same server. A hash, never a token.
+  final String? accountScope;
 
   /// Whether the entry is still within its freshness window at [now].
   bool isFresh(DateTime now) => now.isBefore(expiresAt);

@@ -207,6 +207,10 @@ final remoteCacheResolverProvider = Provider<RemoteCacheResolver>((ref) {
   return RemoteCacheResolver(
     inner: ref.watch(remoteSourceRouterProvider),
     cache: ref.watch(remotePlaybackCacheProvider),
+    // A warmed URL carries the credentials of the account it was minted for:
+    // it is only served while that account is still the one signed in. Read
+    // live at each play.
+    accountScopeOf: (Track track) => _accountKeyForTrack(ref, track),
   );
 });
 
@@ -221,6 +225,9 @@ final remoteStreamPrebuffererProvider =
     // cache's knowledge survives a restart. Best-effort and never on the
     // playback path; only the opaque key is stored, never the stream URL.
     index: ref.watch(remoteCacheIndexProvider),
+    // Each warm is stamped with the account it was minted for, and dropped
+    // if that account signs out or changes while it resolves.
+    accountScopeOf: (Track track) => _accountKeyForTrack(ref, track),
   );
 });
 
@@ -532,6 +539,15 @@ final remoteControlActivatorProvider = Provider<RemoteControlActivator>((ref) {
 final currentlyPlayingTrackOverride =
     currentlyPlayingTrackProvider.overrideWith(
   (ref) => () => ref.read(playbackControllerProvider).state.currentTrack,
+);
+
+/// Production binding: binds each download to the account its provider was
+/// signed in with when it was asked for, using the same account key as smart
+/// pre-cache, so a download waiting for Wi-Fi or a slot is never fetched with
+/// another account's session. Read live at each check. Applied in `main`;
+/// tests keep the data-layer default (one account).
+final downloadAccountScopeOverride = downloadAccountScopeProvider.overrideWith(
+  (ref) => (Track track) => _accountKeyForTrack(ref, track),
 );
 
 /// Production binding: drives the now-playing indicator on every track row from

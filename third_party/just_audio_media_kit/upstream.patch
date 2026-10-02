@@ -45,7 +45,27 @@
  
 --- a/lib/mediakit_player.dart
 +++ b/lib/mediakit_player.dart
-@@ -61,6 +61,13 @@
+@@ -2,6 +2,7 @@
+ 
+ import 'dart:async';
+ 
++import 'package:flutter/services.dart';
+ import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+ import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
+ import 'package:logging/logging.dart';
+@@ -38,6 +39,11 @@
+   String? _errorMessage;
+   Completer<Duration?>? _loadCompleter;
+ 
++  /// The uris, as libmpv names them, of what the load in progress opened, so
++  /// an open failure libmpv reports can be matched to this load and not to one
++  /// it replaced.
++  Set<String> _loadingUris = const <String>{};
++
+   /// The index that's currently playing
+   int _currentIndex = 0;
+ 
+@@ -61,6 +67,13 @@
        ready: () => _readyCompleter.complete(),
      ));
  
@@ -59,7 +79,97 @@
      if (JustAudioMediaKit.prefetchPlaylist) {
        setProperty(_player, 'prefetch-playlist', 'yes');
      }
-@@ -390,6 +397,8 @@
+@@ -142,6 +155,7 @@
+         _updatePlaybackEvent();
+       }),
+       _player.stream.error.listen((error) {
++        _failPendingLoad(error);
+         final errorUri = RegExp(r'Failed to open (.*)\.').firstMatch(error)?[1];
+         if (errorUri == null || errorUri == _currentMedia?.uri) {
+           _processingState = ProcessingStateMessage.idle;
+@@ -171,7 +185,8 @@
+       }),
+       _player.stream.log.listen((event) {
+         // ignore: avoid_print
+-        print("MPV: [${event.level}] ${event.prefix}: ${event.text}");
++        print("MPV: [${event.level}] ${event.prefix}: "
++            "${redactLogText(event.text)}");
+       }),
+     ];
+   }
+@@ -224,11 +239,57 @@
+     ));
+   }
+ 
++  /// [text] from a libmpv log line with every URL in it replaced by `<url>`.
++  ///
++  /// libmpv names the source in its errors (`Failed to open <url>.`), and a
++  /// stream URL carries the account's credentials in its query. These lines
++  /// go to stdout, which a desktop session writes to the system journal, so
++  /// no URL may appear in one.
++  static String redactLogText(String text) =>
++      text.replaceAll(_urlInLog, '<url>');
++
++  static final RegExp _urlInLog = RegExp(r'[a-zA-Z][a-zA-Z0-9+.-]*://\S*');
++
++  /// Fails the load in progress when libmpv reports it can't be opened.
++  ///
++  /// libmpv reports a source it cannot open (a missing file, an HTTP error, a
++  /// refused connection) or a file it cannot recognize only as an error log
++  /// and an idle core. Neither moves `buffering` back to false, which is the
++  /// only thing that completes [_loadCompleter], so without this [load] (and
++  /// with it just_audio's `setUrl`) never returns at all.
++  ///
++  /// The error carries fixed text, never libmpv's: libmpv's names the file, or
++  /// the full stream URL with whatever credentials it holds. "Failed to open"
++  /// counts only for a uri this load opened, so a late report about a source
++  /// it replaced can't fail it. "Failed to recognize file format" names no
++  /// source, so it counts only once this load's open has returned, after the
++  /// one it replaced was stopped.
++  void _failPendingLoad(String error) {
++    final Completer<Duration?>? pending = _loadCompleter;
++    if (pending == null || pending.isCompleted) return;
++    final String? failedUri =
++        RegExp(r'^Failed to open (.*)\.$').firstMatch(error)?[1];
++    final String message;
++    if (failedUri != null && _loadingUris.contains(failedUri)) {
++      message = 'Source error';
++    } else if (error == 'Failed to recognize file format.' && _mediaOpened) {
++      message = 'Unsupported audio: the file format was not recognized';
++    } else {
++      return;
++    }
++    pending.completeError(
++      PlatformException(code: '$kErrorCode', message: message),
++    );
++  }
++
+   @override
+   Future<LoadResponse> load(LoadRequest request) async {
+     _logger.finest('load(${request.toMap()})');
+     _mediaOpened = false;
+     _loadCompleter = Completer();
++    // A failure can land while open() is still running, before anything
++    // awaits the completer; it is still delivered to the await below.
++    _loadCompleter!.future.ignore();
+     _currentIndex = request.initialIndex ?? 0;
+     _bufferedPosition = Duration.zero;
+     _position = Duration.zero;
+@@ -244,11 +305,13 @@
+       final playable = Playlist(
+           audioSource.children.map(_convertAudioSourceIntoMediaKit).toList(),
+           index: _currentIndex);
++      _loadingUris = {for (final media in playable.medias) media.uri};
+ 
+       await _player.open(playable, play: _playing);
+     } else {
+       final playable =
+           _convertAudioSourceIntoMediaKit(request.audioSourceMessage);
++      _loadingUris = {playable.uri};
+       _logger.finest('playable is ${playable.toString()}');
+       await _player.open(playable, play: _playing);
+     }
+@@ -390,6 +453,8 @@
    /// Release the resources used by this player.
    Future<void> release() async {
      _logger.info('releasing player resources');

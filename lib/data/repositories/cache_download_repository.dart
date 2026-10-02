@@ -43,7 +43,16 @@ import '../../core/services/track_prefetcher.dart';
 ///    always, on mobile data only when the user turned on "Allow mobile data",
 ///    and never while offline. When the connection isn't allowed the request is
 ///    queued (not run) and [requestDownload] reports why, so the UI can prompt
-///    the user instead of failing silently.
+///    the user instead of failing silently. A held request is asked again
+///    whenever `networkChanges` reports a new connection, and when the
+///    listener changes the policy ([retryHeldDownloads]), so it starts by
+///    itself once it may, instead of sitting at "queued" for good.
+///  - **Fetched with the account that asked.** A request remembers the
+///    account its provider was signed in with (`accountScopeOf`). If that
+///    account signs out or another takes its place while the request waits
+///    (held by the network policy, or queued for a slot), it is dropped rather
+///    than fetched with the new session, which would download another
+///    account's item, or nothing, under this track.
 ///  - **Stays under the cache limit.** Before writing a remote download, the
 ///    policy evicts least-recently-used, unpinned, not-currently-playing tracks
 ///    to make room; if it still won't fit, the download is refused with a
@@ -74,6 +83,8 @@ class CacheDownloadRepository
     Track? Function()? currentlyPlayingTrack,
     DateTime Function()? now,
     Future<List<Track>> Function()? catalogForMigration,
+    Stream<NetworkStatus>? networkChanges,
+    String? Function(Track track)? accountScopeOf,
   })  : _store = store,
         _files = files,
         _downloader = downloader,
@@ -83,7 +94,18 @@ class CacheDownloadRepository
         _scheduler = scheduler ?? DownloadScheduler(),
         _currentlyPlayingTrack = currentlyPlayingTrack,
         _now = now ?? DateTime.now,
-        _catalogForMigration = catalogForMigration;
+        _catalogForMigration = catalogForMigration,
+        _accountScopeOf = accountScopeOf {
+    // Followed from the start rather than from the first hold: a change that
+    // lands while the first request is still asking the policy has to be
+    // counted too (see [_networkChangeCount]).
+    _networkSubscription = networkChanges?.listen(
+      _onNetworkChange,
+      // A connectivity stream that fails only means no automatic start; a
+      // fresh request or a policy change still asks again.
+      onError: (Object _, StackTrace __) {},
+    );
+  }
 
   final DownloadStore _store;
   final OfflineFileStore _files;
@@ -113,6 +135,31 @@ class CacheDownloadRepository
   /// music library.
   final Future<List<Track>> Function()? _catalogForMigration;
 
+  /// The non-secret identity of the account [track]'s provider is signed in
+  /// with right now (`jellyfin:<fingerprint>`, …), or null when signed out or
+  /// not wired (tests and dev, where every request counts as one account).
+  final String? Function(Track track)? _accountScopeOf;
+
+  /// Follows the `networkChanges` stream, which reports each change of
+  /// connection so downloads the network policy held back can be asked again.
+  /// Null where the platform has no live network status: held downloads then
+  /// wait for [retryHeldDownloads] or a fresh request.
+  StreamSubscription<NetworkStatus>? _networkSubscription;
+
+  /// Bumped on every connection change. A request notes it before asking the
+  /// network policy, so a change that lands while the answer is on its way
+  /// (and so found nothing held yet) still gets the request asked again.
+  int _networkChangeCount = 0;
+
+  bool _disposed = false;
+
+  /// Remote requests the network policy is holding back, by cache key, with
+  /// the account each was asked under. Their rows read "queued" and they are
+  /// asked again on every connection change and by [retryHeldDownloads].
+  /// In memory only: after a restart they read as not downloaded again.
+  final Map<String, ({Track track, String? scope})> _held =
+      <String, ({Track track, String? scope})>{};
+
   final Map<String, DownloadStatus> _statuses = <String, DownloadStatus>{};
 
   /// The durable cache references, loaded once and kept in sync with the store,
@@ -120,25 +167,24 @@ class CacheDownloadRepository
   /// usage is cheap to total.
   final Map<String, CachedTrack> _downloads = <String, CachedTrack>{};
 
-  /// Track ids with a user download in flight (queued for a slot or actively
-  /// fetching). Reserved synchronously at the start of [requestDownload] so two
-  /// rapid taps — or two callers — can never start the same fetch twice.
-  final Set<String> _inFlight = <String>{};
+  /// The user download in flight for each track (queued for a slot or
+  /// actively fetching). Reserved synchronously at the start of
+  /// [requestDownload] so two rapid taps — or two callers — can never start the
+  /// same fetch twice.
+  final Map<String, _CacheOperation> _inFlight = <String, _CacheOperation>{};
 
-  /// Track ids whose bytes are being pre-cached right now. Reserved
+  /// The pre-cache fetching each track's bytes right now. Reserved
   /// synchronously at the start of [prefetch] so two concurrent prefetches of
   /// the same track can't both spend network fetching it. Kept separate from
   /// [_inFlight] so a preload never makes a user [requestDownload] think the
   /// track is already a download.
-  final Set<String> _preloading = <String>{};
-
-  /// Track ids whose in-flight fetch must NOT commit, because the user removed
-  /// or cleared the download while its bytes were still downloading. Checked at
-  /// commit time so a late fetch can't resurrect a cancelled download or leave a
-  /// stray file behind, and before a queued download takes its slot so it
-  /// isn't fetched at all. A fresh [requestDownload] clears any stale entry,
-  /// and the cancelled request's own cleanup drops it once handled.
-  final Set<String> _canceled = <String>{};
+  ///
+  /// A download and a pre-cache of the same track can be in flight together (a
+  /// download tapped while that track is being pre-cached). Each has its own
+  /// [_CacheOperation], so a removal or a clear marks exactly the operations
+  /// running when it lands, and one operation finishing can never consume the
+  /// cancellation meant for the other.
+  final Map<String, _CacheOperation> _preloading = <String, _CacheOperation>{};
 
   /// Live byte progress for in-flight downloads, surfaced via [progressStream].
   final Map<String, DownloadProgress> _progress = <String, DownloadProgress>{};
@@ -271,15 +317,32 @@ class CacheDownloadRepository
     }
 
     final String key = _keyForTrack(track);
-    // A fresh, explicit request supersedes any pending cancellation for this id
-    // (e.g. the user removed it mid-fetch and immediately asked again).
-    _canceled.remove(key);
+    // Asked for now, so it is no longer waiting to be asked again. If the
+    // network policy still holds it, it is held again on the way out.
+    _held.remove(key);
     // Reserve the in-flight slot synchronously, before any `await`, so a second
     // request for the same track (a double tap, or a second caller) bails out
     // here instead of starting a duplicate fetch.
-    if (!_inFlight.add(key)) return DownloadRequestOutcome.started;
+    final _CacheOperation? running = _inFlight[key];
+    if (running != null) {
+      // A fresh, explicit request supersedes a pending cancellation of the
+      // request still running (the user removed it and immediately asked
+      // again): that request goes ahead, and its row shows where it really is
+      // rather than staying at the "not downloaded" the removal set.
+      if (running.canceled) {
+        running.canceled = false;
+        final DownloadStatus? phase = running.phase;
+        if (phase != null) _set(key, phase);
+      }
+      return DownloadRequestOutcome.started;
+    }
+    final _CacheOperation operation = _CacheOperation(scope: _scopeOf(track));
+    _inFlight[key] = operation;
+    final int networkChangesBefore = _networkChangeCount;
+    DownloadRequestOutcome outcome = DownloadRequestOutcome.started;
     try {
-      return await _runRemoteRequest(track);
+      outcome = await _runRemoteRequest(track, operation);
+      return outcome;
     } on CacheStorageException {
       // The cache is full with nothing safe to evict; surface the friendly,
       // secret-free error so the UI can prompt to free space or raise the
@@ -289,7 +352,7 @@ class CacheDownloadRepository
       // Other errors may carry source-specific detail; the UI only needs the
       // failed state (which offers a retry) — but a download the user cancelled
       // mid-fetch must stay gone, not flip to "failed".
-      if (!_canceled.contains(key)) {
+      if (!operation.canceled) {
         _set(key, DownloadStatus.failed);
       }
       return DownloadRequestOutcome.started;
@@ -302,14 +365,73 @@ class CacheDownloadRepository
       // the row sticks and pre-cache skips the track, so it goes back to not
       // downloaded, unless its bytes were committed before the cancel landed.
       final CachedTrack? committed = _downloads[key];
-      if (_canceled.remove(key) &&
+      if (operation.canceled &&
           (committed == null || committed.preloaded) &&
           _statuses.containsKey(key)) {
         _set(key, DownloadStatus.notDownloaded);
       }
-      _inFlight.remove(key);
+      if (identical(_inFlight[key], operation)) _inFlight.remove(key);
       _clearProgress(key);
+      // Held back by the network policy: remember it, so it starts by itself
+      // once the connection (or the policy) lets it. Done here, after the
+      // in-flight slot is released, so the next ask isn't taken for a
+      // duplicate of this one.
+      if (outcome != DownloadRequestOutcome.started && !operation.canceled) {
+        _hold(key, track, operation.scope, networkChangesBefore);
+      }
     }
+  }
+
+  @override
+  Future<void> retryHeldDownloads() async {
+    if (_disposed || _held.isEmpty) return;
+    final List<({Track track, String? scope})> held = _held.values.toList();
+    _held.clear();
+    await Future.wait(<Future<void>>[
+      for (final ({Track track, String? scope}) entry in held)
+        _retryHeld(entry.track, entry.scope),
+    ]);
+  }
+
+  /// Asks again for one held download, unless the account it was asked under
+  /// is gone: then it is dropped, since the session signed in now would fetch
+  /// another account's item (or nothing) under this track.
+  Future<void> _retryHeld(Track track, String? scope) async {
+    final String key = _keyForTrack(track);
+    if (_scopeOf(track) != scope) {
+      if (!_inFlight.containsKey(key) &&
+          _statuses[key] == DownloadStatus.queued) {
+        _set(key, DownloadStatus.notDownloaded);
+      }
+      return;
+    }
+    try {
+      await requestDownload(track);
+    } on CacheStorageException {
+      // Nothing safe left to evict. Nobody is looking at a snackbar for a
+      // download that started on its own, so the row says it failed, and its
+      // Retry explains the cache limit.
+      _set(key, DownloadStatus.failed);
+    }
+  }
+
+  /// Records [track] as held by the network policy. When the connection
+  /// changed while this request was being decided, the request may have been
+  /// answered for the connection before it, so it is asked again now rather
+  /// than at the next change.
+  void _hold(String key, Track track, String? scope, int networkChangesBefore) {
+    if (_disposed) return;
+    _held[key] = (track: track, scope: scope);
+    if (_networkChangeCount != networkChangesBefore) {
+      unawaited(retryHeldDownloads());
+    }
+  }
+
+  void _onNetworkChange(NetworkStatus status) {
+    _networkChangeCount++;
+    // Offline can't run anything; whatever is held stays held.
+    if (status == NetworkStatus.offline) return;
+    unawaited(retryHeldDownloads());
   }
 
   /// Records an on-device track as available offline: its bytes are already
@@ -340,7 +462,10 @@ class CacheDownloadRepository
   /// Drives one remote download: skip if already cached, promote a preloaded
   /// copy in place, apply the mobile-data policy, then wait for a concurrency
   /// slot before fetching the bytes and committing them under the cache limit.
-  Future<DownloadRequestOutcome> _runRemoteRequest(Track track) async {
+  Future<DownloadRequestOutcome> _runRemoteRequest(
+    Track track,
+    _CacheOperation operation,
+  ) async {
     await _ensureLoaded();
     final String key = _keyForTrack(track);
     // Already cached — nothing to do. (A track that is downloading or queued is
@@ -386,20 +511,27 @@ class CacheDownloadRepository
     // and the outcome tells the UI why so it can prompt instead of failing.
     final _NetworkDecision decision = await _networkDecision();
     if (decision != _NetworkDecision.allowed) {
-      _set(key, DownloadStatus.queued);
+      _setPhase(key, operation, DownloadStatus.queued);
       return decision == _NetworkDecision.offline
           ? DownloadRequestOutcome.waitingForConnection
           : DownloadRequestOutcome.waitingForWifi;
     }
 
     // Accepted: show "queued" until a concurrency slot frees up, then fetch.
-    _set(key, DownloadStatus.queued);
+    _setPhase(key, operation, DownloadStatus.queued);
     await _scheduler.schedule(() async {
       // Removed or cleared while it waited for this slot: skip the fetch, so a
       // cancelled download spends no data and the slot goes straight to the
       // next one. [requestDownload] settles its status on the way out.
-      if (_canceled.contains(key)) return;
-      _set(key, DownloadStatus.downloading);
+      if (operation.canceled) return;
+      // The account it was asked under signed out or was replaced while it
+      // waited: the session there now would fetch another account's item, or
+      // nothing, so it is dropped like a cancelled download.
+      if (_scopeOf(track) != operation.scope) {
+        operation.canceled = true;
+        return;
+      }
+      _setPhase(key, operation, DownloadStatus.downloading);
       final RemoteTrackData data = await _downloader.fetch(
         track,
         onProgress: (int received, int? total) =>
@@ -407,7 +539,7 @@ class CacheDownloadRepository
       );
       // Commit serially so concurrent downloads can't jointly overshoot the
       // limit; the (slow) byte fetch above already ran in parallel.
-      await _commit(() => _cacheRemote(track, data));
+      await _commit(() => _cacheRemote(track, data, operation: operation));
     });
     return DownloadRequestOutcome.started;
   }
@@ -422,6 +554,7 @@ class CacheDownloadRepository
   Future<void> _cacheRemote(
     Track track,
     RemoteTrackData data, {
+    required _CacheOperation operation,
     bool preloaded = false,
     Set<String> protectKeys = const <String>{},
     bool Function()? isStillWanted,
@@ -432,7 +565,9 @@ class CacheDownloadRepository
     // flight: honour that and commit nothing — no file write, no metadata, no
     // status — so a late fetch can't resurrect it or leave a stray file.
     // The mark stays for the request's own cleanup, which settles the status.
-    if (_canceled.contains(key)) return;
+    // Asked again after every await below, since the removal isn't serialized
+    // with this commit and can land in any of them.
+    if (operation.canceled) return;
     if (preloaded) {
       // The session that asked for these bytes is gone (sign-out, a different
       // server or account, or the pre-cache driver was disposed). They were
@@ -443,7 +578,7 @@ class CacheDownloadRepository
       // A user download for the same track raced this preload (commits are
       // serialized, so by now the winner is known). Don't clobber or duplicate
       // a real download with a preloaded copy — let the user's copy stand.
-      if (_inFlight.contains(key) ||
+      if (_inFlight.containsKey(key) ||
           (existing != null && !existing.preloaded)) {
         return;
       }
@@ -451,7 +586,7 @@ class CacheDownloadRepository
     final int incoming = data.bytes.length;
     final int maxBytes = await _preferences.maxCacheBytes();
     // Asked again after every await below: a sign-out can land in any of them.
-    if (preloaded && !_passes(isStillWanted)) return;
+    if (operation.canceled || (preloaded && !_passes(isStillWanted))) return;
     final EvictionPlan plan = _policy.plan(
       cached: _downloads.values,
       incomingBytes: incoming,
@@ -475,10 +610,13 @@ class CacheDownloadRepository
       // A pre-cache whose queue has moved on (or whose session is gone) may
       // still keep its copy, but only in free space: what it would evict may
       // be what the new queue needs. Asked before every eviction, since either
-      // can change while the previous one is being deleted.
-      if (preloaded && !(_passes(mayMakeRoom) && _passes(isStillWanted))) {
+      // can change while the previous one is being deleted. A cancelled
+      // download stops making room too: nothing else is given up for it.
+      if (operation.canceled ||
+          (preloaded && !(_passes(mayMakeRoom) && _passes(isStillWanted)))) {
         if (evictedAny) {
           await _save();
+          if (evictedAStatus) _emitStatus();
           _emitCache();
         }
         return;
@@ -502,13 +640,14 @@ class CacheDownloadRepository
       data.bytes,
       extension: data.fileExtension,
     );
-    if (preloaded && !_passes(isStillWanted)) {
-      // The session changed while the bytes were being written: take the file
-      // back out instead of publishing it, and persist the evictions already
-      // made so the metadata matches what is on disk.
+    if (operation.canceled || (preloaded && !_passes(isStillWanted))) {
+      // Removed or cleared, or the session changed, while the bytes were being
+      // written: take the file back out instead of publishing it, and persist
+      // the evictions already made so the metadata matches what is on disk.
       await _files.delete(fileName);
-      if (plan.evict.isNotEmpty) {
+      if (evictedAny) {
         await _save();
+        if (evictedAStatus) _emitStatus();
         _emitCache();
       }
       return;
@@ -549,11 +688,13 @@ class CacheDownloadRepository
     // Already cached (download or earlier preload), or a user download already
     // has it in flight — skip rather than fetch the same bytes twice.
     if (_downloads.containsKey(key)) return;
-    if (_inFlight.contains(key)) return;
+    if (_inFlight.containsKey(key)) return;
     if (_statuses[key] == DownloadStatus.downloading) return;
     // Reserve synchronously, before any await, so a second concurrent prefetch
     // of the same track bails here instead of fetching the same bytes twice.
-    if (!_preloading.add(key)) return;
+    if (_preloading.containsKey(key)) return;
+    final _CacheOperation operation = _CacheOperation();
+    _preloading[key] = operation;
     try {
       // Preload is best-effort and network-heavy, so it honours the mobile-data
       // policy and simply skips (rather than queueing) when it can't run now.
@@ -568,7 +709,7 @@ class CacheDownloadRepository
       final int room =
           _precacheRoom(await _preferences.maxCacheBytes(), protectKeys);
       if (room <= 0) return;
-      if (!_passes(isStillWanted)) return;
+      if (operation.canceled || !_passes(isStillWanted)) return;
       final RemoteTrackData data = await _downloader.fetch(
         track,
         // Its size isn't known until the server says so, and other tracks'
@@ -589,6 +730,7 @@ class CacheDownloadRepository
       await _commit(() => _cacheRemote(
             track,
             data,
+            operation: operation,
             preloaded: true,
             protectKeys: protectKeys,
             isStillWanted: isStillWanted,
@@ -598,8 +740,7 @@ class CacheDownloadRepository
       // Best-effort: a failed preload caches nothing and changes no status; the
       // track still streams normally when it's reached.
     } finally {
-      _canceled.remove(key);
-      _preloading.remove(key);
+      if (identical(_preloading[key], operation)) _preloading.remove(key);
     }
   }
 
@@ -607,11 +748,12 @@ class CacheDownloadRepository
   Future<void> removeDownload(Track track) async {
     await _ensureLoaded();
     final String key = _keyForTrack(track);
+    // A download held for the network is cancelled by forgetting it.
+    _held.remove(key);
     // If a fetch for this track is still in flight, mark it cancelled so its
     // late commit won't re-add the entry or leave a managed file on disk.
-    if (_inFlight.contains(key) || _preloading.contains(key)) {
-      _canceled.add(key);
-    }
+    _inFlight[key]?.canceled = true;
+    _preloading[key]?.canceled = true;
     final CachedTrack? existing = _downloads.remove(key);
     await _deleteManagedFile(existing);
     await _save();
@@ -679,19 +821,31 @@ class CacheDownloadRepository
     // download finishing mid-clear can't write a file and re-add an entry the
     // user just cleared. An in-flight download holds no committed entry yet, so
     // it is unpinned by nature — correct to drop under either clear mode.
-    _canceled.addAll(_inFlight);
-    _canceled.addAll(_preloading);
+    for (final _CacheOperation operation in _inFlight.values) {
+      operation.canceled = true;
+    }
+    for (final _CacheOperation operation in _preloading.values) {
+      operation.canceled = true;
+    }
     await _ensureLoaded();
     // Those downloads have no entry among the victims below, so their queued
     // or downloading rows are reset here, as a single remove does, rather than
     // only once their fetches end. One requested again meanwhile is no longer
     // cancelled and keeps its row.
     bool resetARow = false;
-    for (final String key in _inFlight) {
-      if (_canceled.contains(key) && _statuses.remove(key) != null) {
+    for (final MapEntry<String, _CacheOperation> entry in _inFlight.entries) {
+      if (entry.value.canceled && _statuses.remove(entry.key) != null) {
         resetARow = true;
       }
     }
+    // Downloads held for the network are cancelled too, as Clear all cancels
+    // the ones waiting for a slot, so none of them starts after the clear.
+    for (final String key in _held.keys) {
+      if (!_inFlight.containsKey(key) && _statuses.remove(key) != null) {
+        resetARow = true;
+      }
+    }
+    _held.clear();
     final List<CachedTrack> victims = _downloads.values
         .where((CachedTrack c) => !(keepPinned && c.pinned))
         .toList();
@@ -712,6 +866,12 @@ class CacheDownloadRepository
 
   /// Releases the change streams. Call when the owning provider is disposed.
   Future<void> dispose() async {
+    _disposed = true;
+    _held.clear();
+    // Cancelling a platform event stream waits on the native side to
+    // acknowledge, which must never hold up shutdown, so it isn't awaited.
+    unawaited(_networkSubscription?.cancel().catchError((Object _) {}));
+    _networkSubscription = null;
     await _changes.close();
     await _cacheChanges.close();
     await _progressChanges.close();
@@ -748,6 +908,18 @@ class CacheDownloadRepository
       return check();
     } catch (_) {
       return false;
+    }
+  }
+
+  /// The account [track]'s provider is signed in with right now. A check that
+  /// throws reads as signed out, so it can never vouch for a session.
+  String? _scopeOf(Track track) {
+    final String? Function(Track track)? scopeOf = _accountScopeOf;
+    if (scopeOf == null) return null;
+    try {
+      return scopeOf(track);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -798,6 +970,14 @@ class CacheDownloadRepository
   }
 
   Future<void> _save() => _store.saveDownloads(_downloads.values.toList());
+
+  /// Moves a user download to [status] and remembers it as where that
+  /// request stands, so a request that supersedes its cancellation can put
+  /// the row back there.
+  void _setPhase(String key, _CacheOperation operation, DownloadStatus status) {
+    operation.phase = status;
+    _set(key, status);
+  }
 
   void _set(String key, DownloadStatus status) {
     if (status == DownloadStatus.notDownloaded) {
@@ -908,6 +1088,27 @@ class CacheDownloadRepository
   /// persisted, so existing files (named from the bare id) keep resolving.
   static String _fileBaseName(Track track) =>
       '${_sourceTypeOf(track) ?? 'local'}_${track.id}';
+}
+
+/// One download or pre-cache of one track, from its reservation to its
+/// cleanup: what a removal or a clear marks, so the mark reaches exactly the
+/// operation it was aimed at and is gone with it.
+class _CacheOperation {
+  _CacheOperation({this.scope});
+
+  /// The account the track's provider was signed in with when this was asked
+  /// for. A user download is only fetched while that is still the account.
+  final String? scope;
+
+  /// Set when the user removed or cleared the track while this operation was
+  /// running. It then fetches nothing more and commits nothing. A fresh
+  /// [CacheDownloadRepository.requestDownload] for the same track clears it
+  /// on a running download (the listener asked again).
+  bool canceled = false;
+
+  /// Where a user download stands (`queued`, then `downloading`), or `null`
+  /// before it has a row. Unused by a pre-cache, which never has one.
+  DownloadStatus? phase;
 }
 
 /// Whether the network policy lets a download run now, and why not when it

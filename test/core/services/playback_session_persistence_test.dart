@@ -115,10 +115,12 @@ void main() {
     });
 
     test('a wholly invalid session is cleared and does not restore', () async {
+      // A record this build cannot read at all: an unknown schema version.
       final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
         const PersistedPlaybackSession(
           tracks: <Track>[remote],
           currentIndex: 0,
+          schemaVersion: PersistedPlaybackSession.currentSchemaVersion + 1,
         ),
       );
       final FakePlaybackController controller = FakePlaybackController();
@@ -126,8 +128,7 @@ void main() {
         store: store,
         controller: controller,
         playbackStates: const Stream<PlaybackState>.empty(),
-        isRemoteProviderAvailable: (_) => false,
-        localFileExists: (_) => false,
+        localFileExists: (_) => true,
       );
 
       await persistence.restore();
@@ -137,6 +138,255 @@ void main() {
 
       await persistence.dispose();
       await controller.dispose();
+    });
+
+    group('tracks unavailable at launch stay saved', () {
+      // A file on a drive that isn't plugged in, or a server whose sign-in
+      // couldn't be read from a locked keyring, is away for this launch, not
+      // gone. Restore leaves it out of the engine, but the saved session has to
+      // keep it for the launch it comes back on.
+      const Track usbFirst = Track(
+        id: '/media/usb/first.mp3',
+        title: 'First',
+        uri: '/media/usb/first.mp3',
+        duration: Duration(minutes: 4),
+      );
+      const Track usbSecond = Track(
+        id: '/media/usb/second.mp3',
+        title: 'Second',
+        uri: '/media/usb/second.mp3',
+        duration: Duration(minutes: 4),
+      );
+
+      List<String> savedUris(PersistedPlaybackSession? session) =>
+          <String>[for (final Track t in session!.tracks) t.uri];
+
+      test('keeps a session whose local files are all missing', () async {
+        final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+          const PersistedPlaybackSession(
+            tracks: <Track>[usbFirst, usbSecond],
+            currentIndex: 1,
+            position: Duration(seconds: 20),
+          ),
+        );
+        final FakePlaybackController controller = FakePlaybackController();
+        final PlaybackSessionPersistence persistence =
+            PlaybackSessionPersistence(
+          store: store,
+          controller: controller,
+          playbackStates: controller.stateStream,
+          localFileExists: (_) => false,
+          positionSaveInterval: Duration.zero,
+        );
+        addTearDown(controller.dispose);
+        addTearDown(persistence.dispose);
+
+        await persistence.restore();
+        expect(controller.restoreSessionCount, 0);
+
+        // The idle engine still publishes states (a volume step, a mute), and
+        // none of them is the listener emptying a queue.
+        controller.setVolume(0.4);
+        controller.setMuted(true);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        final PersistedPlaybackSession? kept = await store.load();
+        expect(kept, isNotNull);
+        expect(savedUris(kept), <String>[usbFirst.uri, usbSecond.uri]);
+        expect(kept!.currentIndex, 1);
+        expect(kept.position, const Duration(seconds: 20));
+      });
+
+      test('keeps a session whose server is unavailable at launch', () async {
+        final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+          const PersistedPlaybackSession(
+            tracks: <Track>[remote],
+            currentIndex: 0,
+            position: Duration(seconds: 9),
+          ),
+        );
+        final FakePlaybackController controller = FakePlaybackController();
+        final PlaybackSessionPersistence persistence =
+            PlaybackSessionPersistence(
+          store: store,
+          controller: controller,
+          playbackStates: controller.stateStream,
+          isRemoteProviderAvailable: (_) => false,
+          localFileExists: (_) => true,
+          positionSaveInterval: Duration.zero,
+        );
+        addTearDown(controller.dispose);
+        addTearDown(persistence.dispose);
+
+        await persistence.restore();
+
+        expect(controller.restoreSessionCount, 0);
+        final PersistedPlaybackSession? kept = await store.load();
+        expect(kept, isNotNull);
+        expect(savedUris(kept), <String>[remote.uri]);
+        expect(kept!.position, const Duration(seconds: 9));
+      });
+
+      test('a partial restore saves progress without dropping the rest',
+          () async {
+        final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+          const PersistedPlaybackSession(
+            tracks: <Track>[localOk, usbFirst, remote, usbSecond],
+            currentIndex: 0,
+            position: Duration(seconds: 5),
+          ),
+        );
+        final FakePlaybackController controller = FakePlaybackController();
+        final PlaybackSessionPersistence persistence =
+            PlaybackSessionPersistence(
+          store: store,
+          controller: controller,
+          playbackStates: controller.stateStream,
+          localFileExists: (String uri) => uri == localOk.uri,
+          positionSaveInterval: Duration.zero,
+        );
+        addTearDown(controller.dispose);
+        addTearDown(persistence.dispose);
+
+        await persistence.restore();
+        expect(controller.state.currentTrack?.uri, localOk.uri);
+        expect(controller.state.upNext.map((Track t) => t.uri),
+            <String>[remote.uri]);
+
+        // The engine settling on the restored track, then position ticks.
+        controller.emit(controller.state.copyWith(
+          position: const Duration(seconds: 6),
+        ));
+        await Future<void>.delayed(Duration.zero);
+        controller.emit(controller.state.copyWith(
+          position: const Duration(seconds: 7),
+        ));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        PersistedPlaybackSession? saved = await store.load();
+        expect(savedUris(saved),
+            <String>[localOk.uri, usbFirst.uri, remote.uri, usbSecond.uri]);
+        expect(saved!.currentIndex, 0);
+        expect(saved.position, const Duration(seconds: 7));
+
+        // Moving on through the restored queue is progress, not a new queue:
+        // it lands on the same track in the full saved one.
+        await controller.skipToNext();
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        saved = await store.load();
+        expect(savedUris(saved),
+            <String>[localOk.uri, usbFirst.uri, remote.uri, usbSecond.uri]);
+        expect(saved!.currentIndex, 2);
+      });
+
+      test('a partial restore standing in for a missing current track keeps it',
+          () async {
+        final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+          const PersistedPlaybackSession(
+            tracks: <Track>[usbFirst, localOk, remote],
+            currentIndex: 0,
+            position: Duration(seconds: 30),
+          ),
+        );
+        final FakePlaybackController controller = FakePlaybackController();
+        final PlaybackSessionPersistence persistence =
+            PlaybackSessionPersistence(
+          store: store,
+          controller: controller,
+          playbackStates: controller.stateStream,
+          localFileExists: (String uri) => uri == localOk.uri,
+          positionSaveInterval: Duration.zero,
+        );
+        addTearDown(controller.dispose);
+        addTearDown(persistence.dispose);
+
+        await persistence.restore();
+        // The engine lands on the first track it can play, in place of the
+        // missing one.
+        expect(controller.state.currentTrack?.uri, localOk.uri);
+
+        controller.emit(controller.state.copyWith(
+          position: const Duration(seconds: 31),
+        ));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        PersistedPlaybackSession? saved = await store.load();
+        expect(
+            savedUris(saved), <String>[usbFirst.uri, localOk.uri, remote.uri]);
+        expect(saved!.currentIndex, 0);
+        expect(saved.position, const Duration(seconds: 30));
+
+        // Once the listener moves on, the saved session follows them.
+        await controller.skipToNext();
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        saved = await store.load();
+        expect(
+            savedUris(saved), <String>[usbFirst.uri, localOk.uri, remote.uri]);
+        expect(saved!.currentIndex, 2);
+      });
+
+      test('a queue the listener picks afterwards is saved as it is', () async {
+        final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+          const PersistedPlaybackSession(
+            tracks: <Track>[localOk, usbFirst],
+            currentIndex: 0,
+          ),
+        );
+        final FakePlaybackController controller = FakePlaybackController();
+        final PlaybackSessionPersistence persistence =
+            PlaybackSessionPersistence(
+          store: store,
+          controller: controller,
+          playbackStates: controller.stateStream,
+          localFileExists: (String uri) => uri == localOk.uri,
+          positionSaveInterval: Duration.zero,
+        );
+        addTearDown(controller.dispose);
+        addTearDown(persistence.dispose);
+
+        await persistence.restore();
+        await Future<void>.delayed(Duration.zero);
+
+        await controller.playTracks(<Track>[remote]);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(savedUris(await store.load()), <String>[remote.uri]);
+      });
+
+      test('a new queue after a restore that found nothing is saved', () async {
+        final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+          const PersistedPlaybackSession(
+            tracks: <Track>[usbFirst],
+            currentIndex: 0,
+          ),
+        );
+        final FakePlaybackController controller = FakePlaybackController();
+        final PlaybackSessionPersistence persistence =
+            PlaybackSessionPersistence(
+          store: store,
+          controller: controller,
+          playbackStates: controller.stateStream,
+          localFileExists: (_) => false,
+          positionSaveInterval: Duration.zero,
+        );
+        addTearDown(controller.dispose);
+        addTearDown(persistence.dispose);
+
+        await persistence.restore();
+        await controller.playTracks(<Track>[remote]);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(savedUris(await store.load()), <String>[remote.uri]);
+      });
     });
 
     test('clears persistence when playback becomes idle without a track',

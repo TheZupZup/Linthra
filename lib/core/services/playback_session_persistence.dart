@@ -14,8 +14,9 @@ import 'local_playback_controller.dart';
 /// Writes only [PersistedPlaybackSession] documents (logical track identity,
 /// modes, position) — never stream URLs or tokens. On restore, remote tracks
 /// are loaded through the engine's normal resolver path and [autoplay] stays
-/// off so a crash/restart never blasts audio. Invalid/stale rows are dropped;
-/// a wholly unusable record is cleared and never blocks startup.
+/// off so a crash/restart never blasts audio. Tracks that can't play right now
+/// are left out of the engine but kept in the record; only a record that can't
+/// be read at all is cleared, and restore never blocks startup.
 class PlaybackSessionPersistence {
   PlaybackSessionPersistence({
     required PlaybackSessionStore store,
@@ -59,12 +60,22 @@ class PlaybackSessionPersistence {
   /// longer interval costs fewer writes without ever persisting a staler
   /// position than the moment it fires.
   PlaybackState? _pendingPositionState;
+
+  /// The saved session behind a restore that couldn't hand the engine all of
+  /// it. Saves go into it while the live queue is still the restored part, and
+  /// it is let go the moment the queue is anything else.
+  _HeldSession? _held;
   bool _restoring = false;
   bool _disposed = false;
 
   /// Loads any persisted session, sanitizes it, and restores it paused onto
   /// the local engine. Best-effort: failures are swallowed and the bad record
   /// is cleared so startup can never be blocked by restore.
+  ///
+  /// A track that can't play at launch (a file on a drive that isn't plugged
+  /// in, a server whose sign-in couldn't be read yet) is away, not gone: it is
+  /// left out of the engine but stays in the saved session until the listener
+  /// picks a different queue, even when nothing at all could be restored.
   Future<void> restore() async {
     if (_disposed) return;
     _restoring = true;
@@ -72,24 +83,45 @@ class PlaybackSessionPersistence {
       final PersistedPlaybackSession? raw = await _store.load();
       if (raw == null) return;
 
-      final PersistedPlaybackSession? session =
-          PersistedPlaybackSession.fromJson(
-        raw.toJson(),
-        isTrackRestorable: _isTrackRestorable,
-      );
-      if (session == null || session.current == null) {
+      final PersistedPlaybackSession? saved =
+          PersistedPlaybackSession.fromJson(raw.toJson());
+      if (saved == null || saved.current == null) {
         await _store.clear();
         return;
       }
 
-      await _controller.restoreSession(
-        tracks: session.tracks,
-        startIndex: session.currentIndex,
-        position: session.position,
-        shuffleEnabled: session.shuffleEnabled,
-        repeatMode: session.repeatMode,
-        originalOrder: session.originalOrder,
+      // Asked once per track, so the restored queue and the map back into
+      // [saved] can't disagree about a drive that appears mid-restore.
+      final Map<String, bool> verdicts = <String, bool>{};
+      bool restorable(Track track) =>
+          verdicts.putIfAbsent(track.uri, () => _isTrackRestorable(track));
+      final PersistedPlaybackSession? session =
+          PersistedPlaybackSession.fromJson(
+        saved.toJson(),
+        isTrackRestorable: restorable,
       );
+      final List<int> restoredAt = <int>[
+        for (int i = 0; i < saved.tracks.length; i++)
+          if (restorable(saved.tracks[i])) i,
+      ];
+
+      if (session != null) {
+        await _controller.restoreSession(
+          tracks: session.tracks,
+          startIndex: session.currentIndex,
+          position: session.position,
+          shuffleEnabled: session.shuffleEnabled,
+          repeatMode: session.repeatMode,
+          originalOrder: session.originalOrder,
+        );
+      }
+      if (restoredAt.length < saved.tracks.length) {
+        _held = _HeldSession(
+          saved: saved,
+          restoredAt: restoredAt,
+          startIndex: session?.currentIndex ?? 0,
+        );
+      }
     } catch (_) {
       try {
         await _store.clear();
@@ -105,6 +137,11 @@ class PlaybackSessionPersistence {
     if (_disposed || _restoring) return;
 
     if (state.currentTrack == null) {
+      // Nothing could be restored and nothing has been queued since. An idle
+      // engine still publishes (a volume step, a mute), and that isn't the
+      // listener emptying a queue.
+      if (_held?.restoredAt.isEmpty ?? false) return;
+      _held = null;
       _positionTimer?.cancel();
       _positionTimer = null;
       _pendingPositionState = null;
@@ -160,6 +197,15 @@ class PlaybackSessionPersistence {
     final Track? current = state.currentTrack;
     if (current == null) return;
 
+    // Still on the queue a partial restore gave the engine: progress goes into
+    // the whole saved session, so the tracks left out at launch stay in it.
+    final _HeldSession? held = _held;
+    if (held != null && held.isRestoredQueue(state)) {
+      await _save(held.progressedTo(state), state);
+      return;
+    }
+    _held = null;
+
     final PersistedPlaybackSession? session =
         PersistedPlaybackSession.fromPlayback(
       previous: state.previous,
@@ -176,7 +222,13 @@ class PlaybackSessionPersistence {
       originalOrder: null,
     );
     if (session == null) return;
+    await _save(session, state);
+  }
 
+  Future<void> _save(
+    PersistedPlaybackSession session,
+    PlaybackState state,
+  ) async {
     try {
       await _store.save(session);
       _lastPersisted = state;
@@ -240,5 +292,57 @@ class PlaybackSessionPersistence {
     if (pending != null) await _persist(pending);
     await _subscription?.cancel();
     _subscription = null;
+  }
+}
+
+/// A saved session that restore could hand the engine only part of.
+class _HeldSession {
+  _HeldSession({
+    required this.saved,
+    required this.restoredAt,
+    required this.startIndex,
+  });
+
+  /// The whole saved session, tracks that couldn't play at launch included.
+  final PersistedPlaybackSession saved;
+
+  /// Where in [saved] each track the engine was given sits, in queue order.
+  /// Empty when none of them could play.
+  final List<int> restoredAt;
+
+  /// The index in the restored queue the engine started on.
+  final int startIndex;
+
+  /// Whether [state] still holds exactly the restored queue. Moving through it
+  /// is progress; any other queue is one the listener chose.
+  bool isRestoredQueue(PlaybackState state) {
+    final List<Track> live = <Track>[
+      ...state.previous,
+      if (state.currentTrack != null) state.currentTrack!,
+      ...state.upNext,
+    ];
+    if (live.length != restoredAt.length) return false;
+    for (int i = 0; i < live.length; i++) {
+      if (live[i].uri != saved.tracks[restoredAt[i]].uri) return false;
+    }
+    return true;
+  }
+
+  /// [saved], moved on to where [state] is in the restored queue.
+  PersistedPlaybackSession progressedTo(PlaybackState state) {
+    final int at = state.previous.length;
+    // Still on the track restore landed on in place of a current one that
+    // couldn't play: the session keeps pointing at that one, where it was.
+    final bool standingIn = at == startIndex &&
+        saved.tracks[restoredAt[at]].uri != saved.current!.uri;
+    return PersistedPlaybackSession(
+      tracks: saved.tracks,
+      currentIndex: standingIn ? saved.currentIndex : restoredAt[at],
+      position: standingIn
+          ? saved.position
+          : (state.position < Duration.zero ? Duration.zero : state.position),
+      shuffleEnabled: state.shuffleEnabled,
+      repeatMode: state.repeatMode,
+    );
   }
 }

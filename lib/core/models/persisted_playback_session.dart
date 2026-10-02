@@ -103,8 +103,9 @@ class PersistedPlaybackSession {
   /// unusable (wrong version, corrupt shape, no restorable tracks).
   ///
   /// Invalid individual tracks are dropped; [currentIndex] is remapped onto the
-  /// surviving list. A wholly empty result yields `null` so callers clear the
-  /// store rather than restoring nothing useful.
+  /// surviving list. A wholly empty result yields `null`. When that is only
+  /// because [isTrackRestorable] turned every track down, the record itself is
+  /// still sound and is not a reason to clear the store.
   static PersistedPlaybackSession? fromJson(
     Map<String, dynamic> json, {
     bool Function(Track track)? isTrackRestorable,

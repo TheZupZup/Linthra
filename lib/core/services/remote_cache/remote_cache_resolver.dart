@@ -21,6 +21,11 @@ import 'remote_playback_cache.dart';
 ///    rather than replaying a possibly-expired one.
 ///  - **Freshness-gated.** An expired entry is ignored, so a stale provider URL
 ///    is never handed to the engine.
+///  - **Account-bound.** An entry is only served while the account it was
+///    minted for is still signed in ([accountScopeOf]). After a sign-out, or
+///    with another account in its place, the track resolves through the
+///    wrapped resolver, which says "sign in" or mints the new account's URL,
+///    instead of playing with the old account's credentials.
 ///
 /// A non-remote track (local file, `content://`) has no cache key, so it always
 /// falls straight through to the inner resolver.
@@ -30,15 +35,22 @@ class RemoteCacheResolver implements PlayableUriResolver {
     required RemotePlaybackCache cache,
     RemoteCachePolicy policy = const RemoteCachePolicy(),
     DateTime Function()? clock,
+    String? Function(Track track)? accountScopeOf,
   })  : _inner = inner,
         _cache = cache,
         _policy = policy,
-        _now = clock ?? DateTime.now;
+        _now = clock ?? DateTime.now,
+        _accountScopeOf = accountScopeOf;
 
   final PlayableUriResolver _inner;
   final RemotePlaybackCache _cache;
   final RemoteCachePolicy _policy;
   final DateTime Function() _now;
+
+  /// The non-secret identity of the account [Track]'s provider is signed in
+  /// with right now, or null when signed out. Null when not wired (tests),
+  /// where every entry counts as the one account's.
+  final String? Function(Track track)? _accountScopeOf;
 
   @override
   bool handles(Track track) => _inner.handles(track);
@@ -48,11 +60,29 @@ class RemoteCacheResolver implements PlayableUriResolver {
     final RemoteCacheKey? key = RemoteCacheKey.forTrack(track);
     if (key != null) {
       final DateTime now = _now();
+      // Consumed either way: an entry minted for another account is of no
+      // use to anyone after this and is dropped here.
       final RemoteCacheEntry? entry = _cache.consume(key, now);
-      if (entry != null && _policy.shouldReuse(entry, now)) {
+      if (entry != null &&
+          _policy.shouldReuse(
+            entry,
+            now,
+            accountScope: accountScopeFor(_accountScopeOf, track),
+          )) {
         return ResolvedPlayable(entry.streamUri, entry.source);
       }
     }
     return _inner.resolve(track);
+  }
+}
+
+/// Asks [scopeOf] for [track]'s account. A check that throws reads as signed
+/// out, so it can never vouch for an entry.
+String? accountScopeFor(String? Function(Track track)? scopeOf, Track track) {
+  if (scopeOf == null) return null;
+  try {
+    return scopeOf(track);
+  } catch (_) {
+    return null;
   }
 }

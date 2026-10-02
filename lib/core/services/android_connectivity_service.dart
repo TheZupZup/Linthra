@@ -37,7 +37,12 @@ class AndroidConnectivityService implements ConnectivityService {
   final PlatformNetworkStatusReader _statusReader;
   final Stream<Object?> _statusEvents;
 
-  late final Stream<NetworkStatus> _changes = _platformChanges().distinct();
+  /// Shared by every listener: smart pre-cache and the download queue both
+  /// follow it, and a stream built from an `async*` generator can only be
+  /// listened to once. A listener that joins later hears the changes from
+  /// then on.
+  late final Stream<NetworkStatus> _changes =
+      _platformChanges().distinct().asBroadcastStream();
 
   @override
   Stream<NetworkStatus> get statusStream => _changes;

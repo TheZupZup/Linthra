@@ -6,15 +6,19 @@ import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_download_preferences.dart';
 import 'package:linthra/features/settings/network/network_settings_section.dart';
 
+import '../../downloads/fake_download_repository.dart';
+
 void main() {
   group('NetworkSettingsSection', () {
     late InMemoryDownloadPreferences preferences;
+    late FakeDownloadRepository downloads;
 
     Future<void> pump(WidgetTester tester) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
             downloadPreferencesProvider.overrideWithValue(preferences),
+            downloadRepositoryProvider.overrideWithValue(downloads),
           ],
           child: const MaterialApp(
             home: Scaffold(body: NetworkSettingsSection()),
@@ -24,7 +28,34 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    setUp(() => preferences = InMemoryDownloadPreferences());
+    setUp(() {
+      preferences = InMemoryDownloadPreferences();
+      downloads = FakeDownloadRepository();
+    });
+
+    testWidgets('a new choice asks again for downloads held for the network',
+        (tester) async {
+      // Downloads queued because mobile data wasn't allowed may run now.
+      await pump(tester);
+
+      await tester.tap(find.text('Mobile data usage'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Unlimited plan'));
+      await tester.pumpAndSettle();
+
+      expect(downloads.retryHeldCount, 1);
+    });
+
+    testWidgets('cancelling the dialog asks for nothing', (tester) async {
+      await pump(tester);
+
+      await tester.tap(find.text('Mobile data usage'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(downloads.retryHeldCount, 0);
+    });
 
     testWidgets('shows Wi-Fi only as the safe default', (tester) async {
       await pump(tester);
