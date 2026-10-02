@@ -204,13 +204,23 @@ class CacheDownloadRepository
       StreamController<Map<String, DownloadProgress>>.broadcast();
 
   bool _loaded = false;
+  Future<void>? _loading;
 
   /// Seeds the in-memory state from the durable cache, once. Along the way it
   /// self-heals: a managed entry whose file is gone is dropped (stale metadata),
   /// and a managed entry missing its byte size (e.g. written by an earlier
   /// version) is backfilled from disk, so usage and eviction are accurate.
-  Future<void> _ensureLoaded() async {
-    if (_loaded) return;
+  ///
+  /// Every caller that arrives while that load is running waits for it rather
+  /// than starting its own: a second load would put back the records as they
+  /// were on disk over anything changed since the first finished (a pre-cached
+  /// song the listener has since downloaded, a download just removed).
+  Future<void> _ensureLoaded() {
+    if (_loaded) return Future<void>.value();
+    return _loading ??= _load().whenComplete(() => _loading = null);
+  }
+
+  Future<void> _load() async {
     bool changed = false;
     final List<CachedTrack> records = await _store.loadDownloads();
     final Map<String, String?> legacyScheme = await _legacySchemeFor(records);
