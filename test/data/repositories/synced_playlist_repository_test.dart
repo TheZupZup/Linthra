@@ -102,6 +102,62 @@ void main() {
       expect(updated!.trackIds, <String>['a', 'c']);
     });
 
+    group('Undo after a remove', () {
+      test('puts the track back where it was, not at the end', () async {
+        final Playlist created = await repository.createPlaylist('Mix');
+        await repository.addTracks(created.id, <String>['a', 'b', 'c']);
+
+        final List<int> positions =
+            await repository.removeTrack(created.id, 'b');
+        expect(positions, <int>[1]);
+        await repository.restoreTrack(created.id, 'b', positions);
+
+        expect(
+          (await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['a', 'b', 'c'],
+        );
+      });
+
+      test('a track already added back is not doubled', () async {
+        final Playlist created = await repository.createPlaylist('Mix');
+        await repository.addTracks(created.id, <String>['a', 'b', 'c']);
+        final List<int> positions =
+            await repository.removeTrack(created.id, 'b');
+        await repository.addTrack(created.id, 'b');
+
+        await repository.restoreTrack(created.id, 'b', positions);
+
+        expect(
+          (await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['a', 'c', 'b'],
+        );
+      });
+
+      test('a position past the end, after other removals, lands last',
+          () async {
+        final Playlist created = await repository.createPlaylist('Mix');
+        await repository.addTracks(created.id, <String>['a', 'b', 'c']);
+        final List<int> positions =
+            await repository.removeTrack(created.id, 'c');
+        await repository.removeTrack(created.id, 'a');
+
+        await repository.restoreTrack(created.id, 'c', positions);
+
+        expect(
+          (await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['b', 'c'],
+        );
+      });
+
+      test('removing a track that is not there reports no positions', () async {
+        final Playlist created = await repository.createPlaylist('Mix');
+        await repository.addTracks(created.id, <String>['a']);
+
+        expect(await repository.removeTrack(created.id, 'z'), isEmpty);
+        expect(await repository.removeTrack('no-such-playlist', 'a'), isEmpty);
+      });
+    });
+
     test('same-id tracks from different providers are distinct members',
         () async {
       // jellyfin:101 and subsonic:101 share the bare id 101; adding the second
@@ -551,6 +607,62 @@ void main() {
 
       await repository.removeTrack(created.id, 'subsonic:a');
       expect(client.setSongsCalls.last.songIds, <String>['b']);
+    });
+
+    test('Undo sends the server the list with the track back in its place',
+        () async {
+      client.createdPlaylistId = 'p-1';
+      final Playlist created = await repository.createPlaylist(
+        'Mix',
+        source: PlaylistSource.subsonic,
+      );
+      await repository.addTracks(
+        created.id,
+        <String>['subsonic:a', 'subsonic:b', 'subsonic:c'],
+      );
+      final List<int> positions =
+          await repository.removeTrack(created.id, 'subsonic:b');
+      expect(client.setSongsCalls.last.songIds, <String>['a', 'c']);
+
+      await repository.restoreTrack(created.id, 'subsonic:b', positions);
+
+      // A full replace: appending would have stored ['a', 'c', 'b'] for good.
+      expect(client.setSongsCalls.last.songIds, <String>['a', 'b', 'c']);
+      expect(
+        (await repository.getPlaylistById(created.id))!.syncState,
+        PlaylistSyncState.synced,
+      );
+    });
+
+    test('Undo puts back every copy a server playlist held', () async {
+      // Navidrome lets a playlist hold a song twice, and a refresh adopts its
+      // list as it is. Removing the song takes every copy.
+      client.playlists = const <SubsonicPlaylistDto>[
+        SubsonicPlaylistDto(id: 'p-1', name: 'Party'),
+      ];
+      client.playlistSongIds = <String, List<String>>{
+        'p-1': <String>['a', 'b', 'c', 'b'],
+      };
+      await repository.refreshFromRemote();
+      final Playlist party = (await repository.getAllPlaylists()).single;
+      expect(party.trackIds, <String>[
+        'subsonic:a',
+        'subsonic:b',
+        'subsonic:c',
+        'subsonic:b',
+      ]);
+
+      final List<int> positions =
+          await repository.removeTrack(party.id, 'subsonic:b');
+      expect(positions, <int>[1, 3]);
+      expect(client.setSongsCalls.last.songIds, <String>['a', 'c']);
+      await repository.restoreTrack(party.id, 'subsonic:b', positions);
+
+      expect(client.setSongsCalls.last.songIds, <String>['a', 'b', 'c', 'b']);
+      expect(
+        (await repository.getPlaylistById(party.id))!.trackIds,
+        <String>['subsonic:a', 'subsonic:b', 'subsonic:c', 'subsonic:b'],
+      );
     });
 
     test('reordering pushes the new order to the server', () async {

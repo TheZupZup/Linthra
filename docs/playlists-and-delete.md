@@ -26,7 +26,8 @@ What you can do:
   Playing actions, via multi-select, or, on desktop, by dragging tracks onto a
   playlist row (see [Dragging tracks into a playlist](#dragging-tracks-into-a-playlist)).
 - **Remove tracks** from a playlist (per-row, with an Undo snackbar, or via
-  multi-select).
+  multi-select). Undo puts the track back where it was, every copy of it if a
+  synced playlist held it twice.
 - **Reorder tracks** by dragging the handle on a row — see
   [Reordering a playlist](#reordering-a-playlist).
 - **Play** the playlist, or **Shuffle** it, from the detail screen. Tapping any
@@ -189,7 +190,8 @@ scoped (a Jellyfin sign-out never drops Navidrome playlists, and vice-versa).
 
 - **Rename** and **reorder** of a *synced Jellyfin* playlist are local-only for
   now; they are not pushed to the server, and a refresh re-adopts the server's
-  name/order. (Navidrome pushes both, as noted above.)
+  name/order. (Navidrome pushes both, as noted above.) The same goes for where
+  Undo puts a removed track back: Jellyfin adds it at the end.
 - Server membership is treated as the source of truth on refresh, so a change
   that failed to push (marked `syncFailed`) may be reconciled to the server
   state on the next refresh.

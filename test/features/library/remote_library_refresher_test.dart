@@ -72,7 +72,15 @@ class _CountingPlaylists implements PlaylistRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> removeTrack(String playlistId, String trackUri) =>
+  Future<List<int>> removeTrack(String playlistId, String trackUri) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> restoreTrack(
+    String playlistId,
+    String trackUri,
+    List<int> positions,
+  ) =>
       throw UnimplementedError();
 
   @override

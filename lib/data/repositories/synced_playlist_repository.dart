@@ -265,10 +265,15 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   }
 
   @override
-  Future<void> removeTrack(String playlistId, String trackUri) async {
+  Future<List<int>> removeTrack(String playlistId, String trackUri) async {
     await _ensureLoaded();
     final Playlist? playlist = _byId(playlistId);
-    if (playlist == null || !playlist.trackIds.contains(trackUri)) return;
+    if (playlist == null) return const <int>[];
+    final List<int> positions = <int>[
+      for (int i = 0; i < playlist.trackIds.length; i++)
+        if (playlist.trackIds[i] == trackUri) i,
+    ];
+    if (positions.isEmpty) return positions;
     final List<String> updated = <String>[
       for (final String uri in playlist.trackIds)
         if (uri != trackUri) uri,
@@ -281,6 +286,40 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       playlistId,
       added: const <String>[],
       removed: <String>[trackUri],
+    );
+    return positions;
+  }
+
+  @override
+  Future<void> restoreTrack(
+    String playlistId,
+    String trackUri,
+    List<int> positions,
+  ) async {
+    await _ensureLoaded();
+    final Playlist? playlist = _byId(playlistId);
+    if (playlist == null ||
+        trackUri.isEmpty ||
+        positions.isEmpty ||
+        playlist.trackIds.contains(trackUri)) {
+      return;
+    }
+    // Ascending, so each copy goes back in front of the ones after it.
+    final List<String> updated = <String>[...playlist.trackIds];
+    for (final int position in <int>[...positions]..sort()) {
+      updated.insert(position.clamp(0, updated.length), trackUri);
+    }
+    await _mutate(
+      playlistId,
+      (Playlist p) => p.copyWith(trackIds: updated, updatedAt: _now()),
+    );
+    // Subsonic replaces the whole ordered list, so the server gets the track
+    // back in its place; Jellyfin appends it there, the same as a reorder,
+    // which stays local until the next refresh adopts the server's order.
+    await _pushMembership(
+      playlistId,
+      added: <String>[for (final int _ in positions) trackUri],
+      removed: const <String>[],
     );
   }
 
