@@ -32,7 +32,7 @@ this package resolves deterministically.
 
 ## The patch
 
-Four additions, in two files, no deletions.
+Five additions, in two files, no deletions.
 
 **1. `mpvProperties` — extra libmpv options at player creation.**
 
@@ -73,6 +73,13 @@ Four additions, in two files, no deletions.
   failure can arrive while `open` is still running, before anything awaits it.
 - `package:flutter/services.dart` is imported for `PlatformException`, as
   `just_audio_media_kit.dart` already does.
+
+**5. No URL in a printed libmpv log line.**
+
+- `lib/mediakit_player.dart` adds `MediaKitPlayer.redactLogText`, which
+  replaces every `scheme://…` in a line with `<url>`, and upstream's log
+  listener prints the line through it. The listener and its format are
+  otherwise unchanged.
 
 Nothing else changes: no new dependency, no new I/O, no new process or library
 loading, and no call into libmpv that upstream does not already make. With the
@@ -122,6 +129,14 @@ already classifies (a missing or unreadable on-device file, a stream that
 couldn't start, a format it can't play) and recovers from. The fixed messages
 are what keep that classification from ever reading a URL.
 
+**Redacted log lines.** Upstream prints every libmpv log line at the
+configured level (`error` by default) to stdout, and libmpv names the source in
+its errors: `Failed to open <url>.` A Jellyfin, Subsonic or Plex stream URL
+carries the account's credentials in its query, and a desktop session writes
+an app's stdout to the system journal, so every stream that failed to open
+left its token there. The redaction keeps the line useful (what failed, and
+why) without the address or the credentials.
+
 ### Who sets `mpvProperties`
 
 **Three callers, and two of them are production.** This hook is *not* CI-only —
@@ -129,7 +144,7 @@ removing it breaks shipped playback behaviour, not just a test.
 
 | Caller | Sets | Why |
 | --- | --- | --- |
-| `lib/core/services/linux_playback_controller.dart` (`linuxMpvProperties`) | `cache-on-disk=no` | media_kit turns mpv's on-disk demuxer cache on for every player; Linthra streams audio and manages its own offline cache, and mpv logs `[lavf] Failed to create file cache.` on every stream where it cannot write the temporary file ([#405](https://github.com/thezupzup/linthra/issues/405)). |
+| `lib/core/services/linux_playback_controller.dart` (`linuxMpvProperties`) | `cache-on-disk=no`, `ytdl=no` | media_kit turns mpv's on-disk demuxer cache on for every player; Linthra streams audio and manages its own offline cache, and mpv logs `[lavf] Failed to create file cache.` on every stream where it cannot write the temporary file ([#405](https://github.com/thezupzup/linthra/issues/405)). `ytdl=no` keeps mpv from handing a stream URL it failed to open, token and all, to `yt-dlp` on the command line. |
 | `tool/linux_audio_backend_smoke.dart` | `ao=null` (overridable) | The headless CI case described above. |
 | `lib/core/services/linux_audio_output_device_service.dart` | `audio-device=<chosen device>` | The user's chosen audio output, so a player created *after* the choice starts on it. Only set once the listener picks a device; never written on a default install. |
 

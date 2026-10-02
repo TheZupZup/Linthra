@@ -35,8 +35,16 @@ typedef LinuxPlaybackBackendRegistration = void Function();
 /// the player initializes, and just_audio_media_kit applies this map afterwards
 /// through `NativePlayer.setProperty`, which awaits that initialization. The
 /// override therefore lands last.
+///
+/// `ytdl=no` turns off mpv's youtube-dl hook. With it on, mpv hands any HTTP
+/// URL it fails to open to `yt-dlp` (where one is installed) as a command-line
+/// argument, and a Subsonic or Plex stream URL carries the account's token in
+/// its query: it would sit in the process list for any local user to read, and
+/// yt-dlp would fetch it again. Linthra never needs a site extractor; every
+/// URL it plays is one it resolved itself.
 const Map<String, String> linuxMpvProperties = <String, String>{
   'cache-on-disk': 'no',
+  'ytdl': 'no',
 };
 
 /// [linuxMpvProperties] with anything a caller already configured layered on
