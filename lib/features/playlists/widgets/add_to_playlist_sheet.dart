@@ -111,19 +111,32 @@ class _AddToPlaylistSheet extends ConsumerWidget {
     );
   }
 
+  /// Closes the sheet, if it is still the route on top, and says whether it
+  /// was. The add that follows can take a while (a synced playlist waits for
+  /// the server), so the sheet goes first: a pop after that wait would close
+  /// whatever is on top by then, the page under a sheet the listener already
+  /// dismissed, or that page and the sheet both on a second tap.
+  static bool _closeSheet(BuildContext context) {
+    final ModalRoute<Object?>? sheet = ModalRoute.of(context);
+    if (sheet == null || !sheet.isCurrent) return false;
+    Navigator.of(context).pop();
+    return true;
+  }
+
   Future<void> _addToExisting(
     BuildContext context,
     WidgetRef ref,
     Playlist playlist,
   ) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-    final NavigatorState navigator = Navigator.of(context);
+    final repository = ref.read(playlistRepositoryProvider);
+    // A tap that lands while the sheet is already closing adds nothing.
+    if (!_closeSheet(context)) return;
     final PlaylistAddPlan plan = await addTracksToPlaylist(
-      repository: ref.read(playlistRepositoryProvider),
+      repository: repository,
       playlist: playlist,
       tracks: tracks,
     );
-    navigator.pop();
     messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
   }
 
@@ -131,13 +144,13 @@ class _AddToPlaylistSheet extends ConsumerWidget {
     final List<PlaylistSyncTarget> targets =
         ref.read(playlistSyncTargetsProvider);
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-    final NavigatorState navigator = Navigator.of(context);
+    final repository = ref.read(playlistRepositoryProvider);
     final PlaylistEdit? edit = await showCreatePlaylistDialog(
       context,
       syncTargets: targets,
     );
-    if (edit == null) return;
-    final repository = ref.read(playlistRepositoryProvider);
+    if (edit == null || !context.mounted) return;
+    if (!_closeSheet(context)) return;
     final Playlist created = await repository.createPlaylist(
       edit.name,
       description: edit.description,
@@ -150,7 +163,6 @@ class _AddToPlaylistSheet extends ConsumerWidget {
       playlist: created,
       tracks: tracks,
     );
-    navigator.pop();
     messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
   }
 }
