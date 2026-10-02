@@ -182,6 +182,76 @@ class _SpyOfflineFileStore implements OfflineFileStore {
   }
 }
 
+/// One fetch held by [_PerCallDownloader] until the test settles it.
+class _HeldFetch {
+  final Completer<void> _gate = Completer<void>();
+  Object? _error;
+
+  void complete() => _gate.complete();
+
+  void fail(Object error) {
+    _error = error;
+    _gate.complete();
+  }
+}
+
+/// A remote downloader whose every fetch waits on its own [_HeldFetch], in
+/// call order, so a test decides which of two overlapping fetches of the same
+/// track lands first.
+class _PerCallDownloader implements RemoteTrackDownloader {
+  final List<_HeldFetch> calls = <_HeldFetch>[];
+
+  @override
+  bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
+
+  @override
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    final _HeldFetch held = _HeldFetch();
+    calls.add(held);
+    await held._gate.future;
+    final Object? error = held._error;
+    if (error != null) throw error;
+    onProgress?.call(4, 4);
+    return const RemoteTrackData(
+        bytes: <int>[1, 2, 3, 4], fileExtension: 'mp3');
+  }
+}
+
+/// Holds the first [write] until [release] completes, after the bytes are on
+/// disk but before it returns: the moment a commit has written the file and
+/// not yet recorded it.
+class _GatedWriteFileStore implements OfflineFileStore {
+  _GatedWriteFileStore(this._inner);
+
+  final InMemoryOfflineFileStore _inner;
+  final Completer<void> reachedWrite = Completer<void>();
+  final Completer<void> release = Completer<void>();
+
+  @override
+  Future<String> write(String trackId, List<int> bytes,
+      {String? extension}) async {
+    final String name =
+        await _inner.write(trackId, bytes, extension: extension);
+    if (!reachedWrite.isCompleted) {
+      reachedWrite.complete();
+      await release.future;
+    }
+    return name;
+  }
+
+  @override
+  Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);
+
+  @override
+  Future<int?> sizeFor(String fileName) => _inner.sizeFor(fileName);
+
+  @override
+  Future<void> delete(String fileName) => _inner.delete(fileName);
+}
+
 /// A streaming fallback that records the track it was asked to resolve and
 /// returns a canned "streaming direct" result — stands in for the real
 /// Jellyfin/Subsonic/Plex resolvers so [OfflineFirstPlayableUriResolver] can be
@@ -1454,6 +1524,58 @@ void main() {
         expect(files.bytesFor('jellyfin_j1.mp3'), isNotNull);
       });
 
+      test('a download asked for again after a cancel shows it downloading',
+          () async {
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(gate: gate.future);
+        final repository = build();
+
+        final Future<void> first = repository.requestDownload(_jellyfin('j1'));
+        await _pumpUntil(() => downloader.fetchCount >= 1);
+        await repository.removeDownload(_jellyfin('j1'));
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        await repository.requestDownload(_jellyfin('j1'));
+
+        // The fetch it went back to is still running, and the row says so.
+        expect(await repository.statusFor('j1'), DownloadStatus.downloading);
+        gate.complete();
+        await first;
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+      });
+
+      test('a removal that lands mid-commit evicts nothing for it', () async {
+        final _GatedPreferences gated =
+            _GatedPreferences(InMemoryDownloadPreferences());
+        await gated.setMaxCacheBytes(4);
+        final repository = CacheDownloadRepository(
+          store: store,
+          files: files,
+          downloader: downloader,
+          connectivity: connectivity,
+          preferences: gated,
+        );
+        await repository.requestDownload(_jellyfin('a'));
+        expect(await repository.statusFor('a'), DownloadStatus.downloaded);
+
+        // b only fits by evicting a. Park its commit before it evicts.
+        gated.gate = Completer<void>();
+        final Future<void> request = repository.requestDownload(_jellyfin('b'));
+        await gated.reachedGate.future;
+        await repository.removeDownload(_jellyfin('b'));
+        gated.gate!.complete();
+        await request;
+        await _settle();
+
+        expect(await repository.statusFor('a'), DownloadStatus.downloaded);
+        expect(files.bytesFor('jellyfin_a.mp3'), isNotNull);
+        expect(await repository.statusFor('b'), DownloadStatus.notDownloaded);
+        expect(files.bytesFor('jellyfin_b.mp3'), isNull);
+        expect(
+          (await store.loadDownloads()).map((CachedTrack c) => c.trackId),
+          <String>['a'],
+        );
+      });
+
       test('a clear that lands mid-commit leaves the row matching the cache',
           () async {
         final _GatedPreferences gated =
@@ -1587,6 +1709,213 @@ void main() {
 
         // Cleared, so neither "failed" nor stuck at "downloading".
         expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+      });
+    });
+
+    group('a download and a pre-cache of the same track', () {
+      // Smart pre-cache warms the next tracks while the listener browses, so a
+      // download tapped on one of them (or a "Download album" while it plays)
+      // often starts while that track's pre-cache is still fetching. Each
+      // fetch here has its own gate, so the test picks which lands first.
+      late _PerCallDownloader perCall;
+
+      CacheDownloadRepository buildPerCall({OfflineFileStore? fileStore}) {
+        perCall = _PerCallDownloader();
+        return CacheDownloadRepository(
+          store: store,
+          files: fileStore ?? files,
+          downloader: perCall,
+          connectivity: connectivity,
+          preferences: preferences,
+        );
+      }
+
+      /// Starts a pre-cache of j1, then a download of it, and waits until
+      /// both are fetching: the pre-cache is fetch 0, the download fetch 1.
+      Future<({Future<void> precache, Future<void> download})> bothInFlight(
+          CacheDownloadRepository repository) async {
+        final Future<void> precache = repository.prefetch(_jellyfin('j1'));
+        await _pumpUntil(() => perCall.calls.isNotEmpty);
+        final Future<void> download =
+            repository.requestDownload(_jellyfin('j1'));
+        await _pumpUntil(() => perCall.calls.length >= 2);
+        expect(perCall.calls, hasLength(2));
+        return (precache: precache, download: download);
+      }
+
+      Future<void> expectNothingCached(
+          CacheDownloadRepository repository) async {
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        expect(await repository.downloadedTrackKeys(), isEmpty);
+        expect(await store.loadDownloads(), isEmpty);
+        expect((await repository.cacheSnapshot()).usedBytes, 0);
+        expect(files.bytesFor('jellyfin_j1.mp3'), isNull);
+      }
+
+      test(
+          'a download cancelled while the pre-cache ends first stays cancelled',
+          () async {
+        final repository = buildPerCall();
+        final inFlight = await bothInFlight(repository);
+
+        await repository.removeDownload(_jellyfin('j1'));
+        perCall.calls[0].complete();
+        await inFlight.precache;
+        perCall.calls[1].complete();
+        await inFlight.download;
+        await _settle();
+
+        await expectNothingCached(repository);
+      });
+
+      test('a download cancelled while the pre-cache fails stays cancelled',
+          () async {
+        final repository = buildPerCall();
+        final inFlight = await bothInFlight(repository);
+
+        await repository.removeDownload(_jellyfin('j1'));
+        perCall.calls[0].fail(Exception('connection reset'));
+        await inFlight.precache;
+        perCall.calls[1].complete();
+        await inFlight.download;
+        await _settle();
+
+        await expectNothingCached(repository);
+      });
+
+      test('clear all with both in flight leaves nothing, pre-cache last',
+          () async {
+        final repository = buildPerCall();
+        final inFlight = await bothInFlight(repository);
+
+        await repository.clearAll();
+        perCall.calls[1].complete();
+        await inFlight.download;
+        perCall.calls[0].complete();
+        await inFlight.precache;
+        await _settle();
+
+        await expectNothingCached(repository);
+      });
+
+      test('clear all with both in flight leaves nothing, pre-cache first',
+          () async {
+        final repository = buildPerCall();
+        final inFlight = await bothInFlight(repository);
+
+        await repository.clearAll();
+        perCall.calls[0].complete();
+        await inFlight.precache;
+        perCall.calls[1].complete();
+        await inFlight.download;
+        await _settle();
+
+        await expectNothingCached(repository);
+      });
+
+      test('a pre-cache ending does not disturb the download it overlapped',
+          () async {
+        final repository = buildPerCall();
+        final inFlight = await bothInFlight(repository);
+
+        perCall.calls[0].complete();
+        await inFlight.precache;
+        perCall.calls[1].complete();
+        await inFlight.download;
+
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+        final List<CachedTrack> stored = await store.loadDownloads();
+        expect(stored, hasLength(1));
+        expect(stored.single.preloaded, isFalse);
+      });
+
+      test('a download asked for again after a cancel still downloads',
+          () async {
+        final repository = buildPerCall();
+        final inFlight = await bothInFlight(repository);
+
+        await repository.removeDownload(_jellyfin('j1'));
+        await repository.requestDownload(_jellyfin('j1'));
+        perCall.calls[0].complete();
+        await inFlight.precache;
+        perCall.calls[1].complete();
+        await inFlight.download;
+
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+        expect(files.bytesFor('jellyfin_j1.mp3'), isNotNull);
+      });
+    });
+
+    group('a removal that lands while a download is being written', () {
+      test('stays removed and leaves no file behind', () async {
+        final gated = _GatedWriteFileStore(files);
+        final repository = CacheDownloadRepository(
+          store: store,
+          files: gated,
+          downloader: downloader,
+          connectivity: connectivity,
+          preferences: preferences,
+        );
+
+        final Future<void> request =
+            repository.requestDownload(_jellyfin('j1'));
+        await gated.reachedWrite.future;
+        await repository.removeDownload(_jellyfin('j1'));
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        gated.release.complete();
+        await request;
+        await _settle();
+
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        expect(await store.loadDownloads(), isEmpty);
+        expect((await repository.cacheSnapshot()).usedBytes, 0);
+        expect(files.bytesFor('jellyfin_j1.mp3'), isNull);
+      });
+
+      test('a clear all that lands then leaves nothing behind', () async {
+        final gated = _GatedWriteFileStore(files);
+        final repository = CacheDownloadRepository(
+          store: store,
+          files: gated,
+          downloader: downloader,
+          connectivity: connectivity,
+          preferences: preferences,
+        );
+
+        final Future<void> request =
+            repository.requestDownload(_jellyfin('j1'));
+        await gated.reachedWrite.future;
+        await repository.clearAll();
+        gated.release.complete();
+        await request;
+        await _settle();
+
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        expect(await store.loadDownloads(), isEmpty);
+        expect(files.bytesFor('jellyfin_j1.mp3'), isNull);
+      });
+
+      test('a re-request made then keeps the download', () async {
+        final gated = _GatedWriteFileStore(files);
+        final repository = CacheDownloadRepository(
+          store: store,
+          files: gated,
+          downloader: downloader,
+          connectivity: connectivity,
+          preferences: preferences,
+        );
+
+        final Future<void> request =
+            repository.requestDownload(_jellyfin('j1'));
+        await gated.reachedWrite.future;
+        await repository.removeDownload(_jellyfin('j1'));
+        await repository.requestDownload(_jellyfin('j1'));
+        gated.release.complete();
+        await request;
+
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+        expect(files.bytesFor('jellyfin_j1.mp3'), isNotNull);
+        expect(downloader.fetchCount, 1);
       });
     });
 
