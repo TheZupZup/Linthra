@@ -1770,7 +1770,8 @@ What that buys, in the order the requirements ask for it:
 * **A hidden Linthra ends itself.** When the queue runs out, the app quits on
   its own rather than sitting invisibly in the process list. A *pause* keeps it
   alive, because with no window on screen a shell's media widget is the only
-  way back to playing.
+  way back to playing, and so does a track that failed to play (its queue and
+  position are still there for the widget's Play or Next).
 * **A clear way to fully quit.** "Quit Linthra now" sits in the same settings
   card, and MPRIS `Quit` does the same thing from the desktop's media controls.
   Both run the app's graceful shutdown (stop playback, release the audio

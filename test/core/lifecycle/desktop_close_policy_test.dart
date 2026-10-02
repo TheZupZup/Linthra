@@ -96,6 +96,21 @@ void main() {
       );
     });
 
+    test('a failed track keeps the app alive for the recovery that follows',
+        () {
+      // A stream that dropped and couldn't be recovered, or a Pause pressed
+      // in the shell while it was reconnecting (which settles on the
+      // failure), still has a queue and a position. Play or Next from the
+      // shell's media widget is how the listener gets going again, so the
+      // process has to be there to receive it.
+      expect(
+        DesktopClosePolicy.keepsRunningWhileHidden(
+          _state(PlaybackStatus.error),
+        ),
+        isTrue,
+      );
+    });
+
     test('the queue running out ends a hidden session', () {
       for (final PlaybackState state in <PlaybackState>[
         _state(PlaybackStatus.completed),

@@ -45,6 +45,7 @@ class PlaybackState {
     this.muted = false,
     this.interruptedByTransientFocus = false,
     this.failure,
+    this.autoSkip,
   });
 
   static const PlaybackState idle = PlaybackState();
@@ -121,16 +122,27 @@ class PlaybackState {
   final bool interruptedByTransientFocus;
 
   /// Why the current track isn't playing and what the listener can do about it,
-  /// set when [status] is [PlaybackStatus.error]. Deliberately *not* carried by
-  /// [copyWith]: it is set only on a freshly built error state and clears on the
-  /// next state change, so a stale failure can never ride along onto a later
-  /// playing/paused state.
+  /// set when [status] is [PlaybackStatus.error]. [copyWith] carries it only
+  /// while the copy is still an error for the same track, so a stale failure can
+  /// never ride along onto a later playing/paused state or another track, yet a
+  /// queue edit, a shuffle toggle or a position tick in the meantime doesn't
+  /// wipe the reason and the recoveries off the error panel.
   ///
   /// The controller decides the offered recoveries when it builds this, because
   /// only it knows whether the song has another provider copy and whether the
   /// bounded retry budget is spent, so the UI renders the actions rather than
   /// deciding which ones are valid.
   final PlaybackFailure? failure;
+
+  /// The automatic skip the controller is counting down to, with the failure
+  /// that caused it, or null when none is pending.
+  ///
+  /// Set only by the controller, and only while its own timer runs (see
+  /// [PendingAutoSkip]), so a countdown on screen is always the real one. The
+  /// status stays the busy one it was ([PlaybackStatus.loading] or
+  /// [PlaybackStatus.reconnecting]) meanwhile, which keeps the Android media
+  /// service in the foreground so the skip still happens with the screen off.
+  final PendingAutoSkip? autoSkip;
 
   /// The failure's friendly, secret-free message, for the surfaces (and tests)
   /// that only want the sentence. Null when nothing has failed.
@@ -176,10 +188,17 @@ class PlaybackState {
     double? volume,
     bool? muted,
     bool? interruptedByTransientFocus,
+    PlaybackFailure? failure,
   }) {
+    final PlaybackStatus nextStatus = status ?? this.status;
+    final Track? nextTrack = currentTrack ?? this.currentTrack;
+    // Compared by uri: Track == is the bare id, which two providers' copies of
+    // one song share, and a failure belongs to the copy that failed.
+    final bool sameFailedTrack = nextStatus == PlaybackStatus.error &&
+        nextTrack?.uri == this.currentTrack?.uri;
     return PlaybackState(
-      status: status ?? this.status,
-      currentTrack: currentTrack ?? this.currentTrack,
+      status: nextStatus,
+      currentTrack: nextTrack,
       upNext: upNext ?? this.upNext,
       previous: previous ?? this.previous,
       hasPrevious: hasPrevious ?? this.hasPrevious,
@@ -192,12 +211,16 @@ class PlaybackState {
       muted: muted ?? this.muted,
       interruptedByTransientFocus:
           interruptedByTransientFocus ?? this.interruptedByTransientFocus,
+      failure: nextStatus == PlaybackStatus.error
+          ? (failure ?? (sameFailedTrack ? this.failure : null))
+          : null,
+      autoSkip: autoSkip,
     );
   }
 
   /// Returns this state with [interruptedByTransientFocus] set to [value].
   ///
-  /// Unlike [copyWith] this preserves [failure], because it re-stamps a state
+  /// Like [copyWith] this preserves [failure], because it re-stamps a state
   /// the controller has *already* built rather than deriving a new one: the
   /// focus hold is orthogonal to why playback stopped, so an error state must
   /// keep its failure when the flag is stamped onto it.
@@ -218,6 +241,7 @@ class PlaybackState {
       muted: muted,
       interruptedByTransientFocus: value,
       failure: failure,
+      autoSkip: autoSkip,
     );
   }
 
@@ -245,6 +269,33 @@ class PlaybackState {
       muted: muted,
       interruptedByTransientFocus: interruptedByTransientFocus,
       failure: failure,
+      autoSkip: autoSkip,
+    );
+  }
+
+  /// Returns this state carrying [value] as its pending automatic skip.
+  ///
+  /// Like the other re-stamps it keeps [failure]. The controller stamps every
+  /// emission through here from its own pending timer, so no emit path can
+  /// publish a countdown that isn't running or drop one that is.
+  PlaybackState withAutoSkip(PendingAutoSkip? value) {
+    if (value == autoSkip) return this;
+    return PlaybackState(
+      status: status,
+      currentTrack: currentTrack,
+      upNext: upNext,
+      previous: previous,
+      hasPrevious: hasPrevious,
+      position: position,
+      duration: duration,
+      source: source,
+      shuffleEnabled: shuffleEnabled,
+      repeatMode: repeatMode,
+      volume: volume,
+      muted: muted,
+      interruptedByTransientFocus: interruptedByTransientFocus,
+      failure: failure,
+      autoSkip: value,
     );
   }
 
@@ -276,7 +327,8 @@ class PlaybackState {
           other.volume == volume &&
           other.muted == muted &&
           other.interruptedByTransientFocus == interruptedByTransientFocus &&
-          other.failure == failure);
+          other.failure == failure &&
+          other.autoSkip == autoSkip);
 
   @override
   int get hashCode {
@@ -295,6 +347,7 @@ class PlaybackState {
       muted,
       interruptedByTransientFocus,
       failure,
+      autoSkip,
     );
   }
 }

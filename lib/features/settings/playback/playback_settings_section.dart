@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
+import 'auto_skip_controller.dart';
 import 'normalize_volume_controller.dart';
 
 /// The "Playback" card on the Settings screen.
 ///
-/// Hosts the "Normalize volume" choice. With it off (the default) audio plays
+/// Hosts the "Normalize volume" choice and the "Automatically skip tracks that
+/// can't play" choice. With normalization off (the default) audio plays
 /// untouched; with it on, playback applies each track's ReplayGain so songs sit
 /// at a more even loudness. The widget never touches the audio engine itself —
 /// it only writes the user's choice back through the preference controller; the
@@ -46,6 +48,7 @@ class PlaybackSettingsSection extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.xs),
             const NormalizeVolumeTile(contentPadding: EdgeInsets.zero),
+            const AutoSkipTile(contentPadding: EdgeInsets.zero),
           ],
         ),
       ),
@@ -80,6 +83,37 @@ class NormalizeVolumeTile extends ConsumerWidget {
           : (value) => ref
               .read(normalizeVolumeControllerProvider.notifier)
               .setEnabled(value),
+    );
+  }
+}
+
+/// The "Automatically skip tracks that can't play" switch. Writes the same
+/// preference the player's first-failure explanation does, through
+/// [autoSkipControllerProvider]; the playback controller reads it and decides.
+/// Off while the listener hasn't chosen, and disabled while the stored value
+/// is still loading.
+class AutoSkipTile extends ConsumerWidget {
+  const AutoSkipTile({super.key, this.contentPadding});
+
+  final EdgeInsetsGeometry? contentPadding;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AsyncValue<bool?> autoSkip = ref.watch(autoSkipControllerProvider);
+    return SwitchListTile(
+      contentPadding: contentPadding,
+      secondary: const Icon(Icons.skip_next_outlined),
+      title: const Text("Automatically skip tracks that can't play"),
+      subtitle: const Text(
+        'After Linthra finishes its recovery attempts, continue with the next '
+        'playable track instead of stopping. It shows why and counts down '
+        'first, so you can stay on the track.',
+      ),
+      value: autoSkip.valueOrNull ?? false,
+      onChanged: autoSkip.isLoading
+          ? null
+          : (value) =>
+              ref.read(autoSkipControllerProvider.notifier).setEnabled(value),
     );
   }
 }

@@ -74,12 +74,18 @@ class MiniPlayer extends ConsumerWidget {
     // (artwork, text) on every screen, every tick. All three change only when
     // the track or its outcome does, so they add no tick rebuilds. Falls back to
     // the controller's latest state until the first stream event arrives.
-    final (Track?, PlaybackSource?, PlaybackFailure?) streamed = ref.watch(
+    final (
+      Track?,
+      PlaybackSource?,
+      PlaybackFailure?,
+      PlaybackFailure?
+    ) streamed = ref.watch(
       playbackStateProvider.select(
         (s) => (
           s.valueOrNull?.currentTrack,
           s.valueOrNull?.source,
           s.valueOrNull?.failure,
+          s.valueOrNull?.autoSkip?.failure,
         ),
       ),
     );
@@ -90,6 +96,10 @@ class MiniPlayer extends ConsumerWidget {
     // the short form and the full message plus its recoveries live on the
     // now-playing screen a tap away.
     final PlaybackFailure? failure = streamed.$3 ?? fallback.failure;
+    // A failure Linthra is about to skip past. The countdown itself, and the
+    // way to stay, are on the now-playing screen; the bar only says so, since
+    // a song change the listener wasn't told about is what this prevents.
+    final PlaybackFailure? skipping = streamed.$4 ?? fallback.autoSkip?.failure;
 
     // Collapse entirely when there is nothing to show, so screens without a
     // loaded track look exactly as they did before.
@@ -137,7 +147,8 @@ class MiniPlayer extends ConsumerWidget {
                         subtitle: subtitle,
                         sourceName: sourceName,
                         isCasting: isCasting,
-                        failure: failure,
+                        failure: skipping ?? failure,
+                        skipping: skipping != null,
                       );
 
                       // Desktop bars wide enough for the full transport also
@@ -216,6 +227,7 @@ class _NowPlayingMetadata extends StatelessWidget {
     required this.sourceName,
     required this.isCasting,
     required this.failure,
+    this.skipping = false,
   });
 
   final Track track;
@@ -226,6 +238,9 @@ class _NowPlayingMetadata extends StatelessWidget {
   /// Set when the current track failed to play; the second line then says so
   /// instead of naming an artist and a source that isn't playing anything.
   final PlaybackFailure? failure;
+
+  /// Whether Linthra is counting down to skipping past [failure].
+  final bool skipping;
 
   @override
   Widget build(BuildContext context) {
@@ -263,7 +278,7 @@ class _NowPlayingMetadata extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 if (failure != null)
-                  _MiniFailureLine(failure: failure!)
+                  _MiniFailureLine(failure: failure!, skipping: skipping)
                 else if (subtitle != null || sourceName != null)
                   _MiniSubtitle(subtitle: subtitle, sourceName: sourceName),
               ],
@@ -295,9 +310,12 @@ class _NowPlayingMetadata extends StatelessWidget {
 /// same [PlaybackFailure] that screen does, so the two can never disagree about
 /// what went wrong.
 class _MiniFailureLine extends StatelessWidget {
-  const _MiniFailureLine({required this.failure});
+  const _MiniFailureLine({required this.failure, this.skipping = false});
 
   final PlaybackFailure failure;
+
+  /// Whether Linthra is about to move past it on its own.
+  final bool skipping;
 
   /// Finds the line in tests.
   static const ValueKey<String> lineKey =
@@ -315,7 +333,9 @@ class _MiniFailureLine extends StatelessWidget {
         const SizedBox(width: AppSpacing.xs),
         Flexible(
           child: Text(
-            failure.shortLabel,
+            skipping
+                ? '${failure.shortLabel}, skipping to the next song'
+                : failure.shortLabel,
             style: theme.textTheme.bodySmall?.copyWith(color: color),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

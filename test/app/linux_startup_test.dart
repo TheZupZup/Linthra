@@ -103,6 +103,19 @@ void main() {
     );
   });
 
+  test('the automatic-skip listener main() installs is safe to fire', () {
+    // Like normalization, the saved "Automatically skip tracks that can't
+    // play" choice is pushed onto the engine before the first frame.
+    final ProviderContainer container = linuxContainer();
+
+    expect(
+      () => container
+          .read(localPlaybackControllerProvider)
+          .setAutomaticSkipEnabled(true),
+      returnsNormally,
+    );
+  });
+
   test('startup asks for a media session and gets MPRIS, or nothing', () async {
     final ProviderContainer container = linuxContainer();
     // The MPRIS binding with a client factory that fails the way a machine

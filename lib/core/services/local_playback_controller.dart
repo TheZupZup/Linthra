@@ -47,6 +47,14 @@ abstract interface class LocalPlaybackController implements PlaybackController {
   /// loaded track immediately, so toggling takes effect without a track change.
   void setVolumeNormalizationEnabled(bool enabled);
 
+  /// Whether, once its own recovery for a track is spent, the engine moves on
+  /// to the next playable track after a visible countdown
+  /// ([PlaybackState.autoSkip]) or stops on the failed track and waits for the
+  /// listener. Off until the listener allows it. The retry that comes before
+  /// either is not affected. Turning it off during a countdown calls that
+  /// countdown off, so the setting always wins over a skip already pending.
+  void setAutomaticSkipEnabled(bool enabled);
+
   /// Notes that the app/OS is entering a paused lifecycle (screen lock, window
   /// hide, or system suspend). Remembers whether active playback should be
   /// recovered after wake — without auto-starting a track the user had paused.

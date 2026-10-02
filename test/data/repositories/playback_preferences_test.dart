@@ -38,4 +38,51 @@ void main() {
       });
     });
   });
+
+  group('autoSkipUnplayable preference', () {
+    test('in-memory starts unchosen and round-trips', () async {
+      final prefs = InMemoryPlaybackPreferences();
+      expect(await prefs.autoSkipUnplayable(), isNull);
+
+      await prefs.setAutoSkipUnplayable(true);
+      expect(await prefs.autoSkipUnplayable(), isTrue);
+
+      await prefs.setAutoSkipUnplayable(false);
+      expect(await prefs.autoSkipUnplayable(), isFalse);
+    });
+
+    group('shared_preferences', () {
+      setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+      test('is unchosen until the listener answers', () async {
+        const prefs = SharedPreferencesPlaybackPreferences();
+        expect(await prefs.autoSkipUnplayable(), isNull,
+            reason: 'unchosen is what lets the player ask, once');
+      });
+
+      test('persists either answer across instances', () async {
+        for (final bool answer in <bool>[true, false]) {
+          await const SharedPreferencesPlaybackPreferences()
+              .setAutoSkipUnplayable(answer);
+          expect(
+            await const SharedPreferencesPlaybackPreferences()
+                .autoSkipUnplayable(),
+            answer,
+          );
+        }
+      });
+
+      test('a value of the wrong type reads as unchosen, not a crash',
+          () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{
+          'playback_auto_skip_unplayable': 'yes',
+        });
+        expect(
+          await const SharedPreferencesPlaybackPreferences()
+              .autoSkipUnplayable(),
+          isNull,
+        );
+      });
+    });
+  });
 }

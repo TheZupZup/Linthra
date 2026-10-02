@@ -92,36 +92,43 @@ class PlaybackFailureStreak {
 ///     failures in the same streak don't get one: they are almost certainly the
 ///     same outage, and retrying each of them would only slow the listener down
 ///     and hit the server more.
-///  3. **Then it moves on**, to the next queue entry that hasn't already
-///     failed in this streak (wrapping to the start under repeat-all, never
-///     under repeat-one), waiting [advanceDelay] before the first move and
-///     twice as long before each later one (capped at [maxAdvanceDelay]).
-///     Cached and local tracks further on still play while a server is down.
+///  3. **Then it moves on**, if the listener allowed automatic skipping, to
+///     the next queue entry that hasn't already failed in this streak
+///     (wrapping to the start under repeat-all, never under repeat-one). The
+///     wait before each move is a visible countdown carrying the failure, so a
+///     skip never looks like the player changing songs on its own: by default
+///     five seconds before every move, long enough to read the reason and call
+///     it off. [advanceDelay] can double for each further move, up to
+///     [maxAdvanceDelay]. Cached and local tracks further on still play while
+///     a server is down.
 ///  4. **It stops** when [maxConsecutiveFailures] tracks have failed in a row,
 ///     or when every other entry has already failed in this streak (the queue
 ///     has come all the way round, which is what stops repeat-all cycling
 ///     through a dead server forever), or when there is nothing left to move
 ///     to. The caller picks [decide]'s `nextUri` accordingly.
 ///
-/// Worst case with the defaults: one retry and five moves, about 33 seconds of
+/// Worst case with the defaults: one retry and five moves, about 35 seconds of
 /// waiting in total, then a stable error. The provider's own short
 /// reachability memory means a down server is contacted at most about once
 /// per ten seconds while this runs; the rest fail fast without a request.
 class PlaybackRecoveryPolicy {
   const PlaybackRecoveryPolicy({
     this.retryDelay = CachingProviderReachability.defaultTtl,
-    this.advanceDelay = const Duration(seconds: 1),
-    this.maxAdvanceDelay = const Duration(seconds: 8),
+    this.advanceDelay = const Duration(seconds: 5),
+    this.maxAdvanceDelay = const Duration(seconds: 5),
     this.maxConsecutiveFailures = 6,
   }) : assert(maxConsecutiveFailures >= 1);
 
   /// How long to wait before the one automatic retry of a failed track.
   final Duration retryDelay;
 
-  /// How long to wait before moving past the first failed track. Doubles for
-  /// each further failure in the same streak, up to [maxAdvanceDelay].
+  /// How long to wait before moving past the first failed track: the
+  /// countdown the listener sees. Doubles for each further failure in the same
+  /// streak, up to [maxAdvanceDelay].
   final Duration advanceDelay;
 
+  /// The longest countdown before a move. Equal to [advanceDelay] by default,
+  /// so every automatic skip gets the same short, predictable countdown.
   final Duration maxAdvanceDelay;
 
   /// How many different tracks may fail back to back before the player stops.

@@ -11,10 +11,13 @@ import '../../data/repositories/host_platform_provider.dart';
 import '../../shared/focus/focus_handoff.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../settings/playback/auto_skip_controller.dart';
 import 'cast/cast_button.dart';
 import 'cast/cast_providers.dart';
 import 'player_providers.dart';
 import 'widgets/album_artwork.dart';
+import 'widgets/auto_skip_intro_panel.dart';
+import 'widgets/auto_skip_notice.dart';
 import 'widgets/lyrics/lyrics_backdrop.dart';
 import 'widgets/lyrics_view.dart';
 import 'widgets/now_playing_actions.dart';
@@ -272,34 +275,10 @@ class _NowPlayingState extends ConsumerState<_NowPlaying> {
             const SizedBox(width: AppSpacing.xl),
             Expanded(
               flex: 4,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  if (_showLyrics) ...<Widget>[
-                    const Expanded(
-                      child: LyricsBackdrop(child: LyricsView()),
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                  ],
-                  TrackMetadata(
-                    title: track.title,
-                    artistName: track.artistName,
-                    albumName: track.albumName,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  const _LiveControls(),
-                  const SizedBox(height: AppSpacing.md),
-                  _ActionsBar(
-                    track: track,
-                    lyricsVisible: _showLyrics,
-                    onToggleLyrics: _toggleLyrics,
-                    // Below the pane width the button keeps opening the sheet,
-                    // so the queue is never unreachable at any window size.
-                    queueVisible: queueOpen,
-                    onToggleQueue: canHostQueue ? _toggleQueue : null,
-                    queueButtonFocusNode: _queueButtonFocus,
-                  ),
-                ],
+              child: _paneControls(
+                track: track,
+                queueOpen: queueOpen,
+                canHostQueue: canHostQueue,
               ),
             ),
             if (queueOpen) ...<Widget>[
@@ -322,6 +301,51 @@ class _NowPlayingState extends ConsumerState<_NowPlaying> {
     );
   }
 
+  /// The wide layout's second column: lyrics when open, then metadata, the
+  /// status strip, transport and actions.
+  ///
+  /// Like the stacked layout, the controls keep their natural height and
+  /// scroll rather than overflow when a failure panel at a large text size
+  /// makes them taller than the window, so its buttons stay reachable. With
+  /// lyrics open, the lyrics give up their height first.
+  Widget _paneControls({
+    required Track track,
+    required bool queueOpen,
+    required bool canHostQueue,
+  }) {
+    final Widget controls = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (_showLyrics) const SizedBox(height: AppSpacing.lg),
+        TrackMetadata(
+          title: track.title,
+          artistName: track.artistName,
+          albumName: track.albumName,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        const _LiveControls(),
+        const SizedBox(height: AppSpacing.md),
+        _ActionsBar(
+          track: track,
+          lyricsVisible: _showLyrics,
+          onToggleLyrics: _toggleLyrics,
+          // Below the pane width the button keeps opening the sheet,
+          // so the queue is never unreachable at any window size.
+          queueVisible: queueOpen,
+          onToggleQueue: canHostQueue ? _toggleQueue : null,
+          queueButtonFocusNode: _queueButtonFocus,
+        ),
+      ],
+    );
+    if (_showLyrics) {
+      return _StageAndControls(
+        stage: const LyricsBackdrop(child: LyricsView()),
+        controls: controls,
+      );
+    }
+    return Center(child: SingleChildScrollView(child: controls));
+  }
+
   void _toggleLyrics() => setState(() => _showLyrics = !_showLyrics);
 
   void _toggleQueue() => setState(() => _showQueue = !_showQueue);
@@ -333,48 +357,118 @@ class _NowPlayingState extends ConsumerState<_NowPlaying> {
   /// group the screen into three calm bands: stage · metadata · controls.
   Widget _stackedLayout() {
     final Track track = widget.track;
-    return Column(
-      children: [
-        Expanded(child: _Stage(track: track, showLyrics: _showLyrics)),
-        // Lyrics need the height more than the gap does; the artwork keeps
-        // its generous breathing room.
-        SizedBox(height: _showLyrics ? AppSpacing.md : AppSpacing.xl),
-        // In lyrics mode the three-line metadata block collapses to a single
-        // quiet line, handing the difference to the lyrics above without
-        // losing track of what is playing.
-        if (_showLyrics)
-          _CompactTrackLine(
-            title: track.title,
-            artistName: track.artistName,
-          )
-        else
-          TrackMetadata(
-            title: track.title,
-            artistName: track.artistName,
-            albumName: track.albumName,
+    return _StageAndControls(
+      stage: _Stage(track: track, showLyrics: _showLyrics),
+      controls: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Lyrics need the height more than the gap does; the artwork keeps
+          // its generous breathing room.
+          SizedBox(height: _showLyrics ? AppSpacing.md : AppSpacing.xl),
+          // In lyrics mode the three-line metadata block collapses to a single
+          // quiet line, handing the difference to the lyrics above without
+          // losing track of what is playing.
+          if (_showLyrics)
+            _CompactTrackLine(
+              title: track.title,
+              artistName: track.artistName,
+            )
+          else
+            TrackMetadata(
+              title: track.title,
+              artistName: track.artistName,
+              albumName: track.albumName,
+            ),
+          SizedBox(height: _showLyrics ? AppSpacing.md : AppSpacing.lg),
+          // The only part of the screen that follows the live, high-frequency
+          // playback state — kept separate so the stage, metadata, and the
+          // blurred background above never rebuild on a position tick. It stays
+          // exactly where it is in both modes, so play/pause, skip, and seek are
+          // never further away for reading lyrics.
+          const _LiveControls(),
+          const SizedBox(height: AppSpacing.md),
+          _ActionsBar(
+            track: track,
+            lyricsVisible: _showLyrics,
+            onToggleLyrics: _toggleLyrics,
+            // The same node the wide layout's bar carries. A window narrowed
+            // past the two-column breakpoint rebuilds the screen as this one and
+            // takes the queue pane with it, and the handoff has to find the
+            // button on the far side of that change: it is the same control in
+            // the same place, opening the queue the only way this width can.
+            queueButtonFocusNode: _queueButtonFocus,
           ),
-        SizedBox(height: _showLyrics ? AppSpacing.md : AppSpacing.lg),
-        // The only part of the screen that follows the live, high-frequency
-        // playback state — kept separate so the stage, metadata, and the
-        // blurred background above never rebuild on a position tick. It stays
-        // exactly where it is in both modes, so play/pause, skip, and seek are
-        // never further away for reading lyrics.
-        const _LiveControls(),
-        const SizedBox(height: AppSpacing.md),
-        _ActionsBar(
-          track: track,
-          lyricsVisible: _showLyrics,
-          onToggleLyrics: _toggleLyrics,
-          // The same node the wide layout's bar carries. A window narrowed
-          // past the two-column breakpoint rebuilds the screen as this one and
-          // takes the queue pane with it, and the handoff has to find the
-          // button on the far side of that change: it is the same control in
-          // the same place, opening the queue the only way this width can.
-          queueButtonFocusNode: _queueButtonFocus,
+        ],
+      ),
+    );
+  }
+}
+
+/// The stacked Now Playing screen's two bands: the stage (artwork or lyrics)
+/// on top, and everything under it (metadata, the status strip, transport,
+/// actions).
+///
+/// The band under the stage gets its natural height and the stage gets the
+/// rest, exactly as an `Expanded` stage in a column would. The difference is
+/// what happens when that band is taller than the screen, which a failure
+/// panel at a large text size makes it: a column overflows and clips the
+/// bottom of the band, which is where the panel's Retry and Skip and the
+/// transport are. Here the stage gives up its height first, and then the band
+/// scrolls, so every control stays reachable. When everything fits, nothing
+/// scrolls and the screen looks as it always did.
+class _StageAndControls extends StatelessWidget {
+  const _StageAndControls({required this.stage, required this.controls});
+
+  final Widget stage;
+  final Widget controls;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomMultiChildLayout(
+      delegate: _StageAndControlsLayout(),
+      children: <Widget>[
+        LayoutId(id: _StageAndControlsLayout.stage, child: stage),
+        LayoutId(
+          id: _StageAndControlsLayout.controls,
+          child: SingleChildScrollView(child: controls),
         ),
       ],
     );
   }
+}
+
+class _StageAndControlsLayout extends MultiChildLayoutDelegate {
+  _StageAndControlsLayout();
+
+  static const String stage = 'stage';
+  static const String controls = 'controls';
+
+  @override
+  void performLayout(Size size) {
+    // Loose widths and centred children, as the column this replaces gave
+    // them, so nothing moves sideways.
+    final Size controlsSize = layoutChild(
+      controls,
+      BoxConstraints(maxWidth: size.width, maxHeight: size.height),
+    );
+    final double stageHeight = size.height - controlsSize.height;
+    final Size stageSize = layoutChild(
+      stage,
+      BoxConstraints(
+        maxWidth: size.width,
+        minHeight: stageHeight,
+        maxHeight: stageHeight,
+      ),
+    );
+    positionChild(stage, Offset((size.width - stageSize.width) / 2, 0));
+    positionChild(
+      controls,
+      Offset((size.width - controlsSize.width) / 2, stageHeight),
+    );
+  }
+
+  @override
+  bool shouldRelayout(_StageAndControlsLayout oldDelegate) => false;
 }
 
 /// The action row, plus the desktop volume control beside it.
@@ -586,10 +680,25 @@ class _LiveControls extends ConsumerWidget {
     // than the one line the strip reserves (a readable sentence plus its
     // actions), so it replaces the slot instead of squeezing into it.
     final PlaybackFailure? failure = state.failure;
+    final PendingAutoSkip? autoSkip = state.autoSkip;
+    // The first failure an automatic skip could get past (wrapping under
+    // repeat-all, never under repeat-one), while the listener hasn't said
+    // whether Linthra may move on by itself: ask, once. Still loading counts
+    // as "don't know", which never asks.
+    final AsyncValue<bool?> autoSkipChoice =
+        ref.watch(autoSkipControllerProvider);
+    final bool askAboutAutoSkip = failure != null &&
+        failure.canAutoSkip &&
+        autoSkipChoice.hasValue &&
+        autoSkipChoice.value == null;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (failure != null)
+        if (autoSkip != null)
+          AutoSkipNotice(autoSkip: autoSkip)
+        else if (askAboutAutoSkip)
+          AutoSkipIntroPanel(failure: failure)
+        else if (failure != null)
           PlaybackErrorNotice(failure: failure)
         else
           _StatusSlot(child: _SourceIndicator(state: state)),
