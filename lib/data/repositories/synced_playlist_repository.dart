@@ -598,14 +598,29 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       }
     }
     await _ensureLoaded();
-    final int before = _playlists.length;
-    _playlists = <Playlist>[
-      for (final Playlist p in _playlists)
-        if (p.source == PlaylistSource.local ||
-            (source != null && p.source != source))
-          p,
-    ];
-    if (_playlists.length != before) {
+    bool changed = false;
+    final List<Playlist> next = <Playlist>[];
+    for (final Playlist p in _playlists) {
+      if (p.source == PlaylistSource.local ||
+          (source != null && p.source != source)) {
+        next.add(p);
+        continue;
+      }
+      changed = true;
+      // Never reached the server (created while it couldn't be reached): this
+      // device holds the only copy, so signing out has nothing to drop it in
+      // favour of. It stays, as the device playlist it now is.
+      if (p.remoteId == null) {
+        next.add(p.copyWith(
+          source: PlaylistSource.local,
+          syncState: PlaylistSyncState.localOnly,
+          lastSyncError: () => null,
+          updatedAt: _now(),
+        ));
+      }
+    }
+    if (changed) {
+      _playlists = next;
       await _persistAndEmit();
     }
   }
