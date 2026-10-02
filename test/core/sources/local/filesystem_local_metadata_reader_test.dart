@@ -11,6 +11,7 @@ import 'package:linthra/core/services/local_artwork_cache.dart';
 import 'package:linthra/core/sources/local/filesystem_local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_audio_metadata.dart';
 import 'package:linthra/core/sources/local/local_track_mapper.dart';
+import 'package:linthra/core/sources/local/mp4_box_guard.dart';
 
 import 'audio_tag_fixtures.dart';
 
@@ -28,6 +29,7 @@ void main() {
   });
 
   tearDown(() async {
+    await reader.close();
     if (root.existsSync()) await root.delete(recursive: true);
     if (artworkDir.existsSync()) await artworkDir.delete(recursive: true);
   });
@@ -732,6 +734,147 @@ void main() {
     });
   });
 
+  group('one parser isolate for a whole scan', () {
+    // Parses run on an isolate of their own, so a parser loop can be
+    // stopped. Starting one per file would make a first scan of a big
+    // library pay isolate startup and teardown thousands of times, so one is
+    // kept from file to file and replaced only when it has to be.
+
+    test('file after file is parsed on the same isolate', () async {
+      final List<String> paths = <String>[
+        write('a.mp3', AudioTagFixtures.mp3(title: 'MP3')),
+        write('b.flac', AudioTagFixtures.flac(title: 'FLAC')),
+        write(
+          'c.m4a',
+          AudioTagFixtures.m4a(
+            title: 'M4A',
+            artist: 'Artist',
+            album: 'Album',
+            track: 1,
+            duration: const Duration(seconds: 5),
+          ),
+        ),
+        write('d.wav', AudioTagFixtures.wav(title: 'WAV')),
+      ];
+
+      final List<String?> titles = <String?>[
+        for (final String path in paths)
+          (await reader.readFromPath(path))?.title,
+      ];
+
+      expect(titles, <String>['MP3', 'FLAC', 'M4A', 'WAV']);
+      expect(reader.parsersStarted, 1);
+    });
+
+    test('reads asked for at once take turns on it, all answered', () async {
+      final List<String> paths = <String>[
+        for (int i = 0; i < 8; i++)
+          write('Track $i.flac', AudioTagFixtures.flac(title: 'T$i')),
+      ];
+
+      final List<LocalAudioMetadata?> results = await Future.wait(
+        <Future<LocalAudioMetadata?>>[
+          for (final String path in paths) reader.readFromPath(path),
+        ],
+      );
+
+      expect(
+        <String?>[for (final LocalAudioMetadata? r in results) r?.title],
+        <String>[for (int i = 0; i < 8; i++) 'T$i'],
+      );
+      expect(reader.parsersStarted, 1);
+    });
+
+    test('a covered file still gets its cover from the shared isolate',
+        () async {
+      // The cover is the one thing of any size that crosses back.
+      final List<String> paths = <String>[
+        for (int i = 0; i < 3; i++)
+          write(
+            'cover$i.mp3',
+            AudioTagFixtures.mp3(
+              title: 'Song $i',
+              coverImage: await solidPng(40 + i, 20),
+            ),
+          ),
+      ];
+
+      for (int i = 0; i < paths.length; i++) {
+        final LocalAudioMetadata? metadata =
+            await reader.readFromPath(paths[i]);
+        final ui.Size size =
+            await decodedSize(File(metadata!.artworkUri!.toFilePath()));
+        expect(size, ui.Size(40.0 + i, 20));
+      }
+      expect(reader.parsersStarted, 1);
+    });
+
+    test('after a parse is stopped, the next file gets a new isolate',
+        () async {
+      final String looping = write('unfinished.m4a', _unfinishedEncode());
+      final String good =
+          write('after.flac', AudioTagFixtures.flac(title: 'After'));
+
+      final Object? reply = await _onOwnIsolate(
+        _readUnguardedInOrderEntry,
+        (<String>[looping, good], artworkDir.path),
+      );
+
+      final (List<Object?> titles, int started) =
+          reply! as (List<Object?>, int);
+      expect(titles, <String?>[null, 'After']);
+      expect(started, 2, reason: 'the stopped isolate was replaced');
+    });
+
+    test('a file asked for while another loops still gets its tags', () async {
+      // Each parse's limit counts its own time on the isolate, not time
+      // queued behind a parse that is about to be stopped.
+      final String looping = write('unfinished.m4a', _unfinishedEncode());
+      final String good =
+          write('after.flac', AudioTagFixtures.flac(title: 'After'));
+
+      final Object? reply = await _onOwnIsolate(
+        _readUnguardedAtOnceEntry,
+        (<String>[looping, good], artworkDir.path),
+      );
+
+      final (List<Object?> titles, int _) = reply! as (List<Object?>, int);
+      expect(titles, <String?>[null, 'After']);
+    });
+
+    test('an isolate that dies under a parse is replaced at once', () async {
+      // Answered when the isolate goes, not when the limit runs out.
+      const Duration limit = Duration(seconds: 20);
+      final FilesystemLocalMetadataReader dying = FilesystemLocalMetadataReader(
+        artworkCache: LocalArtworkCache(directory: () async => artworkDir),
+        parseLimit: limit,
+        guard: _exitOnDiesFiles,
+      );
+      addTearDown(dying.close);
+      final String dies =
+          write('dies.mp3', AudioTagFixtures.mp3(title: 'Gone'));
+      final String good =
+          write('next.mp3', AudioTagFixtures.mp3(title: 'Next'));
+
+      final Stopwatch stopwatch = Stopwatch()..start();
+      expect(await dying.readFromPath(dies), isNull);
+      expect(stopwatch.elapsed, lessThan(limit ~/ 2));
+      expect((await dying.readFromPath(good))?.title, 'Next');
+      expect(dying.parsersStarted, 2);
+    });
+
+    test('close stops it, and a read after that starts another', () async {
+      final String path =
+          write('One.flac', AudioTagFixtures.flac(title: 'One'));
+
+      expect((await reader.readFromPath(path))?.title, 'One');
+      await reader.close();
+      expect((await reader.readFromPath(path))?.title, 'One');
+
+      expect(reader.parsersStarted, 2);
+    });
+  });
+
   group('embedded artwork (#408)', () {
     test('an MP3 cover is extracted and cached as a file: URI', () async {
       final Uint8List cover = await solidPng(64, 64);
@@ -822,6 +965,7 @@ void main() {
           FilesystemLocalMetadataReader(
         artworkCache: LocalArtworkCache(directory: () async => artworkDir),
       );
+      addTearDown(restarted.close);
       final Uri second = (await restarted.readFromPath(path))!.artworkUri!;
 
       expect(second, first);
@@ -1035,26 +1179,84 @@ Future<void> _readWhileRewritingEntry(
     ),
     parseLimit: const Duration(milliseconds: 300),
   );
-  reply.send(await reader.readFromPath(path));
+  final LocalAudioMetadata? metadata = await reader.readFromPath(path);
+  await reader.close();
+  reply.send(metadata);
 }
 
 /// A reader with no MP4 guard and a short parse limit, so a looping file
 /// reaches the parser and only the limit can end it.
 Future<void> _readUnguardedEntry((SendPort, (String, String)) message) async {
   final (SendPort reply, (String path, String artworkPath)) = message;
-  final FilesystemLocalMetadataReader reader = FilesystemLocalMetadataReader(
-    artworkCache: LocalArtworkCache(
-      directory: () async => Directory(artworkPath),
-    ),
-    parseLimit: const Duration(milliseconds: 300),
-    guard: _letEverythingThrough,
-  );
-  reply.send(await reader.readFromPath(path));
+  final FilesystemLocalMetadataReader reader = _unguardedReader(artworkPath);
+  final LocalAudioMetadata? metadata = await reader.readFromPath(path);
+  await reader.close();
+  reply.send(metadata);
 }
 
 /// A guard that refuses nothing. Top-level, so it can cross to the parse's
 /// isolate.
 bool _letEverythingThrough(File file) => true;
+
+/// The real guard, except that it takes the parser isolate down with it on a
+/// file named `dies.mp3`, the way a crash in the parser would.
+bool _exitOnDiesFiles(File file) {
+  if (file.path.endsWith('dies.mp3')) Isolate.exit();
+  return Mp4BoxGuard.isSafeToParse(file);
+}
+
+/// An unfinished encode: `ftyp`, `free`, and an `mdat` still sized 0, which
+/// the package's MP4 parser loops on.
+Uint8List _unfinishedEncode() => Uint8List.fromList(<int>[
+      ...AudioTagFixtures.mp4Ftyp(),
+      ...AudioTagFixtures.mp4Box('free'),
+      ...AudioTagFixtures.mp4BoxHeader(0, 'mdat'),
+      ...Uint8List(4096),
+    ]);
+
+/// A reader with no MP4 guard and a short parse limit, for files that reach
+/// the parser and loop.
+FilesystemLocalMetadataReader _unguardedReader(String artworkPath) =>
+    FilesystemLocalMetadataReader(
+      artworkCache: LocalArtworkCache(
+        directory: () async => Directory(artworkPath),
+      ),
+      parseLimit: const Duration(milliseconds: 300),
+      guard: _letEverythingThrough,
+    );
+
+/// Reads each path in turn on an unguarded reader and sends back their titles
+/// and how many parser isolates it took.
+Future<void> _readUnguardedInOrderEntry(
+  (SendPort, (List<String>, String)) message,
+) async {
+  final (SendPort reply, (List<String> paths, String artworkPath)) = message;
+  final FilesystemLocalMetadataReader reader = _unguardedReader(artworkPath);
+  final List<String?> titles = <String?>[
+    for (final String path in paths) (await reader.readFromPath(path))?.title,
+  ];
+  await reader.close();
+  reply.send((titles, reader.parsersStarted));
+}
+
+/// Asks an unguarded reader for every path at once and sends back their
+/// titles and how many parser isolates it took.
+Future<void> _readUnguardedAtOnceEntry(
+  (SendPort, (List<String>, String)) message,
+) async {
+  final (SendPort reply, (List<String> paths, String artworkPath)) = message;
+  final FilesystemLocalMetadataReader reader = _unguardedReader(artworkPath);
+  final List<LocalAudioMetadata?> results = await Future.wait(
+    <Future<LocalAudioMetadata?>>[
+      for (final String path in paths) reader.readFromPath(path),
+    ],
+  );
+  await reader.close();
+  reply.send((
+    <String?>[for (final LocalAudioMetadata? r in results) r?.title],
+    reader.parsersStarted,
+  ));
+}
 
 /// An artwork cache that rewrites the file being read when it is asked for a
 /// cached cover, and then misses.
@@ -1079,5 +1281,7 @@ Future<void> _readFromPathEntry((SendPort, String, String) message) async {
       directory: () async => Directory(artworkPath),
     ),
   );
-  reply.send(await reader.readFromPath(path));
+  final LocalAudioMetadata? metadata = await reader.readFromPath(path);
+  await reader.close();
+  reply.send(metadata);
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:flutter/foundation.dart';
@@ -60,6 +61,34 @@ class FilesystemLocalMetadataReader
   /// isolate.
   final bool Function(File file) _guard;
 
+  /// The isolate parses run on: started by the first read, kept for the next
+  /// one, and replaced only after a parse runs past [_parseLimit] or the
+  /// isolate dies (see [_ParserIsolate]).
+  _ParserIsolate? _parser;
+
+  /// The last parse handed to [_parser]. Parses run one at a time, each after
+  /// the one before, so a parse's [_parseLimit] counts its own time on the
+  /// isolate, never time spent queued behind another file.
+  Future<void> _lastParse = Future<void>.value();
+
+  int _parsersStarted = 0;
+
+  /// How many parser isolates this reader has started: one for a whole scan,
+  /// plus one for each parse that had to be stopped.
+  @visibleForTesting
+  int get parsersStarted => _parsersStarted;
+
+  /// Stops the parser isolate once the parse in progress, if any, is done. A
+  /// read after this starts another.
+  Future<void> close() {
+    final Future<void> closed = _lastParse.then((_) {
+      _parser?.stop();
+      _parser = null;
+    });
+    _lastParse = closed;
+    return closed;
+  }
+
   @override
   Future<void> retainArtwork(Set<Uri> live) => _artworkCache.retainOnly(live);
 
@@ -68,10 +97,11 @@ class FilesystemLocalMetadataReader
     try {
       final File file = File(path);
       // `await`, and an asynchronous `stat()` rather than `statSync()`, is
-      // load-bearing: it is the only point in this method that reaches the
-      // event loop. `readAllMetadata` below is synchronous, so without a real
-      // asynchronous call first, this method would do all its work before
-      // returning an already-completed Future. A caller awaiting that gets a
+      // load-bearing: for a missing file or a directory it is the only point
+      // in this method that reaches the event loop (a parse does too, by
+      // waiting on the parser isolate). Without a real asynchronous call
+      // there, this method would do all its work before returning an
+      // already-completed Future. A caller awaiting that gets a
       // microtask, and the microtask queue drains completely before the event
       // loop runs again, so a scan of thousands of files would be one
       // unbroken chain with no frame rendered and no input handled from the
@@ -102,9 +132,10 @@ class FilesystemLocalMetadataReader
       final File? cachedArtwork = await _artworkCache.cachedFile(path, stamp);
       final bool needsArtwork = cachedArtwork == null;
 
-      final Object? tag = await _parseStoppably(path, getImage: needsArtwork);
-      if (tag == null) return null;
-      final LocalAudioMetadata? parsedTags = _fromParserTag(tag);
+      final _Parsed? parsed =
+          await _parseStoppably(path, getImage: needsArtwork);
+      if (parsed == null) return null;
+      final LocalAudioMetadata? parsedTags = parsed.tags;
       // FLAC's comment block is readable in the clear, so prefer the real
       // ARTIST/ALBUMARTIST over what the package merged. See
       // [VorbisCommentFields] for why no heuristic can substitute for this.
@@ -116,11 +147,13 @@ class FilesystemLocalMetadataReader
 
       Uri? artworkUri =
           cachedArtwork == null ? null : Uri.file(cachedArtwork.path);
-      if (needsArtwork) {
-        final Picture? cover = _bestCover(_picturesOf(tag));
-        if (cover != null) {
-          artworkUri = await _artworkCache.store(path, stamp, cover.bytes);
-        }
+      final TransferableTypedData? cover = parsed.cover;
+      if (cover != null) {
+        artworkUri = await _artworkCache.store(
+          path,
+          stamp,
+          cover.materialize().asUint8List(),
+        );
       }
 
       final LocalAudioMetadata result = LocalAudioMetadata(
@@ -141,10 +174,11 @@ class FilesystemLocalMetadataReader
     }
   }
 
-  /// The file's tags, from `readAllMetadata`, parsed on an isolate of its own
-  /// that is killed if it outlasts [_parseLimit]; null then, and for a file
-  /// that is refused or fails to parse, so the track keeps its filename and
-  /// the scan goes on.
+  /// The file's tags, and its cover when [getImage] asks for it, parsed on
+  /// the parser isolate; null for a file that is refused or fails to parse,
+  /// and for one whose parse runs past [_parseLimit] (the isolate is killed
+  /// then, and the next file gets a new one), so the track keeps its filename
+  /// and the scan goes on.
   ///
   /// The package's MP4 parser loops forever, synchronously and without
   /// throwing, on some box layouts an interrupted encode leaves behind (see
@@ -155,38 +189,62 @@ class FilesystemLocalMetadataReader
   /// too, right before the parse, so the files that are already broken are
   /// refused at once rather than waited out, and its walk (a few reads, or
   /// many for a file of tiny boxes) stays off this isolate as well.
-  Future<Object?> _parseStoppably(String path, {required bool getImage}) async {
-    final ReceivePort reply = ReceivePort();
-    Isolate? isolate;
-    try {
-      isolate = await Isolate.spawn(
-        _parseEntry,
-        (reply.sendPort, path, getImage, _guard),
-        // An isolate that dies without answering answers null.
-        onExit: reply.sendPort,
-      );
-      return await reply.first.timeout(_parseLimit, onTimeout: () => null);
-    } finally {
-      isolate?.kill(priority: Isolate.immediate);
-      reply.close();
-    }
+  Future<_Parsed?> _parseStoppably(String path, {required bool getImage}) {
+    final Future<_Parsed?> parsed =
+        _lastParse.then((_) => _parseNext(path, getImage));
+    _lastParse = parsed.then<void>((_) {}, onError: (Object _) {});
+    return parsed;
   }
 
-  /// [_parseStoppably]'s entry point. Only the path, the flag and the guard
-  /// cross in, and the parsed tag (strings, numbers and picture bytes) or null
-  /// crosses back.
-  static void _parseEntry(
-    (SendPort, String, bool, bool Function(File)) message,
+  Future<_Parsed?> _parseNext(String path, bool getImage) async {
+    _ParserIsolate? parser = _parser;
+    if (parser == null || !parser.isRunning) {
+      parser = _parser = await _ParserIsolate.start(_guard, _parseLimit);
+      _parsersStarted++;
+    }
+    return parser.parse(path, getImage, _parseLimit);
+  }
+
+  /// The parser isolate's entry point: hands back the port it listens on,
+  /// then answers each request (a path, and whether to pull out the cover)
+  /// with [_parse].
+  static void _serve((SendPort, bool Function(File)) message) {
+    final (SendPort replies, guard) = message;
+    final RawReceivePort requests = RawReceivePort((Object? request) {
+      final (String path, bool getImage) = request! as (String, bool);
+      replies.send(_parse(path, getImage, guard));
+    });
+    replies.send(requests.sendPort);
+  }
+
+  /// One file's parse, on the parser isolate: [guard] first, then the tags,
+  /// mapped here so only the few fields Linthra keeps cross back. Of the
+  /// pictures, only the one picked as the cover crosses, as transferable
+  /// bytes the reader takes over without copying them again. Null for a
+  /// refused or failed file.
+  static _Parsed? _parse(
+    String path,
+    bool getImage,
+    bool Function(File file) guard,
   ) {
-    final (SendPort reply, String path, bool getImage, guard) = message;
-    Object? tag;
     try {
       final File file = File(path);
-      if (guard(file)) tag = readAllMetadata(file, getImage: getImage);
+      if (!guard(file)) return null;
+      // Format-specific rather than the package's unified `readMetadata`:
+      // that one folds ID3's TPE2 (album artist) into a single `artist`
+      // field, which would lose the distinction the catalog groups albums by.
+      final Object tag = readAllMetadata(file, getImage: getImage);
+      final Picture? cover = getImage ? _bestCover(_picturesOf(tag)) : null;
+      return (
+        tags: _fromParserTag(tag),
+        cover: cover == null
+            ? null
+            : TransferableTypedData.fromList(<TypedData>[cover.bytes]),
+      );
     } catch (_) {
       // A refused or failed parse is "no tags", as anywhere else here.
+      return null;
     }
-    reply.send(tag);
   }
 
   /// The embedded pictures a parsed container carries, regardless of which
@@ -372,5 +430,109 @@ class FilesystemLocalMetadataReader
     if (value == null) return null;
     final String trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+}
+
+/// What a parse sends back: the file's tags, and the picture picked as its
+/// cover when one was asked for and there is one.
+typedef _Parsed = ({LocalAudioMetadata? tags, TransferableTypedData? cover});
+
+/// The reply [_ParserIsolate] gets when its isolate is gone. Never a parse's
+/// answer, which is a [_Parsed] or null.
+const String _exited = 'exited';
+
+/// The isolate a [FilesystemLocalMetadataReader] runs its parses on, one at a
+/// time, kept from file to file so a scan starts one isolate rather than one
+/// per file.
+///
+/// It is killed outright when a parse runs past its limit: a parser loop
+/// never gives its isolate back to the event loop to hear anything gentler.
+/// If it dies on its own, the read waiting on it is answered (with null) at
+/// once, not when its limit runs out. Either way the reader starts a new one
+/// for the next file.
+final class _ParserIsolate {
+  _ParserIsolate._(this._isolate, this._requests, this._inbox) {
+    _inbox.handler = _receive;
+  }
+
+  final Isolate _isolate;
+  final SendPort _requests;
+
+  /// Where answers, and the exit notice, arrive. It doesn't keep the reader's
+  /// isolate alive: an idle parser is no reason for anything to stay up.
+  final RawReceivePort _inbox;
+
+  Completer<Object?>? _answer;
+  bool _running = true;
+
+  bool get isRunning => _running;
+
+  static Future<_ParserIsolate> start(
+    bool Function(File file) guard,
+    Duration limit,
+  ) async {
+    final Completer<Object?> hello = Completer<Object?>();
+    final RawReceivePort inbox = RawReceivePort((Object? message) {
+      if (!hello.isCompleted) hello.complete(message);
+    })
+      ..keepIsolateAlive = false;
+    Isolate? isolate;
+    try {
+      // Started paused, so the exit listener is on before it can exit.
+      isolate = await Isolate.spawn(
+        FilesystemLocalMetadataReader._serve,
+        (inbox.sendPort, guard),
+        paused: true,
+        debugName: 'tag parser',
+      );
+      isolate.addOnExitListener(inbox.sendPort, response: _exited);
+      isolate.resume(isolate.pauseCapability!);
+      final Object? requests =
+          await hello.future.timeout(limit, onTimeout: () => null);
+      if (requests is! SendPort) {
+        throw StateError('the tag parser isolate did not start');
+      }
+      return _ParserIsolate._(isolate, requests, inbox);
+    } catch (_) {
+      isolate?.kill(priority: Isolate.immediate);
+      inbox.close();
+      rethrow;
+    }
+  }
+
+  /// [path]'s parse, or null: refused or failed, run past [limit] (this
+  /// isolate is stopped then), or this isolate died on it.
+  Future<_Parsed?> parse(String path, bool getImage, Duration limit) async {
+    final Completer<Object?> answer = _answer = Completer<Object?>();
+    _requests.send((path, getImage));
+    final Object? reply = await answer.future.timeout(
+      limit,
+      onTimeout: () {
+        stop();
+        return null;
+      },
+    );
+    return reply is _Parsed ? reply : null;
+  }
+
+  void _receive(Object? message) {
+    if (message == _exited) {
+      _running = false;
+      _inbox.close();
+    }
+    final Completer<Object?>? answer = _answer;
+    _answer = null;
+    answer?.complete(message);
+  }
+
+  /// Kills the isolate, answering a parse still waiting on it with null.
+  void stop() {
+    if (!_running) return;
+    _running = false;
+    _isolate.kill(priority: Isolate.immediate);
+    _inbox.close();
+    final Completer<Object?>? answer = _answer;
+    _answer = null;
+    answer?.complete(null);
   }
 }

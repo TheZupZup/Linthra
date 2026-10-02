@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/platform/host_platform.dart';
@@ -14,6 +17,8 @@ import 'package:linthra/core/sources/local/saf_permission_probe.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
 import 'package:linthra/features/library/library_providers.dart';
 import 'package:linthra/features/player/lyrics_providers.dart';
+
+import '../../core/sources/local/audio_tag_fixtures.dart';
 
 ProviderContainer _containerFor(HostPlatform host) {
   final container = ProviderContainer(
@@ -123,6 +128,38 @@ void main() {
       expect(
           _containerFor(HostPlatform.linux).read(localMetadataReaderProvider),
           isA<FilesystemLocalMetadataReader>());
+    });
+
+    test('the tag reader lets its parser isolate go with the container',
+        () async {
+      final Directory temp =
+          await Directory.systemTemp.createTemp('linthra_bindings_');
+      addTearDown(() => temp.delete(recursive: true));
+      final TestDefaultBinaryMessenger messenger =
+          TestWidgetsFlutterBinding.ensureInitialized().defaultBinaryMessenger;
+      const MethodChannel pathProvider =
+          MethodChannel('plugins.flutter.io/path_provider');
+      messenger.setMockMethodCallHandler(
+        pathProvider,
+        (MethodCall call) async => temp.path,
+      );
+      addTearDown(() => messenger.setMockMethodCallHandler(pathProvider, null));
+      final File file = File('${temp.path}/One.flac')
+        ..writeAsBytesSync(AudioTagFixtures.flac(title: 'One'));
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+        ],
+      );
+      final FilesystemLocalMetadataReader reader = container
+          .read(localMetadataReaderProvider) as FilesystemLocalMetadataReader;
+      addTearDown(reader.close);
+
+      expect((await reader.readFromPath(file.path))?.title, 'One');
+      container.dispose();
+      expect((await reader.readFromPath(file.path))?.title, 'One');
+
+      expect(reader.parsersStarted, 2, reason: 'closed with the container');
     });
   });
 }

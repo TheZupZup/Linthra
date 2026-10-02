@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/services/folder_picker_service.dart';
@@ -74,9 +76,13 @@ final directoryReadabilityProvider = Provider<DirectoryReadability>((ref) {
 /// so reading them a second time in Dart would be duplicate work with a
 /// different answer. Everywhere else this is the only place tags come from.
 final localMetadataReaderProvider = Provider<LocalMetadataReader>((ref) {
-  return ref.watch(hostPlatformProvider).isAndroid
-      ? const UnsupportedLocalMetadataReader()
-      : FilesystemLocalMetadataReader();
+  if (ref.watch(hostPlatformProvider).isAndroid) {
+    return const UnsupportedLocalMetadataReader();
+  }
+  final FilesystemLocalMetadataReader reader = FilesystemLocalMetadataReader();
+  // It keeps a parser isolate between reads; let it go with the reader.
+  ref.onDispose(() => unawaited(reader.close()));
+  return reader;
 });
 
 /// The seam an incremental scan uses to ask what a file looks like on disk
