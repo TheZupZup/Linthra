@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/local_artwork_cache.dart';
 import 'package:linthra/core/sources/local/filesystem_local_metadata_reader.dart';
@@ -292,6 +293,36 @@ void main() {
     // (null): the track still shows, from its filename.
     Future<LocalAudioMetadata?> readIsolated(Uint8List bytes) =>
         _readOnOwnIsolate(write('broken.m4a', bytes), artworkDir.path);
+
+    test('a file that turns into a loop after it was checked is stopped',
+        () async {
+      // Still being written: sound when the guard reads it, then, in the
+      // await before the parser opens it, it gains the size-0 box an
+      // unfinished encode has. Only stopping the parse can end that.
+      final String path = write(
+        'growing.m4a',
+        AudioTagFixtures.m4a(
+          title: 'Not yet',
+          artist: 'Still Encoding',
+          album: 'Half Done',
+          track: 1,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      final Uint8List looping = Uint8List.fromList(<int>[
+        ...AudioTagFixtures.mp4Ftyp(),
+        ...AudioTagFixtures.mp4Box('free'),
+        ...AudioTagFixtures.mp4BoxHeader(0, 'mdat'),
+        ...Uint8List(4096),
+      ]);
+
+      final Object? reply = await _onOwnIsolate(
+        _readWhileRewritingEntry,
+        (path, artworkDir.path, looping),
+      );
+
+      expect(reply, isNull, reason: 'no tags, and the scan goes on');
+    });
 
     test('an unfinished encode (mdat still sized 0) is refused, not looped on',
         () async {
@@ -911,6 +942,68 @@ Future<LocalAudioMetadata?> _readOnOwnIsolate(
   } finally {
     isolate.kill(priority: Isolate.immediate);
     port.close();
+  }
+}
+
+/// Runs [entry] with [message] on an isolate of its own and returns what it
+/// sends back, failing the test instead of hanging if nothing comes within
+/// [_hangTimeout].
+Future<Object?> _onOwnIsolate<T>(
+  void Function((SendPort, T)) entry,
+  T message,
+) async {
+  final ReceivePort port = ReceivePort();
+  final Isolate isolate = await Isolate.spawn(
+    entry,
+    (port.sendPort, message),
+    onError: port.sendPort,
+  );
+  try {
+    final Object? reply = await port.first.timeout(
+      _hangTimeout,
+      onTimeout: () => fail(
+        'readFromPath did not return within $_hangTimeout: the tag parser '
+        'is stuck in a loop',
+      ),
+    );
+    if (reply is List) fail('readFromPath threw: ${reply.first}');
+    return reply;
+  } finally {
+    isolate.kill(priority: Isolate.immediate);
+    port.close();
+  }
+}
+
+/// A reader whose artwork lookup (the await between the guard and the parse)
+/// rewrites the file to looping bytes first, as a file still being written
+/// would change in that gap. Its parse limit is short, so a stopped parse
+/// shows up quickly.
+Future<void> _readWhileRewritingEntry(
+  (SendPort, (String, String, Uint8List)) message,
+) async {
+  final (SendPort reply, (String path, String artworkPath, Uint8List looping)) =
+      message;
+  final FilesystemLocalMetadataReader reader = FilesystemLocalMetadataReader(
+    artworkCache: _RewritingArtworkCache(
+      directory: () async => Directory(artworkPath),
+      rewrite: () => File(path).writeAsBytesSync(looping, flush: true),
+    ),
+    mp4ParseLimit: const Duration(milliseconds: 300),
+  );
+  reply.send(await reader.readFromPath(path));
+}
+
+/// An artwork cache that rewrites the file being read when it is asked for a
+/// cached cover, and then misses.
+class _RewritingArtworkCache extends LocalArtworkCache {
+  _RewritingArtworkCache({super.directory, required this.rewrite});
+
+  final void Function() rewrite;
+
+  @override
+  Future<File?> cachedFile(String path, LocalFileStamp stamp) async {
+    rewrite();
+    return null;
   }
 }
 

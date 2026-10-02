@@ -3,6 +3,19 @@ import 'dart:typed_data';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 
+/// What [Mp4BoxGuard.inspect] found in a file.
+enum Mp4Verdict {
+  /// `audio_metadata_reader` would not hand the file to its MP4 parser.
+  notMp4,
+
+  /// An MP4 whose boxes the parser can walk to the end, as the file stood
+  /// when it was read. A file still being written can change after that.
+  sound,
+
+  /// An MP4 with a box the parser could not get past.
+  unsound,
+}
+
 /// Keeps MP4-family files that would hang `audio_metadata_reader`'s MP4
 /// parser away from it.
 ///
@@ -39,16 +52,23 @@ abstract final class Mp4BoxGuard {
   /// `moov/trak/mdia/minf/stbl/stsd`, is 6.
   static const int _maxDepth = 16;
 
-  /// Whether [file] can be handed to `readAllMetadata` without risking the
-  /// MP4 parser's loop: true for any file that parser would not see, and for
-  /// an MP4 whose boxes it can walk to the end.
+  /// Whether [file] would reach the MP4 parser and, if so, whether its boxes
+  /// as they stand now are ones the parser can walk to the end.
+  ///
+  /// A verdict about the bytes at the moment they were read: a file still
+  /// being written (a download, an encode) can be sound here and gain a
+  /// looping box before the parser opens it. So a sound MP4 still needs
+  /// parsing where a loop can be stopped (see
+  /// `FilesystemLocalMetadataReader`); this check is what lets the files that
+  /// are already broken be refused at once instead.
   ///
   /// Throws what opening or reading [file] throws, as `readAllMetadata`
   /// would.
-  static bool isSafeToParse(File file) {
+  static Mp4Verdict inspect(File file) {
     final RandomAccessFile handle = file.openSync();
     try {
-      return !_reachesMp4Parser(handle) || _BoxWalk(handle).isSound();
+      if (!_reachesMp4Parser(handle)) return Mp4Verdict.notMp4;
+      return _BoxWalk(handle).isSound() ? Mp4Verdict.sound : Mp4Verdict.unsound;
     } finally {
       handle.closeSync();
     }

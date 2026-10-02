@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 
@@ -33,10 +35,18 @@ import 'vorbis_comment_fields.dart';
 /// filename-derived metadata instead of vanishing from the library.
 class FilesystemLocalMetadataReader
     implements LocalMetadataReader, LocalArtworkMaintainer {
-  FilesystemLocalMetadataReader({LocalArtworkCache? artworkCache})
-      : _artworkCache = artworkCache ?? LocalArtworkCache();
+  FilesystemLocalMetadataReader({
+    LocalArtworkCache? artworkCache,
+    Duration mp4ParseLimit = const Duration(seconds: 10),
+  })  : _artworkCache = artworkCache ?? LocalArtworkCache(),
+        _mp4ParseLimit = mp4ParseLimit;
 
   final LocalArtworkCache _artworkCache;
+
+  /// How long an MP4 parse may run on its own isolate before it is taken for
+  /// the parser's loop and stopped. A healthy file takes milliseconds, even on
+  /// a slow drive; this only has to tell "slow" from "never".
+  final Duration _mp4ParseLimit;
 
   @override
   Future<void> retainArtwork(Set<Uri> live) => _artworkCache.retainOnly(live);
@@ -76,7 +86,8 @@ class FilesystemLocalMetadataReader
       // [Mp4BoxGuard]). The catch below could never end that, so such a file
       // is refused before it gets there: no tags, but the scan finishes and
       // the track still shows by its filename.
-      if (!Mp4BoxGuard.isSafeToParse(file)) return null;
+      final Mp4Verdict mp4 = Mp4BoxGuard.inspect(file);
+      if (mp4 == Mp4Verdict.unsound) return null;
 
       // A cover cached from an earlier scan needs no re-extraction: checking
       // first means a hit costs nothing beyond this stat, and only a genuine
@@ -90,7 +101,14 @@ class FilesystemLocalMetadataReader
       // Format-specific rather than the package's unified `readMetadata`: that
       // one folds ID3's TPE2 (album artist) into a single `artist` field, which
       // would lose the distinction the catalog groups albums by.
-      final Object tag = readAllMetadata(file, getImage: needsArtwork);
+      //
+      // An MP4 that passed the guard is still parsed where a loop can be
+      // stopped: the parser opens the file again, after the await above, and
+      // a file still being written can have gained a looping box by then.
+      final Object? tag = mp4 == Mp4Verdict.sound
+          ? await _parseMp4Stoppably(path, getImage: needsArtwork)
+          : readAllMetadata(file, getImage: needsArtwork);
+      if (tag == null) return null;
       final LocalAudioMetadata? parsedTags = _fromParserTag(tag);
       // FLAC's comment block is readable in the clear, so prefer the real
       // ARTIST/ALBUMARTIST over what the package merged. See
@@ -126,6 +144,44 @@ class FilesystemLocalMetadataReader
       // a user's file path is private data (see CONTRIBUTING, Privacy).
       return null;
     }
+  }
+
+  /// `readAllMetadata` for an MP4, on an isolate of its own that is killed if
+  /// the parse outlasts [_mp4ParseLimit]: null then, and for a parse that
+  /// fails, so the track keeps its filename and the scan goes on. The parser
+  /// spins synchronously when it loops, so nothing on this isolate could stop
+  /// it; on its own, killing it ends it.
+  Future<Object?> _parseMp4Stoppably(
+    String path, {
+    required bool getImage,
+  }) async {
+    final ReceivePort reply = ReceivePort();
+    final Isolate isolate = await Isolate.spawn(
+      _parseEntry,
+      (reply.sendPort, path, getImage),
+      // An isolate that dies without answering answers null.
+      onExit: reply.sendPort,
+    );
+    try {
+      return await reply.first.timeout(_mp4ParseLimit, onTimeout: () => null);
+    } finally {
+      isolate.kill(priority: Isolate.immediate);
+      reply.close();
+    }
+  }
+
+  /// [_parseMp4Stoppably]'s entry point. Only the path and the flag cross in,
+  /// and the parsed tag (strings, numbers and picture bytes) or null crosses
+  /// back.
+  static void _parseEntry((SendPort, String, bool) message) {
+    final (SendPort reply, String path, bool getImage) = message;
+    Object? tag;
+    try {
+      tag = readAllMetadata(File(path), getImage: getImage);
+    } catch (_) {
+      // A failed parse is "no tags", as on the calling isolate.
+    }
+    reply.send(tag);
   }
 
   /// The embedded pictures a parsed container carries, regardless of which
