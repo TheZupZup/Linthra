@@ -60,6 +60,10 @@ An **unknown** connection type is treated like mobile data: it downloads only
 when you've allowed mobile data, so an undetermined link is never assumed to be
 unmetered.
 
+On Linux, whether the connection is metered comes from the desktop's network
+monitor portal (see [Linux desktop](./linux-desktop.md)). A desktop without that
+portal reads as unknown.
+
 ## Cache size limit always applies
 
 A configurable **size limit** (4 GB by default; presets up to 16 GB, or a

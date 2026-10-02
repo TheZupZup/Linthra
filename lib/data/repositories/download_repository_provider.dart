@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/lifecycle/async_disposal_registry.dart';
 import '../../core/models/track.dart';
+import '../../core/platform/host_platform.dart';
 import '../../core/repositories/download_preferences.dart';
 import '../../core/repositories/download_repository.dart';
 import '../../core/repositories/download_store.dart';
@@ -10,10 +11,12 @@ import '../../core/services/android_connectivity_service.dart';
 import '../../core/services/cached_track_locator.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/offline_cache_manager.dart';
+import '../../core/services/portal_connectivity_service.dart';
 import '../../core/services/remote_track_downloader.dart';
 import '../../core/services/track_prefetcher.dart';
 import 'cache_download_repository.dart';
 import 'file_system_offline_file_store.dart';
+import 'host_platform_provider.dart';
 import 'in_memory_download_preferences.dart';
 import 'in_memory_download_store.dart';
 import 'in_memory_offline_file_store.dart';
@@ -56,8 +59,24 @@ final downloadPreferencesProvider = Provider<DownloadPreferences>((ref) {
 /// offline, or unknown; an unknown/platform failure stays conservative rather
 /// than silently being treated as Wi-Fi. Tests override this with a fake.
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
+  // Linux has no Android network channel, so asking it always read as
+  // unknown, which the download policy treats like mobile data: with the
+  // default "Wi-Fi only", every download was held and smart pre-cache never
+  // ran. The desktop's network monitor portal answers instead.
+  if (ref.watch(hostPlatformProvider) == HostPlatform.linux) {
+    final PortalConnectivityService service = PortalConnectivityService(
+      connect: ref.watch(linuxSessionBusProvider),
+    );
+    ref.onDisposeAsync(service.dispose);
+    return service;
+  }
   return AndroidConnectivityService();
 });
+
+/// Opens the session bus the Linux network monitor portal is read over. Null
+/// is the real session bus; tests point it at a bus of their own, so a run on
+/// a Linux desktop never asks that desktop's portal.
+final linuxSessionBusProvider = Provider<SessionBusConnector?>((ref) => null);
 
 /// Supplies the currently playing track so the cache policy never evicts it. A
 /// whole [Track] (not just an id) so the policy protects exactly that provider's
