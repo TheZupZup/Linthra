@@ -376,12 +376,12 @@ final playbackStateProvider = StreamProvider<PlaybackState>((ref) {
 /// work as a side effect of listening, so `main` instantiates it once after
 /// startup; nothing in the UI reads its value.
 ///
-/// Network recovery resumes it on Android, the one platform with a live
-/// network-status channel. Elsewhere the next queue change does, since
-/// listening to a channel with no native side only reports a missing plugin.
+/// Network recovery resumes it where the platform reports network changes
+/// (Android's channel, the network monitor portal on Linux). Elsewhere the
+/// next queue change does.
 final smartPrecacheServiceProvider = Provider<SmartPrecacheService>((ref) {
   final bool hasNetworkEvents =
-      ref.read(hostPlatformProvider) == HostPlatform.android;
+      hostReportsNetworkChanges(ref.read(hostPlatformProvider));
   final service = SmartPrecacheService(
     playbackStates: ref.read(playbackControllerProvider).stateStream,
     prefetcher: ref.read(trackPrefetcherProvider),

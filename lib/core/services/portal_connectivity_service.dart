@@ -24,12 +24,14 @@ typedef SessionBusConnector = DBusClient Function();
 /// bus, a reply that never comes) is [NetworkStatus.unknown], which the
 /// download policy treats conservatively, as before.
 class PortalConnectivityService implements ConnectivityService {
+  /// [connect] opens the session bus; null when there is none to ask, and
+  /// then everything reads as unknown and no change is ever reported.
   PortalConnectivityService({
-    SessionBusConnector? connect,
+    required SessionBusConnector? connect,
     Duration callTimeout = const Duration(seconds: 5),
     Duration quietAfterNoAnswer = const Duration(minutes: 1),
     DateTime Function()? now,
-  })  : _connect = connect ?? DBusClient.session,
+  })  : _connect = connect,
         _callTimeout = callTimeout,
         _quietAfterNoAnswer = quietAfterNoAnswer,
         _now = now ?? DateTime.now;
@@ -39,7 +41,7 @@ class PortalConnectivityService implements ConnectivityService {
   static final DBusObjectPath _portalPath =
       DBusObjectPath('/org/freedesktop/portal/desktop');
 
-  final SessionBusConnector _connect;
+  final SessionBusConnector? _connect;
 
   /// How long a portal call may take. Long enough for the bus to start the
   /// portal on first use; a call that takes longer reads as unknown.
@@ -52,6 +54,11 @@ class PortalConnectivityService implements ConnectivityService {
 
   final DateTime Function() _now;
 
+  /// The session bus, once it has answered on the connection: shared by the
+  /// questions and the change signal, and opened on first use.
+  Future<DBusClient>? _bus;
+
+  /// The connection [_bus] opened, closed on [dispose].
   DBusClient? _client;
   bool _closed = false;
 
@@ -61,12 +68,6 @@ class PortalConnectivityService implements ConnectivityService {
   /// Until when the portal is not asked, after one that never answered.
   DateTime? _quietUntil;
 
-  DBusRemoteObject get _portal => DBusRemoteObject(
-        _client ??= _connect(),
-        name: _portalName,
-        path: _portalPath,
-      );
-
   late final Stream<NetworkStatus> _changes =
       _portalChanges().distinct().asBroadcastStream();
 
@@ -75,7 +76,9 @@ class PortalConnectivityService implements ConnectivityService {
 
   @override
   Future<NetworkStatus> currentStatus() {
-    if (_closed) return Future<NetworkStatus>.value(NetworkStatus.unknown);
+    if (_closed || _connect == null) {
+      return Future<NetworkStatus>.value(NetworkStatus.unknown);
+    }
     final DateTime? quietUntil = _quietUntil;
     if (quietUntil != null && _now().isBefore(quietUntil)) {
       return Future<NetworkStatus>.value(NetworkStatus.unknown);
@@ -85,14 +88,8 @@ class PortalConnectivityService implements ConnectivityService {
 
   Future<NetworkStatus> _ask() async {
     try {
-      final DBusMethodSuccessResponse reply = await _portal
-          .callMethod(
-            _interface,
-            'GetMetered',
-            const <DBusValue>[],
-            replySignature: DBusSignature('b'),
-          )
-          .timeout(_callTimeout);
+      final DBusMethodSuccessResponse reply =
+          await _getMetered().timeout(_callTimeout);
       return reply.returnValues.single.asBoolean()
           ? NetworkStatus.mobile
           : NetworkStatus.wifi;
@@ -105,23 +102,62 @@ class PortalConnectivityService implements ConnectivityService {
     }
   }
 
+  Future<DBusMethodSuccessResponse> _getMetered() async =>
+      _portalOn(await _openBus()).callMethod(
+        _interface,
+        'GetMetered',
+        const <DBusValue>[],
+        replySignature: DBusSignature('b'),
+      );
+
+  DBusRemoteObject _portalOn(DBusClient client) =>
+      DBusRemoteObject(client, name: _portalName, path: _portalPath);
+
+  /// The session bus, opened on first use and counted as open once the bus
+  /// has answered on it. The dbus package never settles a connection whose
+  /// socket failed to open, so anything else sent on one would wait forever:
+  /// one that couldn't be opened is let go, and the next use tries again.
+  Future<DBusClient> _openBus() {
+    final Future<DBusClient>? open = _bus;
+    if (open != null) return open;
+    final Future<DBusClient> opening = _bus = _reachBus();
+    opening.then<void>((_) {}, onError: (Object _) {
+      if (identical(_bus, opening)) _bus = null;
+    });
+    return opening;
+  }
+
+  Future<DBusClient> _reachBus() async {
+    final DBusClient client = _client = _connect!();
+    // GetId: one of the few bus calls a Flatpak's bus filter lets through
+    // (it refuses Peer.Ping).
+    await client.getId();
+    return client;
+  }
+
   /// Reads the status again each time the portal says the network changed.
   Stream<NetworkStatus> _portalChanges() async* {
-    if (_closed) return;
-    final Stream<DBusSignal> changed = DBusRemoteObjectSignalStream(
-      object: _portal,
-      interface: _interface,
-      name: 'changed',
-      signature: DBusSignature(''),
-    );
+    if (_closed || _connect == null) return;
+    final DBusClient client;
     try {
-      await for (final DBusSignal _ in changed) {
-        yield await currentStatus();
-      }
+      // Only once the bus has answered: listening for a signal starts calls
+      // the dbus package doesn't wait for, which on a bus that can't be
+      // reached would fail with nobody to hear it. A bus that never answers
+      // just means no change is heard.
+      client = await _openBus();
     } catch (error) {
       if (!_portalCannotAnswer(error)) rethrow;
-      // Nothing to listen to: no change will ever be heard.
-      yield NetworkStatus.unknown;
+      // No bus to listen on: no change will ever be heard.
+      return;
+    }
+    if (_closed) return;
+    final Stream<DBusSignal> changed = DBusRemoteObjectSignalStream(
+      object: _portalOn(client),
+      interface: _interface,
+      name: 'changed',
+    );
+    await for (final DBusSignal _ in changed) {
+      yield await currentStatus();
     }
   }
 
@@ -145,6 +181,7 @@ class PortalConnectivityService implements ConnectivityService {
     _closed = true;
     final DBusClient? client = _client;
     _client = null;
+    _bus = null;
     await client?.close();
   }
 }

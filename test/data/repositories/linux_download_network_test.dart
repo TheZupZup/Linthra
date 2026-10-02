@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:dbus/dbus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/app/application_container.dart';
+import 'package:linthra/core/models/theme_mode_preference.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
 import 'package:linthra/core/repositories/download_repository.dart';
@@ -21,7 +23,7 @@ class _NetworkMonitorPortal extends DBusObject {
   _NetworkMonitorPortal({required this.metered})
       : super(DBusObjectPath('/org/freedesktop/portal/desktop'));
 
-  final bool metered;
+  bool metered;
 
   @override
   Future<DBusMethodResponse> handleMethodCall(DBusMethodCall methodCall) async {
@@ -30,6 +32,12 @@ class _NetworkMonitorPortal extends DBusObject {
       return DBusMethodSuccessResponse(<DBusValue>[DBusBoolean(metered)]);
     }
     return DBusMethodErrorResponse.unknownMethod();
+  }
+
+  /// The desktop moved to another network: the portal says so.
+  Future<void> change({required bool metered}) async {
+    this.metered = metered;
+    await emitSignal('org.freedesktop.portal.NetworkMonitor', 'changed');
   }
 }
 
@@ -70,9 +78,12 @@ void main() {
     await server.close();
   });
 
+  late _NetworkMonitorPortal portal;
+
   Future<ProviderContainer> linuxDesktop({required bool metered}) async {
+    portal = _NetworkMonitorPortal(metered: metered);
     await portalSide.requestName('org.freedesktop.portal.Desktop');
-    await portalSide.registerObject(_NetworkMonitorPortal(metered: metered));
+    await portalSide.registerObject(portal);
     final ProviderContainer container = ProviderContainer(
       overrides: <Override>[
         hostPlatformProvider.overrideWithValue(HostPlatform.linux),
@@ -108,6 +119,52 @@ void main() {
       DownloadRequestOutcome.waitingForWifi,
     );
     expect(downloader.fetches, 0);
+  });
+
+  test('a download held on a metered connection starts on an unmetered one',
+      () async {
+    final ProviderContainer container = await linuxDesktop(metered: true);
+    final DownloadRepository repository =
+        container.read(downloadRepositoryProvider);
+    expect(
+      await repository.requestDownload(_track),
+      DownloadRequestOutcome.waitingForWifi,
+    );
+
+    final Future<void> downloaded = repository.statusStream.firstWhere(
+      (Map<String, DownloadStatus> statuses) =>
+          statuses.values.contains(DownloadStatus.downloaded),
+    );
+
+    // Home from a phone hotspot: the desktop is on an unmetered network now.
+    await portal.change(metered: false);
+    await downloaded;
+
+    expect(downloader.fetches, 1);
+    expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+  });
+
+  test('the app asks the real session bus on Linux, and no other', () {
+    ProviderContainer production(HostPlatform host) {
+      final ProviderContainer c = ProviderContainer(
+        overrides: productionApplicationOverrides(
+          storedThemeMode: ThemeModePreference.system,
+          host: host,
+        ),
+      );
+      addTearDown(c.dispose);
+      return c;
+    }
+
+    expect(production(HostPlatform.linux).read(linuxSessionBusProvider),
+        isNotNull);
+    expect(
+        production(HostPlatform.android).read(linuxSessionBusProvider), isNull);
+    // The data layer has none, so a test on a Linux host never reaches the
+    // desktop's portal.
+    final ProviderContainer bare = ProviderContainer();
+    addTearDown(bare.dispose);
+    expect(bare.read(linuxSessionBusProvider), isNull);
   });
 
   test('Linux reads the portal; Android keeps its own channel', () async {

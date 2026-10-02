@@ -61,8 +61,9 @@ when you've allowed mobile data, so an undetermined link is never assumed to be
 unmetered.
 
 On Linux, whether the connection is metered comes from the desktop's network
-monitor portal (see [Linux desktop](./linux-desktop.md)). A desktop without that
-portal reads as unknown.
+monitor portal (see [Linux desktop](./linux-desktop.md)), and a download held
+for Wi-Fi starts once the portal reports an unmetered connection. A desktop
+without that portal reads as unknown.
 
 ## Cache size limit always applies
 

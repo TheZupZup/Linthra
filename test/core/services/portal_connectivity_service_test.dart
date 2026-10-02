@@ -146,14 +146,52 @@ void main() {
     expect(portal.calls, 1);
   });
 
-  test('no session bus reads as unknown', () async {
+  test('no session bus reads as unknown every time, without waiting', () async {
+    portalSide = DBusClient(address);
+    int connects = 0;
+    service = PortalConnectivityService(
+      connect: () {
+        connects++;
+        return DBusClient(
+          DBusAddress('unix:path=/nonexistent/linthra-test-bus'),
+        );
+      },
+      // Long enough that waiting it out would fail the test: a connection
+      // whose socket never opened is never settled by the dbus package, so
+      // asking on it again would wait for this, once a minute.
+      callTimeout: const Duration(hours: 1),
+    );
+
+    for (int i = 0; i < 3; i++) {
+      expect(await service.currentStatus(), NetworkStatus.unknown);
+    }
+    expect(connects, 3);
+  });
+
+  test('listening without a session bus hears nothing and fails nothing',
+      () async {
     portalSide = DBusClient(address);
     service = PortalConnectivityService(
       connect: () =>
           DBusClient(DBusAddress('unix:path=/nonexistent/linthra-test-bus')),
     );
+    final List<NetworkStatus> heard = <NetworkStatus>[];
+    final Completer<void> done = Completer<void>();
+
+    // An error the dbus package leaves unheard would fail this test.
+    service.statusStream.listen(heard.add, onDone: done.complete);
+    await done.future;
+
+    expect(heard, isEmpty);
+  });
+
+  test('with no session bus to ask, it reads as unknown and reports nothing',
+      () async {
+    portalSide = DBusClient(address);
+    service = PortalConnectivityService(connect: null);
 
     expect(await service.currentStatus(), NetworkStatus.unknown);
+    expect(await service.statusStream.toList(), isEmpty);
   });
 
   test('a session bus address it cannot use reads as unknown', () async {
