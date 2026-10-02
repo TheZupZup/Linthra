@@ -116,6 +116,11 @@ class FakeJellyfinClient implements JellyfinClient {
   /// A single error every playlist call throws, for the error-mapping tests.
   JellyfinException? playlistError;
 
+  /// Errors [fetchPlaylistEntries] throws for one playlist id only (a timeout
+  /// or a 5xx on that read), while the listing and the other playlists answer.
+  final Map<String, JellyfinException> playlistEntriesErrors =
+      <String, JellyfinException>{};
+
   /// The id [createPlaylist] returns (and keys new entries under).
   String createdPlaylistId = 'remote-playlist-1';
 
@@ -142,7 +147,8 @@ class FakeJellyfinClient implements JellyfinClient {
     JellyfinSession session,
     String playlistId,
   ) async {
-    final JellyfinException? error = playlistError;
+    final JellyfinException? error =
+        playlistError ?? playlistEntriesErrors[playlistId];
     if (error != null) throw error;
     return playlistEntries[playlistId] ?? const <JellyfinPlaylistEntry>[];
   }

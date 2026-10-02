@@ -40,9 +40,11 @@ class SubsonicPlaylistGateway implements RemotePlaylistGateway {
   bool get pushesReorder => true;
 
   @override
-  Future<List<RemotePlaylistData>> fetchPlaylists() async {
+  Future<RemotePlaylistListing> fetchPlaylists() async {
     final SubsonicSession? session = _session();
-    if (session == null) return const <RemotePlaylistData>[];
+    if (session == null) {
+      return const RemotePlaylistListing(<RemotePlaylistData>[]);
+    }
     final List<SubsonicPlaylistDto> headers;
     try {
       headers = await _client.getPlaylists(session);
@@ -50,12 +52,15 @@ class SubsonicPlaylistGateway implements RemotePlaylistGateway {
       throw RemoteSyncException(error.message);
     }
     final List<RemotePlaylistData> result = <RemotePlaylistData>[];
+    final Set<String> unread = <String>{};
     for (final SubsonicPlaylistDto header in headers) {
       final List<String> songIds;
       try {
         songIds = await _client.getPlaylistSongIds(session, header.id);
       } on SubsonicException catch (_) {
-        // Skip this playlist's membership; keep importing the rest.
+        // Keep importing the rest, but report this one as unread: left out,
+        // it would look deleted on the server.
+        unread.add(header.id);
         continue;
       }
       result.add(RemotePlaylistData(
@@ -64,7 +69,7 @@ class SubsonicPlaylistGateway implements RemotePlaylistGateway {
         trackUris: <String>[for (final String id in songIds) _uri(id)],
       ));
     }
-    return result;
+    return RemotePlaylistListing(result, unread: unread);
   }
 
   @override

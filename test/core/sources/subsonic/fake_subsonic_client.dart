@@ -71,6 +71,11 @@ class FakeSubsonicClient implements SubsonicClient {
   /// When set, playlist reads/writes throw it.
   SubsonicException? playlistError;
 
+  /// Errors [getPlaylistSongIds] throws for one playlist id only (a timeout or
+  /// a 5xx on that read), while the listing and the other playlists answer.
+  final Map<String, SubsonicException> playlistSongIdsErrors =
+      <String, SubsonicException>{};
+
   /// The id [createPlaylist] returns (and records the create under). Defaults to
   /// a stable value so a single create is easy to assert.
   String createdPlaylistId = 'pl-new';
@@ -234,7 +239,8 @@ class FakeSubsonicClient implements SubsonicClient {
     SubsonicSession session,
     String playlistId,
   ) async {
-    final SubsonicException? error = playlistError;
+    final SubsonicException? error =
+        playlistError ?? playlistSongIdsErrors[playlistId];
     if (error != null) throw error;
     return <String>[...?playlistSongIds[playlistId]];
   }

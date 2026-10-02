@@ -407,9 +407,8 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     };
 
     final Map<RemotePlaylistGateway,
-            ({List<RemotePlaylistData> answer, int fetch})>
-        fetched = <RemotePlaylistGateway,
-            ({List<RemotePlaylistData> answer, int fetch})>{};
+            ({RemotePlaylistListing answer, int fetch})> fetched =
+        <RemotePlaylistGateway, ({RemotePlaylistListing answer, int fetch})>{};
     int failures = 0;
     for (final RemotePlaylistGateway gateway in connected) {
       // Signed out while an earlier provider answered: don't ask for an
@@ -432,10 +431,9 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     // From here to the assignments in [_mergeRemote] there is no await.
     bool changed = false;
     int total = 0;
-    int applied = 0;
+    int complete = 0;
     for (final MapEntry<RemotePlaylistGateway,
-            ({List<RemotePlaylistData> answer, int fetch})> entry
-        in fetched.entries) {
+        ({RemotePlaylistListing answer, int fetch})> entry in fetched.entries) {
       final RemotePlaylistGateway gateway = entry.key;
       // Signed out (or cleared) while the fetch was in flight: the answer is
       // that account's, which is gone. A Subsonic fetch keeps the session it
@@ -445,11 +443,18 @@ class SyncedPlaylistRepository implements PlaylistRepository {
           _clearsOf(gateway.source) != clears[gateway.source]) {
         continue;
       }
-      applied++;
-      total += entry.value.answer.length;
+      final RemotePlaylistListing answer = entry.value.answer;
+      total += answer.playlists.length;
+      if (answer.unread.isEmpty) {
+        complete++;
+      } else {
+        // What it read is merged, but some playlists it listed could not be
+        // read: report it like a provider that could not be reached.
+        failures++;
+      }
       if (_mergeRemote(
         gateway.source,
-        entry.value.answer,
+        answer,
         before,
         entry.value.fetch,
       )) {
@@ -458,7 +463,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     }
 
     if (changed) await _persistAndEmit();
-    if (applied == 0) {
+    if (complete == 0) {
       return failures > 0
           ? const PlaylistSyncResult.failed()
           : const PlaylistSyncResult.notConfigured();
@@ -466,7 +471,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     return PlaylistSyncResult.synced(total);
   }
 
-  /// Folds one provider's server playlists ([remote], the answer to request
+  /// Folds one provider's server playlists ([listing], the answer to request
   /// number [fetch], sent while [before] was the list) into the current
   /// [_playlists], returning whether anything changed. Synchronous on purpose:
   /// see [_fetchAndMerge].
@@ -480,16 +485,23 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// reconciles it against a server that has seen it. Local-only playlists are
   /// never touched.
   ///
+  /// Only a playlist missing from the listing was deleted on the server. One
+  /// the server listed but whose tracks could not be read
+  /// ([RemotePlaylistListing.unread]) is not known to have changed at all, so
+  /// it is kept exactly as it is, under the same id and with any unpushed
+  /// edit, until a refresh can read it.
+  ///
   /// A refresh that overlaps this one (a provider signed in while it was out)
   /// replaces playlists too, and that is not an edit: whichever of the two
   /// asked the server later has the newer answer, and it wins, whichever
   /// order they land in.
   bool _mergeRemote(
     PlaylistSource source,
-    List<RemotePlaylistData> remote,
+    RemotePlaylistListing listing,
     Map<String, Playlist> before,
     int fetch,
   ) {
+    final List<RemotePlaylistData> remote = listing.playlists;
     final Map<String, RemotePlaylistData> server = <String, RemotePlaylistData>{
       for (final RemotePlaylistData dto in remote) dto.remoteId: dto,
     };
@@ -519,6 +531,10 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         }
       } else if (!identical(before[p.id], p)) {
         next.add(p); // Created or edited during the fetch: keep it as is.
+        continue;
+      }
+      if (listing.unread.contains(p.remoteId)) {
+        next.add(p); // Listed but unreadable this time: keep it as is.
         continue;
       }
       final RemotePlaylistData? dto = server[p.remoteId];

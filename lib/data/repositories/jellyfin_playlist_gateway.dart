@@ -39,10 +39,12 @@ class JellyfinPlaylistGateway implements RemotePlaylistGateway {
   bool get pushesReorder => false;
 
   @override
-  Future<List<RemotePlaylistData>> fetchPlaylists() async {
+  Future<RemotePlaylistListing> fetchPlaylists() async {
     final JellyfinClient? client = _client;
     final JellyfinSession? session = _session?.call();
-    if (client == null || session == null) return const <RemotePlaylistData>[];
+    if (client == null || session == null) {
+      return const RemotePlaylistListing(<RemotePlaylistData>[]);
+    }
     final List<JellyfinPlaylistDto> remote;
     try {
       remote = await client.fetchPlaylists(session);
@@ -50,14 +52,15 @@ class JellyfinPlaylistGateway implements RemotePlaylistGateway {
       throw RemoteSyncException(error.message);
     }
     final List<RemotePlaylistData> result = <RemotePlaylistData>[];
+    final Set<String> unread = <String>{};
     for (final JellyfinPlaylistDto dto in remote) {
       final List<JellyfinPlaylistEntry> entries;
       try {
         entries = await client.fetchPlaylistEntries(session, dto.id);
       } on JellyfinException catch (_) {
-        // Skip this playlist's membership; keep importing the rest (matches the
-        // prior repository behaviour of not failing the whole sync on one bad
-        // playlist).
+        // Keep importing the rest, but report this one as unread: left out,
+        // it would look deleted on the server.
+        unread.add(dto.id);
         continue;
       }
       result.add(RemotePlaylistData(
@@ -68,7 +71,7 @@ class JellyfinPlaylistGateway implements RemotePlaylistGateway {
         ],
       ));
     }
-    return result;
+    return RemotePlaylistListing(result, unread: unread);
   }
 
   @override

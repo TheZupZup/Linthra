@@ -128,7 +128,10 @@ Each refresh (startup or Sync library):
   rename shows up on the next sync — and is idempotent: repeated syncs never
   duplicate a playlist or its entries;
 - **drops** a synced playlist whose server copy is gone (it was deleted on the
-  server). Local-only playlists are never touched by a refresh.
+  server). One the server still lists but whose tracks couldn't be loaded this
+  time (a timeout, a server error, a dropped connection) is kept exactly as it
+  is until a later refresh can load it. Local-only playlists are never touched
+  by a refresh.
 
 A refresh takes a moment to hear back from the server, and anything you do in
 the meantime wins: a playlist you create, edit or delete while one is loading
