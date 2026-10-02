@@ -111,6 +111,32 @@ void main() {
       );
     });
 
+    test('fromJson keeps the saved entry of a song queued twice', () {
+      final PersistedPlaybackSession? loaded =
+          PersistedPlaybackSession.fromJson(<String, dynamic>{
+        'v': 1,
+        'i': 3,
+        'p': 0,
+        's': false,
+        'r': 'off',
+        't': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'x',
+            'title': 'Stream',
+            'uri': 'https://evil/stream?api_key=secret',
+          },
+          logicalTrackToJson(jellyfin),
+          logicalTrackToJson(local),
+          logicalTrackToJson(jellyfin),
+          logicalTrackToJson(subsonic),
+        ],
+      });
+
+      // The second copy, one place earlier now the stream URL row is gone.
+      expect(loaded!.currentIndex, 2);
+      expect(loaded.current!.uri, jellyfin.uri);
+    });
+
     test('fromJson drops invalid tracks and remaps the current item', () {
       final PersistedPlaybackSession? loaded =
           PersistedPlaybackSession.fromJson(<String, dynamic>{

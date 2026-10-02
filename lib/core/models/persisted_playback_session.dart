@@ -128,21 +128,29 @@ class PersistedPlaybackSession {
     }
 
     final List<Track> parsed = <Track>[];
-    for (final Object? entry in rawTracks) {
+    // Where the saved current entry itself landed, when it survived. A queue
+    // can hold the same song twice, so its uri alone could name an earlier
+    // copy.
+    int? savedEntryAt;
+    for (int i = 0; i < rawTracks.length; i++) {
+      final Object? entry = rawTracks[i];
       if (entry is! Map) continue;
       final Track? track =
           logicalTrackFromJson(Map<String, dynamic>.from(entry));
       if (track == null) continue;
       if (isTrackRestorable != null && !isTrackRestorable(track)) continue;
+      if (i == requestedIndex) savedEntryAt = parsed.length;
       parsed.add(track);
     }
     if (parsed.isEmpty) return null;
 
-    // Prefer the originally current identity when it survived filtering;
-    // otherwise land on the first surviving track so restore never points past
-    // the end or at a dropped remote/local row.
+    // Prefer the originally current entry when it survived filtering, then
+    // another copy of it; otherwise land on the first surviving track so
+    // restore never points past the end or at a dropped remote/local row.
     int currentIndex = 0;
-    if (preferredCurrentUri != null) {
+    if (savedEntryAt != null) {
+      currentIndex = savedEntryAt;
+    } else if (preferredCurrentUri != null) {
       final int found =
           parsed.indexWhere((Track t) => t.uri == preferredCurrentUri);
       if (found >= 0) currentIndex = found;

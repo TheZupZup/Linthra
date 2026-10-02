@@ -499,6 +499,67 @@ void main() {
       });
     });
 
+    test('restore comes back on the saved entry, not an earlier copy of it',
+        () async {
+      // A queue can hold the same song twice: one queued again with "Add to
+      // queue", an album queued after one of its songs, a playlist repeat.
+      const Track a = Track(
+        id: 'a',
+        title: 'Song A',
+        uri: 'jellyfin:a',
+        duration: Duration(minutes: 4),
+      );
+      const Track b = Track(id: 'b', title: 'Song B', uri: 'jellyfin:b');
+      const Track c = Track(id: 'c', title: 'Song C', uri: 'jellyfin:c');
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore();
+      final FakePlaybackController before = FakePlaybackController();
+      final PlaybackSessionPersistence persistence = PlaybackSessionPersistence(
+        store: store,
+        controller: before,
+        playbackStates: before.stateStream,
+        localFileExists: (_) => true,
+        positionSaveInterval: Duration.zero,
+      );
+
+      // The second A of [A, B, A, C] is playing.
+      before.emit(const PlaybackState(
+        status: PlaybackStatus.paused,
+        currentTrack: a,
+        position: Duration(seconds: 90),
+        duration: Duration(minutes: 4),
+        previous: <Track>[a, b],
+        upNext: <Track>[c],
+        hasPrevious: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect((await store.load())!.currentIndex, 2);
+
+      // Next launch.
+      final FakePlaybackController after = FakePlaybackController();
+      final PlaybackSessionPersistence restorer = PlaybackSessionPersistence(
+        store: store,
+        controller: after,
+        playbackStates: after.stateStream,
+        localFileExists: (_) => true,
+      );
+      await restorer.restore();
+
+      // Back on that entry: A and B behind it, only C ahead, rather than on
+      // the first A with B and A to hear again.
+      expect(
+        after.state.previous.map((Track t) => t.uri),
+        <String>[a.uri, b.uri],
+      );
+      expect(after.state.upNext.map((Track t) => t.uri), <String>[c.uri]);
+      expect(after.lastRestorePosition, const Duration(seconds: 90));
+
+      await persistence.dispose();
+      await restorer.dispose();
+      await before.dispose();
+      await after.dispose();
+    });
+
     test('restore failure clears the store and never throws', () async {
       final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
         const PersistedPlaybackSession(
