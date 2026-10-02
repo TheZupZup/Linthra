@@ -80,6 +80,30 @@ void main() {
       );
     });
 
+    test('statusStream can be followed by more than one listener', () async {
+      // Smart pre-cache and the download queue both follow it.
+      final events = StreamController<Object?>();
+      final service = AndroidConnectivityService(
+        statusReader: () async => 'unmetered',
+        statusEvents: events.stream,
+      );
+      final first = <NetworkStatus>[];
+      final second = <NetworkStatus>[];
+      final a = service.statusStream.listen(first.add);
+      final b = service.statusStream.listen(second.add);
+
+      events
+        ..add('metered')
+        ..add('unmetered');
+      await events.close();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(first, <NetworkStatus>[NetworkStatus.mobile, NetworkStatus.wifi]);
+      expect(second, <NetworkStatus>[NetworkStatus.mobile, NetworkStatus.wifi]);
+      await a.cancel();
+      await b.cancel();
+    });
+
     test('statusStream emits unknown instead of exposing channel errors',
         () async {
       final events = StreamController<Object?>();

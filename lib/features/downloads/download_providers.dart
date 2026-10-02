@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/cache_size.dart';
@@ -195,6 +197,8 @@ class AllowMobileDataController extends AsyncNotifier<bool> {
   Future<void> setAllowMobileData(bool value) async {
     await ref.read(downloadPreferencesProvider).setAllowMobileData(value);
     state = AsyncData<bool>(value);
+    // Downloads queued for Wi-Fi may run now.
+    unawaited(ref.read(downloadRepositoryProvider).retryHeldDownloads());
   }
 }
 

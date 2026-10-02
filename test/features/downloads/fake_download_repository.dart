@@ -163,6 +163,15 @@ class FakeDownloadRepository implements DownloadRepository {
     return _downloaded.toList();
   }
 
+  /// How many times [retryHeldDownloads] was asked, so a test can prove a
+  /// policy change asks again for what the network held back.
+  int retryHeldCount = 0;
+
+  @override
+  Future<void> retryHeldDownloads() async {
+    retryHeldCount++;
+  }
+
   void _set(String key, DownloadStatus status) {
     _statuses[key] = status;
     _changes.add(Map<String, DownloadStatus>.unmodifiable(_statuses));
