@@ -72,6 +72,16 @@ class _SlowWritesSubsonicClient extends FakeSubsonicClient {
         p.id == playlistId ? SubsonicPlaylistDto(id: p.id, name: name) : p,
     ];
   }
+
+  @override
+  Future<String> createPlaylist(
+    SubsonicSession session, {
+    required String name,
+    List<String> songIds = const <String>[],
+  }) async {
+    await _landWhenLetThrough();
+    return super.createPlaylist(session, name: name, songIds: songIds);
+  }
 }
 
 /// The Jellyfin counterpart of [_SlowWritesSubsonicClient], for its add and
@@ -105,6 +115,16 @@ class _SlowWritesJellyfinClient extends FakeJellyfinClient {
   ) async {
     await _landWhenLetThrough();
     return super.removeItemsFromPlaylist(session, playlistId, itemIds);
+  }
+
+  @override
+  Future<String> createPlaylist(
+    JellyfinSession session, {
+    required String name,
+    List<String> itemIds = const <String>[],
+  }) async {
+    await _landWhenLetThrough();
+    return super.createPlaylist(session, name: name, itemIds: itemIds);
   }
 }
 
@@ -1962,6 +1982,158 @@ void main() {
         expect(server(), contains('c'));
         await repository.refreshFromRemote();
         expect(await local(), contains('jellyfin:c'));
+      });
+    });
+  });
+
+  // A new synced playlist is on screen (and can be edited) from the moment
+  // it is made, while the server is still creating it. Until that create
+  // lands there is no server id to send an edit to.
+  group('SyncedPlaylistRepository (a create still on the wire)', () {
+    late InMemoryPlaylistStore store;
+    late int counter;
+
+    setUp(() {
+      store = InMemoryPlaylistStore();
+      counter = 0;
+    });
+
+    SyncedPlaylistRepository build(RemotePlaylistGateway gateway) =>
+        SyncedPlaylistRepository(
+          store: store,
+          gateways: <RemotePlaylistGateway>[gateway],
+          idGenerator: () => 'pl-${counter++}',
+          now: () => DateTime(2024, 1, 1),
+        );
+
+    /// Starts creating a [source] playlist named 'Road' with the server
+    /// holding the create, and returns its local id and the create.
+    Future<({String id, Future<Playlist> creating})> startCreate(
+      SyncedPlaylistRepository repository,
+      List<Completer<void>> heldWrites,
+      PlaylistSource source,
+    ) async {
+      final Future<Playlist> creating =
+          repository.createPlaylist('Road', source: source);
+      await _pumpUntil(() => heldWrites.isNotEmpty);
+      final String id = (await repository.getAllPlaylists()).single.id;
+      return (id: id, creating: creating);
+    }
+
+    group('Subsonic', () {
+      late _SlowWritesSubsonicClient client;
+      late SyncedPlaylistRepository repository;
+
+      setUp(() {
+        client = _SlowWritesSubsonicClient()..holdWrites = true;
+        repository = build(
+          SubsonicPlaylistGateway(
+            client: client,
+            session: () => _subsonicSession,
+          ),
+        );
+      });
+
+      /// Lets the held create (and everything after it) through.
+      void landCreate() {
+        client.holdWrites = false;
+        for (final Completer<void> gate in client.heldWrites) {
+          if (!gate.isCompleted) gate.complete();
+        }
+      }
+
+      test('a song added while it is created reaches the server', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        final Future<void> adding =
+            repository.addTrack(created.id, 'subsonic:a');
+
+        landCreate();
+        await created.creating;
+        await adding;
+
+        expect(client.playlistSongIds['pl-new'], <String>['a']);
+        await repository.refreshFromRemote();
+        expect(
+          (await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['subsonic:a'],
+        );
+      });
+
+      test('a rename made while it is created reaches the server', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        final Future<void> renaming =
+            repository.renamePlaylist(created.id, 'Road Trip');
+
+        landCreate();
+        await created.creating;
+        await renaming;
+
+        expect(client.playlists.single.name, 'Road Trip');
+        await repository.refreshFromRemote();
+        expect(
+          (await repository.getPlaylistById(created.id))!.name,
+          'Road Trip',
+        );
+      });
+
+      test('one deleted while it is created does not come back', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        final Future<void> deleting = repository.deletePlaylist(created.id);
+
+        landCreate();
+        await created.creating;
+        await deleting;
+
+        expect(client.playlists, isEmpty);
+        await repository.refreshFromRemote();
+        expect(await repository.getAllPlaylists(), isEmpty);
+      });
+    });
+
+    group('Jellyfin', () {
+      late _SlowWritesJellyfinClient client;
+      late SyncedPlaylistRepository repository;
+
+      setUp(() {
+        client = _SlowWritesJellyfinClient()..holdWrites = true;
+        repository = build(
+          JellyfinPlaylistGateway(client: client, session: () => _session),
+        );
+      });
+
+      void landCreate() {
+        client.holdWrites = false;
+        for (final Completer<void> gate in client.heldWrites) {
+          if (!gate.isCompleted) gate.complete();
+        }
+      }
+
+      test('a song added while it is created reaches the server', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.jellyfin);
+        final Future<void> adding =
+            repository.addTrack(created.id, 'jellyfin:a');
+
+        landCreate();
+        await created.creating;
+        await adding;
+
+        expect(
+          <String>[
+            for (final JellyfinPlaylistEntry entry
+                in client.playlistEntries['remote-playlist-1']!)
+              entry.itemId,
+          ],
+          <String>['a'],
+        );
+        await repository.refreshFromRemote();
+        expect(
+          (await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['jellyfin:a'],
+        );
       });
     });
   });

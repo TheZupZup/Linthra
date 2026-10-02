@@ -169,7 +169,14 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     _playlists = <Playlist>[..._playlists, playlist];
     await _persistAndEmit();
     if (remote) {
-      playlist = await _pushCreate(playlist, gateway);
+      // On the push queue like every later push for it: the playlist is on
+      // screen and editable at once, but an edit has no server id to go to
+      // until this lands, so it waits for it instead of being skipped.
+      final Playlist pending = playlist;
+      playlist = await _pushInOrder(
+        pending.id,
+        () => _pushCreate(pending, gateway),
+      );
     }
     return playlist;
   }
@@ -801,18 +808,11 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     Playlist playlist,
     RemotePlaylistGateway gateway,
   ) async {
+    final String remoteId;
     try {
-      final String remoteId = await gateway.createRemotePlaylist(
+      remoteId = await gateway.createRemotePlaylist(
         playlist.name,
         playlist.trackIds,
-      );
-      return await _mutate(
-        playlist.id,
-        (Playlist p) => p.copyWith(
-          remoteId: () => remoteId,
-          syncState: PlaylistSyncState.synced,
-          lastSyncError: () => null,
-        ),
       );
     } on RemoteSyncException catch (error) {
       return _mutate(
@@ -823,6 +823,25 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         ),
       );
     }
+    if (_byId(playlist.id) == null) {
+      // Deleted here while the server was still making it. That delete had
+      // no server id to send, so it goes now: left there, the playlist would
+      // come back with the next refresh.
+      try {
+        await gateway.deleteRemote(remoteId);
+      } on RemoteSyncException catch (_) {
+        // Best-effort, like every server delete (see [deletePlaylist]).
+      }
+      return playlist;
+    }
+    return _mutate(
+      playlist.id,
+      (Playlist p) => p.copyWith(
+        remoteId: () => remoteId,
+        syncState: PlaylistSyncState.synced,
+        lastSyncError: () => null,
+      ),
+    );
   }
 
   /// Queues a membership push for a synced playlist behind any push for it
@@ -887,9 +906,9 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// out may carry the server's copy from before it. Adopting that would drop
   /// the edit on screen, and the next Subsonic push, sending the list as it
   /// then stood, would drop it on the server too.
-  Future<void> _pushInOrder(String playlistId, Future<void> Function() send) {
+  Future<T> _pushInOrder<T>(String playlistId, Future<T> Function() send) {
     final Future<void>? earlier = _pushes[playlistId];
-    final Future<void> push = earlier == null
+    final Future<T> push = earlier == null
         ? send()
         // Only when it ends matters here. Whoever made the earlier edit gets
         // its result, an error included, from their own future.
