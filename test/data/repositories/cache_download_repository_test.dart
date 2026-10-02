@@ -182,6 +182,34 @@ class _SpyOfflineFileStore implements OfflineFileStore {
   }
 }
 
+/// A connectivity stand-in whose [currentStatus] can be held open, so a
+/// connection change can land while a request is still asking the policy.
+class _GatedConnectivity implements ConnectivityService {
+  _GatedConnectivity(this.status);
+
+  NetworkStatus status;
+
+  /// When set, [currentStatus] waits on it, then answers with the status it
+  /// read when it was asked.
+  Completer<void>? gate;
+  final Completer<void> reached = Completer<void>();
+
+  @override
+  Stream<NetworkStatus> get statusStream => const Stream<NetworkStatus>.empty();
+
+  @override
+  Future<NetworkStatus> currentStatus() async {
+    final NetworkStatus asked = status;
+    final Completer<void>? pending = gate;
+    if (pending != null && !pending.isCompleted) {
+      if (!reached.isCompleted) reached.complete();
+      await pending.future;
+      return asked;
+    }
+    return status;
+  }
+}
+
 /// One fetch held by [_PerCallDownloader] until the test settles it.
 class _HeldFetch {
   final Completer<void> _gate = Completer<void>();
@@ -1916,6 +1944,232 @@ void main() {
         expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
         expect(files.bytesFor('jellyfin_j1.mp3'), isNotNull);
         expect(downloader.fetchCount, 1);
+      });
+    });
+
+    group('downloads held by the network policy', () {
+      // A download asked for on mobile data (Wi-Fi only, the default) or
+      // while offline is held as "queued", and the offline message promises
+      // it starts by itself. These pin that it does, and that nothing it
+      // shouldn't start does.
+      late StreamController<NetworkStatus> changes;
+      String? scope = 'jellyfin:account-a';
+
+      CacheDownloadRepository buildHeld({
+        ConnectivityService? connectivityService,
+        DownloadPreferences? prefs,
+        DownloadScheduler? scheduler,
+      }) {
+        return CacheDownloadRepository(
+          store: store,
+          files: files,
+          downloader: downloader,
+          connectivity: connectivityService ?? connectivity,
+          preferences: prefs ?? preferences,
+          scheduler: scheduler,
+          networkChanges: changes.stream,
+          accountScopeOf: (Track _) => scope,
+        );
+      }
+
+      setUp(() {
+        changes = StreamController<NetworkStatus>.broadcast();
+        scope = 'jellyfin:account-a';
+      });
+
+      tearDown(() => changes.close());
+
+      Future<void> networkBecomes(NetworkStatus status) async {
+        connectivity.status = status;
+        changes.add(status);
+        await _pumpUntil(() => false);
+      }
+
+      test('a download held for Wi-Fi starts when Wi-Fi arrives', () async {
+        connectivity.status = NetworkStatus.mobile;
+        final repository = buildHeld();
+        expect(
+          await repository.requestDownload(_jellyfin('j1')),
+          DownloadRequestOutcome.waitingForWifi,
+        );
+        expect(await repository.statusFor('j1'), DownloadStatus.queued);
+        expect(downloader.fetchCount, 0);
+
+        await networkBecomes(NetworkStatus.wifi);
+
+        expect(downloader.fetchCount, 1);
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+        expect(files.bytesFor('jellyfin_j1.mp3'), isNotNull);
+      });
+
+      test('a download held while offline starts when the connection is back',
+          () async {
+        connectivity.status = NetworkStatus.offline;
+        final repository = buildHeld();
+        expect(
+          await repository.requestDownload(_jellyfin('j1')),
+          DownloadRequestOutcome.waitingForConnection,
+        );
+
+        await networkBecomes(NetworkStatus.wifi);
+
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+      });
+
+      test('a held album starts together, each track once', () async {
+        connectivity.status = NetworkStatus.mobile;
+        final repository = buildHeld();
+        for (final String id in <String>['a', 'b', 'c']) {
+          await repository.requestDownload(_jellyfin(id));
+        }
+
+        await networkBecomes(NetworkStatus.wifi);
+        await networkBecomes(NetworkStatus.wifi);
+
+        expect(downloader.fetched.map((Track t) => t.id).toList()..sort(),
+            <String>['a', 'b', 'c']);
+        for (final String id in <String>['a', 'b', 'c']) {
+          expect(await repository.statusFor(id), DownloadStatus.downloaded);
+        }
+      });
+
+      test('a change that still does not allow it leaves it queued', () async {
+        connectivity.status = NetworkStatus.offline;
+        final repository = buildHeld();
+        await repository.requestDownload(_jellyfin('j1'));
+
+        // Back online, but on mobile data with Wi-Fi only.
+        await networkBecomes(NetworkStatus.mobile);
+        expect(downloader.fetchCount, 0);
+        expect(await repository.statusFor('j1'), DownloadStatus.queued);
+
+        // Still held, so the next change can start it.
+        await networkBecomes(NetworkStatus.wifi);
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+      });
+
+      test('allowing mobile data starts what was held for Wi-Fi', () async {
+        connectivity.status = NetworkStatus.mobile;
+        final repository = buildHeld();
+        await repository.requestDownload(_jellyfin('j1'));
+
+        await preferences.setAllowMobileData(true);
+        await repository.retryHeldDownloads();
+
+        expect(downloader.fetchCount, 1);
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+      });
+
+      test('a held download that was cancelled never starts', () async {
+        connectivity.status = NetworkStatus.mobile;
+        final repository = buildHeld();
+        await repository.requestDownload(_jellyfin('j1'));
+        await repository.removeDownload(_jellyfin('j1'));
+
+        await networkBecomes(NetworkStatus.wifi);
+
+        expect(downloader.fetchCount, 0);
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+      });
+
+      test('clear all drops held downloads too', () async {
+        connectivity.status = NetworkStatus.mobile;
+        final repository = buildHeld();
+        await repository.requestDownload(_jellyfin('j1'));
+
+        await repository.clearAll();
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        await networkBecomes(NetworkStatus.wifi);
+
+        expect(downloader.fetchCount, 0);
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+      });
+
+      test('a held download whose account changed is dropped, not fetched',
+          () async {
+        connectivity.status = NetworkStatus.mobile;
+        final repository = buildHeld();
+        await repository.requestDownload(_jellyfin('j1'));
+
+        // Signed in as someone else (or signed out) while it waited: the
+        // session there now would fetch another account's item as j1.
+        scope = 'jellyfin:account-b';
+        await networkBecomes(NetworkStatus.wifi);
+
+        expect(downloader.fetchCount, 0);
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        expect(await store.loadDownloads(), isEmpty);
+      });
+
+      test('a download waiting for a slot when its account changes is dropped',
+          () async {
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(gate: gate.future);
+        final repository =
+            buildHeld(scheduler: DownloadScheduler(maxConcurrent: 1));
+
+        final requests = <Future<void>>[
+          repository.requestDownload(_jellyfin('a')),
+          repository.requestDownload(_jellyfin('b')),
+        ];
+        await _pumpUntil(() => downloader.fetchCount >= 1);
+        scope = null; // signed out
+        gate.complete();
+        await Future.wait(requests);
+
+        expect(downloader.fetched.map((Track t) => t.id), <String>['a']);
+        expect(await repository.statusFor('b'), DownloadStatus.notDownloaded);
+      });
+
+      test('a connection change that lands while it is being decided counts',
+          () async {
+        final gated = _GatedConnectivity(NetworkStatus.mobile);
+        final repository = buildHeld(connectivityService: gated);
+
+        // The policy is asked while on mobile data; Wi-Fi arrives before the
+        // answer does, so the change finds nothing held yet.
+        gated.gate = Completer<void>();
+        final Future<DownloadRequestOutcome> request =
+            repository.requestDownload(_jellyfin('j1'));
+        await gated.reached.future;
+        gated.status = NetworkStatus.wifi;
+        changes.add(NetworkStatus.wifi);
+        await _pumpUntil(() => false);
+        gated.gate!.complete();
+        expect(await request, DownloadRequestOutcome.waitingForWifi);
+        await _pumpUntil(() => downloader.fetchCount >= 1);
+        await _pumpUntil(() => false);
+
+        expect(downloader.fetchCount, 1);
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+      });
+
+      test('a held download that no longer fits says it failed', () async {
+        connectivity.status = NetworkStatus.mobile;
+        await preferences.setMaxCacheBytes(2);
+        final repository = buildHeld();
+        await repository.requestDownload(_jellyfin('j1'));
+
+        await networkBecomes(NetworkStatus.wifi);
+
+        // Nobody is watching a snackbar for a download that started on its
+        // own: the row offers Retry, which explains the cache limit.
+        expect(await repository.statusFor('j1'), DownloadStatus.failed);
+        expect(await store.loadDownloads(), isEmpty);
+      });
+
+      test('nothing is held after the repository is disposed', () async {
+        connectivity.status = NetworkStatus.mobile;
+        final repository = buildHeld();
+        await repository.requestDownload(_jellyfin('j1'));
+        await repository.dispose();
+
+        connectivity.status = NetworkStatus.wifi;
+        changes.add(NetworkStatus.wifi);
+        await _pumpUntil(() => false);
+        await repository.retryHeldDownloads();
+
+        expect(downloader.fetchCount, 0);
       });
     });
 

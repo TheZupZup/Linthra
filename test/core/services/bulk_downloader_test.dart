@@ -221,7 +221,7 @@ void main() {
       );
     });
 
-    test('being offline does not promise the batch will resume by itself',
+    test('being offline says the batch starts when the connection is back',
         () async {
       final FakeDownloadRepository repository = FakeDownloadRepository(
         outcomes: <String, DownloadRequestOutcome>{
@@ -236,15 +236,13 @@ void main() {
         tracks: <Track>[_remote('1'), _remote('2')],
       );
 
+      // The repository asks again for held downloads when the connection
+      // comes back, so this is what happens, not advice to retry by hand
+      // (a queued row offers only Cancel).
       expect(
         summary.completionMessage,
-        '2 songs from “Album” are queued. You\'re offline. Start them again '
-        'from Downloads once you\'re back online.',
-      );
-      // Nothing here retries on a reconnect, so the batch must not say it will.
-      expect(
-        summary.completionMessage,
-        isNot(contains('automatically')),
+        '2 songs from “Album” are queued. You\'re offline. They will start '
+        'automatically when you\'re back online.',
       );
     });
 

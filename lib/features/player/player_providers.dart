@@ -534,6 +534,15 @@ final currentlyPlayingTrackOverride =
   (ref) => () => ref.read(playbackControllerProvider).state.currentTrack,
 );
 
+/// Production binding: binds each download to the account its provider was
+/// signed in with when it was asked for, using the same account key as smart
+/// pre-cache, so a download waiting for Wi-Fi or a slot is never fetched with
+/// another account's session. Read live at each check. Applied in `main`;
+/// tests keep the data-layer default (one account).
+final downloadAccountScopeOverride = downloadAccountScopeProvider.overrideWith(
+  (ref) => (Track track) => _accountKeyForTrack(ref, track),
+);
+
 /// Production binding: drives the now-playing indicator on every track row from
 /// the live [PlaybackState]. Selected down to `(current track, isPlaying)` so it
 /// updates only on a track change or a play/pause flip — never on a position
