@@ -104,7 +104,17 @@ void main() {
       // problem, so a broad `cache=no` would cost normal network buffering.
       expect(
         resolveLinuxMpvProperties(const {}).keys,
-        <String>['cache-on-disk'],
+        <String>['cache-on-disk', 'ytdl'],
+      );
+    });
+
+    test('never hands a stream URL to youtube-dl', () {
+      // mpv passes an HTTP URL it fails to open to yt-dlp as an argument,
+      // and a Subsonic or Plex stream URL carries the account's token.
+      expect(resolveLinuxMpvProperties(const {})['ytdl'], 'no');
+      expect(
+        resolveLinuxMpvProperties(const {'ao': 'null'})['ytdl'],
+        'no',
       );
     });
 

@@ -33,11 +33,13 @@ class RemoteCachePolicy {
       source == PlaybackSource.streamingDirect;
 
   /// Builds a fresh cache entry for [key] from a [resolved] playable, stamping
-  /// [resolvedAt]/[expiresAt] from [now] and [ttl].
+  /// [resolvedAt]/[expiresAt] from [now] and [ttl], and the [accountScope] the
+  /// URL was minted for.
   RemoteCacheEntry buildEntry({
     required RemoteCacheKey key,
     required ResolvedPlayable resolved,
     required DateTime now,
+    String? accountScope,
   }) =>
       RemoteCacheEntry(
         key: key,
@@ -45,9 +47,18 @@ class RemoteCachePolicy {
         source: resolved.source,
         resolvedAt: now,
         expiresAt: now.add(ttl),
+        accountScope: accountScope,
       );
 
-  /// Whether a stored [entry] may still be served at [now]. A stale entry must
-  /// be dropped and re-resolved instead of replayed.
-  bool shouldReuse(RemoteCacheEntry entry, DateTime now) => entry.isFresh(now);
+  /// Whether a stored [entry] may still be served at [now] to whoever is
+  /// signed in as [accountScope]. A stale entry must be dropped and
+  /// re-resolved instead of replayed, and so must one minted for another
+  /// account (or before a sign-out): its URL carries that account's
+  /// credentials.
+  bool shouldReuse(
+    RemoteCacheEntry entry,
+    DateTime now, {
+    String? accountScope,
+  }) =>
+      entry.isFresh(now) && entry.accountScope == accountScope;
 }

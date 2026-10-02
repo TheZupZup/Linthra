@@ -73,6 +73,18 @@ void main() {
       );
     });
 
+    // libmpv only logs a file it can't open and goes idle, which used to
+    // leave the load waiting forever. The smoke proves that ends in an error
+    // with a reason, on the real engine, and polls rather than awaiting the
+    // load so a regression fails it instead of hanging it.
+    test('proves a file libmpv cannot play fails instead of loading forever',
+        () {
+      expect(lifecycle, contains('await _exerciseUnplayableFile('));
+      expect(lifecycle, contains('unawaited(controller.playTrack('));
+      expect(lifecycle, contains('state.status != PlaybackStatus.error'));
+      expect(lifecycle, contains('controller.state.failure == null'));
+    });
+
     // The whole point of running inside the sandbox: if a host libmpv can
     // answer for the packaged one, a package that ships none still passes.
     test('reads back which libmpv the loader actually opened', () {

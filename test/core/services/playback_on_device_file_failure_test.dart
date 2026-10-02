@@ -18,6 +18,7 @@
 // is described as a file that couldn't be read. Everything else keeps the
 // classification it had.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -56,6 +57,15 @@ PlayerException _noDecoder() => PlayerException(
       'Unsupported audio format: no decoder on this device for audio/flac',
       <String, dynamic>{'index': 0, 'mimeType': 'audio/flac'},
     );
+
+/// What the vendored media_kit adapter fails a load with when libmpv reports
+/// it can't open the source: a missing or unreadable file, an HTTP error, a
+/// refused connection. Fixed text, so no path or URL reaches the classifier.
+PlayerException _linuxCouldNotOpen() => PlayerException(1, 'Source error');
+
+/// And when libmpv opened it but recognized no format in it.
+PlayerException _linuxUnrecognized() =>
+    PlayerException(1, 'Unsupported audio: the file format was not recognized');
 
 /// What a libmpv that loads but is not the right one fails with on Linux.
 const String _wrongLibmpv =
@@ -553,6 +563,118 @@ void main() {
         PlaybackFailureKind.temporarySource,
       );
       expect(controller.state.errorMessage, "Couldn't play this track.");
+    });
+  });
+
+  group('on Linux, a source libmpv cannot open', () {
+    // libmpv only logs these and goes idle; the vendored adapter turns that
+    // into a load failure with fixed text (third_party/just_audio_media_kit
+    // PATCHES.md), which has to land in the same classification Android's
+    // "Source error" does, and never read as an engine that can't run.
+    // The Linux controller looks the path up on disk when reading it fails,
+    // so these use a real file, and a path that really isn't there.
+    LinuxPlaybackController buildLinux({
+      PlayableUriResolver? streamingFallback,
+      PlaybackRecoveryPolicy? automaticRecovery,
+    }) {
+      final LinuxPlaybackController controller = LinuxPlaybackController(
+        player: engine,
+        resolver: resolver,
+        streamingFallbackResolver: streamingFallback,
+        automaticRecovery: automaticRecovery,
+        backend: LinuxPlaybackBackendInitializer(
+          registerBackend: () {},
+          bundledRuntime: false,
+        ),
+      )..streamRetryBackoff = Duration.zero;
+      addTearDown(controller.dispose);
+      return controller;
+    }
+
+    late String path;
+    late String fileUri;
+
+    setUp(() {
+      final Directory directory =
+          Directory.systemTemp.createTempSync('linthra_open_failure_');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      path = File('${directory.path}/01.flac').path;
+      File(path).writeAsBytesSync(<int>[1, 2, 3]);
+      fileUri = Uri.file(path).toString();
+    });
+
+    test('a path gone by then is a missing file', () async {
+      final String gone = '$path.gone';
+      engine.openErrors[Uri.file(gone).toString()] = _linuxCouldNotOpen();
+      final LinuxPlaybackController controller = buildLinux();
+
+      await controller.playTracks(<Track>[_track(gone)]);
+
+      expectMissingFile(controller.state);
+    });
+
+    test('a path still there is a file that could not be read', () async {
+      engine.openErrors[fileUri] = _linuxCouldNotOpen();
+      final LinuxPlaybackController controller = buildLinux();
+
+      await controller.playTracks(<Track>[_track(path)]);
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(
+        controller.state.failure?.kind,
+        PlaybackFailureKind.localFileUnavailable,
+      );
+      expect(controller.state.errorMessage, contains('still there'));
+      expect(controller.state.failure?.canRetry, isTrue);
+    });
+
+    test('a file it does not recognize is unplayable, not retried', () async {
+      engine.openErrors[fileUri] = _linuxUnrecognized();
+      final LinuxPlaybackController controller =
+          buildLinux(automaticRecovery: _instantRecovery);
+
+      await controller.playTracks(<Track>[_track(path)]);
+      await _settle();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(
+        controller.state.failure?.kind,
+        PlaybackFailureKind.unplayableMedia,
+      );
+      expect(
+        controller.state.errorMessage,
+        "This track's format isn't supported on this device.",
+      );
+      expect(engine.opened, <String>[fileUri]);
+    });
+
+    test('a stream it could not open is a stream that could not start',
+        () async {
+      engine.openErrors[_streamUrl] = _linuxCouldNotOpen();
+      final LinuxPlaybackController controller = buildLinux();
+
+      await controller.playTracks(<Track>[streamTrack]);
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(
+        controller.state.failure?.kind,
+        PlaybackFailureKind.temporarySource,
+      );
+      expect(controller.state.errorMessage, "Couldn't stream this track.");
+    });
+
+    test('an offline copy it does not recognize falls back to the stream',
+        () async {
+      // A server error page cached as the track before #692 is exactly this.
+      engine.openErrors[_cachedCopy] = _linuxUnrecognized();
+      final LinuxPlaybackController controller =
+          buildLinux(streamingFallback: _StreamFallback());
+
+      await controller.playTracks(<Track>[cachedTrack]);
+
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+      expect(controller.state.source, PlaybackSource.streamingDirect);
+      expect(engine.opened, <String>[_cachedCopy, _streamUrl]);
     });
   });
 
