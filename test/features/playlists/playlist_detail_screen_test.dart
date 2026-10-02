@@ -7,13 +7,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:linthra/app/routes.dart';
 import 'package:linthra/core/models/playlist.dart';
+import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/remote_sync_gateway.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_api.dart';
 import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/playlist_repository_provider.dart';
+import 'package:linthra/data/repositories/subsonic_playlist_gateway.dart';
+import 'package:linthra/data/repositories/synced_playlist_repository.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/playlists/playlist_detail_screen.dart';
 
+import '../../core/sources/subsonic/fake_subsonic_client.dart';
 import '../library/fake_music_library_repository.dart';
 import '../player/fake_playback_controller.dart';
 
@@ -522,5 +528,57 @@ void main() {
     await tester.longPress(find.text('Song B'));
     await tester.pumpAndSettle();
     expect(find.text('1 selected'), findsOneWidget);
+  });
+
+  testWidgets('a synced playlist holding a song twice shows both copies',
+      (tester) async {
+    // Navidrome lets a playlist hold a song twice, and a refresh adopts the
+    // list as the server has it.
+    const SubsonicSession session = SubsonicSession(
+      baseUrl: 'https://nav.example.com',
+      username: 'alice',
+      salt: 'salt',
+      token: 'token',
+    );
+    final FakeSubsonicClient client = FakeSubsonicClient()
+      ..playlists = <SubsonicPlaylistDto>[
+        const SubsonicPlaylistDto(id: 'srv-1', name: 'Road Trip'),
+      ]
+      ..playlistSongIds = <String, List<String>>{
+        'srv-1': <String>['a', 'b', 'a'],
+      };
+    final SyncedPlaylistRepository playlists = SyncedPlaylistRepository(
+      store: InMemoryPlaylistStore(),
+      gateways: <RemotePlaylistGateway>[
+        SubsonicPlaylistGateway(client: client, session: () => session),
+      ],
+      idGenerator: () => 'p1',
+    );
+    addTearDown(playlists.dispose);
+    await playlists.refreshFromRemote();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          playlistRepositoryProvider.overrideWithValue(playlists),
+          musicLibraryRepositoryProvider.overrideWithValue(
+            FakeMusicLibraryRepository(
+              tracks: const <Track>[
+                Track(id: 'a', title: 'Song A', uri: 'subsonic:a'),
+                Track(id: 'b', title: 'Song B', uri: 'subsonic:b'),
+              ],
+            ),
+          ),
+          playbackControllerProvider
+              .overrideWithValue(FakePlaybackController()),
+        ],
+        child: MaterialApp.router(routerConfig: _router()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Song A'), findsNWidgets(2));
+    expect(find.text('Song B'), findsOneWidget);
+    expect(find.byIcon(Icons.drag_handle), findsNWidgets(3));
   });
 }
