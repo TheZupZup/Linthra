@@ -45,13 +45,38 @@ void main() {
         'p-1': <String>['mf-3', 'mf-1'],
       };
 
-      final List<RemotePlaylistData> playlists =
+      final RemotePlaylistListing listing =
           await build(session: _session).fetchPlaylists();
+      final List<RemotePlaylistData> playlists = listing.playlists;
       expect(playlists, hasLength(1));
       expect(playlists.single.remoteId, 'p-1');
       expect(playlists.single.name, 'Road Trip');
       expect(playlists.single.trackUris,
           <String>['subsonic:mf-3', 'subsonic:mf-1']);
+      expect(listing.unread, isEmpty);
+    });
+
+    test('fetchPlaylists reports a playlist it could not read, not omits it',
+        () async {
+      client.playlists = <SubsonicPlaylistDto>[
+        const SubsonicPlaylistDto(id: 'p-1', name: 'Road Trip'),
+        const SubsonicPlaylistDto(id: 'p-2', name: 'Late Night'),
+      ];
+      client.playlistSongIds = <String, List<String>>{
+        'p-1': <String>['mf-1'],
+        'p-2': <String>['mf-2'],
+      };
+      client.playlistSongIdsErrors['p-1'] = SubsonicException.notReachable();
+
+      final RemotePlaylistListing listing =
+          await build(session: _session).fetchPlaylists();
+      expect(
+        <String>[
+          for (final RemotePlaylistData p in listing.playlists) p.remoteId
+        ],
+        <String>['p-2'],
+      );
+      expect(listing.unread, <String>{'p-1'});
     });
 
     test('createRemotePlaylist maps uris to song ids and returns the id',

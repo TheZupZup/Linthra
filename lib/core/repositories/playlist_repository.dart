@@ -66,6 +66,10 @@ abstract interface class PlaylistRepository {
   /// touched. Never throws: it returns a [PlaylistSyncResult] describing the
   /// outcome (not configured / synced + count / failed) so the "Sync library"
   /// action can report "synced N playlists" or "playlists could not be loaded".
+  ///
+  /// A playlist the server lists but whose tracks can't be read is kept as it
+  /// is (only a listing that leaves it out means it was deleted there), and
+  /// its provider counts as failed.
   Future<PlaylistSyncResult> refreshFromRemote();
 
   /// Drops server-synced (remote-source) playlists, keeping local-only ones.
