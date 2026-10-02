@@ -296,9 +296,10 @@ void main() {
 
     test('a file that turns into a loop after it was checked is stopped',
         () async {
-      // Still being written: sound when the guard reads it, then, in the
-      // await before the parser opens it, it gains the size-0 box an
-      // unfinished encode has. Only stopping the parse can end that.
+      // Still being written: a good M4A when the scan stats it, then, in the
+      // await before the parse, it gains the size-0 box an unfinished encode
+      // has. The guard runs right before the parse, where a loop can still be
+      // stopped, so it sees the file as it is by then.
       final String path = write(
         'growing.m4a',
         AudioTagFixtures.m4a(
@@ -322,6 +323,50 @@ void main() {
       );
 
       expect(reply, isNull, reason: 'no tags, and the scan goes on');
+    });
+
+    test('a file that only becomes an MP4 after it was stat-ed is stopped too',
+        () async {
+      // Empty when the scan reaches it (not an MP4 at all yet), then the
+      // writer puts down an `ftyp` and an unfinished `mdat`. Whatever it was
+      // a moment ago, the parser is picked by what it is now.
+      final String path = write('arriving.m4a', Uint8List(0));
+      final Uint8List looping = Uint8List.fromList(<int>[
+        ...AudioTagFixtures.mp4Ftyp(),
+        ...AudioTagFixtures.mp4Box('free'),
+        ...AudioTagFixtures.mp4BoxHeader(0, 'mdat'),
+        ...Uint8List(4096),
+      ]);
+
+      final Object? reply = await _onOwnIsolate(
+        _readWhileRewritingEntry,
+        (path, artworkDir.path, looping),
+      );
+
+      expect(reply, isNull);
+    });
+
+    test('a parse that loops anyway is stopped, not waited on forever',
+        () async {
+      // The guard is the fast refusal; the limit is the guarantee. With the
+      // guard out of the way, a looping file reaches the parser, and the
+      // read still comes back, as no tags.
+      final String path = write(
+        'unfinished.m4a',
+        Uint8List.fromList(<int>[
+          ...AudioTagFixtures.mp4Ftyp(),
+          ...AudioTagFixtures.mp4Box('free'),
+          ...AudioTagFixtures.mp4BoxHeader(0, 'mdat'),
+          ...Uint8List(4096),
+        ]),
+      );
+
+      final Object? reply = await _onOwnIsolate(
+        _readUnguardedEntry,
+        (path, artworkDir.path),
+      );
+
+      expect(reply, isNull);
     });
 
     test('an unfinished encode (mdat still sized 0) is refused, not looped on',
@@ -988,10 +1033,28 @@ Future<void> _readWhileRewritingEntry(
       directory: () async => Directory(artworkPath),
       rewrite: () => File(path).writeAsBytesSync(looping, flush: true),
     ),
-    mp4ParseLimit: const Duration(milliseconds: 300),
+    parseLimit: const Duration(milliseconds: 300),
   );
   reply.send(await reader.readFromPath(path));
 }
+
+/// A reader with no MP4 guard and a short parse limit, so a looping file
+/// reaches the parser and only the limit can end it.
+Future<void> _readUnguardedEntry((SendPort, (String, String)) message) async {
+  final (SendPort reply, (String path, String artworkPath)) = message;
+  final FilesystemLocalMetadataReader reader = FilesystemLocalMetadataReader(
+    artworkCache: LocalArtworkCache(
+      directory: () async => Directory(artworkPath),
+    ),
+    parseLimit: const Duration(milliseconds: 300),
+    guard: _letEverythingThrough,
+  );
+  reply.send(await reader.readFromPath(path));
+}
+
+/// A guard that refuses nothing. Top-level, so it can cross to the parse's
+/// isolate.
+bool _letEverythingThrough(File file) => true;
 
 /// An artwork cache that rewrites the file being read when it is asked for a
 /// cached cover, and then misses.

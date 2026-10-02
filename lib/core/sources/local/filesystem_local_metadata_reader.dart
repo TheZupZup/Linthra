@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../models/local_file_stamp.dart';
 import '../../services/local_artwork_cache.dart';
@@ -20,7 +21,8 @@ import 'vorbis_comment_fields.dart';
 /// "Album" is not the same as a real title, artist, duration and cover. This is
 /// what makes a local Linux library look like a library (#407, #408).
 ///
-/// It reads through `audio_metadata_reader` (MIT, pure Dart), which opens the
+/// It reads through `audio_metadata_reader` (MIT, pure Dart), on an isolate of
+/// its own (see [_parseStoppably]), which opens the
 /// file and parses only the tag structures (headers, frames, comment blocks)
 /// rather than reading a whole 60 MB FLAC into memory to find its title. Cover
 /// art is fetched (`getImage: true`) only on a cache miss — [_artworkCache] is
@@ -37,16 +39,26 @@ class FilesystemLocalMetadataReader
     implements LocalMetadataReader, LocalArtworkMaintainer {
   FilesystemLocalMetadataReader({
     LocalArtworkCache? artworkCache,
-    Duration mp4ParseLimit = const Duration(seconds: 10),
+    Duration parseLimit = const Duration(seconds: 10),
+    @visibleForTesting
+    bool Function(File file) guard = Mp4BoxGuard.isSafeToParse,
   })  : _artworkCache = artworkCache ?? LocalArtworkCache(),
-        _mp4ParseLimit = mp4ParseLimit;
+        _parseLimit = parseLimit,
+        _guard = guard;
 
   final LocalArtworkCache _artworkCache;
 
-  /// How long an MP4 parse may run on its own isolate before it is taken for
-  /// the parser's loop and stopped. A healthy file takes milliseconds, even on
-  /// a slow drive; this only has to tell "slow" from "never".
-  final Duration _mp4ParseLimit;
+  /// How long a tag parse may run on its own isolate before it is taken for a
+  /// parser loop and stopped. A healthy file takes milliseconds, even on a
+  /// slow drive; this only has to tell "slow" from "never".
+  final Duration _parseLimit;
+
+  /// The check that refuses a file the MP4 parser would loop on, run on the
+  /// parse's isolate right before the parse. [Mp4BoxGuard.isSafeToParse];
+  /// replaceable only so a test can show a loop that gets past it is still
+  /// stopped. Must be a top-level or static function, to cross to the
+  /// isolate.
+  final bool Function(File file) _guard;
 
   @override
   Future<void> retainArtwork(Set<Uri> live) => _artworkCache.retainOnly(live);
@@ -81,14 +93,6 @@ class FilesystemLocalMetadataReader
         modifiedAtMs: stat.modified.millisecondsSinceEpoch,
       );
 
-      // The package's MP4 parser loops forever, synchronously and without
-      // throwing, on some box layouts an interrupted encode leaves behind (see
-      // [Mp4BoxGuard]). The catch below could never end that, so such a file
-      // is refused before it gets there: no tags, but the scan finishes and
-      // the track still shows by its filename.
-      final Mp4Verdict mp4 = Mp4BoxGuard.inspect(file);
-      if (mp4 == Mp4Verdict.unsound) return null;
-
       // A cover cached from an earlier scan needs no re-extraction: checking
       // first means a hit costs nothing beyond this stat, and only a genuine
       // miss asks the parser for the (possibly large) embedded picture. The
@@ -98,16 +102,7 @@ class FilesystemLocalMetadataReader
       final File? cachedArtwork = await _artworkCache.cachedFile(path, stamp);
       final bool needsArtwork = cachedArtwork == null;
 
-      // Format-specific rather than the package's unified `readMetadata`: that
-      // one folds ID3's TPE2 (album artist) into a single `artist` field, which
-      // would lose the distinction the catalog groups albums by.
-      //
-      // An MP4 that passed the guard is still parsed where a loop can be
-      // stopped: the parser opens the file again, after the await above, and
-      // a file still being written can have gained a looping box by then.
-      final Object? tag = mp4 == Mp4Verdict.sound
-          ? await _parseMp4Stoppably(path, getImage: needsArtwork)
-          : readAllMetadata(file, getImage: needsArtwork);
+      final Object? tag = await _parseStoppably(path, getImage: needsArtwork);
       if (tag == null) return null;
       final LocalAudioMetadata? parsedTags = _fromParserTag(tag);
       // FLAC's comment block is readable in the clear, so prefer the real
@@ -146,40 +141,50 @@ class FilesystemLocalMetadataReader
     }
   }
 
-  /// `readAllMetadata` for an MP4, on an isolate of its own that is killed if
-  /// the parse outlasts [_mp4ParseLimit]: null then, and for a parse that
-  /// fails, so the track keeps its filename and the scan goes on. The parser
-  /// spins synchronously when it loops, so nothing on this isolate could stop
-  /// it; on its own, killing it ends it.
-  Future<Object?> _parseMp4Stoppably(
-    String path, {
-    required bool getImage,
-  }) async {
+  /// The file's tags, from `readAllMetadata`, parsed on an isolate of its own
+  /// that is killed if it outlasts [_parseLimit]; null then, and for a file
+  /// that is refused or fails to parse, so the track keeps its filename and
+  /// the scan goes on.
+  ///
+  /// The package's MP4 parser loops forever, synchronously and without
+  /// throwing, on some box layouts an interrupted encode leaves behind (see
+  /// [Mp4BoxGuard]). Nothing on the isolate running it can end that, and any
+  /// file can be one: the parser is picked by content, and a file still being
+  /// written can become such an MP4 at any moment, between any check and the
+  /// parse. So every parse runs where it can be stopped. The guard runs there
+  /// too, right before the parse, so the files that are already broken are
+  /// refused at once rather than waited out, and its walk (a few reads, or
+  /// many for a file of tiny boxes) stays off this isolate as well.
+  Future<Object?> _parseStoppably(String path, {required bool getImage}) async {
     final ReceivePort reply = ReceivePort();
-    final Isolate isolate = await Isolate.spawn(
-      _parseEntry,
-      (reply.sendPort, path, getImage),
-      // An isolate that dies without answering answers null.
-      onExit: reply.sendPort,
-    );
+    Isolate? isolate;
     try {
-      return await reply.first.timeout(_mp4ParseLimit, onTimeout: () => null);
+      isolate = await Isolate.spawn(
+        _parseEntry,
+        (reply.sendPort, path, getImage, _guard),
+        // An isolate that dies without answering answers null.
+        onExit: reply.sendPort,
+      );
+      return await reply.first.timeout(_parseLimit, onTimeout: () => null);
     } finally {
-      isolate.kill(priority: Isolate.immediate);
+      isolate?.kill(priority: Isolate.immediate);
       reply.close();
     }
   }
 
-  /// [_parseMp4Stoppably]'s entry point. Only the path and the flag cross in,
-  /// and the parsed tag (strings, numbers and picture bytes) or null crosses
-  /// back.
-  static void _parseEntry((SendPort, String, bool) message) {
-    final (SendPort reply, String path, bool getImage) = message;
+  /// [_parseStoppably]'s entry point. Only the path, the flag and the guard
+  /// cross in, and the parsed tag (strings, numbers and picture bytes) or null
+  /// crosses back.
+  static void _parseEntry(
+    (SendPort, String, bool, bool Function(File)) message,
+  ) {
+    final (SendPort reply, String path, bool getImage, guard) = message;
     Object? tag;
     try {
-      tag = readAllMetadata(File(path), getImage: getImage);
+      final File file = File(path);
+      if (guard(file)) tag = readAllMetadata(file, getImage: getImage);
     } catch (_) {
-      // A failed parse is "no tags", as on the calling isolate.
+      // A refused or failed parse is "no tags", as anywhere else here.
     }
     reply.send(tag);
   }
