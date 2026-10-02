@@ -1,6 +1,8 @@
-// `Value` only: drift also exports an `isNull` that would collide with
+import 'dart:io';
+
+// Named imports only: drift also exports an `isNull` that would collide with
 // matcher's.
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' show MigrationStrategy, Migrator, Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/data/database/linthra_database.dart';
@@ -141,6 +143,28 @@ Future<LinthraDatabase> _openMigratedFromV2(
     },
   );
   return LinthraDatabase.forTesting(executor);
+}
+
+/// An older release opening the file: it reads the rows it knows about, finds
+/// nothing in its own migration for a version it has never heard of (every
+/// step it has is guarded by `from < N`, with N no higher than its own
+/// version), and drift then records [olderVersion] on the way in.
+class _OlderRelease extends LinthraDatabase {
+  _OlderRelease(super.executor, this.olderVersion) : super.forTesting();
+
+  final int olderVersion;
+
+  @override
+  int get schemaVersion => olderVersion;
+
+  @override
+  MigrationStrategy get migration =>
+      MigrationStrategy(onUpgrade: (Migrator m, int from, int to) async {});
+}
+
+Future<int> _userVersion(LinthraDatabase db) async {
+  final row = await db.customSelect('PRAGMA user_version;').getSingle();
+  return row.data['user_version'] as int;
 }
 
 void main() {
@@ -461,6 +485,106 @@ void main() {
           );
 
       expect((await db.select(db.tracks).getSingle()).fileSizeBytes, 1);
+    });
+  });
+
+  group('a file an older release opened in between', () {
+    // Going back to an older release and then forward again, say to step
+    // around a regression. The older release reads the newer file fine, but
+    // drift records its lower version on the way in, so the next upgrade
+    // replays steps whose columns and index the file already has. An upgrade
+    // killed after committing its columns but before drift wrote the new
+    // version leaves the same file behind.
+    late Directory dir;
+    late File file;
+
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('linthra_db_');
+      file = File('${dir.path}/linthra.sqlite');
+    });
+
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    LinthraDatabase openWithThisRelease() {
+      final LinthraDatabase db =
+          LinthraDatabase.forTesting(NativeDatabase(file));
+      addTearDown(db.close);
+      return db;
+    }
+
+    /// This release creates the file and indexes one local track, stamps and
+    /// album id included.
+    Future<void> createWithOneTrack() async {
+      final LinthraDatabase db =
+          LinthraDatabase.forTesting(NativeDatabase(file));
+      await db.into(db.tracks).insert(
+            TracksCompanion.insert(
+              id: '/music/one.mp3',
+              sourceId: 'local',
+              title: 'One',
+              uri: '/music/one.mp3',
+              albumId: const Value('album-1'),
+              fileSizeBytes: const Value(4096),
+              fileModifiedAtMs: const Value(1700000000000),
+            ),
+          );
+      await db.close();
+    }
+
+    Future<void> openWithOlderRelease(int version) async {
+      final _OlderRelease older = _OlderRelease(NativeDatabase(file), version);
+      final rows = await older.customSelect('SELECT title FROM tracks;').get();
+      expect(rows.single.data['title'], 'One');
+      expect(await _userVersion(older), version);
+      await older.close();
+    }
+
+    test('coming back from a v4 release (0.2.3 to 0.2.6) keeps the library',
+        () async {
+      await createWithOneTrack();
+      await openWithOlderRelease(4);
+
+      final LinthraDatabase db = openWithThisRelease();
+      final TrackRow row = await db.select(db.tracks).getSingle();
+
+      expect(row.title, 'One');
+      expect(row.albumId, 'album-1');
+      expect(row.fileSizeBytes, 4096);
+      expect(row.fileModifiedAtMs, 1700000000000);
+      expect(await _userVersion(db), 5);
+    });
+
+    test('coming back from a v3 release (0.2.0 to 0.2.2) keeps the library',
+        () async {
+      await createWithOneTrack();
+      await openWithOlderRelease(3);
+
+      final LinthraDatabase db = openWithThisRelease();
+      final TrackRow row = await db.select(db.tracks).getSingle();
+
+      expect(row.title, 'One');
+      expect(row.albumId, 'album-1');
+      expect(row.fileSizeBytes, 4096);
+      expect(await _hasSourceIdIndex(db), isTrue);
+      expect(await _userVersion(db), 5);
+    });
+
+    test('the library still takes writes afterwards', () async {
+      await createWithOneTrack();
+      await openWithOlderRelease(4);
+
+      final LinthraDatabase db = openWithThisRelease();
+      await db.into(db.tracks).insert(
+            TracksCompanion.insert(
+              id: '/music/two.mp3',
+              sourceId: 'local',
+              title: 'Two',
+              uri: '/music/two.mp3',
+              fileSizeBytes: const Value(8192),
+            ),
+          );
+
+      expect(await db.select(db.tracks).get(), hasLength(2));
     });
   });
 }
