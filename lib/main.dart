@@ -9,6 +9,7 @@ import 'core/app_info.dart';
 import 'core/models/desktop_density.dart';
 import 'core/models/theme_mode_preference.dart';
 import 'data/repositories/desktop_density_store_provider.dart';
+import 'data/repositories/linux_shared_preferences_store.dart';
 import 'data/repositories/theme_mode_store_provider.dart';
 
 Future<void> main(List<String> arguments) async {
@@ -33,6 +34,11 @@ Future<void> main(List<String> arguments) async {
   }
 
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Before anything reads a preference: on Linux every save replaces the
+  // preferences file atomically, so a full disk or a crash mid-save can't
+  // empty it or cut it off. See LinuxSharedPreferencesStore.
+  if (Platform.isLinux) useLinuxSharedPreferencesStore();
 
   // Read the saved theme mode before the container exists so the first frame
   // paints in the user's chosen mode.

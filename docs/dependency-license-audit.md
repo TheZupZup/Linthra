@@ -127,6 +127,7 @@ published archive (§2).
 | `audio_service`          | `^0.18.15`   | ryanheise.com       | MIT            | Background playback / media session. |
 | `file_picker`            | `^8.1.4`     | (miguelpruivo)      | MIT            | Native folder chooser (SAF). |
 | `shared_preferences`     | `^2.3.3`     | flutter.dev         | BSD-3-Clause   | Persists the selected folder. |
+| `shared_preferences_platform_interface` | `^2.4.1` | flutter.dev | BSD-3-Clause | The store interface `LinuxSharedPreferencesStore` implements, so a save on Linux replaces the preferences file atomically. Already in the tree transitively (via `shared_preferences`); now declared directly. |
 | `http`                   | `^1.2.0`     | dart.dev            | BSD-3-Clause   | HTTP client for the optional self-hosted sources — Jellyfin and Navidrome/Subsonic (§7). |
 | `crypto`                 | `^3.0.3`     | dart.dev            | BSD-3-Clause   | MD5 hashing for the Subsonic/Navidrome `token = md5(password + salt)` auth scheme, so only the derived `(salt, token)` is stored — never the plaintext password (§7). Also pulled in transitively by `just_audio`. |
 | `flutter_secure_storage` | `^9.2.2`     | (juliansteenbakker) | BSD-3-Clause   | Encrypted store for the Jellyfin/Subsonic session token (§7). |
