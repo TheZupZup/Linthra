@@ -24,7 +24,16 @@ abstract interface class AudioFileScanner {
   /// cannot be opened — it is missing, or access to it was revoked — so a lost
   /// folder surfaces as a recoverable error instead of an empty result that
   /// would be persisted as "this folder has no music".
-  Future<List<String>> listFiles(String folder);
+  ///
+  /// A subfolder that cannot be listed is skipped instead of failing the whole
+  /// walk, and [onUnreadableDirectory] is called with its absolute path. The
+  /// result is then only part of the folder, and the caller has to know which
+  /// part is missing: a file under a skipped subfolder was not found, which is
+  /// not the same as not being there.
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  });
 }
 
 /// An [AudioFileScanner] backed by `dart:io` for real filesystem paths.
@@ -43,7 +52,10 @@ class IoAudioFileScanner implements AudioFileScanner {
   final DirectoryReadability _presence;
 
   @override
-  Future<List<String>> listFiles(String folder) async {
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) async {
     // Walk one directory at a time (rather than `list(recursive: true)`) so a
     // single unreadable *subfolder* — common under scoped storage / on removable
     // SD cards — is skipped instead of aborting the whole scan and zeroing out
@@ -82,7 +94,14 @@ class IoAudioFileScanner implements AudioFileScanner {
         if (wasRoot) {
           throw rootFaultException(folder, classifyFilesystemFault(error));
         }
-        // Unreadable subtree: skip it and keep scanning the rest.
+        // Unreadable subtree: skip it and keep scanning the rest, but say
+        // which one. Every file under it is missing from the result, and a
+        // caller that cannot tell "not listed" from "not there" would conclude
+        // they were all deleted. It may be a subfolder whose permissions
+        // changed, a network mount inside the music folder that went stale,
+        // or one deleted while the walk was running; only a later walk that
+        // lists its parent can tell the last case apart.
+        onUnreadableDirectory?.call(directory.absolute.path);
         continue;
       }
     }
@@ -175,7 +194,10 @@ class ContentUriAudioFileScanner implements AudioFileScanner {
   final DirectoryReadability _readability;
 
   @override
-  Future<List<String>> listFiles(String folder) async {
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) async {
     final String? path = _resolver.resolveToPath(folder);
     if (path == null) {
       throw FolderScanException(
@@ -197,7 +219,10 @@ class ContentUriAudioFileScanner implements AudioFileScanner {
         code: fault.code,
       );
     }
-    return _filesystemScanner.listFiles(path);
+    return _filesystemScanner.listFiles(
+      path,
+      onUnreadableDirectory: onUnreadableDirectory,
+    );
   }
 }
 
@@ -221,13 +246,22 @@ class PlatformAudioFileScanner implements AudioFileScanner {
   final AudioFileScanner _contentUriScanner;
 
   @override
-  Future<List<String>> listFiles(String folder) {
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) {
     final FolderLocation location = FolderLocation.parse(folder);
     switch (location.kind) {
       case FolderLocationKind.filesystemPath:
-        return _filesystemScanner.listFiles(folder);
+        return _filesystemScanner.listFiles(
+          folder,
+          onUnreadableDirectory: onUnreadableDirectory,
+        );
       case FolderLocationKind.contentUri:
-        return _contentUriScanner.listFiles(folder);
+        return _contentUriScanner.listFiles(
+          folder,
+          onUnreadableDirectory: onUnreadableDirectory,
+        );
       case FolderLocationKind.androidMediaStore:
         throw FolderScanException(
           'Android MediaStore must be scanned through the media library bridge.',

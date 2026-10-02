@@ -15,6 +15,24 @@ class _Gone implements DirectoryReadability {
   Future<LocalRootFault?> inspect(String path) async => LocalRootFault.missing;
 }
 
+Future<void> _chmod(String mode, String path) async {
+  final ProcessResult result = await Process.run('chmod', <String>[mode, path]);
+  if (result.exitCode != 0) {
+    throw StateError('chmod $mode failed: ${result.stderr}');
+  }
+}
+
+/// Whether this process can list [directory] despite its permissions, which
+/// is true for root and anything else holding CAP_DAC_READ_SEARCH.
+bool _canStillList(Directory directory) {
+  try {
+    directory.listSync();
+    return true;
+  } on FileSystemException {
+    return false;
+  }
+}
+
 void main() {
   group('IoAudioFileScanner', () {
     late Directory root;
@@ -63,6 +81,58 @@ void main() {
       expect(files.any((path) => path.endsWith('top.mp3')), isTrue);
       expect(files.any((path) => path.endsWith('mid.flac')), isTrue);
       expect(files.any((path) => path.endsWith('deep.ogg')), isTrue);
+    });
+
+    test('reports a subfolder it cannot list, and still lists its siblings',
+        () async {
+      // A subfolder whose permissions changed, or a network mount inside the
+      // music folder that went stale, cannot be listed. The walk skips it
+      // rather than failing the whole scan, and has to say so: every file
+      // under it is missing from the result, and a caller that cannot tell
+      // "not listed" from "not there" would conclude they were all deleted.
+      final Directory locked = Directory('${root.path}/Locked')..createSync();
+      final Directory open = Directory('${root.path}/Open')..createSync();
+      File('${locked.path}/hidden.mp3').writeAsStringSync('x');
+      File('${open.path}/seen.mp3').writeAsStringSync('x');
+      File('${root.path}/top.mp3').writeAsStringSync('x');
+      await _chmod('000', locked.path);
+      // Runs before the group's tearDown, so the folder can be deleted.
+      addTearDown(() => _chmod('700', locked.path));
+      if (_canStillList(locked)) {
+        markTestSkipped(
+          'This process lists directories regardless of their permissions '
+          '(it runs as root, or holds CAP_DAC_READ_SEARCH), so no folder can '
+          'be made unreadable to it. CI runs this as a normal user.',
+        );
+        return;
+      }
+
+      final List<String> unreadable = <String>[];
+      const scanner = IoAudioFileScanner();
+      final files = await scanner.listFiles(
+        root.path,
+        onUnreadableDirectory: unreadable.add,
+      );
+
+      expect(unreadable, <String>[locked.absolute.path]);
+      expect(files, hasLength(2));
+      expect(files.any((path) => path.endsWith('seen.mp3')), isTrue);
+      expect(files.any((path) => path.endsWith('top.mp3')), isTrue);
+    });
+
+    test('reports nothing for a walk that read every folder', () async {
+      Directory('${root.path}/Album/Disc 2').createSync(recursive: true);
+      File('${root.path}/Album/Disc 2/a.flac').writeAsStringSync('x');
+      final List<String> unreadable = <String>[];
+
+      const scanner = IoAudioFileScanner();
+      final files = await scanner.listFiles(
+        root.path,
+        onUnreadableDirectory: unreadable.add,
+      );
+
+      expect(files, hasLength(1));
+      expect(unreadable, isEmpty);
     });
 
     test('raises a recoverable scan error when the drive goes mid-scan',

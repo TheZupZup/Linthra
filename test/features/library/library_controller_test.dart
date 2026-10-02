@@ -61,7 +61,10 @@ class _DeferredAudioFileScanner implements AudioFileScanner {
   }
 
   @override
-  Future<List<String>> listFiles(String folder) {
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) {
     _noteArrival(folder);
     return (requests[folder] ??= Completer<List<String>>()).future;
   }
