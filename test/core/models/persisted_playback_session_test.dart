@@ -48,6 +48,26 @@ void main() {
       expect(isLogicalTrackUri(''), isFalse);
       expect(isLogicalTrackUri('   '), isFalse);
     });
+
+    test('accepts a local path whose names say "bearer "', () {
+      // Band and song names, not a token.
+      expect(
+        isLogicalTrackUri(
+          '/home/me/Music/Pallbearer - Heartless/01 - I Saw the End.flac',
+        ),
+        isTrue,
+      );
+      expect(
+        isLogicalTrackUri('/storage/emulated/0/Music/Torchbearer (Live).mp3'),
+        isTrue,
+      );
+    });
+
+    test('still rejects a bearer token, and a path carrying a token key', () {
+      expect(isLogicalTrackUri('Bearer eyJhbGciOiJIUzI1NiJ9.e30.sig'), isFalse);
+      expect(isLogicalTrackUri('/music/a.mp3?api_key=secret'), isFalse);
+      expect(isLogicalTrackUri('/Audio/101/stream?X-Plex-Token=tok'), isFalse);
+    });
   });
 
   group('PersistedPlaybackSession', () {
