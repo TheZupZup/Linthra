@@ -15,21 +15,77 @@ class _Gone implements DirectoryReadability {
   Future<LocalRootFault?> inspect(String path) async => LocalRootFault.missing;
 }
 
-Future<void> _chmod(String mode, String path) async {
-  final ProcessResult result = await Process.run('chmod', <String>[mode, path]);
-  if (result.exitCode != 0) {
-    throw StateError('chmod $mode failed: ${result.stderr}');
-  }
+/// A subfolder that refuses to be listed, the way one whose permissions
+/// changed or a stale network mount inside the music folder does.
+class _Unlistable implements Directory {
+  _Unlistable(this.path);
+
+  @override
+  final String path;
+
+  @override
+  Directory get absolute => this;
+
+  @override
+  Stream<FileSystemEntity> list({
+    bool recursive = false,
+    bool followLinks = true,
+  }) =>
+      Stream<FileSystemEntity>.error(
+        FileSystemException(
+          'Directory listing failed',
+          path,
+          const OSError('Permission denied', 13),
+        ),
+      );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-/// Whether this process can list [directory] despite its permissions, which
-/// is true for root and anything else holding CAP_DAC_READ_SEARCH.
-bool _canStillList(Directory directory) {
-  try {
-    directory.listSync();
-    return true;
-  } on FileSystemException {
-    return false;
+/// The real folder, except that its listing hands back [_locked] as an
+/// [_Unlistable] subfolder.
+class _HidesOneSubfolder implements Directory {
+  _HidesOneSubfolder(this._real, this._locked);
+
+  final Directory _real;
+  final String _locked;
+
+  @override
+  String get path => _real.path;
+
+  @override
+  Directory get absolute => this;
+
+  @override
+  Stream<FileSystemEntity> list({
+    bool recursive = false,
+    bool followLinks = true,
+  }) =>
+      _real.list(recursive: recursive, followLinks: followLinks).map(
+            (FileSystemEntity entity) =>
+                entity.path == _locked ? _Unlistable(entity.path) : entity,
+          );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Makes [locked], directly under [root], unlistable to a walk of [root].
+///
+/// The entries a listing yields don't go through [IOOverrides], so the swap
+/// happens in the listing of the folder above it. No permissions change and
+/// no process runs, so this works the same as root and as a normal user.
+final class _LockedSubfolder extends IOOverrides {
+  _LockedSubfolder({required this.root, required this.locked});
+
+  final String root;
+  final String locked;
+
+  @override
+  Directory createDirectory(String path) {
+    final Directory real = super.createDirectory(path);
+    return path == root ? _HidesOneSubfolder(real, locked) : real;
   }
 }
 
@@ -95,23 +151,15 @@ void main() {
       File('${locked.path}/hidden.mp3').writeAsStringSync('x');
       File('${open.path}/seen.mp3').writeAsStringSync('x');
       File('${root.path}/top.mp3').writeAsStringSync('x');
-      await _chmod('000', locked.path);
-      // Runs before the group's tearDown, so the folder can be deleted.
-      addTearDown(() => _chmod('700', locked.path));
-      if (_canStillList(locked)) {
-        markTestSkipped(
-          'This process lists directories regardless of their permissions '
-          '(it runs as root, or holds CAP_DAC_READ_SEARCH), so no folder can '
-          'be made unreadable to it. CI runs this as a normal user.',
-        );
-        return;
-      }
 
       final List<String> unreadable = <String>[];
       const scanner = IoAudioFileScanner();
-      final files = await scanner.listFiles(
-        root.path,
-        onUnreadableDirectory: unreadable.add,
+      final files = await IOOverrides.runWithIOOverrides(
+        () => scanner.listFiles(
+          root.path,
+          onUnreadableDirectory: unreadable.add,
+        ),
+        _LockedSubfolder(root: root.path, locked: locked.path),
       );
 
       expect(unreadable, <String>[locked.absolute.path]);
