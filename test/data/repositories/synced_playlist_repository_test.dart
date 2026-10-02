@@ -35,6 +35,106 @@ const SubsonicSession _subsonicSession = SubsonicSession(
   token: 'tok1',
 );
 
+/// A Navidrome whose song-list and rename writes take effect only when the test
+/// lets them through, the way a slow write on a busy server does: a refresh or
+/// the next edit can overtake one still on the wire.
+class _SlowWritesSubsonicClient extends FakeSubsonicClient {
+  bool holdWrites = false;
+  final List<Completer<void>> heldWrites = <Completer<void>>[];
+
+  Future<void> _landWhenLetThrough() async {
+    if (!holdWrites) return;
+    final Completer<void> gate = Completer<void>();
+    heldWrites.add(gate);
+    await gate.future;
+  }
+
+  @override
+  Future<void> setPlaylistSongs(
+    SubsonicSession session,
+    String playlistId,
+    List<String> songIds,
+  ) async {
+    await _landWhenLetThrough();
+    return super.setPlaylistSongs(session, playlistId, songIds);
+  }
+
+  @override
+  Future<void> renamePlaylist(
+    SubsonicSession session,
+    String playlistId,
+    String name,
+  ) async {
+    await _landWhenLetThrough();
+    await super.renamePlaylist(session, playlistId, name);
+    playlists = <SubsonicPlaylistDto>[
+      for (final SubsonicPlaylistDto p in playlists)
+        p.id == playlistId ? SubsonicPlaylistDto(id: p.id, name: name) : p,
+    ];
+  }
+}
+
+/// The Jellyfin counterpart of [_SlowWritesSubsonicClient], for its add and
+/// remove calls.
+class _SlowWritesJellyfinClient extends FakeJellyfinClient {
+  bool holdWrites = false;
+  final List<Completer<void>> heldWrites = <Completer<void>>[];
+
+  Future<void> _landWhenLetThrough() async {
+    if (!holdWrites) return;
+    final Completer<void> gate = Completer<void>();
+    heldWrites.add(gate);
+    await gate.future;
+  }
+
+  @override
+  Future<void> addItemsToPlaylist(
+    JellyfinSession session,
+    String playlistId,
+    List<String> itemIds,
+  ) async {
+    await _landWhenLetThrough();
+    return super.addItemsToPlaylist(session, playlistId, itemIds);
+  }
+
+  @override
+  Future<void> removeItemsFromPlaylist(
+    JellyfinSession session,
+    String playlistId,
+    List<String> itemIds,
+  ) async {
+    await _landWhenLetThrough();
+    return super.removeItemsFromPlaylist(session, playlistId, itemIds);
+  }
+}
+
+/// Waits until [condition] holds, a microtask turn at a time.
+Future<void> _pumpUntil(bool Function() condition) async {
+  for (int i = 0; i < 100 && !condition(); i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+  expect(condition(), isTrue, reason: 'never got there');
+}
+
+/// Lets the [held] writes land newest first until [edits] have all finished.
+/// Two requests on two connections can reach a server in either order.
+Future<void> _landNewestFirst(
+  List<Completer<void>> held,
+  List<Future<void>> edits,
+) async {
+  bool done = false;
+  unawaited(Future.wait(edits).whenComplete(() => done = true));
+  for (int i = 0; i < 100 && !done; i++) {
+    await Future<void>.delayed(Duration.zero);
+    final List<Completer<void>> waiting = <Completer<void>>[
+      for (final Completer<void> gate in held)
+        if (!gate.isCompleted) gate,
+    ];
+    if (waiting.isNotEmpty) waiting.last.complete();
+  }
+  expect(done, isTrue, reason: 'the edits never finished');
+}
+
 void main() {
   group('SyncedPlaylistRepository (local)', () {
     late InMemoryPlaylistStore store;
@@ -1574,6 +1674,183 @@ void main() {
         ],
         <String>['Jelly Mix'],
       );
+    });
+  });
+
+  // A push takes a round trip, and on a busy server a playlist write can take
+  // a while. Meanwhile a refresh can be answered with the server's copy from
+  // before it, and the next edit can send its own push. Neither may undo the
+  // edit whose push is still on the wire.
+  group('SyncedPlaylistRepository (a push still on the wire)', () {
+    late InMemoryPlaylistStore store;
+    late int counter;
+
+    setUp(() {
+      store = InMemoryPlaylistStore();
+      counter = 0;
+    });
+
+    SyncedPlaylistRepository build(RemotePlaylistGateway gateway) =>
+        SyncedPlaylistRepository(
+          store: store,
+          gateways: <RemotePlaylistGateway>[gateway],
+          idGenerator: () => 'pl-${counter++}',
+          now: () => DateTime(2024, 1, 1),
+        );
+
+    group('Subsonic, where each push replaces the whole song list', () {
+      late _SlowWritesSubsonicClient client;
+      late SyncedPlaylistRepository repository;
+      late String id;
+
+      setUp(() async {
+        client = _SlowWritesSubsonicClient()
+          ..playlists = <SubsonicPlaylistDto>[
+            const SubsonicPlaylistDto(id: 'p-1', name: 'Mix'),
+          ]
+          ..playlistSongIds = <String, List<String>>{
+            'p-1': <String>['a', 'b'],
+          };
+        repository = build(
+          SubsonicPlaylistGateway(
+            client: client,
+            session: () => _subsonicSession,
+          ),
+        );
+        await repository.refreshFromRemote();
+        id = (await repository.getAllPlaylists()).single.id;
+      });
+
+      Future<List<String>> local() async =>
+          (await repository.getPlaylistById(id))!.trackIds;
+
+      test('a refresh answered before the push lands does not lose the edit',
+          () async {
+        client.holdWrites = true;
+        final Future<void> adding = repository.addTrack(id, 'subsonic:c');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        // Opening Playlists, a resume: the answer predates the write.
+        await repository.refreshFromRemote();
+        expect(await local(), contains('subsonic:c'));
+
+        client.holdWrites = false;
+        client.heldWrites.single.complete();
+        await adding;
+        // The next edit sends the whole list again.
+        await repository.addTrack(id, 'subsonic:d');
+
+        expect(client.playlistSongIds['p-1'], <String>['a', 'b', 'c', 'd']);
+        await repository.refreshFromRemote();
+        expect(await local(), <String>[
+          'subsonic:a',
+          'subsonic:b',
+          'subsonic:c',
+          'subsonic:d',
+        ]);
+      });
+
+      test('two quick adds reach the server in the order they were made',
+          () async {
+        client.holdWrites = true;
+        final Future<void> first = repository.addTrack(id, 'subsonic:c');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        final Future<void> second = repository.addTrack(id, 'subsonic:d');
+
+        await _landNewestFirst(client.heldWrites, <Future<void>>[
+          first,
+          second,
+        ]);
+
+        expect(client.playlistSongIds['p-1'], <String>['a', 'b', 'c', 'd']);
+        await repository.refreshFromRemote();
+        expect(await local(), <String>[
+          'subsonic:a',
+          'subsonic:b',
+          'subsonic:c',
+          'subsonic:d',
+        ]);
+      });
+
+      test('two quick renames leave the server with the last one', () async {
+        client.holdWrites = true;
+        final Future<void> first = repository.renamePlaylist(id, 'Road');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        final Future<void> second = repository.renamePlaylist(id, 'Road Trip');
+
+        await _landNewestFirst(client.heldWrites, <Future<void>>[
+          first,
+          second,
+        ]);
+
+        expect(client.playlists.single.name, 'Road Trip');
+        await repository.refreshFromRemote();
+        expect((await repository.getPlaylistById(id))!.name, 'Road Trip');
+      });
+    });
+
+    group('Jellyfin, where each push sends what changed', () {
+      late _SlowWritesJellyfinClient client;
+      late SyncedPlaylistRepository repository;
+      late String id;
+
+      setUp(() async {
+        client = _SlowWritesJellyfinClient()
+          ..playlists = <JellyfinPlaylistDto>[
+            const JellyfinPlaylistDto(id: 'srv-1', name: 'Mix'),
+          ];
+        client.playlistEntries['srv-1'] = <JellyfinPlaylistEntry>[
+          for (final String item in <String>['a', 'b', 'c'])
+            JellyfinPlaylistEntry(itemId: item, playlistItemId: 'entry-$item'),
+        ];
+        repository = build(
+          JellyfinPlaylistGateway(client: client, session: () => _session),
+        );
+        await repository.refreshFromRemote();
+        id = (await repository.getAllPlaylists()).single.id;
+      });
+
+      Future<List<String>> local() async =>
+          (await repository.getPlaylistById(id))!.trackIds;
+
+      List<String> server() => <String>[
+            for (final JellyfinPlaylistEntry entry
+                in client.playlistEntries['srv-1']!)
+              entry.itemId,
+          ];
+
+      test('a refresh answered before the push lands keeps the edit on screen',
+          () async {
+        client.holdWrites = true;
+        final Future<void> adding = repository.addTrack(id, 'jellyfin:d');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        await repository.refreshFromRemote();
+
+        expect(await local(), contains('jellyfin:d'));
+
+        client.holdWrites = false;
+        client.heldWrites.single.complete();
+        await adding;
+        await repository.refreshFromRemote();
+        expect(await local(), contains('jellyfin:d'));
+      });
+
+      test('a track taken out and put straight back stays on the server',
+          () async {
+        // Remove, then Undo, with the removal still on the wire.
+        client.holdWrites = true;
+        final Future<void> removing = repository.removeTrack(id, 'jellyfin:c');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        final Future<void> undoing = repository.addTrack(id, 'jellyfin:c');
+
+        await _landNewestFirst(client.heldWrites, <Future<void>>[
+          removing,
+          undoing,
+        ]);
+
+        expect(server(), contains('c'));
+        await repository.refreshFromRemote();
+        expect(await local(), contains('jellyfin:c'));
+      });
     });
   });
 }

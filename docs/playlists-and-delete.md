@@ -136,8 +136,11 @@ Each refresh (startup or Sync library):
 A refresh takes a moment to hear back from the server, and anything you do in
 the meantime wins: a playlist you create, edit or delete while one is loading
 keeps your change. The server's answer predates it, so that playlist is left as
-you left it and the next refresh reconciles it. Signing out of a server while a
-refresh is loading discards that server's answer.
+you left it and the next refresh reconciles it. The same goes for a change you
+made just before the refresh whose push hasn't reached the server yet. Changes
+to one playlist are pushed one at a time, in the order you made them, so an
+older push can never land after a newer one and undo it. Signing out of a
+server while a refresh is loading discards that server's answer.
 
 On **sign-out**, this account's imported Jellyfin playlists (and its server
 favourites) are cleared so they can't linger — or be confused with a different
