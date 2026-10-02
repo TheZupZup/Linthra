@@ -92,6 +92,10 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   final Map<String, ({Playlist playlist, int fetch})> _mergedBy =
       <String, ({Playlist playlist, int fetch})>{};
 
+  /// The latest rename or membership push queued for each synced playlist,
+  /// until it has finished. See [_pushInOrder].
+  final Map<String, Future<void>> _pushes = <String, Future<void>>{};
+
   static String Function() _defaultIdGenerator() {
     int counter = 0;
     return () {
@@ -186,8 +190,16 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       ),
     );
     // Push the rename only for a synced playlist whose provider supports it
-    // (Subsonic does; Jellyfin rename stays local-only — a refresh re-adopts the
-    // server name). See docs/playlists-and-delete.md.
+    // (Subsonic does; a Jellyfin rename stays local-only, and a refresh
+    // re-adopts the server name). See docs/playlists-and-delete.md.
+    final Playlist? playlist = _byId(id);
+    if (playlist == null || !playlist.isRemote) return;
+    if (!(_gatewayForSource(playlist.source)?.pushesRename ?? false)) return;
+    await _pushInOrder(id, () => _sendRename(id, name));
+  }
+
+  /// Sends a rename to the server, reading the playlist when it goes out.
+  Future<void> _sendRename(String id, String name) async {
     final Playlist? playlist = _byId(id);
     if (playlist == null || !playlist.isRemote || playlist.remoteId == null) {
       return;
@@ -504,6 +516,12 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         continue;
       }
       known.add(p.remoteId!);
+      if (_pushes.containsKey(p.id)) {
+        // A push for it is still out, so this answer may be the server's copy
+        // from before it landed. Kept as is; the next refresh reconciles it.
+        next.add(p);
+        continue;
+      }
       final ({Playlist playlist, int fetch})? last = _mergedBy[p.id];
       if (last != null && identical(last.playlist, p)) {
         // Last set by another refresh's merge, not by the user since.
@@ -737,14 +755,29 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     }
   }
 
+  /// Queues a membership push for a synced playlist behind any push for it
+  /// still out (see [_pushInOrder]). A local-only playlist is left alone.
+  Future<void> _pushMembership(
+    String playlistId, {
+    required List<String> added,
+    required List<String> removed,
+  }) async {
+    if (!(_byId(playlistId)?.isRemote ?? false)) return;
+    await _pushInOrder(
+      playlistId,
+      () => _sendMembership(playlistId, added: added, removed: removed),
+    );
+  }
+
   /// Runs a best-effort membership change against the server for a synced
   /// playlist, flipping its sync state to synced or syncFailed accordingly. A
   /// local-only playlist (or one not yet created on the server) is left alone.
   ///
   /// [added]/[removed] are the delta; the current full ordered membership is
-  /// read fresh and passed too, so a full-replace provider (Subsonic) has the
-  /// exact list while an incremental one (Jellyfin) uses the delta.
-  Future<void> _pushMembership(
+  /// read fresh when the push goes out and passed too, so a full-replace
+  /// provider (Subsonic) has the exact list while an incremental one
+  /// (Jellyfin) uses the delta.
+  Future<void> _sendMembership(
     String playlistId, {
     required List<String> added,
     required List<String> removed,
@@ -772,6 +805,29 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         ),
       );
     }
+  }
+
+  /// Runs [send] once every push queued before it for [playlistId] has
+  /// finished, and keeps that playlist out of refresh merges until then.
+  ///
+  /// Two pushes for one playlist on the wire at once can reach the server in
+  /// either order, and a Subsonic push replaces the whole song list: the
+  /// older list landing last would quietly undo the newer edit there, as would
+  /// the older of two renames. And a refresh answered while a push is still
+  /// out may carry the server's copy from before it. Adopting that would drop
+  /// the edit on screen, and the next Subsonic push, sending the list as it
+  /// then stood, would drop it on the server too.
+  Future<void> _pushInOrder(String playlistId, Future<void> Function() send) {
+    final Future<void>? earlier = _pushes[playlistId];
+    final Future<void> push = earlier == null
+        ? send()
+        // Only when it ends matters here. Whoever made the earlier edit gets
+        // its result, an error included, from their own future.
+        : earlier.then((_) {}, onError: (Object _) {}).then((_) => send());
+    _pushes[playlistId] = push;
+    return push.whenComplete(() {
+      if (identical(_pushes[playlistId], push)) _pushes.remove(playlistId);
+    });
   }
 
   /// [p] once a rename or membership push for it has landed: synced, unless
