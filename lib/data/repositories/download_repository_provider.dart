@@ -1,3 +1,4 @@
+import 'package:dbus/dbus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/lifecycle/async_disposal_registry.dart';
@@ -11,6 +12,7 @@ import '../../core/services/android_connectivity_service.dart';
 import '../../core/services/cached_track_locator.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/offline_cache_manager.dart';
+import '../../core/services/portal_connectivity_service.dart';
 import '../../core/services/remote_track_downloader.dart';
 import '../../core/services/track_prefetcher.dart';
 import 'cache_download_repository.dart';
@@ -58,8 +60,31 @@ final downloadPreferencesProvider = Provider<DownloadPreferences>((ref) {
 /// offline, or unknown; an unknown/platform failure stays conservative rather
 /// than silently being treated as Wi-Fi. Tests override this with a fake.
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
+  // Linux has no Android network channel, so asking it always read as
+  // unknown, which the download policy treats like mobile data: with the
+  // default "Wi-Fi only", every download was held and smart pre-cache never
+  // ran. The desktop's network monitor portal answers instead.
+  if (ref.watch(hostPlatformProvider) == HostPlatform.linux) {
+    final PortalConnectivityService service = PortalConnectivityService(
+      connect: ref.watch(linuxSessionBusProvider),
+    );
+    ref.onDisposeAsync(service.dispose);
+    return service;
+  }
   return AndroidConnectivityService();
 });
+
+/// Opens the session bus the Linux network monitor portal is read over, or
+/// null for none (everything then reads as unknown). The data layer has none,
+/// so a test run on a Linux host never reaches that desktop's portal; the app
+/// wires the real session bus (see [linuxSessionBusOverride]).
+final linuxSessionBusProvider = Provider<SessionBusConnector?>((ref) => null);
+
+/// Whether [host]'s [ConnectivityService] reports network changes as they
+/// happen: Android's network channel does, and so does the network monitor
+/// portal on Linux. Elsewhere listening would only report a missing plugin.
+bool hostReportsNetworkChanges(HostPlatform host) =>
+    host == HostPlatform.android || host == HostPlatform.linux;
 
 /// Supplies the currently playing track so the cache policy never evicts it. A
 /// whole [Track] (not just an id) so the policy protects exactly that provider's
@@ -95,11 +120,10 @@ final _cacheDownloadRepositoryProvider =
     connectivity: connectivity,
     preferences: ref.watch(downloadPreferencesProvider),
     currentlyPlayingTrack: ref.watch(currentlyPlayingTrackProvider),
-    // Downloads held for Wi-Fi or a connection start when it changes. Only
-    // Android has a live network-status channel; elsewhere listening would
-    // only report a missing plugin, so they wait for a policy change or a
-    // fresh request instead.
-    networkChanges: ref.watch(hostPlatformProvider) == HostPlatform.android
+    // Downloads held for Wi-Fi or a connection start when it changes. Where
+    // nothing reports changes they wait for a policy change or a fresh
+    // request instead.
+    networkChanges: hostReportsNetworkChanges(ref.watch(hostPlatformProvider))
         ? connectivity.statusStream
         : null,
     accountScopeOf: ref.watch(downloadAccountScopeProvider),
@@ -167,6 +191,11 @@ final fileSystemOfflineFileStoreOverride =
     offlineFileStoreProvider.overrideWithValue(
   FileSystemOfflineFileStore(),
 );
+
+/// Production binding (Linux): the desktop's own session bus, so the network
+/// monitor portal is asked whether the connection is metered.
+final linuxSessionBusOverride =
+    linuxSessionBusProvider.overrideWithValue(DBusClient.session);
 
 /// The fallback [RemoteTrackDownloader] when no source can fetch a track: it
 /// treats every track as on-device (so nothing is mistaken for a remote
