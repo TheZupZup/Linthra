@@ -547,6 +547,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
   Future<void> _deletePlaylist(Playlist playlist) async {
     final NavigatorState navigator = Navigator.of(context);
+    final repository = ref.read(playlistRepositoryProvider);
     final bool confirmed = await showConfirmDialog(
       context,
       title: 'Delete playlist',
@@ -555,9 +556,13 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
           'if sync is enabled.',
       confirmLabel: 'Delete',
     );
-    if (!confirmed) return;
-    await ref.read(playlistRepositoryProvider).deletePlaylist(playlist.id);
+    if (!confirmed || !mounted) return;
+    // Leave first. The delete waits for the save and, for a synced playlist,
+    // the server (up to its timeout), while the list already shows it gone:
+    // the listener can go back meanwhile, and a pop after the wait would then
+    // close whatever screen they were on.
     navigator.pop();
+    await repository.deletePlaylist(playlist.id);
   }
 
   Future<void> _removeOneFromPlaylist(Playlist playlist, Track track) async {
@@ -600,6 +605,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         ),
       ),
     );
+    // The listener may have left while the removals were saving.
+    if (!mounted) return;
     _exitSelection();
   }
 
