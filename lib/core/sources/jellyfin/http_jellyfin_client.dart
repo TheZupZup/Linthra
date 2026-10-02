@@ -252,16 +252,36 @@ class HttpJellyfinClient implements JellyfinClient {
     // survives the redirects (e.g. Cloudflare) a stripped header would not. The
     // status is returned, not checked, so the caller can tell auth / web-page /
     // non-audio apart; only a transport failure throws.
-    final http.Response response = await _send(
-      () => _client.get(url, headers: const <String, String>{
-        'Accept': '*/*',
-        'Range': 'bytes=0-1',
-      }),
+    //
+    // Only the status line and the headers are read. A server that ignores the
+    // range (a Subsonic transcode streams the whole track; so can a proxy that
+    // drops Range) would otherwise send the entire file here, before the engine
+    // fetches it again, and on a slow link that wait runs into the timeout and
+    // reads as a server that can't be reached. The body is let go of instead.
+    final http.StreamedResponse response = await _send(
+      () => _client.send(
+        http.Request('GET', url)
+          ..headers.addAll(const <String, String>{
+            'Accept': '*/*',
+            'Range': 'bytes=0-1',
+          }),
+      ),
     );
+    await _release(response);
     return JellyfinStreamProbe(
       statusCode: response.statusCode,
       contentType: response.headers['content-type'],
     );
+  }
+
+  /// Lets go of [response]'s body without reading it. A transport error while
+  /// releasing it says nothing about the headers already in hand.
+  static Future<void> _release(http.StreamedResponse response) async {
+    try {
+      await response.stream.listen(null, onError: (Object _) {}).cancel();
+    } on Exception {
+      // Already closed or failed: nothing left to let go of.
+    }
   }
 
   @override
@@ -573,7 +593,7 @@ class HttpJellyfinClient implements JellyfinClient {
   /// Runs a request with a timeout, turning any transport-level failure (DNS,
   /// refused connection, TLS handshake, timeout) into a single friendly
   /// "not reachable" error without leaking low-level details.
-  Future<http.Response> _send(Future<http.Response> Function() request) async {
+  Future<T> _send<T>(Future<T> Function() request) async {
     try {
       return await request().timeout(_timeout);
     } on TimeoutException {

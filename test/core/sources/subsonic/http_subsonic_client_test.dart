@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -340,6 +341,33 @@ void main() {
   });
 
   group('probeStream', () {
+    // A Subsonic transcode (and a proxy that drops Range) answers with the
+    // whole track. The probe only needs the status line and the headers;
+    // reading on would download the track before the engine downloads it
+    // again, and on a slow link time out as an unreachable server.
+    test('reads the headers only, even when Range is ignored', () async {
+      final StreamController<List<int>> body = StreamController<List<int>>();
+      bool released = false;
+      body.onCancel = () => released = true;
+      final client = _client(MockClient.streaming(
+        (http.BaseRequest request, http.ByteStream _) async {
+          body.add(List<int>.filled(1024, 0));
+          return http.StreamedResponse(
+            body.stream,
+            200,
+            headers: const <String, String>{'content-type': 'audio/mpeg'},
+          );
+        },
+      ));
+
+      final probe = await client.probeStream(Uri.parse('$_base/rest/stream'));
+
+      expect(probe.statusCode, 200);
+      expect(probe.contentType, 'audio/mpeg');
+      // The rest of the body is let go of, not read to the end.
+      expect(released, isTrue);
+    });
+
     test('returns the observed status and content type', () async {
       final client = _client(MockClient((_) async => http.Response(
             'data',
