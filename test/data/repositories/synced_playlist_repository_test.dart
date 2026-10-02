@@ -2078,6 +2078,26 @@ void main() {
         );
       });
 
+      test('a create that fails keeps the song added meanwhile on the device',
+          () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        final Future<void> adding =
+            repository.addTrack(created.id, 'subsonic:a');
+
+        client.playlistError = SubsonicException.notReachable();
+        landCreate();
+        await created.creating;
+        await adding;
+
+        final Playlist playlist = (await repository.getPlaylistById(
+          created.id,
+        ))!;
+        expect(playlist.trackIds, <String>['subsonic:a']);
+        expect(playlist.syncState, PlaylistSyncState.syncFailed);
+        expect(client.setSongsCalls, isEmpty);
+      });
+
       test('one deleted while it is created does not come back', () async {
         final created = await startCreate(
             repository, client.heldWrites, PlaylistSource.subsonic);
