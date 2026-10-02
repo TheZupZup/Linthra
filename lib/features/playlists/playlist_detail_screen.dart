@@ -568,13 +568,16 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   Future<void> _removeOneFromPlaylist(Playlist playlist, Track track) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     final repository = ref.read(playlistRepositoryProvider);
-    await repository.removeTrack(playlist.id, track.uri);
+    final List<int> positions =
+        await repository.removeTrack(playlist.id, track.uri);
     messenger.showSnackBar(
       SnackBar(
         content: Text('Removed “${track.title}” from playlist.'),
         action: SnackBarAction(
           label: 'Undo',
-          onPressed: () => repository.addTrack(playlist.id, track.uri),
+          // Back where it was, not at the end.
+          onPressed: () =>
+              repository.restoreTrack(playlist.id, track.uri, positions),
         ),
       ),
     );
