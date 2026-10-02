@@ -71,6 +71,10 @@ dependencies:
   # only by SharedPreferencesSelectedMusicFolderRepository, behind the
   # SelectedMusicFolderRepository interface.
   shared_preferences: ^2.3.3
+  # Already in the tree through shared_preferences; declared directly because
+  # LinuxSharedPreferencesStore implements its store interface, so a save on
+  # Linux replaces the file atomically instead of rewriting it in place.
+  shared_preferences_platform_interface: ^2.4.1
   # HTTP client for talking to a Jellyfin server (including HTTPS Cloudflare-
   # proxied domains). Used only by HttpJellyfinClient in the Jellyfin source;
   # the rest of the app depends on the JellyfinClient interface, never on http
