@@ -261,6 +261,168 @@ abstract final class AudioTagFixtures {
     return file.toBytes();
   }
 
+  /// An M4A (MP4 audio) carrying iTunes-style `ilst` atoms.
+  ///
+  /// MP4 is a tree of boxes, each a 4-byte big-endian size (header included)
+  /// then a four-character type. The tags live at `moov/udta/meta/ilst`, one
+  /// box per field, each wrapping a `data` box whose payload starts with a type
+  /// indicator (1 = UTF-8) and a locale. `meta` is a "full box": a
+  /// version/flags word comes before its children. The duration comes from
+  /// `mvhd` (a timescale and a duration in its units).
+  ///
+  /// Shaped like a real tagged file rather than the bare minimum: a sound
+  /// track down to its `mp4a` sample description, and a freeform `----` atom
+  /// holding two values the way mutagen (and so Picard) writes a multi-valued
+  /// field. The tag parser walks both, so a check in front of it has to let
+  /// both through.
+  ///
+  /// [metaVersionFlags] false writes `meta` the QuickTime way, children
+  /// directly, as some Android and MediaStore files do. [appendTo] adds raw
+  /// bytes at the end of the named container's payload (`moov`, `udta`, `meta`
+  /// or `ilst`), and [trailing] adds them after the last top-level box: the
+  /// hooks the malformed-file tests use to plant one bad box in an otherwise
+  /// sound file.
+  static Uint8List m4a({
+    String? title,
+    String? artist,
+    String? album,
+    int? track,
+    Duration duration = const Duration(seconds: 3),
+    bool metaVersionFlags = true,
+    Map<String, List<int>> appendTo = const <String, List<int>>{},
+    List<int> trailing = const <int>[],
+  }) {
+    assert(
+      appendTo.keys.every(<String>{'moov', 'udta', 'meta', 'ilst'}.contains),
+      'appendTo only knows moov, udta, meta and ilst',
+    );
+    List<int> extra(String container) => appendTo[container] ?? const <int>[];
+
+    final Uint8List ilst = mp4Box('ilst', <int>[
+      if (title != null) ..._mp4Text('©nam', title),
+      if (artist != null) ..._mp4Text('©ART', artist),
+      // Mid-list on purpose: the parser reads a freeform atom's first three
+      // children itself and meets any further `data` as the next list item.
+      ..._mp4Freeform('MusicBrainz Artist Id', <String>['id-1', 'id-2']),
+      if (album != null) ..._mp4Text('©alb', album),
+      if (track != null)
+        // `trkn` is binary (type indicator 0): pad, track, total, pad.
+        ...mp4Box(
+            'trkn',
+            mp4Box('data', <int>[
+              ...<int>[0, 0, 0, 0, 0, 0, 0, 0],
+              ...<int>[0, 0, ..._uint16be(track), 0, 0, 0, 0],
+            ])),
+      ...extra('ilst'),
+    ]);
+    final Uint8List meta = mp4Box('meta', <int>[
+      if (metaVersionFlags) ...<int>[0, 0, 0, 0],
+      // The handler that marks this `meta` as iTunes metadata ('mdir').
+      ...mp4Box('hdlr', <int>[
+        ...<int>[0, 0, 0, 0, 0, 0, 0, 0], // version/flags, pre_defined
+        ...'mdirappl'.codeUnits,
+        ...Uint8List(9), // reserved, then an empty NUL-terminated name
+      ]),
+      ...ilst,
+      ...extra('meta'),
+    ]);
+    final Uint8List moov = mp4Box('moov', <int>[
+      ..._mvhd(duration),
+      ..._mp4SoundTrack(),
+      ...mp4Box('udta', <int>[...meta, ...extra('udta')]),
+      ...extra('moov'),
+    ]);
+
+    return Uint8List.fromList(<int>[
+      ...mp4Ftyp(),
+      ...moov,
+      ...mp4Box('mdat', Uint8List(16)),
+      ...trailing,
+    ]);
+  }
+
+  /// One MP4 box: its size (the 8-byte header plus [payload]), its type, then
+  /// [payload] verbatim. Types are four Latin-1 characters, so `©nam` is the
+  /// bytes `A9 6E 61 6D` exactly as iTunes writes it.
+  static Uint8List mp4Box(String type, [List<int> payload = const <int>[]]) =>
+      Uint8List.fromList(
+          <int>[...mp4BoxHeader(8 + payload.length, type), ...payload]);
+
+  /// An 8-byte box header declaring [size] whatever actually follows it: the
+  /// way to write a box whose size is wrong.
+  static Uint8List mp4BoxHeader(int size, String type) {
+    assert(
+      type.length == 4 && type.codeUnits.every((int unit) => unit <= 0xFF),
+      'a box type is four Latin-1 characters',
+    );
+    return Uint8List.fromList(<int>[..._uint32be(size), ...type.codeUnits]);
+  }
+
+  /// The `ftyp` box every MP4-family file opens with, the one thing the tag
+  /// reader sniffs to pick its MP4 parser: an `M4A ` major brand plus the
+  /// compatible brands iTunes lists.
+  static Uint8List mp4Ftyp() => mp4Box('ftyp', <int>[
+        ...'M4A '.codeUnits,
+        ..._uint32be(0x200), // minor version
+        ...'M4A mp42isom'.codeUnits,
+      ]);
+
+  /// An iTunes text atom: [type] wrapping a `data` box of UTF-8 [value].
+  static Uint8List _mp4Text(String type, String value) => mp4Box(
+      type, mp4Box('data', <int>[0, 0, 0, 1, 0, 0, 0, 0, ..._utf8(value)]));
+
+  /// A freeform `----` atom: `mean` (the namespace), `name`, then one `data`
+  /// box per value.
+  static Uint8List _mp4Freeform(String name, List<String> values) =>
+      mp4Box('----', <int>[
+        ...mp4Box('mean', <int>[0, 0, 0, 0, ...'com.apple.iTunes'.codeUnits]),
+        ...mp4Box('name', <int>[0, 0, 0, 0, ...name.codeUnits]),
+        for (final String value in values)
+          ...mp4Box('data', <int>[0, 0, 0, 1, 0, 0, 0, 0, ..._utf8(value)]),
+      ]);
+
+  /// A version-0 `mvhd`: 100 bytes of payload, of which the parser needs the
+  /// timescale (ticks per second) and the duration in those ticks.
+  static Uint8List _mvhd(Duration duration) {
+    final ByteData payload = ByteData(100); // version 0, flags 0, times 0
+    payload.setUint32(12, 1000); // timescale: milliseconds
+    payload.setUint32(16, duration.inMilliseconds);
+    payload.setUint32(20, 0x00010000); // playback rate 1.0
+    payload.setUint16(24, 0x0100); // volume 1.0
+    payload.setUint32(36, 0x00010000); // identity matrix: a, d and w
+    payload.setUint32(52, 0x00010000);
+    payload.setUint32(68, 0x40000000);
+    payload.setUint32(96, 2); // next track ID
+    return mp4Box('mvhd', payload.buffer.asUint8List());
+  }
+
+  /// `trak/mdia/minf/stbl/stsd` down to one `mp4a` (AAC) sample description:
+  /// the path the parser descends to read the sample rate.
+  static Uint8List _mp4SoundTrack() {
+    final ByteData mp4a = ByteData(28);
+    mp4a.setUint16(6, 1); // data reference index
+    mp4a.setUint16(16, 2); // channels
+    mp4a.setUint16(18, 16); // bits per sample
+    mp4a.setUint32(24, 44100 << 16); // sample rate, 16.16 fixed point
+    final Uint8List stsd = mp4Box('stsd', <int>[
+      ...<int>[0, 0, 0, 0], // version/flags
+      ..._uint32be(1), // entry count
+      ...mp4Box('mp4a', mp4a.buffer.asUint8List()),
+    ]);
+    return mp4Box('trak', mp4Box('mdia', mp4Box('minf', mp4Box('stbl', stsd))));
+  }
+
+  /// An ID3v1 tag: the fixed 128-byte block some taggers append to the end
+  /// of any file, whatever its format. `TAG`, then title, artist and album
+  /// in 30 bytes each, year, comment, and a genre byte (255: none).
+  static Uint8List id3v1({required String title}) {
+    final Uint8List tag = Uint8List(128);
+    tag.setRange(0, 3, 'TAG'.codeUnits);
+    tag.setRange(3, 3 + title.length, title.codeUnits);
+    tag[127] = 0xFF;
+    return tag;
+  }
+
   /// FLAC STREAMINFO: fixed 34 bytes, with the sample rate, channel count,
   /// bit depth and total sample count packed across a 64-bit field.
   static Uint8List _streamInfo({
@@ -320,6 +482,11 @@ abstract final class AudioTagFixtures {
         (value >> 8) & 0xFF,
         (value >> 16) & 0xFF,
         (value >> 24) & 0xFF,
+      ];
+
+  static List<int> _uint16be(int value) => <int>[
+        (value >> 8) & 0xFF,
+        value & 0xFF,
       ];
 
   static List<int> _uint16le(int value) => <int>[
