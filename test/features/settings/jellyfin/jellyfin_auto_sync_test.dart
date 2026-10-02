@@ -4,6 +4,7 @@ import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/download_progress.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
+import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_repository.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
@@ -11,11 +12,14 @@ import 'package:linthra/core/sources/jellyfin/jellyfin_account_fingerprint.dart'
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
+import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_jellyfin_auto_sync_store.dart';
 import 'package:linthra/data/repositories/in_memory_jellyfin_session_store.dart';
 import 'package:linthra/data/repositories/jellyfin_auto_sync_store_provider.dart';
 import 'package:linthra/data/repositories/jellyfin_session_store_provider.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/data/repositories/playlist_repository_provider.dart';
+import 'package:linthra/features/player/favorites_providers.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_providers.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_state.dart';
@@ -123,6 +127,7 @@ ProviderContainer _container({
   InMemoryJellyfinAutoSyncStore? autoSyncStore,
   FakeJellyfinClient? client,
   _SpyDownloadRepository? downloads,
+  bool serverPlaylistsAndFavorites = false,
 }) {
   final container = ProviderContainer(
     overrides: <Override>[
@@ -145,6 +150,11 @@ ProviderContainer _container({
       musicLibraryRepositoryProvider.overrideWithValue(repository),
       if (downloads != null)
         downloadRepositoryProvider.overrideWithValue(downloads),
+      // Production wiring for server playlists and favourites.
+      if (serverPlaylistsAndFavorites) ...<Override>[
+        remotePlaylistSyncOverride,
+        remoteFavoritesSyncOverride,
+      ],
     ],
   );
   addTearDown(container.dispose);
@@ -243,6 +253,58 @@ void main() {
         container.read(jellyfinSyncControllerProvider).status,
         JellyfinSyncStatus.idle,
       );
+    });
+
+    test(
+        'signing back in to the same account brings back the playlists and '
+        'favourites signing out cleared', () async {
+      // What the app asks for when a session expires: sign out, then sign in
+      // again.
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a'), _audio('b')],
+        },
+      )
+        ..favoriteIds = <String>{'b'}
+        ..playlists = const <JellyfinPlaylistDto>[
+          JellyfinPlaylistDto(id: 'srv-1', name: 'Road Trip'),
+        ];
+      client.playlistEntries['srv-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-1'),
+      ];
+      final repo = _RecordingRepository();
+      final container = _container(
+        authenticator: FakeJellyfinAuthenticator(session: _sessionFor()),
+        repository: repo,
+        client: client,
+        serverPlaylistsAndFavorites: true,
+      );
+      Future<int> serverPlaylists() async => <Playlist>[
+            for (final Playlist p in await container
+                .read(playlistRepositoryProvider)
+                .getAllPlaylists())
+              if (p.source == PlaylistSource.jellyfin) p,
+          ].length;
+      bool hearted() =>
+          container.read(favoritesRepositoryProvider).isFavorite('jellyfin:b');
+      container.read(jellyfinSettingsControllerProvider);
+      await _settle();
+      expect(await _signIn(container), isTrue);
+      await _drainAutoSync();
+      expect(await serverPlaylists(), 1);
+      expect(hearted(), isTrue);
+
+      await container.read(jellyfinSettingsControllerProvider.notifier).clear();
+      expect(await serverPlaylists(), 0);
+      expect(hearted(), isFalse);
+
+      expect(await _signIn(container), isTrue);
+      await _drainAutoSync();
+
+      expect(await serverPlaylists(), 1);
+      expect(hearted(), isTrue);
+      // Still no second full library sync.
+      expect(repo.upsertCount, 1);
     });
 
     test('changing server/account allows a new initial auto-sync', () async {

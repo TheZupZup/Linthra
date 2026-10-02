@@ -95,6 +95,10 @@ Jellyfin playlists**, plus the stale sync status, so one account's data can't
 linger or cross over to a different account on the next sign-in. Your **local**
 favourites and **local-only** playlists are kept.
 
+Signing back in to the same account brings its playlists and favourites back
+from the server straight away. It doesn't pull the whole library again; **Sync
+library** does that.
+
 ## Known limitations (on purpose)
 
 - **Rename / reorder of a synced playlist are local-only.** They are not pushed
@@ -139,7 +143,8 @@ favourites and **local-only** playlists are kept.
   friendly "couldn't reach your Jellyfin server" message — check the server is
   online and reachable from the device, then Retry.
 - **Session expired.** A sync (or stream) may report your session has expired;
-  sign out and sign in again to refresh it, and the next connect re-syncs.
+  sign out and sign in again to refresh it, which brings your server
+  playlists and favourites back.
 - **Playlists not showing.** Make sure you're signed in (Settings → Jellyfin)
   and run **Sync library**. The Playlists tab's empty state tells you whether
   you're signed in. If the status line says "playlists could not be loaded", the

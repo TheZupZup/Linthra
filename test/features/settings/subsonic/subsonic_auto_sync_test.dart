@@ -267,6 +267,63 @@ void main() {
       );
     });
 
+    test(
+        'signing back in to the same account brings back the playlists and '
+        'favourites signing out cleared', () async {
+      // What the app asks for when a server turns the session down: sign out,
+      // then sign in again.
+      final client = _clientWithLibrary()
+        ..playlists = <SubsonicPlaylistDto>[
+          const SubsonicPlaylistDto(id: 'p-1', name: 'Road Trip'),
+        ]
+        ..playlistSongIds = <String, List<String>>{
+          'p-1': <String>['s1'],
+        }
+        ..starredSongIds = <String>{'s2'};
+      late ProviderContainer container;
+      SubsonicSession? session() =>
+          container.read(subsonicSettingsControllerProvider.notifier).session;
+      final playlistRepo = SyncedPlaylistRepository(
+        store: InMemoryPlaylistStore(),
+        gateways: <RemotePlaylistGateway>[
+          SubsonicPlaylistGateway(client: client, session: session),
+        ],
+      );
+      addTearDown(playlistRepo.dispose);
+      final favoritesRepo = SyncedFavoritesRepository(
+        store: InMemoryFavoritesStore(),
+        gateways: <RemoteFavoritesGateway>[
+          SubsonicFavoritesGateway(client: client, session: session),
+        ],
+      );
+      addTearDown(favoritesRepo.dispose);
+      final repo = _RecordingRepository();
+      container = _container(
+        client: client,
+        repository: repo,
+        playlists: playlistRepo,
+        favorites: favoritesRepo,
+      );
+      container.read(subsonicSettingsControllerProvider);
+      await _settle();
+      expect(await _signIn(container), isTrue);
+      await _drainAutoSync();
+      expect(await playlistRepo.getAllPlaylists(), hasLength(1));
+      expect(favoritesRepo.isFavorite('subsonic:s2'), isTrue);
+
+      await container.read(subsonicSettingsControllerProvider.notifier).clear();
+      expect(await playlistRepo.getAllPlaylists(), isEmpty);
+      expect(favoritesRepo.isFavorite('subsonic:s2'), isFalse);
+
+      expect(await _signIn(container), isTrue);
+      await _drainAutoSync();
+
+      expect(await playlistRepo.getAllPlaylists(), hasLength(1));
+      expect(favoritesRepo.isFavorite('subsonic:s2'), isTrue);
+      // Still no second full library sync.
+      expect(repo.upsertCount, 1);
+    });
+
     test('changing server/account allows a new initial auto-sync', () async {
       final repo = _RecordingRepository();
       final store = InMemorySubsonicAutoSyncStore();

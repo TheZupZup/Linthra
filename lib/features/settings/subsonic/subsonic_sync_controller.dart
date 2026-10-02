@@ -103,11 +103,12 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// Runs the **first** automatic sync for a freshly connected server/account.
   ///
   /// Idempotent by account: if this exact server+user has already been
-  /// auto-synced before, it does nothing — so a reconnect, a provider rebuild, a
-  /// reopened Settings screen, or an app restart never re-pulls the whole
-  /// library on its own. Changing the server URL or signing in as a different
-  /// user is a new account, and syncs again. The manual [sync] stays available
-  /// for an on-demand refresh. Never throws.
+  /// auto-synced before, it doesn't sync the library, so a reconnect, a
+  /// provider rebuild, a reopened Settings screen, or an app restart never
+  /// re-pulls the whole library on its own. It only refreshes the account's
+  /// playlists and favourites, which signing out cleared. Changing the server
+  /// URL or signing in as a different user is a new account, and syncs again.
+  /// The manual [sync] stays available for an on-demand refresh. Never throws.
   Future<void> autoSyncIfNeeded() async {
     final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
     if (source == null) {
@@ -126,6 +127,11 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
     }
     if (lastSynced == fingerprint) {
       // This account's first sync already happened; don't resync on its own.
+      // Its playlists and favourites are another matter: this runs on a
+      // sign-in, signing out cleared them, and they are cheap to pull, so they
+      // come back now rather than at the next resume or launch.
+      await _refreshPlaylists();
+      await _refreshFavorites();
       return;
     }
     await _runSync(recordFingerprint: fingerprint);
