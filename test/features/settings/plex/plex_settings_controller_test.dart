@@ -253,6 +253,38 @@ class _GatedIdentityClient extends FakePlexClient {
   }
 }
 
+/// A [FakePlexClient] whose first library listing waits for [gate] and then
+/// answers [firstAnswer], or fails with [firstError]: a listing from a server
+/// that went away hangs until its timeout. Later listings answer at once.
+class _HangingSectionsClient extends FakePlexClient {
+  _HangingSectionsClient({
+    super.sections,
+    this.firstAnswer = const <PlexDirectory>[],
+    this.firstError,
+  });
+
+  final List<PlexDirectory> firstAnswer;
+  final PlexException? firstError;
+  final Completer<void> gate = Completer<void>();
+  final Completer<void> firstAsked = Completer<void>();
+  int listings = 0;
+
+  @override
+  Future<List<PlexDirectory>> fetchSections({
+    required String baseUrl,
+    required String token,
+  }) async {
+    if (listings++ > 0) {
+      return super.fetchSections(baseUrl: baseUrl, token: token);
+    }
+    firstAsked.complete();
+    await gate.future;
+    final PlexException? error = firstError;
+    if (error != null) throw error;
+    return firstAnswer;
+  }
+}
+
 /// Records catalog upserts so the disconnect/connect cleanup paths can be
 /// asserted (and made to fail).
 class _RecordingRepository implements MusicLibraryRepository {
@@ -1138,6 +1170,65 @@ void main() {
   });
 
   group('disconnect', () {
+    test('a library listing that fails after it leaves the card alone',
+        () async {
+      // The server went away, so its listing hangs; the listener gives up on
+      // it and disconnects before the timeout.
+      final _HangingSectionsClient client =
+          _HangingSectionsClient(firstError: PlexException.notReachable());
+      final container = _container(
+        client: client,
+        store: InMemoryPlexSessionStore(initialSession: _session),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+      final Future<void> listing = notifier.refreshSections();
+      await client.firstAsked.future;
+
+      await notifier.disconnect();
+      client.gate.complete();
+      await listing;
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.disconnected);
+      expect(state.statusMessage, contains('Disconnected'));
+      expect(state.errorMessage, isNull);
+      expect(state.isLoadingSections, isFalse);
+    });
+
+    test("the server you left never lists its libraries on the next one's card",
+        () async {
+      final _HangingSectionsClient client = _HangingSectionsClient(
+        sections: const <PlexDirectory>[_secondMusicSection],
+        firstAnswer: const <PlexDirectory>[_musicSection],
+      );
+      final container = _container(
+        client: client,
+        store: InMemoryPlexSessionStore(initialSession: _session),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+      final Future<void> listing = notifier.refreshSections();
+      await client.firstAsked.future;
+
+      await notifier.disconnect();
+      expect(
+        await notifier.connect(url: 'plex.example.com', token: _token),
+        isTrue,
+      );
+      // The old server's listing finally answers.
+      client.gate.complete();
+      await listing;
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(
+        state.sections.map((PlexLibrarySection s) => s.key),
+        <String>['9'],
+      );
+      expect(state.errorMessage, isNull);
+    });
+
     test('removes only the Plex session and resets to disconnected', () async {
       final store = InMemoryPlexSessionStore(initialSession: _session);
       final container = _container(store: store);
