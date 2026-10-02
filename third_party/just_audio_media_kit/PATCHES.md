@@ -32,7 +32,7 @@ this package resolves deterministically.
 
 ## The patch
 
-Three additions, in two files, no deletions.
+Four additions, in two files, no deletions.
 
 **1. `mpvProperties` — extra libmpv options at player creation.**
 
@@ -57,6 +57,22 @@ Three additions, in two files, no deletions.
   (and the `dart:async` import it needs).
 - `lib/mediakit_player.dart` adds one event beside each of the two writes
   above — one after the insert, one after the removal.
+
+**4. A load libmpv cannot open fails instead of waiting forever.**
+
+- `lib/mediakit_player.dart` records the uris each `load` opens
+  (`_loadingUris`), and the error listener calls a new `_failPendingLoad`
+  before upstream's own handling, which is unchanged.
+- `_failPendingLoad` completes the pending load with a `PlatformException`
+  (code `kErrorCode`) when libmpv reports `Failed to open <uri>.` for a uri
+  this load opened, or `Failed to recognize file format.` once this load's
+  `open` has returned. Its message is fixed text (`Source error`, or
+  `Unsupported audio: the file format was not recognized`), never libmpv's,
+  which names the file or the full stream URL with its credentials.
+- `load` marks its completer's future as handled when it creates it, since a
+  failure can arrive while `open` is still running, before anything awaits it.
+- `package:flutter/services.dart` is imported for `PlatformException`, as
+  `just_audio_media_kit.dart` already does.
 
 Nothing else changes: no new dependency, no new I/O, no new process or library
 loading, and no call into libmpv that upstream does not already make. With the
@@ -94,6 +110,17 @@ re-attached — and without a signal the only way to notice would be to poll
 `livePlayers` on a timer for the whole life of the app, which is exactly the
 kind of idle wake-up the battery work removed. One event on each map write
 costs nothing and replaces the timer.
+
+**A load that fails.** Upstream completes a load only when libmpv's
+`buffering` goes back to false after the open. When libmpv can't open the
+source at all (a missing or unreadable file, a file it can't recognize, an
+HTTP error, a refused connection) it logs the error and goes idle, `buffering`
+never changes, and `load` never returns. just_audio's `setUrl` waits on it, so
+the player sat on "Loading" for good with no error, no Retry and no automatic
+recovery. Failing the load hands Linthra a normal engine load failure, which it
+already classifies (a missing or unreadable on-device file, a stream that
+couldn't start, a format it can't play) and recovers from. The fixed messages
+are what keep that classification from ever reading a URL.
 
 ### Who sets `mpvProperties`
 
