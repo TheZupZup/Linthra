@@ -83,6 +83,37 @@ void main() {
       );
     });
 
+    // A Go server with no system mime table labels Ogg and Opus files by
+    // sniffing them, which gives application/ogg; object storage behind a
+    // server can give binary/octet-stream. Both are audio the engine plays,
+    // and downloads of the same tracks already accept them.
+    for (final String type in <String>[
+      'application/ogg',
+      'binary/octet-stream',
+      'application/x-flac',
+    ]) {
+      test('a stream labelled $type is played', () async {
+        client.streamProbe =
+            SubsonicStreamProbe(statusCode: 200, contentType: type);
+        const track = Track(id: 's1', title: 'One', uri: 'subsonic:s1');
+
+        expect(await source().resolvePlayableUri(track), isNotNull);
+      });
+    }
+
+    test('a 200 JSON body is still refused as not audio', () async {
+      // Subsonic answers a refused stream with 200 and an error envelope.
+      client.streamProbe = const SubsonicStreamProbe(
+        statusCode: 200,
+        contentType: 'application/json; charset=utf-8',
+      );
+      const track = Track(id: 's1', title: 'One', uri: 'subsonic:s1');
+      expect(
+        () => source().resolvePlayableUri(track),
+        throwsA(isA<SubsonicException>()),
+      );
+    });
+
     test('classifies an HTML proxy page as not-Subsonic', () async {
       client.streamProbe =
           const SubsonicStreamProbe(statusCode: 200, contentType: 'text/html');

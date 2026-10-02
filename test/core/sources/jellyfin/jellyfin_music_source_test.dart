@@ -222,6 +222,20 @@ void main() {
         );
       });
 
+      for (final String type in <String>[
+        'application/ogg',
+        'binary/octet-stream',
+      ]) {
+        test('a stream labelled $type is accepted', () async {
+          final source = _source(FakeJellyfinClient(
+            streamProbe:
+                JellyfinStreamProbe(statusCode: 206, contentType: type),
+          ));
+
+          expect(await source.resolvePlayableUri(track), isNotNull);
+        });
+      }
+
       test('a 206 audio response is accepted and the URL returned', () async {
         final source = _source(FakeJellyfinClient(
           streamProbe: const JellyfinStreamProbe(
