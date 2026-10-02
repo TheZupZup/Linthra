@@ -100,6 +100,10 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// real devices, so this race is reachable.
   bool _restoreSuperseded = false;
 
+  /// Moves on every connect and disconnect, so a library listing still out
+  /// from an earlier connection can tell its answer no longer applies.
+  int _connection = 0;
+
   /// The live signed-in session, or `null` when not connected. Used to build a
   /// [PlexMusicSource]; callers must not log it ([PlexSession.toString]
   /// redacts the token regardless).
@@ -577,6 +581,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     }
 
     _session = stamped;
+    _connection++;
     // The just-connected server becomes the active/default provider for picking
     // among duplicate sources, so a song that also lives on another server now
     // prefers Plex. Persisted and best-effort — mirrors Jellyfin/Subsonic
@@ -711,6 +716,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       return;
     }
     _sectionsLoadAttempted = true;
+    final int connection = _connection;
     state = state.copyWith(
         isLoadingSections: true, errorMessage: null, errorKind: null);
     try {
@@ -719,6 +725,9 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
                 baseUrl: current.baseUrl,
                 token: current.token,
               );
+      // Disconnected, or connected again, while it was out: this answer is
+      // about a connection the card no longer shows.
+      if (connection != _connection) return;
       final List<PlexLibrarySection> music = <PlexLibrarySection>[
         for (final PlexDirectory directory in all)
           if (directory.isMusic)
@@ -731,6 +740,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       );
       await _pruneVanishedSelection(music);
     } on PlexException catch (error) {
+      if (connection != _connection) return;
       state = state.copyWith(
         isLoadingSections: false,
         errorMessage: error.message,
@@ -843,6 +853,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       return;
     }
     _session = null;
+    _connection++;
     _sectionsLoadAttempted = false;
     _restoreSuperseded = true;
     ref.read(plexPersistedClientIdentifierProvider.notifier).publish(null);
