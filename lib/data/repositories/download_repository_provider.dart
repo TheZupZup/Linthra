@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/lifecycle/async_disposal_registry.dart';
 import '../../core/models/track.dart';
+import '../../core/platform/host_platform.dart';
 import '../../core/repositories/download_preferences.dart';
 import '../../core/repositories/download_repository.dart';
 import '../../core/repositories/download_store.dart';
@@ -14,6 +15,7 @@ import '../../core/services/remote_track_downloader.dart';
 import '../../core/services/track_prefetcher.dart';
 import 'cache_download_repository.dart';
 import 'file_system_offline_file_store.dart';
+import 'host_platform_provider.dart';
 import 'in_memory_download_preferences.dart';
 import 'in_memory_download_store.dart';
 import 'in_memory_offline_file_store.dart';
@@ -69,19 +71,38 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
 final currentlyPlayingTrackProvider =
     Provider<Track? Function()?>((ref) => null);
 
+/// Supplies the non-secret identity of the account a remote track's provider
+/// is signed in with right now (`jellyfin:<fingerprint>`, …), so a download
+/// is only ever fetched with the account it was asked under. The data layer
+/// defaults to none (every request counts as one account); the app overrides
+/// it with the same account key smart pre-cache uses (see
+/// `downloadAccountScopeOverride`). Read lazily, at each check.
+final downloadAccountScopeProvider =
+    Provider<String? Function(Track track)?>((ref) => null);
+
 /// The single [CacheDownloadRepository] the app drives offline downloads
 /// through. It composes the seams above and centralizes the user-initiated,
 /// source-aware, Wi-Fi-respecting, limit-bounded cache policy. Held as the
 /// concrete type so the cache-manager provider can expose the same instance.
 final _cacheDownloadRepositoryProvider =
     Provider<CacheDownloadRepository>((ref) {
+  final ConnectivityService connectivity =
+      ref.watch(connectivityServiceProvider);
   final repository = CacheDownloadRepository(
     store: ref.watch(downloadStoreProvider),
     files: ref.watch(offlineFileStoreProvider),
     downloader: ref.watch(remoteTrackDownloaderProvider),
-    connectivity: ref.watch(connectivityServiceProvider),
+    connectivity: connectivity,
     preferences: ref.watch(downloadPreferencesProvider),
     currentlyPlayingTrack: ref.watch(currentlyPlayingTrackProvider),
+    // Downloads held for Wi-Fi or a connection start when it changes. Only
+    // Android has a live network-status channel; elsewhere listening would
+    // only report a missing plugin, so they wait for a policy change or a
+    // fresh request instead.
+    networkChanges: ref.watch(hostPlatformProvider) == HostPlatform.android
+        ? connectivity.statusStream
+        : null,
+    accountScopeOf: ref.watch(downloadAccountScopeProvider),
     // One-time migration of legacy (pre-v0.1.6, sourceType-less) cache records to
     // provider-aware keys, inferring each one's provider from the catalog. Read
     // lazily (not watched) so wiring it never rebuilds the repository.
