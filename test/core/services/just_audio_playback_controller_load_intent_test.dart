@@ -194,6 +194,28 @@ void main() {
       expect(setup.player.lastTransport, 'play');
     });
 
+    test('play during the load never resumes the song before it', () async {
+      final setup = await playingAWithBGated();
+      await setup.controller.pause();
+      final Future<void> skip = setup.controller.skipToNext();
+      await _settle();
+      expect(setup.resolver.isWaiting(b.uri), isTrue);
+
+      // Play while b still resolves, from a desktop media key or the shell's
+      // media controls (which show a loading track as paused). The engine
+      // still holds a.
+      await setup.controller.play();
+      await _settle();
+      expect(setup.player.lastTransport, 'pause',
+          reason: "a must not play under b's title");
+
+      setup.resolver.release(b);
+      await skip;
+      await _settle();
+      expect(setup.player.loadedUrls.last, _url(b));
+      expect(setup.player.lastTransport, 'play');
+    });
+
     test('headphones unplugged during the load never start the speaker',
         () async {
       final setup = await playingAWithBGated();
