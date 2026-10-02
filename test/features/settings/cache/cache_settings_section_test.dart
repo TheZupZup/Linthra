@@ -106,6 +106,14 @@ void main() {
 
       await tester.tap(find.text('Free up storage'));
       await tester.pumpAndSettle();
+      // Says what it does: a download not set to "Keep offline" goes too.
+      expect(
+        find.text(
+          'Free cached tracks and downloads, except songs set to '
+          '"Keep offline".',
+        ),
+        findsOneWidget,
+      );
       await tester.tap(find.text('Clear cache'));
       await tester.pumpAndSettle();
 
