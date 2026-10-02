@@ -196,13 +196,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     if (gateway == null || !gateway.pushesRename) return;
     try {
       await gateway.renameRemote(playlist.remoteId!, name);
-      await _mutate(
-        id,
-        (Playlist p) => p.copyWith(
-          syncState: PlaylistSyncState.synced,
-          lastSyncError: () => null,
-        ),
-      );
+      await _mutate(id, _confirmedPush);
     } on RemoteSyncException catch (error) {
       await _mutate(
         id,
@@ -768,13 +762,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         added: added,
         removed: removed,
       );
-      await _mutate(
-        playlistId,
-        (Playlist p) => p.copyWith(
-          syncState: PlaylistSyncState.synced,
-          lastSyncError: () => null,
-        ),
-      );
+      await _mutate(playlistId, _confirmedPush);
     } on RemoteSyncException catch (error) {
       await _mutate(
         playlistId,
@@ -784,6 +772,21 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         ),
       );
     }
+  }
+
+  /// [p] once a rename or membership push for it has landed: synced, unless
+  /// an earlier push for it failed. A push carries only its own change (a
+  /// Jellyfin edit sends just what it added or removed, and a Subsonic song
+  /// list goes without the name), so it landing says nothing about the one
+  /// that didn't. That one stays marked until a refresh reconciles the
+  /// playlist with the server, rather than the marker quietly going away and
+  /// the next refresh dropping the edit with no sign it never got there.
+  static Playlist _confirmedPush(Playlist p) {
+    if (p.syncState == PlaylistSyncState.syncFailed) return p;
+    return p.copyWith(
+      syncState: PlaylistSyncState.synced,
+      lastSyncError: () => null,
+    );
   }
 
   Playlist? _byId(String id) {
