@@ -756,6 +756,11 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// The migrated membership for [playlist], or its existing list unchanged when
   /// nothing needed re-keying. Collapses any duplicate the re-key introduces
   /// (preserving first-seen order).
+  ///
+  /// Only those: a song the list already held twice stays twice. A server
+  /// playlist can (Navidrome lets one), a refresh adopts it as it is, and this
+  /// runs on every launch, so collapsing it here would push the shorter list
+  /// over the server's with the next edit.
   List<String> _migrateTrackIds(
     Playlist playlist,
     Set<String> catalogUris,
@@ -763,16 +768,17 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   ) {
     if (playlist.trackIds.isEmpty) return playlist.trackIds;
     bool changed = false;
-    final Set<String> seen = <String>{};
+    // The entry each migrated id was first made from.
+    final Map<String, String> firstFrom = <String, String>{};
     final List<String> result = <String>[];
     for (final String id in playlist.trackIds) {
       final String mapped =
           _migrateOneTrackId(id, playlist.source, catalogUris, ownerByBareId);
       if (mapped != id) changed = true;
-      if (seen.add(mapped)) {
+      if (firstFrom.putIfAbsent(mapped, () => id) == id) {
         result.add(mapped);
       } else {
-        changed = true; // a duplicate collapsed away
+        changed = true; // two entries the re-key made one: collapsed away
       }
     }
     return changed ? result : playlist.trackIds;

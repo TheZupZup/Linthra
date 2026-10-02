@@ -876,6 +876,79 @@ void main() {
       final Playlist? migrated = await repository.getPlaylistById('p1');
       expect(migrated!.trackIds, <String>['101']); // preserved, not mis-keyed
     });
+
+    test('collapses two entries the re-key makes one', () async {
+      await store.save(<Playlist>[
+        const Playlist(
+          id: 'p1',
+          name: 'Server Mix',
+          source: PlaylistSource.jellyfin,
+          remoteId: 'srv-1',
+          trackIds: <String>['101', 'jellyfin:101', '202'],
+          syncState: PlaylistSyncState.synced,
+        ),
+      ]);
+
+      final Playlist? migrated = await build().getPlaylistById('p1');
+      expect(migrated!.trackIds, <String>['jellyfin:101', 'jellyfin:202']);
+    });
+
+    // Navidrome lets a playlist hold a song twice, and a refresh adopts the
+    // list as the server has it (see 'Undo puts back every copy a server
+    // playlist held'). The migration runs on the first load of every launch,
+    // and every Subsonic edit sends the whole ordered list back.
+    test('a restart keeps both copies of a song a server playlist holds twice',
+        () async {
+      final FakeSubsonicClient client = FakeSubsonicClient()
+        ..playlists = <SubsonicPlaylistDto>[
+          const SubsonicPlaylistDto(id: 'p-1', name: 'Party'),
+        ]
+        ..playlistSongIds = <String, List<String>>{
+          'p-1': <String>['a', 'b', 'c', 'b'],
+        };
+      int ids = 0;
+      // Wired as in production, catalog for the migration included.
+      SyncedPlaylistRepository launch() => SyncedPlaylistRepository(
+            store: store,
+            gateways: <RemotePlaylistGateway>[
+              SubsonicPlaylistGateway(
+                client: client,
+                session: () => _subsonicSession,
+              ),
+            ],
+            idGenerator: () => 'pl-${ids++}',
+            now: () => DateTime(2024, 1, 1),
+            catalogForMigration: () async => const <Track>[
+              Track(id: 'a', title: 'A', uri: 'subsonic:a'),
+            ],
+          );
+
+      final SyncedPlaylistRepository first = launch();
+      await first.refreshFromRemote();
+      await first.dispose();
+
+      // Next launch: the listener moves 'c' to the top before a refresh has
+      // reached the server (still starting up, or not back online yet).
+      final SyncedPlaylistRepository second = launch();
+      final Playlist party = (await second.getAllPlaylists()).single;
+      expect(party.trackIds, <String>[
+        'subsonic:a',
+        'subsonic:b',
+        'subsonic:c',
+        'subsonic:b',
+      ]);
+      await second.reorderTracks(party.id, 2, 0);
+
+      // The same songs in the new order, the second 'b' still there.
+      expect(client.playlistSongIds['p-1'], <String>['c', 'a', 'b', 'b']);
+      expect((await store.load()).single.trackIds, <String>[
+        'subsonic:c',
+        'subsonic:a',
+        'subsonic:b',
+        'subsonic:b',
+      ]);
+      await second.dispose();
+    });
   });
 
   group('SyncedPlaylistRepository (Subsonic sync)', () {
