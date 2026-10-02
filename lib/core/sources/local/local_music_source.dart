@@ -246,6 +246,18 @@ class LocalMusicSource implements MusicSource {
 
       final LocalAudioMetadata? metadata =
           await _metadataReader.readFromPath(path);
+      // Listed by the walk, but now it can be neither stat'ed nor read: the
+      // drive went away, or the file was moved, after the walk got to it.
+      // That says nothing about its tags, so the row already indexed for it
+      // stays as it was rather than being rebuilt from the file name (which
+      // would lose its tags, its cover, and the identity a move is matched
+      // by). Still unknown, so no stamp: the next scan parses it again, and
+      // if the file really is gone, the next walk drops it.
+      if (metadata == null && stamp == null && indexed != null) {
+        tracks.add(indexed.track);
+        reused++;
+        continue;
+      }
       tracks.add(LocalTrackMapper.fromPath(
         path,
         metadata: metadata,

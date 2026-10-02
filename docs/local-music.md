@@ -376,6 +376,11 @@ Details worth knowing:
   cause the others to be re-read.
 - **An offline folder keeps its stamps** along with its tracks, so plugging a
   drive back in does not re-parse everything on it.
+- **A file that vanishes mid-scan keeps its row.** A file the scan listed but
+  can then neither `stat` nor read (the drive was pulled, or the file was moved,
+  while the scan was running) keeps the tags, cover and history it had, rather
+  than being rewritten from its file name. The next scan reads it again, and
+  drops it if it really is gone.
 - **Android is unaffected.** Its local library comes through the content
   resolver rather than from paths, so there is nothing to `stat`, and it scans
   exactly as it always did.
