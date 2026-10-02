@@ -118,8 +118,8 @@ class LinthraDatabase extends _$LinthraDatabase {
   /// re-scan repopulates the catalog with the new metadata.
   Future<void> _addAlbumGroupingColumns(Migrator m) async {
     await transaction(() async {
-      await m.addColumn(tracks, tracks.albumId);
-      await m.addColumn(tracks, tracks.albumArtistName);
+      await _addColumnUnlessPresent(m, tracks.albumId);
+      await _addColumnUnlessPresent(m, tracks.albumArtistName);
     });
   }
 
@@ -133,6 +133,15 @@ class LinthraDatabase extends _$LinthraDatabase {
   /// performance, not row contents; no existing value is read, moved, or
   /// dropped.
   Future<void> _addTracksSourceIdIndex(Migrator m) async {
+    final List<QueryRow> existing = await m.database.customSelect(
+      "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?;",
+      variables: <Variable<Object>>[
+        Variable<String>(tracksSourceId.entityName),
+      ],
+    ).get();
+    // Already there when the file has been this far before; see
+    // [_addColumnUnlessPresent].
+    if (existing.isNotEmpty) return;
     await m.createIndex(tracksSourceId);
   }
 
@@ -159,9 +168,34 @@ class LinthraDatabase extends _$LinthraDatabase {
   /// nothing to lose if the upgrade is interrupted.
   Future<void> _addLocalFileStampColumns(Migrator m) async {
     await transaction(() async {
-      await m.addColumn(tracks, tracks.fileSizeBytes);
-      await m.addColumn(tracks, tracks.fileModifiedAtMs);
+      await _addColumnUnlessPresent(m, tracks.fileSizeBytes);
+      await _addColumnUnlessPresent(m, tracks.fileModifiedAtMs);
     });
+  }
+
+  /// Adds [column] to `tracks` unless the file already has it.
+  ///
+  /// The version a file reports can be lower than the shape it has. An older
+  /// release opening a newer file reads it fine (it never selects the columns
+  /// it doesn't know), its migration has nothing to do for a version it has
+  /// never heard of, and drift then records the older version on the way in.
+  /// An upgrade killed after committing its columns but before drift wrote
+  /// the new version leaves the same thing behind. The next upgrade replays
+  /// steps that already happened, and a second `ADD COLUMN` is an SQLite
+  /// error that drift keeps for the life of the connection: every read and
+  /// write of the catalog would fail, on every launch, until the app's data
+  /// was wiped.
+  Future<void> _addColumnUnlessPresent(
+    Migrator m,
+    GeneratedColumn<Object> column,
+  ) async {
+    final List<QueryRow> columns =
+        await m.database.customSelect('PRAGMA table_info(tracks);').get();
+    if (columns
+        .any((QueryRow row) => row.read<String>('name') == column.name)) {
+      return;
+    }
+    await m.addColumn(tracks, column);
   }
 }
 
