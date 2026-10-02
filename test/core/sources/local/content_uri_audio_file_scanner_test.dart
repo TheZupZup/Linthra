@@ -6,15 +6,23 @@ import 'package:linthra/core/sources/local/local_root_fault.dart';
 
 /// Records the folder it was asked to scan and returns a fixed list, so we can
 /// assert the content scanner resolved the URI to a path before delegating.
+/// Reports [unreadable] as the subfolders its walk could not list.
 class _RecordingScanner implements AudioFileScanner {
-  _RecordingScanner(this._files);
+  _RecordingScanner(this._files, {this.unreadable = const <String>[]});
 
   final List<String> _files;
+  final List<String> unreadable;
   String? requestedFolder;
 
   @override
-  Future<List<String>> listFiles(String folder) async {
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) async {
     requestedFolder = folder;
+    for (final String directory in unreadable) {
+      onUnreadableDirectory?.call(directory);
+    }
     return _files;
   }
 }
@@ -53,6 +61,26 @@ void main() {
       expect(readability.probedPath, '/storage/emulated/0/Music');
       expect(filesystem.requestedFolder, '/storage/emulated/0/Music');
       expect(files, <String>['/storage/emulated/0/Music/One.mp3']);
+    });
+
+    test('passes on the subfolders the delegated walk could not list',
+        () async {
+      final filesystem = _RecordingScanner(
+        <String>['/storage/emulated/0/Music/A/One.mp3'],
+        unreadable: <String>['/storage/emulated/0/Music/B'],
+      );
+      final scanner = ContentUriAudioFileScanner(
+        filesystemScanner: filesystem,
+        readability: _FakeReadability(true),
+      );
+      final List<String> unreadable = <String>[];
+
+      await scanner.listFiles(
+        'content://com.android.externalstorage.documents/tree/primary%3AMusic',
+        onUnreadableDirectory: unreadable.add,
+      );
+
+      expect(unreadable, <String>['/storage/emulated/0/Music/B']);
     });
 
     test('throws a useful error for an unresolvable provider', () async {

@@ -80,7 +80,10 @@ class _FakeFilesystem
   }
 
   @override
-  Future<List<String>> listFiles(String folder) async {
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) async {
     if (!_connected.contains(folder)) {
       throw FolderScanException(
         "Linthra couldn't find the selected folder.",

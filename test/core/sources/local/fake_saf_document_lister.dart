@@ -7,6 +7,9 @@ import 'package:linthra/core/sources/local/saf_document_lister.dart';
 /// [documents] are the audio documents the native walk would return; pass
 /// [filesVisited]/[readFailures] to model the diagnostic counts (visited
 /// defaults to the document count, the common all-audio case).
+///
+/// [documents] and [readFailures] can be changed between scans, so one test
+/// can index a tree and then rescan it after part of it stopped answering.
 class FakeSafDocumentLister implements SafDocumentLister {
   FakeSafDocumentLister({
     this.documents = const <SafAudioDocument>[],
@@ -15,16 +18,18 @@ class FakeSafDocumentLister implements SafDocumentLister {
     this.readFailures = 0,
     this.unsupported = false,
     this.error,
-  }) : filesVisited = filesVisited ?? documents.length;
+  }) : _filesVisited = filesVisited;
 
-  final List<SafAudioDocument> documents;
-  final int filesVisited;
+  List<SafAudioDocument> documents;
+  final int? _filesVisited;
   final int foldersVisited;
-  final int readFailures;
+  int readFailures;
   final bool unsupported;
   final Object? error;
   String? requestedTreeUri;
   int cancellations = 0;
+
+  int get filesVisited => _filesVisited ?? documents.length;
 
   @override
   Future<SafScanResult> listAudioDocuments(String treeUri) async {

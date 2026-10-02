@@ -57,7 +57,11 @@ class _SyntheticLibrary implements AudioFileScanner {
   final List<String> paths;
 
   @override
-  Future<List<String>> listFiles(String folder) async => paths;
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) async =>
+      paths;
 }
 
 /// Charges [_parseCostMicros] of real work per call, so "parsed" and "skipped"

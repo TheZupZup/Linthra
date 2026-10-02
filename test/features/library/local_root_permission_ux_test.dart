@@ -91,7 +91,10 @@ class _FakeFilesystem implements AudioFileScanner, DirectoryReadability {
       };
 
   @override
-  Future<List<String>> listFiles(String folder) async {
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) async {
     walked.add(folder);
     final LocalRootFault? fault = _faults[folder];
     if (fault != null) {

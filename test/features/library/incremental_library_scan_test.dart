@@ -41,7 +41,10 @@ class _MutableScanner implements AudioFileScanner {
   Set<String> unavailable = <String>{};
 
   @override
-  Future<List<String>> listFiles(String folder) async {
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) async {
     if (unavailable.contains(folder)) {
       throw FolderScanException(
         "Linthra couldn't find the selected folder.",
