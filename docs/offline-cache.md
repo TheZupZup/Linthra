@@ -39,8 +39,8 @@ To let downloads and smart pre-cache run over mobile data/LTE:
    Choose **Allow mobile data** to opt in, or **Cancel** to stay Wi-Fi-only.
 
 The setting is persisted across restarts. Turning it back off applies
-immediately (no confirmation needed); in-flight downloads on mobile data stop
-queueing for Wi-Fi again.
+immediately (no confirmation needed): downloads still waiting for their turn
+wait for Wi-Fi again. A song that is already downloading finishes.
 
 > ⚠️ **Mobile data can be expensive.** With this on, manual downloads and smart
 > pre-cache may use a lot of cellular data depending on your library size and
@@ -59,6 +59,10 @@ queueing for Wi-Fi again.
 An **unknown** connection type is treated like mobile data: it downloads only
 when you've allowed mobile data, so an undetermined link is never assumed to be
 unmetered.
+
+The policy is asked again when a queued download's turn comes (a few download
+at a time), not only when you tap Download. Leaving Wi-Fi halfway through an
+album holds the songs still waiting instead of fetching them over mobile data.
 
 On Linux, whether the connection is metered comes from the desktop's network
 monitor portal (see [Linux desktop](./linux-desktop.md)), and a download held
@@ -114,8 +118,10 @@ everything above still holds:
 - **On-device songs are left alone.** In a mixed playlist, files already on your
   device are not part of the batch: their bytes are already there, and their
   rows offer no offline action for the same reason.
-- If you are **offline**, the songs are queued and you start them again from the
-  **Downloads** screen once you are back online. Nothing retries on its own.
+- If you are **offline**, the songs are queued and start on their own once you
+  are back online (where the platform reports network changes: Android, and
+  Linux through the network monitor portal). You can also start them again from
+  the **Downloads** screen.
 
 While a batch runs, the **Downloads** screen shows which album or playlist it is
 and how far along it is, with a **Stop** button. Stopping is safe: nothing is

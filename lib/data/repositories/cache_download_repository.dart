@@ -519,6 +519,12 @@ class CacheDownloadRepository
 
     // Accepted: show "queued" until a concurrency slot frees up, then fetch.
     _setPhase(key, operation, DownloadStatus.queued);
+    // What the network policy says once the slot is free. A download can wait
+    // a long time for one (a whole album is accepted at once and three fetch
+    // at a time), and the listener can leave Wi-Fi or turn mobile data off
+    // meanwhile. One that may no longer run is held like a request made now,
+    // still "queued", and starts again when the connection allows it.
+    _NetworkDecision atSlot = _NetworkDecision.allowed;
     await _scheduler.schedule(() async {
       // Removed or cleared while it waited for this slot: skip the fetch, so a
       // cancelled download spends no data and the slot goes straight to the
@@ -531,6 +537,8 @@ class CacheDownloadRepository
         operation.canceled = true;
         return;
       }
+      atSlot = await _networkDecision();
+      if (atSlot != _NetworkDecision.allowed || operation.canceled) return;
       _setPhase(key, operation, DownloadStatus.downloading);
       final RemoteTrackData data = await _downloader.fetch(
         track,
@@ -541,7 +549,14 @@ class CacheDownloadRepository
       // limit; the (slow) byte fetch above already ran in parallel.
       await _commit(() => _cacheRemote(track, data, operation: operation));
     });
-    return DownloadRequestOutcome.started;
+    switch (atSlot) {
+      case _NetworkDecision.allowed:
+        return DownloadRequestOutcome.started;
+      case _NetworkDecision.needsWifi:
+        return DownloadRequestOutcome.waitingForWifi;
+      case _NetworkDecision.offline:
+        return DownloadRequestOutcome.waitingForConnection;
+    }
   }
 
   /// Writes a freshly fetched remote track's bytes, evicting first to stay under
