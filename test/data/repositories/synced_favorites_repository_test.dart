@@ -494,6 +494,119 @@ void main() {
     });
   });
 
+  // A heart pushes to the server straight away, and the listener can tap again
+  // (or sign out) before that push comes back. The newest tap is what the
+  // server and the heart have to end on, whichever order the pushes land in.
+  group('SyncedFavoritesRepository (pushes that come back out of order)', () {
+    late InMemoryFavoritesStore store;
+    late _FakeFavoritesGateway gateway;
+    const String uri = 'subsonic:mf-1';
+
+    setUp(() {
+      store = InMemoryFavoritesStore();
+      gateway = _FakeFavoritesGateway('subsonic:')..holdEachPush = true;
+    });
+
+    SyncedFavoritesRepository build() => SyncedFavoritesRepository(
+          store: store,
+          gateways: <RemoteFavoritesGateway>[gateway],
+        );
+
+    /// Hearts then un-hearts [uri], leaving both pushes on the wire.
+    Future<({Future<void> heart, Future<void> unheart})> heartThenUnheart(
+        SyncedFavoritesRepository repo) async {
+      final Future<void> heart = repo.setFavorite(_subsonic('mf-1'), true);
+      await _pumpUntil(() => gateway.heldPushes.isNotEmpty);
+      final Future<void> unheart = repo.setFavorite(_subsonic('mf-1'), false);
+      await _pumpUntil(() => gateway.heldPushes.length >= 2);
+      return (heart: heart, unheart: unheart);
+    }
+
+    /// The listener's last word must survive the next refresh, on the server
+    /// and in the heart.
+    Future<void> expectEndsUnhearted(SyncedFavoritesRepository repo) async {
+      gateway.holdEachPush = false;
+      await repo.refreshFromRemote();
+      expect(repo.isFavorite(uri), isFalse);
+      expect(gateway.serverUris, isNot(contains(uri)));
+      expect(repo.pendingRemoteWriteCount, 0);
+    }
+
+    test('a newer un-heart that failed is not cleared by the heart landing',
+        () async {
+      final repo = build();
+      final pushes = await heartThenUnheart(repo);
+
+      gateway.heldPushes[1].fail();
+      await pushes.unheart;
+      gateway.heldPushes[0].land();
+      await pushes.heart;
+
+      expect(repo.isFavorite(uri), isFalse);
+      expect(repo.pendingRemoteWriteCount, 1);
+      await expectEndsUnhearted(repo);
+    });
+
+    test('an older heart failing late does not queue it over the un-heart',
+        () async {
+      final repo = build();
+      final pushes = await heartThenUnheart(repo);
+
+      gateway.heldPushes[1].land();
+      await pushes.unheart;
+      gateway.heldPushes[0].fail();
+      await pushes.heart;
+
+      expect(repo.isFavorite(uri), isFalse);
+      await expectEndsUnhearted(repo);
+    });
+
+    test('an older heart landing after the un-heart is put right', () async {
+      // Both reached the server, the un-heart first: the server is left
+      // starred. The un-heart has to be sent again, not the heart adopted.
+      final repo = build();
+      final pushes = await heartThenUnheart(repo);
+
+      gateway.heldPushes[1].land();
+      await pushes.unheart;
+      gateway.heldPushes[0].land();
+      await pushes.heart;
+      expect(gateway.serverUris, contains(uri));
+
+      expect(repo.isFavorite(uri), isFalse);
+      await expectEndsUnhearted(repo);
+    });
+
+    test('a push that fails after sign-out is not queued for the next account',
+        () async {
+      final repo = build();
+      final Future<void> heart = repo.setFavorite(_subsonic('mf-1'), true);
+      await _pumpUntil(() => gateway.heldPushes.isNotEmpty);
+
+      await repo.clearRemote(providerScheme: 'subsonic:');
+      gateway.heldPushes[0].fail();
+      await heart;
+
+      expect(repo.pendingRemoteWriteCount, 0);
+      expect(repo.isFavorite(uri), isFalse);
+    });
+
+    test('controls: in order, a single tap lands and leaves nothing pending',
+        () async {
+      final repo = build();
+      final pushes = await heartThenUnheart(repo);
+
+      gateway.heldPushes[0].land();
+      await pushes.heart;
+      gateway.heldPushes[1].land();
+      await pushes.unheart;
+
+      expect(repo.pendingRemoteWriteCount, 0);
+      expect(gateway.serverUris, isNot(contains(uri)));
+      await expectEndsUnhearted(repo);
+    });
+  });
+
   // A refresh waits on the network, and the user keeps hearting (or signs out)
   // meanwhile. The server's answer must be adopted into the favourites as they
   // are when it lands, never written over them.
@@ -719,9 +832,26 @@ class _FakeFavoritesGateway implements RemoteFavoritesGateway {
     return answer;
   }
 
+  /// While set, every push waits on its own [_HeldPush] in [heldPushes], so a
+  /// test picks the order pushes land in, and which of them fail.
+  bool holdEachPush = false;
+  final List<_HeldPush> heldPushes = <_HeldPush>[];
+
   @override
   Future<void> pushFavorite(String trackUri, bool favorite) async {
     pushes.add((uri: trackUri, favorite: favorite));
+    if (holdEachPush) {
+      final _HeldPush held = _HeldPush();
+      heldPushes.add(held);
+      await held._gate.future;
+      if (held._fails) throw const RemoteSyncException('unreachable');
+      if (favorite) {
+        serverUris.add(trackUri);
+      } else {
+        serverUris.remove(trackUri);
+      }
+      return;
+    }
     final Completer<void>? gate = pushGate;
     if (gate != null) await gate.future;
     if (pushFails) throw const RemoteSyncException('unreachable');
@@ -730,5 +860,27 @@ class _FakeFavoritesGateway implements RemoteFavoritesGateway {
     } else {
       serverUris.remove(trackUri);
     }
+  }
+}
+
+/// One push held by [_FakeFavoritesGateway.holdEachPush].
+class _HeldPush {
+  final Completer<void> _gate = Completer<void>();
+  bool _fails = false;
+
+  /// Lets it reach the server.
+  void land() => _gate.complete();
+
+  /// Fails it, like a dropped connection.
+  void fail() {
+    _fails = true;
+    _gate.complete();
+  }
+}
+
+/// Pumps event-loop turns until [condition] holds, or a bounded number pass.
+Future<void> _pumpUntil(bool Function() condition) async {
+  for (int i = 0; i < 200 && !condition(); i++) {
+    await Future<void>.delayed(Duration.zero);
   }
 }

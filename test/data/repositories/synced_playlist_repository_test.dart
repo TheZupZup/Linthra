@@ -35,6 +35,106 @@ const SubsonicSession _subsonicSession = SubsonicSession(
   token: 'tok1',
 );
 
+/// A Navidrome whose song-list and rename writes take effect only when the test
+/// lets them through, the way a slow write on a busy server does: a refresh or
+/// the next edit can overtake one still on the wire.
+class _SlowWritesSubsonicClient extends FakeSubsonicClient {
+  bool holdWrites = false;
+  final List<Completer<void>> heldWrites = <Completer<void>>[];
+
+  Future<void> _landWhenLetThrough() async {
+    if (!holdWrites) return;
+    final Completer<void> gate = Completer<void>();
+    heldWrites.add(gate);
+    await gate.future;
+  }
+
+  @override
+  Future<void> setPlaylistSongs(
+    SubsonicSession session,
+    String playlistId,
+    List<String> songIds,
+  ) async {
+    await _landWhenLetThrough();
+    return super.setPlaylistSongs(session, playlistId, songIds);
+  }
+
+  @override
+  Future<void> renamePlaylist(
+    SubsonicSession session,
+    String playlistId,
+    String name,
+  ) async {
+    await _landWhenLetThrough();
+    await super.renamePlaylist(session, playlistId, name);
+    playlists = <SubsonicPlaylistDto>[
+      for (final SubsonicPlaylistDto p in playlists)
+        p.id == playlistId ? SubsonicPlaylistDto(id: p.id, name: name) : p,
+    ];
+  }
+}
+
+/// The Jellyfin counterpart of [_SlowWritesSubsonicClient], for its add and
+/// remove calls.
+class _SlowWritesJellyfinClient extends FakeJellyfinClient {
+  bool holdWrites = false;
+  final List<Completer<void>> heldWrites = <Completer<void>>[];
+
+  Future<void> _landWhenLetThrough() async {
+    if (!holdWrites) return;
+    final Completer<void> gate = Completer<void>();
+    heldWrites.add(gate);
+    await gate.future;
+  }
+
+  @override
+  Future<void> addItemsToPlaylist(
+    JellyfinSession session,
+    String playlistId,
+    List<String> itemIds,
+  ) async {
+    await _landWhenLetThrough();
+    return super.addItemsToPlaylist(session, playlistId, itemIds);
+  }
+
+  @override
+  Future<void> removeItemsFromPlaylist(
+    JellyfinSession session,
+    String playlistId,
+    List<String> itemIds,
+  ) async {
+    await _landWhenLetThrough();
+    return super.removeItemsFromPlaylist(session, playlistId, itemIds);
+  }
+}
+
+/// Waits until [condition] holds, a microtask turn at a time.
+Future<void> _pumpUntil(bool Function() condition) async {
+  for (int i = 0; i < 100 && !condition(); i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+  expect(condition(), isTrue, reason: 'never got there');
+}
+
+/// Lets the [held] writes land newest first until [edits] have all finished.
+/// Two requests on two connections can reach a server in either order.
+Future<void> _landNewestFirst(
+  List<Completer<void>> held,
+  List<Future<void>> edits,
+) async {
+  bool done = false;
+  unawaited(Future.wait(edits).whenComplete(() => done = true));
+  for (int i = 0; i < 100 && !done; i++) {
+    await Future<void>.delayed(Duration.zero);
+    final List<Completer<void>> waiting = <Completer<void>>[
+      for (final Completer<void> gate in held)
+        if (!gate.isCompleted) gate,
+    ];
+    if (waiting.isNotEmpty) waiting.last.complete();
+  }
+  expect(done, isTrue, reason: 'the edits never finished');
+}
+
 void main() {
   group('SyncedPlaylistRepository (local)', () {
     late InMemoryPlaylistStore store;
@@ -100,6 +200,62 @@ void main() {
       await repository.removeTrack(created.id, 'b');
       final Playlist? updated = await repository.getPlaylistById(created.id);
       expect(updated!.trackIds, <String>['a', 'c']);
+    });
+
+    group('Undo after a remove', () {
+      test('puts the track back where it was, not at the end', () async {
+        final Playlist created = await repository.createPlaylist('Mix');
+        await repository.addTracks(created.id, <String>['a', 'b', 'c']);
+
+        final List<int> positions =
+            await repository.removeTrack(created.id, 'b');
+        expect(positions, <int>[1]);
+        await repository.restoreTrack(created.id, 'b', positions);
+
+        expect(
+          (await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['a', 'b', 'c'],
+        );
+      });
+
+      test('a track already added back is not doubled', () async {
+        final Playlist created = await repository.createPlaylist('Mix');
+        await repository.addTracks(created.id, <String>['a', 'b', 'c']);
+        final List<int> positions =
+            await repository.removeTrack(created.id, 'b');
+        await repository.addTrack(created.id, 'b');
+
+        await repository.restoreTrack(created.id, 'b', positions);
+
+        expect(
+          (await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['a', 'c', 'b'],
+        );
+      });
+
+      test('a position past the end, after other removals, lands last',
+          () async {
+        final Playlist created = await repository.createPlaylist('Mix');
+        await repository.addTracks(created.id, <String>['a', 'b', 'c']);
+        final List<int> positions =
+            await repository.removeTrack(created.id, 'c');
+        await repository.removeTrack(created.id, 'a');
+
+        await repository.restoreTrack(created.id, 'c', positions);
+
+        expect(
+          (await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['b', 'c'],
+        );
+      });
+
+      test('removing a track that is not there reports no positions', () async {
+        final Playlist created = await repository.createPlaylist('Mix');
+        await repository.addTracks(created.id, <String>['a']);
+
+        expect(await repository.removeTrack(created.id, 'z'), isEmpty);
+        expect(await repository.removeTrack('no-such-playlist', 'a'), isEmpty);
+      });
     });
 
     test('same-id tracks from different providers are distinct members',
@@ -278,6 +434,26 @@ void main() {
       expect(updated.syncState, PlaylistSyncState.syncFailed);
     });
 
+    test('a later push that lands does not hide an earlier one that failed',
+        () async {
+      // Jellyfin is only told what each edit changed. b reaching the server
+      // says nothing about a, which never did.
+      client.createdPlaylistId = 'srv-3';
+      final Playlist created = await repository.createPlaylist(
+        'Server Mix',
+        source: PlaylistSource.jellyfin,
+      );
+      client.playlistError = JellyfinException.notReachable();
+      await repository.addTrack(created.id, 'jellyfin:a');
+      client.playlistError = null;
+      await repository.addTrack(created.id, 'jellyfin:b');
+
+      final Playlist? updated = await repository.getPlaylistById(created.id);
+      expect(client.addItemCalls.last.itemIds, <String>['b']);
+      expect(updated!.syncState, PlaylistSyncState.syncFailed);
+      expect(updated.lastSyncError, isNotNull);
+    });
+
     test('imports remote playlists on refresh', () async {
       client.playlists = <JellyfinPlaylistDto>[
         const JellyfinPlaylistDto(id: 'srv-77', name: 'From Server'),
@@ -387,6 +563,144 @@ void main() {
       expect(all.single.source, PlaylistSource.local);
     });
 
+    // The listing names a playlist, then reading its tracks fails (a timeout,
+    // a 5xx, a dropped connection). It still exists on the server: only a
+    // listing that leaves it out says it was deleted there.
+    test('a playlist whose tracks could not be read is kept, not dropped',
+        () async {
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'Mix'),
+        JellyfinPlaylistDto(id: 'srv-2', name: 'Other'),
+        JellyfinPlaylistDto(id: 'srv-3', name: 'Gone'),
+      ];
+      client.playlistEntries['srv-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+      ];
+      client.playlistEntries['srv-2'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'b', playlistItemId: 'e-b'),
+      ];
+      await repository.refreshFromRemote();
+      final Playlist mix = (await repository.getAllPlaylists())
+          .singleWhere((Playlist p) => p.remoteId == 'srv-1');
+
+      // Mix can't be read this time; Other was renamed and Gone deleted on
+      // the server meanwhile.
+      client.playlistEntriesErrors['srv-1'] = JellyfinException.notReachable();
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'Mix'),
+        JellyfinPlaylistDto(id: 'srv-2', name: 'Other, renamed'),
+      ];
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+
+      for (final List<Playlist> all in <List<Playlist>>[
+        await repository.getAllPlaylists(),
+        await store.load(),
+      ]) {
+        expect(
+          <String>[for (final Playlist p in all) p.id],
+          contains(mix.id),
+          reason: 'a failed read is not a delete on the server',
+        );
+        final Playlist kept = all.singleWhere((Playlist p) => p.id == mix.id);
+        expect(kept.name, 'Mix');
+        expect(kept.trackIds, <String>['jellyfin:a']);
+        expect(kept.syncState, PlaylistSyncState.synced);
+        expect(
+          all.singleWhere((Playlist p) => p.remoteId == 'srv-2').name,
+          'Other, renamed',
+        );
+        expect(all.where((Playlist p) => p.remoteId == 'srv-3'), isEmpty);
+      }
+      expect(result.didSync, isFalse);
+      expect(result.didFail, isTrue);
+    });
+
+    test('a connection dropped after the listing keeps every playlist',
+        () async {
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'Mix'),
+        JellyfinPlaylistDto(id: 'srv-2', name: 'Other'),
+      ];
+      client.playlistEntries['srv-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+      ];
+      client.playlistEntries['srv-2'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'b', playlistItemId: 'e-b'),
+      ];
+      await repository.refreshFromRemote();
+      final List<Playlist> before = await repository.getAllPlaylists();
+
+      // The listing answered, then every track read failed.
+      client.playlistEntriesErrors['srv-1'] = JellyfinException.notReachable();
+      client.playlistEntriesErrors['srv-2'] = JellyfinException.notReachable();
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+
+      for (final List<Playlist> all in <List<Playlist>>[
+        await repository.getAllPlaylists(),
+        await store.load(),
+      ]) {
+        expect(
+          <(String, List<String>)>[
+            for (final Playlist p in all) (p.id, p.trackIds),
+          ],
+          <(String, List<String>)>[
+            for (final Playlist p in before) (p.id, p.trackIds),
+          ],
+        );
+      }
+      expect(result.didFail, isTrue);
+    });
+
+    test('an unpushed edit survives a refresh that could not read it',
+        () async {
+      client.createdPlaylistId = 'srv-1';
+      final Playlist created = await repository.createPlaylist(
+        'Mix',
+        source: PlaylistSource.jellyfin,
+      );
+      client.playlistError = JellyfinException.notReachable();
+      await repository.addTrack(created.id, 'jellyfin:a');
+
+      // Back online, but this playlist's tracks still can't be read.
+      client.playlistError = null;
+      client.playlistEntriesErrors['srv-1'] = JellyfinException.notReachable();
+      await repository.refreshFromRemote();
+
+      final Playlist? kept = await repository.getPlaylistById(created.id);
+      expect(kept, isNotNull);
+      expect(kept!.trackIds, <String>['jellyfin:a']);
+      expect(kept.syncState, PlaylistSyncState.syncFailed);
+      expect(kept.lastSyncError, JellyfinException.notReachable().message);
+    });
+
+    test('the next good refresh updates it in place under the same id',
+        () async {
+      client.playlists = const <JellyfinPlaylistDto>[
+        JellyfinPlaylistDto(id: 'srv-1', name: 'Mix'),
+      ];
+      client.playlistEntries['srv-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+      ];
+      await repository.refreshFromRemote();
+      final Playlist mix = (await repository.getAllPlaylists()).single;
+      client.playlistEntriesErrors['srv-1'] = JellyfinException.notReachable();
+      await repository.refreshFromRemote();
+
+      // Readable again, and changed on the server meanwhile.
+      client.playlistEntriesErrors.clear();
+      client.playlistEntries['srv-1'] = const <JellyfinPlaylistEntry>[
+        JellyfinPlaylistEntry(itemId: 'a', playlistItemId: 'e-a'),
+        JellyfinPlaylistEntry(itemId: 'c', playlistItemId: 'e-c'),
+      ];
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+
+      expect(result.didSync, isTrue);
+      final List<Playlist> all = await repository.getAllPlaylists();
+      expect(all, hasLength(1));
+      expect(all.single.id, mix.id);
+      expect(all.single.trackIds, <String>['jellyfin:a', 'jellyfin:c']);
+    });
+
     test('clearRemote drops synced playlists but keeps local-only ones',
         () async {
       final Playlist local = await repository.createPlaylist('Local Mix');
@@ -403,6 +717,50 @@ void main() {
       expect(all, hasLength(1));
       expect(all.single.id, local.id);
       expect(all.single.source, PlaylistSource.local);
+    });
+
+    test('signing out keeps a playlist that never reached the server',
+        () async {
+      // Created while the server couldn't be reached: it exists only here,
+      // so signing out has nothing to drop it in favour of.
+      client.playlistError = JellyfinException.notReachable();
+      final Playlist created = await repository.createPlaylist(
+        'Road Trip',
+        source: PlaylistSource.jellyfin,
+      );
+      await repository.addTracks(
+        created.id,
+        <String>['jellyfin:a', 'jellyfin:b'],
+      );
+      final Playlist? unsynced = await repository.getPlaylistById(created.id);
+      expect(unsynced!.remoteId, isNull);
+      expect(unsynced.syncState, PlaylistSyncState.syncFailed);
+
+      await repository.clearRemote(source: PlaylistSource.jellyfin);
+
+      final Playlist? kept = await repository.getPlaylistById(created.id);
+      expect(kept, isNotNull);
+      expect(kept!.name, 'Road Trip');
+      expect(kept.trackIds, <String>['jellyfin:a', 'jellyfin:b']);
+      // Now a device playlist, honest about where it lives.
+      expect(kept.source, PlaylistSource.local);
+      expect(kept.syncState, PlaylistSyncState.localOnly);
+      expect(kept.lastSyncError, isNull);
+      // And persisted that way.
+      final List<Playlist> stored = await store.load();
+      expect(stored.single.source, PlaylistSource.local);
+    });
+
+    test('signing out still drops what the server has a copy of', () async {
+      client.createdPlaylistId = 'srv-4';
+      await repository.createPlaylist(
+        'Server Mix',
+        source: PlaylistSource.jellyfin,
+      );
+
+      await repository.clearRemote(source: PlaylistSource.jellyfin);
+
+      expect(await repository.getAllPlaylists(), isEmpty);
     });
 
     test('no token is ever stored in playlist metadata', () async {
@@ -553,6 +911,62 @@ void main() {
       expect(client.setSongsCalls.last.songIds, <String>['b']);
     });
 
+    test('Undo sends the server the list with the track back in its place',
+        () async {
+      client.createdPlaylistId = 'p-1';
+      final Playlist created = await repository.createPlaylist(
+        'Mix',
+        source: PlaylistSource.subsonic,
+      );
+      await repository.addTracks(
+        created.id,
+        <String>['subsonic:a', 'subsonic:b', 'subsonic:c'],
+      );
+      final List<int> positions =
+          await repository.removeTrack(created.id, 'subsonic:b');
+      expect(client.setSongsCalls.last.songIds, <String>['a', 'c']);
+
+      await repository.restoreTrack(created.id, 'subsonic:b', positions);
+
+      // A full replace: appending would have stored ['a', 'c', 'b'] for good.
+      expect(client.setSongsCalls.last.songIds, <String>['a', 'b', 'c']);
+      expect(
+        (await repository.getPlaylistById(created.id))!.syncState,
+        PlaylistSyncState.synced,
+      );
+    });
+
+    test('Undo puts back every copy a server playlist held', () async {
+      // Navidrome lets a playlist hold a song twice, and a refresh adopts its
+      // list as it is. Removing the song takes every copy.
+      client.playlists = const <SubsonicPlaylistDto>[
+        SubsonicPlaylistDto(id: 'p-1', name: 'Party'),
+      ];
+      client.playlistSongIds = <String, List<String>>{
+        'p-1': <String>['a', 'b', 'c', 'b'],
+      };
+      await repository.refreshFromRemote();
+      final Playlist party = (await repository.getAllPlaylists()).single;
+      expect(party.trackIds, <String>[
+        'subsonic:a',
+        'subsonic:b',
+        'subsonic:c',
+        'subsonic:b',
+      ]);
+
+      final List<int> positions =
+          await repository.removeTrack(party.id, 'subsonic:b');
+      expect(positions, <int>[1, 3]);
+      expect(client.setSongsCalls.last.songIds, <String>['a', 'c']);
+      await repository.restoreTrack(party.id, 'subsonic:b', positions);
+
+      expect(client.setSongsCalls.last.songIds, <String>['a', 'b', 'c', 'b']);
+      expect(
+        (await repository.getPlaylistById(party.id))!.trackIds,
+        <String>['subsonic:a', 'subsonic:b', 'subsonic:c', 'subsonic:b'],
+      );
+    });
+
     test('reordering pushes the new order to the server', () async {
       client.createdPlaylistId = 'p-1';
       final Playlist created = await repository.createPlaylist(
@@ -634,6 +1048,26 @@ void main() {
       expect(all.where((Playlist p) => p.remoteId == 'p-1'), hasLength(1));
     });
 
+    test('a membership push that lands does not hide a failed rename',
+        () async {
+      // The song list is replaced in full, but the name goes separately, so
+      // the list landing says nothing about the name.
+      client.createdPlaylistId = 'p-3';
+      final Playlist created = await repository.createPlaylist(
+        'Old',
+        source: PlaylistSource.subsonic,
+      );
+      client.playlistError = SubsonicException.notReachable();
+      await repository.renamePlaylist(created.id, 'New');
+      client.playlistError = null;
+      await repository.addTrack(created.id, 'subsonic:a');
+
+      final Playlist? updated = await repository.getPlaylistById(created.id);
+      expect(client.setSongsCalls.last.songIds, <String>['a']);
+      expect(updated!.name, 'New');
+      expect(updated.syncState, PlaylistSyncState.syncFailed);
+    });
+
     test('a failed membership push flags syncFailed without throwing',
         () async {
       client.createdPlaylistId = 'p-2';
@@ -664,6 +1098,135 @@ void main() {
       client.playlistSongIds = <String, List<String>>{};
       await repository.refreshFromRemote();
       expect(await repository.getAllPlaylists(), isEmpty);
+    });
+
+    test('a playlist whose songs could not be read is kept, not dropped',
+        () async {
+      client.playlists = <SubsonicPlaylistDto>[
+        const SubsonicPlaylistDto(id: 'p-1', name: 'Mix'),
+        const SubsonicPlaylistDto(id: 'p-2', name: 'Other'),
+        const SubsonicPlaylistDto(id: 'p-3', name: 'Gone'),
+      ];
+      client.playlistSongIds = <String, List<String>>{
+        'p-1': <String>['a'],
+        'p-2': <String>['b'],
+        'p-3': <String>['c'],
+      };
+      await repository.refreshFromRemote();
+      final Playlist mix = (await repository.getAllPlaylists())
+          .singleWhere((Playlist p) => p.remoteId == 'p-1');
+
+      // Mix can't be read this time; Other was renamed and Gone deleted on
+      // the server meanwhile.
+      client.playlistSongIdsErrors['p-1'] = SubsonicException.notReachable();
+      client.playlists = <SubsonicPlaylistDto>[
+        const SubsonicPlaylistDto(id: 'p-1', name: 'Mix'),
+        const SubsonicPlaylistDto(id: 'p-2', name: 'Other, renamed'),
+      ];
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+
+      for (final List<Playlist> all in <List<Playlist>>[
+        await repository.getAllPlaylists(),
+        await store.load(),
+      ]) {
+        expect(
+          <String>[for (final Playlist p in all) p.id],
+          contains(mix.id),
+          reason: 'a failed read is not a delete on the server',
+        );
+        final Playlist kept = all.singleWhere((Playlist p) => p.id == mix.id);
+        expect(kept.name, 'Mix');
+        expect(kept.trackIds, <String>['subsonic:a']);
+        expect(kept.syncState, PlaylistSyncState.synced);
+        expect(
+          all.singleWhere((Playlist p) => p.remoteId == 'p-2').name,
+          'Other, renamed',
+        );
+        expect(all.where((Playlist p) => p.remoteId == 'p-3'), isEmpty);
+      }
+      expect(result.didSync, isFalse);
+      expect(result.didFail, isTrue);
+    });
+
+    test('a connection dropped after the listing keeps every playlist',
+        () async {
+      client.playlists = <SubsonicPlaylistDto>[
+        const SubsonicPlaylistDto(id: 'p-1', name: 'Mix'),
+        const SubsonicPlaylistDto(id: 'p-2', name: 'Other'),
+      ];
+      client.playlistSongIds = <String, List<String>>{
+        'p-1': <String>['a'],
+        'p-2': <String>['b'],
+      };
+      await repository.refreshFromRemote();
+      final List<Playlist> before = await repository.getAllPlaylists();
+
+      // The listing answered, then every song read failed.
+      client.playlistSongIdsErrors['p-1'] = SubsonicException.notReachable();
+      client.playlistSongIdsErrors['p-2'] = SubsonicException.notReachable();
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+
+      for (final List<Playlist> all in <List<Playlist>>[
+        await repository.getAllPlaylists(),
+        await store.load(),
+      ]) {
+        expect(
+          <(String, List<String>)>[
+            for (final Playlist p in all) (p.id, p.trackIds),
+          ],
+          <(String, List<String>)>[
+            for (final Playlist p in before) (p.id, p.trackIds),
+          ],
+        );
+      }
+      expect(result.didFail, isTrue);
+    });
+
+    test('an unpushed edit survives a refresh that could not read it',
+        () async {
+      client.createdPlaylistId = 'p-1';
+      final Playlist created = await repository.createPlaylist(
+        'Mix',
+        source: PlaylistSource.subsonic,
+      );
+      client.playlistError = SubsonicException.notReachable();
+      await repository.addTrack(created.id, 'subsonic:a');
+
+      // Back online, but this playlist's songs still can't be read.
+      client.playlistError = null;
+      client.playlistSongIdsErrors['p-1'] = SubsonicException.notReachable();
+      await repository.refreshFromRemote();
+
+      final Playlist? kept = await repository.getPlaylistById(created.id);
+      expect(kept, isNotNull);
+      expect(kept!.trackIds, <String>['subsonic:a']);
+      expect(kept.syncState, PlaylistSyncState.syncFailed);
+      expect(kept.lastSyncError, SubsonicException.notReachable().message);
+    });
+
+    test('the next good refresh updates it in place under the same id',
+        () async {
+      client.playlists = <SubsonicPlaylistDto>[
+        const SubsonicPlaylistDto(id: 'p-1', name: 'Mix'),
+      ];
+      client.playlistSongIds = <String, List<String>>{
+        'p-1': <String>['a'],
+      };
+      await repository.refreshFromRemote();
+      final Playlist mix = (await repository.getAllPlaylists()).single;
+      client.playlistSongIdsErrors['p-1'] = SubsonicException.notReachable();
+      await repository.refreshFromRemote();
+
+      // Readable again, and changed on the server meanwhile.
+      client.playlistSongIdsErrors.clear();
+      client.playlistSongIds['p-1'] = <String>['a', 'c'];
+      final PlaylistSyncResult result = await repository.refreshFromRemote();
+
+      expect(result.didSync, isTrue);
+      final List<Playlist> all = await repository.getAllPlaylists();
+      expect(all, hasLength(1));
+      expect(all.single.id, mix.id);
+      expect(all.single.trackIds, <String>['subsonic:a', 'subsonic:c']);
     });
   });
 
@@ -1225,6 +1788,183 @@ void main() {
       );
     });
   });
+
+  // A push takes a round trip, and on a busy server a playlist write can take
+  // a while. Meanwhile a refresh can be answered with the server's copy from
+  // before it, and the next edit can send its own push. Neither may undo the
+  // edit whose push is still on the wire.
+  group('SyncedPlaylistRepository (a push still on the wire)', () {
+    late InMemoryPlaylistStore store;
+    late int counter;
+
+    setUp(() {
+      store = InMemoryPlaylistStore();
+      counter = 0;
+    });
+
+    SyncedPlaylistRepository build(RemotePlaylistGateway gateway) =>
+        SyncedPlaylistRepository(
+          store: store,
+          gateways: <RemotePlaylistGateway>[gateway],
+          idGenerator: () => 'pl-${counter++}',
+          now: () => DateTime(2024, 1, 1),
+        );
+
+    group('Subsonic, where each push replaces the whole song list', () {
+      late _SlowWritesSubsonicClient client;
+      late SyncedPlaylistRepository repository;
+      late String id;
+
+      setUp(() async {
+        client = _SlowWritesSubsonicClient()
+          ..playlists = <SubsonicPlaylistDto>[
+            const SubsonicPlaylistDto(id: 'p-1', name: 'Mix'),
+          ]
+          ..playlistSongIds = <String, List<String>>{
+            'p-1': <String>['a', 'b'],
+          };
+        repository = build(
+          SubsonicPlaylistGateway(
+            client: client,
+            session: () => _subsonicSession,
+          ),
+        );
+        await repository.refreshFromRemote();
+        id = (await repository.getAllPlaylists()).single.id;
+      });
+
+      Future<List<String>> local() async =>
+          (await repository.getPlaylistById(id))!.trackIds;
+
+      test('a refresh answered before the push lands does not lose the edit',
+          () async {
+        client.holdWrites = true;
+        final Future<void> adding = repository.addTrack(id, 'subsonic:c');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        // Opening Playlists, a resume: the answer predates the write.
+        await repository.refreshFromRemote();
+        expect(await local(), contains('subsonic:c'));
+
+        client.holdWrites = false;
+        client.heldWrites.single.complete();
+        await adding;
+        // The next edit sends the whole list again.
+        await repository.addTrack(id, 'subsonic:d');
+
+        expect(client.playlistSongIds['p-1'], <String>['a', 'b', 'c', 'd']);
+        await repository.refreshFromRemote();
+        expect(await local(), <String>[
+          'subsonic:a',
+          'subsonic:b',
+          'subsonic:c',
+          'subsonic:d',
+        ]);
+      });
+
+      test('two quick adds reach the server in the order they were made',
+          () async {
+        client.holdWrites = true;
+        final Future<void> first = repository.addTrack(id, 'subsonic:c');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        final Future<void> second = repository.addTrack(id, 'subsonic:d');
+
+        await _landNewestFirst(client.heldWrites, <Future<void>>[
+          first,
+          second,
+        ]);
+
+        expect(client.playlistSongIds['p-1'], <String>['a', 'b', 'c', 'd']);
+        await repository.refreshFromRemote();
+        expect(await local(), <String>[
+          'subsonic:a',
+          'subsonic:b',
+          'subsonic:c',
+          'subsonic:d',
+        ]);
+      });
+
+      test('two quick renames leave the server with the last one', () async {
+        client.holdWrites = true;
+        final Future<void> first = repository.renamePlaylist(id, 'Road');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        final Future<void> second = repository.renamePlaylist(id, 'Road Trip');
+
+        await _landNewestFirst(client.heldWrites, <Future<void>>[
+          first,
+          second,
+        ]);
+
+        expect(client.playlists.single.name, 'Road Trip');
+        await repository.refreshFromRemote();
+        expect((await repository.getPlaylistById(id))!.name, 'Road Trip');
+      });
+    });
+
+    group('Jellyfin, where each push sends what changed', () {
+      late _SlowWritesJellyfinClient client;
+      late SyncedPlaylistRepository repository;
+      late String id;
+
+      setUp(() async {
+        client = _SlowWritesJellyfinClient()
+          ..playlists = <JellyfinPlaylistDto>[
+            const JellyfinPlaylistDto(id: 'srv-1', name: 'Mix'),
+          ];
+        client.playlistEntries['srv-1'] = <JellyfinPlaylistEntry>[
+          for (final String item in <String>['a', 'b', 'c'])
+            JellyfinPlaylistEntry(itemId: item, playlistItemId: 'entry-$item'),
+        ];
+        repository = build(
+          JellyfinPlaylistGateway(client: client, session: () => _session),
+        );
+        await repository.refreshFromRemote();
+        id = (await repository.getAllPlaylists()).single.id;
+      });
+
+      Future<List<String>> local() async =>
+          (await repository.getPlaylistById(id))!.trackIds;
+
+      List<String> server() => <String>[
+            for (final JellyfinPlaylistEntry entry
+                in client.playlistEntries['srv-1']!)
+              entry.itemId,
+          ];
+
+      test('a refresh answered before the push lands keeps the edit on screen',
+          () async {
+        client.holdWrites = true;
+        final Future<void> adding = repository.addTrack(id, 'jellyfin:d');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        await repository.refreshFromRemote();
+
+        expect(await local(), contains('jellyfin:d'));
+
+        client.holdWrites = false;
+        client.heldWrites.single.complete();
+        await adding;
+        await repository.refreshFromRemote();
+        expect(await local(), contains('jellyfin:d'));
+      });
+
+      test('a track taken out and put straight back stays on the server',
+          () async {
+        // Remove, then Undo, with the removal still on the wire.
+        client.holdWrites = true;
+        final Future<void> removing = repository.removeTrack(id, 'jellyfin:c');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        final Future<void> undoing = repository.addTrack(id, 'jellyfin:c');
+
+        await _landNewestFirst(client.heldWrites, <Future<void>>[
+          removing,
+          undoing,
+        ]);
+
+        expect(server(), contains('c'));
+        await repository.refreshFromRemote();
+        expect(await local(), contains('jellyfin:c'));
+      });
+    });
+  });
 }
 
 /// An [InMemoryPlaylistStore] that counts writes, so a test can tell a no-op
@@ -1290,14 +2030,14 @@ class _GatedPlaylistGateway implements RemotePlaylistGateway {
   bool get pushesReorder => true;
 
   @override
-  Future<List<RemotePlaylistData>> fetchPlaylists() async {
+  Future<RemotePlaylistListing> fetchPlaylists() async {
     fetchCount++;
     final List<RemotePlaylistData> answer = List<RemotePlaylistData>.of(server);
     Completer<void>? gate;
     if (_holding) _held.add(gate = Completer<void>());
     if (!_fetchStarted.isCompleted) _fetchStarted.complete();
     if (gate != null) await gate.future;
-    return answer;
+    return RemotePlaylistListing(answer);
   }
 
   @override

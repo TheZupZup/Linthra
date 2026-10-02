@@ -26,7 +26,8 @@ What you can do:
   Playing actions, via multi-select, or, on desktop, by dragging tracks onto a
   playlist row (see [Dragging tracks into a playlist](#dragging-tracks-into-a-playlist)).
 - **Remove tracks** from a playlist (per-row, with an Undo snackbar, or via
-  multi-select).
+  multi-select). Undo puts the track back where it was, every copy of it if a
+  synced playlist held it twice.
 - **Reorder tracks** by dragging the handle on a row — see
   [Reordering a playlist](#reordering-a-playlist).
 - **Play** the playlist, or **Shuffle** it, from the detail screen. Tapping any
@@ -128,17 +129,26 @@ Each refresh (startup or Sync library):
   rename shows up on the next sync — and is idempotent: repeated syncs never
   duplicate a playlist or its entries;
 - **drops** a synced playlist whose server copy is gone (it was deleted on the
-  server). Local-only playlists are never touched by a refresh.
+  server). One the server still lists but whose tracks couldn't be loaded this
+  time (a timeout, a server error, a dropped connection) is kept exactly as it
+  is until a later refresh can load it. Local-only playlists are never touched
+  by a refresh.
 
 A refresh takes a moment to hear back from the server, and anything you do in
 the meantime wins: a playlist you create, edit or delete while one is loading
 keeps your change. The server's answer predates it, so that playlist is left as
-you left it and the next refresh reconciles it. Signing out of a server while a
-refresh is loading discards that server's answer.
+you left it and the next refresh reconciles it. The same goes for a change you
+made just before the refresh whose push hasn't reached the server yet. Changes
+to one playlist are pushed one at a time, in the order you made them, so an
+older push can never land after a newer one and undo it. Signing out of a
+server while a refresh is loading discards that server's answer.
 
 On **sign-out**, this account's imported Jellyfin playlists (and its server
 favourites) are cleared so they can't linger — or be confused with a different
-account — after disconnecting; your local-only playlists stay on-device.
+account — after disconnecting; your local-only playlists stay on-device. A
+playlist you created to sync that never reached the server (it was created
+while the server couldn't be reached) stays too: this device has the only
+copy, so it becomes a local playlist instead of being dropped.
 
 Supported today (best-effort, server is the source of truth for synced
 playlists):
@@ -189,7 +199,8 @@ scoped (a Jellyfin sign-out never drops Navidrome playlists, and vice-versa).
 
 - **Rename** and **reorder** of a *synced Jellyfin* playlist are local-only for
   now; they are not pushed to the server, and a refresh re-adopts the server's
-  name/order. (Navidrome pushes both, as noted above.)
+  name/order. (Navidrome pushes both, as noted above.) The same goes for where
+  Undo puts a removed track back: Jellyfin adds it at the end.
 - Server membership is treated as the source of truth on refresh, so a change
   that failed to push (marked `syncFailed`) may be reconciled to the server
   state on the next refresh.

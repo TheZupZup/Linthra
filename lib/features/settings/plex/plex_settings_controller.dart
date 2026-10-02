@@ -93,12 +93,24 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// server with zero music libraries isn't re-polled on every Settings open).
   bool _sectionsLoadAttempted = false;
 
+  /// The selection the latest tap asked for, while its save is still going.
+  /// See [toggleSection].
+  List<String>? _requestedSelection;
+
+  /// The library selection saves, chained so they run one at a time. See
+  /// [setSelectedSections].
+  Future<void> _selectionSaves = Future<void>.value();
+
   /// Set once a user action (connect/disconnect) has taken ownership of the
   /// session while the startup restore was still reading storage. The restore
   /// then discards its stale result instead of overwriting a fresh connect or
   /// resurrecting a just-cleared session — secure-storage reads can be slow on
   /// real devices, so this race is reachable.
   bool _restoreSuperseded = false;
+
+  /// Moves on every connect and disconnect, so a library listing still out
+  /// from an earlier connection can tell its answer no longer applies.
+  int _connection = 0;
 
   /// The live signed-in session, or `null` when not connected. Used to build a
   /// [PlexMusicSource]; callers must not log it ([PlexSession.toString]
@@ -577,6 +589,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     }
 
     _session = stamped;
+    _connection++;
     // The just-connected server becomes the active/default provider for picking
     // among duplicate sources, so a song that also lives on another server now
     // prefers Plex. Persisted and best-effort — mirrors Jellyfin/Subsonic
@@ -711,6 +724,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       return;
     }
     _sectionsLoadAttempted = true;
+    final int connection = _connection;
     state = state.copyWith(
         isLoadingSections: true, errorMessage: null, errorKind: null);
     try {
@@ -719,6 +733,9 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
                 baseUrl: current.baseUrl,
                 token: current.token,
               );
+      // Disconnected, or connected again, while it was out: this answer is
+      // about a connection the card no longer shows.
+      if (connection != _connection) return;
       final List<PlexLibrarySection> music = <PlexLibrarySection>[
         for (final PlexDirectory directory in all)
           if (directory.isMusic)
@@ -731,6 +748,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       );
       await _pruneVanishedSelection(music);
     } on PlexException catch (error) {
+      if (connection != _connection) return;
       state = state.copyWith(
         isLoadingSections: false,
         errorMessage: error.message,
@@ -777,8 +795,13 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
 
   /// Includes or excludes one music library [sectionKey] and persists the
   /// updated selection into the session.
+  ///
+  /// Builds on the selection the latest tap asked for while its save is still
+  /// going: the saved selection only has that tap in it once the keyring write
+  /// lands, and a second checkbox ticked meanwhile would otherwise drop it.
   Future<void> toggleSection(String sectionKey, {required bool included}) {
-    final List<String> keys = List<String>.of(state.selectedSectionKeys);
+    final List<String> keys =
+        List<String>.of(_requestedSelection ?? state.selectedSectionKeys);
     if (included && !keys.contains(sectionKey)) {
       keys.add(sectionKey);
     } else if (!included) {
@@ -791,18 +814,38 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// session (which scopes every future fetch) and persists it, so the choice
   /// survives a restart. An empty list is valid — connected, nothing chosen
   /// yet.
-  Future<void> setSelectedSections(List<String> sectionKeys) async {
+  ///
+  /// Saves run one after another, each on the session as the one before it
+  /// left it, so they land in the order they were asked for and the last
+  /// selection asked for is the one kept.
+  Future<void> setSelectedSections(List<String> sectionKeys) {
+    final PlexSession? asked = _session;
+    if (asked == null) return Future<void>.value();
+    final List<String> keys = List<String>.unmodifiable(sectionKeys);
+    _requestedSelection = keys;
+    final Future<void> save = _selectionSaves
+        // Only when the earlier save ends matters here. Whoever asked for it
+        // gets its result from their own future.
+        .then((_) {}, onError: (Object _) {})
+        .then((_) => _saveSelection(keys, asked.machineIdentifier));
+    _selectionSaves = save;
+    return save;
+  }
+
+  Future<void> _saveSelection(List<String> keys, String? server) async {
     final PlexSession? current = _session;
-    if (current == null) {
+    // Disconnected, or connected to another server, while it waited.
+    if (current == null || current.machineIdentifier != server) {
+      if (identical(_requestedSelection, keys)) _requestedSelection = null;
       return;
     }
-    final List<String> keys = List<String>.unmodifiable(sectionKeys);
     final PlexSession updated = current.copyWith(selectedSectionKeys: keys);
     try {
       await ref.read(plexSessionStoreProvider).write(updated);
     } catch (error) {
       // Keep state and store consistent: don't apply a selection that won't
-      // survive a restart.
+      // survive a restart. The next tap builds on what was saved.
+      if (identical(_requestedSelection, keys)) _requestedSelection = null;
       state = state.copyWith(
         errorMessage:
             "Couldn't save your library selection. ${_storageRemedy(error)}",
@@ -810,6 +853,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       );
       return;
     }
+    if (identical(_requestedSelection, keys)) _requestedSelection = null;
     _session = updated;
     state = state.copyWith(
       selectedSectionKeys: keys,
@@ -843,6 +887,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       return;
     }
     _session = null;
+    _connection++;
     _sectionsLoadAttempted = false;
     _restoreSuperseded = true;
     ref.read(plexPersistedClientIdentifierProvider.notifier).publish(null);

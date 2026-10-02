@@ -68,6 +68,25 @@ class RemotePlaylistData {
   final List<String> trackUris;
 }
 
+/// One server's answer to [RemotePlaylistGateway.fetchPlaylists]: the
+/// playlists it listed and read, plus the ones it listed but could not read.
+@immutable
+class RemotePlaylistListing {
+  const RemotePlaylistListing(
+    this.playlists, {
+    this.unread = const <String>{},
+  });
+
+  /// The listed playlists whose membership was read, in server order.
+  final List<RemotePlaylistData> playlists;
+
+  /// The remote ids of playlists the server listed but whose membership could
+  /// not be read this time (a timeout, a server error, a dropped connection).
+  /// They still exist on the server, but nothing more is known about them, so
+  /// they are neither in [playlists] nor deleted.
+  final Set<String> unread;
+}
+
 /// The per-provider seam through which the playlist repository mirrors playlists
 /// to and from one server.
 ///
@@ -93,9 +112,12 @@ abstract interface class RemotePlaylistGateway {
   /// (a refresh then re-adopts the server order).
   bool get pushesReorder;
 
-  /// The server's playlists with their ordered membership. Throws a
-  /// [RemoteSyncException] on failure.
-  Future<List<RemotePlaylistData>> fetchPlaylists();
+  /// The server's playlists with their ordered membership. A listed playlist
+  /// whose membership can't be read goes in [RemotePlaylistListing.unread],
+  /// never just left out: only a successful listing that omits a playlist says
+  /// it was deleted on the server. Throws a [RemoteSyncException] when the
+  /// listing itself fails.
+  Future<RemotePlaylistListing> fetchPlaylists();
 
   /// Creates a server playlist named [name] seeded with [trackUris] (in order),
   /// returning its remote id. Throws a [RemoteSyncException] on failure.

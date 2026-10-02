@@ -12,16 +12,24 @@ import 'fake_saf_document_lister.dart';
 const _safFolder = 'content://com.android.externalstorage.documents/tree/x';
 
 /// Returns a fixed list of paths and records the folder it was asked to scan,
-/// so the source can be tested without touching a real file system.
+/// so the source can be tested without touching a real file system. Reports
+/// [unreadable] as the subfolders its walk could not list.
 class _FakeScanner implements AudioFileScanner {
-  _FakeScanner(this._files);
+  _FakeScanner(this._files, {this.unreadable = const <String>[]});
 
   final List<String> _files;
+  final List<String> unreadable;
   String? requestedFolder;
 
   @override
-  Future<List<String>> listFiles(String folderPath) async {
+  Future<List<String>> listFiles(
+    String folderPath, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) async {
     requestedFolder = folderPath;
+    for (final String directory in unreadable) {
+      onUnreadableDirectory?.call(directory);
+    }
     return _files;
   }
 }
@@ -455,6 +463,97 @@ void main() {
       expect(scan.report.recursive, isTrue);
       // The filesystem walk reports files, not a directory count.
       expect(scan.report.foldersVisited, 0);
+    });
+  });
+
+  group('LocalMusicSource.scanTracks says what it could not read', () {
+    test('a filesystem walk names the subfolders it could not list', () async {
+      final source = LocalMusicSource(
+        folderPath: '/music',
+        scanner: _FakeScanner(
+          const <String>['/music/A/one.mp3'],
+          unreadable: const <String>['/music/B', '/music/C/Live'],
+        ),
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.tracks.single.uri, '/music/A/one.mp3');
+      expect(scan.unreadableDirectories, <String>['/music/B', '/music/C/Live']);
+      expect(scan.hasUnlocatedReadFailures, isFalse);
+      expect(scan.isComplete, isFalse);
+      // Counted where the Settings card and diagnostics already look.
+      expect(scan.report.readFailures, 2);
+      expect(scan.report.hadError, isFalse);
+    });
+
+    test('a filesystem walk that read everything is complete', () async {
+      final source = LocalMusicSource(
+        folderPath: '/music',
+        scanner: _FakeScanner(const <String>['/music/A/one.mp3']),
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.unreadableDirectories, isEmpty);
+      expect(scan.isComplete, isTrue);
+      expect(scan.report.readFailures, 0);
+    });
+
+    test('a SAF walk that skipped subfolders cannot say which', () async {
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(const <String>[]),
+        safDocumentLister: FakeSafDocumentLister(
+          documents: const <SafAudioDocument>[
+            SafAudioDocument(uri: '$_safFolder/document/1', name: 'One.mp3'),
+          ],
+          readFailures: 2,
+        ),
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.hasUnlocatedReadFailures, isTrue);
+      expect(scan.unreadableDirectories, isEmpty);
+      expect(scan.isComplete, isFalse);
+      expect(scan.report.readFailures, 2);
+    });
+
+    test('a SAF walk with no read failures is complete', () async {
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(const <String>[]),
+        safDocumentLister: FakeSafDocumentLister(
+          documents: const <SafAudioDocument>[
+            SafAudioDocument(uri: '$_safFolder/document/1', name: 'One.mp3'),
+          ],
+        ),
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.hasUnlocatedReadFailures, isFalse);
+      expect(scan.isComplete, isTrue);
+    });
+
+    test('the path fallback for a SAF folder names them too', () async {
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(
+          const <String>['/storage/emulated/0/Music/A/one.mp3'],
+          unreadable: const <String>['/storage/emulated/0/Music/B'],
+        ),
+        safDocumentLister: FakeSafDocumentLister(unsupported: true),
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(
+        scan.unreadableDirectories,
+        <String>['/storage/emulated/0/Music/B'],
+      );
+      expect(scan.report.readFailures, 1);
     });
   });
 }

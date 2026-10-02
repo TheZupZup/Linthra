@@ -79,26 +79,30 @@ void main() {
     downloader = _Downloader();
   });
 
-  test('on Android a download held for Wi-Fi starts when Wi-Fi arrives',
-      () async {
+  for (final HostPlatform host in <HostPlatform>[
+    HostPlatform.android,
+    HostPlatform.linux,
+  ]) {
+    test('on ${host.name} a download held for Wi-Fi starts when Wi-Fi arrives',
+        () async {
+      final DownloadRepository repository =
+          container(host).read(downloadRepositoryProvider);
+
+      expect(
+        await repository.requestDownload(_track),
+        DownloadRequestOutcome.waitingForWifi,
+      );
+      connectivity.moveTo(NetworkStatus.wifi);
+      await _settle();
+
+      expect(downloader.fetches, 1);
+      expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+    });
+  }
+
+  test('where nothing reports network changes, none are listened to', () async {
     final DownloadRepository repository =
-        container(HostPlatform.android).read(downloadRepositoryProvider);
-
-    expect(
-      await repository.requestDownload(_track),
-      DownloadRequestOutcome.waitingForWifi,
-    );
-    connectivity.moveTo(NetworkStatus.wifi);
-    await _settle();
-
-    expect(downloader.fetches, 1);
-    expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
-  });
-
-  test('on Linux the channel-less status stream is never listened to',
-      () async {
-    final DownloadRepository repository =
-        container(HostPlatform.linux).read(downloadRepositoryProvider);
+        container(HostPlatform.windows).read(downloadRepositoryProvider);
 
     await repository.requestDownload(_track);
 

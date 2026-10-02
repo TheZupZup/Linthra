@@ -57,7 +57,15 @@ class FakePlaylistRepository implements PlaylistRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> removeTrack(String playlistId, String trackId) =>
+  Future<List<int>> removeTrack(String playlistId, String trackId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> restoreTrack(
+    String playlistId,
+    String trackUri,
+    List<int> positions,
+  ) =>
       throw UnimplementedError();
 
   @override

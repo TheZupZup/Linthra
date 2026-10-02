@@ -10,6 +10,8 @@
 /// payload is ignored.
 library;
 
+import '../media_content_type.dart';
+
 /// The `subsonic-response` envelope every Subsonic API call returns.
 ///
 /// A request can fail with a Subsonic error *inside a 200 response* (e.g.
@@ -124,16 +126,15 @@ class SubsonicStreamProbe {
     return type != null && type.startsWith('text/html');
   }
 
-  /// The body looks like something the audio engine can open (an `audio/*`
-  /// type, the generic binary `application/octet-stream` some servers use, or a
-  /// missing content type — lenient, since the engine sniffs the container).
-  bool get isAudio {
-    final String? type = _mimeType;
-    if (type == null) return true;
-    return type.startsWith('audio/') ||
-        type.startsWith('video/') ||
-        type == 'application/octet-stream';
-  }
+  /// The body looks like something the audio engine can open: anything that
+  /// isn't plainly a document ([MediaContentType.isDocument]), a missing type
+  /// included. Servers label media inconsistently: a Go server with no system
+  /// mime table sniffs an Ogg or Opus file as `application/ogg`, and object
+  /// storage gives `binary/octet-stream`. The engine sniffs the container
+  /// itself, so only a document (an error envelope, a login page) is refused.
+  /// It is the same rule downloads and the cast relay apply, so a track the
+  /// app will download is never one it refuses to stream.
+  bool get isAudio => !MediaContentType.isDocument(contentType);
 
   String? get _mimeType {
     final String? raw = contentType;

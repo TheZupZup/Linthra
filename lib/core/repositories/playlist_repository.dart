@@ -45,8 +45,20 @@ abstract interface class PlaylistRepository {
   /// order. Entries are provider-namespaced [Track.uri]s.
   Future<void> addTracks(String playlistId, List<String> trackUris);
 
-  /// Removes the entry for [trackUri] (a provider-namespaced [Track.uri]).
-  Future<void> removeTrack(String playlistId, String trackUri);
+  /// Removes the entry for [trackUri] (a provider-namespaced [Track.uri]), and
+  /// every other copy of it a synced playlist may hold. Returns the positions
+  /// they held, ascending, for [restoreTrack]; empty when it wasn't there.
+  Future<List<int>> removeTrack(String playlistId, String trackUri);
+
+  /// Undo for [removeTrack]: puts [trackUri] back at [positions], as
+  /// [removeTrack] returned them, so it lands where it was rather than at the
+  /// end. Each position is clamped to the playlist as it is by then. A no-op
+  /// when the track is already back in the playlist or the playlist is gone.
+  Future<void> restoreTrack(
+    String playlistId,
+    String trackUri,
+    List<int> positions,
+  );
 
   /// Moves the track at [oldIndex] to [newIndex] within the playlist.
   Future<void> reorderTracks(String playlistId, int oldIndex, int newIndex);
@@ -66,6 +78,10 @@ abstract interface class PlaylistRepository {
   /// touched. Never throws: it returns a [PlaylistSyncResult] describing the
   /// outcome (not configured / synced + count / failed) so the "Sync library"
   /// action can report "synced N playlists" or "playlists could not be loaded".
+  ///
+  /// A playlist the server lists but whose tracks can't be read is kept as it
+  /// is (only a listing that leaves it out means it was deleted there), and
+  /// its provider counts as failed.
   Future<PlaylistSyncResult> refreshFromRemote();
 
   /// Drops server-synced (remote-source) playlists, keeping local-only ones.

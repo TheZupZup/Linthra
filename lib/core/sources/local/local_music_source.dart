@@ -23,6 +23,8 @@ class LocalScan {
     required this.tracks,
     required this.report,
     this.stamps = const <String, LocalFileStamp>{},
+    this.unreadableDirectories = const <String>[],
+    this.hasUnlocatedReadFailures = false,
   });
 
   final List<Track> tracks;
@@ -36,6 +38,27 @@ class LocalScan {
   /// stamp is re-parsed on the next scan, which is what scanning did before
   /// incremental scans existed.
   final Map<String, LocalFileStamp> stamps;
+
+  /// The subfolders the walk could not list, as absolute paths.
+  ///
+  /// A file under one of these is missing from [tracks] because the walk never
+  /// saw it, not because it is gone, so the files indexed under them are kept
+  /// rather than removed. Empty when the walk read everything, and for a walk
+  /// that cannot name what it missed (see [hasUnlocatedReadFailures]).
+  final List<String> unreadableDirectories;
+
+  /// The walk could not read part of the folder and cannot say which part.
+  ///
+  /// Android's SAF walk counts the subfolders it could not list (a card pulled
+  /// mid-walk, a provider that stopped answering) but does not name them, so
+  /// any file indexed under this folder could be one it missed, and all of
+  /// them are kept until a walk reads the whole folder again.
+  final bool hasUnlocatedReadFailures;
+
+  /// Whether the walk read the whole folder, so that a file it did not return
+  /// is really gone.
+  bool get isComplete =>
+      unreadableDirectories.isEmpty && !hasUnlocatedReadFailures;
 }
 
 /// A [MusicSource] that scans audio files already present on the device.
@@ -162,6 +185,10 @@ class LocalMusicSource implements MusicSource {
         result.filesVisited > candidates ? result.filesVisited - candidates : 0;
     return LocalScan(
       tracks: tracks,
+      // The native walk sends back how many subfolders it skipped, not which,
+      // so nothing it did not return may be called deleted. MediaStore always
+      // reports none: it answers a query and walks no folders.
+      hasUnlocatedReadFailures: result.readFailures > 0,
       report: LocalScanReport(
         folderSelected: true,
         isContentUri: isContentUri,
@@ -195,7 +222,11 @@ class LocalMusicSource implements MusicSource {
     String folder, {
     required bool isContentUri,
   }) async {
-    final List<String> files = await _scanner.listFiles(folder);
+    final List<String> unreadable = <String>[];
+    final List<String> files = await _scanner.listFiles(
+      folder,
+      onUnreadableDirectory: unreadable.add,
+    );
     final List<Track> tracks = <Track>[];
     final Map<String, LocalFileStamp> stamps = <String, LocalFileStamp>{};
     int reused = 0;
@@ -226,6 +257,7 @@ class LocalMusicSource implements MusicSource {
     return LocalScan(
       tracks: tracks,
       stamps: stamps,
+      unreadableDirectories: List<String>.unmodifiable(unreadable),
       report: LocalScanReport(
         folderSelected: true,
         isContentUri: isContentUri,
@@ -235,7 +267,9 @@ class LocalMusicSource implements MusicSource {
         importedTracks: candidates,
         reusedTracks: reused,
         skippedUnsupported: visited - candidates,
-        readFailures: 0,
+        // Counted the way the SAF walk counts them, so the Settings card and
+        // the diagnostics line say "unreadable" on desktop too.
+        readFailures: unreadable.length,
       ),
     );
   }

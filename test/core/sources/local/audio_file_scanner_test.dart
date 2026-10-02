@@ -15,6 +15,80 @@ class _Gone implements DirectoryReadability {
   Future<LocalRootFault?> inspect(String path) async => LocalRootFault.missing;
 }
 
+/// A subfolder that refuses to be listed, the way one whose permissions
+/// changed or a stale network mount inside the music folder does.
+class _Unlistable implements Directory {
+  _Unlistable(this.path);
+
+  @override
+  final String path;
+
+  @override
+  Directory get absolute => this;
+
+  @override
+  Stream<FileSystemEntity> list({
+    bool recursive = false,
+    bool followLinks = true,
+  }) =>
+      Stream<FileSystemEntity>.error(
+        FileSystemException(
+          'Directory listing failed',
+          path,
+          const OSError('Permission denied', 13),
+        ),
+      );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// The real folder, except that its listing hands back [_locked] as an
+/// [_Unlistable] subfolder.
+class _HidesOneSubfolder implements Directory {
+  _HidesOneSubfolder(this._real, this._locked);
+
+  final Directory _real;
+  final String _locked;
+
+  @override
+  String get path => _real.path;
+
+  @override
+  Directory get absolute => this;
+
+  @override
+  Stream<FileSystemEntity> list({
+    bool recursive = false,
+    bool followLinks = true,
+  }) =>
+      _real.list(recursive: recursive, followLinks: followLinks).map(
+            (FileSystemEntity entity) =>
+                entity.path == _locked ? _Unlistable(entity.path) : entity,
+          );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Makes [locked], directly under [root], unlistable to a walk of [root].
+///
+/// The entries a listing yields don't go through [IOOverrides], so the swap
+/// happens in the listing of the folder above it. No permissions change and
+/// no process runs, so this works the same as root and as a normal user.
+final class _LockedSubfolder extends IOOverrides {
+  _LockedSubfolder({required this.root, required this.locked});
+
+  final String root;
+  final String locked;
+
+  @override
+  Directory createDirectory(String path) {
+    final Directory real = super.createDirectory(path);
+    return path == root ? _HidesOneSubfolder(real, locked) : real;
+  }
+}
+
 void main() {
   group('IoAudioFileScanner', () {
     late Directory root;
@@ -63,6 +137,50 @@ void main() {
       expect(files.any((path) => path.endsWith('top.mp3')), isTrue);
       expect(files.any((path) => path.endsWith('mid.flac')), isTrue);
       expect(files.any((path) => path.endsWith('deep.ogg')), isTrue);
+    });
+
+    test('reports a subfolder it cannot list, and still lists its siblings',
+        () async {
+      // A subfolder whose permissions changed, or a network mount inside the
+      // music folder that went stale, cannot be listed. The walk skips it
+      // rather than failing the whole scan, and has to say so: every file
+      // under it is missing from the result, and a caller that cannot tell
+      // "not listed" from "not there" would conclude they were all deleted.
+      final Directory locked = Directory('${root.path}/Locked')..createSync();
+      final Directory open = Directory('${root.path}/Open')..createSync();
+      File('${locked.path}/hidden.mp3').writeAsStringSync('x');
+      File('${open.path}/seen.mp3').writeAsStringSync('x');
+      File('${root.path}/top.mp3').writeAsStringSync('x');
+
+      final List<String> unreadable = <String>[];
+      const scanner = IoAudioFileScanner();
+      final files = await IOOverrides.runWithIOOverrides(
+        () => scanner.listFiles(
+          root.path,
+          onUnreadableDirectory: unreadable.add,
+        ),
+        _LockedSubfolder(root: root.path, locked: locked.path),
+      );
+
+      expect(unreadable, <String>[locked.absolute.path]);
+      expect(files, hasLength(2));
+      expect(files.any((path) => path.endsWith('seen.mp3')), isTrue);
+      expect(files.any((path) => path.endsWith('top.mp3')), isTrue);
+    });
+
+    test('reports nothing for a walk that read every folder', () async {
+      Directory('${root.path}/Album/Disc 2').createSync(recursive: true);
+      File('${root.path}/Album/Disc 2/a.flac').writeAsStringSync('x');
+      final List<String> unreadable = <String>[];
+
+      const scanner = IoAudioFileScanner();
+      final files = await scanner.listFiles(
+        root.path,
+        onUnreadableDirectory: unreadable.add,
+      );
+
+      expect(files, hasLength(1));
+      expect(unreadable, isEmpty);
     });
 
     test('raises a recoverable scan error when the drive goes mid-scan',

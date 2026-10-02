@@ -92,6 +92,10 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   final Map<String, ({Playlist playlist, int fetch})> _mergedBy =
       <String, ({Playlist playlist, int fetch})>{};
 
+  /// The latest rename or membership push queued for each synced playlist,
+  /// until it has finished. See [_pushInOrder].
+  final Map<String, Future<void>> _pushes = <String, Future<void>>{};
+
   static String Function() _defaultIdGenerator() {
     int counter = 0;
     return () {
@@ -186,8 +190,16 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       ),
     );
     // Push the rename only for a synced playlist whose provider supports it
-    // (Subsonic does; Jellyfin rename stays local-only — a refresh re-adopts the
-    // server name). See docs/playlists-and-delete.md.
+    // (Subsonic does; a Jellyfin rename stays local-only, and a refresh
+    // re-adopts the server name). See docs/playlists-and-delete.md.
+    final Playlist? playlist = _byId(id);
+    if (playlist == null || !playlist.isRemote) return;
+    if (!(_gatewayForSource(playlist.source)?.pushesRename ?? false)) return;
+    await _pushInOrder(id, () => _sendRename(id, name));
+  }
+
+  /// Sends a rename to the server, reading the playlist when it goes out.
+  Future<void> _sendRename(String id, String name) async {
     final Playlist? playlist = _byId(id);
     if (playlist == null || !playlist.isRemote || playlist.remoteId == null) {
       return;
@@ -196,13 +208,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     if (gateway == null || !gateway.pushesRename) return;
     try {
       await gateway.renameRemote(playlist.remoteId!, name);
-      await _mutate(
-        id,
-        (Playlist p) => p.copyWith(
-          syncState: PlaylistSyncState.synced,
-          lastSyncError: () => null,
-        ),
-      );
+      await _mutate(id, _confirmedPush);
     } on RemoteSyncException catch (error) {
       await _mutate(
         id,
@@ -265,10 +271,15 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   }
 
   @override
-  Future<void> removeTrack(String playlistId, String trackUri) async {
+  Future<List<int>> removeTrack(String playlistId, String trackUri) async {
     await _ensureLoaded();
     final Playlist? playlist = _byId(playlistId);
-    if (playlist == null || !playlist.trackIds.contains(trackUri)) return;
+    if (playlist == null) return const <int>[];
+    final List<int> positions = <int>[
+      for (int i = 0; i < playlist.trackIds.length; i++)
+        if (playlist.trackIds[i] == trackUri) i,
+    ];
+    if (positions.isEmpty) return positions;
     final List<String> updated = <String>[
       for (final String uri in playlist.trackIds)
         if (uri != trackUri) uri,
@@ -281,6 +292,40 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       playlistId,
       added: const <String>[],
       removed: <String>[trackUri],
+    );
+    return positions;
+  }
+
+  @override
+  Future<void> restoreTrack(
+    String playlistId,
+    String trackUri,
+    List<int> positions,
+  ) async {
+    await _ensureLoaded();
+    final Playlist? playlist = _byId(playlistId);
+    if (playlist == null ||
+        trackUri.isEmpty ||
+        positions.isEmpty ||
+        playlist.trackIds.contains(trackUri)) {
+      return;
+    }
+    // Ascending, so each copy goes back in front of the ones after it.
+    final List<String> updated = <String>[...playlist.trackIds];
+    for (final int position in <int>[...positions]..sort()) {
+      updated.insert(position.clamp(0, updated.length), trackUri);
+    }
+    await _mutate(
+      playlistId,
+      (Playlist p) => p.copyWith(trackIds: updated, updatedAt: _now()),
+    );
+    // Subsonic replaces the whole ordered list, so the server gets the track
+    // back in its place; Jellyfin appends it there, the same as a reorder,
+    // which stays local until the next refresh adopts the server's order.
+    await _pushMembership(
+      playlistId,
+      added: <String>[for (final int _ in positions) trackUri],
+      removed: const <String>[],
     );
   }
 
@@ -407,9 +452,8 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     };
 
     final Map<RemotePlaylistGateway,
-            ({List<RemotePlaylistData> answer, int fetch})>
-        fetched = <RemotePlaylistGateway,
-            ({List<RemotePlaylistData> answer, int fetch})>{};
+            ({RemotePlaylistListing answer, int fetch})> fetched =
+        <RemotePlaylistGateway, ({RemotePlaylistListing answer, int fetch})>{};
     int failures = 0;
     for (final RemotePlaylistGateway gateway in connected) {
       // Signed out while an earlier provider answered: don't ask for an
@@ -432,10 +476,9 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     // From here to the assignments in [_mergeRemote] there is no await.
     bool changed = false;
     int total = 0;
-    int applied = 0;
+    int complete = 0;
     for (final MapEntry<RemotePlaylistGateway,
-            ({List<RemotePlaylistData> answer, int fetch})> entry
-        in fetched.entries) {
+        ({RemotePlaylistListing answer, int fetch})> entry in fetched.entries) {
       final RemotePlaylistGateway gateway = entry.key;
       // Signed out (or cleared) while the fetch was in flight: the answer is
       // that account's, which is gone. A Subsonic fetch keeps the session it
@@ -445,11 +488,18 @@ class SyncedPlaylistRepository implements PlaylistRepository {
           _clearsOf(gateway.source) != clears[gateway.source]) {
         continue;
       }
-      applied++;
-      total += entry.value.answer.length;
+      final RemotePlaylistListing answer = entry.value.answer;
+      total += answer.playlists.length;
+      if (answer.unread.isEmpty) {
+        complete++;
+      } else {
+        // What it read is merged, but some playlists it listed could not be
+        // read: report it like a provider that could not be reached.
+        failures++;
+      }
       if (_mergeRemote(
         gateway.source,
-        entry.value.answer,
+        answer,
         before,
         entry.value.fetch,
       )) {
@@ -458,7 +508,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     }
 
     if (changed) await _persistAndEmit();
-    if (applied == 0) {
+    if (complete == 0) {
       return failures > 0
           ? const PlaylistSyncResult.failed()
           : const PlaylistSyncResult.notConfigured();
@@ -466,7 +516,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     return PlaylistSyncResult.synced(total);
   }
 
-  /// Folds one provider's server playlists ([remote], the answer to request
+  /// Folds one provider's server playlists ([listing], the answer to request
   /// number [fetch], sent while [before] was the list) into the current
   /// [_playlists], returning whether anything changed. Synchronous on purpose:
   /// see [_fetchAndMerge].
@@ -480,16 +530,23 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// reconciles it against a server that has seen it. Local-only playlists are
   /// never touched.
   ///
+  /// Only a playlist missing from the listing was deleted on the server. One
+  /// the server listed but whose tracks could not be read
+  /// ([RemotePlaylistListing.unread]) is not known to have changed at all, so
+  /// it is kept exactly as it is, under the same id and with any unpushed
+  /// edit, until a refresh can read it.
+  ///
   /// A refresh that overlaps this one (a provider signed in while it was out)
   /// replaces playlists too, and that is not an edit: whichever of the two
   /// asked the server later has the newer answer, and it wins, whichever
   /// order they land in.
   bool _mergeRemote(
     PlaylistSource source,
-    List<RemotePlaylistData> remote,
+    RemotePlaylistListing listing,
     Map<String, Playlist> before,
     int fetch,
   ) {
+    final List<RemotePlaylistData> remote = listing.playlists;
     final Map<String, RemotePlaylistData> server = <String, RemotePlaylistData>{
       for (final RemotePlaylistData dto in remote) dto.remoteId: dto,
     };
@@ -510,6 +567,12 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         continue;
       }
       known.add(p.remoteId!);
+      if (_pushes.containsKey(p.id)) {
+        // A push for it is still out, so this answer may be the server's copy
+        // from before it landed. Kept as is; the next refresh reconciles it.
+        next.add(p);
+        continue;
+      }
       final ({Playlist playlist, int fetch})? last = _mergedBy[p.id];
       if (last != null && identical(last.playlist, p)) {
         // Last set by another refresh's merge, not by the user since.
@@ -519,6 +582,10 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         }
       } else if (!identical(before[p.id], p)) {
         next.add(p); // Created or edited during the fetch: keep it as is.
+        continue;
+      }
+      if (listing.unread.contains(p.remoteId)) {
+        next.add(p); // Listed but unreadable this time: keep it as is.
         continue;
       }
       final RemotePlaylistData? dto = server[p.remoteId];
@@ -588,14 +655,29 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       }
     }
     await _ensureLoaded();
-    final int before = _playlists.length;
-    _playlists = <Playlist>[
-      for (final Playlist p in _playlists)
-        if (p.source == PlaylistSource.local ||
-            (source != null && p.source != source))
-          p,
-    ];
-    if (_playlists.length != before) {
+    bool changed = false;
+    final List<Playlist> next = <Playlist>[];
+    for (final Playlist p in _playlists) {
+      if (p.source == PlaylistSource.local ||
+          (source != null && p.source != source)) {
+        next.add(p);
+        continue;
+      }
+      changed = true;
+      // Never reached the server (created while it couldn't be reached): this
+      // device holds the only copy, so signing out has nothing to drop it in
+      // favour of. It stays, as the device playlist it now is.
+      if (p.remoteId == null) {
+        next.add(p.copyWith(
+          source: PlaylistSource.local,
+          syncState: PlaylistSyncState.localOnly,
+          lastSyncError: () => null,
+          updatedAt: _now(),
+        ));
+      }
+    }
+    if (changed) {
+      _playlists = next;
       await _persistAndEmit();
     }
   }
@@ -743,14 +825,29 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     }
   }
 
+  /// Queues a membership push for a synced playlist behind any push for it
+  /// still out (see [_pushInOrder]). A local-only playlist is left alone.
+  Future<void> _pushMembership(
+    String playlistId, {
+    required List<String> added,
+    required List<String> removed,
+  }) async {
+    if (!(_byId(playlistId)?.isRemote ?? false)) return;
+    await _pushInOrder(
+      playlistId,
+      () => _sendMembership(playlistId, added: added, removed: removed),
+    );
+  }
+
   /// Runs a best-effort membership change against the server for a synced
   /// playlist, flipping its sync state to synced or syncFailed accordingly. A
   /// local-only playlist (or one not yet created on the server) is left alone.
   ///
   /// [added]/[removed] are the delta; the current full ordered membership is
-  /// read fresh and passed too, so a full-replace provider (Subsonic) has the
-  /// exact list while an incremental one (Jellyfin) uses the delta.
-  Future<void> _pushMembership(
+  /// read fresh when the push goes out and passed too, so a full-replace
+  /// provider (Subsonic) has the exact list while an incremental one
+  /// (Jellyfin) uses the delta.
+  Future<void> _sendMembership(
     String playlistId, {
     required List<String> added,
     required List<String> removed,
@@ -768,13 +865,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         added: added,
         removed: removed,
       );
-      await _mutate(
-        playlistId,
-        (Playlist p) => p.copyWith(
-          syncState: PlaylistSyncState.synced,
-          lastSyncError: () => null,
-        ),
-      );
+      await _mutate(playlistId, _confirmedPush);
     } on RemoteSyncException catch (error) {
       await _mutate(
         playlistId,
@@ -784,6 +875,44 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         ),
       );
     }
+  }
+
+  /// Runs [send] once every push queued before it for [playlistId] has
+  /// finished, and keeps that playlist out of refresh merges until then.
+  ///
+  /// Two pushes for one playlist on the wire at once can reach the server in
+  /// either order, and a Subsonic push replaces the whole song list: the
+  /// older list landing last would quietly undo the newer edit there, as would
+  /// the older of two renames. And a refresh answered while a push is still
+  /// out may carry the server's copy from before it. Adopting that would drop
+  /// the edit on screen, and the next Subsonic push, sending the list as it
+  /// then stood, would drop it on the server too.
+  Future<void> _pushInOrder(String playlistId, Future<void> Function() send) {
+    final Future<void>? earlier = _pushes[playlistId];
+    final Future<void> push = earlier == null
+        ? send()
+        // Only when it ends matters here. Whoever made the earlier edit gets
+        // its result, an error included, from their own future.
+        : earlier.then((_) {}, onError: (Object _) {}).then((_) => send());
+    _pushes[playlistId] = push;
+    return push.whenComplete(() {
+      if (identical(_pushes[playlistId], push)) _pushes.remove(playlistId);
+    });
+  }
+
+  /// [p] once a rename or membership push for it has landed: synced, unless
+  /// an earlier push for it failed. A push carries only its own change (a
+  /// Jellyfin edit sends just what it added or removed, and a Subsonic song
+  /// list goes without the name), so it landing says nothing about the one
+  /// that didn't. That one stays marked until a refresh reconciles the
+  /// playlist with the server, rather than the marker quietly going away and
+  /// the next refresh dropping the edit with no sign it never got there.
+  static Playlist _confirmedPush(Playlist p) {
+    if (p.syncState == PlaylistSyncState.syncFailed) return p;
+    return p.copyWith(
+      syncState: PlaylistSyncState.synced,
+      lastSyncError: () => null,
+    );
   }
 
   Playlist? _byId(String id) {

@@ -7,6 +7,7 @@
 /// separate.
 library;
 
+import '../media_content_type.dart';
 import 'jellyfin_server_capabilities.dart';
 
 /// Which kind of music item to list. Maps to a Jellyfin item type / endpoint
@@ -51,17 +52,15 @@ class JellyfinStreamProbe {
     return type != null && type.startsWith('text/html');
   }
 
-  /// The body looks like something the audio engine can open: an `audio/*`
-  /// type, the generic binary `application/octet-stream` some servers use for
-  /// media, or a missing content type (lenient — the engine sniffs the
-  /// container itself, and a 2xx with bytes is almost certainly the file).
-  bool get isAudio {
-    final String? type = _mimeType;
-    if (type == null) return true;
-    return type.startsWith('audio/') ||
-        type.startsWith('video/') ||
-        type == 'application/octet-stream';
-  }
+  /// The body looks like something the audio engine can open: anything that
+  /// isn't plainly a document ([MediaContentType.isDocument]), a missing type
+  /// included. Servers label media inconsistently: a Go server with no system
+  /// mime table sniffs an Ogg or Opus file as `application/ogg`, and object
+  /// storage gives `binary/octet-stream`. The engine sniffs the container
+  /// itself, so only a document (an error envelope, a login page) is refused.
+  /// It is the same rule downloads and the cast relay apply, so a track the
+  /// app will download is never one it refuses to stream.
+  bool get isAudio => !MediaContentType.isDocument(contentType);
 
   /// The bare MIME type, lower-cased and without parameters.
   String? get _mimeType {

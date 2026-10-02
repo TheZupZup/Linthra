@@ -79,6 +79,8 @@ List<Override> productionApplicationOverrides({
       // no-op window controller and closing a window means whatever the host
       // already made it mean.
       linuxDesktopWindowControllerOverride,
+      // The network monitor portal is read over the session bus.
+      linuxSessionBusOverride,
     ],
     fileSystemOfflineFileStoreOverride,
     remoteTrackDownloaderOverride,

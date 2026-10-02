@@ -66,6 +66,11 @@ class SyncedFavoritesRepository
   /// discards a provider's answer if its count moved meanwhile.
   final Map<String, int> _clears = <String, int>{};
 
+  /// How many times each remote uri has been toggled. A push notes the number
+  /// of the toggle it carries, so when it comes back it can tell whether a
+  /// newer toggle was made while it was out.
+  final Map<String, int> _toggles = <String, int>{};
+
   FavoritesData _data = FavoritesData.empty;
   bool _loaded = false;
 
@@ -100,6 +105,8 @@ class SyncedFavoritesRepository
     // stay distinct; the gateway maps it back to the bare id for the request.
     final String key = track.uri;
     final bool remote = _isRemoteUri(key);
+    final RemoteFavoritesGateway? gateway = remote ? _gatewayForUri(key) : null;
+    final int toggle = (_toggles[key] ?? 0) + 1;
     if (remote) {
       final Set<String> ids = <String>{..._data.remoteIds};
       if (favorite) {
@@ -111,6 +118,11 @@ class SyncedFavoritesRepository
       for (final Set<String> toggled in _toggledDuringRefresh) {
         toggled.add(key);
       }
+      _toggles[key] = toggle;
+      // Pending from this moment until a push of it is confirmed, so a
+      // refresh that lands first keeps it rather than adopting an answer that
+      // predates it, and a push that never comes back leaves it to retry.
+      if (gateway != null) _pendingWrites[key] = favorite;
     } else {
       final Set<String> ids = <String>{..._data.localIds};
       if (favorite) {
@@ -124,24 +136,54 @@ class SyncedFavoritesRepository
     await _store.save(_data);
 
     // Push to the owning provider's server best-effort. A failure (or the
-    // provider not being connected yet) is recorded as a pending write and
-    // retried on the next refresh — the optimistic local state stands and is
-    // never silently lost or reverted. Never throws.
-    if (remote) {
-      final RemoteFavoritesGateway? gateway = _gatewayForUri(key);
-      if (gateway != null) {
-        if (gateway.isConnected) {
-          try {
-            await gateway.pushFavorite(key, favorite);
-            _pendingWrites.remove(key); // confirmed on the server
-          } catch (_) {
-            _pendingWrites[key] = favorite; // failed: retry on next refresh
-          }
-        } else {
-          _pendingWrites[key] = favorite; // queued until the provider connects
-        }
+    // provider not being connected yet) leaves the write pending, retried on
+    // the next refresh: the optimistic local state stands and is never
+    // silently lost or reverted. Never throws.
+    if (gateway != null && gateway.isConnected) {
+      final int clearsBefore = _clearsOf(gateway.uriScheme);
+      bool landed;
+      try {
+        await gateway.pushFavorite(key, favorite);
+        landed = true;
+      } catch (_) {
+        landed = false;
       }
+      _settlePush(
+        key,
+        favorite,
+        landed: landed,
+        toggle: toggle,
+        clearsBefore: clearsBefore,
+        scheme: gateway.uriScheme,
+      );
     }
+  }
+
+  /// Settles [key]'s pending write once the push of toggle number [toggle]
+  /// ([favorite]) has come back, [landed] or not.
+  ///
+  /// Only the newest toggle decides. Taps are quicker than a server, so an
+  /// older push can come back after a newer one, or fail after it landed:
+  ///  - the newest push landing confirms the write; failing leaves it pending;
+  ///  - an older push coming back after a newer toggle may have left the
+  ///    server on its older value, whichever order the two landed in, so the
+  ///    newest intent stays pending and is sent again on the next refresh;
+  ///  - a push from an account that signed out meanwhile settles nothing: its
+  ///    writes were dropped with it, and must not be queued for the next one.
+  void _settlePush(
+    String key,
+    bool favorite, {
+    required bool landed,
+    required int toggle,
+    required int clearsBefore,
+    required String scheme,
+  }) {
+    if (_clearsOf(scheme) != clearsBefore) return;
+    if (_toggles[key] != toggle) {
+      _pendingWrites[key] = _data.remoteIds.contains(key);
+      return;
+    }
+    if (landed && _pendingWrites[key] == favorite) _pendingWrites.remove(key);
   }
 
   @override

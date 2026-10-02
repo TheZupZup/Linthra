@@ -1,9 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_api.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_exception.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_music_source.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 
 import 'fake_subsonic_client.dart';
 
@@ -83,6 +85,37 @@ void main() {
       );
     });
 
+    // A Go server with no system mime table labels Ogg and Opus files by
+    // sniffing them, which gives application/ogg; object storage behind a
+    // server can give binary/octet-stream. Both are audio the engine plays,
+    // and downloads of the same tracks already accept them.
+    for (final String type in <String>[
+      'application/ogg',
+      'binary/octet-stream',
+      'application/x-flac',
+    ]) {
+      test('a stream labelled $type is played', () async {
+        client.streamProbe =
+            SubsonicStreamProbe(statusCode: 200, contentType: type);
+        const track = Track(id: 's1', title: 'One', uri: 'subsonic:s1');
+
+        expect(await source().resolvePlayableUri(track), isNotNull);
+      });
+    }
+
+    test('a 200 JSON body is still refused as not audio', () async {
+      // Subsonic answers a refused stream with 200 and an error envelope.
+      client.streamProbe = const SubsonicStreamProbe(
+        statusCode: 200,
+        contentType: 'application/json; charset=utf-8',
+      );
+      const track = Track(id: 's1', title: 'One', uri: 'subsonic:s1');
+      expect(
+        () => source().resolvePlayableUri(track),
+        throwsA(isA<SubsonicException>()),
+      );
+    });
+
     test('classifies an HTML proxy page as not-Subsonic', () async {
       client.streamProbe =
           const SubsonicStreamProbe(statusCode: 200, contentType: 'text/html');
@@ -91,6 +124,55 @@ void main() {
         () => source().resolvePlayableUri(track),
         throwsA(isA<SubsonicException>()
             .having((e) => e.kind, 'kind', SubsonicErrorKind.notSubsonic)),
+      );
+    });
+
+    // Navidrome answers a stream request for a song it no longer has (error
+    // 70), or one this account may not play (error 50), with 200 and a
+    // Subsonic error document instead of audio.
+    for (final String type in <String>[
+      'application/json; charset=utf-8',
+      'application/xml',
+      'text/xml',
+    ]) {
+      test('an error document ($type) is a track the server can\'t give',
+          () async {
+        client.streamProbe =
+            SubsonicStreamProbe(statusCode: 200, contentType: type);
+        const track = Track(id: 's1', title: 'One', uri: 'subsonic:s1');
+
+        await expectLater(
+          source().resolvePlayableUri(track),
+          throwsA(isA<SubsonicException>().having(
+            (e) => e.kind,
+            'kind',
+            SubsonicErrorKind.streamUnavailable,
+          )),
+        );
+      });
+    }
+
+    test('playback says the track is unavailable, not the server version',
+        () async {
+      client.streamProbe = const SubsonicStreamProbe(
+        statusCode: 200,
+        contentType: 'application/json',
+      );
+      const track = Track(id: 's1', title: 'One', uri: 'subsonic:s1');
+
+      await expectLater(
+        SubsonicPlayableUriResolver(source).resolve(track),
+        throwsA(isA<PlaybackResolutionException>()
+            .having(
+              (e) => e.kind,
+              'kind',
+              PlaybackResolutionErrorKind.streamUnavailable,
+            )
+            .having(
+              (e) => e.message,
+              'message',
+              "This track isn't available from your server right now.",
+            )),
       );
     });
   });

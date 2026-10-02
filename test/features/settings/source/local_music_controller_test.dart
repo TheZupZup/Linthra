@@ -33,7 +33,10 @@ class _MutableScanner implements AudioFileScanner {
   Object? error;
 
   @override
-  Future<List<String>> listFiles(String folder) async {
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) async {
     final Object? failure = error;
     if (failure != null) {
       throw failure;

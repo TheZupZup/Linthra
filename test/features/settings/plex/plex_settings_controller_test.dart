@@ -168,6 +168,38 @@ class _FlakyPlexSessionStore implements PlexSessionStore {
   }
 }
 
+/// A [PlexSessionStore] whose writes wait to be let through, the way a keyring
+/// write takes its time, so a second tap can land while the first is still
+/// being saved. [failWrites] makes the writes let through after it fail.
+class _SlowWriteStore implements PlexSessionStore {
+  _SlowWriteStore(this._session);
+
+  PlexSession? _session;
+  bool holdWrites = false;
+  Object? failWrites;
+  final List<Completer<void>> heldWrites = <Completer<void>>[];
+
+  @override
+  Future<PlexSession?> read() async => _session;
+
+  @override
+  Future<void> write(PlexSession session) async {
+    if (holdWrites) {
+      final Completer<void> gate = Completer<void>();
+      heldWrites.add(gate);
+      await gate.future;
+    }
+    final Object? error = failWrites;
+    if (error != null) throw error;
+    _session = session;
+  }
+
+  @override
+  Future<void> clear() async {
+    _session = null;
+  }
+}
+
 /// A [PlexSessionStore] whose read blocks until released, simulating a slow
 /// secure-storage read on a real device so user actions can race the startup
 /// restore. The read returns what was persisted when it *started* (a stale
@@ -218,6 +250,38 @@ class _GatedIdentityClient extends FakePlexClient {
   }) async {
     await identityGate.future;
     return super.fetchIdentity(baseUrl: baseUrl, token: token);
+  }
+}
+
+/// A [FakePlexClient] whose first library listing waits for [gate] and then
+/// answers [firstAnswer], or fails with [firstError]: a listing from a server
+/// that went away hangs until its timeout. Later listings answer at once.
+class _HangingSectionsClient extends FakePlexClient {
+  _HangingSectionsClient({
+    super.sections,
+    this.firstAnswer = const <PlexDirectory>[],
+    this.firstError,
+  });
+
+  final List<PlexDirectory> firstAnswer;
+  final PlexException? firstError;
+  final Completer<void> gate = Completer<void>();
+  final Completer<void> firstAsked = Completer<void>();
+  int listings = 0;
+
+  @override
+  Future<List<PlexDirectory>> fetchSections({
+    required String baseUrl,
+    required String token,
+  }) async {
+    if (listings++ > 0) {
+      return super.fetchSections(baseUrl: baseUrl, token: token);
+    }
+    firstAsked.complete();
+    await gate.future;
+    final PlexException? error = firstError;
+    if (error != null) throw error;
+    return firstAnswer;
   }
 }
 
@@ -899,6 +963,139 @@ void main() {
   });
 
   group('library selection', () {
+    /// Connected to a server with two music libraries, neither selected yet.
+    Future<
+        ({
+          ProviderContainer container,
+          PlexSettingsController notifier,
+          _SlowWriteStore store,
+        })> twoLibraries({List<String> selected = const <String>[]}) async {
+      final _SlowWriteStore store =
+          _SlowWriteStore(_session.copyWith(selectedSectionKeys: selected));
+      final ProviderContainer container = _container(
+        client: FakePlexClient(
+          sections: const <PlexDirectory>[_musicSection, _secondMusicSection],
+        ),
+        store: store,
+      );
+      final PlexSettingsController notifier =
+          container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+      return (container: container, notifier: notifier, store: store);
+    }
+
+    /// Lets [store]'s held writes land, newest first, until [taps] are done.
+    Future<void> saveNewestFirst(
+      _SlowWriteStore store,
+      List<Future<void>> taps,
+    ) async {
+      bool done = false;
+      unawaited(Future.wait(taps).whenComplete(() => done = true));
+      for (int i = 0; i < 100 && !done; i++) {
+        await _settle();
+        final List<Completer<void>> waiting = <Completer<void>>[
+          for (final Completer<void> gate in store.heldWrites)
+            if (!gate.isCompleted) gate,
+        ];
+        if (waiting.isNotEmpty) waiting.last.complete();
+      }
+      expect(done, isTrue, reason: 'the taps never finished saving');
+    }
+
+    test('a second library ticked while the first saves keeps both', () async {
+      final setup = await twoLibraries();
+      setup.store.holdWrites = true;
+
+      final Future<void> first =
+          setup.notifier.toggleSection('5', included: true);
+      await _settle();
+      final Future<void> second =
+          setup.notifier.toggleSection('9', included: true);
+      setup.store.holdWrites = false;
+      for (final Completer<void> gate in setup.store.heldWrites) {
+        gate.complete();
+      }
+      await Future.wait(<Future<void>>[first, second]);
+
+      expect(
+        setup.container
+            .read(plexSettingsControllerProvider)
+            .selectedSectionKeys,
+        unorderedEquals(<String>['5', '9']),
+      );
+      expect(
+        (await setup.store.read())!.selectedSectionKeys,
+        unorderedEquals(<String>['5', '9']),
+      );
+    });
+
+    test('two libraries ticked, saved newest first, keeps both', () async {
+      final setup = await twoLibraries();
+      setup.store.holdWrites = true;
+
+      final Future<void> first =
+          setup.notifier.toggleSection('5', included: true);
+      await _settle();
+      final Future<void> second =
+          setup.notifier.toggleSection('9', included: true);
+      await saveNewestFirst(setup.store, <Future<void>>[first, second]);
+
+      expect(
+        setup.container
+            .read(plexSettingsControllerProvider)
+            .selectedSectionKeys,
+        unorderedEquals(<String>['5', '9']),
+      );
+      expect(
+        (await setup.store.read())!.selectedSectionKeys,
+        unorderedEquals(<String>['5', '9']),
+      );
+    });
+
+    test('two libraries unticked quickly are both unticked', () async {
+      final setup = await twoLibraries(selected: const <String>['5', '9']);
+      setup.store.holdWrites = true;
+
+      final Future<void> first =
+          setup.notifier.toggleSection('5', included: false);
+      await _settle();
+      final Future<void> second =
+          setup.notifier.toggleSection('9', included: false);
+      await saveNewestFirst(setup.store, <Future<void>>[first, second]);
+
+      expect(
+        setup.container
+            .read(plexSettingsControllerProvider)
+            .selectedSectionKeys,
+        isEmpty,
+      );
+      expect((await setup.store.read())!.selectedSectionKeys, isEmpty);
+    });
+
+    test('after a save fails, the next tap builds on what was saved', () async {
+      // Control: a tap whose save failed is not carried into the next one.
+      final setup = await twoLibraries(selected: const <String>['5']);
+      setup.store.failWrites = StateError('keyring locked');
+      await setup.notifier.toggleSection('9', included: true);
+      expect(
+        setup.container
+            .read(plexSettingsControllerProvider)
+            .selectedSectionKeys,
+        <String>['5'],
+      );
+
+      setup.store.failWrites = null;
+      await setup.notifier.toggleSection('5', included: false);
+
+      expect(
+        setup.container
+            .read(plexSettingsControllerProvider)
+            .selectedSectionKeys,
+        isEmpty,
+      );
+      expect((await setup.store.read())!.selectedSectionKeys, isEmpty);
+    });
+
     test('toggleSection persists the chosen keys into the session', () async {
       final store = InMemoryPlexSessionStore();
       final container = _container(store: store);
@@ -973,6 +1170,65 @@ void main() {
   });
 
   group('disconnect', () {
+    test('a library listing that fails after it leaves the card alone',
+        () async {
+      // The server went away, so its listing hangs; the listener gives up on
+      // it and disconnects before the timeout.
+      final _HangingSectionsClient client =
+          _HangingSectionsClient(firstError: PlexException.notReachable());
+      final container = _container(
+        client: client,
+        store: InMemoryPlexSessionStore(initialSession: _session),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+      final Future<void> listing = notifier.refreshSections();
+      await client.firstAsked.future;
+
+      await notifier.disconnect();
+      client.gate.complete();
+      await listing;
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.disconnected);
+      expect(state.statusMessage, contains('Disconnected'));
+      expect(state.errorMessage, isNull);
+      expect(state.isLoadingSections, isFalse);
+    });
+
+    test("the server you left never lists its libraries on the next one's card",
+        () async {
+      final _HangingSectionsClient client = _HangingSectionsClient(
+        sections: const <PlexDirectory>[_secondMusicSection],
+        firstAnswer: const <PlexDirectory>[_musicSection],
+      );
+      final container = _container(
+        client: client,
+        store: InMemoryPlexSessionStore(initialSession: _session),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+      final Future<void> listing = notifier.refreshSections();
+      await client.firstAsked.future;
+
+      await notifier.disconnect();
+      expect(
+        await notifier.connect(url: 'plex.example.com', token: _token),
+        isTrue,
+      );
+      // The old server's listing finally answers.
+      client.gate.complete();
+      await listing;
+
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.connected);
+      expect(
+        state.sections.map((PlexLibrarySection s) => s.key),
+        <String>['9'],
+      );
+      expect(state.errorMessage, isNull);
+    });
+
     test('removes only the Plex session and resets to disconnected', () async {
       final store = InMemoryPlexSessionStore(initialSession: _session);
       final container = _container(store: store);

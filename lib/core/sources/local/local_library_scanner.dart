@@ -1,3 +1,5 @@
+import 'package:path/path.dart' as p;
+
 import '../../models/local_file_stamp.dart';
 import '../../models/track.dart';
 import 'folder_location.dart';
@@ -26,8 +28,9 @@ class LocalRootOutcome {
   /// The folder, as [LocalMusicRoots.canonicalize] spells it.
   final String root;
 
-  /// Tracks this folder contributed — freshly scanned, or the ones kept from
-  /// the previous scan when the folder could not be read.
+  /// Tracks this folder contributed: freshly scanned, plus the ones kept from
+  /// the previous scan for whatever part of the folder, or all of it, could
+  /// not be read.
   final int importedTracks;
 
   /// Why the folder could not be read, or null when it was read fine.
@@ -62,7 +65,8 @@ class LocalLibraryScan {
   });
 
   /// The complete local catalog to persist: every readable folder's tracks,
-  /// plus the retained tracks of folders that were unreachable this time.
+  /// plus the retained tracks of folders, or parts of folders, that were
+  /// unreachable this time.
   ///
   /// Each carries the on-disk stamp it was parsed at, when it has one, so the
   /// write records what a later scan will compare against. A retained track
@@ -80,9 +84,10 @@ class LocalLibraryScan {
   final LocalScanReport report;
   final List<LocalRootOutcome> roots;
 
-  /// Set when a folder was unreachable *and* the previously indexed tracks
-  /// could not be read back, so the retained half of [tracks] is missing.
-  /// Writing it would silently drop that folder's music, so callers must not.
+  /// Set when a folder, or part of one, was unreachable *and* the previously
+  /// indexed tracks could not be read back, so the retained half of [tracks]
+  /// is missing. Writing it would silently drop that music, so callers must
+  /// not.
   final bool retentionUnavailable;
 
   /// What happened to files the catalog knew about that a *readable* folder no
@@ -149,7 +154,9 @@ class LocalLibraryScan {
 ///    scanned independently; a missing drive or a revoked portal document fails
 ///    that folder alone, and its previously indexed tracks are carried over so
 ///    the user's library doesn't lose an album because a USB disk was
-///    unplugged.
+///    unplugged. The same goes one level down: a subfolder the walk could not
+///    list keeps what was indexed under it, while the rest of its folder is
+///    refreshed.
 ///  * **Removing a folder removes only its music.** Tracks that no selected
 ///    folder owns are simply not carried over, so a removed folder's tracks
 ///    disappear on the next scan while everything else stays.
@@ -162,10 +169,10 @@ class LocalLibraryScanner {
   ///
   /// [previousTracks] is the local slice of the catalog as it stands, with the
   /// on-disk stamp each row was written at. It does two jobs: keeping the
-  /// tracks of folders that are temporarily unreachable, and giving
-  /// [LocalLibraryScan.reconciliation] something to compare against so a file
-  /// that changed path can be recognised as the same file. Pass null when it
-  /// cannot be read: the scan then reports [
+  /// tracks of folders, or parts of folders, that are temporarily unreachable,
+  /// and giving [LocalLibraryScan.reconciliation] something to compare against
+  /// so a file that changed path can be recognised as the same file. Pass null
+  /// when it cannot be read: the scan then reports [
   /// LocalLibraryScan.retentionUnavailable] rather than quietly dropping that
   /// folder's music.
   Future<LocalLibraryScan> scan({
@@ -195,7 +202,9 @@ class LocalLibraryScanner {
     final List<LocalScanReport> reports = <LocalScanReport>[];
     final List<LocalRootOutcome> outcomes = <LocalRootOutcome>[];
     // The folders that actually answered. Only a file under one of these can
-    // be called moved or deleted: the others were never looked at.
+    // be called moved or deleted: the others were never looked at. Within
+    // them, a file under a part the walk could not read is carried over below,
+    // so it is never missing from the result either.
     final List<String> refreshedRoots = <String>[];
     bool retentionUnavailable = false;
 
@@ -211,6 +220,27 @@ class LocalLibraryScanner {
             stamp: scan.stamps[track.uri],
           );
           imported++;
+        }
+        if (!scan.isComplete) {
+          // The folder answered, but the walk could not read all of it, so it
+          // returned only the part it reached. A file indexed under the rest
+          // was not found, which is not the same as not there: it is kept,
+          // stamp and all, exactly as for a folder that could not be read at
+          // all. Without this, one subfolder that stopped answering would
+          // delete every track indexed under it, and the artwork sweep after
+          // the write would take their covers with them.
+          if (previousTracks == null) {
+            retentionUnavailable = true;
+          } else {
+            final bool Function(String uri) unread =
+                _unreadPartOf(scan, root, effective);
+            for (final StampedTrack stamped in previousTracks) {
+              final String uri = stamped.track.uri;
+              if (merged.containsKey(uri) || !unread(uri)) continue;
+              merged[uri] = stamped;
+              imported++;
+            }
+          }
         }
         reports.add(scan.report);
         outcomes.add(
@@ -301,6 +331,43 @@ class LocalLibraryScanner {
                   LocalMusicRoots.ownerOf(uri, refreshedRoots) != null,
             ),
     );
+  }
+
+  /// Answers, for a track indexed before and missing from [scan], whether it
+  /// sits under a part of [root] the walk could not read, so that not finding
+  /// it says nothing about whether it is still there.
+  ///
+  /// The desktop walk names every subfolder it could not list, so only what is
+  /// under those is kept, and the rest of the folder is refreshed as usual: a
+  /// file deleted from a subfolder that was read still goes. No ownership
+  /// check is needed there, since a named subfolder lies inside the walk of
+  /// [root], and one would wrongly skip a SAF folder walked through its
+  /// resolved path, whose tracks are paths that a `content://` selection never
+  /// owns. Android's SAF walk only counts what it skipped, so any track [root]
+  /// owns could be one it missed.
+  static bool Function(String uri) _unreadPartOf(
+    LocalScan scan,
+    String root,
+    List<String> roots,
+  ) {
+    // Spelled once per walk rather than once per indexed track, of which a
+    // library can hold a hundred thousand.
+    final List<String> directories = <String>[
+      for (final String directory in scan.unreadableDirectories)
+        LocalMusicRoots.canonicalize(directory),
+    ];
+    return (String uri) {
+      if (scan.hasUnlocatedReadFailures &&
+          LocalMusicRoots.ownerOf(uri, roots) == root) {
+        return true;
+      }
+      // Only a path can sit under a folder; a `content://` uri never does.
+      if (!p.isAbsolute(uri)) return false;
+      for (final String directory in directories) {
+        if (p.isWithin(directory, uri)) return true;
+      }
+      return false;
+    };
   }
 
   /// Turns a folder's scan failure into the recovery-shaped reason the UI

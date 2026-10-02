@@ -222,6 +222,38 @@ void main() {
     );
   });
 
+  testWidgets('Undo puts a removed track back where it was', (tester) async {
+    final InMemoryPlaylistStore store = await _seededStore(
+      trackIds: <String>[for (final Track track in _tracks) track.uri],
+    );
+    await _pump(tester, store: store, controller: FakePlaybackController());
+
+    await tester.tap(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('Song B'),
+          matching: find.byType(ListTile),
+        ),
+        matching: find.byTooltip('Track actions'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove from playlist'));
+    await tester.pumpAndSettle();
+    expect(
+      (await store.load()).single.trackIds,
+      <String>['file:///a.mp3', 'file:///c.mp3'],
+    );
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+
+    expect(
+      (await store.load()).single.trackIds,
+      <String>['file:///a.mp3', 'file:///b.mp3', 'file:///c.mp3'],
+    );
+  });
+
   testWidgets('Play queues the playlist and opens the player', (tester) async {
     final FakePlaybackController controller = FakePlaybackController();
     await _pump(tester, store: await _seededStore(), controller: controller);
