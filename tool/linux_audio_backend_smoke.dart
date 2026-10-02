@@ -101,6 +101,8 @@ Future<void> main() async {
       stdout.writeln('--- cycle $cycle/${config.cycles} ---');
       await _exerciseLifecycle(config, audioFile.path);
     }
+    stdout.writeln('--- a file libmpv cannot play ---');
+    await _exerciseUnplayableFile(directory.path);
     stdout.writeln('PASS: Linux native audio lifecycle smoke passed.');
   } catch (error, stackTrace) {
     // Sanitized on the way out: a failure here is pasted into issues and CI
@@ -240,6 +242,53 @@ Future<void> _exerciseLifecycle(_SmokeConfig config, String path) async {
   } finally {
     // dispose, always, so a failed cycle cannot leave libmpv holding the
     // audio device for the cycles after it.
+    await controller.dispose();
+  }
+}
+
+/// A file libmpv can't play has to end in an error the listener can act on,
+/// promptly, rather than in a load that never finishes.
+///
+/// libmpv reports a file it can't open or recognize only as an error log and
+/// an idle core. Before the vendored adapter turned that into a load failure,
+/// `setUrl` never returned, so the player sat on "Loading" for good: no error,
+/// no Retry, no automatic recovery. The fixture is a fixed run of bytes that
+/// no demuxer claims.
+Future<void> _exerciseUnplayableFile(String directory) async {
+  final File unplayable = File('$directory/unplayable.mp3');
+  final math.Random bytes = math.Random(690);
+  await unplayable.writeAsBytes(
+    List<int>.generate(16384, (_) => bytes.nextInt(256)),
+    flush: true,
+  );
+  final LinuxPlaybackController controller = LinuxPlaybackController();
+  try {
+    // Not awaited: on an engine that never finishes the open, this would
+    // never return, and the smoke has to say so rather than hang.
+    unawaited(controller.playTrack(
+      Track(id: 'smoke-unplayable', title: 'Unplayable', uri: unplayable.path),
+    ));
+    final DateTime deadline = DateTime.now().add(_stepTimeout);
+    while (controller.state.status != PlaybackStatus.error) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw StateError(
+          'unplayable: a file libmpv cannot play was still '
+          '${controller.state.status} after ${_ms(_stepTimeout)}; it has to '
+          'fail with a reason, not stay loading.',
+        );
+      }
+      await Future<void>.delayed(_pollInterval);
+    }
+    if (controller.state.failure == null) {
+      throw StateError(
+        'unplayable: the error state carries no failure, so the listener '
+        'gets no reason and no recovery actions.',
+      );
+    }
+    stdout.writeln(
+      'unplayable: failed as ${controller.state.failure!.kind.name}.',
+    );
+  } finally {
     await controller.dispose();
   }
 }
