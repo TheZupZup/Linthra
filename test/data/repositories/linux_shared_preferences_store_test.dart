@@ -138,6 +138,58 @@ void main() {
       expect(setAside.single.readAsStringSync(), cutOff);
     });
 
+    // The plugin's save stops at whatever byte it had reached. Text that
+    // isn't plain ASCII (an accented folder, a playlist in Japanese) is
+    // several bytes a character, so the cut can land inside one, which is no
+    // longer text at all rather than text that stops early.
+    List<int> cutInsideACharacter() {
+      final List<int> whole = utf8.encode(json.encode(<String, Object>{
+        'flutter.selected_music_folders': <String>['/home/zoë/Música/日本の音楽'],
+        'flutter.playlists': '[{"id":"p1","name":"Café del Mar"}]',
+      }));
+      final int cut = utf8
+              .encode('{"flutter.selected_music_folders":["/home/zoë/Música/')
+              .length +
+          1;
+      return whole.sublist(0, cut);
+    }
+
+    test('cut off inside a character: set aside, and the app carries on',
+        () async {
+      final List<int> cutOff = cutInsideACharacter();
+      file.writeAsBytesSync(cutOff);
+
+      final LinuxSharedPreferencesStore prefs = store();
+      expect(await prefs.getAll(), isEmpty);
+      expect(await prefs.setValue('String', 'flutter.theme', 'dark'), isTrue);
+
+      expect(onDisk(), <String, Object?>{'flutter.theme': 'dark'});
+      final List<File> setAside = directory
+          .listSync()
+          .whereType<File>()
+          .where((File f) => f.path.contains('.damaged-'))
+          .toList();
+      expect(setAside, hasLength(1));
+      expect(setAside.single.readAsBytesSync(), cutOff);
+    });
+
+    test('cut off inside a character: the app can still save its playlists',
+        () async {
+      file.writeAsBytesSync(cutInsideACharacter());
+      useLinuxSharedPreferencesStore(store());
+      SharedPreferences.resetStatic();
+      addTearDown(() {
+        SharedPreferencesStorePlatform.instance =
+            InMemorySharedPreferencesStore.empty();
+        SharedPreferences.resetStatic();
+      });
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('playlists', '[{"id":"p2","name":"New"}]');
+
+      expect(onDisk()['flutter.playlists'], '[{"id":"p2","name":"New"}]');
+    });
+
     test('empty: read as nothing saved, without failing', () async {
       file.writeAsStringSync('');
 
