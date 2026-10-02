@@ -116,6 +116,10 @@ class SelectedFolderController extends AsyncNotifier<List<String>> {
   Future<void> addAndPersist(String location) async {
     if (location.isEmpty) return;
     final List<String> current = state.valueOrNull ?? <String>[];
+    // Nothing would change, so nothing is saved. Saving supersedes the scan
+    // in flight (a live-update refresh, say), and with no scan of its own to
+    // follow, the library would be left waiting on one that never reports.
+    if (LocalMusicRoots.isCoveredBy(location, current)) return;
     await _persist(LocalMusicRoots.normalize(<String>[...current, location]));
   }
 
