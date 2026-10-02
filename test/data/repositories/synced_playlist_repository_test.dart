@@ -278,6 +278,26 @@ void main() {
       expect(updated.syncState, PlaylistSyncState.syncFailed);
     });
 
+    test('a later push that lands does not hide an earlier one that failed',
+        () async {
+      // Jellyfin is only told what each edit changed. b reaching the server
+      // says nothing about a, which never did.
+      client.createdPlaylistId = 'srv-3';
+      final Playlist created = await repository.createPlaylist(
+        'Server Mix',
+        source: PlaylistSource.jellyfin,
+      );
+      client.playlistError = JellyfinException.notReachable();
+      await repository.addTrack(created.id, 'jellyfin:a');
+      client.playlistError = null;
+      await repository.addTrack(created.id, 'jellyfin:b');
+
+      final Playlist? updated = await repository.getPlaylistById(created.id);
+      expect(client.addItemCalls.last.itemIds, <String>['b']);
+      expect(updated!.syncState, PlaylistSyncState.syncFailed);
+      expect(updated.lastSyncError, isNotNull);
+    });
+
     test('imports remote playlists on refresh', () async {
       client.playlists = <JellyfinPlaylistDto>[
         const JellyfinPlaylistDto(id: 'srv-77', name: 'From Server'),
@@ -770,6 +790,26 @@ void main() {
       await repository.refreshFromRemote();
       final List<Playlist> all = await repository.getAllPlaylists();
       expect(all.where((Playlist p) => p.remoteId == 'p-1'), hasLength(1));
+    });
+
+    test('a membership push that lands does not hide a failed rename',
+        () async {
+      // The song list is replaced in full, but the name goes separately, so
+      // the list landing says nothing about the name.
+      client.createdPlaylistId = 'p-3';
+      final Playlist created = await repository.createPlaylist(
+        'Old',
+        source: PlaylistSource.subsonic,
+      );
+      client.playlistError = SubsonicException.notReachable();
+      await repository.renamePlaylist(created.id, 'New');
+      client.playlistError = null;
+      await repository.addTrack(created.id, 'subsonic:a');
+
+      final Playlist? updated = await repository.getPlaylistById(created.id);
+      expect(client.setSongsCalls.last.songIds, <String>['a']);
+      expect(updated!.name, 'New');
+      expect(updated.syncState, PlaylistSyncState.syncFailed);
     });
 
     test('a failed membership push flags syncFailed without throwing',
