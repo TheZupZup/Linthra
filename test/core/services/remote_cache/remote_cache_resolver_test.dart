@@ -33,6 +33,57 @@ void main() {
       expect(served.source, PlaybackSource.streamingDirect);
     });
 
+    test('a URL warmed for one account is never served to another', () async {
+      String? signedIn = 'jellyfin:alice';
+      final FakeStreamResolver inner = FakeStreamResolver();
+      final RemotePlaybackCache cache = RemotePlaybackCache();
+      final RemoteStreamPrebufferer prebufferer = RemoteStreamPrebufferer(
+        resolver: inner,
+        cache: cache,
+        accountScopeOf: (Track _) => signedIn,
+      );
+      final RemoteCacheResolver resolver = RemoteCacheResolver(
+        inner: inner,
+        cache: cache,
+        accountScopeOf: (Track _) => signedIn,
+      );
+      final Track track = _remote('a');
+
+      await prebufferer.preload(track); // n=1, for alice
+      signedIn = 'jellyfin:bob';
+      final ResolvedPlayable served = await resolver.resolve(track);
+
+      // Resolved again for bob rather than replaying alice's URL.
+      expect(inner.resolved, <String>['a', 'a']);
+      expect(served.uri.toString(), contains('n=2'));
+      // And alice's entry is gone, not left for later.
+      expect(cache.length, 0);
+    });
+
+    test('a scope check that throws never vouches for an entry', () async {
+      bool broken = false;
+      final FakeStreamResolver inner = FakeStreamResolver();
+      final RemotePlaybackCache cache = RemotePlaybackCache();
+      String? scopeOf(Track _) {
+        if (broken) throw StateError('session unreadable');
+        return 'jellyfin:alice';
+      }
+
+      await RemoteStreamPrebufferer(
+        resolver: inner,
+        cache: cache,
+        accountScopeOf: scopeOf,
+      ).preload(_remote('a'));
+      broken = true;
+      final ResolvedPlayable served = await RemoteCacheResolver(
+        inner: inner,
+        cache: cache,
+        accountScopeOf: scopeOf,
+      ).resolve(_remote('a'));
+
+      expect(served.uri.toString(), contains('n=2'));
+    });
+
     test('a second resolve re-resolves fresh (consume-on-read)', () async {
       final FakeStreamResolver inner = FakeStreamResolver();
       final RemotePlaybackCache cache = RemotePlaybackCache();

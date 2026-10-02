@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,6 +17,9 @@ class MobileDataProfileController extends AsyncNotifier<MobileDataProfile> {
   Future<void> setProfile(MobileDataProfile profile) async {
     await ref.read(downloadPreferencesProvider).setMobileDataProfile(profile);
     state = AsyncData<MobileDataProfile>(profile);
+    // Downloads queued because mobile data wasn't allowed may run now. Not
+    // awaited: they download in the background, and their rows show it.
+    unawaited(ref.read(downloadRepositoryProvider).retryHeldDownloads());
   }
 }
 

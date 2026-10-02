@@ -66,5 +66,33 @@ void main() {
         isFalse,
       );
     });
+
+    test('shouldReuse serves an entry only to the account it was minted for',
+        () {
+      final DateTime now = DateTime(2026, 1, 1, 12, 0, 0);
+      final RemoteCacheEntry entry = policy.buildEntry(
+        key: RemoteCacheKey.forUri('plex:1')!,
+        resolved: ResolvedPlayable(
+          Uri.parse('https://server.example/s?X-Plex-Token=SECRET'),
+          PlaybackSource.streamingDirect,
+        ),
+        now: now,
+        accountScope: 'plex:account-a',
+      );
+
+      expect(entry.accountScope, 'plex:account-a');
+      expect(
+        policy.shouldReuse(entry, now, accountScope: 'plex:account-a'),
+        isTrue,
+      );
+      // Another account, or nobody signed in.
+      expect(
+        policy.shouldReuse(entry, now, accountScope: 'plex:account-b'),
+        isFalse,
+      );
+      expect(policy.shouldReuse(entry, now), isFalse);
+      // The scope is a fingerprint, never part of the logged label.
+      expect(entry.diagnosticLabel, isNot(contains('account-a')));
+    });
   });
 }
