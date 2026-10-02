@@ -185,7 +185,8 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       }),
       _player.stream.log.listen((event) {
         // ignore: avoid_print
-        print("MPV: [${event.level}] ${event.prefix}: ${event.text}");
+        print("MPV: [${event.level}] ${event.prefix}: "
+            "${redactLogText(event.text)}");
       }),
     ];
   }
@@ -237,6 +238,17 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       errorMessage: _errorMessage,
     ));
   }
+
+  /// [text] from a libmpv log line with every URL in it replaced by `<url>`.
+  ///
+  /// libmpv names the source in its errors (`Failed to open <url>.`), and a
+  /// stream URL carries the account's credentials in its query. These lines
+  /// go to stdout, which a desktop session writes to the system journal, so
+  /// no URL may appear in one.
+  static String redactLogText(String text) =>
+      text.replaceAll(_urlInLog, '<url>');
+
+  static final RegExp _urlInLog = RegExp(r'[a-zA-Z][a-zA-Z0-9+.-]*://\S*');
 
   /// Fails the load in progress when libmpv reports it can't be opened.
   ///

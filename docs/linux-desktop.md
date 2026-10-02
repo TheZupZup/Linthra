@@ -453,6 +453,8 @@ caller already set on top of them.
 | --- | --- | --- |
 | `cache-on-disk` | `no` | media_kit turns mpv's on-disk demuxer cache on for every player (`'cache-on-disk': 'yes'`, media_kit 1.2.6 `lib/src/player/native/player/real.dart`). That suits a video player buffering gigabytes; Linthra streams audio and manages its own offline downloads. Where mpv cannot create its temporary file — a sandbox, or a cache directory it cannot write — it logs `[lavf] Failed to create cache temporary file.` and `[lavf] Failed to create file cache.` on every stream ([#405](https://github.com/thezupzup/linthra/issues/405)). |
 
+| `ytdl` | `no` | mpv's youtube-dl hook hands any HTTP URL it fails to open to `yt-dlp` (where one is installed) as a command-line argument. A Subsonic or Plex stream URL carries the account's token in its query, so it would sit in the process list for any local user to read, and yt-dlp would fetch it again. Linthra only plays URLs it resolved itself, so it never needs a site extractor. |
+
 Only the temporary on-disk packet file is turned off. media_kit's `cache=yes`
 stays, so memory and network buffering behave as before, and Linthra's own
 download/offline cache is a separate mechanism that this does not touch.
