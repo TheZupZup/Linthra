@@ -4,6 +4,7 @@ import '../../models/subsonic_session.dart';
 import '../../models/track.dart';
 import '../../services/music_source.dart';
 import '../../services/playback_diagnostics.dart';
+import '../media_content_type.dart';
 import 'subsonic_api.dart';
 import 'subsonic_auth.dart';
 import 'subsonic_catalog_walk.dart';
@@ -254,7 +255,8 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
   /// Turns a stream [probe] into a typed [SubsonicException] when the response
   /// isn't playable audio. Order mirrors Jellyfin: HTML first (a proxy/login
   /// page is never audio), then auth, then a missing item, then server errors,
-  /// then any other non-2xx, and finally a 2xx whose body isn't audio.
+  /// then any other non-2xx, then a 2xx error document, and finally a 2xx
+  /// whose body isn't audio.
   void _ensurePlayableAudio(SubsonicStreamProbe probe) {
     if (probe.isHtml) {
       throw SubsonicException.notSubsonic();
@@ -271,6 +273,13 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
     }
     if (!probe.isSuccess) {
       throw SubsonicException.unsupportedResponse(code);
+    }
+    // A Subsonic server answers a stream it won't give (a song removed since
+    // the library sync, error 70, or one this account may not play, error 50)
+    // with 200 and an error document, JSON or XML. That's this track, not the
+    // server's version: the same answer as a 404.
+    if (MediaContentType.isDocument(probe.contentType)) {
+      throw SubsonicException.streamUnavailable();
     }
     if (!probe.isAudio) {
       throw SubsonicException.unsupportedResponse();

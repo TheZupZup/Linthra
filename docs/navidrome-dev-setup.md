@@ -108,7 +108,7 @@ message (never the password, salt, token, or a credentialed URL):
 | Server down / wrong host / DNS / timeout | `notReachable` | "Couldn't reach the server. Check the address and that you're online." |
 | Reachable, but not a Subsonic API (HTML page, 404 on `/rest`, reverse-proxy error, wrong path) | `notSubsonic` | "That address responded, but it doesn't look like a Subsonic-compatible server… point it at the server root, not a sub-page." |
 | Server-side error (HTTP 5xx) | `serverError` | "Your music server reported an error (HTTP …)." |
-| Item missing (Subsonic code 70) | `streamUnavailable` | "This track isn't available from your server right now." |
+| Item missing (Subsonic code 70), or a stream the server answers with an error document instead of audio (a song removed since the sync, or one the account may not play) | `streamUnavailable` | "This track isn't available from your server right now." |
 | Incompatible/odd response | `unsupportedResponse` | "…returned a response Linthra could not use. It may be an unsupported version." |
 
 ### Mapping the common failure reports
