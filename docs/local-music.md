@@ -348,6 +348,11 @@ is live:
   folders sync tools scatter around (`.stfolder`, `.stversions`) change on
   someone else's schedule; music inside a hidden folder is still found by a
   manual rescan.
+- **A folder moved out whose name ends like a file extension** ("N.W.A") can be
+  missed. The kernel reports a folder moved out of the library without saying
+  it was a folder, so its name is all there is to go on. Names such as "R.E.M.",
+  "Dr. Dre" or "Greatest Hits Vol. 2" are recognised; for the rest, a manual
+  rescan catches it.
 - **Android does not use this at all.** Its local library is a Storage Access
   Framework tree or a MediaStore query rather than a directory, so there is no
   path to watch.

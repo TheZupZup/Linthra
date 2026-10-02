@@ -157,9 +157,14 @@ class LocalLibraryWatcher {
   /// the whole library for nothing.
   ///
   /// So a path with an extension has to be one Linthra can actually import.
-  /// A path *without* an extension is accepted, because that is what a
-  /// directory looks like, and a directory event is how a new album folder or a
-  /// renamed one is noticed.
+  /// A folder is accepted whatever its name ([isDirectory], when the platform
+  /// says so), and so is a path *without* an extension, because that is what
+  /// a folder looks like: a folder event is how a new album folder or a
+  /// renamed one is noticed. Folder names have dots in them too ("Greatest
+  /// Hits Vol. 2", "R.E.M.", "Dr. Dre", "Live 12.08.1990"), and a folder moved
+  /// out of the library is reported without saying it was a folder, so a last
+  /// "extension" no file has (empty, with a space in it, or with no letter at
+  /// all) is read as part of a name.
   ///
   /// Hidden entries are dropped whatever their shape. `.DS_Store` and the
   /// bookkeeping folders sync tools scatter through a library (`.stfolder`,
@@ -167,17 +172,27 @@ class LocalLibraryWatcher {
   /// through would rescan the library on somebody else's schedule. The cost is
   /// that music inside a hidden folder is not *watched*; a manual rescan still
   /// finds it, because the scan itself does not filter this way.
-  static bool isRelevant(String path) {
+  static bool isRelevant(String path, {bool isDirectory = false}) {
     final int slash = path.lastIndexOf('/');
     final String name = slash < 0 ? path : path.substring(slash + 1);
     if (name.isEmpty || name.startsWith('.')) return false;
-    if (!name.contains('.')) return true;
+    if (isDirectory) return true;
+    final int dot = name.lastIndexOf('.');
+    if (dot < 0) return true;
+    final String extension = name.substring(dot + 1);
+    if (extension.isEmpty ||
+        extension.contains(' ') ||
+        !extension.contains(_letter)) {
+      return true;
+    }
     return AudioFileTypes.isSupported(name);
   }
 
+  static final RegExp _letter = RegExp('[A-Za-z]');
+
   void _onChange(LocalDirectoryChange change) {
     if (_disposed) return;
-    if (!isRelevant(change.path)) return;
+    if (!isRelevant(change.path, isDirectory: change.isDirectory)) return;
     _scheduleRefresh();
   }
 
