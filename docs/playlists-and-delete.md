@@ -138,7 +138,10 @@ refresh is loading discards that server's answer.
 
 On **sign-out**, this account's imported Jellyfin playlists (and its server
 favourites) are cleared so they can't linger — or be confused with a different
-account — after disconnecting; your local-only playlists stay on-device.
+account — after disconnecting; your local-only playlists stay on-device. A
+playlist you created to sync that never reached the server (it was created
+while the server couldn't be reached) stays too: this device has the only
+copy, so it becomes a local playlist instead of being dropped.
 
 Supported today (best-effort, server is the source of truth for synced
 playlists):

@@ -405,6 +405,50 @@ void main() {
       expect(all.single.source, PlaylistSource.local);
     });
 
+    test('signing out keeps a playlist that never reached the server',
+        () async {
+      // Created while the server couldn't be reached: it exists only here,
+      // so signing out has nothing to drop it in favour of.
+      client.playlistError = JellyfinException.notReachable();
+      final Playlist created = await repository.createPlaylist(
+        'Road Trip',
+        source: PlaylistSource.jellyfin,
+      );
+      await repository.addTracks(
+        created.id,
+        <String>['jellyfin:a', 'jellyfin:b'],
+      );
+      final Playlist? unsynced = await repository.getPlaylistById(created.id);
+      expect(unsynced!.remoteId, isNull);
+      expect(unsynced.syncState, PlaylistSyncState.syncFailed);
+
+      await repository.clearRemote(source: PlaylistSource.jellyfin);
+
+      final Playlist? kept = await repository.getPlaylistById(created.id);
+      expect(kept, isNotNull);
+      expect(kept!.name, 'Road Trip');
+      expect(kept.trackIds, <String>['jellyfin:a', 'jellyfin:b']);
+      // Now a device playlist, honest about where it lives.
+      expect(kept.source, PlaylistSource.local);
+      expect(kept.syncState, PlaylistSyncState.localOnly);
+      expect(kept.lastSyncError, isNull);
+      // And persisted that way.
+      final List<Playlist> stored = await store.load();
+      expect(stored.single.source, PlaylistSource.local);
+    });
+
+    test('signing out still drops what the server has a copy of', () async {
+      client.createdPlaylistId = 'srv-4';
+      await repository.createPlaylist(
+        'Server Mix',
+        source: PlaylistSource.jellyfin,
+      );
+
+      await repository.clearRemote(source: PlaylistSource.jellyfin);
+
+      expect(await repository.getAllPlaylists(), isEmpty);
+    });
+
     test('no token is ever stored in playlist metadata', () async {
       client.createdPlaylistId = 'srv-1';
       final Playlist created = await repository.createPlaylist(
