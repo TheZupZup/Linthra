@@ -118,4 +118,12 @@ abstract interface class DownloadRepository {
   /// same-id copies stay distinct and only the copy actually downloaded is
   /// listed. Join against a catalog [Track] with `CachedTrack.cacheKeyForTrack`.
   Future<List<String>> downloadedTrackKeys();
+
+  /// Asks again for every download the network policy is holding (queued for
+  /// Wi-Fi, or for a connection), so they start if the policy now allows them.
+  ///
+  /// The repository already does this when the connection changes; this is
+  /// for the other thing that can let them through, the listener changing how
+  /// Linthra may use mobile data. One that still can't run stays queued.
+  Future<void> retryHeldDownloads();
 }

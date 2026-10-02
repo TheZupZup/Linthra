@@ -238,10 +238,9 @@ extension BulkDownloadSummaryMessage on BulkDownloadSummary {
   /// What the user can do about a batch the network policy held back.
   ///
   /// The Wi-Fi case reuses the repository's own wording, which points at the
-  /// setting that unblocks it. The offline case deliberately does not: the
-  /// single-track message promises the download will start by itself when the
-  /// connection returns, and for a batch nothing does that. The tracks are left
-  /// queued for an explicit retry, so that is what this says.
+  /// setting that unblocks it. The offline case says what happens on its own:
+  /// the repository asks again for every held download when the connection
+  /// comes back, the batch's tracks included.
   String _waitingAdvice() {
     switch (waitingReason) {
       case null:
@@ -251,10 +250,10 @@ extension BulkDownloadSummaryMessage on BulkDownloadSummary {
         return DownloadRequestOutcome.waitingForWifi.blockedMessage ?? '';
       case DownloadRequestOutcome.waitingForConnection:
         return waitingForNetwork == 1
-            ? "You're offline. Start it again from Downloads once you're back "
+            ? "You're offline. It will start automatically when you're back "
                 'online.'
-            : "You're offline. Start them again from Downloads once you're "
-                'back online.';
+            : "You're offline. They will start automatically when you're back "
+                'online.';
     }
   }
 
