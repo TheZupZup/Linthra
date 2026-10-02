@@ -4,8 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_failure.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/data/repositories/in_memory_playback_preferences.dart';
+import 'package:linthra/data/repositories/playback_preferences_provider.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/player_screen.dart';
+import 'package:linthra/features/player/widgets/auto_skip_intro_panel.dart';
 import 'package:linthra/features/player/widgets/playback_error_notice.dart';
 
 import 'fake_playback_controller.dart';
@@ -32,6 +35,7 @@ const PlaybackState _failed = PlaybackState(
         'connected right now.',
     canRetry: true,
     canSkip: true,
+    canAutoSkip: true,
   ),
 );
 
@@ -40,6 +44,7 @@ Future<void> _pump(
   FakePlaybackController controller, {
   required Size size,
   required double textScale,
+  bool? autoSkip = false,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -48,6 +53,11 @@ Future<void> _pump(
     ProviderScope(
       overrides: <Override>[
         playbackControllerProvider.overrideWithValue(controller),
+        // Chosen already unless a test says otherwise, so the error panel
+        // shows rather than the one-time automatic skip question.
+        playbackPreferencesProvider.overrideWithValue(
+          InMemoryPlaybackPreferences(autoSkipUnplayable: autoSkip),
+        ),
       ],
       child: MaterialApp(
         builder: (BuildContext context, Widget? child) => MediaQuery(
@@ -92,6 +102,28 @@ void main() {
       expect(controller.skipCount, 1);
     });
   }
+
+  testWidgets(
+      'the automatic skip question on a small phone at 2x text keeps its '
+      'answers reachable', (WidgetTester tester) async {
+    final FakePlaybackController controller =
+        FakePlaybackController(initial: _failed);
+    await _pump(
+      tester,
+      controller,
+      size: const Size(360, 640),
+      textScale: 2,
+      autoSkip: null,
+    );
+
+    expect(tester.takeException(), isNull, reason: 'nothing overflows');
+    final Finder allow = find.byKey(AutoSkipIntroPanel.allowKey);
+    await tester.ensureVisible(allow);
+    await tester.pumpAndSettle();
+    await tester.tap(allow);
+    await tester.pumpAndSettle();
+    expect(controller.skippedPastFailed, hasLength(1));
+  });
 
   testWidgets('a short, wide window at a large text size scrolls too',
       (WidgetTester tester) async {

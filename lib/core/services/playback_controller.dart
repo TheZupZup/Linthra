@@ -94,6 +94,28 @@ abstract interface class PlaybackController {
   /// budget is spent, or when nothing is loaded.
   Future<void> tryAnotherSource();
 
+  /// Calls off the automatic skip counting down on
+  /// [PlaybackState.autoSkip] and stays on the failed track, which then shows
+  /// its failure with the usual Retry / Try another source / Skip.
+  ///
+  /// The listener's "not this time" for one countdown; it leaves the automatic
+  /// skip preference alone. A no-op when no skip is pending, so a late tap on
+  /// a countdown that already ran (or was called off) does nothing.
+  Future<void> cancelAutomaticSkip();
+
+  /// Moves past [failed], the track whose failure is showing, to where an
+  /// automatic skip would go ([PlaybackFailure.canAutoSkip]): the next track
+  /// that hasn't failed, wrapping to the start under repeat-all. The
+  /// listener's "allow automatic skip, and go on now".
+  ///
+  /// With [after] (saving that choice), the move waits for it, and doesn't
+  /// happen if it fails, whose error this then throws. Either way it happens
+  /// only while automatic skip is on, if nothing has happened to playback
+  /// since this call (a Next, a Retry, a pause, a new queue) and [failed] is
+  /// still the current track and still failed. Nor does it when there is
+  /// nowhere to go.
+  Future<void> skipPastFailedTrack(Track failed, {Future<void>? after});
+
   /// Steps back to the previous track in the queue, if any. A no-op when the
   /// current track is the first one.
   Future<void> skipToPrevious();

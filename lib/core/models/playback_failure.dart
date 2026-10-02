@@ -122,6 +122,7 @@ class PlaybackFailure {
     this.canRetry = false,
     this.canTryAnotherSource = false,
     this.canSkip = false,
+    this.canAutoSkip = false,
   });
 
   /// What broadly went wrong, for the UI to branch on instead of matching text.
@@ -142,6 +143,13 @@ class PlaybackFailure {
 
   /// Whether there is a next track in the queue to move on to.
   final bool canSkip;
+
+  /// Whether an automatic skip would have somewhere to go: the next track
+  /// that hasn't failed, wrapping to the start under repeat-all, and never
+  /// under repeat-one. Wider than [canSkip], which is the listener's own Skip
+  /// and follows the queue as it reads. Not an action of its own: it is what
+  /// decides whether asking about automatic skip can help with this failure.
+  final bool canAutoSkip;
 
   /// The offered recoveries, in the order the UI should show them: the cheapest
   /// and most likely to work first, giving up last. Empty when nothing can be
@@ -166,15 +174,70 @@ class PlaybackFailure {
           other.message == message &&
           other.canRetry == canRetry &&
           other.canTryAnotherSource == canTryAnotherSource &&
-          other.canSkip == canSkip);
+          other.canSkip == canSkip &&
+          other.canAutoSkip == canAutoSkip);
 
   @override
-  int get hashCode =>
-      Object.hash(kind, message, canRetry, canTryAnotherSource, canSkip);
+  int get hashCode => Object.hash(
+      kind, message, canRetry, canTryAnotherSource, canSkip, canAutoSkip);
 
   /// Safe to log: the kind and the flags, never the message (which is fixed
   /// text anyway) and never anything derived from the underlying error.
   @override
   String toString() => 'PlaybackFailure(${kind.name}, '
-      'retry: $canRetry, anotherSource: $canTryAnotherSource, skip: $canSkip)';
+      'retry: $canRetry, anotherSource: $canTryAnotherSource, skip: $canSkip, '
+      'autoSkip: $canAutoSkip)';
+}
+
+/// An automatic move past a track that could not be recovered, counting down.
+///
+/// Published on [PlaybackState] by the controller for exactly as long as its
+/// own timer is pending, and never by anything else, so a surface showing the
+/// countdown shows the skip that is actually going to happen: it disappears
+/// the moment a skip, a pause, a new queue or a Retry calls the move off, and
+/// the move itself can only ever come from the controller. A surface that
+/// renders the seconds left reads them from [skipsAt]; it never decides when
+/// to skip.
+@immutable
+class PendingAutoSkip {
+  const PendingAutoSkip({
+    required this.failure,
+    required this.skipsAt,
+    required this.countdown,
+  });
+
+  /// Why the track is being skipped, in the same safe terms the error panel
+  /// uses.
+  final PlaybackFailure failure;
+
+  /// When the controller moves on, unless something calls it off first.
+  final DateTime skipsAt;
+
+  /// How long the whole countdown is, for a surface that shows its progress.
+  final Duration countdown;
+
+  /// Whole seconds left before the move at [now], never below zero and never
+  /// above the [countdown] rounded up. For display only.
+  int secondsLeft(DateTime now) {
+    final int left = skipsAt.difference(now).inMilliseconds;
+    if (left <= 0) return 0;
+    final int total = (countdown.inMilliseconds / 1000).ceil();
+    final int seconds = (left / 1000).ceil();
+    return seconds > total ? total : seconds;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PendingAutoSkip &&
+          other.failure == failure &&
+          other.skipsAt == skipsAt &&
+          other.countdown == countdown);
+
+  @override
+  int get hashCode => Object.hash(failure, skipsAt, countdown);
+
+  @override
+  String toString() =>
+      'PendingAutoSkip($failure, in ${countdown.inMilliseconds}ms)';
 }

@@ -238,6 +238,43 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Timer? _automaticRecoveryTimer;
   ({Track track, PlaybackFailure failure})? _pendingRecovery;
 
+  /// Whether the listener allows moving past a track whose recovery is spent
+  /// ([setAutomaticSkipEnabled]). Off until they say so: without it the player
+  /// stops on the failed track rather than changing songs by itself. Null
+  /// until the saved choice has been read, which counts as off too, except
+  /// for the failure [_heldForSavedChoice] keeps.
+  bool? _automaticSkipEnabled;
+
+  /// How many times automatic recovery has been stopped outright
+  /// ([_haltAutomaticRecovery]): a pause, Stay on this track, headphones
+  /// pulled, another app taking audio for good, a cast taking over, or a
+  /// listener action starting afresh. Most of these move no generation on
+  /// (they aren't transitions), but a move waiting on the listener's earlier
+  /// answer must still give way to every one of them (see
+  /// [skipPastFailedTrack]).
+  int _holds = 0;
+
+  /// What [setAutomaticSkipEnabled] last said, or null before it has said
+  /// anything.
+  @visibleForTesting
+  bool? get automaticSkipEnabled => _automaticSkipEnabled;
+
+  /// A failure that stopped instead of counting down only because the saved
+  /// choice hadn't been read yet (a play from the car or MPRIS right at
+  /// startup), with the generation it stopped in and the countdown it would
+  /// have had. If the choice turns out to be on, it gets that countdown.
+  ({
+    Track track,
+    PlaybackFailure failure,
+    Duration delay,
+    int generation
+  })? _heldForSavedChoice;
+
+  /// The countdown to the automatic skip [_automaticRecoveryTimer] is waiting
+  /// out, stamped onto every emitted state. Null whenever no skip is pending,
+  /// including while a retry (not a skip) waits.
+  PendingAutoSkip? _pendingAutoSkip;
+
   /// The automatic step now running, whose load may still be resolving. It
   /// stays set until that load lands, even after the step is told to stand
   /// down, so a Play or seek in the meantime still takes over from it. Any
@@ -1457,7 +1494,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         .withTransientFocusInterruption(_foregroundHeldForFocus)
         // Stamped from one place like the focus hold, so the paths that build a
         // fresh state (an error, a restore) can never publish a stale level.
-        .withVolume(volume: _volume, muted: _muted);
+        .withVolume(volume: _volume, muted: _muted)
+        // And the countdown, from the timer that will actually skip: a state
+        // can't show a skip that isn't pending or hide one that is.
+        .withAutoSkip(_pendingAutoSkip);
     // [force] bypasses the equality guard for a state that differs only in a way
     // PlaybackState == can't see — namely a same-bare-id provider swap, where
     // Track == compares only the bare id (jellyfin:101 == subsonic:101), so the
@@ -1581,6 +1621,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final updated = _queue.removeUpNextAt(upNextIndex);
     if (identical(updated, _queue)) return; // out of range: nothing to do
     _queue = updated;
+    _dropAutoSkipWithoutTarget();
     // Only the up-next list shrank; the current track and its audio are
     // untouched — no reload, no restart.
     _emit(_state.copyWith(upNext: _queue.upNext));
@@ -1720,8 +1761,46 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   @override
+  Future<void> cancelAutomaticSkip() async {
+    // Only a countdown can be called off. Once it has run, the skip's own load
+    // is under way, and that is the listener's to stop with a pause or a skip.
+    if (_pendingAutoSkip == null) return;
+    StabilityDiagnostics.playbackRecovery('auto-skip-cancelled');
+    _haltAutomaticRecovery(settle: true);
+  }
+
+  @override
+  Future<void> skipPastFailedTrack(Track failed, {Future<void>? after}) async {
+    // What playback was when the listener answered. A save that fails, or
+    // anything the listener does while it runs (a Retry, a pause, a skip, a
+    // new queue, a Next from a headset), means the move is no longer theirs to
+    // make: it would override what they did, or go ahead on a choice that
+    // wasn't kept.
+    final int generation = _playbackGeneration;
+    final int holds = _holds;
+    if (after != null) await after;
+    if (generation != _playbackGeneration || holds != _holds) return;
+    // It is the automatic skip, allowed: only while automatic skip is on. A
+    // newer choice of off (a Not now after the Allow, its save still running)
+    // is the listener's last word, and the older save landing doesn't undo it.
+    if (_automaticSkipEnabled != true) return;
+    final PlaybackFailure? failure = _state.failure;
+    if (_state.status != PlaybackStatus.error ||
+        failure == null ||
+        _queue.current?.uri != failed.uri) {
+      return;
+    }
+    StabilityDiagnostics.playbackRecovery('advance:allowed');
+    // The move an automatic skip would make, wrapping under repeat-all. The
+    // streak is kept, so a run of failures from here stays bounded as it would
+    // have been had the skip been allowed all along.
+    await _advancePastFailure(failed, failure, null);
+  }
+
+  @override
   void clearQueue() {
     _queue = _queue.cleared();
+    _dropAutoSkipWithoutTarget();
     // Clearing keeps only the current track, so both the up-next list and the
     // history collapse to empty; the current track's audio is untouched.
     _emit(_state.copyWith(
@@ -1738,6 +1817,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // Reorder in place: the current track keeps playing; only the up-next list
     // (and whether a previous track now exists) changes — no reload.
     _queue = enabled ? _queue.shuffled(_random) : _queue.unshuffled();
+    _dropAutoSkipWithoutTarget();
     _emit(_state.copyWith(
       upNext: _queue.upNext,
       previous: _queue.history,
@@ -1750,6 +1830,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void setRepeatMode(RepeatMode mode) {
     if (mode == _repeatMode) return;
     _repeatMode = mode;
+    _dropAutoSkipWithoutTarget();
     _emit(_state.copyWith(repeatMode: _repeatMode));
   }
 
@@ -1761,6 +1842,47 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // next track. Best-effort and silent: a volume tweak must never surface as a
     // playback error or interrupt audio.
     unawaited(_applyVolume());
+  }
+
+  @override
+  void setAutomaticSkipEnabled(bool enabled) {
+    final bool? known = _automaticSkipEnabled;
+    final held = _heldForSavedChoice;
+    _heldForSavedChoice = null;
+    if (enabled == known) return;
+    _automaticSkipEnabled = enabled;
+    // Turned off mid-countdown: the setting wins over a skip already pending,
+    // which settles on the failure with the listener's own actions instead.
+    if (!enabled && _pendingAutoSkip != null) {
+      _haltAutomaticRecovery(settle: true);
+    }
+    // The saved choice, read for the first time, is on: a failure that
+    // stopped only because it wasn't known yet gets the countdown it would
+    // have had, if nothing has happened to playback since. A listener turning
+    // the setting on later is a different thing, and never skips a track that
+    // has already stopped.
+    if (enabled &&
+        known == null &&
+        held != null &&
+        held.generation == _playbackGeneration &&
+        _playWhenLoaded &&
+        // A cast receiver owns playback: nothing local counts down under it.
+        !_suspended &&
+        _state.status == PlaybackStatus.error &&
+        _queue.current?.uri == held.track.uri &&
+        // The queue may have been edited while the choice was read: a
+        // countdown with nowhere to go would only promise a skip.
+        _automaticAdvanceIndex(held.track.uri) != null) {
+      StabilityDiagnostics.playbackRecovery('advance');
+      _scheduleAutomaticRecovery(
+        held.track,
+        held.failure,
+        held.delay,
+        (bool Function() mayStart) =>
+            _advancePastFailure(held.track, held.failure, mayStart),
+        autoSkip: true,
+      );
+    }
   }
 
   @override
@@ -2582,6 +2704,21 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         );
       case PlaybackRecoveryStep.advance:
         _failureStreak.record(track.uri);
+        if (_automaticSkipEnabled != true) {
+          // The listener hasn't allowed Linthra to change songs by itself:
+          // stop here with the reason, and leave Skip to them.
+          StabilityDiagnostics.playbackRecovery('settled:auto-skip-off');
+          _emitError(track, failure);
+          if (_automaticSkipEnabled == null) {
+            _heldForSavedChoice = (
+              track: track,
+              failure: failure,
+              delay: decision.delay,
+              generation: _playbackGeneration,
+            );
+          }
+          return;
+        }
         StabilityDiagnostics.playbackRecovery('advance');
         _scheduleAutomaticRecovery(
           track,
@@ -2589,6 +2726,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           decision.delay,
           (bool Function() mayStart) =>
               _advancePastFailure(track, failure, mayStart),
+          autoSkip: true,
         );
       case PlaybackRecoveryStep.settle:
         if (policy.movesPast(failure.kind)) {
@@ -2631,15 +2769,26 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// still resolving: a pause, an unplug, another app taking audio, a call or a
   /// cast taking over all make it false, so the load still lands (paused) but
   /// never starts sound.
+  ///
+  /// With [autoSkip] the wait is the countdown to moving past [track], and it
+  /// is published as [PlaybackState.autoSkip] for as long as it runs.
   void _scheduleAutomaticRecovery(
     Track track,
     PlaybackFailure failure,
     Duration delay,
-    Future<void> Function(bool Function() mayStart) step,
-  ) {
+    Future<void> Function(bool Function() mayStart) step, {
+    bool autoSkip = false,
+  }) {
     _cancelAutomaticRecovery();
     _cancelBufferingWatchdog();
     _pendingRecovery = (track: track, failure: failure);
+    if (autoSkip) {
+      _pendingAutoSkip = PendingAutoSkip(
+        failure: failure,
+        skipsAt: DateTime.now().add(delay),
+        countdown: delay,
+      );
+    }
     _emit(PlaybackState(
       status: _currentHasPlayed
           ? PlaybackStatus.reconnecting
@@ -2657,6 +2806,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _automaticRecoveryTimer = Timer(delay, () {
       _automaticRecoveryTimer = null;
       _pendingRecovery = null;
+      // The countdown is over; the step's own load says what happens next.
+      _pendingAutoSkip = null;
       if (_disposed || _suspended) return;
       // A skip, a new queue, a seek or a stop got there first and owns
       // playback now.
@@ -2685,10 +2836,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// Moves past [failed] to the position [_automaticAdvanceIndex] names now.
   /// The queue may have been edited while the move was pending, so the target
   /// is read again, and a queue that has nowhere new to go settles instead.
+  ///
+  /// [mayStart] is the automatic step's check (see
+  /// [_scheduleAutomaticRecovery]); null when the listener asked for the move,
+  /// which makes its load a request for sound like any skip they make.
   Future<void> _advancePastFailure(
     Track failed,
     PlaybackFailure failure,
-    bool Function() mayStart,
+    bool Function()? mayStart,
   ) async {
     final int? index = _automaticAdvanceIndex(failed.uri);
     if (index == null) {
@@ -2705,6 +2860,20 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     await _playCurrent(mayStart: mayStart);
   }
 
+  /// Calls off a countdown whose skip has nowhere left to go: the entries it
+  /// would land on were removed, the queue was cleared, or repeat-one or a
+  /// different order left nothing after the failed track. It settles on the
+  /// failure at once, rather than promising a skip for the whole countdown and
+  /// only then finding there is none. A countdown that still has a target
+  /// carries on, and reads that target again when it runs.
+  void _dropAutoSkipWithoutTarget() {
+    final ({Track track, PlaybackFailure failure})? pending = _pendingRecovery;
+    if (_pendingAutoSkip == null || pending == null) return;
+    if (_automaticAdvanceIndex(pending.track.uri) != null) return;
+    StabilityDiagnostics.playbackRecovery('settled');
+    _cancelAutomaticRecovery(settle: true);
+  }
+
   /// Calls off a pending automatic step. With [settle] the failure it was
   /// waiting out is shown, so the player doesn't sit on "Reconnecting…" for a
   /// step that will never run.
@@ -2713,9 +2882,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _automaticRecoveryTimer = null;
     final ({Track track, PlaybackFailure failure})? pending = _pendingRecovery;
     _pendingRecovery = null;
+    final bool hadCountdown = _pendingAutoSkip != null;
+    _pendingAutoSkip = null;
     if (settle && pending != null) {
       _emitError(
           pending.track, _refreshedFailure(pending.track, pending.failure));
+    } else if (hadCountdown) {
+      // Whatever called the skip off may not emit a state of its own (a cast
+      // taking over, say), and a countdown left on screen would promise a
+      // skip that is no longer coming.
+      _emit(_state);
     }
   }
 
@@ -2729,6 +2905,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// That load stays recorded until it lands, so a Play meanwhile still
   /// re-resolves instead of starting the source the engine holds.
   void _haltAutomaticRecovery({bool settle = false}) {
+    _holds++;
     _runningStepMayStart = false;
     _cancelAutomaticRecovery(settle: settle);
   }
@@ -2808,6 +2985,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           hasAttemptsLeft &&
           _alternateSourcesFor(track).isNotEmpty,
       canSkip: !engineFailure && _queue.hasNext,
+      canAutoSkip: !engineFailure && _automaticAdvanceIndex(track.uri) != null,
     );
   }
 

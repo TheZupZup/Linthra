@@ -45,6 +45,7 @@ class PlaybackState {
     this.muted = false,
     this.interruptedByTransientFocus = false,
     this.failure,
+    this.autoSkip,
   });
 
   static const PlaybackState idle = PlaybackState();
@@ -133,6 +134,16 @@ class PlaybackState {
   /// deciding which ones are valid.
   final PlaybackFailure? failure;
 
+  /// The automatic skip the controller is counting down to, with the failure
+  /// that caused it, or null when none is pending.
+  ///
+  /// Set only by the controller, and only while its own timer runs (see
+  /// [PendingAutoSkip]), so a countdown on screen is always the real one. The
+  /// status stays the busy one it was ([PlaybackStatus.loading] or
+  /// [PlaybackStatus.reconnecting]) meanwhile, which keeps the Android media
+  /// service in the foreground so the skip still happens with the screen off.
+  final PendingAutoSkip? autoSkip;
+
   /// The failure's friendly, secret-free message, for the surfaces (and tests)
   /// that only want the sentence. Null when nothing has failed.
   String? get errorMessage => failure?.message;
@@ -203,6 +214,7 @@ class PlaybackState {
       failure: nextStatus == PlaybackStatus.error
           ? (failure ?? (sameFailedTrack ? this.failure : null))
           : null,
+      autoSkip: autoSkip,
     );
   }
 
@@ -229,6 +241,7 @@ class PlaybackState {
       muted: muted,
       interruptedByTransientFocus: value,
       failure: failure,
+      autoSkip: autoSkip,
     );
   }
 
@@ -256,6 +269,33 @@ class PlaybackState {
       muted: muted,
       interruptedByTransientFocus: interruptedByTransientFocus,
       failure: failure,
+      autoSkip: autoSkip,
+    );
+  }
+
+  /// Returns this state carrying [value] as its pending automatic skip.
+  ///
+  /// Like the other re-stamps it keeps [failure]. The controller stamps every
+  /// emission through here from its own pending timer, so no emit path can
+  /// publish a countdown that isn't running or drop one that is.
+  PlaybackState withAutoSkip(PendingAutoSkip? value) {
+    if (value == autoSkip) return this;
+    return PlaybackState(
+      status: status,
+      currentTrack: currentTrack,
+      upNext: upNext,
+      previous: previous,
+      hasPrevious: hasPrevious,
+      position: position,
+      duration: duration,
+      source: source,
+      shuffleEnabled: shuffleEnabled,
+      repeatMode: repeatMode,
+      volume: volume,
+      muted: muted,
+      interruptedByTransientFocus: interruptedByTransientFocus,
+      failure: failure,
+      autoSkip: value,
     );
   }
 
@@ -287,7 +327,8 @@ class PlaybackState {
           other.volume == volume &&
           other.muted == muted &&
           other.interruptedByTransientFocus == interruptedByTransientFocus &&
-          other.failure == failure);
+          other.failure == failure &&
+          other.autoSkip == autoSkip);
 
   @override
   int get hashCode {
@@ -306,6 +347,7 @@ class PlaybackState {
       muted,
       interruptedByTransientFocus,
       failure,
+      autoSkip,
     );
   }
 }

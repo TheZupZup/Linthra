@@ -138,9 +138,8 @@ mini-player's second line says, briefly, that the track is failing.
 
 ### Moving on by itself, within bounds
 
-Linthra doesn't sit on that panel forever while other tracks could play. Once a
-track's own recovery is spent, the player (`PlaybackRecoveryPolicy`, the same
-on Android and Linux) takes a few bounded steps on its own:
+Once a track's own recovery is spent, the player (`PlaybackRecoveryPolicy`, the
+same on Android and Linux) takes a few bounded steps on its own:
 
 1. **One more try first.** For a source problem (`temporarySource`), the first
    failure waits about ten seconds, then re-resolves the same track with a
@@ -150,25 +149,46 @@ on Android and Linux) takes a few bounded steps on its own:
    wait is as long as the provider's "this server is down" memory, so the
    retry really asks the server again instead of being answered from that
    memory.
-2. **Then the next track.** If it still fails, playback moves to the next queue
-   entry that hasn't already failed in this run (back to the start under
-   repeat-all), so a song queued twice is passed over rather than mistaken for
-   the queue coming round. Downloaded, pre-cached and local tracks keep playing
-   while a server is down. Under repeat-one it stays on the track you chose.
+2. **Then the next track, if you allowed it.** Moving on is the
+   **Automatically skip tracks that can't play** setting (Settings, under
+   Playback), off until you choose. With it on, the player shows the reason
+   and counts down five seconds ("Skipping to the next song in 5 seconds",
+   with a Stay on this track button), then moves to the next queue entry that
+   hasn't already failed in this run (back to the start under repeat-all), so
+   a song queued twice is passed over rather than mistaken for the queue
+   coming round. Downloaded, pre-cached and local tracks keep playing while a
+   server is down. Under repeat-one it stays on the track you chose. With it
+   off, the player stops here on the failed track, with Retry, Try another
+   source and Skip.
 3. **Then it stops.** After six failures in a row, when every other entry has
    already failed in the same run (so repeat-all can't cycle through a dead
    server), or at the end of the queue, the failure is shown with its buttons
    and nothing else happens until you act.
 
-The waits between moves back off (1, 2, 4, 8 s), so the whole run waits about
-33 seconds at most, and the per-server reachability memory means a down server
-is contacted about once every ten seconds at most while it runs. A track that
+The countdown before each move is five seconds, so the whole run waits about 35
+seconds at most, and the per-server reachability memory means a down server is
+contacted about once every ten seconds at most while it runs. A track that
 plays to its end, or any action of yours (play, skip, seek, Retry, a new
 queue), starts a fresh run. It never moves on for an audio engine failure (every track
 would fail the same way), after a restored session or the end of a cast (those
 never start audio on their own), after you pause, when headphones are
 unplugged, or once another app has taken over audio. During a call it can
 still load the next track, but starting it is left to the end of the call.
+
+The countdown lives in the playback state the controller publishes
+(`PlaybackState.autoSkip`), for exactly as long as the controller's own timer
+runs. The screens only draw it, so a skip can't come early, late or twice, and
+anything that calls it off (Next, a pause, a new queue, Stay on this track,
+turning the setting off) removes it at once. While it runs the media session
+still reports a busy state, which keeps Android's foreground service, and so
+the timer, alive with the screen off.
+
+The first time a track can't be recovered, while you haven't chosen yet, the
+now-playing screen explains the option once ("Sorry, Linthra couldn't play this
+song", the reason, and Allow automatic skip / Not now / Details). Either answer
+is saved to the same setting and the question isn't asked again. Android Auto
+never asks: it follows whatever was saved, and without it a failed track stops
+with the car's Next button still working.
 
 ## Streaming over mobile data (LTE)
 
@@ -218,8 +238,8 @@ behaviour is in [cast.md](cast.md).
   buffer *durations*, not a per-request byte budget; tuning is at that level.
 - **One retry per drop.** Mid-stream recovery attempts a single quick retry by
   design (never an endless loop); a persistent outage gets one delayed retry,
-  then playback moves on within the bounds above and finally surfaces a
-  friendly error.
+  then playback moves on within the bounds above (if automatic skip is on)
+  and finally surfaces a friendly error.
 - **Preload warms one track ahead.** Only the immediate next remote track's URL
   is warmed in memory; warming further ahead to *disk* is smart pre-cache's job.
 - **Direct play only** — no server-side transcoding fallback for exotic formats.

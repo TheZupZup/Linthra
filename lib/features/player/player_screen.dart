@@ -11,10 +11,13 @@ import '../../data/repositories/host_platform_provider.dart';
 import '../../shared/focus/focus_handoff.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../settings/playback/auto_skip_controller.dart';
 import 'cast/cast_button.dart';
 import 'cast/cast_providers.dart';
 import 'player_providers.dart';
 import 'widgets/album_artwork.dart';
+import 'widgets/auto_skip_intro_panel.dart';
+import 'widgets/auto_skip_notice.dart';
 import 'widgets/lyrics/lyrics_backdrop.dart';
 import 'widgets/lyrics_view.dart';
 import 'widgets/now_playing_actions.dart';
@@ -677,10 +680,25 @@ class _LiveControls extends ConsumerWidget {
     // than the one line the strip reserves (a readable sentence plus its
     // actions), so it replaces the slot instead of squeezing into it.
     final PlaybackFailure? failure = state.failure;
+    final PendingAutoSkip? autoSkip = state.autoSkip;
+    // The first failure an automatic skip could get past (wrapping under
+    // repeat-all, never under repeat-one), while the listener hasn't said
+    // whether Linthra may move on by itself: ask, once. Still loading counts
+    // as "don't know", which never asks.
+    final AsyncValue<bool?> autoSkipChoice =
+        ref.watch(autoSkipControllerProvider);
+    final bool askAboutAutoSkip = failure != null &&
+        failure.canAutoSkip &&
+        autoSkipChoice.hasValue &&
+        autoSkipChoice.value == null;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (failure != null)
+        if (autoSkip != null)
+          AutoSkipNotice(autoSkip: autoSkip)
+        else if (askAboutAutoSkip)
+          AutoSkipIntroPanel(failure: failure)
+        else if (failure != null)
           PlaybackErrorNotice(failure: failure)
         else
           _StatusSlot(child: _SourceIndicator(state: state)),

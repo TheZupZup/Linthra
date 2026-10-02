@@ -125,12 +125,22 @@ void main() {
       );
     });
 
-    test('the wait between moves backs off and is capped', () {
-      expect(policy.delayBeforeAdvance(1), const Duration(seconds: 1));
-      expect(policy.delayBeforeAdvance(2), const Duration(seconds: 2));
-      expect(policy.delayBeforeAdvance(3), const Duration(seconds: 4));
-      expect(policy.delayBeforeAdvance(4), const Duration(seconds: 8));
-      expect(policy.delayBeforeAdvance(50), const Duration(seconds: 8));
+    test('every automatic skip gets the same visible countdown', () {
+      expect(policy.delayBeforeAdvance(1), const Duration(seconds: 5));
+      expect(policy.delayBeforeAdvance(2), const Duration(seconds: 5));
+      expect(policy.delayBeforeAdvance(50), const Duration(seconds: 5));
+    });
+
+    test('a policy that asks for it backs off between moves, capped', () {
+      const PlaybackRecoveryPolicy backingOff = PlaybackRecoveryPolicy(
+        advanceDelay: Duration(seconds: 1),
+        maxAdvanceDelay: Duration(seconds: 8),
+      );
+      expect(backingOff.delayBeforeAdvance(1), const Duration(seconds: 1));
+      expect(backingOff.delayBeforeAdvance(2), const Duration(seconds: 2));
+      expect(backingOff.delayBeforeAdvance(3), const Duration(seconds: 4));
+      expect(backingOff.delayBeforeAdvance(4), const Duration(seconds: 8));
+      expect(backingOff.delayBeforeAdvance(50), const Duration(seconds: 8));
     });
 
     test('the whole walk is bounded in time as well as in tracks', () {
