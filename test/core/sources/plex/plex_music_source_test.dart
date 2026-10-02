@@ -232,6 +232,48 @@ void main() {
       expect(await source().resolvePlayableUri(track), isNull);
     });
 
+    // A ratingKey is a small number that only means something on the server
+    // that issued it. After switching servers, a plex: track left in the
+    // queue names whatever that number is on the new one, often not a song.
+    for (final String type in <String>['movie', 'episode', 'album', 'clip']) {
+      test('an item that is a $type, not a track, is never played', () async {
+        client.metadataByRatingKey = <String, PlexMetadata>{
+          '301': PlexMetadata(
+            ratingKey: '301',
+            type: type,
+            title: 'Something else',
+            media: const <PlexMedia>[
+              PlexMedia(parts: <PlexPart>[
+                PlexPart(key: '/library/parts/77/1700000000/file.mkv'),
+              ]),
+            ],
+          ),
+        };
+
+        await expectLater(
+          source().resolvePlayableUri(track),
+          throwsA(isA<PlexException>()
+              .having((e) => e.kind, 'kind', PlexErrorKind.notFound)),
+        );
+      });
+    }
+
+    test('an item that names no type still resolves as before', () async {
+      client.metadataByRatingKey = const <String, PlexMetadata>{
+        '301': PlexMetadata(
+          ratingKey: '301',
+          title: 'Nightcall',
+          media: <PlexMedia>[
+            PlexMedia(parts: <PlexPart>[
+              PlexPart(key: '/library/parts/9001/1700000000/file.flac'),
+            ]),
+          ],
+        ),
+      };
+
+      expect(await source().resolvePlayableUri(track), isNotNull);
+    });
+
     test('a vanished item surfaces as a typed, token-free PlexException', () {
       // The fake (like the real client mapping a 404) throws notFound for an
       // unknown ratingKey.
@@ -301,6 +343,31 @@ void main() {
       expect(line, isNot(contains(ratingKey)));
       expect(line, isNot(contains(_token)));
       expect(line.toLowerCase(), isNot(contains('x-plex-token')));
+    });
+  });
+
+  group('resolveDownloadUri refuses what is not a track', () {
+    test('another server\'s movie under the same key is never downloaded',
+        () async {
+      client.metadataByRatingKey = const <String, PlexMetadata>{
+        '301': PlexMetadata(
+          ratingKey: '301',
+          type: 'movie',
+          title: 'Something else',
+          media: <PlexMedia>[
+            PlexMedia(parts: <PlexPart>[
+              PlexPart(key: '/library/parts/77/1700000000/file.mkv'),
+            ]),
+          ],
+        ),
+      };
+
+      await expectLater(
+        source().resolveDownloadUri(
+          const Track(id: '301', title: 'Nightcall', uri: 'plex:301'),
+        ),
+        throwsA(isA<PlexException>()),
+      );
     });
   });
 

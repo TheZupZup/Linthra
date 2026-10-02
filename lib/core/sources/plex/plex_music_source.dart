@@ -174,6 +174,14 @@ class PlexMusicSource
       resolver: 'PlexMusicSource',
       itemId: ratingKey,
     );
+    // A ratingKey is a small number that only means something on the server
+    // that issued it. A plex: track left in the queue (or a playlist, or the
+    // saved session) after switching servers names whatever that number is
+    // here, often a movie, an episode or an album. Its part would play under
+    // the song's title, so anything that says it is not a track is "not
+    // available" instead. An item that names no type is taken as before.
+    final String? type = item.type;
+    if (type != null && type != 'track') throw PlexException.notFound();
     return item.firstPartKey;
   }
 
