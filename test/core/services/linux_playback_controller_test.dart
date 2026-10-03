@@ -420,6 +420,84 @@ void main() {
     });
   });
 
+  // libmpv 2.2, seen natively: a seek to the very end while paused reports
+  // nothing, and Play then reports playing (ready) with libmpv sitting at the
+  // end, never reaching an end it would report.
+  group('a paused seek to the end', () {
+    Future<LinuxPlaybackController> pausedAtTheEndOfA(
+      _Engine engine,
+      Duration target,
+      List<Track> completed,
+    ) async {
+      final LinuxPlaybackController controller = LinuxPlaybackController(
+        player: engine,
+        resolver: _Resolver(),
+        onTrackCompleted: completed.add,
+      );
+      await controller.playTracks(<Track>[
+        _track('a', '/a.mp3'),
+        _track('b', '/b.mp3'),
+      ]);
+      engine.durations.add(const Duration(minutes: 4));
+      await controller.pause();
+      await controller.seek(target);
+      return controller;
+    }
+
+    test('then Play moves on to the next track', () async {
+      final engine = _Engine();
+      final List<Track> completed = <Track>[];
+      final controller = await pausedAtTheEndOfA(
+          engine, const Duration(minutes: 4), completed);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+
+      await controller.play();
+      await pumpEventQueue();
+
+      expect(completed.map((Track t) => t.id), <String>['a']);
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(engine.opened, hasLength(2));
+    });
+
+    test('past the end does the same', () async {
+      final engine = _Engine();
+      final List<Track> completed = <Track>[];
+      final controller = await pausedAtTheEndOfA(
+          engine, const Duration(minutes: 5), completed);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+
+      await controller.play();
+      await pumpEventQueue();
+
+      expect(controller.state.currentTrack?.id, 'b');
+    });
+
+    test('a seek back before Play plays on from there', () async {
+      final engine = _Engine();
+      final List<Track> completed = <Track>[];
+      final controller = await pausedAtTheEndOfA(
+          engine, const Duration(minutes: 4), completed);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      await controller.seek(const Duration(minutes: 3));
+
+      await controller.play();
+      await pumpEventQueue();
+
+      expect(completed, isEmpty);
+      expect(controller.state.currentTrack?.id, 'a');
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+  });
+
   test('dispose releases the engine and a fresh controller can play', () async {
     final firstEngine = _Engine();
     final first = build(firstEngine);

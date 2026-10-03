@@ -486,6 +486,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   @protected
   bool get engineReportsFailureAsIdle => false;
 
+  /// Whether the engine reports the end of a source that a seek moved to its
+  /// very end while it was paused, once it is asked to play there.
+  ///
+  /// just_audio's own platforms do (ExoPlayer ends the track). libmpv through
+  /// media_kit does not: it reports nothing on such a seek and, asked to play,
+  /// says it is playing while it sits at the end, in silence, for good.
+  @protected
+  bool get engineReportsEndReachedWhilePaused => true;
+
   /// Fires when a mid-stream [PlaybackStatus.buffering] outlasts
   /// [midStreamBufferingTimeout], turning a silent stall into a recoverable
   /// failure. Null when not buffering.
@@ -575,6 +584,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// whenever only its playing flag changes. Null once any other state is
   /// reported.
   int? _rewoundSourceGeneration;
+
+  /// The [_engineSourceGeneration] a seek made while paused moved to its very
+  /// end (or past it), on an engine that will not report that end once it
+  /// plays (see [engineReportsEndReachedWhilePaused]). Play acts on that end
+  /// instead. Null otherwise; every later seek says again.
+  int? _pausedAtEndGeneration;
 
   /// The last state the engine reported, so a completed report can be told
   /// apart from a playing flag flipping on one already sent.
@@ -3312,6 +3327,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       if (_loadInFlight) _playPressedDuringLoad = _loadingGeneration;
       return;
     }
+    // A seek to the very end while paused left the engine at that end, on an
+    // engine that never reports it once playing: playing it would read as
+    // playing in silence for good. Its end is acted on now instead, as the
+    // engine's report of it would have been.
+    final int source = _engineSourceGeneration;
+    if (_pausedAtEndGeneration == source &&
+        _completedSourceGeneration != source) {
+      _pausedAtEndGeneration = null;
+      _completedSourceGeneration = source;
+      _onCompleted();
+      return;
+    }
     // play()'s future completes when playback ends, so we don't await it.
     unawaited(_player.play());
   }
@@ -3434,14 +3461,21 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _state.duration > Duration.zero ? _state.duration : _state.position;
     final bool rewinds = _completedSourceGeneration == source &&
         (end == Duration.zero || position < end);
+    // Paused, with a known end, and sent to it or past it.
+    final bool toEndWhilePaused = !engineReportsEndReachedWhilePaused &&
+        !_playWhenLoaded &&
+        _state.duration > Duration.zero &&
+        position >= _state.duration;
     await _player.seek(position);
     // Only while this seek is still the latest: an older seek back landing
     // after a newer seek to the end must not re-arm it.
-    if (rewinds &&
-        _engineSourceGeneration == source &&
+    if (_engineSourceGeneration == source &&
         _playbackGeneration == seekGeneration) {
-      _completedSourceGeneration = null;
-      _rewoundSourceGeneration = source;
+      if (rewinds) {
+        _completedSourceGeneration = null;
+        _rewoundSourceGeneration = source;
+      }
+      _pausedAtEndGeneration = toEndWhilePaused ? source : null;
     }
   }
 
