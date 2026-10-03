@@ -130,6 +130,10 @@ class JellyfinRemoteControlReceiver implements RemoteControlReceiver {
         cancelOnError: true,
       );
     } catch (_) {
+      // A stop or a newer attempt has replaced this one, so nothing is waiting
+      // for it. Its reconnect would open a second socket next to the newer
+      // attempt's, or tear that one down.
+      if (superseded()) return;
       _scheduleReconnect();
     }
   }
