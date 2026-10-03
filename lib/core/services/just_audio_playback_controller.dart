@@ -1172,7 +1172,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (_suspended) return;
     if (_state.status != PlaybackStatus.playing &&
         _state.status != PlaybackStatus.buffering &&
-        _state.status != PlaybackStatus.reconnecting) {
+        _state.status != PlaybackStatus.reconnecting &&
+        // Loading with no load of ours in flight is the engine's own: a pause
+        // during a mid-stream stall reads as loading while the engine goes on
+        // buffering, and the source failing then is still a stream that
+        // dropped. A load of ours reports its own failure through setUrl.
+        !(_state.status == PlaybackStatus.loading && !_loadInFlight)) {
       return;
     }
     // An engine that has stopped being usable is not a stream that dropped.
