@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
@@ -72,6 +74,34 @@ LocalRootScan _scanner(
 
 void main() {
   group('LocalLibraryScanner', () {
+    test('a folder whose name ends in a space is the folder walked', () async {
+      // Legal on Linux, and not the same folder as one without the space.
+      final Directory base =
+          await Directory.systemTemp.createTemp('linthra_scan_roots');
+      addTearDown(() => base.delete(recursive: true));
+      final String selected = '${base.path}/Music ';
+      await Directory(selected).create();
+      final List<String> walked = <String>[];
+      // What the real walk does: a folder that is not there is a scan error.
+      final LocalLibraryScanner scanner =
+          LocalLibraryScanner((String root) async {
+        walked.add(root);
+        if (!Directory(root).existsSync()) {
+          throw FolderScanException(
+            "Linthra couldn't find the selected folder.",
+            folder: root,
+          );
+        }
+        return _scanOf(<String>['$root/01 - Song.mp3']);
+      });
+
+      final LocalLibraryScan scan =
+          await scanner.scan(roots: <String>[selected]);
+
+      expect(walked, <String>[selected]);
+      expect(_uris(scan), <String>['$selected/01 - Song.mp3']);
+    });
+
     test('scans several folders into one library', () async {
       final scanner = LocalLibraryScanner(_scanner(<String, List<String>>{
         '/music': <String>['/music/a.mp3'],
