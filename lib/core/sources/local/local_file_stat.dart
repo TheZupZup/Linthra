@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import '../../models/local_file_stamp.dart';
 
 /// Reads the cheap facts about a file that decide whether it needs re-parsing:
@@ -18,10 +20,58 @@ abstract interface class LocalFileStatReader {
   Future<LocalFileStamp?> stamp(String path);
 }
 
+/// The optional half of a [LocalFileStatReader] that can tell a file that is
+/// gone from one that only could not be reached.
+///
+/// A file the walk listed and then could not stat or read may have been moved
+/// or deleted, or its drive may have gone away, or its storage may be failing
+/// for a moment. Only the first is "gone", and the evidence for it is the same
+/// a later walk would have: the folder it was in answers, and answers without
+/// it.
+abstract interface class LocalFileAbsence {
+  /// Whether [path], inside the selected folder [root], is gone: the nearest
+  /// folder on the way from [path] up to [root] that can be listed answers
+  /// without the next part of [path]. A folder that renamed or moved away is
+  /// gone the same way, from the folder above it.
+  ///
+  /// False whenever that cannot be shown: no folder up to [root] can be listed
+  /// (a drive that went away), or the folder still lists [path] (a read that
+  /// failed for a moment). Never throws.
+  Future<bool> isGone(String path, {required String root});
+}
+
 /// The production [LocalFileStatReader]: one `stat` per file through
 /// `dart:io`.
-class IoLocalFileStatReader implements LocalFileStatReader {
+class IoLocalFileStatReader implements LocalFileStatReader, LocalFileAbsence {
   const IoLocalFileStatReader();
+
+  @override
+  Future<bool> isGone(String path, {required String root}) async {
+    final String top = p.normalize(root);
+    String child = p.normalize(path);
+    if (!p.isWithin(top, child)) return false;
+    while (true) {
+      final String folder = p.dirname(child);
+      final Set<String>? names = await _namesIn(folder);
+      if (names != null) return !names.contains(p.basename(child));
+      if (!p.isWithin(top, folder)) return false;
+      child = folder;
+    }
+  }
+
+  /// The names [folder] lists, or null when it cannot be listed in full.
+  static Future<Set<String>?> _namesIn(String folder) async {
+    try {
+      final Set<String> names = <String>{};
+      await for (final FileSystemEntity entity
+          in Directory(folder).list(followLinks: false)) {
+        names.add(p.basename(entity.path));
+      }
+      return names;
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   Future<LocalFileStamp?> stamp(String path) async {

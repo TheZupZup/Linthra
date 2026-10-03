@@ -9,11 +9,16 @@ import 'local_music_roots.dart';
 import 'local_music_source.dart';
 import 'local_root_fault.dart';
 import 'local_scan_report.dart';
+import 'local_track_identity.dart';
 
 /// Scans one selected folder. [LocalMusicSource] is the production
 /// implementation; tests pass a closure so the merge rules can be exercised
 /// without a disk.
 typedef LocalRootScan = Future<LocalScan> Function(String root);
+
+/// Whether [path], inside the selected folder [root], is gone from where it
+/// was: see `LocalFileAbsence.isGone`.
+typedef LocalPathGone = Future<bool> Function(String path, String root);
 
 /// What one selected folder contributed to a scan.
 class LocalRootOutcome {
@@ -161,9 +166,14 @@ class LocalLibraryScan {
 ///    folder owns are simply not carried over, so a removed folder's tracks
 ///    disappear on the next scan while everything else stays.
 class LocalLibraryScanner {
-  const LocalLibraryScanner(this.scanRoot);
+  const LocalLibraryScanner(this.scanRoot, {this.isGone});
 
   final LocalRootScan scanRoot;
+
+  /// Asks whether a file this scan could not see at its own path is gone
+  /// from it, or null where nothing can answer (Android, and tests about
+  /// something else): such files are then always kept until a later walk.
+  final LocalPathGone? isGone;
 
   /// Scans [roots] and merges the result.
   ///
@@ -207,6 +217,10 @@ class LocalLibraryScanner {
     // so it is never missing from the result either.
     final List<String> refreshedRoots = <String>[];
     bool retentionUnavailable = false;
+    // Rows carried over for files this scan did not see at their own path,
+    // in a folder it did read: listed and then unreadable, or under a
+    // subfolder that stopped answering. See [_dropMovedAway].
+    final Set<String> unseen = <String>{};
 
     for (final String root in effective) {
       try {
@@ -219,6 +233,7 @@ class LocalLibraryScanner {
             track: track,
             stamp: scan.stamps[track.uri],
           );
+          if (scan.vanished.contains(track.uri)) unseen.add(track.uri);
           imported++;
         }
         if (!scan.isComplete) {
@@ -238,6 +253,7 @@ class LocalLibraryScanner {
               final String uri = stamped.track.uri;
               if (merged.containsKey(uri) || !unread(uri)) continue;
               merged[uri] = stamped;
+              unseen.add(uri);
               imported++;
             }
           }
@@ -283,6 +299,17 @@ class LocalLibraryScanner {
           ),
         );
       }
+    }
+
+    final LocalPathGone? gone = isGone;
+    if (gone != null && previousTracks != null && unseen.isNotEmpty) {
+      await _dropMovedAway(
+        merged,
+        unseen: unseen,
+        previousTracks: previousTracks,
+        roots: effective,
+        isGone: gone,
+      );
     }
 
     final int unavailable =
@@ -331,6 +358,63 @@ class LocalLibraryScanner {
                   LocalMusicRoots.ownerOf(uri, refreshedRoots) != null,
             ),
     );
+  }
+
+  /// Drops the rows in [unseen] whose file this same scan found at a new path,
+  /// when the folder they were in now answers without them.
+  ///
+  /// A file moved while the walk runs can be listed at both paths: at the old
+  /// one before the move, at the new one after it. The old path then cannot be
+  /// read, and its row is kept, because a file that cannot be read is not
+  /// known to be gone. Kept beside the file it is, though, the row outlives
+  /// the move: the next scan finds the old path gone and the new one already
+  /// indexed, with nothing left to match it to, and the file loses its heart,
+  /// its play count and its "added on" date (or, for an album folder moved
+  /// while the walk was inside the library, every track of it does).
+  ///
+  /// So a row goes here only when two things hold: a file with its identity
+  /// ([LocalTrackIdentity]) turned up at a path this scan saw for the first
+  /// time, and [isGone] answers that the old path is gone, which is the
+  /// evidence a later walk would have. Both go into
+  /// [LocalCatalogReconciliation.resolve] as usual, which matches them by the
+  /// same rules as any move: an identity two files share is still no move.
+  /// Without such a file the row stays, so a move to a folder the walk had
+  /// already listed is still recognised by the next scan, as before. Without
+  /// that evidence it stays too: a file on a drive that went away, or one that
+  /// failed to read for a moment, beside a copy of it that is new, is not a
+  /// move.
+  static Future<void> _dropMovedAway(
+    Map<String, StampedTrack> merged, {
+    required Set<String> unseen,
+    required List<StampedTrack> previousTracks,
+    required List<String> roots,
+    required LocalPathGone isGone,
+  }) async {
+    final Set<String> previousUris = <String>{
+      for (final StampedTrack stamped in previousTracks) stamped.track.uri,
+    };
+    final Set<LocalTrackIdentity> appeared = <LocalTrackIdentity>{};
+    for (final StampedTrack stamped in merged.values) {
+      if (previousUris.contains(stamped.track.uri)) continue;
+      final LocalTrackIdentity? identity = LocalTrackIdentity.of(stamped.track);
+      if (identity != null) appeared.add(identity);
+    }
+    if (appeared.isEmpty) return;
+    for (final String uri in unseen) {
+      final StampedTrack? kept = merged[uri];
+      if (kept == null) continue;
+      final LocalTrackIdentity? identity = LocalTrackIdentity.of(kept.track);
+      if (identity == null || !appeared.contains(identity)) continue;
+      final String? root = LocalMusicRoots.ownerOf(uri, roots);
+      if (root == null) continue;
+      bool gone;
+      try {
+        gone = await isGone(uri, root);
+      } catch (_) {
+        gone = false;
+      }
+      if (gone) merged.remove(uri);
+    }
   }
 
   /// Answers, for a track indexed before and missing from [scan], whether it

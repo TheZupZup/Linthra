@@ -10,6 +10,7 @@ import '../../core/repositories/source_catalog_reader.dart';
 import '../../core/repositories/stamped_catalog_writer.dart';
 import '../../core/services/local_track_move_applier.dart';
 import '../../core/sources/local/folder_location.dart';
+import '../../core/sources/local/local_file_stat.dart';
 import '../../core/sources/local/local_library_scanner.dart';
 import '../../core/sources/local/local_metadata_reader.dart';
 import '../../core/sources/local/local_music_roots.dart';
@@ -314,18 +315,28 @@ class LibraryController extends Notifier<LibraryState> {
                 );
       if (generation != _scanGeneration) return null;
 
-      final scanner = LocalLibraryScanner((String root) {
-        return LocalMusicSource(
-          folderPath: root,
-          scanner: ref.read(audioFileScannerProvider),
-          safDocumentLister: ref.read(safDocumentListerProvider),
-          androidMediaLibrary: ref.read(androidMediaLibraryProvider),
-          metadataReader: metadataReader,
-          statReader: ref.read(localFileStatReaderProvider),
-          alreadyIndexed: alreadyIndexed,
-          missingArtwork: missingArtwork,
-        ).scanTracks();
-      });
+      final LocalFileStatReader statReader =
+          ref.read(localFileStatReaderProvider);
+      final scanner = LocalLibraryScanner(
+        (String root) {
+          return LocalMusicSource(
+            folderPath: root,
+            scanner: ref.read(audioFileScannerProvider),
+            safDocumentLister: ref.read(safDocumentListerProvider),
+            androidMediaLibrary: ref.read(androidMediaLibraryProvider),
+            metadataReader: metadataReader,
+            statReader: statReader,
+            alreadyIndexed: alreadyIndexed,
+            missingArtwork: missingArtwork,
+          ).scanTracks();
+        },
+        // Lets a file moved while the walk ran be matched to where it went
+        // (see LocalLibraryScanner._dropMovedAway). Only where paths are read.
+        isGone: statReader is LocalFileAbsence
+            ? (String path, String root) =>
+                (statReader as LocalFileAbsence).isGone(path, root: root)
+            : null,
+      );
       final LocalLibraryScan scan = await scanner.scan(
         roots: roots,
         previousTracks: previousTracks,

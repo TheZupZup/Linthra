@@ -25,6 +25,7 @@ class LocalScan {
     this.stamps = const <String, LocalFileStamp>{},
     this.unreadableDirectories = const <String>[],
     this.hasUnlocatedReadFailures = false,
+    this.vanished = const <String>{},
   });
 
   final List<Track> tracks;
@@ -54,6 +55,12 @@ class LocalScan {
   /// any file indexed under this folder could be one it missed, and all of
   /// them are kept until a walk reads the whole folder again.
   final bool hasUnlocatedReadFailures;
+
+  /// The files the walk listed that could then be neither stat'ed nor read,
+  /// whose rows were kept as they were (they are in [tracks] under their old
+  /// path). The walk saw them, and then they were not there to read: moved or
+  /// deleted while the scan ran, or on a drive that went away.
+  final Set<String> vanished;
 
   /// Whether the walk read the whole folder, so that a file it did not return
   /// is really gone.
@@ -238,6 +245,7 @@ class LocalMusicSource implements MusicSource {
     );
     final List<Track> tracks = <Track>[];
     final Map<String, LocalFileStamp> stamps = <String, LocalFileStamp>{};
+    final Set<String> vanished = <String>{};
     int reused = 0;
     for (final String path in files) {
       if (!AudioFileTypes.isSupported(path)) continue;
@@ -265,6 +273,7 @@ class LocalMusicSource implements MusicSource {
       // if the file really is gone, the next walk drops it.
       if (metadata == null && stamp == null && indexed != null) {
         tracks.add(indexed.track);
+        vanished.add(path);
         reused++;
         continue;
       }
@@ -294,6 +303,7 @@ class LocalMusicSource implements MusicSource {
       tracks: tracks,
       stamps: stamps,
       unreadableDirectories: List<String>.unmodifiable(unreadable),
+      vanished: Set<String>.unmodifiable(vanished),
       report: LocalScanReport(
         folderSelected: true,
         isContentUri: isContentUri,
