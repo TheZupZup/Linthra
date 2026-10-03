@@ -343,6 +343,18 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
   @protected
   bool get engineReportsFailureAsIdle => true;
 
+  /// An open that just_audio sends to the native player it has just let go
+  /// (an open made while the engine's first open was still bringing that
+  /// player up, which then failed) reaches a media_kit player that is
+  /// disposed, and media_kit refuses it with an [AssertionError] saying so.
+  /// That is the open cut short, not the source failing.
+  @override
+  @protected
+  bool engineCutOpenShort(Object error) =>
+      super.engineCutOpenShort(error) ||
+      (error is AssertionError &&
+          '${error.message}'.contains('has been disposed'));
+
   @override
   @protected
   PlaybackResolutionException loadFailureFor(

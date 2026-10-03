@@ -2530,9 +2530,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _engineSourceGeneration = generation;
         _engineUri = resolved.uri;
         _abandonedSourceGeneration = null;
-        final int attempt = ++_sourceAttempt;
-        await _openInEngine(resolved.uri, attempt);
-        _openedAttempt = attempt;
+        _openedAttempt = await _handOver(resolved.uri, generation);
         return (track: candidate, resolved: resolved);
       } catch (error) {
         _forgetReportsWhileOpening(generation);
@@ -2621,9 +2619,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _engineSourceGeneration = generation;
       _engineUri = streamed.uri;
       _abandonedSourceGeneration = null;
-      final int attempt = ++_sourceAttempt;
-      await _openInEngine(streamed.uri, attempt);
-      _openedAttempt = attempt;
+      _openedAttempt = await _handOver(streamed.uri, generation);
       return (track: candidate, resolved: streamed);
     } catch (error) {
       _forgetReportsWhileOpening(generation);
@@ -2643,6 +2639,41 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       return null;
     }
   }
+
+  /// Hands [uri] to the engine for [generation], as a new source attempt, and
+  /// waits for it to open. Returns the attempt that opened.
+  ///
+  /// The engine can cut an open short on its own. One handed over while the
+  /// engine's first open (at startup, after a stop or a failed open) is still
+  /// bringing its native player up goes to that player, and when that first
+  /// open fails and the player is let go, this one fails with it: on Android
+  /// with just_audio's [PlayerInterruptedException], on Linux with media_kit
+  /// refusing the player it let go ([engineCutOpenShort]). That says nothing
+  /// about this source, and the engine is free again by then, so it is handed
+  /// over once more. An open cut short by the controller itself (a newer
+  /// source, a stop, a cast taking over) is left to that.
+  Future<int> _handOver(Uri uri, int generation) async {
+    int attempt = ++_sourceAttempt;
+    try {
+      await _openInEngine(uri, attempt);
+    } catch (error) {
+      if (!engineCutOpenShort(error) ||
+          attempt != _sourceAttempt ||
+          generation != _playbackGeneration ||
+          _suspended ||
+          _disposed) {
+        rethrow;
+      }
+      attempt = ++_sourceAttempt;
+      await _openInEngine(uri, attempt);
+    }
+    return attempt;
+  }
+
+  /// Whether [error], from an open, is the engine cutting that open short
+  /// rather than the source failing to open (see [_handOver]).
+  @protected
+  bool engineCutOpenShort(Object error) => error is PlayerInterruptedException;
 
   /// Hands [uri] to the engine as source [attempt] and waits for it to open.
   ///
