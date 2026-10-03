@@ -2141,6 +2141,39 @@ void main() {
         expect(await repository.statusFor('b'), DownloadStatus.notDownloaded);
       });
 
+      test(
+          'a download still fetching when the account changes is not saved '
+          'for the new one', () async {
+        // Disconnect and connecting to another server (or signing out and in
+        // as someone else) cancels nothing already fetching. Those bytes are
+        // the old server's item: a Plex ratingKey names another song on the
+        // new server, so saved under plex:101 they would play for the new
+        // server's song 101 and make it read as downloaded.
+        final gate = Completer<void>();
+        downloader = _FakeRemoteDownloader(
+          gate: gate.future,
+          schemes: const <String>['plex:'],
+        );
+        scope = 'plex:home-server';
+        final repository = buildHeld();
+
+        final Future<DownloadRequestOutcome> request =
+            repository.requestDownload(_plex('101'));
+        await _pumpUntil(() => downloader.fetchCount >= 1);
+        scope = 'plex:friend-server';
+        gate.complete();
+        await request;
+
+        expect(await repository.statusFor('101'), DownloadStatus.notDownloaded);
+        expect(await store.loadDownloads(), isEmpty);
+        expect(files.bytesFor('plex_101.mp3'), isNull);
+        expect(
+          await StoreCachedTrackLocator(store, files)
+              .cachedFilePath(_plex('101')),
+          isNull,
+        );
+      });
+
       test('a connection change that lands while it is being decided counts',
           () async {
         final gated = _GatedConnectivity(NetworkStatus.mobile);

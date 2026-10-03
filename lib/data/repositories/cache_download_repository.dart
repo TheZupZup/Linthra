@@ -52,7 +52,8 @@ import '../../core/services/track_prefetcher.dart';
 ///    account signs out or another takes its place while the request waits
 ///    (held by the network policy, or queued for a slot), it is dropped rather
 ///    than fetched with the new session, which would download another
-///    account's item, or nothing, under this track.
+///    account's item, or nothing, under this track. One already fetching then
+///    is not saved either: its bytes are the old account's item.
 ///  - **Stays under the cache limit.** Before writing a remote download, the
 ///    policy evicts least-recently-used, unpinned, not-currently-playing tracks
 ///    to make room; if it still won't fit, the download is refused with a
@@ -597,7 +598,7 @@ class CacheDownloadRepository
     // The mark stays for the request's own cleanup, which settles the status.
     // Asked again after every await below, since the removal isn't serialized
     // with this commit and can land in any of them.
-    if (operation.canceled) return;
+    if (_canceledOrOrphaned(operation, track, preloaded: preloaded)) return;
     if (preloaded) {
       // The session that asked for these bytes is gone (sign-out, a different
       // server or account, or the pre-cache driver was disposed). They were
@@ -616,7 +617,10 @@ class CacheDownloadRepository
     final int incoming = data.bytes.length;
     final int maxBytes = await _preferences.maxCacheBytes();
     // Asked again after every await below: a sign-out can land in any of them.
-    if (operation.canceled || (preloaded && !_passes(isStillWanted))) return;
+    if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
+        (preloaded && !_passes(isStillWanted))) {
+      return;
+    }
     final EvictionPlan plan = _policy.plan(
       cached: _downloads.values,
       incomingBytes: incoming,
@@ -642,7 +646,7 @@ class CacheDownloadRepository
       // be what the new queue needs. Asked before every eviction, since either
       // can change while the previous one is being deleted. A cancelled
       // download stops making room too: nothing else is given up for it.
-      if (operation.canceled ||
+      if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
           (preloaded && !(_passes(mayMakeRoom) && _passes(isStillWanted)))) {
         if (evictedAny) {
           await _save();
@@ -670,7 +674,8 @@ class CacheDownloadRepository
       data.bytes,
       extension: data.fileExtension,
     );
-    if (operation.canceled || (preloaded && !_passes(isStillWanted))) {
+    if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
+        (preloaded && !_passes(isStillWanted))) {
       // Removed or cleared, or the session changed, while the bytes were being
       // written: take the file back out instead of publishing it, and persist
       // the evictions already made so the metadata matches what is on disk.
@@ -939,6 +944,27 @@ class CacheDownloadRepository
     } catch (_) {
       return false;
     }
+  }
+
+  /// Whether [operation] is cancelled, marking a user download cancelled first
+  /// when the account it was asked under has signed out or been replaced.
+  ///
+  /// Signing out cancels nothing that is already fetching, and those bytes
+  /// are the old account's item: on another Plex server (or an Airsonic-style
+  /// Subsonic one) the same id names a different song. Saved under the
+  /// track's key, they would play for the new account's song with that id
+  /// and make it read as downloaded. A pre-cache asks its own `isStillWanted`.
+  bool _canceledOrOrphaned(
+    _CacheOperation operation,
+    Track track, {
+    required bool preloaded,
+  }) {
+    if (!preloaded &&
+        !operation.canceled &&
+        _scopeOf(track) != operation.scope) {
+      operation.canceled = true;
+    }
+    return operation.canceled;
   }
 
   /// The account [track]'s provider is signed in with right now. A check that
