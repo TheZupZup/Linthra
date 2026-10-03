@@ -98,6 +98,73 @@ class LibraryController extends Notifier<LibraryState> {
     });
   }
 
+  /// Takes the tracks of [folder], which the user just removed from the
+  /// selection, out of the local catalog, after any already-started local
+  /// write. Every other row stays exactly as it was, stamp included.
+  ///
+  /// The rescan of [remaining] that follows a removal drops them as well, but
+  /// only when it can read one of those folders: a scan that reads nothing
+  /// writes nothing. With the other drives unplugged, the removed folder's
+  /// music would stay in the library under a folder that is no longer
+  /// selected, with nothing left in Settings to remove it from.
+  ///
+  /// A row goes only when it is a path [folder] owns and no folder in
+  /// [remaining] owns. A `content://` tree or the device-wide library cannot be
+  /// matched to its rows by path, so removing one of those drops nothing here.
+  ///
+  /// Pending scans are superseded first, as [clearLocalCatalog] does, so a
+  /// walk that started before the removal cannot write these tracks back. The
+  /// catalog is reloaded either way, so a scan superseded here never leaves
+  /// the library loading.
+  Future<void> removeFolderTracks(
+    String folder, {
+    required List<String> remaining,
+  }) {
+    if (!FolderLocation.parse(folder).isFilesystemPath) {
+      return Future<void>.value();
+    }
+    invalidatePendingScans();
+    final List<String> stillSelected = LocalMusicRoots.normalize(remaining);
+    return _serializeLocalMutation(() async {
+      try {
+        final List<StampedTrack>? current = await _localCatalogSnapshot();
+        if (current != null) {
+          final List<StampedTrack> kept = <StampedTrack>[
+            for (final StampedTrack stamped in current)
+              if (!LocalMusicRoots.owns(folder, stamped.track.uri) ||
+                  LocalMusicRoots.ownerOf(stamped.track.uri, stillSelected) !=
+                      null)
+                stamped,
+          ];
+          if (kept.length < current.length) {
+            final MusicLibraryRepository repository =
+                ref.read(musicLibraryRepositoryProvider);
+            if (repository is StampedCatalogWriter) {
+              await (repository as StampedCatalogWriter).upsertStampedCatalog(
+                sourceId: _localSourceId,
+                tracks: kept,
+              );
+            } else {
+              final List<Track> tracks = <Track>[
+                for (final StampedTrack stamped in kept) stamped.track,
+              ];
+              await repository.upsertCatalog(
+                sourceId: _localSourceId,
+                tracks: tracks,
+                albums: groupAlbums(tracks),
+                artists: groupArtists(tracks),
+              );
+            }
+          }
+        }
+      } catch (_) {
+        // Left as it was. The rescan that follows still drops these tracks
+        // as soon as one of the remaining folders can be read.
+      }
+      await _load();
+    });
+  }
+
   /// Scans a filesystem folder, SAF tree, or Android device-wide MediaStore
   /// selection, persists the discovered tracks, then reloads the catalog.
   /// Kept as a void-returning API for existing Library screen callers.

@@ -97,6 +97,12 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
       );
       return;
     }
+    // Taken out here rather than left to the rescan below, which writes
+    // nothing when none of the remaining folders can be read: with the other
+    // drives unplugged, this folder's music would otherwise stay listed.
+    await ref
+        .read(libraryControllerProvider.notifier)
+        .removeFolderTracks(folder, remaining: remaining);
     final LocalScanReport? report = await _scan(remaining);
     // Keep the scan's own message when it has something to warn about; the
     // removal succeeded either way.
