@@ -603,12 +603,7 @@ class MediaBrowserTree {
     }
     if (MediaId.isQueueItem(mediaId)) {
       final List<Track> tracks = _currentQueue(playback);
-      final int index = MediaId.queueIndex(mediaId);
-      final String? listed = MediaId.queueTrackHash(mediaId);
-      return _requestAt(
-        tracks,
-        listed == null ? index : _whereListedTrackIs(tracks, index, listed),
-      );
+      return _requestAt(tracks, _queuePosition(mediaId, tracks));
     }
     if (MediaId.isPlaylistTrack(mediaId)) {
       final List<Track> tracks =
@@ -630,6 +625,26 @@ class MediaBrowserTree {
   MediaPlaybackRequest? _requestAt(List<Track> tracks, int index) {
     if (index < 0 || index >= tracks.length) return null;
     return MediaPlaybackRequest(tracks: tracks, startIndex: index);
+  }
+
+  /// Where the Queue row [mediaId] points in the live queue of [playback]:
+  /// its position counting the current track as 0 and up-next after it, or -1
+  /// when the row no longer names a queued song.
+  ///
+  /// Synchronous, reading only [playback], so a caller can act on the answer
+  /// before the queue can move again.
+  int queuePositionOf(String mediaId, PlaybackState playback) =>
+      MediaId.isQueueItem(mediaId)
+          ? _queuePosition(mediaId, _currentQueue(playback))
+          : -1;
+
+  /// [queuePositionOf] within the live queue [tracks] (current, then up-next).
+  static int _queuePosition(String mediaId, List<Track> tracks) {
+    final int index = MediaId.queueIndex(mediaId);
+    final String? listed = MediaId.queueTrackHash(mediaId);
+    final int at =
+        listed == null ? index : _whereListedTrackIs(tracks, index, listed);
+    return at >= 0 && at < tracks.length ? at : -1;
   }
 
   /// Where the track a Queue row was listed for ([trackHash], at [listedAt])

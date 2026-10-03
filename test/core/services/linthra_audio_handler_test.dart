@@ -1135,6 +1135,77 @@ void main() {
         });
       });
 
+      // The Queue list is the live queue, so picking a row moves within it, as
+      // a row of the car's Up Next list does (docs/android-auto.md: "read +
+      // jump"), instead of starting a new queue from the rows it shows.
+      group('a Queue row moves within the queue', () {
+        final List<Track> six = <Track>[
+          for (final String id in <String>['a', 'b', 'c', 'd', 'e', 'f'])
+            _track(id),
+        ];
+
+        String rowFor(List<audio.MediaItem> rows, String title) =>
+            rows.singleWhere((audio.MediaItem row) => row.title == title).id;
+
+        test('the songs already played stay in the queue', () async {
+          await controller.playTracks(six);
+          controller.setRepeatMode(RepeatMode.all);
+          await controller.skipToNext();
+          await controller.skipToNext();
+          await _settle();
+          final List<audio.MediaItem> rows =
+              await handler.getChildren(MediaId.queue);
+
+          await handler.playFromMediaId(rowFor(rows, 'Song e'));
+          await _settle();
+
+          expect(controller.state.currentTrack?.id, 'e');
+          expect(controller.state.previous.map((Track t) => t.id),
+              <String>['a', 'b', 'c', 'd'],
+              reason: 'with repeat all on, Song a and Song b must come round '
+                  'again after Song f');
+          expect(controller.state.upNext.map((Track t) => t.id), <String>['f']);
+        });
+
+        test('with shuffle on, the rest keeps the order the car showed',
+            () async {
+          controller.setShuffleEnabled(true);
+          await controller.playTracks(six);
+          await controller.skipToNext();
+          await _settle();
+          final List<audio.MediaItem> rows =
+              await handler.getChildren(MediaId.queue);
+
+          await handler.playFromMediaId(rows[2].id);
+          await _settle();
+
+          expect(controller.state.currentTrack?.title, rows[2].title);
+          expect(
+            controller.state.upNext.map((Track t) => t.title),
+            rows.skip(3).map((audio.MediaItem row) => row.title),
+            reason: 'the songs after it play in the order the car showed, and '
+                'the song that was playing does not come back',
+          );
+        });
+
+        test('picking the song that is playing leaves it playing', () async {
+          await controller.playTracks(six);
+          await controller.skipToNext();
+          await _settle();
+          final int played = controller.playedTracks.length;
+          final List<audio.MediaItem> rows =
+              await handler.getChildren(MediaId.queue);
+
+          await handler.playFromMediaId(rowFor(rows, 'Song b'));
+          await _settle();
+
+          expect(controller.playedTracks, hasLength(played),
+              reason: 'it is already the current song, as on the Up Next list');
+          expect(
+              controller.state.previous.map((Track t) => t.id), <String>['a']);
+        });
+      });
+
       test('an unknown media id is a no-op', () async {
         await handler.playFromMediaId('library/missing');
         await handler.playFromMediaId('bogus');

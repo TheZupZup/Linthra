@@ -156,6 +156,9 @@ Selecting a track plays it and queues the rest of **the list it was opened
 from** (the album's tracks for an album track, the artist's for an artist track,
 the playlist's for a playlist track, …) — exactly like tapping a track in that
 screen on the phone.
+A **Queue** row is the exception: picking it moves to that song within the
+current queue, like the car's Up Next list, and the song already playing stays
+as it is.
 
 Stable media IDs:
 

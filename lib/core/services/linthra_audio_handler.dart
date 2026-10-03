@@ -354,6 +354,20 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     Map<String, dynamic>? extras,
   ]) async {
     if (_detached) return;
+    if (MediaId.isQueueItem(mediaId)) {
+      // A Queue row is a place in the live queue, so picking one moves there,
+      // like a row of the car's Up Next list ([skipToQueueItem]) or of the
+      // queue on the phone. Loading the rows as a new queue instead dropped
+      // the songs already played (repeat-all never came back to them) and,
+      // with shuffle on, reshuffled the rest, bringing back the song that had
+      // been playing. Read and acted on synchronously, so the queue cannot
+      // move in between.
+      final int at = _tree.queuePositionOf(mediaId, _controller.state);
+      _log('play: ${_categoryOf(mediaId)} resolved=${at >= 0}');
+      // Row 0 is the current track: already where a move to it would land.
+      if (at > 0) await _controller.playFromQueue(at - 1);
+      return;
+    }
     final request = await _tree.resolve(mediaId, _controller.state);
     // Secret-free selection trace: which category was picked and whether it
     // resolved to something playable — useful when "controls don't work" turns
