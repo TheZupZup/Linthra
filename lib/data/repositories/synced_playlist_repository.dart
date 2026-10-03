@@ -814,6 +814,11 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     Playlist playlist,
     RemotePlaylistGateway gateway,
   ) async {
+    // Signing out while the create is out turns the playlist into a device
+    // playlist (see [clearRemote]). What the create says after that is about
+    // an account that is gone: neither its failure nor its server id belongs
+    // on the device's copy.
+    final int clears = _clearsOf(gateway.source);
     final String remoteId;
     try {
       remoteId = await gateway.createRemotePlaylist(
@@ -821,6 +826,9 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         playlist.trackIds,
       );
     } on RemoteSyncException catch (error) {
+      if (_clearsOf(gateway.source) != clears) {
+        return _byId(playlist.id) ?? playlist;
+      }
       return _mutate(
         playlist.id,
         (Playlist p) => p.copyWith(
@@ -828,6 +836,9 @@ class SyncedPlaylistRepository implements PlaylistRepository {
           lastSyncError: () => error.message,
         ),
       );
+    }
+    if (_clearsOf(gateway.source) != clears) {
+      return _byId(playlist.id) ?? playlist;
     }
     if (_byId(playlist.id) == null) {
       // Deleted here while the server was still making it. That delete had

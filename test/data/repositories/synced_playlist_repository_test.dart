@@ -2248,6 +2248,42 @@ void main() {
         await repository.refreshFromRemote();
         expect(await repository.getAllPlaylists(), isEmpty);
       });
+
+      test(
+          'signing out while it is created leaves the device playlist alone '
+          'when the create fails', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        // Never reached the server, so signing out keeps it on the device.
+        await repository.clearRemote(source: PlaylistSource.subsonic);
+
+        client.playlistError = SubsonicException.notReachable();
+        landCreate();
+        await created.creating;
+
+        final Playlist playlist =
+            (await repository.getPlaylistById(created.id))!;
+        expect(playlist.source, PlaylistSource.local);
+        expect(playlist.syncState, PlaylistSyncState.localOnly);
+        expect(playlist.lastSyncError, isNull);
+      });
+
+      test(
+          'signing out while it is created leaves the device playlist alone '
+          'when the create lands', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        await repository.clearRemote(source: PlaylistSource.subsonic);
+
+        landCreate();
+        await created.creating;
+
+        final Playlist playlist =
+            (await repository.getPlaylistById(created.id))!;
+        expect(playlist.source, PlaylistSource.local);
+        expect(playlist.syncState, PlaylistSyncState.localOnly);
+        expect(playlist.remoteId, isNull);
+      });
     });
 
     group('Jellyfin', () {
