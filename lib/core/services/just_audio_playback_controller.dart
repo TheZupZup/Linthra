@@ -833,6 +833,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _enqueueFocusResume() {
     if (_suspended) return;
     _enqueueTransport(() async {
+      // A load in flight has not handed its source over yet, so the engine
+      // still holds the song before it, the same reason play() leaves it
+      // alone. The load starts its own track when it lands, now that the
+      // hold is lifted.
+      if (_engineHoldsPreviousSource) return;
       unawaited(_player.play());
     });
   }

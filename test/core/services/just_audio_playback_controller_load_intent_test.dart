@@ -285,6 +285,33 @@ void main() {
           reason: 'the regain resumes the track that loaded meanwhile');
     });
 
+    test(
+        'a call that ends while the next track loads does not resume the '
+        'paused song', () async {
+      final setup = await playingAWithBGated();
+      // Paused, then Next: a request to play B, which is slow to resolve.
+      await setup.controller.pause();
+      final Future<void> skip = setup.controller.skipToNext();
+      await _settle();
+      // A call or a notification sound, past the debounce, then over.
+      setup.controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      setup.controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+
+      expect(setup.resolver.isWaiting(b.uri), isTrue);
+      expect(setup.player.lastTransport, 'pause',
+          reason: "the engine still holds A, which the listener paused: the "
+              "regain must not play it under B's title");
+
+      setup.resolver.release(b);
+      await skip;
+      await _settle();
+      expect(setup.player.loadedUrls.last, _url(b));
+      expect(setup.player.lastTransport, 'play',
+          reason: 'B starts once it lands');
+    });
+
     test('a focus blip absorbed during the load still lets the track start',
         () async {
       final setup = await playingAWithBGated();
