@@ -7,11 +7,13 @@ import '../../core/lifecycle/async_disposal_registry.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/models/track.dart';
 import '../../core/platform/host_platform.dart';
+import '../../core/repositories/download_store.dart';
 import '../../core/services/active_playback_controller.dart';
 import '../../core/services/just_audio_playback_controller.dart';
 import '../../core/services/linux_playback_controller.dart';
 import '../../core/services/local_playable_uri_resolver.dart';
 import '../../core/services/local_playback_controller.dart';
+import '../../core/services/offline_copy_origins.dart';
 import '../../core/services/offline_first_playable_uri_resolver.dart';
 import '../../core/services/platform_playback_support.dart';
 import '../../core/services/playable_uri_resolver.dart';
@@ -557,6 +559,56 @@ final currentlyPlayingTrackOverride =
 final downloadAccountScopeOverride = downloadAccountScopeProvider.overrideWith(
   (ref) => (Track track) => _accountKeyForTrack(ref, track),
 );
+
+/// Production binding: a Plex download or pre-cache belongs to the server it
+/// came from (its `machineIdentifier`). A ratingKey only means something on
+/// the server that issued it, so a copy from another server, or from before a
+/// reinstall, never plays or reads as downloaded for this server's song with
+/// the same number. It is kept, and comes back when its server is connected
+/// again. Read live; a change of server is announced so the cache re-sorts.
+/// Applied in `main`; tests keep the data-layer default (nothing bound).
+final offlineCopyOriginsOverride =
+    offlineCopyOriginsProvider.overrideWith((ref) {
+  final _PlexCopyOrigins origins = _PlexCopyOrigins(
+    () => ref.read(plexMusicSourceProvider)?.session.machineIdentifier,
+  );
+  ref.listen<String?>(
+    plexMusicSourceProvider
+        .select((source) => source?.session.machineIdentifier),
+    (_, __) => origins.changed(),
+  );
+  ref.onDispose(origins.close);
+  return origins;
+});
+
+/// Plex copies, bound to the server connected now.
+class _PlexCopyOrigins implements OfflineCopyOrigins {
+  _PlexCopyOrigins(this._server);
+
+  /// The connected server's `machineIdentifier`, or null when signed out.
+  final String? Function() _server;
+
+  final StreamController<void> _changes = StreamController<void>.broadcast();
+
+  /// How a Plex copy's `sourceType` reads: its uri scheme, worked out the
+  /// same way the cache records it.
+  static final String? _plex = CachedTrack.schemeOf(PlexTrackMapper.uriScheme);
+
+  @override
+  bool binds(String scheme) => scheme == _plex;
+
+  @override
+  String? current(String scheme) => binds(scheme) ? _server() : null;
+
+  @override
+  Stream<void> get changes => _changes.stream;
+
+  void changed() {
+    if (!_changes.isClosed) _changes.add(null);
+  }
+
+  void close() => unawaited(_changes.close());
+}
 
 /// Production binding: drives the now-playing indicator on every track row from
 /// the live [PlaybackState]. Selected down to `(current track, isPlaying)` so it

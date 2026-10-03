@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_store.dart';
+import 'package:linthra/core/services/offline_copy_origins.dart';
 import 'package:linthra/data/repositories/in_memory_download_store.dart';
 import 'package:linthra/data/repositories/in_memory_offline_file_store.dart';
 import 'package:linthra/data/repositories/store_cached_track_locator.dart';
@@ -177,5 +178,97 @@ void main() {
 
       expect(await locator.cachedFilePath(_plex('101')), isNull);
     });
+
+    // A Plex ratingKey only means something on the server that issued it:
+    // `plex:101` names another song on another server.
+    group('with Plex copies bound to the server they came from', () {
+      late _PlexOrigins origins;
+
+      setUp(() => origins = _PlexOrigins('machine-friend'));
+
+      StoreCachedTrackLocator bound() =>
+          StoreCachedTrackLocator(store, files, origins: origins);
+
+      test("serves only the connected server's copy of a ratingKey", () async {
+        final String home = await files.write('plex_home_101', const <int>[0xA],
+            extension: 'flac');
+        final String friend = await files
+            .write('plex_friend_101', const <int>[0xF], extension: 'flac');
+        await store.saveDownloads(<CachedTrack>[
+          CachedTrack(
+            trackId: '101',
+            fileName: home,
+            sourceType: 'plex',
+            origin: 'machine-home',
+          ),
+          CachedTrack(
+            trackId: '101',
+            fileName: friend,
+            sourceType: 'plex',
+            origin: 'machine-friend',
+          ),
+        ]);
+
+        expect(await bound().cachedFilePath(_plex('101')),
+            '/offline_audio/$friend');
+        origins.server = 'machine-home';
+        expect(
+            await bound().cachedFilePath(_plex('101')), '/offline_audio/$home');
+        // Signed out: nothing says which server's 101 is meant.
+        origins.server = null;
+        expect(await bound().cachedFilePath(_plex('101')), isNull);
+      });
+
+      test("another server's copy is not served even when it is the only one",
+          () async {
+        final String home = await files.write('plex_home_101', const <int>[0xA],
+            extension: 'flac');
+        await store.saveDownloads(<CachedTrack>[
+          CachedTrack(
+            trackId: '101',
+            fileName: home,
+            sourceType: 'plex',
+            origin: 'machine-home',
+          ),
+        ]);
+
+        expect(await bound().cachedFilePath(_plex('101')), isNull);
+      });
+
+      test(
+          'copies of other providers, and a Plex copy saved before servers '
+          'were recorded, are served as before', () async {
+        final String plexFile =
+            await files.write('plex_101', const <int>[1], extension: 'mp3');
+        final String jellyfinFile =
+            await files.write('jellyfin_j1', const <int>[2], extension: 'mp3');
+        await store.saveDownloads(<CachedTrack>[
+          CachedTrack(trackId: '101', fileName: plexFile, sourceType: 'plex'),
+          CachedTrack(
+              trackId: 'j1', fileName: jellyfinFile, sourceType: 'jellyfin'),
+        ]);
+
+        expect(await bound().cachedFilePath(_plex('101')),
+            '/offline_audio/$plexFile');
+        expect(await bound().cachedFilePath(_jellyfin('j1')),
+            '/offline_audio/$jellyfinFile');
+      });
+    });
   });
+}
+
+/// The Plex server connected now; null when signed out.
+class _PlexOrigins implements OfflineCopyOrigins {
+  _PlexOrigins(this.server);
+
+  String? server;
+
+  @override
+  bool binds(String scheme) => scheme == 'plex';
+
+  @override
+  String? current(String scheme) => binds(scheme) ? server : null;
+
+  @override
+  Stream<void> get changes => const Stream<void>.empty();
 }

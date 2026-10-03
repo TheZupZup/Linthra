@@ -14,6 +14,7 @@ import 'package:linthra/core/repositories/offline_file_store.dart';
 import 'package:linthra/core/services/connectivity_service.dart';
 import 'package:linthra/core/services/download_scheduler.dart';
 import 'package:linthra/core/services/offline_cache_manager.dart';
+import 'package:linthra/core/services/offline_copy_origins.dart';
 import 'package:linthra/core/services/offline_first_playable_uri_resolver.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/services/remote_track_downloader.dart';
@@ -227,10 +228,15 @@ class _HeldFetch {
 /// call order, so a test decides which of two overlapping fetches of the same
 /// track lands first.
 class _PerCallDownloader implements RemoteTrackDownloader {
+  _PerCallDownloader({this.schemes = const <String>['jellyfin:']});
+
+  /// The remote URI schemes this fake claims.
+  final List<String> schemes;
+
   final List<_HeldFetch> calls = <_HeldFetch>[];
 
   @override
-  bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
+  bool isRemote(Track track) => schemes.any(track.uri.startsWith);
 
   @override
   Future<RemoteTrackData> fetch(
@@ -298,6 +304,30 @@ class _RecordingStreamResolver implements PlayableUriResolver {
       Uri.parse('https://server.example/stream/${track.id}'),
       PlaybackSource.streamingDirect,
     );
+  }
+}
+
+/// The Plex server connected now, for a repository whose Plex copies belong
+/// to the server they came from. [switchTo] connects another one (or signs
+/// out, with null) and says so, as the app's binding does.
+class _PlexOrigins implements OfflineCopyOrigins {
+  _PlexOrigins(this.server);
+
+  String? server;
+  final StreamController<void> _changes = StreamController<void>.broadcast();
+
+  @override
+  bool binds(String scheme) => scheme == 'plex';
+
+  @override
+  String? current(String scheme) => binds(scheme) ? server : null;
+
+  @override
+  Stream<void> get changes => _changes.stream;
+
+  void switchTo(String? next) {
+    server = next;
+    _changes.add(null);
   }
 }
 
@@ -2417,6 +2447,298 @@ void main() {
     });
   });
 
+  // A Plex ratingKey only means something on the server that issued it, so a
+  // Plex copy belongs to the server it came from: it is used while that
+  // server is connected and set aside (kept, not served) otherwise. The app's
+  // own wiring is exercised in plex_server_switch_downloads_test.dart; these
+  // pin what the repository does with the copies it keeps.
+  group('CacheDownloadRepository, Plex copies and the server they came from',
+      () {
+    late InMemoryDownloadStore store;
+    late InMemoryOfflineFileStore files;
+    late InMemoryDownloadPreferences preferences;
+    late _PlexOrigins origins;
+    late DateTime clock;
+
+    CacheDownloadRepository build({
+      RemoteTrackDownloader? downloader,
+      DownloadScheduler? scheduler,
+      OfflineFileStore? fileStore,
+    }) =>
+        CacheDownloadRepository(
+          store: store,
+          files: fileStore ?? files,
+          downloader: downloader ??
+              _FakeRemoteDownloader(schemes: const <String>['plex:']),
+          connectivity: _FakeConnectivity(NetworkStatus.wifi),
+          preferences: preferences,
+          scheduler: scheduler,
+          now: () => clock = clock.add(const Duration(seconds: 1)),
+          origins: origins,
+        );
+
+    setUp(() {
+      store = InMemoryDownloadStore();
+      files = InMemoryOfflineFileStore();
+      preferences = InMemoryDownloadPreferences();
+      origins = _PlexOrigins('machine-home');
+      clock = DateTime(2026);
+    });
+
+    Future<void> switchTo(String? server) async {
+      origins.switchTo(server);
+      await _pumpUntil(() => false);
+    }
+
+    test(
+        'a copy saved before servers were recorded belongs to the server '
+        'connected when it loads', () async {
+      final String fileName = await files
+          .write('plex_101', _FakeRemoteDownloader.bytes, extension: 'mp3');
+      await store.saveDownloads(<CachedTrack>[
+        CachedTrack(
+            trackId: '101',
+            fileName: fileName,
+            sourceType: 'plex',
+            sizeBytes: 4),
+      ]);
+      final CacheDownloadRepository repository = build();
+
+      expect(await repository.statusFor('101'), DownloadStatus.downloaded);
+      expect((await store.loadDownloads()).single.origin, 'machine-home');
+
+      await switchTo('machine-friend');
+      expect(await repository.statusFor('101'), DownloadStatus.notDownloaded);
+      // Kept for its own server, file and all.
+      expect((await store.loadDownloads()).single.origin, 'machine-home');
+      expect(files.bytesFor(fileName), isNotNull);
+
+      await switchTo('machine-home');
+      expect(await repository.statusFor('101'), DownloadStatus.downloaded);
+    });
+
+    test('Clear all also deletes the copies kept for another server', () async {
+      final CacheDownloadRepository repository = build();
+      await repository.requestDownload(_plex('101'));
+      final String fileName = (await store.loadDownloads()).single.fileName!;
+      await switchTo('machine-friend');
+
+      await repository.clearAll();
+
+      expect(files.bytesFor(fileName), isNull);
+      expect(await store.loadDownloads(), isEmpty);
+      expect((await repository.cacheSnapshot()).usedBytes, 0);
+    });
+
+    test(
+        'a copy kept for another server still counts toward the limit, and '
+        'can make room', () async {
+      await preferences.setMaxCacheBytes(8);
+      final CacheDownloadRepository repository = build();
+      await repository.requestDownload(_plex('101'));
+      await repository.requestDownload(_plex('102'));
+      final Map<String, String> homeFiles = <String, String>{
+        for (final CachedTrack c in await store.loadDownloads())
+          c.trackId: c.fileName!,
+      };
+      await switchTo('machine-friend');
+      expect((await repository.cacheSnapshot()).usedBytes, 8);
+
+      // The friend's own 101 sits next to the home copy of 101 rather than
+      // replacing it, so room is made: the least recently used copy goes.
+      await repository.requestDownload(_plex('101'));
+
+      expect(await repository.statusFor('101'), DownloadStatus.downloaded);
+      expect((await repository.cacheSnapshot()).usedBytes, 8);
+      expect(files.bytesFor(homeFiles['101']!), isNull);
+      expect(files.bytesFor(homeFiles['102']!), isNotNull);
+    });
+
+    test(
+        'a pre-cache fetched from one server is not saved once another is '
+        'connected', () async {
+      final Completer<void> gate = Completer<void>();
+      final _FakeRemoteDownloader downloader = _FakeRemoteDownloader(
+        gate: gate.future,
+        schemes: const <String>['plex:'],
+      );
+      final CacheDownloadRepository repository = build(downloader: downloader);
+
+      final Future<void> warming = repository.prefetch(_plex('202'));
+      await _pumpUntil(() => downloader.fetchCount >= 1);
+      await switchTo('machine-friend');
+      gate.complete();
+      await warming;
+
+      expect(await store.loadDownloads(), isEmpty);
+      expect((await repository.cacheSnapshot()).entries, isEmpty);
+    });
+
+    test(
+        'a copy that comes back while a download asked on the other server '
+        'waits for a slot leaves its row Downloaded', () async {
+      final _PerCallDownloader downloader =
+          _PerCallDownloader(schemes: const <String>['plex:']);
+      final CacheDownloadRepository repository = build(
+        downloader: downloader,
+        scheduler: DownloadScheduler(maxConcurrent: 1),
+      );
+      final Future<DownloadRequestOutcome> home =
+          repository.requestDownload(_plex('101'));
+      await _pumpUntil(() => downloader.calls.isNotEmpty);
+      downloader.calls[0].complete();
+      await home;
+      await switchTo('machine-friend');
+
+      // On the friend's server: one download holds the only slot, and the
+      // friend's own song 101 waits behind it.
+      final Future<DownloadRequestOutcome> busy =
+          repository.requestDownload(_plex('300'));
+      await _pumpUntil(() => downloader.calls.length >= 2);
+      final Future<DownloadRequestOutcome> friend =
+          repository.requestDownload(_plex('101'));
+      await _pumpUntil(() => false);
+
+      // Back to the home server, whose copy of 101 comes back into use.
+      await switchTo('machine-home');
+      expect(await repository.statusFor('101'), DownloadStatus.downloaded);
+
+      downloader.calls[1].complete();
+      await busy;
+      await _pumpUntil(() => downloader.calls.length >= 3);
+      downloader.calls[2].complete();
+      await friend;
+
+      expect(await repository.statusFor('101'), DownloadStatus.downloaded);
+      expect(await repository.statusFor('300'), DownloadStatus.notDownloaded);
+      // Nothing fetched from the friend's server was saved.
+      expect(
+        (await store.loadDownloads()).map((CachedTrack c) => c.origin),
+        <String>['machine-home'],
+      );
+    });
+
+    Future<String> fileOf(String trackId, String origin) async =>
+        (await store.loadDownloads())
+            .singleWhere(
+                (CachedTrack c) => c.trackId == trackId && c.origin == origin)
+            .fileName!;
+
+    test(
+        'a download that lands while Clear all runs is kept, even after '
+        "making room by evicting the other server's copy of the same song",
+        () async {
+      final _HeldDeletesFileStore disk = _HeldDeletesFileStore(files);
+      await preferences.setMaxCacheBytes(8);
+      final CacheDownloadRepository repository = build(fileStore: disk);
+      // The home server's song 101, set aside once the friend's server is
+      // connected, and the friend's 102: the cache is full.
+      await repository.requestDownload(_plex('101'));
+      await switchTo('machine-friend');
+      await repository.requestDownload(_plex('102'));
+      final String friend102 = await fileOf('102', 'machine-friend');
+
+      // Clear all is deleting its first file...
+      final Completer<void> deleting = disk.hold(friend102);
+      final Future<void> clearing = repository.clearAll();
+      await disk.reached(friend102);
+      // ...when a "Download all" reaches the friend's song 101. Its commit
+      // makes room by evicting the least recently used copy: the home
+      // server's 101, which the clear has not reached yet.
+      await repository.requestDownload(_plex('101'));
+      deleting.complete();
+      await clearing;
+
+      final List<CachedTrack> saved = await store.loadDownloads();
+      expect(
+        saved.map((CachedTrack c) => '${c.trackId}@${c.origin}'),
+        <String>['101@machine-friend'],
+      );
+      expect(files.bytesFor(saved.single.fileName!), isNotNull);
+      expect(await repository.statusFor('101'), DownloadStatus.downloaded);
+    });
+
+    test(
+        'two clears of unpinned copies at once keep a pinned download of a '
+        'song the other server also has', () async {
+      final _HeldDeletesFileStore disk = _HeldDeletesFileStore(files);
+      final CacheDownloadRepository repository = build(fileStore: disk);
+      await repository.requestDownload(_plex('101'));
+      final String home101 = await fileOf('101', 'machine-home');
+      await switchTo('machine-friend');
+      // The friend's own song 101, kept offline on purpose.
+      await repository.requestDownload(_plex('101'));
+      await repository.setPinned(_plex('101'), true);
+
+      // Free up storage, Clear unpinned, and again while the first is still
+      // deleting: both go for the home server's copy of 101.
+      final Completer<void> deleting = disk.hold(home101);
+      final Future<void> first = repository.clearUnpinned();
+      await disk.reached(home101);
+      final Future<void> second = repository.clearUnpinned();
+      await _pumpUntil(() => false);
+      deleting.complete();
+      await Future.wait(<Future<void>>[first, second]);
+
+      expect(await repository.statusFor('101'), DownloadStatus.downloaded);
+      final CachedTrack kept = (await store.loadDownloads()).single;
+      expect(
+        '${kept.trackId}@${kept.origin}, pinned: ${kept.pinned}',
+        '101@machine-friend, pinned: true',
+      );
+      expect(files.bytesFor(kept.fileName!), isNotNull);
+    });
+
+    test(
+        'a download making room while a clear runs keeps a pinned download '
+        'of a song the other server also has', () async {
+      final _HeldDeletesFileStore disk = _HeldDeletesFileStore(files);
+      final CacheDownloadRepository repository = build(fileStore: disk);
+      // Two home songs, 103 the least recently used, set aside on the
+      // friend's server, where 101 and 102 are kept offline on purpose.
+      await repository.requestDownload(_plex('101'));
+      await repository.requestDownload(_plex('103'));
+      await repository.notePlayed(_plex('101'));
+      final String home101 = await fileOf('101', 'machine-home');
+      final String home103 = await fileOf('103', 'machine-home');
+      await switchTo('machine-friend');
+      await repository.requestDownload(_plex('101'));
+      await repository.setPinned(_plex('101'), true);
+      await repository.requestDownload(_plex('102'));
+      await repository.setPinned(_plex('102'), true);
+      await preferences.setMaxCacheBytes(12);
+
+      // Clear unpinned goes for the home copies, 101 first...
+      final Completer<void> clearing101 = disk.hold(home101);
+      final Completer<void> evicting103 = disk.hold(home103);
+      final Future<void> clearing = repository.clearUnpinned();
+      await disk.reached(home101);
+      // ...as a download asked for meanwhile makes room by evicting both,
+      // 103 first. The clear takes 101 out while 103 is being evicted.
+      final Future<DownloadRequestOutcome> request =
+          repository.requestDownload(_plex('105'));
+      await disk.reached(home103);
+      clearing101.complete();
+      await _pumpUntil(() => false);
+      evicting103.complete();
+      await request;
+      await clearing;
+
+      expect(await repository.statusFor('101'), DownloadStatus.downloaded);
+      expect(await repository.statusFor('105'), DownloadStatus.downloaded);
+      expect(
+        (await store.loadDownloads())
+            .map((CachedTrack c) => '${c.trackId}@${c.origin}')
+            .toSet(),
+        <String>{
+          '101@machine-friend',
+          '102@machine-friend',
+          '105@machine-friend'
+        },
+      );
+    });
+  });
+
   // Smart cleanup is one shared, provider-agnostic policy: every offline-capable
   // remote provider (Plex, Jellyfin, Subsonic/Navidrome) caches through the same
   // repository and is evicted by the same LRU rules — keyed by the provider-aware
@@ -2901,6 +3223,43 @@ class _SlowDeleteFileStore implements OfflineFileStore {
       if (!reachedDelete.isCompleted) reachedDelete.complete();
       await pending.future;
     }
+    await _inner.delete(fileName);
+  }
+}
+
+/// Holds the deletes of chosen files until the test lets them go, so a clear
+/// and a commit can be caught deleting at the same time.
+class _HeldDeletesFileStore implements OfflineFileStore {
+  _HeldDeletesFileStore(this._inner);
+
+  final InMemoryOfflineFileStore _inner;
+  final Map<String, Completer<void>> _holds = <String, Completer<void>>{};
+  final Map<String, Completer<void>> _reached = <String, Completer<void>>{};
+
+  /// Holds every delete of [fileName] from now until the returned completer
+  /// completes.
+  Completer<void> hold(String fileName) => _holds[fileName] = Completer<void>();
+
+  /// Completes once a delete of [fileName] has been asked for.
+  Future<void> reached(String fileName) =>
+      (_reached[fileName] ??= Completer<void>()).future;
+
+  @override
+  Future<String> write(String trackId, List<int> bytes, {String? extension}) =>
+      _inner.write(trackId, bytes, extension: extension);
+
+  @override
+  Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);
+
+  @override
+  Future<int?> sizeFor(String fileName) => _inner.sizeFor(fileName);
+
+  @override
+  Future<void> delete(String fileName) async {
+    final Completer<void> reached = _reached[fileName] ??= Completer<void>();
+    if (!reached.isCompleted) reached.complete();
+    final Completer<void>? held = _holds[fileName];
+    if (held != null) await held.future;
     await _inner.delete(fileName);
   }
 }

@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/connectivity_service.dart';
+import 'package:linthra/core/services/offline_copy_origins.dart';
+import 'package:linthra/core/services/remote_track_downloader.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/features/settings/cache/cache_settings_section.dart';
 
@@ -120,7 +122,80 @@ void main() {
       // The pinned 4 B download survives; the unpinned one is gone.
       expect(find.textContaining('4 B of'), findsOneWidget);
     });
+
+    testWidgets(
+        'copies kept for another Plex server can still be freed from here',
+        (tester) async {
+      // A Plex copy is kept, unlisted, while another server is connected. It
+      // still takes room, so the card must still offer to free it.
+      final _PlexOrigins origins = _PlexOrigins('machine-home');
+      final container = ProviderContainer(
+        overrides: [
+          remoteTrackDownloaderProvider.overrideWithValue(_PlexDownloader()),
+          connectivityServiceProvider.overrideWithValue(
+            const _UnmeteredConnectivity(),
+          ),
+          offlineCopyOriginsProvider.overrideWithValue(origins),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: Scaffold(body: CacheSettingsSection()),
+          ),
+        ),
+      );
+      await container.read(downloadRepositoryProvider).requestDownload(
+            const Track(id: '101', title: 'Song', uri: 'plex:101'),
+          );
+      origins.switchTo('machine-friend');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('4 B of'), findsOneWidget);
+
+      await tester.tap(find.text('Free up storage'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Clear offline downloads'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('0 B of'), findsOneWidget);
+    });
   });
+}
+
+/// The Plex server connected now; [switchTo] connects another and says so.
+class _PlexOrigins implements OfflineCopyOrigins {
+  _PlexOrigins(this.server);
+
+  String? server;
+  final StreamController<void> _changes = StreamController<void>.broadcast();
+
+  @override
+  bool binds(String scheme) => scheme == 'plex';
+
+  @override
+  String? current(String scheme) => binds(scheme) ? server : null;
+
+  @override
+  Stream<void> get changes => _changes.stream;
+
+  void switchTo(String next) {
+    server = next;
+    _changes.add(null);
+  }
+}
+
+class _PlexDownloader implements RemoteTrackDownloader {
+  @override
+  bool isRemote(Track track) => track.uri.startsWith('plex:');
+
+  @override
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async =>
+      const RemoteTrackData(bytes: <int>[1, 2, 3, 4], fileExtension: 'flac');
 }
 
 class _UnmeteredConnectivity implements ConnectivityService {
