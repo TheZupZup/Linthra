@@ -182,6 +182,40 @@ class LocalArtworkCache {
     }
   }
 
+  /// The URIs among [referenced] that name an entry of this cache that is no
+  /// longer on disk: the cache was reclaimed (the user, or a cleanup tool,
+  /// emptied the cache directory) while the library still points at it.
+  ///
+  /// One listing of the cache directory, however many covers are asked about.
+  /// A URI that does not point into this cache is not this cache's to judge
+  /// and is never in the answer. Never throws: a directory that cannot be
+  /// listed answers with nothing rather than with a guess.
+  Future<Set<Uri>> missing(Set<Uri> referenced) async {
+    if (referenced.isEmpty) return const <Uri>{};
+    try {
+      final Directory dir = await _directory();
+      final String root = _canonical(dir.path);
+      final Set<String> present = <String>{};
+      if (await dir.exists()) {
+        await for (final FileSystemEntity entity
+            in dir.list(followLinks: false)) {
+          if (entity is File && entity.path.endsWith(_entrySuffix)) {
+            present.add(_canonical(entity.path));
+          }
+        }
+      }
+      return <Uri>{
+        for (final Uri uri in referenced)
+          if (uri.isScheme('file') &&
+              p.isWithin(root, _canonical(uri.toFilePath())) &&
+              !present.contains(_canonical(uri.toFilePath())))
+            uri,
+      };
+    } catch (_) {
+      return const <Uri>{};
+    }
+  }
+
   Future<File> _fileFor(String path, LocalFileStamp stamp) async {
     final Directory dir = await _directory();
     return File(p.join(dir.path, '${_key(path, stamp)}$_entrySuffix'));

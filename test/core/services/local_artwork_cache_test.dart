@@ -388,4 +388,43 @@ void main() {
       });
     });
   });
+
+  group('missing', () {
+    test('names the entries that were reclaimed, and only those', () async {
+      final Uri kept = (await cache.store(
+        '/music/kept.flac',
+        _stamp(),
+        await _solidPng(16, 16),
+      ))!;
+      final Uri reclaimed = (await cache.store(
+        '/music/reclaimed.flac',
+        _stamp(),
+        await _solidPng(16, 16),
+      ))!;
+      File(reclaimed.toFilePath()).deleteSync();
+
+      expect(await cache.missing(<Uri>{kept, reclaimed}), <Uri>{reclaimed});
+    });
+
+    test('a cache directory that is gone has lost every entry', () async {
+      final Uri cover = (await cache.store(
+        '/music/song.flac',
+        _stamp(),
+        await _solidPng(16, 16),
+      ))!;
+      await dir.delete(recursive: true);
+
+      expect(await cache.missing(<Uri>{cover}), <Uri>{cover});
+    });
+
+    test('a cover that is not in this cache is not its to judge', () async {
+      expect(
+        await cache.missing(<Uri>{
+          Uri.parse('https://example.test/cover.jpg'),
+          Uri.file('/somewhere/else/cover.img'),
+        }),
+        isEmpty,
+      );
+    });
+  });
 }

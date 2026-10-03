@@ -218,6 +218,30 @@ void main() {
       expect(scan.stamps.containsKey('/music/b.flac'), isFalse);
     });
 
+    test('a file whose cover the artwork cache no longer holds', () async {
+      // The file did not change, but the cache its row's cover lives in was
+      // reclaimed. Reusing the row would keep pointing at a cover that is
+      // gone, for good; reading the file again is what brings it back.
+      final Uri gone = Uri.file('/cache/local_artwork/gone.img');
+      final StampedTrack a = indexed['/music/a.flac']!;
+      indexed['/music/a.flac'] = StampedTrack(
+        track: a.track.copyWith(artworkUri: gone),
+        stamp: a.stamp,
+      );
+
+      final LocalScan scan = await LocalMusicSource(
+        folderPath: '/music',
+        scanner: files,
+        metadataReader: tags,
+        statReader: stats,
+        alreadyIndexed: indexed,
+        missingArtwork: <Uri>{gone},
+      ).scanTracks();
+
+      expect(tags.reads, <String>['/music/a.flac']);
+      expect(scan.report.reusedTracks, 1);
+    });
+
     test('a deleted file simply stops appearing', () async {
       files = FakeAudioFileScanner(filesByFolder: <String, List<String>>{
         '/music': <String>['/music/a.flac'],

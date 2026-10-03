@@ -81,12 +81,14 @@ class LocalMusicSource implements MusicSource {
     LocalMetadataReader metadataReader = const UnsupportedLocalMetadataReader(),
     LocalFileStatReader statReader = const UnsupportedLocalFileStatReader(),
     Map<String, StampedTrack> alreadyIndexed = const <String, StampedTrack>{},
+    Set<Uri> missingArtwork = const <Uri>{},
   })  : _scanner = scanner,
         _safDocumentLister = safDocumentLister,
         _androidMediaLibrary = androidMediaLibrary,
         _metadataReader = metadataReader,
         _statReader = statReader,
-        _alreadyIndexed = alreadyIndexed;
+        _alreadyIndexed = alreadyIndexed,
+        _missingArtwork = missingArtwork;
 
   /// Filesystem path, SAF tree URI, [FolderLocation.androidMediaStoreAudio], or
   /// null when the user has not configured local music.
@@ -108,6 +110,12 @@ class LocalMusicSource implements MusicSource {
   /// Empty means "nothing is known", which parses everything: the safe default,
   /// and the one a full rescan asks for.
   final Map<String, StampedTrack> _alreadyIndexed;
+
+  /// Covers that rows in [_alreadyIndexed] point at and that the reader's
+  /// artwork cache no longer holds (see [LocalArtworkInventory]). A row whose
+  /// cover is one of these is not reused even when its file is unchanged: the
+  /// file is read again, which is what brings the cover back.
+  final Set<Uri> _missingArtwork;
 
   @override
   String get id => 'local';
@@ -211,8 +219,9 @@ class LocalMusicSource implements MusicSource {
   /// that path with the identical stamp, the stored track is reused verbatim
   /// and its tags are never read again. Anything else falls through to the full
   /// parse: a new file, a file whose size or mtime moved, a file the stat
-  /// failed on, and every file at all when nothing was handed in (the
-  /// full-rescan path, and every platform without a stat reader).
+  /// failed on, a file whose cover the artwork cache no longer holds, and
+  /// every file at all when nothing was handed in (the full-rescan path, and
+  /// every platform without a stat reader).
   ///
   /// Reuse is deliberately *verbatim*. The stored track was built by this same
   /// mapper, from this same path, under this same root, so rebuilding it would
@@ -238,7 +247,8 @@ class LocalMusicSource implements MusicSource {
       final StampedTrack? indexed = _alreadyIndexed[path];
       if (stamp != null &&
           indexed != null &&
-          !stamp.differsFrom(indexed.stamp)) {
+          !stamp.differsFrom(indexed.stamp) &&
+          !_missingArtwork.contains(indexed.track.artworkUri)) {
         tracks.add(indexed.track);
         reused++;
         continue;
@@ -256,6 +266,20 @@ class LocalMusicSource implements MusicSource {
       if (metadata == null && stamp == null && indexed != null) {
         tracks.add(indexed.track);
         reused++;
+        continue;
+      }
+      // Unchanged since its row was written, and read again only because the
+      // artwork cache no longer holds its cover. A read of those same bytes
+      // that failed this time (a drive answering with an I/O error, a parse
+      // that ran out of time) says nothing about the tags the row was built
+      // from, so the row stays as it was, cover reference included, and the
+      // next scan asks for the cover again. Rebuilt from the file name, it
+      // would lose its tags for good: an unchanged file is never read again.
+      if (metadata == null &&
+          stamp != null &&
+          indexed != null &&
+          !stamp.differsFrom(indexed.stamp)) {
+        tracks.add(indexed.track);
         continue;
       }
       tracks.add(LocalTrackMapper.fromPath(

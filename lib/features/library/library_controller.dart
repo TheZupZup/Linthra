@@ -291,6 +291,22 @@ class LibraryController extends Notifier<LibraryState> {
       // provider hands out.
       final LocalMetadataReader metadataReader =
           ref.read(localMetadataReaderProvider);
+
+      // An unchanged file's row is reused as it is, cover included, so a
+      // cover its cache no longer holds (the cache was reclaimed) would stay
+      // missing for good. Those files are read again instead.
+      final Set<Uri> missingArtwork =
+          alreadyIndexed.isEmpty || metadataReader is! LocalArtworkInventory
+              ? const <Uri>{}
+              : await (metadataReader as LocalArtworkInventory).missingArtwork(
+                  <Uri>{
+                    for (final StampedTrack stamped in alreadyIndexed.values)
+                      if (stamped.track.artworkUri != null)
+                        stamped.track.artworkUri!,
+                  },
+                );
+      if (generation != _scanGeneration) return null;
+
       final scanner = LocalLibraryScanner((String root) {
         return LocalMusicSource(
           folderPath: root,
@@ -300,6 +316,7 @@ class LibraryController extends Notifier<LibraryState> {
           metadataReader: metadataReader,
           statReader: ref.read(localFileStatReaderProvider),
           alreadyIndexed: alreadyIndexed,
+          missingArtwork: missingArtwork,
         ).scanTracks();
       });
       final LocalLibraryScan scan = await scanner.scan(

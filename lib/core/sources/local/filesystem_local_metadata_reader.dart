@@ -37,7 +37,10 @@ import 'vorbis_comment_fields.dart';
 /// ([Mp4BoxGuard]) all return `null`, so the track still appears with its
 /// filename-derived metadata instead of vanishing from the library.
 class FilesystemLocalMetadataReader
-    implements LocalMetadataReader, LocalArtworkMaintainer {
+    implements
+        LocalMetadataReader,
+        LocalArtworkMaintainer,
+        LocalArtworkInventory {
   FilesystemLocalMetadataReader({
     LocalArtworkCache? artworkCache,
     Duration parseLimit = const Duration(seconds: 10),
@@ -91,6 +94,10 @@ class FilesystemLocalMetadataReader
 
   @override
   Future<void> retainArtwork(Set<Uri> live) => _artworkCache.retainOnly(live);
+
+  @override
+  Future<Set<Uri>> missingArtwork(Set<Uri> referenced) =>
+      _artworkCache.missing(referenced);
 
   @override
   Future<LocalAudioMetadata?> readFromPath(String path) async {
