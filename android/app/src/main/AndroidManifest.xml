@@ -71,12 +71,23 @@
          default on modern targets; see res/xml/network_security_config.xml for
          the rationale. HTTPS trusts system CAs plus user-installed CAs, so a
          self-hosted server's private CA works once installed on the device;
-         certificates not anchored in either store are still rejected. -->
+         certificates not anchored in either store are still rejected.
+
+         enableOnBackInvokedCallback="false": Back keeps reaching the app as
+         onBackPressed on Android 16 and later, where predictive back is
+         otherwise on for apps targeting API 36 (flutter.targetSdkVersion).
+         With it on, Android only hands Flutter a Back while the framework
+         says it handles one, which it never says for the frame's own Back
+         handling (a Folders level, another tab back to Library): those Backs
+         left the app. And a back swipe closed every tab's open page, hidden
+         ones included, and the page under an open dialog instead of the
+         dialog. See test/features/shell/home_shell_back_test.dart. -->
     <application
         android:label="Linthra"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:appCategory="audio"
+        android:enableOnBackInvokedCallback="false"
         android:networkSecurityConfig="@xml/network_security_config">
         <activity
             android:name=".MainActivity"
