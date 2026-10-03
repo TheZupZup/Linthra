@@ -177,12 +177,17 @@ Stable media IDs:
 | Offline category | `offline` |
 | Offline track | `offline/<index>` |
 | Queue category | `queue` |
-| Queue item | `queue/<index>` |
+| Queue item | `queue/<index>/<uriHash>` |
 | Empty-state placeholder | `empty` |
 
 `<albumId>` / `<artistId>` are URL-safe, **opaque** grouping ids (a base64url
 token, or an `unknown-album` / `unknown-artist` sentinel) — never a name, path,
 or token.
+
+`<uriHash>` is the same opaque SHA-256 of the track uri that the Songs leaves
+use. The car keeps showing a list after the queue or the list has moved on, so a
+row carries the song it listed: picking it plays that song, or nothing once it
+has left the list.
 
 - **Songs / Albums / Artists** are always shown (they reflect the catalog). When
   the catalog is empty, opening one shows a friendly placeholder ("Sync your
