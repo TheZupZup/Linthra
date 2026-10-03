@@ -101,6 +101,13 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   final List<({PlaylistSource source, int clears})> _createsOut =
       <({PlaylistSource source, int clears})>[];
 
+  /// Server playlists deleted here that a refresh answer may still list: `null`
+  /// while the delete is out, then the number of the last fetch sent before it
+  /// settled. Kept while a refresh that may have read the server before it is
+  /// out; see [_mergeRemote] and [_settleDelete].
+  final Map<({PlaylistSource source, String remoteId}), int?> _deletes =
+      <({PlaylistSource source, String remoteId}), int?>{};
+
   static String Function() _defaultIdGenerator() {
     int counter = 0;
     return () {
@@ -257,13 +264,30 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     if (playlist.isRemote && playlist.remoteId != null) {
       final RemotePlaylistGateway? gateway = _gatewayForSource(playlist.source);
       if (gateway != null) {
+        final ({PlaylistSource source, String remoteId}) deleted =
+            (source: playlist.source, remoteId: playlist.remoteId!);
+        _deletes[deleted] = null;
         try {
           await gateway.deleteRemote(playlist.remoteId!);
         } on RemoteSyncException catch (_) {
           // Swallowed: the playlist is already gone locally. It may reappear on a
           // later refresh if the server still has it (documented limitation).
+        } finally {
+          _settleDelete(deleted);
         }
       }
+    }
+  }
+
+  /// Notes that the server delete of [deleted] has settled. A refresh that
+  /// asked the server before this may still have it in its answer; one that
+  /// asks after won't, unless the delete failed (then it is back, as a failed
+  /// delete always was).
+  void _settleDelete(({PlaylistSource source, String remoteId}) deleted) {
+    if (_refreshesOut == 0) {
+      _deletes.remove(deleted);
+    } else {
+      _deletes[deleted] = _fetchesSent;
     }
   }
 
@@ -457,7 +481,10 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     try {
       return await _fetchAndMergeOnce(connected, clears);
     } finally {
-      if (--_refreshesOut == 0) _mergedBy.clear();
+      if (--_refreshesOut == 0) {
+        _mergedBy.clear();
+        _deletes.removeWhere((_, int? settled) => settled != null);
+      }
     }
   }
 
@@ -629,6 +656,14 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     );
     for (final RemotePlaylistData dto in remote) {
       if (creating || !known.add(dto.remoteId)) continue;
+      // Deleted here, and this answer may have been read before the server
+      // delete landed: not new on the server, just not gone from it yet.
+      final ({PlaylistSource source, String remoteId}) key =
+          (source: source, remoteId: dto.remoteId);
+      if (_deletes.containsKey(key)) {
+        final int? settled = _deletes[key];
+        if (settled == null || fetch <= settled) continue;
+      }
       final Playlist imported = Playlist(
         id: _newId(),
         name: dto.name,
@@ -866,10 +901,15 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       // Deleted here while the server was still making it. That delete had
       // no server id to send, so it goes now: left there, the playlist would
       // come back with the next refresh.
+      final ({PlaylistSource source, String remoteId}) deleted =
+          (source: gateway.source, remoteId: remoteId);
+      _deletes[deleted] = null;
       try {
         await gateway.deleteRemote(remoteId);
       } on RemoteSyncException catch (_) {
         // Best-effort, like every server delete (see [deletePlaylist]).
+      } finally {
+        _settleDelete(deleted);
       }
       return playlist;
     }

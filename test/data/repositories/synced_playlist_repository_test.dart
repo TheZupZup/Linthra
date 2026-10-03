@@ -94,6 +94,15 @@ class _SlowWritesSubsonicClient extends FakeSubsonicClient {
     ];
   }
 
+  @override
+  Future<void> deletePlaylist(
+    SubsonicSession session,
+    String playlistId,
+  ) async {
+    await _landWhenLetThrough();
+    return super.deletePlaylist(session, playlistId);
+  }
+
   /// Creates that reach the server at once but whose answers reach the app
   /// only when the test lets them through: the server already lists the new
   /// playlist while the app still waits to hear its id.
@@ -2053,6 +2062,50 @@ void main() {
         ]);
       });
 
+      // A delete takes a moment to reach the server too, and a refresh that
+      // reads the server in that moment still finds the playlist there.
+      test('a refresh answered before the delete lands does not bring it back',
+          () async {
+        client.holdWrites = true;
+        final Future<void> deleting = repository.deletePlaylist(id);
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+
+        await repository.refreshFromRemote();
+        expect(await repository.getAllPlaylists(), isEmpty);
+        expect(await store.load(), isEmpty);
+
+        client.holdWrites = false;
+        client.heldWrites.single.complete();
+        await deleting;
+        expect(client.playlists, isEmpty);
+        await repository.refreshFromRemote();
+        expect(await repository.getAllPlaylists(), isEmpty);
+      });
+
+      test(
+          'a delete that lands while a refresh reads is not undone by its '
+          'answer', () async {
+        client.holdWrites = true;
+        final Future<void> deleting = repository.deletePlaylist(id);
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        // The refresh reads the server before the delete reaches it, and its
+        // answer comes back after.
+        client.holdReads = true;
+        final Future<PlaylistSyncResult> refreshing =
+            repository.refreshFromRemote();
+        await _pumpUntil(() => client.heldReads.isNotEmpty);
+        client.holdWrites = false;
+        client.heldWrites.single.complete();
+        await deleting;
+        client.holdReads = false;
+        client.heldReads.single.complete();
+        await refreshing;
+
+        expect(client.playlists, isEmpty);
+        expect(await repository.getAllPlaylists(), isEmpty);
+        expect(await store.load(), isEmpty);
+      });
+
       test('two quick renames leave the server with the last one', () async {
         client.holdWrites = true;
         final Future<void> first = repository.renamePlaylist(id, 'Road');
@@ -2260,6 +2313,34 @@ void main() {
         expect(client.playlists, isEmpty);
         await repository.refreshFromRemote();
         expect(await repository.getAllPlaylists(), isEmpty);
+      });
+
+      // Deleted here while the server was making it, so it is deleted there
+      // once it exists, and a refresh can read the server in that moment.
+      test(
+          'one deleted while it is created is not brought back by a refresh '
+          'that read it before its server delete landed', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        final Future<void> deleting = repository.deletePlaylist(created.id);
+        client.heldWrites.single.complete();
+        // The create landed, and the delete that follows it is on the wire.
+        await _pumpUntil(() => client.heldWrites.length == 2);
+        client.holdReads = true;
+        final Future<PlaylistSyncResult> refreshing =
+            repository.refreshFromRemote();
+        await _pumpUntil(() => client.heldReads.isNotEmpty);
+        client.holdWrites = false;
+        client.heldWrites[1].complete();
+        await created.creating;
+        await deleting;
+        client.holdReads = false;
+        client.heldReads.single.complete();
+        await refreshing;
+
+        expect(client.playlists, isEmpty);
+        expect(await repository.getAllPlaylists(), isEmpty);
+        expect(await store.load(), isEmpty);
       });
 
       // The server has made the playlist, and lists it, before the app hears
