@@ -705,12 +705,31 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
   final ReorderFocusWalk _walk =
       ReorderFocusWalk(debugLabelPrefix: 'playlist-handle');
 
+  /// The row focus was last handed to, and the direction it moved in, until
+  /// the rows show that move.
+  ///
+  /// A move reaches the rows a few frames late: the playlist is saved and its
+  /// songs are looked up again first. Focus handed over at once lands on the
+  /// row still showing in that place, and is dropped when the rows catch up
+  /// and swap their focus nodes, so it is handed over again then.
+  (int, int)? _follow;
+
   @override
   void didUpdateWidget(_ReorderableTrackList oldWidget) {
     super.didUpdateWidget(oldWidget);
     // A reorder always resolves to a fresh list, so a changed identity means
     // the rows now carry post-move indices and the walk has served its turn.
-    if (!identical(widget.tracks, oldWidget.tracks)) _walk.reset();
+    if (!identical(widget.tracks, oldWidget.tracks)) {
+      _walk.reset();
+      final (int, int)? follow = _follow;
+      _follow = null;
+      if (follow != null) _walk.followTo(follow.$1, follow.$2);
+    }
+  }
+
+  void _followTo(int index, int delta) {
+    _follow = (index, delta);
+    _walk.followTo(index, delta);
   }
 
   @override
@@ -747,7 +766,7 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
     final int to = from + delta;
     if (!_move(from, to)) return;
     _walk.recordMove(rowIndex: rowIndex, to: to);
-    _walk.followTo(to, delta);
+    _followTo(to, delta);
   }
 
   /// A pointer drop, carrying keyboard focus along with the row that held it.
@@ -757,7 +776,7 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
     final int focused = _walk.focusedIndex;
     if (!_move(from, to)) return;
     if (focused < 0) return;
-    _walk.followTo(
+    _followTo(
       ReorderFocusWalk.positionAfterMove(focused, from: from, to: to),
       to - from,
     );

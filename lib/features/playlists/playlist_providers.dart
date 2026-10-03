@@ -33,14 +33,29 @@ final playlistSyncTargetsProvider = Provider<List<PlaylistSyncTarget>>((ref) {
 
 /// A single playlist by id, derived from [playlistsProvider] so it stays live as
 /// the playlist is edited. `null` while loading or when the playlist is gone.
-final playlistByIdProvider = Provider.family<Playlist?, String>((ref, id) {
-  final List<Playlist> playlists =
-      ref.watch(playlistsProvider).valueOrNull ?? const <Playlist>[];
-  for (final Playlist playlist in playlists) {
-    if (playlist.id == id) return playlist;
+///
+/// A notifier rather than a plain provider, because a plain provider only
+/// tells its listeners about a value that is not `==` the previous one, and a
+/// [Playlist] is equal to any other with the same id. Every edit keeps the id,
+/// so the open playlist went on showing the songs, order and name it had
+/// before the edit. A notifier compares by identity, and an edit always makes
+/// a new [Playlist].
+final playlistByIdProvider =
+    NotifierProvider.family<_PlaylistById, Playlist?, String>(
+  _PlaylistById.new,
+);
+
+class _PlaylistById extends FamilyNotifier<Playlist?, String> {
+  @override
+  Playlist? build(String id) {
+    final List<Playlist> playlists =
+        ref.watch(playlistsProvider).valueOrNull ?? const <Playlist>[];
+    for (final Playlist playlist in playlists) {
+      if (playlist.id == id) return playlist;
+    }
+    return null;
   }
-  return null;
-});
+}
 
 /// The resolved tracks of a playlist (in playlist order) plus a count of any
 /// referenced tracks no longer present in the catalog, so the detail screen can
