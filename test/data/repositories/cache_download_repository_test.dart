@@ -838,6 +838,26 @@ void main() {
       });
 
       test(
+          'a song downloaded after pre-cache warmed it is not evicted before '
+          'older downloads', () async {
+        final repository = buildLimited(maxBytes: 10, now: incrementingClock());
+
+        await repository.requestDownload(_jellyfin('j1')); // oldest
+        // Pre-cache warms j2 ahead of play, then the listener downloads it:
+        // promoted in place, without a second fetch.
+        await repository.prefetch(_jellyfin('j2'));
+        await repository.requestDownload(_jellyfin('j2'));
+        expect(downloader.fetchCount, 2);
+        await repository.requestDownload(_jellyfin('j3')); // forces eviction
+
+        // j2 was downloaded after j1, so j1 is the least recently used, as
+        // when j2 is fetched directly (the test above).
+        expect(await repository.statusFor('j2'), DownloadStatus.downloaded);
+        expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+        expect(await repository.statusFor('j3'), DownloadStatus.downloaded);
+      });
+
+      test(
           'the cache limit is still enforced when downloading over mobile data',
           () async {
         final repository = buildLimited(maxBytes: 10, now: incrementingClock());

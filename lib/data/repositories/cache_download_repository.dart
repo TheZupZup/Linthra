@@ -505,7 +505,12 @@ class CacheDownloadRepository
         if (current == null || !current.preloaded || !current.isManaged) {
           return false;
         }
-        _downloads[key] = current.copyWith(preloaded: false);
+        // Stamped as used now, like a download fetched now. A pre-cache
+        // nobody has played yet has no access time, which eviction reads as
+        // the least recently used, so the song just downloaded would be the
+        // first download to go.
+        _downloads[key] =
+            current.copyWith(preloaded: false, lastAccessedAt: _now());
         await _save();
         _statuses[key] = DownloadStatus.downloaded;
         _emitStatus();
