@@ -119,11 +119,28 @@ class SyncedPlaylistRepository implements PlaylistRepository {
 
   Future<void> _ensureLoaded() async {
     if (!_loaded) {
-      _playlists = await _store.load();
+      _playlists = <Playlist>[
+        for (final Playlist p in await _store.load())
+          // Its create was still out when the app last closed. A create lasts
+          // only as long as the app, so no answer is coming: it is a create
+          // that failed, and says so rather than passing for synced.
+          if (p.syncState == PlaylistSyncState.pendingCreate &&
+              p.remoteId == null)
+            p.copyWith(
+              syncState: PlaylistSyncState.syncFailed,
+              lastSyncError: () => _unfinishedCreate,
+            )
+          else
+            p,
+      ];
       _loaded = true;
     }
     await _migrateLegacyTrackIdsOnce();
   }
+
+  /// The [Playlist.lastSyncError] of a playlist whose create never answered.
+  static const String _unfinishedCreate =
+      'Linthra closed before the server confirmed this playlist was created.';
 
   /// The connected gateway that serves [source], or `null` when that provider is
   /// local-only, not registered, or not signed in.

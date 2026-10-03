@@ -2315,6 +2315,29 @@ void main() {
         expect(await repository.getAllPlaylists(), isEmpty);
       });
 
+      // The app closed, or was closed for it, while the server was still
+      // making it. A create lasts only as long as the app, so nothing will
+      // ever answer for it after that.
+      test(
+          'one whose create was out when the app closed is not shown as '
+          'synced on the next launch', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+
+        // The next launch reads what was saved.
+        final SyncedPlaylistRepository relaunched = build(
+          SubsonicPlaylistGateway(
+            client: _SlowWritesSubsonicClient(),
+            session: () => _subsonicSession,
+          ),
+        );
+        final Playlist road = (await relaunched.getPlaylistById(created.id))!;
+
+        expect(road.source, PlaylistSource.subsonic);
+        expect(road.remoteId, isNull);
+        expect(road.syncState, PlaylistSyncState.syncFailed);
+      });
+
       // Deleted here while the server was making it, so it is deleted there
       // once it exists, and a refresh can read the server in that moment.
       test(
