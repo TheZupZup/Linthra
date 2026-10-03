@@ -27,6 +27,7 @@ import 'package:linthra/core/repositories/source_catalog_reader.dart';
 import 'package:linthra/core/services/folder_picker_service.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
+import 'package:linthra/core/sources/local/local_music_roots.dart';
 import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/core/sources/local/local_scan_report.dart';
@@ -891,6 +892,87 @@ void main() {
         _usb,
       ]);
       expect(await catalogUris(), before);
+    });
+  });
+
+  // The card's Change button: pick one folder to stand in for the whole
+  // selection. It is the same kind of change as Reselect, so the same rule
+  // holds: the new folder is stored only once it could be read.
+  group('Change', () {
+    test('a folder that cannot be read is not adopted', () async {
+      final ProviderContainer c = container();
+      await start(c);
+      final Set<String> indexed = await catalogUris();
+
+      fs.breakRoot(_elsewhere, LocalRootFault.permissionDenied);
+      picker.folder = _elsewhere;
+      await c.read(localMusicControllerProvider.notifier).pickFolder();
+      await pumpEventQueue();
+
+      final List<String> selected = await selection.getSelectedFolders();
+      expect(
+        <String>[
+          for (final String uri in await catalogUris())
+            if (LocalMusicRoots.ownerOf(uri, selected) == null) uri,
+        ],
+        isEmpty,
+        reason: 'selection is now $selected: every indexed track must belong '
+            'to a selected folder, or its music can neither be refreshed nor '
+            'removed',
+      );
+      expect(selected, <String>[_internal, _usb]);
+      expect(c.read(selectedFolderControllerProvider).value, selected);
+      expect(await catalogUris(), indexed);
+      expect(c.read(localMusicControllerProvider).isError, isTrue);
+      expect(
+        c.read(localMusicControllerProvider).message,
+        contains('left as it was'),
+      );
+    });
+
+    test('a folder that can be read takes the place of every folder', () async {
+      final ProviderContainer c = container();
+      await start(c);
+
+      picker.folder = _elsewhere;
+      await c.read(localMusicControllerProvider.notifier).pickFolder();
+      await pumpEventQueue();
+
+      expect(await selection.getSelectedFolders(), <String>[_elsewhere]);
+      expect(c.read(selectedFolderControllerProvider).value, <String>[
+        _elsewhere,
+      ]);
+      expect(await catalogUris(), <String>{_elsewhereTrack});
+      expect(
+        c.read(localMusicControllerProvider).message,
+        contains('Added 1 track'),
+      );
+    });
+
+    test('a refresh during the walk of the new folder does not undo it',
+        () async {
+      final ProviderContainer c =
+          container(roots: <String>[_internal, _usb, _camera]);
+      await start(c);
+      fs.breakRoot(_camera, LocalRootFault.missing);
+      await rescan(c);
+
+      picker.folder = _elsewhere;
+      final Future<void> walking = fs.hold(_elsewhere);
+      final Future<void> change =
+          c.read(localMusicControllerProvider.notifier).pickFolder();
+      await walking;
+      fs.restore(_camera);
+      final Future<void> reconnect =
+          c.read(localRootAvailabilityProvider.notifier).refresh();
+      await pumpEventQueue();
+      fs.release(_elsewhere);
+      await change;
+      await reconnect;
+      await pumpEventQueue();
+
+      expect(await selection.getSelectedFolders(), <String>[_elsewhere]);
+      expect(await catalogUris(), <String>{_elsewhereTrack});
     });
   });
 

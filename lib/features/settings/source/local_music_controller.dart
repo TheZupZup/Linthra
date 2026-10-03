@@ -42,9 +42,14 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   LocalMusicActionState build() => const LocalMusicActionState();
 
   /// Picks a folder and makes it the only local source. This is the Android
-  /// path (one SAF grant at a time) and the first-run/empty-library prompt.
+  /// path (one SAF grant at a time), the first-run/empty-library prompt, and
+  /// the card's Change button.
   Future<void> pickFolder() async {
     state = const LocalMusicActionState(busy: true);
+    if (_selectedFolders().isNotEmpty) {
+      await _replaceSelection();
+      return;
+    }
     final String? picked = await ref
         .read(selectedFolderControllerProvider.notifier)
         .pickAndPersist();
@@ -53,6 +58,44 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
       return;
     }
     await _scan(<String>[picked]);
+  }
+
+  /// Change: the folder the user picks stands in for every selected folder.
+  ///
+  /// Transactional, the same way [reselectFolder] is: the folder is asked
+  /// first, then scanned, and stored only once that scan could read it. A
+  /// first walk that reads nothing writes nothing, so storing the folder
+  /// before it would leave the music of the folders it replaced in the
+  /// library under no selected folder: not refreshed, and with no folder left
+  /// in Settings to remove it from.
+  Future<void> _replaceSelection() async {
+    final String? picked =
+        await ref.read(folderPickerServiceProvider).pickFolder();
+    if (picked == null || picked.isEmpty) {
+      state = const LocalMusicActionState();
+      return;
+    }
+    final LocalRootFault? unreadable =
+        (await ref.read(localRootProbeProvider).inspect(picked))?.fault;
+    if (unreadable != null) {
+      state = LocalMusicActionState(
+        message: _replacementUnreadable(unreadable),
+        isError: true,
+      );
+      return;
+    }
+    await ref.read(libraryControllerProvider.notifier).changeSource(() async {
+      final LocalScanReport? report = await _scan(<String>[picked]);
+      if (report == null || report.hadError) return;
+      // Held back until the selection it describes is stored, as Reselect
+      // does.
+      final LocalMusicActionState outcome = state;
+      state = const LocalMusicActionState(busy: true);
+      await ref
+          .read(selectedFolderControllerProvider.notifier)
+          .setAndPersist(picked);
+      state = outcome;
+    });
   }
 
   /// Picks another folder and adds it to the library, keeping the folders
