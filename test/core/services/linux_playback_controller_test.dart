@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -332,6 +333,87 @@ void main() {
 
     expect(controller.state.status, PlaybackStatus.error);
     expect(controller.state.isPlaying, isFalse);
+  });
+
+  group('a song whose last bytes do not decode', () {
+    // What follows the last audio frame of many files is not audio: a
+    // Lyrics3 tag, zero padding, the cut-off frame of a copy that stopped
+    // short. libmpv logs `Error decoding audio.` when it reaches it, about
+    // half a second before the end it reported, and the vendored
+    // just_audio_media_kit turns that into an idle engine (observed with
+    // libmpv 2.2: a 4.05 s MP3 with a Lyrics3 tag went idle at 3.42 s).
+    late Directory dir;
+    late String a;
+    late String b;
+
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('linthra-tail');
+      a = '${dir.path}/a.mp3';
+      b = '${dir.path}/b.mp3';
+      File(a).writeAsBytesSync(<int>[1, 2, 3]);
+      File(b).writeAsBytesSync(<int>[1, 2, 3]);
+    });
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('moves on to the next one at its end', () async {
+      final engine = _Engine();
+      final controller = build(engine);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      await controller.playTracks(<Track>[_track('a', a), _track('b', b)]);
+      engine.durations.add(const Duration(milliseconds: 4048));
+      controller.setPositionForTesting(const Duration(milliseconds: 3419));
+      expect(controller.state.status, PlaybackStatus.playing);
+
+      engine.loseSourceAsLinuxDoes();
+      await pumpEventQueue();
+
+      expect(controller.state.failure, isNull,
+          reason: 'the whole song played: there is nothing to report');
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    test('on repeat-one plays again from the top', () async {
+      final engine = _Engine();
+      final controller = build(engine)..setRepeatMode(RepeatMode.one);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      await controller.playTrack(_track('a', a));
+      engine.durations.add(const Duration(milliseconds: 4048));
+      controller.setPositionForTesting(const Duration(milliseconds: 3419));
+
+      engine.loseSourceAsLinuxDoes();
+      await pumpEventQueue();
+
+      // The engine let go of the source, so there is nothing to rewind:
+      // the song is opened again.
+      expect(engine.opened, hasLength(2));
+      expect(controller.state.failure, isNull);
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    test('still says so when it stops well before its end', () async {
+      final engine = _Engine();
+      final controller = build(engine);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      await controller.playTracks(<Track>[_track('a', a), _track('b', b)]);
+      engine.durations.add(const Duration(milliseconds: 4048));
+      controller.setPositionForTesting(const Duration(milliseconds: 1500));
+
+      engine.loseSourceAsLinuxDoes();
+      await pumpEventQueue();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.currentTrack?.id, 'a');
+    });
   });
 
   test('stopping is not taken for a lost source', () async {

@@ -1161,7 +1161,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // explains is the source failing, and gets what an engine error gets.
     if (status == PlaybackStatus.idle) {
       if (engineReportsFailureAsIdle && !_loadInFlight && !_engineStopping) {
-        _onEngineError(const _EngineLostSource(), StackTrace.current);
+        if (_heardToItsEnd()) {
+          // What the engine could not decode is what follows the audio (a
+          // Lyrics3 tag, padding, a cut-off last frame): it says so a moment
+          // before the end, and the song was heard. It ended, but the engine
+          // has let go of it, so there is nothing left in it to rewind.
+          _completedSourceGeneration = _engineSourceGeneration;
+          _onCompleted(sourceReleased: true);
+        } else {
+          _onEngineError(const _EngineLostSource(), StackTrace.current);
+        }
       }
       return;
     }
@@ -2085,11 +2094,35 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     }
   }
 
+  /// How close to its known end a source the engine lost was heard for that
+  /// to be its end rather than a failure, capped at a quarter of the track.
+  /// Two seconds, the margin play history already uses for "played to the
+  /// end", is well beyond the half second or so the engine decodes ahead.
+  static const Duration _endHeardTolerance = Duration(seconds: 2);
+
+  /// Whether the source the engine just lost (see
+  /// [engineReportsFailureAsIdle]) was being heard right up to its end.
+  bool _heardToItsEnd() {
+    if (_state.status != PlaybackStatus.playing &&
+        _state.status != PlaybackStatus.buffering) {
+      return false;
+    }
+    final Duration duration = _state.duration;
+    if (duration <= Duration.zero) return false;
+    final Duration quarter = duration ~/ 4;
+    final Duration tolerance =
+        quarter < _endHeardTolerance ? quarter : _endHeardTolerance;
+    return duration - _state.position <= tolerance;
+  }
+
   /// Decides what to play when the current track finishes, per [_repeatMode]:
   /// repeat-one replays the same track, repeat-all advances (wrapping past the
   /// end), and off advances until the queue runs out and then settles on
   /// [PlaybackStatus.completed].
-  void _onCompleted() {
+  ///
+  /// [sourceReleased] when the engine no longer holds the track that ended,
+  /// so repeat-one opens it again rather than rewinding it.
+  void _onCompleted({bool sourceReleased = false}) {
     // A source that played to its end did not stall. The Linux engine reports
     // every end as a moment of buffering first (libmpv goes idle at the end
     // of a file), which armed the watchdog: left running, it would take a
@@ -2104,7 +2137,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (finished != null) _onTrackCompleted?.call(finished);
     switch (_repeatMode) {
       case RepeatMode.one:
-        unawaited(_replayCurrent());
+        unawaited(sourceReleased ? _playCurrent() : _replayCurrent());
       case RepeatMode.all:
         if (_queue.hasNext) {
           skipToNext();
