@@ -76,6 +76,18 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
   /// observer must never be able to break playback.
   final void Function(ReachabilityStatus status)? _onReachabilityObserved;
 
+  /// Numbers each attempt as it starts.
+  int _attempts = 0;
+
+  /// For each key, the latest-started attempt whose outcome was taken in.
+  ///
+  /// Attempts can finish out of order. A request stuck on a network that has
+  /// since gone (Wi-Fi left behind for mobile data) times out long after a
+  /// newer one reached the server, and its "unreachable" is older news than
+  /// that answer. Kept, it would fast-fail every track for the memory's
+  /// lifetime and hide the library while the server is answering.
+  final Map<String, int> _newestSettled = <String, int>{};
+
   void _observe(ReachabilityStatus status) {
     final void Function(ReachabilityStatus)? observer = _onReachabilityObserved;
     if (observer == null) return;
@@ -96,6 +108,7 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     // No connected session for this provider: let the inner resolver give its
     // own precise answer ("sign in first"); reachability doesn't apply.
     if (key == null) return _inner.resolve(track);
+    final int attempt = ++_attempts;
 
     // 1. The whole device is offline — no server is reachable, so don't attempt
     //    a connection that can only time out. The offline-first resolver above
@@ -105,7 +118,9 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     //    returns this is false again, so a reconnect is never blocked by a stale
     //    "offline" the way a cached value would be.
     if (await _isOffline()) {
-      _observeFor(key, ReachabilityStatus.networkUnavailable);
+      if (_isNewest(key, attempt)) {
+        _observeFor(key, ReachabilityStatus.networkUnavailable);
+      }
       throw _failFast(ReachabilityStatus.networkUnavailable);
     }
 
@@ -122,13 +137,15 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     // 3. Resolve for real, recording what we learn so the memory stays current.
     try {
       final ResolvedPlayable resolved = await _inner.resolve(track);
-      _reachability.record(key, ReachabilityStatus.reachable);
-      _observeFor(key, ReachabilityStatus.reachable);
+      if (_isNewest(key, attempt)) {
+        _reachability.record(key, ReachabilityStatus.reachable);
+        _observeFor(key, ReachabilityStatus.reachable);
+      }
       return resolved;
     } on PlaybackResolutionException catch (error) {
       final ReachabilityStatus? status =
           reachabilityFromPlaybackError(error.kind);
-      if (status != null) {
+      if (status != null && _isNewest(key, attempt)) {
         _reachability.record(key, status);
         _observeFor(key, status);
       }
@@ -145,6 +162,16 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
   void _observeFor(String key, ReachabilityStatus status) {
     if (_providerKey() != key) return;
     _observe(status);
+  }
+
+  /// Whether what [attempt] learned is news for [key], that is, no attempt
+  /// that started after it has been taken in yet. Marks it as the newest when
+  /// it is.
+  bool _isNewest(String key, int attempt) {
+    final int? newest = _newestSettled[key];
+    if (newest != null && newest > attempt) return false;
+    _newestSettled[key] = attempt;
+    return true;
   }
 
   /// Whether the device currently has no usable network. Defensive: any failure
