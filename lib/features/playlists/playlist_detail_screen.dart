@@ -45,6 +45,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   final Set<String> _selectedIds = <String>{};
   bool _selecting = false;
 
+  /// Where the songs removed from their rows were, for their Undos.
+  final _RemovalTrail _removals = _RemovalTrail();
+
   @override
   Widget build(BuildContext context) {
     final Playlist? playlist =
@@ -586,6 +589,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   Future<void> _removeOneFromPlaylist(Playlist playlist, Track track) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     final repository = ref.read(playlistRepositoryProvider);
+    final _RemovalTrail removals = _removals..note(playlist.trackIds);
     final List<int> positions =
         await repository.removeTrack(playlist.id, track.uri);
     messenger.showSnackBar(
@@ -594,8 +598,17 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         action: SnackBarAction(
           label: 'Undo',
           // Back where it was, not at the end.
-          onPressed: () =>
-              repository.restoreTrack(playlist.id, track.uri, positions),
+          onPressed: () async {
+            final Playlist? now = await repository.getPlaylistById(playlist.id);
+            await repository.restoreTrack(
+              playlist.id,
+              track.uri,
+              (now == null
+                      ? null
+                      : removals.positionsFor(track.uri, now.trackIds)) ??
+                  positions,
+            );
+          },
         ),
       ),
     );
@@ -843,5 +856,56 @@ class _Header extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Where the songs removed from a playlist one by one were, so each one's Undo
+/// puts it back between the same songs, whichever order the Undos come in.
+///
+/// Removal messages queue up, so the first removal's Undo is offered first,
+/// while each removal knows only where its song was in the playlist as it was
+/// then. A song removed before another one goes back counted among songs that
+/// were taken out since, too far down. One removed after another knows nothing
+/// of it and goes back on the wrong side of it.
+///
+/// [_order] is the playlist as it was before the first removal on record, with
+/// every song a removal took out still in it. While the playlist changes only
+/// by removals and their Undos, every state it goes through keeps that order,
+/// and a song goes back after the songs before it in [_order] that are there
+/// then: where it was. A playlist changed any other way (a song added, a move,
+/// a server's version adopted) starts the record afresh, and an Undo it can't
+/// place puts its song back at the positions it was taken from.
+class _RemovalTrail {
+  List<String> _order = const <String>[];
+
+  /// Notes a removal from [before], the playlist just before it.
+  void note(List<String> before) {
+    if (!_keepsOrder(before)) _order = List<String>.of(before);
+  }
+
+  /// Where [uri] goes back into [now], or null when this record can't say.
+  List<int>? positionsFor(String uri, List<String> now) {
+    if (!_order.contains(uri) || now.contains(uri) || !_keepsOrder(now)) {
+      return null;
+    }
+    final List<int> positions = <int>[];
+    int kept = 0;
+    for (final String song in _order) {
+      if (song == uri) {
+        positions.add(kept + positions.length);
+      } else if (kept < now.length && now[kept] == song) {
+        kept++;
+      }
+    }
+    return positions;
+  }
+
+  /// Whether every song of [songs] is in [_order], in the same order.
+  bool _keepsOrder(List<String> songs) {
+    int matched = 0;
+    for (final String song in _order) {
+      if (matched < songs.length && songs[matched] == song) matched++;
+    }
+    return matched == songs.length;
   }
 }

@@ -260,6 +260,61 @@ void main() {
     );
   });
 
+  // Removal messages queue up (one with an action stays until it is used), so
+  // after two removals the first one's Undo is offered first, then the
+  // second's. Using both, in that order, must give back the playlist there
+  // was, whichever of the two songs came first in it.
+  group('undoing two removals in the order they are offered', () {
+    Future<void> removeRow(WidgetTester tester, String title) async {
+      await tester.tap(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text(title),
+            matching: find.byType(ListTile),
+          ),
+          matching: find.byTooltip('Track actions'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove from playlist'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> undo(WidgetTester tester, String title) async {
+      expect(find.text('Removed “$title” from playlist.'), findsOneWidget);
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+    }
+
+    for (final (String first, String second) in <(String, String)>[
+      ('Song B', 'Song A'),
+      ('Song A', 'Song B'),
+    ]) {
+      testWidgets('$first, then $second, gives back the order there was',
+          (tester) async {
+        final InMemoryPlaylistStore store = await _seededStore(
+          trackIds: <String>[for (final Track track in _tracks) track.uri],
+        );
+        await _pump(tester, store: store, controller: FakePlaybackController());
+
+        await removeRow(tester, first);
+        await removeRow(tester, second);
+        expect(
+          (await store.load()).single.trackIds,
+          <String>['file:///c.mp3'],
+        );
+
+        await undo(tester, first);
+        await undo(tester, second);
+
+        expect(
+          (await store.load()).single.trackIds,
+          <String>['file:///a.mp3', 'file:///b.mp3', 'file:///c.mp3'],
+        );
+      });
+    }
+  });
+
   // The open playlist has to show its own edits. A playlist is equal to
   // another with the same id, so an edit that kept the id used to look like
   // no change at all: the screen kept the rows, the order and the name it had
