@@ -278,6 +278,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   /// The default list: drag-to-reorder (when nothing is missing) + per-row menu.
   Widget _reorderableList(Playlist playlist, PlaylistTracks data) {
     final List<Track> tracks = data.tracks;
+    final List<String> rowKeys = _rowKeys(tracks);
     // Reorder maps 1:1 to stored ids only when every id resolved; if some are
     // missing, fall back to a plain list so a drag can't scramble the order.
     final bool canReorder = data.missingCount == 0;
@@ -286,7 +287,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       return ListView.builder(
         key: _listPosition,
         itemCount: tracks.length,
-        itemBuilder: (context, index) => _trackRow(playlist, tracks, index),
+        itemBuilder: (context, index) =>
+            _trackRow(playlist, tracks, rowKeys, index),
       );
     }
 
@@ -295,13 +297,29 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       playlistId: playlist.id,
       tracks: tracks,
       rowBuilder: (int index, Widget handle) =>
-          _trackRow(playlist, tracks, index, handle: handle),
+          _trackRow(playlist, tracks, rowKeys, index, handle: handle),
     );
+  }
+
+  /// A key for every row. A synced playlist can hold a song twice (Navidrome
+  /// allows it, and a refresh keeps it as it is), and the reorderable list
+  /// needs each row's key to be its own: the first copy of a song is keyed by
+  /// its uri, any later one by the uri and which copy it is.
+  static List<String> _rowKeys(List<Track> tracks) {
+    final Map<String, int> seen = <String, int>{};
+    return <String>[
+      for (final Track track in tracks)
+        switch (seen.update(track.uri, (int n) => n + 1, ifAbsent: () => 0)) {
+          0 => track.uri,
+          final int copy => '${track.uri}#$copy',
+        },
+    ];
   }
 
   Widget _trackRow(
     Playlist playlist,
     List<Track> tracks,
+    List<String> rowKeys,
     int index, {
     Widget? handle,
   }) {
@@ -311,7 +329,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     // Keyed by the provider-namespaced uri so each source's heart is its own.
     final bool isFavorite = ref.watch(isFavoriteProvider(track.uri));
     return ListTile(
-      key: ValueKey<String>(track.uri),
+      key: ValueKey<String>(rowKeys[index]),
       leading: TrackArtwork(
         artworkUri: track.artworkUri,
         nowPlaying: nowPlaying,

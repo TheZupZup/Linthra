@@ -72,6 +72,16 @@ class _SlowWritesSubsonicClient extends FakeSubsonicClient {
         p.id == playlistId ? SubsonicPlaylistDto(id: p.id, name: name) : p,
     ];
   }
+
+  @override
+  Future<String> createPlaylist(
+    SubsonicSession session, {
+    required String name,
+    List<String> songIds = const <String>[],
+  }) async {
+    await _landWhenLetThrough();
+    return super.createPlaylist(session, name: name, songIds: songIds);
+  }
 }
 
 /// The Jellyfin counterpart of [_SlowWritesSubsonicClient], for its add and
@@ -105,6 +115,16 @@ class _SlowWritesJellyfinClient extends FakeJellyfinClient {
   ) async {
     await _landWhenLetThrough();
     return super.removeItemsFromPlaylist(session, playlistId, itemIds);
+  }
+
+  @override
+  Future<String> createPlaylist(
+    JellyfinSession session, {
+    required String name,
+    List<String> itemIds = const <String>[],
+  }) async {
+    await _landWhenLetThrough();
+    return super.createPlaylist(session, name: name, itemIds: itemIds);
   }
 }
 
@@ -855,6 +875,79 @@ void main() {
 
       final Playlist? migrated = await repository.getPlaylistById('p1');
       expect(migrated!.trackIds, <String>['101']); // preserved, not mis-keyed
+    });
+
+    test('collapses two entries the re-key makes one', () async {
+      await store.save(<Playlist>[
+        const Playlist(
+          id: 'p1',
+          name: 'Server Mix',
+          source: PlaylistSource.jellyfin,
+          remoteId: 'srv-1',
+          trackIds: <String>['101', 'jellyfin:101', '202'],
+          syncState: PlaylistSyncState.synced,
+        ),
+      ]);
+
+      final Playlist? migrated = await build().getPlaylistById('p1');
+      expect(migrated!.trackIds, <String>['jellyfin:101', 'jellyfin:202']);
+    });
+
+    // Navidrome lets a playlist hold a song twice, and a refresh adopts the
+    // list as the server has it (see 'Undo puts back every copy a server
+    // playlist held'). The migration runs on the first load of every launch,
+    // and every Subsonic edit sends the whole ordered list back.
+    test('a restart keeps both copies of a song a server playlist holds twice',
+        () async {
+      final FakeSubsonicClient client = FakeSubsonicClient()
+        ..playlists = <SubsonicPlaylistDto>[
+          const SubsonicPlaylistDto(id: 'p-1', name: 'Party'),
+        ]
+        ..playlistSongIds = <String, List<String>>{
+          'p-1': <String>['a', 'b', 'c', 'b'],
+        };
+      int ids = 0;
+      // Wired as in production, catalog for the migration included.
+      SyncedPlaylistRepository launch() => SyncedPlaylistRepository(
+            store: store,
+            gateways: <RemotePlaylistGateway>[
+              SubsonicPlaylistGateway(
+                client: client,
+                session: () => _subsonicSession,
+              ),
+            ],
+            idGenerator: () => 'pl-${ids++}',
+            now: () => DateTime(2024, 1, 1),
+            catalogForMigration: () async => const <Track>[
+              Track(id: 'a', title: 'A', uri: 'subsonic:a'),
+            ],
+          );
+
+      final SyncedPlaylistRepository first = launch();
+      await first.refreshFromRemote();
+      await first.dispose();
+
+      // Next launch: the listener moves 'c' to the top before a refresh has
+      // reached the server (still starting up, or not back online yet).
+      final SyncedPlaylistRepository second = launch();
+      final Playlist party = (await second.getAllPlaylists()).single;
+      expect(party.trackIds, <String>[
+        'subsonic:a',
+        'subsonic:b',
+        'subsonic:c',
+        'subsonic:b',
+      ]);
+      await second.reorderTracks(party.id, 2, 0);
+
+      // The same songs in the new order, the second 'b' still there.
+      expect(client.playlistSongIds['p-1'], <String>['c', 'a', 'b', 'b']);
+      expect((await store.load()).single.trackIds, <String>[
+        'subsonic:c',
+        'subsonic:a',
+        'subsonic:b',
+        'subsonic:b',
+      ]);
+      await second.dispose();
     });
   });
 
@@ -1962,6 +2055,178 @@ void main() {
         expect(server(), contains('c'));
         await repository.refreshFromRemote();
         expect(await local(), contains('jellyfin:c'));
+      });
+    });
+  });
+
+  // A new synced playlist is on screen (and can be edited) from the moment
+  // it is made, while the server is still creating it. Until that create
+  // lands there is no server id to send an edit to.
+  group('SyncedPlaylistRepository (a create still on the wire)', () {
+    late InMemoryPlaylistStore store;
+    late int counter;
+
+    setUp(() {
+      store = InMemoryPlaylistStore();
+      counter = 0;
+    });
+
+    SyncedPlaylistRepository build(RemotePlaylistGateway gateway) =>
+        SyncedPlaylistRepository(
+          store: store,
+          gateways: <RemotePlaylistGateway>[gateway],
+          idGenerator: () => 'pl-${counter++}',
+          now: () => DateTime(2024, 1, 1),
+        );
+
+    /// Starts creating a [source] playlist named 'Road' with the server
+    /// holding the create, and returns its local id and the create.
+    Future<({String id, Future<Playlist> creating})> startCreate(
+      SyncedPlaylistRepository repository,
+      List<Completer<void>> heldWrites,
+      PlaylistSource source,
+    ) async {
+      final Future<Playlist> creating =
+          repository.createPlaylist('Road', source: source);
+      await _pumpUntil(() => heldWrites.isNotEmpty);
+      final String id = (await repository.getAllPlaylists()).single.id;
+      return (id: id, creating: creating);
+    }
+
+    group('Subsonic', () {
+      late _SlowWritesSubsonicClient client;
+      late SyncedPlaylistRepository repository;
+
+      setUp(() {
+        client = _SlowWritesSubsonicClient()..holdWrites = true;
+        repository = build(
+          SubsonicPlaylistGateway(
+            client: client,
+            session: () => _subsonicSession,
+          ),
+        );
+      });
+
+      /// Lets the held create (and everything after it) through.
+      void landCreate() {
+        client.holdWrites = false;
+        for (final Completer<void> gate in client.heldWrites) {
+          if (!gate.isCompleted) gate.complete();
+        }
+      }
+
+      test('a song added while it is created reaches the server', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        final Future<void> adding =
+            repository.addTrack(created.id, 'subsonic:a');
+
+        landCreate();
+        await created.creating;
+        await adding;
+
+        expect(client.playlistSongIds['pl-new'], <String>['a']);
+        await repository.refreshFromRemote();
+        expect(
+          (await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['subsonic:a'],
+        );
+      });
+
+      test('a rename made while it is created reaches the server', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        final Future<void> renaming =
+            repository.renamePlaylist(created.id, 'Road Trip');
+
+        landCreate();
+        await created.creating;
+        await renaming;
+
+        expect(client.playlists.single.name, 'Road Trip');
+        await repository.refreshFromRemote();
+        expect(
+          (await repository.getPlaylistById(created.id))!.name,
+          'Road Trip',
+        );
+      });
+
+      test('a create that fails keeps the song added meanwhile on the device',
+          () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        final Future<void> adding =
+            repository.addTrack(created.id, 'subsonic:a');
+
+        client.playlistError = SubsonicException.notReachable();
+        landCreate();
+        await created.creating;
+        await adding;
+
+        final Playlist playlist = (await repository.getPlaylistById(
+          created.id,
+        ))!;
+        expect(playlist.trackIds, <String>['subsonic:a']);
+        expect(playlist.syncState, PlaylistSyncState.syncFailed);
+        expect(client.setSongsCalls, isEmpty);
+      });
+
+      test('one deleted while it is created does not come back', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.subsonic);
+        final Future<void> deleting = repository.deletePlaylist(created.id);
+
+        landCreate();
+        await created.creating;
+        await deleting;
+
+        expect(client.playlists, isEmpty);
+        await repository.refreshFromRemote();
+        expect(await repository.getAllPlaylists(), isEmpty);
+      });
+    });
+
+    group('Jellyfin', () {
+      late _SlowWritesJellyfinClient client;
+      late SyncedPlaylistRepository repository;
+
+      setUp(() {
+        client = _SlowWritesJellyfinClient()..holdWrites = true;
+        repository = build(
+          JellyfinPlaylistGateway(client: client, session: () => _session),
+        );
+      });
+
+      void landCreate() {
+        client.holdWrites = false;
+        for (final Completer<void> gate in client.heldWrites) {
+          if (!gate.isCompleted) gate.complete();
+        }
+      }
+
+      test('a song added while it is created reaches the server', () async {
+        final created = await startCreate(
+            repository, client.heldWrites, PlaylistSource.jellyfin);
+        final Future<void> adding =
+            repository.addTrack(created.id, 'jellyfin:a');
+
+        landCreate();
+        await created.creating;
+        await adding;
+
+        expect(
+          <String>[
+            for (final JellyfinPlaylistEntry entry
+                in client.playlistEntries['remote-playlist-1']!)
+              entry.itemId,
+          ],
+          <String>['a'],
+        );
+        await repository.refreshFromRemote();
+        expect(
+          (await repository.getPlaylistById(created.id))!.trackIds,
+          <String>['jellyfin:a'],
+        );
       });
     });
   });

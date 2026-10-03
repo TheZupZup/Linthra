@@ -348,6 +348,11 @@ is live:
   folders sync tools scatter around (`.stfolder`, `.stversions`) change on
   someone else's schedule; music inside a hidden folder is still found by a
   manual rescan.
+- **A folder moved out whose name ends like a file extension** ("N.W.A") can be
+  missed. The kernel reports a folder moved out of the library without saying
+  it was a folder, so its name is all there is to go on. Names such as "R.E.M.",
+  "Dr. Dre" or "Greatest Hits Vol. 2" are recognised; for the rest, a manual
+  rescan catches it.
 - **Android does not use this at all.** Its local library is a Storage Access
   Framework tree or a MediaStore query rather than a directory, so there is no
   path to watch.
@@ -376,6 +381,11 @@ Details worth knowing:
   cause the others to be re-read.
 - **An offline folder keeps its stamps** along with its tracks, so plugging a
   drive back in does not re-parse everything on it.
+- **A file that vanishes mid-scan keeps its row.** A file the scan listed but
+  can then neither `stat` nor read (the drive was pulled, or the file was moved,
+  while the scan was running) keeps the tags, cover and history it had, rather
+  than being rewritten from its file name. The next scan reads it again, and
+  drops it if it really is gone.
 - **Android is unaffected.** Its local library comes through the content
   resolver rather than from paths, so there is nothing to `stat`, and it scans
   exactly as it always did.

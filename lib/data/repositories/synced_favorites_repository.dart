@@ -221,14 +221,29 @@ class SyncedFavoritesRepository
           // sign-out may have dropped this write or a toggle replaced it.
           final bool? favorite = _pendingWrites[uri];
           if (favorite == null) continue;
+          // A push like any other: a toggle made while it is out pushes too,
+          // and can reach the server first. So it settles against the newest
+          // toggle the way a tap's push does, rather than only clearing the
+          // value it sent, which would leave the server on this older value
+          // with nothing pending to put it right.
+          final int toggle = _toggles[uri] ?? 0;
+          final int clearsBefore = _clearsOf(gateway.uriScheme);
+          bool landed;
           try {
             await gateway.pushFavorite(uri, favorite);
-            // A toggle made while this push was out is a newer intent that
-            // still has to land, so only the value just pushed is cleared.
-            if (_pendingWrites[uri] == favorite) _pendingWrites.remove(uri);
+            landed = true;
           } on RemoteSyncException {
-            // Keep it pending; try again next refresh.
+            // Kept pending; tried again on the next refresh.
+            landed = false;
           }
+          _settlePush(
+            uri,
+            favorite,
+            landed: landed,
+            toggle: toggle,
+            clearsBefore: clearsBefore,
+            scheme: gateway.uriScheme,
+          );
         }
 
         try {

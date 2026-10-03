@@ -277,6 +277,21 @@ void main() {
       expect(LocalLibraryWatcher.isRelevant('/music/Artist/Album'), isTrue);
       expect(LocalLibraryWatcher.isRelevant('/music/a/cover.jpg'), isFalse);
       expect(LocalLibraryWatcher.isRelevant('/music/a/x.flac.part'), isFalse);
+      // Folder names with dots, which a moved-out folder's event is all there
+      // is to go on for.
+      expect(LocalLibraryWatcher.isRelevant('/music/R.E.M.'), isTrue);
+      expect(LocalLibraryWatcher.isRelevant('/music/Dr. Dre'), isTrue);
+      expect(LocalLibraryWatcher.isRelevant('/music/Hits Vol. 2'), isTrue);
+      expect(LocalLibraryWatcher.isRelevant('/music/Live 12.08.1990'), isTrue);
+      // A folder the platform names as one, whatever it is called.
+      expect(
+        LocalLibraryWatcher.isRelevant('/music/N.W.A', isDirectory: true),
+        isTrue,
+      );
+      expect(
+        LocalLibraryWatcher.isRelevant('/music/.stfolder', isDirectory: true),
+        isFalse,
+      );
       // A dotfile is not an album folder called ".DS_Store", and a sync
       // tool's bookkeeping folder is not an album either.
       expect(LocalLibraryWatcher.isRelevant('/music/.DS_Store'), isFalse);

@@ -48,6 +48,26 @@ void main() {
       expect(isLogicalTrackUri(''), isFalse);
       expect(isLogicalTrackUri('   '), isFalse);
     });
+
+    test('accepts a local path whose names say "bearer "', () {
+      // Band and song names, not a token.
+      expect(
+        isLogicalTrackUri(
+          '/home/me/Music/Pallbearer - Heartless/01 - I Saw the End.flac',
+        ),
+        isTrue,
+      );
+      expect(
+        isLogicalTrackUri('/storage/emulated/0/Music/Torchbearer (Live).mp3'),
+        isTrue,
+      );
+    });
+
+    test('still rejects a bearer token, and a path carrying a token key', () {
+      expect(isLogicalTrackUri('Bearer eyJhbGciOiJIUzI1NiJ9.e30.sig'), isFalse);
+      expect(isLogicalTrackUri('/music/a.mp3?api_key=secret'), isFalse);
+      expect(isLogicalTrackUri('/Audio/101/stream?X-Plex-Token=tok'), isFalse);
+    });
   });
 
   group('PersistedPlaybackSession', () {
@@ -109,6 +129,32 @@ void main() {
         }),
         isNull,
       );
+    });
+
+    test('fromJson keeps the saved entry of a song queued twice', () {
+      final PersistedPlaybackSession? loaded =
+          PersistedPlaybackSession.fromJson(<String, dynamic>{
+        'v': 1,
+        'i': 3,
+        'p': 0,
+        's': false,
+        'r': 'off',
+        't': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'x',
+            'title': 'Stream',
+            'uri': 'https://evil/stream?api_key=secret',
+          },
+          logicalTrackToJson(jellyfin),
+          logicalTrackToJson(local),
+          logicalTrackToJson(jellyfin),
+          logicalTrackToJson(subsonic),
+        ],
+      });
+
+      // The second copy, one place earlier now the stream URL row is gone.
+      expect(loaded!.currentIndex, 2);
+      expect(loaded.current!.uri, jellyfin.uri);
     });
 
     test('fromJson drops invalid tracks and remaps the current item', () {

@@ -577,6 +577,54 @@ void main() {
       await expectEndsUnhearted(repo);
     });
 
+    // A refresh sends every write still pending again: one whose push failed,
+    // and one whose push is still on the wire. That copy is a push like any
+    // other, and a newer tap's push can reach the server before it.
+    test(
+        'a failed heart the refresh sends again, landing after the un-heart, '
+        'is put right', () async {
+      final repo = build();
+      final Future<void> heart = repo.setFavorite(_subsonic('mf-1'), true);
+      await _pumpUntil(() => gateway.heldPushes.isNotEmpty);
+      gateway.heldPushes[0].fail();
+      await heart;
+
+      final Future<FavoritesSyncResult> refresh = repo.refreshFromRemote();
+      await _pumpUntil(() => gateway.heldPushes.length >= 2);
+      final Future<void> unheart = repo.setFavorite(_subsonic('mf-1'), false);
+      await _pumpUntil(() => gateway.heldPushes.length >= 3);
+
+      gateway.heldPushes[2].land();
+      await unheart;
+      gateway.heldPushes[1].land();
+      await refresh;
+
+      expect(repo.isFavorite(uri), isFalse);
+      await expectEndsUnhearted(repo);
+    });
+
+    test(
+        'a heart the refresh sends again while its own push is out is put '
+        'right when it lands last', () async {
+      final repo = build();
+      final Future<void> heart = repo.setFavorite(_subsonic('mf-1'), true);
+      await _pumpUntil(() => gateway.heldPushes.isNotEmpty);
+      final Future<FavoritesSyncResult> refresh = repo.refreshFromRemote();
+      await _pumpUntil(() => gateway.heldPushes.length >= 2);
+      final Future<void> unheart = repo.setFavorite(_subsonic('mf-1'), false);
+      await _pumpUntil(() => gateway.heldPushes.length >= 3);
+
+      gateway.heldPushes[0].land();
+      await heart;
+      gateway.heldPushes[2].land();
+      await unheart;
+      gateway.heldPushes[1].land();
+      await refresh;
+
+      expect(repo.isFavorite(uri), isFalse);
+      await expectEndsUnhearted(repo);
+    });
+
     test('a push that fails after sign-out is not queued for the next account',
         () async {
       final repo = build();

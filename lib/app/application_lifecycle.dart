@@ -137,7 +137,16 @@ class ApplicationHandle {
   Future<void> shutdown() => _shutdown ??= _runShutdown();
 
   Future<void> _runShutdown() async {
-    // Silence the speakers first, before anything it depends on goes away.
+    // Record where playback was for the next launch, and stop recording,
+    // before the stop below. That stop is the app closing, not the listener
+    // stopping: recorded as one, it would put the restored track back at its
+    // start on every quit.
+    await _guard(() async {
+      if (!container.exists(playbackSessionPersistenceProvider)) return;
+      await container.read(playbackSessionPersistenceProvider)?.dispose();
+    });
+
+    // Silence the speakers next, before anything it depends on goes away.
     await _guard(() async {
       if (!container.exists(playbackControllerProvider)) return;
       await container.read(playbackControllerProvider).stop();

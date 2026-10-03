@@ -45,7 +45,16 @@ class LinthraDatabase extends _$LinthraDatabase {
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (Migrator m) async {
-          await m.createAll();
+          // Drift records the schema version only after this returns, and
+          // none of it is one transaction. A first launch cut off in between
+          // (killed, or the disk full) leaves the schema in the file with no
+          // version, and the next launch runs this again over it. Like every
+          // upgrade step, each part is skipped when the file already has it;
+          // createAll() would fail on the index every launch from then on.
+          for (final DatabaseSchemaEntity entity in allSchemaEntities) {
+            if (await _schemaHas(m, entity.entityName)) continue;
+            await m.create(entity);
+          }
         },
         onUpgrade: (Migrator m, int from, int to) async {
           if (from < 2) {
@@ -60,7 +69,7 @@ class LinthraDatabase extends _$LinthraDatabase {
           // Independent of the branches above: a v1 database rebuilt by
           // _migrateTracksKeyToUri still needs the index added separately
           // here, same as a v2 or v3 database does -- createTable never
-          // creates indexes declared on the table, and createAll() (the
+          // creates indexes declared on the table, and onCreate (the
           // fresh-install path) is the only place that already includes it.
           if (from < 4) {
             await _addTracksSourceIdIndex(m);
@@ -123,8 +132,18 @@ class LinthraDatabase extends _$LinthraDatabase {
     });
   }
 
+  /// Whether the file already has the table, index or other schema entry
+  /// called [name].
+  Future<bool> _schemaHas(Migrator m, String name) async {
+    final List<QueryRow> existing = await m.database.customSelect(
+      'SELECT 1 FROM sqlite_master WHERE name = ?;',
+      variables: <Variable<Object>>[Variable<String>(name)],
+    ).get();
+    return existing.isNotEmpty;
+  }
+
   /// v(1|2|3) → v4: add the index a fresh install already gets from
-  /// [Tracks]'s `@TableIndex` via `createAll()`. `createTable` (used by the
+  /// [Tracks]'s `@TableIndex` via onCreate. `createTable` (used by the
   /// v1 → v2 rebuild above) only ever issues `CREATE TABLE`, never the
   /// indexes declared on it, so every upgrade path needs this run
   /// separately regardless of which version it started from.

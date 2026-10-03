@@ -54,6 +54,13 @@ class JellyfinRemoteControlReceiver implements RemoteControlReceiver {
   bool _running = false;
   bool _disposed = false;
 
+  /// Moves on with every connection attempt and every [stop]. The activator
+  /// stops and starts this receiver around each track load, so a quick skip
+  /// can start a second attempt while the first is still connecting; only the
+  /// latest may keep its socket. Two would each hand every server command to
+  /// [commands], and a remote Next would skip two tracks.
+  int _generation = 0;
+
   @override
   Stream<RemoteCommand> get commands => _commands.stream;
 
@@ -68,6 +75,7 @@ class JellyfinRemoteControlReceiver implements RemoteControlReceiver {
   Future<void> stop() async {
     if (!_running) return;
     _running = false;
+    _generation++;
     _retry?.cancel();
     _retry = null;
     await _teardownSocket();
@@ -85,6 +93,8 @@ class JellyfinRemoteControlReceiver implements RemoteControlReceiver {
 
   Future<void> _open() async {
     if (_disposed || !_running) return;
+    final int generation = ++_generation;
+    bool superseded() => _disposed || !_running || generation != _generation;
     final JellyfinSession? session = _session();
     if (session == null) {
       // Signed out: nothing to connect to. A later start (after sign-in) tries
@@ -99,7 +109,7 @@ class JellyfinRemoteControlReceiver implements RemoteControlReceiver {
     } catch (_) {
       // ignore — still try to receive commands.
     }
-    if (_disposed || !_running) return;
+    if (superseded()) return;
 
     try {
       final Uri url = JellyfinEndpoints.controlSocket(
@@ -108,7 +118,7 @@ class JellyfinRemoteControlReceiver implements RemoteControlReceiver {
         deviceId: session.deviceId,
       );
       final JellyfinControlSocket socket = await _connect(url);
-      if (_disposed || !_running) {
+      if (superseded()) {
         await socket.close();
         return;
       }

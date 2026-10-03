@@ -188,15 +188,7 @@ class SmartPrecacheService {
   Future<void> _precacheUpcoming(_PrecacheJob job, int generation) async {
     final PlaybackState state = job.state;
     if (state.upNext.isEmpty && state.previous.isEmpty) return;
-    if (!await _preferences.preloadEnabled()) {
-      StabilityDiagnostics.precache('skip:disabled');
-      return;
-    }
-    final MobileDataProfile profile = await _preferences.mobileDataProfile();
-    if (profile.pausesSmartPrecache) {
-      StabilityDiagnostics.precache('skip:save-data-profile');
-      return;
-    }
+    if (!await _listenerAllowsPrecache()) return;
     // Repeat-one replays the current track indefinitely, so the up-next won't
     // play soon. Don't aggressively pre-cache unrelated tracks — stay quiet.
     if (state.repeatMode == RepeatMode.one) {
@@ -235,6 +227,14 @@ class SmartPrecacheService {
         StabilityDiagnostics.precache('skip:session-changed');
         continue;
       }
+      // Asked again before every song, not once per pass: a pass can run for
+      // dozens of songs, and turning pre-cache off or picking "Save data"
+      // while it does has to stop it, not wait for its end.
+      if (!await _listenerAllowsPrecache()) return;
+      if (!_isCurrent(generation)) {
+        StabilityDiagnostics.precache('superseded');
+        return;
+      }
       // Sequential on purpose: one warm fetch at a time keeps pre-cache off the
       // critical path and lets the cache limit settle between writes.
       await _prefetcher.prefetch(
@@ -247,6 +247,21 @@ class SmartPrecacheService {
         mayMakeRoom: () => !_disposed && identical(_lastJob, job),
       );
     }
+  }
+
+  /// Whether the listener lets pre-cache fetch on its own right now: switched
+  /// on, and not paused by the "Save data" profile.
+  Future<bool> _listenerAllowsPrecache() async {
+    if (!await _preferences.preloadEnabled()) {
+      StabilityDiagnostics.precache('skip:disabled');
+      return false;
+    }
+    final MobileDataProfile profile = await _preferences.mobileDataProfile();
+    if (profile.pausesSmartPrecache) {
+      StabilityDiagnostics.precache('skip:save-data-profile');
+      return false;
+    }
+    return true;
   }
 
   /// The account each provider in [tracks] is signed in with right now, keyed

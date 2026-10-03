@@ -499,6 +499,124 @@ void main() {
       });
     });
 
+    test('restore comes back on the saved entry, not an earlier copy of it',
+        () async {
+      // A queue can hold the same song twice: one queued again with "Add to
+      // queue", an album queued after one of its songs, a playlist repeat.
+      const Track a = Track(
+        id: 'a',
+        title: 'Song A',
+        uri: 'jellyfin:a',
+        duration: Duration(minutes: 4),
+      );
+      const Track b = Track(id: 'b', title: 'Song B', uri: 'jellyfin:b');
+      const Track c = Track(id: 'c', title: 'Song C', uri: 'jellyfin:c');
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore();
+      final FakePlaybackController before = FakePlaybackController();
+      final PlaybackSessionPersistence persistence = PlaybackSessionPersistence(
+        store: store,
+        controller: before,
+        playbackStates: before.stateStream,
+        localFileExists: (_) => true,
+        positionSaveInterval: Duration.zero,
+      );
+
+      // The second A of [A, B, A, C] is playing.
+      before.emit(const PlaybackState(
+        status: PlaybackStatus.paused,
+        currentTrack: a,
+        position: Duration(seconds: 90),
+        duration: Duration(minutes: 4),
+        previous: <Track>[a, b],
+        upNext: <Track>[c],
+        hasPrevious: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect((await store.load())!.currentIndex, 2);
+
+      // Next launch.
+      final FakePlaybackController after = FakePlaybackController();
+      final PlaybackSessionPersistence restorer = PlaybackSessionPersistence(
+        store: store,
+        controller: after,
+        playbackStates: after.stateStream,
+        localFileExists: (_) => true,
+      );
+      await restorer.restore();
+
+      // Back on that entry: A and B behind it, only C ahead, rather than on
+      // the first A with B and A to hear again.
+      expect(
+        after.state.previous.map((Track t) => t.uri),
+        <String>[a.uri, b.uri],
+      );
+      expect(after.state.upNext.map((Track t) => t.uri), <String>[c.uri]);
+      expect(after.lastRestorePosition, const Duration(seconds: 90));
+
+      await persistence.dispose();
+      await restorer.dispose();
+      await before.dispose();
+      await after.dispose();
+    });
+
+    test('saves a queue holding a local song whose path says "bearer "',
+        () async {
+      const Track yesterday = Track(
+        id: '/home/me/Music/Other/01 - Yesterday.flac',
+        title: 'Yesterday',
+        uri: '/home/me/Music/Other/01 - Yesterday.flac',
+      );
+      const Track today = Track(
+        id: '/home/me/Music/Other/02 - Today.flac',
+        title: 'Today',
+        uri: '/home/me/Music/Other/02 - Today.flac',
+        duration: Duration(minutes: 4),
+      );
+      const Track pallbearer = Track(
+        id: '/home/me/Music/Pallbearer - Heartless/01 - I Saw the End.flac',
+        title: 'I Saw the End',
+        uri: '/home/me/Music/Pallbearer - Heartless/01 - I Saw the End.flac',
+      );
+      // Yesterday's queue, saved by an earlier session.
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+        const PersistedPlaybackSession(
+          tracks: <Track>[yesterday],
+          currentIndex: 0,
+        ),
+      );
+      final FakePlaybackController controller = FakePlaybackController();
+      final PlaybackSessionPersistence persistence = PlaybackSessionPersistence(
+        store: store,
+        controller: controller,
+        playbackStates: controller.stateStream,
+        localFileExists: (_) => true,
+        positionSaveInterval: Duration.zero,
+      );
+
+      // Today's queue, a Pallbearer song in it.
+      controller.emit(const PlaybackState(
+        status: PlaybackStatus.paused,
+        currentTrack: today,
+        position: Duration(seconds: 42),
+        duration: Duration(minutes: 4),
+        upNext: <Track>[pallbearer],
+      ));
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      // Today's queue is what a restart brings back, not yesterday's.
+      final PersistedPlaybackSession? saved = await store.load();
+      expect(
+        saved?.tracks.map((Track t) => t.uri),
+        <String>[today.uri, pallbearer.uri],
+      );
+      expect(saved?.current?.uri, today.uri);
+
+      await persistence.dispose();
+      await controller.dispose();
+    });
+
     test('restore failure clears the store and never throws', () async {
       final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
         const PersistedPlaybackSession(

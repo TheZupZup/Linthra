@@ -105,7 +105,7 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     //    returns this is false again, so a reconnect is never blocked by a stale
     //    "offline" the way a cached value would be.
     if (await _isOffline()) {
-      _observe(ReachabilityStatus.networkUnavailable);
+      _observeFor(key, ReachabilityStatus.networkUnavailable);
       throw _failFast(ReachabilityStatus.networkUnavailable);
     }
 
@@ -123,17 +123,28 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     try {
       final ResolvedPlayable resolved = await _inner.resolve(track);
       _reachability.record(key, ReachabilityStatus.reachable);
-      _observe(ReachabilityStatus.reachable);
+      _observeFor(key, ReachabilityStatus.reachable);
       return resolved;
     } on PlaybackResolutionException catch (error) {
       final ReachabilityStatus? status =
           reachabilityFromPlaybackError(error.kind);
       if (status != null) {
         _reachability.record(key, status);
-        _observe(status);
+        _observeFor(key, status);
       }
       rethrow;
     }
+  }
+
+  /// Tells the observer what an attempt made under [key] learned, if [key] is
+  /// still the server and account signed in. An attempt can take as long as a
+  /// connect timeout, and one started on an address the listener has since
+  /// signed in past (a LAN address swapped for the public one, another
+  /// account) says nothing about the server they use now: reported, it would
+  /// hold that server's whole library back until the next probe.
+  void _observeFor(String key, ReachabilityStatus status) {
+    if (_providerKey() != key) return;
+    _observe(status);
   }
 
   /// Whether the device currently has no usable network. Defensive: any failure

@@ -153,4 +153,56 @@ void main() {
 
     await receiver.dispose();
   });
+
+  // The activator stops the receiver while a Jellyfin track loads or buffers
+  // and starts it again once it plays, so two quick skips (or a flaky stream
+  // buffering twice) stop and start it while the first connection is still
+  // being made.
+  test('a stop and a start while connecting leave a single connection',
+      () async {
+    final FakeJellyfinClient client = FakeJellyfinClient();
+    final List<Completer<void>> handshakes = <Completer<void>>[];
+    final List<_FakeSocket> sockets = <_FakeSocket>[];
+    final receiver = JellyfinRemoteControlReceiver(
+      session: () => _session,
+      client: () => client,
+      connect: (Uri _) async {
+        final Completer<void> handshake = Completer<void>();
+        handshakes.add(handshake);
+        await handshake.future;
+        final _FakeSocket socket = _FakeSocket();
+        sockets.add(socket);
+        return socket;
+      },
+    );
+    final List<RemoteCommand> received = <RemoteCommand>[];
+    final sub = receiver.commands.listen(received.add);
+
+    unawaited(receiver.start());
+    await pumpEventQueue();
+    unawaited(receiver.stop());
+    unawaited(receiver.start());
+    await pumpEventQueue();
+    for (final Completer<void> handshake in handshakes) {
+      handshake.complete();
+      await pumpEventQueue();
+    }
+
+    final List<_FakeSocket> open = <_FakeSocket>[
+      for (final _FakeSocket socket in sockets)
+        if (!socket.closed) socket,
+    ];
+    expect(open, hasLength(1));
+
+    // The server sends a command to every connection the session has.
+    for (final _FakeSocket socket in open) {
+      socket.emit(_playstate('NextTrack'));
+    }
+    await pumpEventQueue();
+    expect(received, <RemoteCommand>[const RemoteNext()]);
+
+    await sub.cancel();
+    await receiver.dispose();
+    expect(sockets.where((_FakeSocket s) => !s.closed), isEmpty);
+  });
 }

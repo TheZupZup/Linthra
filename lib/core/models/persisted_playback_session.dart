@@ -128,21 +128,29 @@ class PersistedPlaybackSession {
     }
 
     final List<Track> parsed = <Track>[];
-    for (final Object? entry in rawTracks) {
+    // Where the saved current entry itself landed, when it survived. A queue
+    // can hold the same song twice, so its uri alone could name an earlier
+    // copy.
+    int? savedEntryAt;
+    for (int i = 0; i < rawTracks.length; i++) {
+      final Object? entry = rawTracks[i];
       if (entry is! Map) continue;
       final Track? track =
           logicalTrackFromJson(Map<String, dynamic>.from(entry));
       if (track == null) continue;
       if (isTrackRestorable != null && !isTrackRestorable(track)) continue;
+      if (i == requestedIndex) savedEntryAt = parsed.length;
       parsed.add(track);
     }
     if (parsed.isEmpty) return null;
 
-    // Prefer the originally current identity when it survived filtering;
-    // otherwise land on the first surviving track so restore never points past
-    // the end or at a dropped remote/local row.
+    // Prefer the originally current entry when it survived filtering, then
+    // another copy of it; otherwise land on the first surviving track so
+    // restore never points past the end or at a dropped remote/local row.
     int currentIndex = 0;
-    if (preferredCurrentUri != null) {
+    if (savedEntryAt != null) {
+      currentIndex = savedEntryAt;
+    } else if (preferredCurrentUri != null) {
       final int found =
           parsed.indexWhere((Track t) => t.uri == preferredCurrentUri);
       if (found >= 0) currentIndex = found;
@@ -221,7 +229,7 @@ bool isLogicalTrackUri(String uri) {
   if (lower.startsWith('http://') || lower.startsWith('https://')) {
     return false;
   }
-  if (_looksTokenBearing(lower)) return false;
+  if (_looksTokenBearing(lower, filePath: lower.startsWith('/'))) return false;
 
   final String? bareId = MusicProviders.bareRemoteIdForTrackUri(trimmed);
   if (bareId != null) {
@@ -300,7 +308,7 @@ bool isPersistableArtworkUri(Uri uri) {
   return true;
 }
 
-bool _looksTokenBearing(String value) {
+bool _looksTokenBearing(String value, {bool filePath = false}) {
   // Common provider token query keys and auth header-ish fragments that must
   // never reach the playback-session document.
   const List<String> markers = <String>[
@@ -311,11 +319,13 @@ bool _looksTokenBearing(String value) {
     'x-plex-token=',
     'x_plex_token=',
     'authorization=',
-    'bearer ',
     'jwt=',
   ];
   for (final String marker in markers) {
     if (value.contains(marker)) return true;
   }
-  return false;
+  // How a token is written in a header, which a file path never is. In a
+  // path it is part of ordinary names: Pallbearer, Torchbearer, "The Bearer
+  // of Bad News". Turning those down would leave the whole queue unsaved.
+  return !filePath && value.contains('bearer ');
 }

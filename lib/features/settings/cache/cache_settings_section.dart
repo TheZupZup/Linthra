@@ -275,7 +275,8 @@ class _ClearCacheDialog extends StatelessWidget {
             leading: const Icon(Icons.cleaning_services_outlined),
             title: const Text('Clear cache'),
             subtitle: const Text(
-              'Free cached tracks. Keeps songs you downloaded for offline.',
+              'Free cached tracks and downloads, except songs set to '
+              '"Keep offline".',
             ),
             onTap: () => Navigator.of(context).pop(_ClearChoice.unpinned),
           ),

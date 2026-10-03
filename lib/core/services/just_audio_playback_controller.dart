@@ -3132,6 +3132,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       }
       return;
     }
+    // A load in flight has not handed its source over yet: the engine still
+    // holds the song before this one, and starting it would play that song
+    // under this one's title. The load starts sound when it lands, now that
+    // the listener wants it.
+    if (_engineHoldsPreviousSource) return;
     // play()'s future completes when playback ends, so we don't await it.
     unawaited(_player.play());
   }

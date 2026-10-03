@@ -9,11 +9,15 @@ import 'dart:io';
 /// test drives it with is a two-line class rather than a re-implementation of
 /// inotify.
 class LocalDirectoryChange {
-  const LocalDirectoryChange(this.path);
+  const LocalDirectoryChange(this.path, {this.isDirectory = false});
 
   /// The path the platform named. Absolute for a real watch; whatever the test
   /// supplied for a synthetic one.
   final String path;
+
+  /// Whether the platform said [path] is a folder. False when it couldn't
+  /// tell, which on Linux includes a folder moved out of the watched tree.
+  final bool isDirectory;
 
   @override
   String toString() => 'LocalDirectoryChange($path)';
@@ -53,9 +57,12 @@ class IoDirectoryWatchFactory implements DirectoryWatchFactory {
     if (!FileSystemEntity.isWatchSupported) {
       throw const FileSystemException('filesystem watching is not supported');
     }
-    return Directory(root)
-        .watch(recursive: true)
-        .map((FileSystemEvent event) => LocalDirectoryChange(event.path));
+    return Directory(root).watch(recursive: true).map(
+          (FileSystemEvent event) => LocalDirectoryChange(
+            event.path,
+            isDirectory: event.isDirectory,
+          ),
+        );
   }
 }
 

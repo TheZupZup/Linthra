@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/catalog/library_grouping.dart';
@@ -6,6 +8,7 @@ import 'package:linthra/core/diagnostics/app_diagnostics.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_store.dart';
+import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/services/reachability.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/core/sources/source_availability.dart';
@@ -19,6 +22,7 @@ import 'package:linthra/features/library/library_controller.dart';
 import 'package:linthra/features/library/source_availability_providers.dart';
 import 'package:linthra/features/library/source_preference_controller.dart';
 import 'package:linthra/features/library/unified_library_providers.dart';
+import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_availability_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_providers.dart';
@@ -67,6 +71,26 @@ final List<Track> _localTracks = <Track>[
 List<String> _uris(List<Track> tracks) =>
     <String>[for (final Track t in tracks) t.uri];
 
+/// A server whose session check, at one address only, waits until the test
+/// answers it: a LAN address that hangs until it times out while the user is
+/// away from home, next to a public address that answers at once.
+class _HangingAddressClient extends FakeJellyfinClient {
+  _HangingAddressClient(this.hangingBaseUrl);
+
+  final String hangingBaseUrl;
+  final List<Completer<void>> hanging = <Completer<void>>[];
+
+  @override
+  Future<void> verifySession(JellyfinSession session) async {
+    if (session.baseUrl == hangingBaseUrl) {
+      final Completer<void> answer = Completer<void>();
+      hanging.add(answer);
+      await answer.future;
+    }
+    return super.verifySession(session);
+  }
+}
+
 /// Pins the source preference so unification is deterministic and the async
 /// preference load can't race the assertions.
 class _FixedPreference extends SourcePreferenceController {
@@ -89,6 +113,7 @@ Future<
     })> _boot({
   JellyfinException? verifyError,
   Set<String> offlineKeys = const <String>{},
+  FakeJellyfinClient? fakeClient,
 }) async {
   final repository = InMemoryMusicLibraryRepository();
   await repository.upsertCatalog(
@@ -104,7 +129,7 @@ Future<
     artists: groupArtists(_localTracks),
   );
   final sessionStore = InMemoryJellyfinSessionStore(initialSession: _session);
-  final client = FakeJellyfinClient(verifyError: verifyError);
+  final client = fakeClient ?? FakeJellyfinClient(verifyError: verifyError);
   final container = ProviderContainer(
     overrides: <Override>[
       musicLibraryRepositoryProvider.overrideWithValue(repository),
@@ -274,6 +299,56 @@ void main() {
           .noteReachability(ReachabilityStatus.authFailure);
       expect(boot.container.read(jellyfinAvailabilityProvider).status,
           SourceAvailability.authenticationError);
+    });
+  });
+
+  group('a playback attempt from a previous sign-in', () {
+    test('cannot hide the library of the server signed in now', () async {
+      final _HangingAddressClient client =
+          _HangingAddressClient(_session.baseUrl);
+      final boot = await _boot(fakeClient: client);
+      final ProviderContainer c = boot.container;
+      // The startup probes of the saved address hang too; let them answer so
+      // the library starts from a reachable server.
+      for (final Completer<void> probe in client.hanging) {
+        probe.complete();
+      }
+      client.hanging.clear();
+      await _settle(c);
+      expect(c.read(jellyfinAvailabilityProvider).status,
+          SourceAvailability.available);
+
+      // A track is started on the saved LAN address, which now hangs.
+      final Future<Object?> playing = c
+          .read(remoteSourceRouterProvider)
+          .resolve(_jellyfinTracks.first)
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      await Future<void>.delayed(Duration.zero);
+      expect(client.hanging, hasLength(1));
+
+      // Meanwhile the listener signs out and back in through the server's
+      // public address, which answers.
+      await c.read(jellyfinSettingsControllerProvider.notifier).clear();
+      final bool signedIn =
+          await c.read(jellyfinSettingsControllerProvider.notifier).signIn(
+                url: 'https://music.example.com',
+                username: 'alice',
+                password: 'pw',
+              );
+      expect(signedIn, isTrue);
+      await _settle(c);
+      expect(c.read(jellyfinAvailabilityProvider).status,
+          SourceAvailability.available);
+
+      // The old address finally gives up.
+      client.verifyError = JellyfinException.notReachable();
+      client.hanging.single.complete();
+      expect(await playing, isA<PlaybackResolutionException>());
+      client.verifyError = null;
+      await _settle(c);
+
+      expect(c.read(jellyfinAvailabilityProvider).status,
+          SourceAvailability.available);
     });
   });
 

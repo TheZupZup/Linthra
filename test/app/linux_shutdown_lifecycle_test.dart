@@ -8,8 +8,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/application_lifecycle.dart';
 import 'package:linthra/core/lifecycle/async_disposal_registry.dart';
+import 'package:linthra/core/models/persisted_playback_session.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/playback_session_store.dart';
 import 'package:linthra/core/services/linux_playback_controller.dart';
 import 'package:linthra/core/services/remote_command.dart';
 import 'package:linthra/core/services/remote_control_receiver.dart';
@@ -17,6 +19,7 @@ import 'package:linthra/data/database/linthra_database.dart';
 import 'package:linthra/data/database/linthra_database_provider.dart';
 import 'package:linthra/data/repositories/drift_music_library_repository.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/data/repositories/playback_session_store_provider.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/settings/playback/normalize_volume_controller.dart';
 import 'package:linthra/shared/widgets/artwork_image.dart';
@@ -465,6 +468,50 @@ void main() {
         await isDatabaseOpen(freshContainer.read(linthraDatabaseProvider)),
         isTrue,
       );
+    });
+
+    // Quitting stops the speakers before anything else is torn down, and the
+    // stop reads as the queue being stopped at its start. The session saved
+    // for the next launch must still say where the listener left off.
+    group('the session saved on quit keeps where playback was', () {
+      const Track song = Track(id: 'a', title: 'Song', uri: '/music/a.mp3');
+      const Duration leftOff = Duration(minutes: 1, seconds: 30);
+
+      Future<PlaybackSessionStore> playThenQuit({required bool pause}) async {
+        final ProviderContainer container = ProviderContainer(
+          overrides:
+              linuxLifecycleOverrides(audioPlayer: CountingAudioPlayer()),
+        );
+        final PlaybackSessionStore store =
+            container.read(playbackSessionStoreProvider);
+        final ApplicationHandle handle = await _bootstrap(container);
+        final LinuxPlaybackController engine = container
+            .read(localPlaybackControllerProvider) as LinuxPlaybackController;
+
+        await container.read(playbackControllerProvider).playTrack(song);
+        engine.setPositionForTesting(leftOff);
+        if (pause) await container.read(playbackControllerProvider).pause();
+        await pumpEventQueue();
+
+        await handle.shutdown();
+        return store;
+      }
+
+      test('paused, then quit', () async {
+        final PersistedPlaybackSession? saved =
+            await (await playThenQuit(pause: true)).load();
+
+        expect(saved?.current?.uri, song.uri);
+        expect(saved?.position, leftOff);
+      });
+
+      test('quit while playing', () async {
+        final PersistedPlaybackSession? saved =
+            await (await playThenQuit(pause: false)).load();
+
+        expect(saved?.current?.uri, song.uri);
+        expect(saved?.position, leftOff);
+      });
     });
   });
 }

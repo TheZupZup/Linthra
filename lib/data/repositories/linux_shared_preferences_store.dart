@@ -1,4 +1,4 @@
-import 'dart:convert' show json;
+import 'dart:convert' show json, utf8;
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -60,11 +60,14 @@ class LinuxSharedPreferencesStore extends SharedPreferencesStorePlatform {
   Future<Map<String, Object>> _load() async {
     final File? file = await _file();
     if (file == null || !file.existsSync()) return <String, Object>{};
-    final String contents = file.readAsStringSync();
+    final List<int> bytes = file.readAsBytesSync();
     // An earlier save cut off before it wrote anything: nothing to recover.
-    if (contents.isEmpty) return <String, Object>{};
+    if (bytes.isEmpty) return <String, Object>{};
     try {
-      final Object? data = json.decode(contents);
+      // Decoded here rather than by the read: a save cut off inside a
+      // character that isn't plain ASCII leaves bytes that aren't text, and
+      // that has to be set aside like any other cut, not fail every read.
+      final Object? data = json.decode(utf8.decode(bytes));
       if (data is Map) return data.cast<String, Object>();
     } on FormatException {
       // Cut off partway by an earlier save; set aside below.
