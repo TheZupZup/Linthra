@@ -4,9 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/lifecycle/app_visibility.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
+import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/services/connectivity_service.dart';
 import 'package:linthra/core/services/reachability.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/core/sources/source_availability.dart';
+import 'package:linthra/data/repositories/download_repository_provider.dart';
+import 'package:linthra/data/repositories/host_platform_provider.dart';
 import 'package:linthra/data/repositories/in_memory_jellyfin_session_store.dart';
 import 'package:linthra/data/repositories/jellyfin_session_store_provider.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_availability_controller.dart';
@@ -38,10 +42,23 @@ class _GatedJellyfinClient extends FakeJellyfinClient {
   }
 }
 
+/// A device whose connection changes are reported as [changes] delivers them.
+class _Network implements ConnectivityService {
+  final StreamController<NetworkStatus> changes =
+      StreamController<NetworkStatus>.broadcast();
+
+  @override
+  Stream<NetworkStatus> get statusStream => changes.stream;
+
+  @override
+  Future<NetworkStatus> currentStatus() async => NetworkStatus.wifi;
+}
+
 ProviderContainer _container({
   JellyfinSession? saved,
   required FakeJellyfinClient client,
   Duration? poll,
+  ConnectivityService? network,
 }) {
   final container = ProviderContainer(
     overrides: <Override>[
@@ -50,6 +67,12 @@ ProviderContainer _container({
       ),
       jellyfinClientProvider.overrideWithValue(client),
       jellyfinAvailabilityPollIntervalProvider.overrideWithValue(poll),
+      if (network != null) ...<Override>[
+        connectivityServiceProvider.overrideWithValue(network),
+        // A host that reports connection changes (Android, or Linux's
+        // network monitor portal).
+        hostPlatformProvider.overrideWithValue(HostPlatform.android),
+      ],
     ],
   );
   addTearDown(container.dispose);
@@ -186,6 +209,52 @@ void main() {
     expect(container.read(jellyfinAvailabilityProvider).status,
         SourceAvailability.available);
     expect(client.verifyCount, greaterThan(1));
+  });
+
+  group('a connection that comes back', () {
+    // The poll is off here (as between two 45 s polls), so only the network
+    // change itself can bring the library back.
+    test('re-probes a server it found unreachable', () async {
+      final _Network network = _Network();
+      addTearDown(network.changes.close);
+      final client =
+          FakeJellyfinClient(verifyError: JellyfinException.notReachable());
+      final container =
+          _container(saved: _session, client: client, network: network);
+      await _settle();
+      expect(container.read(jellyfinAvailabilityProvider).status,
+          SourceAvailability.unreachable);
+
+      // Wi-Fi rejoined (or the laptop woke up and its network came back),
+      // and the server answers again.
+      client.verifyError = null;
+      network.changes.add(NetworkStatus.wifi);
+      await _settle();
+
+      expect(container.read(jellyfinAvailabilityProvider).status,
+          SourceAvailability.available,
+          reason: 'the library stays hidden until the next poll');
+    });
+
+    test('going offline, or a change while off screen, probes nothing',
+        () async {
+      final _Network network = _Network();
+      addTearDown(network.changes.close);
+      final client = FakeJellyfinClient();
+      final container =
+          _container(saved: _session, client: client, network: network);
+      await _settle();
+      final int probes = client.verifyCount;
+
+      network.changes.add(NetworkStatus.offline);
+      await _settle();
+      container.read(appVisibilityProvider.notifier).onHidden();
+      await _settle();
+      network.changes.add(NetworkStatus.wifi);
+      await _settle();
+
+      expect(client.verifyCount, probes);
+    });
   });
 
   group('the poll follows app visibility (battery)', () {
