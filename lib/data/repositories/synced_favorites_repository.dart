@@ -66,6 +66,14 @@ class SyncedFavoritesRepository
   /// discards a provider's answer if its count moved meanwhile.
   final Map<String, int> _clears = <String, int>{};
 
+  /// The providers signed out of (their hearts cleared) and not seen signed
+  /// in since, by uri scheme. Their songs stay in the library, so they can
+  /// still be hearted, but such a heart belongs to no account: it is kept as
+  /// it is and never queued for a push, since whoever signs in next (another
+  /// person, another server) did not make it, and that account's own starred
+  /// list replaces the provider's hearts on its first refresh.
+  final Set<String> _signedOut = <String>{};
+
   /// How many times each remote uri has been toggled. A push notes the number
   /// of the toggle it carries, so when it comes back it can tell whether a
   /// newer toggle was made while it was out.
@@ -122,7 +130,9 @@ class SyncedFavoritesRepository
       // Pending from this moment until a push of it is confirmed, so a
       // refresh that lands first keeps it rather than adopting an answer that
       // predates it, and a push that never comes back leaves it to retry.
-      if (gateway != null) _pendingWrites[key] = favorite;
+      if (gateway != null && _hasAccount(gateway)) {
+        _pendingWrites[key] = favorite;
+      }
     } else {
       final Set<String> ids = <String>{..._data.localIds};
       if (favorite) {
@@ -199,6 +209,9 @@ class SyncedFavoritesRepository
     ];
     if (connected.isEmpty) {
       return const FavoritesSyncResult.notConfigured();
+    }
+    for (final RemoteFavoritesGateway g in connected) {
+      _signedOut.remove(g.uriScheme);
     }
 
     // The user keeps hearting (and may sign out) while the requests below are
@@ -318,6 +331,14 @@ class SyncedFavoritesRepository
 
   int _clearsOf(String scheme) => _clears[scheme] ?? 0;
 
+  /// Whether a heart on [gateway]'s songs is someone's to push: an account is
+  /// signed in, or one may still be coming (nothing was signed out since this
+  /// process started, as when a saved sign-in is still loading).
+  bool _hasAccount(RemoteFavoritesGateway gateway) {
+    if (gateway.isConnected) _signedOut.remove(gateway.uriScheme);
+    return gateway.isConnected || !_signedOut.contains(gateway.uriScheme);
+  }
+
   @override
   Future<void> clearRemote({String? providerScheme}) async {
     // Counted before anything else, so a refresh whose fetch is out drops the
@@ -325,6 +346,7 @@ class SyncedFavoritesRepository
     for (final RemoteFavoritesGateway g in _gateways) {
       if (providerScheme == null || g.uriScheme == providerScheme) {
         _clears[g.uriScheme] = _clearsOf(g.uriScheme) + 1;
+        _signedOut.add(g.uriScheme);
       }
     }
     await _ensureLoaded();
