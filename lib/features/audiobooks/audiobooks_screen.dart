@@ -85,10 +85,20 @@ class _Body extends ConsumerWidget {
     // A failure with books already on it is reported under the list instead,
     // so a page that didn't arrive can't take the ones that did off screen.
     if (state.books.isEmpty && state.errorMessage != null) {
-      return _ErrorView(
+      final Widget error = _ErrorView(
         message: state.errorMessage!,
         onRetry: () =>
             ref.read(audiobooksLibraryControllerProvider.notifier).refresh(),
+      );
+      // One library failing must not hide the others. Try again asks for the
+      // same library, so without the picker a library that keeps failing held
+      // the screen until the app was restarted.
+      if (state.libraries.length < 2) return error;
+      return Column(
+        children: <Widget>[
+          _LibraryPicker(state: state),
+          Expanded(child: error),
+        ],
       );
     }
     if (state.libraries.isEmpty) {
@@ -212,13 +222,14 @@ class _ErrorView extends StatelessWidget {
 
 /// Which library is being browsed, when the account can see more than one.
 class _LibraryPicker extends ConsumerWidget {
-  const _LibraryPicker({required this.state, required this.chainTo});
+  const _LibraryPicker({required this.state, this.chainTo});
 
   final AudiobooksLibraryState state;
 
   /// The book list under this row, which takes a wheel notch once the row
-  /// itself has run out of libraries to show.
-  final ScrollController chainTo;
+  /// itself has run out of libraries to show. Null above the error view,
+  /// where there is no list.
+  final ScrollController? chainTo;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
