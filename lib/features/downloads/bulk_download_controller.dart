@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/bulk_download_summary.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/download_store.dart';
 import '../../core/services/bulk_downloader.dart';
 import '../../data/repositories/download_repository_provider.dart';
 
@@ -61,13 +62,14 @@ class BulkDownloadController extends Notifier<BulkDownloadSummary?> {
     // is refused rather than racing this one.
     _starting = true;
     _canceled = false;
+    final bool Function() accountChanged = _accountChangeOf(tracks);
     try {
       final BulkDownloadSummary summary =
           await ref.read(bulkDownloaderProvider).run(
                 repository: ref.read(downloadRepositoryProvider),
                 label: label,
                 tracks: tracks,
-                isCanceled: () => _canceled,
+                isCanceled: () => _canceled || accountChanged(),
                 onProgress: _publish,
               );
       _publish(summary);
@@ -93,6 +95,39 @@ class BulkDownloadController extends Notifier<BulkDownloadSummary?> {
   /// per-track cancel on the Downloads screen.
   void cancel() {
     if (isRunning) _canceled = true;
+  }
+
+  /// Whether a provider of [tracks] has since signed out, or in as someone
+  /// else (another Plex server or Home profile included), checked against the
+  /// accounts signed in now. Such a change stops the batch like [cancel]: the
+  /// songs it has not asked for yet were picked from that account's library,
+  /// and the session there now would fetch another account's items, or
+  /// nothing, under them. Never true where accounts aren't tracked (tests).
+  bool Function() _accountChangeOf(List<Track> tracks) {
+    final String? Function(Track track)? scopeOf =
+        ref.read(downloadAccountScopeProvider);
+    if (scopeOf == null) return () => false;
+    // A check that throws reads as signed out, as the repository reads it.
+    String? scope(Track track) {
+      try {
+        return scopeOf(track);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // One track per provider: every track of a provider shares its account.
+    final Map<String?, ({Track track, String? scope})> started =
+        <String?, ({Track track, String? scope})>{};
+    for (final Track track in tracks) {
+      started.putIfAbsent(
+        CachedTrack.schemeOf(track.uri),
+        () => (track: track, scope: scope(track)),
+      );
+    }
+    return () => started.values.any(
+          (({Track track, String? scope}) at) => scope(at.track) != at.scope,
+        );
   }
 
   void _publish(BulkDownloadSummary summary) {
