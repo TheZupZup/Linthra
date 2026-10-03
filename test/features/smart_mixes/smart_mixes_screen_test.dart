@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:linthra/app/routes.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/features/library/library_controller.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/smart_mixes/smart_mix_detail_screen.dart';
 import 'package:linthra/features/smart_mixes/smart_mixes_screen.dart';
@@ -77,6 +78,24 @@ void main() {
       expect(find.text('New in your library · 3 songs'), findsOneWidget);
       expect(find.text('A fresh shuffle every time · 3 songs'), findsOneWidget);
       expect(find.text('Jump back in · 0 songs'), findsOneWidget);
+    });
+
+    testWidgets('the counts follow a library change', (tester) async {
+      await _pump(tester);
+      expect(find.text('New in your library · 3 songs'), findsOneWidget);
+
+      // What "Remove from Linthra" does (a removed folder, a disconnected
+      // server and a sync change the catalog the same way): the rows go, then
+      // the library reloads.
+      final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(SmartMixesScreen)));
+      await container
+          .read(musicLibraryRepositoryProvider)
+          .removeTracks(<String>['jellyfin:c']);
+      await container.read(libraryControllerProvider.notifier).refresh();
+      await tester.pumpAndSettle();
+
+      expect(find.text('New in your library · 2 songs'), findsOneWidget);
     });
 
     testWidgets('tapping a mix opens its tracks', (tester) async {

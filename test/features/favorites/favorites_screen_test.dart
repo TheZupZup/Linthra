@@ -9,6 +9,7 @@ import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_favorites_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/features/favorites/favorites_screen.dart';
+import 'package:linthra/features/library/library_controller.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/player_screen.dart';
 
@@ -108,6 +109,37 @@ void main() {
       expect(find.text("Couldn't load your favorites"), findsOneWidget);
       // The raw error is never surfaced.
       expect(find.textContaining('boom'), findsNothing);
+    });
+
+    testWidgets(
+        'a favourite removed from the library leaves the list straight away',
+        (tester) async {
+      await _pump(
+        tester,
+        tracks: const <Track>[
+          Track(id: 'local1', title: 'Alpha', uri: 'file:///a.mp3'),
+          Track(id: 'remote1', title: 'Bravo', uri: 'jellyfin:remote1'),
+        ],
+        favorites: const FavoritesData(
+          localIds: {'file:///a.mp3'},
+          remoteIds: {'jellyfin:remote1'},
+        ),
+      );
+      expect(find.text('Bravo'), findsOneWidget);
+
+      // What "Remove from Linthra" does (a removed folder, a disconnected
+      // server and a sync that drops a song change the catalog the same way):
+      // the rows go, then the library reloads. The heart itself stays.
+      final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(FavoritesScreen)));
+      await container
+          .read(musicLibraryRepositoryProvider)
+          .removeTracks(<String>['jellyfin:remote1']);
+      await container.read(libraryControllerProvider.notifier).refresh();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alpha'), findsOneWidget);
+      expect(find.text('Bravo'), findsNothing);
     });
 
     testWidgets('tapping a favourite plays it and queues the rest', (
