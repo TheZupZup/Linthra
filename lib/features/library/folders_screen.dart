@@ -170,6 +170,14 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
     if (_trail.isEmpty || !TickerMode.valuesOf(context).enabled) {
       return false;
     }
+    // A song's menu or sheet over the list (on this tab's navigator), or a
+    // dialog over the whole app (on the root one), is what Back closes first;
+    // the router pops it once this declines. Walking up a level underneath it
+    // left it open over a folder it no longer belonged to.
+    if (!(ModalRoute.of(context)?.isCurrent ?? true) ||
+        Navigator.of(context, rootNavigator: true).canPop()) {
+      return false;
+    }
     _goBack();
     return true;
   }
