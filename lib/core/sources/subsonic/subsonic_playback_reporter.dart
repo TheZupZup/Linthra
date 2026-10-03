@@ -68,6 +68,12 @@ class SubsonicPlaybackReporter implements ServerPlaybackReporter {
   Duration _lastPosition = Duration.zero;
   Duration _lastDuration = Duration.zero;
 
+  /// The account the current play's first scrobble went to. Signing out
+  /// never stops playback, so a song can play on while the listener signs in
+  /// as someone else. The rest of that play still belongs to the account it
+  /// started under: the new one must not count it, nor list it as playing.
+  String? _playUser;
+
   @override
   bool handles(Track track) =>
       track.uri.startsWith(SubsonicTrackMapper.uriScheme);
@@ -180,6 +186,7 @@ class SubsonicPlaybackReporter implements ServerPlaybackReporter {
       _nowPlayingUri = track.uri;
       _lastPosition = Duration.zero;
       _lastDuration = Duration.zero;
+      _playUser = null;
     }
     if (position > Duration.zero) _lastPosition = position;
     if (duration > Duration.zero) _lastDuration = duration;
@@ -191,6 +198,10 @@ class SubsonicPlaybackReporter implements ServerPlaybackReporter {
   Future<void> _scrobble(String songId, {required bool submission}) async {
     final SubsonicSession? session = _session();
     if (session == null) return;
+    // The play belongs to the account its first scrobble went to, which keeps
+    // scrobbling it through another address too.
+    final String owner = _playUser ??= session.username;
+    if (owner != session.username) return;
     final String what = submission ? 'scrobble' : 'now-playing';
     try {
       await _client().scrobble(session, songId, submission: submission);

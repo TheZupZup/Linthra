@@ -53,6 +53,13 @@ class JellyfinPlaybackReporter implements ServerPlaybackReporter {
   String? _lastReportedUri;
   Duration _lastReportedPosition = Duration.zero;
 
+  /// The play reported last, and the account its first report went to.
+  /// Signing out never stops playback, so a song can play on while the
+  /// listener signs in as someone else. The rest of that play still belongs
+  /// to the account it started under, and is not reported to the new one.
+  String? _playUri;
+  String? _playUserId;
+
   @override
   bool handles(Track track) =>
       track.uri.startsWith(JellyfinTrackMapper.uriScheme);
@@ -126,6 +133,16 @@ class JellyfinPlaybackReporter implements ServerPlaybackReporter {
     final String itemId =
         track.uri.substring(JellyfinTrackMapper.uriScheme.length).trim();
     if (itemId.isEmpty) return;
+
+    // A fresh start, or another track, is bound to the account signed in now,
+    // and only that account hears the rest of the play (through another
+    // address too).
+    if (event == JellyfinPlaybackEvent.started || track.uri != _playUri) {
+      _playUri = track.uri;
+      _playUserId = session.userId;
+    } else if (session.userId != _playUserId) {
+      return;
+    }
 
     if (event == JellyfinPlaybackEvent.stopped) {
       if (track.uri == _lastReportedUri) _lastReportedUri = null;

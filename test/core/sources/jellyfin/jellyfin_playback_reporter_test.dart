@@ -168,6 +168,28 @@ void main() {
       expect(client.lastReportSession?.baseUrl, 'https://other.example.com');
     });
 
+    test('reports nothing about a play to an account that signed in during it',
+        () async {
+      // Signing out never stops playback, so a song can play on while the
+      // listener signs in as someone else. The play belongs to the account it
+      // started under: the new account must not be told it played.
+      final reporter = build();
+      final Track track = _jellyfinTrack('1');
+
+      await reporter.onPlaybackStarted(track, _position, _duration);
+      session = _session.copyWith(userId: 'user-2', accessToken: 'other-token');
+      await reporter.onPlaybackProgress(track, _position, _duration);
+      await reporter.onPlaybackStopped(track, _position, _duration);
+      await reporter.onTrackChanged(track, null);
+      expect(client.playbackReports, hasLength(1));
+
+      // What the new account plays next is its own.
+      await reporter.onPlaybackStarted(
+          _jellyfinTrack('2'), _position, _duration);
+      expect(client.playbackReports, hasLength(2));
+      expect(client.lastReportSession?.userId, 'user-2');
+    });
+
     group('reporting is best-effort and never throws', () {
       test('a typed Jellyfin failure is swallowed', () async {
         client.playbackReportError = JellyfinException.notReachable();

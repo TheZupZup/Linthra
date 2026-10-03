@@ -199,6 +199,31 @@ void main() {
       expect(client.lastBaseUrl, 'https://other.example.com:32400');
     });
 
+    test('reports nothing about a play to a server connected during it',
+        () async {
+      // Connecting to another server leaves the song playing. Its ratingKey
+      // names something else on that server (often not even a song), so
+      // nothing more about this play may reach it.
+      final reporter = build();
+      final Track track = _plexTrack('1');
+
+      await reporter.onPlaybackStarted(track, _position, _duration);
+      session = _session.copyWith(
+        baseUrl: 'https://other.example.com:32400',
+        token: 'other-token',
+        machineIdentifier: 'machine-2',
+      );
+      await reporter.onPlaybackProgress(track, _position, _duration);
+      await reporter.onPlaybackStopped(track, _position, _duration);
+      await reporter.onTrackChanged(track, null);
+      expect(client.timelineReports, hasLength(1));
+
+      // What plays next from the new server is reported to it.
+      await reporter.onPlaybackStarted(_plexTrack('2'), _position, _duration);
+      expect(client.timelineReports, hasLength(2));
+      expect(client.lastBaseUrl, 'https://other.example.com:32400');
+    });
+
     group('reporting is best-effort and never throws', () {
       test('a typed Plex failure is swallowed', () async {
         client.timelineError = PlexException.notReachable();
