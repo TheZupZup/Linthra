@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/album.dart';
@@ -11,6 +12,9 @@ import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/repositories/plex_sync_cache_store.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_exception.dart';
+import 'package:linthra/data/database/linthra_database.dart';
+import 'package:linthra/data/repositories/drift_music_library_repository.dart';
+import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_plex_session_store.dart';
 import 'package:linthra/data/repositories/in_memory_plex_sync_cache_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
@@ -698,6 +702,65 @@ void main() {
       expect(
         second.read(plexSyncControllerProvider).message,
         contains('Synced 2 tracks'),
+      );
+    });
+
+    // The signature describes the server, not the catalog. "Remove from
+    // Linthra" drops catalog rows and leaves the server alone, and a re-sync
+    // is what brings them back: an unchanged server must not hide that.
+    test('a sync puts back Plex rows removed from the catalog', () async {
+      // The real catalog, which counts a source's rows without loading them.
+      final db = LinthraDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = DriftMusicLibraryRepository(db);
+      final container = _container(session: _session, repository: repo);
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+      final sync = container.read(plexSyncControllerProvider.notifier);
+      await sync.sync();
+      await repo.removeTracks(<String>['plex:101']);
+
+      await sync.sync();
+
+      expect(
+        container.read(plexSyncControllerProvider).message,
+        contains('Synced 2 tracks'),
+      );
+      expect(
+        (await repo.getAllTracks()).map((Track t) => t.uri),
+        unorderedEquals(<String>['plex:101', 'plex:102']),
+      );
+    });
+
+    test('a catalog lost between launches is rebuilt, not skipped', () async {
+      final cache = InMemoryPlexSyncCacheStore();
+      final first = _container(
+        session: _session,
+        repository: InMemoryMusicLibraryRepository(),
+        cacheStore: cache,
+      );
+      await first.read(plexSettingsControllerProvider.notifier).ensureLoaded();
+      await first.read(plexSyncControllerProvider.notifier).sync();
+
+      // The next launch finds the signature in the preferences, but the
+      // catalog file did not survive.
+      final catalog = InMemoryMusicLibraryRepository();
+      final second = _container(
+        session: _session,
+        repository: catalog,
+        cacheStore: cache,
+      );
+      await second.read(plexSettingsControllerProvider.notifier).ensureLoaded();
+      await second.read(plexSyncControllerProvider.notifier).sync();
+
+      expect(
+        second.read(plexSyncControllerProvider).message,
+        contains('Synced 2 tracks'),
+      );
+      expect(
+        (await catalog.getTracksForSource('plex')).map((Track t) => t.uri),
+        unorderedEquals(<String>['plex:101', 'plex:102']),
       );
     });
   });
