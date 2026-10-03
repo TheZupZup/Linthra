@@ -122,6 +122,7 @@ static void my_application_activate(GApplication* application) {{
   }}
   self->folder_picker = folder_picker_channel_new(view, window);
   self->window_lifecycle = window_lifecycle_channel_new(view, window);
+  gtk_widget_realize(GTK_WIDGET(view));
   if (self->window_state != nullptr) {{
     window_state_store_save(self->window_state);
   }}
@@ -2063,6 +2064,34 @@ class WindowLifecycleChannelTest(CheckoutCase):
         problems = checker.check(self.root)
         self.assertEqual(len(problems), 1)
         self.assertIn("window_lifecycle_channel_new", problems[0])
+
+    def test_registering_the_channel_after_the_view_is_realized_is_caught(
+        self,
+    ) -> None:
+        # Realizing the view is when FlView connects its own delete-event
+        # handler, which asks Dart to exit and stops the signal. Registered
+        # after it, the channel's handler never runs: "keep playing in the
+        # background" never hides the window and every close quits.
+        runner = MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+            "  self->window_lifecycle = window_lifecycle_channel_new(view, window);\n"
+            "  gtk_widget_realize(GTK_WIDGET(view));\n",
+            "  gtk_widget_realize(GTK_WIDGET(view));\n"
+            "  self->window_lifecycle = window_lifecycle_channel_new(view, window);\n",
+        )
+        build_checkout(self.root, my_application=runner)
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("gtk_widget_realize", problems[0])
+        self.assertIn("window_lifecycle_channel_new", problems[0])
+
+    def test_a_realize_named_only_in_a_comment_does_not_count(self) -> None:
+        runner = MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+            "  self->folder_picker = folder_picker_channel_new(view, window);\n",
+            "  // Not before gtk_widget_realize(GTK_WIDGET(view)).\n"
+            "  self->folder_picker = folder_picker_channel_new(view, window);\n",
+        )
+        build_checkout(self.root, my_application=runner)
+        self.assertEqual(checker.check(self.root), [])
 
     def test_never_presenting_the_existing_window_is_caught(self) -> None:
         # Without this, activating a running Linthra builds a second window on
