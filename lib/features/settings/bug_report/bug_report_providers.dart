@@ -33,10 +33,15 @@ class BugReportDiagnostics {
 
 /// Collects the diagnostics snapshot and recent safe events for the bug report.
 ///
+/// Auto-disposed, so the snapshot belongs to one visit of the screen: kept
+/// while the screen is open, collected again the next time it opens. Kept for
+/// the whole session, every later report described the app as it was the
+/// first time the screen was opened (or kept that first visit's failure).
+///
 /// Overridden in tests with a fixed bundle so the screen can be exercised
 /// without the playback/cast plugins behind the collector.
 final bugReportDiagnosticsProvider =
-    FutureProvider<BugReportDiagnostics>((ref) async {
+    FutureProvider.autoDispose<BugReportDiagnostics>((ref) async {
   final AppDiagnosticsData data = await DiagnosticsCollector(ref).collect();
   return BugReportDiagnostics(
     data: data,

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:linthra/app/routes.dart';
 import 'package:linthra/core/diagnostics/app_diagnostics.dart';
 import 'package:linthra/core/models/cache_size.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
@@ -195,6 +197,85 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('## Recent app events'), findsNothing);
+    });
+
+    testWidgets(
+        'opening it again describes the app as it is now, not as it was '
+        'the first time', (tester) async {
+      tester.view.physicalSize = const Size(1080, 4000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      // The live app state the collector reads each time it runs, the way
+      // the real one reads the playback controller and the safe event log.
+      String playbackStatus = 'playing';
+      String? lastError;
+      final List<String> events = <String>['lifecycle: resumed'];
+
+      final GoRouter router = GoRouter(
+        initialLocation: '/',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/',
+            builder: (BuildContext context, GoRouterState _) => Scaffold(
+              body: TextButton(
+                onPressed: () => context.push(AppRoutes.reportBug),
+                child: const Text('Report a bug'),
+              ),
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.reportBug,
+            builder: (_, __) => const BugReportScreen(),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            bugReportDiagnosticsProvider.overrideWith(
+              (ref) async => BugReportDiagnostics(
+                data: AppDiagnosticsData(
+                  appVersion: '0.1.0-test',
+                  playbackStatus: playbackStatus,
+                  lastErrorKind: lastError,
+                ),
+                recentEventLines: List<String>.of(events),
+              ),
+            ),
+            externalLinkLauncherProvider.overrideWithValue(_FakeLinkLauncher()),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+
+      // A first look, while everything is fine.
+      await tester.tap(find.text('Report a bug'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Playback state: playing'), findsOneWidget);
+      expect(find.textContaining('Last error: none'), findsOneWidget);
+      router.pop();
+      await tester.pumpAndSettle();
+
+      // Later in the session a song fails to play, and the user comes back to
+      // report exactly that.
+      playbackStatus = 'error';
+      lastError = 'unplayableMedia';
+      events.add('error: load');
+
+      await tester.tap(find.text('Report a bug'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Playback state: error'),
+        findsOneWidget,
+        reason: 'the report must describe the failure being reported, not '
+            'the state the screen saw the first time it was opened',
+      );
+      expect(
+          find.textContaining('Last error: unplayableMedia'), findsOneWidget);
+      expect(find.textContaining('error: load'), findsOneWidget);
     });
   });
 }
