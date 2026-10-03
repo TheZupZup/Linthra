@@ -332,6 +332,17 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
   PlaybackResolutionException? engineUnavailableFrom(Object error) =>
       _backend?.classifyEngineFailure(error)?.asResolutionException();
 
+  /// libmpv losing a source mid-playback (a server that went away, a stream
+  /// cut short, a file it can no longer decode) reaches just_audio only as an
+  /// idle state: the vendored just_audio_media_kit sets idle with an error
+  /// code, and just_audio forwards neither the code nor an error event. Taking
+  /// that idle as the failure it is gives Linux the reconnect, the sibling copy
+  /// and the error with Retry an engine error gets, instead of "playing" in
+  /// silence for good.
+  @override
+  @protected
+  bool get engineReportsFailureAsIdle => true;
+
   @override
   @protected
   PlaybackResolutionException loadFailureFor(

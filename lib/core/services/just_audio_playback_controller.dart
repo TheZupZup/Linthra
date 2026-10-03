@@ -42,6 +42,21 @@ enum _LocalReadFailure {
   unknown,
 }
 
+/// The engine stopped a source on its own, reported by an engine that says so
+/// only with an idle state (see
+/// [JustAudioPlaybackController.engineReportsFailureAsIdle]).
+///
+/// Fixed text that reads as a source error, which is what the engine's own
+/// report (lost by just_audio on the way) would have been classified as: a
+/// stream that dropped gets the bounded reconnect, and an on-device file is
+/// looked at again to say whether it is gone or unreadable.
+class _EngineLostSource implements Exception {
+  const _EngineLostSource();
+
+  @override
+  String toString() => 'Source error: the engine stopped on its own';
+}
+
 /// What the on-device engine should do in response to an audio-focus change.
 /// The outcome of [JustAudioPlaybackController.audioFocusAction], kept separate
 /// so the standard-contract decision is pure and unit-testable.
@@ -444,6 +459,21 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// already running. Set synchronously before the async work starts so a
   /// concurrent watchdog timeout and engine error cannot both drive recovery.
   bool _streamRecoveryInFlight = false;
+
+  /// Whether [stop] is stopping the engine right now, so the idle the engine
+  /// reports for it is not taken for a lost source.
+  bool _engineStopping = false;
+
+  /// Whether the engine reports a source it lost mid-playback only as an idle
+  /// state, with nothing on [AudioPlayer.playbackEventStream].
+  ///
+  /// False for just_audio's own platforms, which raise the failure as an
+  /// error there. The Linux engine (media_kit through the vendored
+  /// just_audio_media_kit) sets an idle state with an error code that
+  /// just_audio does not forward, so an idle no load or stop of ours explains
+  /// is the only sign that the stream dropped or the file stopped decoding.
+  @protected
+  bool get engineReportsFailureAsIdle => false;
 
   /// Fires when a mid-stream [PlaybackStatus.buffering] outlasts
   /// [midStreamBufferingTimeout], turning a silent stall into a recoverable
@@ -1080,7 +1110,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // can never demote the service. Buffering/loading still flow through (they
     // map to a still-`playing` session) and a real pause/completion/error is
     // unaffected.
-    if (status == PlaybackStatus.idle) return;
+    //
+    // Except that, on an engine that reports a lost source only as idle (see
+    // [engineReportsFailureAsIdle]), an idle that no load or stop of ours
+    // explains is the source failing, and gets what an engine error gets.
+    if (status == PlaybackStatus.idle) {
+      if (engineReportsFailureAsIdle && !_loadInFlight && !_engineStopping) {
+        _onEngineError(const _EngineLostSource(), StackTrace.current);
+      }
+      return;
+    }
     // After a failure the engine still holds a dead or earlier source, and the
     // pause that often follows (a listener pause, an unplug, a focus loss) makes
     // it report paused, loading or even completed. None of that is news about
@@ -3202,7 +3241,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // to cover it.
     _playbackGeneration++;
     _startFreshAfterFailures();
-    await _player.stop();
+    // The engine reports idle as it stops, which is this stop and not a lost
+    // source (see [engineReportsFailureAsIdle]).
+    _engineStopping = true;
+    try {
+      await _player.stop();
+    } finally {
+      _engineStopping = false;
+    }
     final stopped = PlaybackState(
       currentTrack: _state.currentTrack,
       upNext: _queue.upNext,

@@ -55,8 +55,24 @@ class _Engine extends Fake implements AudioPlayer {
     states.add(PlayerState(false, ProcessingState.ready));
   }
 
+  /// What just_audio does on stop: the player stops playing, and the platform
+  /// it switches to reports idle.
   @override
-  Future<void> stop() async => stops++;
+  Future<void> stop() async {
+    stops++;
+    states.add(PlayerState(false, ProcessingState.ready));
+    states.add(PlayerState(false, ProcessingState.idle));
+  }
+
+  /// libmpv loses the source mid-playback (a server that went away, a
+  /// truncated stream, a file it cannot decode further). The vendored
+  /// just_audio_media_kit reports that as an idle engine with an error code,
+  /// which just_audio does not forward: nothing arrives on
+  /// [playbackEventStream], only the idle state.
+  void loseSourceAsLinuxDoes() {
+    states.add(PlayerState(true, ProcessingState.idle));
+  }
+
   @override
   Future<void> seek(Duration? position, {int? index}) async {
     if (position != null) seeks.add(position);
@@ -258,6 +274,64 @@ void main() {
     expect(controller.state.status, PlaybackStatus.error);
     expect(controller.state.isPlaying, isFalse);
     expect(controller.state.errorMessage, isNot(contains('music.example')));
+  });
+
+  test('a stream lost mid-song is recovered, not left playing in silence',
+      () async {
+    final engine = _Engine();
+    final controller = build(engine)..streamRetryBackoff = Duration.zero;
+    addTearDown(() async {
+      await controller.dispose();
+      await engine.close();
+    });
+    await controller.playTrack(_track('remote', 'jellyfin:remote'));
+    expect(controller.state.status, PlaybackStatus.playing);
+
+    engine.loseSourceAsLinuxDoes();
+    await pumpEventQueue();
+
+    // The same bounded recovery an engine error gets: the stream is opened
+    // again, where it was.
+    expect(engine.opened, <String>[
+      'https://music.example/stream/remote',
+      'https://music.example/stream/remote',
+    ]);
+    expect(controller.state.status, PlaybackStatus.playing);
+  });
+
+  test('a local file lost mid-song says so instead of playing in silence',
+      () async {
+    final engine = _Engine();
+    final controller = build(engine);
+    addTearDown(() async {
+      await controller.dispose();
+      await engine.close();
+    });
+    // Not on this disk any more: its drive was pulled out mid-song.
+    await controller.playTrack(_track('gone', '/linthra-test/gone.flac'));
+    expect(controller.state.status, PlaybackStatus.playing);
+
+    engine.loseSourceAsLinuxDoes();
+    await pumpEventQueue();
+
+    expect(controller.state.status, PlaybackStatus.error);
+    expect(controller.state.isPlaying, isFalse);
+  });
+
+  test('stopping is not taken for a lost source', () async {
+    final engine = _Engine();
+    final controller = build(engine)..streamRetryBackoff = Duration.zero;
+    addTearDown(() async {
+      await controller.dispose();
+      await engine.close();
+    });
+    await controller.playTrack(_track('remote', 'jellyfin:remote'));
+
+    await controller.stop();
+    await pumpEventQueue();
+
+    expect(engine.opened, hasLength(1));
+    expect(controller.state.status, PlaybackStatus.idle);
   });
 
   test('dispose releases the engine and a fresh controller can play', () async {
