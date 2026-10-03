@@ -60,6 +60,13 @@ class _DeferredAudioFileScanner implements AudioFileScanner {
     if (!arrival.isCompleted) arrival.complete();
   }
 
+  /// Forgets the walk of [folder] that already answered, so the next scan of
+  /// it waits for an answer of its own.
+  void forget(String folder) {
+    requests.remove(folder);
+    _arrivals.remove(folder);
+  }
+
   @override
   Future<List<String>> listFiles(
     String folder, {
@@ -223,6 +230,57 @@ void main() {
 
       expect(await repository.getAllTracks(), isEmpty);
       expect(container.read(libraryControllerProvider).tracks, isEmpty);
+    });
+
+    test('a rescan keeps the library on screen until its catalog is ready',
+        () async {
+      // The folder watcher runs this rescan whenever a music file changes, and
+      // the reconnect refresh whenever a drive comes back, so the user is
+      // usually in the middle of browsing when it starts. Blanking the library
+      // for the walk hid every track behind "Loading your library" and threw
+      // away the scroll position of every list, and a walk that never answers
+      // (a network share whose server went away) never gave it back.
+      final repository = InMemoryMusicLibraryRepository();
+      final scanner = _DeferredAudioFileScanner();
+      final container = _scanContainer(
+        repository: repository,
+        scanner: scanner,
+      );
+      final controller = container.read(libraryControllerProvider.notifier);
+      final Future<void> first = controller.scanFolder('/music');
+      await scanner.requested('/music');
+      scanner.requests['/music']!.complete(<String>[
+        '/music/One.mp3',
+        '/music/Two.mp3',
+      ]);
+      await first;
+      final List<Track> shown =
+          container.read(libraryControllerProvider).tracks;
+      expect(shown.map((Track t) => t.title), <String>['One', 'Two']);
+
+      scanner.forget('/music');
+      final Future<void> rescan = controller.scanFolder('/music');
+      await scanner.requested('/music');
+
+      expect(
+        container.read(libraryControllerProvider).status,
+        LibraryStatus.loaded,
+        reason: 'the walk has not answered yet, and the music already '
+            'indexed is still the library',
+      );
+      expect(container.read(libraryControllerProvider).tracks, shown);
+
+      scanner.requests['/music']!.complete(<String>[
+        '/music/One.mp3',
+        '/music/Two.mp3',
+        '/music/Three.mp3',
+      ]);
+      await rescan;
+
+      expect(
+        container.read(libraryControllerProvider).tracks.map((t) => t.title),
+        <String>['One', 'Two', 'Three'],
+      );
     });
 
     test('an unrelated catalog refresh does not cancel a local scan', () async {

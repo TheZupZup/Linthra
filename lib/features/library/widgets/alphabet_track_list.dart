@@ -79,6 +79,14 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   late List<String> _letters;
   late Map<String, double> _letterOffsets;
 
+  /// Where each song's row sits in [_entries], by uri.
+  ///
+  /// The list stays on screen while it updates (a rescan, a sync, a heart), so
+  /// a row has to follow its song to its new place rather than stay at its
+  /// index and take whatever song lands there: a song's menu that is open at
+  /// that moment would otherwise act on the song now drawn in that row.
+  late Map<String, int> _entryIndexByUri;
+
   /// The section the list is currently parked at — highlighted in the rail and
   /// shown in the scrub bubble. Tracks both manual scrolling and rail drags.
   String? _activeLetter;
@@ -133,6 +141,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
     _entries = <_Entry>[];
     _letters = <String>[];
     _letterOffsets = <String, double>{};
+    _entryIndexByUri = <String, int>{};
 
     double offset = 0;
     String? current;
@@ -145,6 +154,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
         _entries.add(_Entry.header(letter));
         offset += _headerExtent;
       }
+      _entryIndexByUri[_sorted[i].uri] = _entries.length;
       _entries.add(_Entry.track(i));
       offset += _trackExtent;
     }
@@ -212,6 +222,8 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
             itemCount: _entries.length,
             itemExtentBuilder: (index, _) =>
                 _entries[index].isHeader ? _headerExtent : _trackExtent,
+            findChildIndexCallback: (Key key) =>
+                key is ValueKey<String> ? _entryIndexByUri[key.value] : null,
             itemBuilder: (context, i) {
               final entry = _entries[i];
               if (entry.isHeader) {
@@ -220,6 +232,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
               final int trackIndex = entry.trackIndex!;
               final Track track = _sorted[trackIndex];
               return TrackTile(
+                key: ValueKey<String>(track.uri),
                 tracks: _sorted,
                 index: trackIndex,
                 selectable: widget.selectable,

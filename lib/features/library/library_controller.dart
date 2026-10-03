@@ -215,7 +215,7 @@ class LibraryController extends Notifier<LibraryState> {
     // otherwise do metadata and artwork I/O for the whole MediaStore traversal.
     invalidatePendingScans();
     final int generation = _scanGeneration;
-    state = const LibraryState.loading();
+    _showLoading();
     final List<String> roots = LocalMusicRoots.normalize(folderPaths);
     try {
       // The stored slice, with each row's on-disk stamp. Three jobs: an
@@ -472,9 +472,29 @@ class LibraryController extends Notifier<LibraryState> {
       "Couldn't open your music library. Try again, or rescan your music "
       'folder.';
 
+  /// Shows the loading state, unless the library already has music on screen.
+  ///
+  /// A rescan or a reload replaces what is shown only once its new catalog is
+  /// ready. Blanking the library for the length of a walk hid every track,
+  /// local and server alike, behind "Loading your library" whenever the folder
+  /// watcher or a returning drive started a rescan, and threw away the scroll
+  /// position of every list and album page the user was reading. A walk that
+  /// never answers (a network share whose server went away) never gave the
+  /// library back at all. With nothing shown yet there is nothing to keep, so
+  /// the first load still shows the spinner.
+  void _showLoading() {
+    final LibraryState? shown = stateOrNull;
+    if (shown != null &&
+        shown.status == LibraryStatus.loaded &&
+        shown.tracks.isNotEmpty) {
+      return;
+    }
+    state = const LibraryState.loading();
+  }
+
   Future<void> _load() async {
     final int generation = ++_loadGeneration;
-    state = const LibraryState.loading();
+    _showLoading();
     try {
       final tracks =
           await ref.read(musicLibraryRepositoryProvider).getAllTracks();
