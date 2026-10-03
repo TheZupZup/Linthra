@@ -513,6 +513,10 @@ class CacheDownloadRepository
         _downloads[key] =
             current.copyWith(preloaded: false, lastAccessedAt: _now());
         await _save();
+        // A Clear all deleting this copy's file (or a removal) dropped the
+        // record while it was being saved, so there is nothing left to call
+        // downloaded. A request the clear did not cancel fetches it below.
+        if (!_downloads.containsKey(key)) return operation.canceled;
         _statuses[key] = DownloadStatus.downloaded;
         _emitStatus();
         _emitCache();

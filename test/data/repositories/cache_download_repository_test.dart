@@ -2694,6 +2694,62 @@ void main() {
     });
   });
 
+  group('a download asked for while Clear all is deleting files', () {
+    // Clear all deletes the cache one file at a time, and on Android every
+    // save of the download records is a platform-channel round trip. A
+    // download tapped meanwhile (or a "Download all" reaching its next song)
+    // finds the song pre-cached and promotes that copy, whose file the clear
+    // is about to delete.
+    test('a promoted pre-cache never reads Downloaded without its file',
+        () async {
+      final _SlowSaveDownloadStore store = _SlowSaveDownloadStore();
+      final InMemoryOfflineFileStore disk = InMemoryOfflineFileStore();
+      final _SlowDeleteFileStore files = _SlowDeleteFileStore(disk);
+      final _FakeRemoteDownloader downloader = _FakeRemoteDownloader();
+      final CacheDownloadRepository repository = CacheDownloadRepository(
+        store: store,
+        files: files,
+        downloader: downloader,
+        connectivity: _FakeConnectivity(NetworkStatus.wifi),
+        preferences: InMemoryDownloadPreferences(),
+      );
+      // Smart pre-cache warmed the song ahead of play.
+      await repository.prefetch(_jellyfin('j1'));
+      expect(disk.bytesFor('jellyfin_j1.mp3'), isNotNull);
+
+      // Clear all is deleting the pre-cached file...
+      files.hold = Completer<void>();
+      final Future<void> clearing = repository.clearAll();
+      await files.reachedDelete.future;
+      // ...when the listener downloads the song: its pre-cached copy is
+      // promoted, and the record saying so is on its way to disk.
+      store.holdNextSave();
+      final Future<DownloadRequestOutcome> request =
+          repository.requestDownload(_jellyfin('j1'));
+      await store.reachedSave.future;
+      files.hold!.complete();
+      await clearing;
+      store.releaseSave();
+      await request;
+      await _settle();
+
+      final bool recorded = (await store.loadDownloads())
+          .any((CachedTrack c) => c.trackId == 'j1' && !c.preloaded);
+      final bool onDisk = disk.bytesFor('jellyfin_j1.mp3') != null;
+      // Whichever wins, the row says what is really there: Downloaded only
+      // with a record and a file behind it.
+      expect(
+        await repository.statusFor('j1'),
+        recorded && onDisk
+            ? DownloadStatus.downloaded
+            : DownloadStatus.notDownloaded,
+        reason: 'record saved: $recorded, file on disk: $onDisk',
+      );
+      // And the download asked for after the clear began is not lost.
+      expect(recorded && onDisk, isTrue);
+    });
+  });
+
   group('a server error document is never cached as the track', () {
     // End to end through the real Subsonic downloader: download.view refuses
     // with HTTP 200 and a subsonic-response error document. Were it cached,
@@ -2781,6 +2837,72 @@ class _SubsonicDownloadSource implements SubsonicStreamSource {
 
   @override
   Future<Uri?> resolveDownloadUri(Track track) async => _download;
+}
+
+/// A download store that applies every save at once, in call order, the way
+/// SharedPreferences updates its value as soon as `setString` is called, but
+/// can hold one save's completion open: on Android that completion is a
+/// platform-channel round trip, so other work runs before it lands.
+class _SlowSaveDownloadStore implements DownloadStore {
+  final InMemoryDownloadStore _inner = InMemoryDownloadStore();
+  Completer<void>? _armed;
+  Completer<void>? _held;
+
+  /// Completes once the held save has been applied and is waiting.
+  final Completer<void> reachedSave = Completer<void>();
+
+  /// Holds the completion of the next save until [releaseSave].
+  void holdNextSave() => _armed = Completer<void>();
+
+  void releaseSave() => _held!.complete();
+
+  @override
+  Future<List<CachedTrack>> loadDownloads() => _inner.loadDownloads();
+
+  @override
+  Future<void> saveDownloads(List<CachedTrack> downloads) async {
+    await _inner.saveDownloads(downloads);
+    final Completer<void>? armed = _armed;
+    if (armed == null) return;
+    _armed = null;
+    _held = armed;
+    reachedSave.complete();
+    await armed.future;
+  }
+}
+
+/// A file store whose deletes wait on [hold] while it is set, the way a
+/// delete on a real disk takes a moment, during which other work runs.
+class _SlowDeleteFileStore implements OfflineFileStore {
+  _SlowDeleteFileStore(this._inner);
+
+  final InMemoryOfflineFileStore _inner;
+
+  /// When set, every delete waits on it before removing the file.
+  Completer<void>? hold;
+
+  /// Completes once a delete is waiting on [hold].
+  final Completer<void> reachedDelete = Completer<void>();
+
+  @override
+  Future<String> write(String trackId, List<int> bytes, {String? extension}) =>
+      _inner.write(trackId, bytes, extension: extension);
+
+  @override
+  Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);
+
+  @override
+  Future<int?> sizeFor(String fileName) => _inner.sizeFor(fileName);
+
+  @override
+  Future<void> delete(String fileName) async {
+    final Completer<void>? pending = hold;
+    if (pending != null) {
+      if (!reachedDelete.isCompleted) reachedDelete.complete();
+      await pending.future;
+    }
+    await _inner.delete(fileName);
+  }
 }
 
 /// Lets the broadcast stream deliver any pending events.
