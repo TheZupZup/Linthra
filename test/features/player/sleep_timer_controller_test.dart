@@ -171,5 +171,115 @@ void main() {
       expect(read().isActive, isFalse);
       expect(playback.pauseCount, 0);
     });
+
+    group('while the computer sleeps', () {
+      // Dart's timers run on the monotonic clock, which stands still while a
+      // Linux machine is suspended (and while an Android phone is in deep
+      // sleep): after the wake the periodic timer simply delivers the tick
+      // after the last one. Only the wall clock knows the night went by.
+      late DateTime wall;
+
+      SleepTimerController withWallClock() {
+        return SleepTimerController(
+          createPeriodic: (Duration _, void Function(Timer) onTick) {
+            final timer = _FakePeriodicTimer(onTick);
+            created = timer;
+            return timer;
+          },
+          now: () => wall,
+        );
+      }
+
+      setUp(() {
+        wall = DateTime.utc(2026, 10, 3, 23);
+        container = ProviderContainer(
+          overrides: <Override>[
+            playbackControllerProvider.overrideWithValue(playback),
+            sleepTimerControllerProvider.overrideWith(withWallClock),
+          ],
+        );
+        addTearDown(container.dispose);
+      });
+
+      /// One second of real time, as the periodic timer delivers it.
+      void tickOneSecond() {
+        wall = wall.add(const Duration(seconds: 1));
+        created!.fire();
+      }
+
+      test(
+          'a countdown that ran out while the laptop was suspended pauses as '
+          'soon as it wakes', () {
+        controller().start(const Duration(minutes: 30));
+        for (int i = 0; i < 20 * 60; i++) {
+          tickOneSecond();
+        }
+        expect(read().remaining, const Duration(minutes: 10));
+        expect(playback.pauseCount, 0);
+
+        // The laptop suspends (the lid closes, or it goes to sleep on its own
+        // after a while with no input) and wakes up the next morning, where
+        // the music it was playing carries on.
+        wall = wall.add(const Duration(hours: 8));
+        tickOneSecond();
+
+        expect(
+          playback.pauseCount,
+          1,
+          reason: 'the 30 minutes ran out during the night; the music must not '
+              'play on for the 10 minutes the countdown still showed',
+        );
+        expect(read().isActive, isFalse);
+        expect(created!.isActive, isFalse);
+      });
+
+      test('a shorter sleep is taken off what is left', () {
+        controller().start(const Duration(minutes: 30));
+        for (int i = 0; i < 5 * 60; i++) {
+          tickOneSecond();
+        }
+        expect(read().remaining, const Duration(minutes: 25));
+
+        wall = wall.add(const Duration(minutes: 10));
+        tickOneSecond();
+
+        expect(read().remaining, const Duration(minutes: 14, seconds: 59));
+        expect(playback.pauseCount, 0);
+
+        for (int i = 0; i < 14 * 60 + 58; i++) {
+          tickOneSecond();
+        }
+        expect(read().remaining, const Duration(seconds: 1));
+        expect(playback.pauseCount, 0);
+        tickOneSecond();
+        expect(playback.pauseCount, 1);
+        expect(read().isActive, isFalse);
+      });
+
+      test('a custom delay past the end of the calendar still counts down', () {
+        controller().start(const Duration(minutes: 5));
+        // The custom field takes any whole number of minutes; this one ends
+        // past the last date a DateTime can hold.
+        const Duration absurd = Duration(minutes: 150000000000);
+
+        controller().start(absurd);
+        expect(read().remaining, absurd);
+        tickOneSecond();
+
+        expect(read().isActive, isTrue);
+        expect(read().remaining, absurd - const Duration(seconds: 1));
+        expect(playback.pauseCount, 0);
+      });
+
+      test('a clock set back does not make the countdown longer', () {
+        controller().start(const Duration(minutes: 2));
+        tickOneSecond();
+
+        wall = wall.subtract(const Duration(hours: 1));
+        tickOneSecond();
+
+        expect(read().remaining, const Duration(minutes: 1, seconds: 58));
+      });
+    });
   });
 }
