@@ -1,5 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/album.dart';
+import 'package:linthra/core/models/artist.dart';
+import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
 import 'package:linthra/core/sources/local/android_media_library.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
@@ -90,6 +93,30 @@ const SafAudioDocument _deviceSong = SafAudioDocument(
   name: 'Device song.mp3',
   mimeType: 'audio/mpeg',
 );
+
+/// The catalog on a disk that has filled up (or a filesystem remounted
+/// read-only): reads work, and every write fails the way SQLite's does.
+class _UnwritableCatalog extends InMemoryMusicLibraryRepository {
+  bool unwritable = false;
+
+  @override
+  Future<void> upsertCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+    required List<Album> albums,
+    required List<Artist> artists,
+  }) {
+    if (unwritable) {
+      throw StateError('SqliteException(13): database or disk is full');
+    }
+    return super.upsertCatalog(
+      sourceId: sourceId,
+      tracks: tracks,
+      albums: albums,
+      artists: artists,
+    );
+  }
+}
 
 /// The desktop access probe, likewise flippable mid-test.
 class _MutableReadability implements DirectoryReadability {
@@ -512,6 +539,77 @@ void main() {
           container.read(localMusicControllerProvider).message,
           contains('was not granted'),
         );
+      });
+    });
+
+    group('when the library cannot be written', () {
+      // Forgetting local music, or removing its last folder, has nothing left
+      // to scan: it clears the local catalog outright. When that write fails
+      // (the disk is full, the database went read-only), the card must not
+      // spin forever, and nothing may be half done: a selection emptied over a
+      // catalog that still holds the music leaves tracks no folder owns, with
+      // no folder left in Settings to remove them from.
+      late _UnwritableCatalog catalog;
+      late ProviderContainer container;
+
+      setUp(() async {
+        catalog = _UnwritableCatalog();
+        container = _container(
+          picker: FakeFolderPickerService(),
+          folderRepo:
+              InMemorySelectedMusicFolderRepository(initialFolder: '/music'),
+          libraryRepo: catalog,
+          scanner: FakeAudioFileScanner(files: const <String>['/music/a.mp3']),
+        );
+        await container.read(selectedFolderControllerProvider.future);
+        await container.read(localMusicControllerProvider.notifier).rescan();
+        expect(await catalog.getAllTracks(), hasLength(1));
+        catalog.unwritable = true;
+      });
+
+      /// What the card's button does with the command: it awaits nothing and
+      /// catches nothing, so whatever escapes is unhandled.
+      Future<Object?> press(Future<void> Function() command) async {
+        try {
+          await command();
+          return null;
+        } catch (error) {
+          return error;
+        }
+      }
+
+      Future<void> expectNothingChanged() async {
+        final LocalMusicActionState card =
+            container.read(localMusicControllerProvider);
+        expect(card.busy, isFalse, reason: 'the card must not spin forever');
+        expect(card.isError, isTrue);
+        expect(card.message, contains('nothing was changed'));
+        expect(await folderRepoValues(container), <String>['/music']);
+        expect(
+          container.read(selectedFolderControllerProvider).valueOrNull,
+          <String>['/music'],
+        );
+        expect(await catalog.getAllTracks(), hasLength(1));
+      }
+
+      test('forget says so and forgets nothing', () async {
+        final Object? escaped = await press(
+          container.read(localMusicControllerProvider.notifier).forget,
+        );
+
+        await expectNothingChanged();
+        expect(escaped, isNull);
+      });
+
+      test('removing the last folder says so and removes nothing', () async {
+        final Object? escaped = await press(
+          () => container
+              .read(localMusicControllerProvider.notifier)
+              .removeFolder('/music'),
+        );
+
+        await expectNothingChanged();
+        expect(escaped, isNull);
       });
     });
 

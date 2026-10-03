@@ -132,17 +132,24 @@ class LibraryController extends Notifier<LibraryState> {
 
   /// Clears only the local source, after any already-started local write.
   /// A new scan started after this action can still populate the catalog.
+  ///
+  /// Fails when the catalog cannot be written (the disk is full, the database
+  /// went read-only). The library is reloaded either way, so a scan
+  /// superseded here never leaves it loading.
   Future<void> clearLocalCatalog() {
     invalidatePendingScans();
     return _serializeLocalMutation(() async {
-      await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
-        sourceId: _localSourceId,
-        tracks: const [],
-        albums: const [],
-        artists: const [],
-      );
-      ref.read(localScanReportProvider.notifier).clear();
-      await _load();
+      try {
+        await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
+          sourceId: _localSourceId,
+          tracks: const [],
+          albums: const [],
+          artists: const [],
+        );
+        ref.read(localScanReportProvider.notifier).clear();
+      } finally {
+        await _load();
+      }
     });
   }
 

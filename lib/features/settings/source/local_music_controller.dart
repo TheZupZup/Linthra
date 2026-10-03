@@ -129,17 +129,27 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   /// folder's tracks go away.
   Future<void> removeFolder(String folder) async {
     state = const LocalMusicActionState(busy: true);
-    await ref
-        .read(selectedFolderControllerProvider.notifier)
-        .removeAndPersist(folder);
-    final List<String> remaining = _selectedFolders();
-    if (remaining.isEmpty) {
-      await ref.read(libraryControllerProvider.notifier).clearLocalCatalog();
+    final String target = LocalMusicRoots.canonicalize(folder);
+    if (_selectedFolders().every(
+      (String selected) => LocalMusicRoots.canonicalize(selected) == target,
+    )) {
+      // Nothing would be left to scan, so this folder's music is cleared
+      // outright, and only then does the folder leave the selection.
+      final bool cleared = await _clearLocalMusic(
+        () => ref
+            .read(selectedFolderControllerProvider.notifier)
+            .removeAndPersist(folder),
+      );
+      if (!cleared) return;
       state = const LocalMusicActionState(
         message: 'Folder removed. Your files were not deleted.',
       );
       return;
     }
+    await ref
+        .read(selectedFolderControllerProvider.notifier)
+        .removeAndPersist(folder);
+    final List<String> remaining = _selectedFolders();
     // Taken out here rather than left to the rescan below, which writes
     // nothing when none of the remaining folders can be read: with the other
     // drives unplugged, this folder's music would otherwise stay listed.
@@ -351,11 +361,47 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     // actual clear after any already-started local catalog write.
     library.invalidatePendingScans();
     state = const LocalMusicActionState(busy: true);
-    await ref.read(selectedFolderControllerProvider.notifier).clear();
-    await library.clearLocalCatalog();
+    final bool cleared = await _clearLocalMusic(
+      ref.read(selectedFolderControllerProvider.notifier).clear,
+    );
+    if (!cleared) return;
     state = const LocalMusicActionState(
       message: 'Local music forgotten. Your files were not deleted.',
     );
+  }
+
+  /// Clears the local catalog and, only once that write went through,
+  /// [unselect]s: the two steps of Forget and of removing the last folder.
+  ///
+  /// The catalog goes first so that a write that fails (the disk is full, the
+  /// database went read-only) leaves the selection as it was, and the card
+  /// says so instead of spinning for good. Emptying the selection first left
+  /// the music in the library under no selected folder, with nothing in
+  /// Settings to remove it from. Both steps are one source change, so a
+  /// refresh the app starts on its own cannot scan the folders back in
+  /// between.
+  ///
+  /// Returns false, having said so on the card, when the catalog could not be
+  /// written.
+  Future<bool> _clearLocalMusic(Future<void> Function() unselect) async {
+    final LibraryController library =
+        ref.read(libraryControllerProvider.notifier);
+    bool cleared = false;
+    await library.changeSource(() async {
+      try {
+        await library.clearLocalCatalog();
+      } catch (_) {
+        state = const LocalMusicActionState(
+          message: "Couldn't update your library, so nothing was changed. "
+              'Try again.',
+          isError: true,
+        );
+        return;
+      }
+      await unselect();
+      cleared = true;
+    });
+    return cleared;
   }
 
   List<String> _selectedFolders() =>
