@@ -885,6 +885,34 @@ void main() {
       expect(completed, <Track>[a, a]);
     });
 
+    test(
+        'a repeat-one replay on an engine that stays on completed reads as '
+        'playing, not as a stalled stream', () async {
+      final JustAudioPlaybackController controller = build()
+        // A watchdog left armed would fire within the settle below.
+        ..midStreamBufferingTimeout = Duration.zero
+        ..streamRetryBackoff = Duration.zero;
+      controller.setRepeatMode(RepeatMode.one);
+      await controller.playTracks(<Track>[a]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // How the Linux engine ends a source (observed with libmpv 2.2):
+      // libmpv goes idle at the end of the file, which media_kit reports as
+      // buffering, then the end. It stays on completed across the rewind, so
+      // nothing more is reported while the replay plays.
+      engine.emitState(true, ProcessingState.buffering);
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      expect(completed, <Track>[a]);
+      expect(engine.calls.where((String call) => call == 'seek:0').length, 1);
+      expect(engine.loadedUrls, <String>[_url(a)],
+          reason: 'the end was not a stall to reconnect from');
+      expect(controller.state.status, PlaybackStatus.playing,
+          reason: 'the replay is playing, not buffering');
+    });
+
     test('a pause during the repeat-one rewind does not end the track again',
         () async {
       final JustAudioPlaybackController controller = build();

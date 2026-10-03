@@ -2030,6 +2030,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// end), and off advances until the queue runs out and then settles on
   /// [PlaybackStatus.completed].
   void _onCompleted() {
+    // A source that played to its end did not stall. The Linux engine reports
+    // every end as a moment of buffering first (libmpv goes idle at the end
+    // of a file), which armed the watchdog: left running, it would take a
+    // repeat-one replay for a dead stream and reconnect it.
+    _cancelBufferingWatchdog();
     // A track that played to its end is proof the source works again: the
     // next failure gets a fresh bounded recovery.
     _startFreshAfterFailures();
@@ -2061,19 +2066,32 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Future<void> _replayCurrent() async {
     final int source = _engineSourceGeneration;
     final int generation = _playbackGeneration;
+    // An engine that stays on completed across the rewind (media_kit) reports
+    // nothing until the replay's own end, and the last thing it reported was
+    // the buffering it goes through at an end. So the replay's status is set
+    // here, before the rewind, and a stall on the way back still reads (and
+    // is watched) as one.
+    final bool starts = _playWhenLoaded && !_heldForTransientFocus;
+    _emit(_state.copyWith(
+      status: starts ? PlaybackStatus.playing : PlaybackStatus.paused,
+    ));
     await _player.seek(Duration.zero);
+    final bool current =
+        _engineSourceGeneration == source && _playbackGeneration == generation;
     // The same source plays again, so its next end is a new one, even on an
     // engine that reports nothing between the seek and that end. Only once
     // the rewind has landed: until then, what the engine reports (a pause
     // re-sending completed, say) is still about the end just handled.
-    if (_engineSourceGeneration == source &&
-        _playbackGeneration == generation) {
+    if (current) {
       _completedSourceGeneration = null;
     }
     // A stream may re-buffer to get back to the start, and a pause that lands
     // meanwhile must hold.
     if (_playWhenLoaded && !_heldForTransientFocus) {
       unawaited(_player.play());
+    } else if (current) {
+      // Paused while it rewound, which such an engine never reports.
+      _emit(_state.copyWith(status: PlaybackStatus.paused));
     }
   }
 
