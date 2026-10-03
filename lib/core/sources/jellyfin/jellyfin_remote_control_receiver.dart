@@ -81,6 +81,22 @@ class JellyfinRemoteControlReceiver implements RemoteControlReceiver {
     await _teardownSocket();
   }
 
+  /// The signed-in account changed: signed out, or signed in as someone else.
+  ///
+  /// A connection carries the token of the account it was opened for, and
+  /// the account that signed out would keep driving the player through it.
+  /// While running, the connection (and any attempt still being made for the
+  /// old account) is dropped, and a new one is made for whoever is signed in
+  /// now, which stays closed when nobody is.
+  Future<void> sessionChanged() async {
+    if (_disposed || !_running) return;
+    _generation++;
+    _retry?.cancel();
+    _retry = null;
+    await _teardownSocket();
+    await _open();
+  }
+
   @override
   Future<void> dispose() async {
     _disposed = true;

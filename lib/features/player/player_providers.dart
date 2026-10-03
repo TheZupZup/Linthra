@@ -485,6 +485,14 @@ final remoteControlReceiverProvider = Provider<RemoteControlReceiver>((ref) {
     session: () => ref.read(jellyfinMusicSourceProvider)?.session,
     client: () => ref.read(jellyfinClientProvider),
   );
+  // An open connection carries the token of the account it was made for. A
+  // sign-out, or a sign-in as someone else, while a Jellyfin track plays moves
+  // it to whoever is signed in now, or closes it, so an account that signed
+  // out can't go on driving the player.
+  ref.listen(
+    jellyfinMusicSourceProvider.select((source) => source?.session),
+    (_, __) => unawaited(receiver.sessionChanged()),
+  );
   ref.onDisposeAsync(receiver.dispose);
   return receiver;
 });
