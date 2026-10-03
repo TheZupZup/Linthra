@@ -222,18 +222,25 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     }
     // Picking the *same* folder again is a real fix, not a no-op: it is how a
     // revoked portal document is re-granted, so this scans either way.
-    final LocalScanReport? report = await _scan(replaced);
-    if (report == null || report.hadError) return;
-    // What the scan had to say, held back until the selection it describes is
-    // actually stored. Nothing renders in between: there is no await between
-    // reading it and going busy again, so no frame can catch the card offering
-    // Retry and Reselect over a selection that is still being written.
-    final LocalMusicActionState outcome = state;
-    state = const LocalMusicActionState(busy: true);
-    await ref
-        .read(selectedFolderControllerProvider.notifier)
-        .replaceAndPersist(folder, picked);
-    state = outcome;
+    //
+    // The scan and the save are one source change, so a refresh the app starts
+    // on its own (a watched folder changing, a drive coming back) runs after
+    // both rather than in between.
+    await ref.read(libraryControllerProvider.notifier).changeSource(() async {
+      final LocalScanReport? report = await _scan(replaced);
+      if (report == null || report.hadError) return;
+      // What the scan had to say, held back until the selection it describes
+      // is actually stored. Nothing renders in between: there is no await
+      // between reading it and going busy again, so no frame can catch the
+      // card offering Retry and Reselect over a selection that is still being
+      // written.
+      final LocalMusicActionState outcome = state;
+      state = const LocalMusicActionState(busy: true);
+      await ref
+          .read(selectedFolderControllerProvider.notifier)
+          .replaceAndPersist(folder, picked);
+      state = outcome;
+    });
   }
 
   /// Opts into Android's device-wide shared music library.
@@ -263,15 +270,17 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     // Scan before persisting. The scan takes the location explicitly, so
     // nothing has to be saved first, and a failure leaves the stored selection
     // untouched: no restore step, and no window where a crash could strand a
-    // half-applied switch.
-    final LocalScanReport? report =
-        await _scan(<String>[FolderLocation.androidMediaStoreAudio]);
-    if (report == null || report.hadError) {
-      return;
-    }
-    await ref
-        .read(selectedFolderControllerProvider.notifier)
-        .setAndPersist(FolderLocation.androidMediaStoreAudio);
+    // half-applied switch. Both are one source change, as for Reselect.
+    await ref.read(libraryControllerProvider.notifier).changeSource(() async {
+      final LocalScanReport? report =
+          await _scan(<String>[FolderLocation.androidMediaStoreAudio]);
+      if (report == null || report.hadError) {
+        return;
+      }
+      await ref
+          .read(selectedFolderControllerProvider.notifier)
+          .setAndPersist(FolderLocation.androidMediaStoreAudio);
+    });
   }
 
   Future<void> refreshAndroidPermissionStatus() async {

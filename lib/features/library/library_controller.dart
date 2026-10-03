@@ -31,6 +31,10 @@ class LibraryController extends Notifier<LibraryState> {
   int _loadGeneration = 0;
   Future<void> _localMutationTail = Future<void>.value();
 
+  /// Completes once every source change started through [changeSource] is
+  /// done.
+  Future<void> _sourceChanges = Future<void>.value();
+
   @override
   LibraryState build() {
     _load();
@@ -69,6 +73,50 @@ class LibraryController extends Notifier<LibraryState> {
   /// Waits for already-started local writes before persisting a source change.
   /// Invalidation happens first, so pending walks cannot enqueue a new write.
   Future<void> waitForLocalMutations() => _localMutationTail;
+
+  /// Runs [change], a source change that scans the new selection before it
+  /// stores it (Reselect, switching to the device library), as one step that
+  /// [refreshConfiguredFolders] does not start in the middle of.
+  ///
+  /// Such a change writes the catalog for a selection that is not stored yet,
+  /// and only then stores it. A refresh of the stored selection that started
+  /// in between superseded the scan, and the change was silently dropped; one
+  /// that started after the scan had written the catalog then wrote a catalog
+  /// for the old selection from that result, which no longer held the music of
+  /// the folder being replaced, so a folder that was still selected lost its
+  /// music; and one that started while the new selection was being saved read
+  /// the old one, and dropped the music of the folder just picked.
+  Future<T> changeSource<T>(Future<T> Function() change) {
+    final Future<T> result = change();
+    final Future<void> done = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    final Future<void> earlier = _sourceChanges;
+    _sourceChanges = earlier.then((_) => done);
+    return result;
+  }
+
+  /// Rescans the folders the user has configured, on the app's own initiative:
+  /// the folder watcher runs this when a watched folder changes, and
+  /// availability tracking when a drive comes back.
+  ///
+  /// It waits for a source change in progress ([changeSource]) and reads the
+  /// selection only then, so it walks the folders that change stored rather
+  /// than the ones it replaced. A user's own Rescan or Retry is not this: it
+  /// supersedes whatever is running, as before.
+  Future<void> refreshConfiguredFolders() async {
+    Future<void> pending;
+    do {
+      pending = _sourceChanges;
+      await pending;
+    } while (!identical(pending, _sourceChanges));
+    final List<String> roots =
+        ref.read(selectedFolderControllerProvider).valueOrNull ??
+            const <String>[];
+    if (roots.isEmpty) return;
+    await scanFolders(roots);
+  }
 
   /// Serializes local catalog writes, including forget. A scan may finish its
   /// walk while a previous write is pending; its generation is checked again

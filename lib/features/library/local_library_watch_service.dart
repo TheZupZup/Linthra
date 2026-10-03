@@ -70,13 +70,10 @@ final localLibraryWatcherProvider = Provider<LocalLibraryWatcher>((ref) {
         ref.read(localRootAvailabilityProvider.notifier).recheck(root),
       );
     },
-    onLibraryChanged: () async {
-      final List<String> roots =
-          ref.read(selectedFolderControllerProvider).valueOrNull ??
-              const <String>[];
-      if (roots.isEmpty) return;
-      await ref.read(libraryControllerProvider.notifier).scanFolders(roots);
-    },
+    // After any source change in progress, and against the selection it
+    // stores (see LibraryController.refreshConfiguredFolders).
+    onLibraryChanged: () =>
+        ref.read(libraryControllerProvider.notifier).refreshConfiguredFolders(),
   );
   ref.onDisposeAsync(watcher.dispose);
   return watcher;
