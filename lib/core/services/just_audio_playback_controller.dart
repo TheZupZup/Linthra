@@ -191,6 +191,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   static const Duration _defaultMidStreamBufferingTimeout =
       Duration(seconds: 30);
 
+  /// How long an engine that reports a lost source only as an idle state
+  /// (see [engineReportsFailureAsIdle]) may take to open one.
+  ///
+  /// On such an engine a source lost while it is still opening (a stream
+  /// whose connection drops before it can start, with the reconnect refused)
+  /// is reported only as that idle, and just_audio then lets the engine go
+  /// without ever answering the open: setUrl never returns. An open that has
+  /// not answered by then has failed, as a stall of the same length mid-song
+  /// is a dead stream ([midStreamBufferingTimeout]).
+  static const Duration _engineOpenTimeout = Duration(seconds: 30);
+
   /// Delay before a Linux-style post-suspend recovery reload, so audio devices
   /// and the network have a chance to return after wake. Zero in tests.
   static const Duration _defaultSuspendResumeBackoff =
@@ -2520,7 +2531,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _engineUri = resolved.uri;
         _abandonedSourceGeneration = null;
         final int attempt = ++_sourceAttempt;
-        await _player.setUrl(resolved.uri.toString());
+        await _openInEngine(resolved.uri, attempt);
         _openedAttempt = attempt;
         return (track: candidate, resolved: resolved);
       } catch (error) {
@@ -2611,7 +2622,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _engineUri = streamed.uri;
       _abandonedSourceGeneration = null;
       final int attempt = ++_sourceAttempt;
-      await _player.setUrl(streamed.uri.toString());
+      await _openInEngine(streamed.uri, attempt);
       _openedAttempt = attempt;
       return (track: candidate, resolved: streamed);
     } catch (error) {
@@ -2631,6 +2642,22 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       StabilityDiagnostics.playbackError(loadFailureBreadcrumb(error, failure));
       return null;
     }
+  }
+
+  /// Hands [uri] to the engine as source [attempt] and waits for it to open.
+  ///
+  /// On an engine that reports a lost source only as an idle state, the wait
+  /// is bounded by [_engineOpenTimeout]: past it the source is taken as lost,
+  /// as that idle would have said had a load not been in flight. The engine
+  /// is paused then, so an open that answers after all can't start sound
+  /// under the failure, unless a newer source has gone in since.
+  Future<void> _openInEngine(Uri uri, int attempt) {
+    final Future<Duration?> opening = _player.setUrl(uri.toString());
+    if (!engineReportsFailureAsIdle) return opening;
+    return opening.timeout(_engineOpenTimeout, onTimeout: () {
+      if (_sourceAttempt == attempt) unawaited(_player.pause());
+      throw const _EngineLostSource();
+    });
   }
 
   /// Whether the audio engine can take a source at all, checked before one is

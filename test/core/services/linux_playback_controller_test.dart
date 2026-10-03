@@ -23,6 +23,16 @@ class _Engine extends Fake implements AudioPlayer {
   int disposals = 0;
   bool failOpen = false;
 
+  /// The streams whose connection drops while libmpv is still opening them
+  /// (the reconnect is refused). The vendored just_audio_media_kit reports
+  /// that only as an idle engine with an error code, and just_audio lets the
+  /// engine go on that idle without ever answering the load, so setUrl
+  /// never returns (seen natively with libmpv 2.2).
+  final Set<String> dropWhileOpening = <String>{};
+
+  /// How long an open takes to answer when it answers.
+  Duration openDelay = Duration.zero;
+
   @override
   Stream<PlayerState> get playerStateStream => states.stream;
   @override
@@ -40,6 +50,12 @@ class _Engine extends Fake implements AudioPlayer {
       dynamic tag}) async {
     opened.add(url);
     if (failOpen) throw Exception('native open failed with a secret URL');
+    if (dropWhileOpening.contains(url)) {
+      states.add(PlayerState(false, ProcessingState.loading));
+      states.add(PlayerState(false, ProcessingState.idle));
+      return Completer<Duration?>().future;
+    }
+    if (openDelay > Duration.zero) await Future<void>.delayed(openDelay);
     return const Duration(minutes: 4);
   }
 
@@ -332,6 +348,76 @@ void main() {
 
     expect(engine.opened, hasLength(1));
     expect(controller.state.status, PlaybackStatus.idle);
+  });
+
+  group('a stream that drops while it opens', () {
+    testWidgets('ends on a failure to retry instead of loading for good',
+        (WidgetTester tester) async {
+      final engine = _Engine()
+        ..dropWhileOpening.add('https://music.example/stream/remote');
+      final controller = build(engine);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+
+      unawaited(controller.playTrack(_track('remote', 'jellyfin:remote')));
+      await tester.pump();
+      expect(controller.state.status, PlaybackStatus.loading);
+
+      await tester.pump(const Duration(seconds: 31));
+
+      // Play does nothing while a load is in flight, so a spinner that never
+      // ends leaves the listener nothing to do but skip.
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.failure?.canRetry, isTrue);
+
+      engine.dropWhileOpening.clear();
+      await controller.retryCurrentTrack();
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    testWidgets('an open that answers in time is not cut short',
+        (WidgetTester tester) async {
+      final engine = _Engine()..openDelay = const Duration(seconds: 25);
+      final controller = build(engine);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+
+      unawaited(controller.playTrack(_track('remote', 'jellyfin:remote')));
+      await tester.pump(const Duration(seconds: 25));
+      await tester.pump(const Duration(seconds: 10));
+
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(engine.opened, hasLength(1));
+    });
+
+    testWidgets('leaves the song picked after it alone',
+        (WidgetTester tester) async {
+      final engine = _Engine()
+        ..dropWhileOpening.add('https://music.example/stream/a');
+      final controller = build(engine);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+
+      unawaited(controller.playTracks(<Track>[
+        _track('a', 'jellyfin:a'),
+        _track('b', 'jellyfin:b'),
+      ]));
+      await tester.pump();
+      await controller.skipToNext();
+      expect(controller.state.status, PlaybackStatus.playing);
+
+      await tester.pump(const Duration(seconds: 31));
+
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(engine.pauses, 0);
+    });
   });
 
   test('dispose releases the engine and a fresh controller can play', () async {
