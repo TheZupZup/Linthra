@@ -913,6 +913,50 @@ void main() {
           reason: 'the replay is playing, not buffering');
     });
 
+    test(
+        'pausing a repeat-one replay on an engine that stays on completed '
+        'keeps its place and does not count a play', () async {
+      final JustAudioPlaybackController controller = build();
+      controller.setRepeatMode(RepeatMode.one);
+      await controller.playTracks(<Track>[a]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+      // The Linux engine's end (see above), then nothing while the replay
+      // plays.
+      engine.emitState(true, ProcessingState.buffering);
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      expect(completed, <Track>[a]);
+
+      // Into the replay, the listener pauses. just_audio flips its playing
+      // flag, and the engine, still on completed, sends the pair again.
+      await controller.pause();
+      engine.emitState(false, ProcessingState.completed);
+      await _settle();
+
+      expect(completed, <Track>[a], reason: 'a pause is not the replay ending');
+      expect(engine.calls.where((String call) => call == 'seek:0').length, 1,
+          reason: 'nor a reason to rewind to the start');
+      expect(controller.state.status, PlaybackStatus.paused);
+
+      // Play picks the replay up where it was.
+      await controller.play();
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      expect(completed, <Track>[a]);
+      expect(engine.calls.where((String call) => call == 'seek:0').length, 1);
+      expect(controller.state.status, PlaybackStatus.playing);
+
+      // The replay's own end still counts, and replays again.
+      engine.emitState(true, ProcessingState.buffering);
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+
+      expect(completed, <Track>[a, a]);
+      expect(engine.calls.where((String call) => call == 'seek:0').length, 2);
+    });
+
     test('a pause during the repeat-one rewind does not end the track again',
         () async {
       final JustAudioPlaybackController controller = build();

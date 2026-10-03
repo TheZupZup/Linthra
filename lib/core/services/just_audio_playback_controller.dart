@@ -552,6 +552,18 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// a new load, with a new generation.
   int? _completedSourceGeneration;
 
+  /// The [_engineSourceGeneration] a replay has rewound (re-arming
+  /// [_completedSourceGeneration]) that the engine has not reported under way
+  /// since. An engine that stays on completed across a rewind (media_kit)
+  /// goes on sending completed while the replay plays, and sends it again
+  /// whenever only its playing flag changes. Null once any other state is
+  /// reported.
+  int? _rewoundSourceGeneration;
+
+  /// The last state the engine reported, so a completed report can be told
+  /// apart from a playing flag flipping on one already sent.
+  PlayerState? _lastEngineReport;
+
   /// Counts the sources handed to the engine, one per setUrl. A load can
   /// hand over more than one (another copy of the song, or the stream after
   /// an offline copy that would not open), so what is learned about a source
@@ -1089,6 +1101,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // engine's events entirely, so it can never auto-advance or report stale
     // status underneath the cast session.
     if (_suspended) return;
+    final PlayerState? previousReport = _lastEngineReport;
+    _lastEngineReport = playerState;
     final status = _statusFor(playerState);
     if (_loadInFlight &&
         _engineSourceGeneration == _loadingGeneration &&
@@ -1193,13 +1207,28 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // is sent again), which must not record the track a second time or move
       // the queue on again.
       if (_completedSourceGeneration == _engineSourceGeneration) return;
+      // A replay the engine has reported nothing about since its rewind is
+      // still under way, on an engine that stays on completed across the
+      // rewind: the same report with only its playing flag flipped is the
+      // listener pausing or resuming the replay, not the replay ending.
+      if (_rewoundSourceGeneration == _engineSourceGeneration &&
+          previousReport?.processingState == ProcessingState.completed &&
+          previousReport?.playing != playerState.playing) {
+        _emit(_state.copyWith(
+          status: playerState.playing
+              ? PlaybackStatus.playing
+              : PlaybackStatus.paused,
+        ));
+        return;
+      }
       _completedSourceGeneration = _engineSourceGeneration;
       _onCompleted();
       return;
     }
     // Anything else leaves the latch as it is: a state on the way to an end
     // already handled (a seek to where it ended) is not a replay. A replay
-    // re-arms it itself.
+    // re-arms it itself. It does say that a replayed source is under way.
+    _rewoundSourceGeneration = null;
     _emit(_state.copyWith(status: status));
   }
 
@@ -2084,6 +2113,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // re-sending completed, say) is still about the end just handled.
     if (current) {
       _completedSourceGeneration = null;
+      _rewoundSourceGeneration = source;
     }
     // A stream may re-buffer to get back to the start, and a pause that lands
     // meanwhile must hold.
@@ -3341,6 +3371,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _engineSourceGeneration == source &&
         _playbackGeneration == seekGeneration) {
       _completedSourceGeneration = null;
+      _rewoundSourceGeneration = source;
     }
   }
 
