@@ -312,6 +312,33 @@ void main() {
       expect(client.lastScrobbleSession?.username, 'bob');
     });
 
+    test(
+        'scrobbles nothing about a play that started while signed out to the '
+        'account that signs in during it', () async {
+      // Signing out never stops playback, and the queue can move on to a song
+      // that is already on the device before anyone signs in again. That play
+      // started under no account: bob signing in while it plays must not get
+      // it counted as his, nor listed as his now playing.
+      final reporter = build();
+      final Track before = _subsonicTrack('1');
+      final Track track = _subsonicTrack('2');
+
+      await reporter.onPlaybackStarted(before, Duration.zero, _duration);
+      session = null;
+      await reporter.onTrackChanged(before, track);
+      await reporter.onPlaybackStarted(track, Duration.zero, _duration);
+      session = _session.copyWith(username: 'bob', salt: 's2', token: 't2');
+      await reporter.onPlaybackResumed(track, _playedEnough, _duration);
+      await reporter.onTrackChanged(track, null);
+      expect(client.scrobbles, hasLength(1));
+
+      // What bob plays next is his own.
+      await reporter.onPlaybackStarted(
+          _subsonicTrack('3'), Duration.zero, _duration);
+      expect(client.scrobbles, hasLength(2));
+      expect(client.lastScrobbleSession?.username, 'bob');
+    });
+
     group('reporting is best-effort and never throws', () {
       test('a typed Subsonic failure is swallowed', () async {
         client.scrobbleError = SubsonicException.notReachable();

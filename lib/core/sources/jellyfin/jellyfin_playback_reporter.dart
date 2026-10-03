@@ -128,21 +128,22 @@ class JellyfinPlaybackReporter implements ServerPlaybackReporter {
     Duration position,
   ) async {
     if (!handles(track)) return;
-    final JellyfinSession? session = _session();
-    if (session == null) return;
     final String itemId =
         track.uri.substring(JellyfinTrackMapper.uriScheme.length).trim();
     if (itemId.isEmpty) return;
+    final JellyfinSession? session = _session();
 
     // A fresh start, or another track, is bound to the account signed in now,
     // and only that account hears the rest of the play (through another
-    // address too).
+    // address too). One that starts while nobody is signed in is bound to
+    // nobody, so an account signing in during it isn't told about it either.
     if (event == JellyfinPlaybackEvent.started || track.uri != _playUri) {
       _playUri = track.uri;
-      _playUserId = session.userId;
-    } else if (session.userId != _playUserId) {
+      _playUserId = session?.userId;
+    } else if (session?.userId != _playUserId) {
       return;
     }
+    if (session == null) return;
 
     if (event == JellyfinPlaybackEvent.stopped) {
       if (track.uri == _lastReportedUri) _lastReportedUri = null;

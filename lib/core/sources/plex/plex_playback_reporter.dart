@@ -131,21 +131,22 @@ class PlexPlaybackReporter implements ServerPlaybackReporter {
     bool starts = false,
   }) async {
     if (!handles(track)) return;
-    final PlexSession? session = _session();
-    if (session == null) return;
     final String ratingKey =
         track.uri.substring(PlexTrackMapper.uriScheme.length).trim();
     if (ratingKey.isEmpty) return;
+    final PlexSession? session = _session();
 
     // A fresh start, or another track, is bound to the server connected now,
     // and only that server hears the rest of the play (through another
-    // address too).
+    // address too). One that starts while no server is connected is bound to
+    // none, so a server connected during it isn't told about it either.
     if (starts || track.uri != _playUri) {
       _playUri = track.uri;
-      _playServer = session.machineIdentifier;
-    } else if (session.machineIdentifier != _playServer) {
+      _playServer = session?.machineIdentifier;
+    } else if (session?.machineIdentifier != _playServer) {
       return;
     }
+    if (session == null) return;
 
     if (state == PlexTimelineState.stopped) {
       if (track.uri == _lastReportedUri) _lastReportedUri = null;
