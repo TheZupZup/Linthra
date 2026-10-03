@@ -204,21 +204,28 @@ class PlaybackSessionPersistence {
     final Track? current = state.currentTrack;
     if (current == null) return;
 
+    // A queue that ran out is kept where Play takes it up again. Saved at the
+    // end of its last track, the next launch put that track back there,
+    // paused, and Play then played its last instant and ran out again.
+    final PlaybackState kept = state.status == PlaybackStatus.completed
+        ? _whereEndedQueueResumes(state)
+        : state;
+
     // Still on the queue a partial restore gave the engine: progress goes into
     // the whole saved session, so the tracks left out at launch stay in it.
     final _HeldSession? held = _held;
     if (held != null && held.isRestoredQueue(state)) {
-      await _save(held.progressedTo(state), state);
+      await _save(held.progressedTo(kept), state);
       return;
     }
     _held = null;
 
     final PersistedPlaybackSession? session =
         PersistedPlaybackSession.fromPlayback(
-      previous: state.previous,
-      current: current,
-      upNext: state.upNext,
-      position: state.position,
+      previous: kept.previous,
+      current: kept.currentTrack!,
+      upNext: kept.upNext,
+      position: kept.position,
       shuffleEnabled: state.shuffleEnabled,
       repeatMode: state.repeatMode,
       // The live controller does not expose originalOrder on PlaybackState; a
@@ -250,6 +257,27 @@ class PlaybackSessionPersistence {
     } catch (_) {
       // Non-fatal.
     }
+  }
+
+  /// [state], a queue that ran out, moved to where Play after the end takes
+  /// it up (the controller's own rule): a track queued since the end, from its
+  /// start, or else the queue from the top, in the order it played.
+  static PlaybackState _whereEndedQueueResumes(PlaybackState state) {
+    final List<Track> tracks = <Track>[
+      ...state.previous,
+      if (state.currentTrack != null) state.currentTrack!,
+      ...state.upNext,
+    ];
+    final int at = state.upNext.isEmpty ? 0 : state.previous.length + 1;
+    return PlaybackState(
+      status: state.status,
+      currentTrack: tracks[at],
+      previous: tracks.sublist(0, at),
+      hasPrevious: at > 0,
+      upNext: tracks.sublist(at + 1),
+      shuffleEnabled: state.shuffleEnabled,
+      repeatMode: state.repeatMode,
+    );
   }
 
   bool _isTrackRestorable(Track track) {
