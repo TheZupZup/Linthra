@@ -932,8 +932,13 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// that didn't. That one stays marked until a refresh reconciles the
   /// playlist with the server, rather than the marker quietly going away and
   /// the next refresh dropping the edit with no sign it never got there.
+  ///
+  /// Always a new object, though, even when nothing on it changes: a refresh
+  /// that read the server before this push landed tells that its answer is
+  /// older only by identity (see [_mergeRemote]), and by then the push has
+  /// left [_pushes]. Handing back [p] itself let that answer undo the edit.
   static Playlist _confirmedPush(Playlist p) {
-    if (p.syncState == PlaylistSyncState.syncFailed) return p;
+    if (p.syncState == PlaylistSyncState.syncFailed) return p.copyWith();
     return p.copyWith(
       syncState: PlaylistSyncState.synced,
       lastSyncError: () => null,

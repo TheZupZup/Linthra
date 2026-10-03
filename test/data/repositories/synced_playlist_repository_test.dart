@@ -42,11 +42,32 @@ class _SlowWritesSubsonicClient extends FakeSubsonicClient {
   bool holdWrites = false;
   final List<Completer<void>> heldWrites = <Completer<void>>[];
 
+  /// Reads of a playlist's songs answer with what the server holds when they
+  /// are read, but reach the app only when the test lets them through: a
+  /// refresh whose answer is still on its way back.
+  bool holdReads = false;
+  final List<Completer<void>> heldReads = <Completer<void>>[];
+
   Future<void> _landWhenLetThrough() async {
     if (!holdWrites) return;
     final Completer<void> gate = Completer<void>();
     heldWrites.add(gate);
     await gate.future;
+  }
+
+  @override
+  Future<List<String>> getPlaylistSongIds(
+    SubsonicSession session,
+    String playlistId,
+  ) async {
+    final List<String> answer =
+        await super.getPlaylistSongIds(session, playlistId);
+    if (holdReads) {
+      final Completer<void> gate = Completer<void>();
+      heldReads.add(gate);
+      await gate.future;
+    }
+    return answer;
   }
 
   @override
@@ -1952,6 +1973,49 @@ void main() {
           'subsonic:c',
           'subsonic:d',
         ]);
+      });
+
+      test(
+          'a push that lands while a refresh reads is not undone by its '
+          'answer, on a playlist already marked sync failed', () async {
+        // An earlier push failed, and the playlist says so until a refresh.
+        client.playlistError = SubsonicException.notReachable();
+        await repository.addTrack(id, 'subsonic:c');
+        client.playlistError = null;
+        expect(
+          (await repository.getPlaylistById(id))!.syncState,
+          PlaylistSyncState.syncFailed,
+        );
+
+        // The next edit's push is out when a refresh reads the playlist, and
+        // it lands before the refresh's answer does.
+        client.holdWrites = true;
+        final Future<void> adding = repository.addTrack(id, 'subsonic:d');
+        await _pumpUntil(() => client.heldWrites.isNotEmpty);
+        client.holdReads = true;
+        final Future<PlaylistSyncResult> refreshing =
+            repository.refreshFromRemote();
+        await _pumpUntil(() => client.heldReads.isNotEmpty);
+        client.holdWrites = false;
+        client.heldWrites.single.complete();
+        await adding;
+        client.holdReads = false;
+        client.heldReads.single.complete();
+        await refreshing;
+
+        expect(client.playlistSongIds['p-1'], <String>['a', 'b', 'c', 'd']);
+        expect(await local(), <String>[
+          'subsonic:a',
+          'subsonic:b',
+          'subsonic:c',
+          'subsonic:d',
+        ]);
+        // The next edit sends the whole list, so c and d have to be in it.
+        await repository.addTrack(id, 'subsonic:e');
+        expect(
+          client.playlistSongIds['p-1'],
+          <String>['a', 'b', 'c', 'd', 'e'],
+        );
       });
 
       test('two quick adds reach the server in the order they were made',
