@@ -105,16 +105,6 @@ class PlaybackSessionPersistence {
           if (restorable(saved.tracks[i])) i,
       ];
 
-      if (session != null) {
-        await _controller.restoreSession(
-          tracks: session.tracks,
-          startIndex: session.currentIndex,
-          position: session.position,
-          shuffleEnabled: session.shuffleEnabled,
-          repeatMode: session.repeatMode,
-          originalOrder: session.originalOrder,
-        );
-      }
       if (restoredAt.length < saved.tracks.length) {
         _held = _HeldSession(
           saved: saved,
@@ -122,7 +112,24 @@ class PlaybackSessionPersistence {
           startIndex: session?.currentIndex ?? 0,
         );
       }
+      if (session != null) {
+        final Future<void> loading = _controller.restoreSession(
+          tracks: session.tracks,
+          startIndex: session.currentIndex,
+          position: session.position,
+          shuffleEnabled: session.shuffleEnabled,
+          repeatMode: session.repeatMode,
+          originalOrder: session.originalOrder,
+        );
+        // The queue is the engine's from here. Its track may take a silent
+        // server's whole timeout to load, and launch does not wait for that
+        // (the window comes up meanwhile): a queue the listener picks in the
+        // meantime is what the next launch has to bring back.
+        _restoring = false;
+        await loading;
+      }
     } catch (_) {
+      _held = null;
       try {
         await _store.clear();
       } catch (_) {

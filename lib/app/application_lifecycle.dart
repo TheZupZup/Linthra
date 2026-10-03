@@ -458,13 +458,25 @@ Future<ApplicationHandle> bootstrapApplication(
     // Linux crash-safe restore: rehydrate any persisted logical queue as a
     // paused/resumable state. Never autoplay, and never block launch on a bad
     // record.
+    //
+    // Nor on a silent server: a stream is put back by resolving it against its
+    // server, and one that never answers (a home server's LAN address, seen
+    // from elsewhere) would hold the window shut for the whole request
+    // timeout. So the wait is bounded like the audio output's above; past the
+    // deadline launch goes on and the queue lands when the server answers.
+    // Not owned, for the same reason as the refreshes above: it is a network
+    // round trip, and a quit must not wait out that server either.
     final PlaybackSessionPersistence? sessionPersistence =
         container.read(playbackSessionPersistenceProvider);
     if (sessionPersistence != null) {
-      try {
-        await sessionPersistence.restore();
-      } catch (_) {
+      final Future<void> restored =
+          sessionPersistence.restore().catchError((Object _) {
         // Ignore: a failed restore must never stop the app from launching.
+      });
+      try {
+        await restored.timeout(_sessionRestoreDeadline);
+      } on TimeoutException {
+        // Deliberately ignored: see above.
       }
     }
 
@@ -485,6 +497,11 @@ Future<ApplicationHandle> bootstrapApplication(
 /// answers at all, and is shorter than the enumeration timeout underneath it so
 /// the wait is bounded by *this* value rather than by that one.
 const Duration _audioOutputRestoreDeadline = Duration(milliseconds: 1500);
+
+/// How long launch waits for the last queue to be put back. Long enough for a
+/// server that answers to have its stream resolved before the first frame, far
+/// shorter than the request timeout a silent one runs into.
+const Duration _sessionRestoreDeadline = Duration(milliseconds: 1500);
 
 /// Builds the audio-output controller, which re-applies a saved output device.
 ///
