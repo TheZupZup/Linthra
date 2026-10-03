@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../models/playback_state.dart';
 import 'playback_controller.dart';
 import 'remote_command.dart';
 import 'remote_control_receiver.dart';
@@ -65,7 +66,13 @@ class RemoteControlService {
       case RemotePause():
         await _controller.pause();
       case RemotePlayPause():
-        if (_controller.state.isPlaying) {
+        // Same test as the in-app button and MPRIS' PlayPause: a stream that
+        // is re-buffering or reconnecting is still playback (the sound comes
+        // back on its own, and the server still shows it playing), so the
+        // toggle has to stop it. Testing `isPlaying` alone called play() then,
+        // which changes nothing, and the music carried on.
+        final PlaybackState state = _controller.state;
+        if (state.isPlaying || state.isBuffering) {
           await _controller.pause();
         } else {
           await _controller.play();

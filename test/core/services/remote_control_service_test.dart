@@ -100,6 +100,22 @@ void main() {
     expect(controller.pauseCount, 0);
   });
 
+  test('play/pause pauses a stream that is re-buffering or reconnecting',
+      () async {
+    // A stall mid-stream is still playback: the sound comes back on its own
+    // once data arrives, and the server still shows the track playing, so a
+    // toggle pressed then means pause (as the app's button and MPRIS read it).
+    for (final PlaybackStatus stalled in <PlaybackStatus>[
+      PlaybackStatus.buffering,
+      PlaybackStatus.reconnecting,
+    ]) {
+      controller.emit(PlaybackState.idle.copyWith(status: stalled));
+      await send(const RemotePlayPause());
+    }
+    expect(controller.pauseCount, 2);
+    expect(controller.playCount, 0);
+  });
+
   test('a burst of commands all apply', () async {
     commands.add(const RemotePlay());
     commands.add(const RemoteSeek(Duration(seconds: 5)));
