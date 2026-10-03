@@ -3110,7 +3110,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // The same goes when a failed load left the song before it in the engine
     // (a stop after the failure keeps it there): resuming the engine would
     // play that song under this track's title.
+    //
+    // And for a stopped player (idle with a track, which only stop() leaves).
+    // The engine let go of its source on the stop, and resuming it opens that
+    // source again behind our back: a stream URL that no longer opens then
+    // fails where nothing hears it and leaves the player loading for good,
+    // and a queue that had finished opens at its end and claims to play in
+    // silence. A load of the current track has none of that.
     if ((_state.status == PlaybackStatus.error ||
+            _state.status == PlaybackStatus.idle ||
             _automaticRecoveryUnderway ||
             _engineSourceGeneration == _abandonedSourceGeneration) &&
         _queue.current != null) {
@@ -3164,6 +3172,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // pending/queued focus action so it can't resurrect playback after stop.
     _armTransientResume(false);
     _supersedeFocusTransport();
+    // A load the stop cuts short before its source reaches the engine leaves
+    // the song before it there, as a failed load does. Mark it the same way,
+    // so the position just_audio publishes for it as it stops is not taken
+    // for the stopped track's (Play would start that track there).
+    if (_engineHoldsPreviousSource) {
+      _abandonedSourceGeneration = _engineSourceGeneration;
+    }
     // A stop is a playback action, so supersede any still-resolving load the
     // same way seek() does below. Stopping the engine says nothing to a
     // _playCurrent that has not reached it yet, and this is the counter every

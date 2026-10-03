@@ -13,7 +13,8 @@ import 'package:linthra/core/services/playback_recovery_policy.dart';
 
 /// An engine whose state, position and duration streams the test drives by
 /// hand, recording every transport call in order. Like just_audio, it goes on
-/// holding (and reporting) the previous source until a new one is opened.
+/// holding (and reporting) the previous source until a new one is opened, and
+/// it keeps that source across a stop: the next play opens it again.
 class _Engine extends Fake implements AudioPlayer {
   final StreamController<PlayerState> _states =
       StreamController<PlayerState>.broadcast();
@@ -36,6 +37,13 @@ class _Engine extends Fake implements AudioPlayer {
 
   /// While set, the next seek waits on it before it lands.
   Completer<void>? seekGate;
+
+  /// The source last handed over, and whether a stop has let go of the
+  /// platform since. just_audio keeps the source across a stop, and a play
+  /// then opens it again by itself: loading, then ready, or back to idle
+  /// when it no longer opens ([failingUrls]).
+  String? _source;
+  bool _stopped = false;
 
   void emitState(bool playing, ProcessingState processing) =>
       _states.add(PlayerState(playing, processing));
@@ -71,6 +79,8 @@ class _Engine extends Fake implements AudioPlayer {
     dynamic tag,
   }) async {
     calls.add('setUrl:$url');
+    _source = url;
+    _stopped = false;
     final Completer<void>? gate = openGate;
     if (gate != null) await gate.future;
     if (failingUrls.contains(url) || failingOnce.remove(url)) {
@@ -82,11 +92,26 @@ class _Engine extends Fake implements AudioPlayer {
   @override
   Future<void> setVolume(double volume) async {}
   @override
-  Future<void> play() async => calls.add('play');
+  Future<void> play() async {
+    calls.add('play');
+    final String? kept = _source;
+    if (!_stopped || kept == null) return;
+    _stopped = false;
+    emitState(true, ProcessingState.loading);
+    emitState(
+      true,
+      failingUrls.contains(kept) ? ProcessingState.idle : ProcessingState.ready,
+    );
+  }
+
   @override
   Future<void> pause() async => calls.add('pause');
   @override
-  Future<void> stop() async => calls.add('stop');
+  Future<void> stop() async {
+    calls.add('stop');
+    _stopped = true;
+  }
+
   @override
   Future<void> seek(Duration? position, {int? index}) async {
     calls.add('seek:${position?.inMilliseconds}');
@@ -746,6 +771,60 @@ void main() {
 
       expect(controller.state.status, PlaybackStatus.error);
       expect(engine.calls, isNot(contains('pause')));
+    });
+  });
+
+  group('play after a stop opens the current track afresh', () {
+    test('a stop that cut a load short leaves the song before it unplayed',
+        () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b, c]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // Next, then Stop (the notification, a media key, a remote) while B
+      // still resolves. As it stops, just_audio publishes where A was.
+      resolver.gate(b);
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      await controller.stop();
+      engine.emitPosition(const Duration(minutes: 2, seconds: 13));
+      resolver.release(b);
+      await skip;
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      engine.calls.clear();
+
+      await controller.play();
+      await _settle();
+
+      expect(engine.loadedUrls, <String>[_url(b)],
+          reason: 'the engine still holds A; resuming it would play A under '
+              'B\'s title, and A\'s end would be recorded as B');
+      expect(engine.calls, isNot(contains('seek:133000')),
+          reason: 'nor does B start where A was');
+      expect(controller.state.currentTrack, b);
+    });
+
+    test('a source that no longer opens fails rather than loading for good',
+        () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a]);
+      engine.emitState(true, ProcessingState.ready);
+      // The queue plays out, and the listener stops.
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      await controller.stop();
+
+      // By the time they press Play the server is out of reach, so the URL
+      // the engine kept no longer opens either.
+      resolver.down.add(a.uri);
+      engine.failingUrls.add(_url(a));
+      await controller.play();
+      await _settle();
+
+      expect(controller.state.status, PlaybackStatus.error,
+          reason: 'reopening what the engine kept fails where nothing hears '
+              'it, and Loading would never end');
     });
   });
 
