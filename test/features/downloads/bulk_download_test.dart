@@ -305,6 +305,100 @@ void main() {
       expect(find.text('Rename'), findsOneWidget);
       expect(find.text('Delete playlist'), findsOneWidget);
     });
+
+    // Trimming a playlist and then taking it offline: the removal's Undo is
+    // still on screen (a message with an action stays until it is used or
+    // swiped away) when the batch is confirmed, so the batch's "Downloading"
+    // line waits behind it. The result, minutes later, must not take that
+    // Undo away, and must not leave the "Downloading" line up for a batch
+    // that has finished.
+    testWidgets('the result does not take away an Undo that is still on screen',
+        (tester) async {
+      final InMemoryPlaylistStore store = InMemoryPlaylistStore();
+      await store.save(<Playlist>[
+        const Playlist(
+          id: 'p1',
+          name: 'Road Trip',
+          trackIds: <String>['jellyfin:1', 'jellyfin:2', 'jellyfin:3'],
+        ),
+      ]);
+      const List<Track> tracks = <Track>[
+        Track(id: '1', title: 'Alpha', uri: 'jellyfin:1'),
+        Track(id: '2', title: 'Beta', uri: 'jellyfin:2'),
+        Track(id: '3', title: 'Gamma', uri: 'jellyfin:3'),
+      ];
+      final GoRouter router = GoRouter(
+        initialLocation: '/playlists/detail/p1',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/playlists/detail/:id',
+            builder: (_, GoRouterState s) =>
+                PlaylistDetailScreen(playlistId: s.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: AppRoutes.downloads,
+            builder: (_, __) => const DownloadsScreen(),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            musicLibraryRepositoryProvider
+                .overrideWithValue(FakeMusicLibraryRepository(tracks: tracks)),
+            playlistStoreProvider.overrideWithValue(store),
+            playbackControllerProvider
+                .overrideWithValue(FakePlaybackController()),
+            downloadRepositoryProvider
+                .overrideWithValue(FakeDownloadRepository()),
+            remoteTrackDownloaderProvider
+                .overrideWithValue(FakeRemoteTrackDownloader()),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Beta'),
+            matching: find.byType(ListTile),
+          ),
+          matching: find.byTooltip('Track actions'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove from playlist'));
+      await tester.pumpAndSettle();
+      expect(find.text('Undo'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Playlist actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Download all'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Download'));
+      await tester.pumpAndSettle();
+
+      // The batch is done, and the Undo is where the listener left it.
+      expect(find.text('Undo'), findsOneWidget);
+
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+
+      expect(
+        (await store.load()).single.trackIds,
+        <String>['jellyfin:1', 'jellyfin:2', 'jellyfin:3'],
+      );
+      // What follows is the batch's result, not a "Downloading" line for a
+      // batch that already finished.
+      expect(find.text('Downloading “Road Trip”.'), findsNothing);
+      expect(
+        find.text('All 2 songs from “Road Trip” are available offline.'),
+        findsOneWidget,
+      );
+    });
   });
 
   group('Counting what the user is shown', () {
