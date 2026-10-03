@@ -2116,8 +2116,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _rewoundSourceGeneration = source;
     }
     // A stream may re-buffer to get back to the start, and a pause that lands
-    // meanwhile must hold.
-    if (_playWhenLoaded && !_heldForTransientFocus) {
+    // meanwhile must hold. So must a newer transition: a skip or a new queue
+    // still loading leaves this song in the engine, and starting it would
+    // sound it under the next one's title. That load starts its own sound.
+    if (current && _playWhenLoaded && !_heldForTransientFocus) {
       unawaited(_player.play());
     } else if (current) {
       // Paused while it rewound, which such an engine never reports.

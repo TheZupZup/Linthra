@@ -957,6 +957,41 @@ void main() {
       expect(engine.calls.where((String call) => call == 'seek:0').length, 2);
     });
 
+    test(
+        'a song paused while it rewinds for repeat-one stays silent when the '
+        'listener moves on', () async {
+      final JustAudioPlaybackController controller = build();
+      controller.setRepeatMode(RepeatMode.one);
+      await controller.playTracks(<Track>[a, b]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+
+      // A ends and rewinds for its replay, which takes a while on a stream.
+      // Meanwhile the listener pauses it and presses Next; B is slow to
+      // resolve.
+      final Completer<void> rewind = engine.seekGate = Completer<void>();
+      engine.emitState(true, ProcessingState.completed);
+      await _settle();
+      await controller.pause();
+      resolver.gate(b);
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      rewind.complete();
+      await _settle();
+
+      expect(controller.state.currentTrack, b);
+      expect(engine.loadedUrls, <String>[_url(a)]);
+      expect(engine.lastTransport, 'pause',
+          reason: 'the engine still holds A: playing it now would sound A '
+              'under B\'s title until B is loaded');
+
+      resolver.release(b);
+      await skip;
+      await _settle();
+      expect(engine.loadedUrls.last, _url(b));
+      expect(engine.lastTransport, 'play');
+    });
+
     test('a pause during the repeat-one rewind does not end the track again',
         () async {
       final JustAudioPlaybackController controller = build();
