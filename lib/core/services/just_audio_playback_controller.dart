@@ -540,6 +540,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// load starts there instead of where it was asked to.
   Duration? _seekDuringLoad;
 
+  /// The [_loadingGeneration] the listener pressed Play during, before its
+  /// source reached the engine. Such a load starts sound when it lands even
+  /// if it would not have on its own (a restored session, the end of a cast).
+  int? _playPressedDuringLoad;
+
   /// Whether [_seekDuringLoad] came after the loading source had already
   /// reported its end ([_endedAttempt]).
   bool _seekDuringLoadAfterEnd = false;
@@ -2367,8 +2372,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// arrives while the engine is seeking here is picked up by the next pass,
   /// and each pass needs a newer seek to have arrived, so the loop ends.
   ///
-  /// [autoplay] false (a restored session, the end of a cast) never starts,
-  /// and [mayStart] is the automatic step's own check. Beyond both, sound
+  /// [autoplay] false (a restored session, the end of a cast) never starts on
+  /// its own, only for a Play pressed during the load (which reached an engine
+  /// with nothing to start yet), and [mayStart] is the automatic step's own
+  /// check. Beyond both, sound
   /// starts only while [_playWhenLoaded] holds (a pause that arrived during
   /// the load reached an engine with nothing to pause yet) and no call is
   /// holding playback (the regain starts it then).
@@ -2418,7 +2425,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // play()'s future completes when playback ends, so we don't await it.
     // A cast receiver that took over while this loaded owns the audio now.
     if (_suspended) return;
-    final bool start = autoplay &&
+    final bool start = (autoplay || _playPressedDuringLoad == generation) &&
         _playWhenLoaded &&
         !_heldForTransientFocus &&
         (mayStart?.call() ?? true);
@@ -3242,8 +3249,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // A load in flight has not handed its source over yet: the engine still
     // holds the song before this one, and starting it would play that song
     // under this one's title. The load starts sound when it lands, now that
-    // the listener wants it.
-    if (_engineHoldsPreviousSource) return;
+    // the listener wants it, including one that would not start on its own.
+    if (_engineHoldsPreviousSource) {
+      if (_loadInFlight) _playPressedDuringLoad = _loadingGeneration;
+      return;
+    }
     // play()'s future completes when playback ends, so we don't await it.
     unawaited(_player.play());
   }

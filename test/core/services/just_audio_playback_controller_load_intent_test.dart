@@ -373,6 +373,78 @@ void main() {
     });
   });
 
+  group('a Play pressed while the restored queue is still loading', () {
+    test('starts the restored track when it lands', () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver = _GatedResolver();
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: player, resolver: resolver);
+      addTearDown(controller.dispose);
+
+      // Launch puts the last queue back, paused, and its track is still
+      // resolving against a slow server when the listener presses Play: a
+      // media key or the shell's controls over MPRIS, or the window.
+      final Future<void> restore = controller.restoreSession(
+        tracks: <Track>[a, b],
+        position: const Duration(minutes: 1),
+      );
+      await _settle();
+      expect(resolver.isWaiting(a.uri), isTrue);
+      await controller.play();
+      resolver.release(a);
+      await restore;
+      await _settle();
+
+      expect(player.loadedUrls, <String>[_url(a)]);
+      expect(player.seeks, <String>['seek:60000'],
+          reason: 'it starts where the listener left it');
+      expect(player.lastTransport, 'play',
+          reason: 'the listener pressed Play while it loaded');
+    });
+
+    test('a restore nobody pressed Play for still lands paused', () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver = _GatedResolver();
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: player, resolver: resolver);
+      addTearDown(controller.dispose);
+
+      final Future<void> restore = controller.restoreSession(
+        tracks: <Track>[a, b],
+        position: const Duration(minutes: 1),
+      );
+      await _settle();
+      resolver.release(a);
+      await restore;
+      await _settle();
+
+      expect(player.loadedUrls, <String>[_url(a)]);
+      expect(player.lastTransport, 'none');
+    });
+
+    test('Play then Pause while it loads leaves it paused', () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver = _GatedResolver();
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: player, resolver: resolver);
+      addTearDown(controller.dispose);
+
+      final Future<void> restore = controller.restoreSession(
+        tracks: <Track>[a, b],
+        position: const Duration(minutes: 1),
+      );
+      await _settle();
+      await controller.play();
+      await controller.pause();
+      resolver.release(a);
+      await restore;
+      await _settle();
+
+      expect(player.loadedUrls, <String>[_url(a)]);
+      expect(player.lastTransport, 'pause');
+    });
+  });
+
   group('a pause during a mid-stream reconnect is kept', () {
     test('pausing while the retry waits its backoff loads the track paused',
         () async {
