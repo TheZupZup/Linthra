@@ -187,11 +187,15 @@ class SyncedFavoritesRepository
   }
 
   @override
-  Future<FavoritesSyncResult> refreshFromRemote() async {
+  Future<FavoritesSyncResult> refreshFromRemote({
+    String? providerScheme,
+  }) async {
     await _ensureLoaded();
     final List<RemoteFavoritesGateway> connected = <RemoteFavoritesGateway>[
       for (final g in _gateways)
-        if (g.isConnected) g
+        if (g.isConnected &&
+            (providerScheme == null || g.uriScheme == providerScheme))
+          g
     ];
     if (connected.isEmpty) {
       return const FavoritesSyncResult.notConfigured();

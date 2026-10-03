@@ -82,7 +82,11 @@ abstract interface class PlaylistRepository {
   /// A playlist the server lists but whose tracks can't be read is kept as it
   /// is (only a listing that leaves it out means it was deleted there), and
   /// its provider counts as failed.
-  Future<PlaylistSyncResult> refreshFromRemote();
+  ///
+  /// Pass [source] to refresh, and report on, only that provider: a library
+  /// sync for one server says what came from that server, not what another
+  /// signed-in server answered. Omit it to refresh every connected provider.
+  Future<PlaylistSyncResult> refreshFromRemote({PlaylistSource? source});
 
   /// Drops server-synced (remote-source) playlists, keeping local-only ones.
   /// Called on sign-out so one account's imported playlists can't linger — or be

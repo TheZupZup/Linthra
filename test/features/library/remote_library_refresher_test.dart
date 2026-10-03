@@ -13,7 +13,8 @@ class _CountingFavorites implements FavoritesRepository {
   int refreshCount = 0;
 
   @override
-  Future<FavoritesSyncResult> refreshFromRemote() async {
+  Future<FavoritesSyncResult> refreshFromRemote(
+      {String? providerScheme}) async {
     refreshCount++;
     return const FavoritesSyncResult.synced(0);
   }
@@ -35,7 +36,7 @@ class _CountingPlaylists implements PlaylistRepository {
   int refreshCount = 0;
 
   @override
-  Future<PlaylistSyncResult> refreshFromRemote() async {
+  Future<PlaylistSyncResult> refreshFromRemote({PlaylistSource? source}) async {
     refreshCount++;
     return const PlaylistSyncResult.synced(0);
   }

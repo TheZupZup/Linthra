@@ -32,7 +32,12 @@ abstract interface class FavoritesRepository {
   /// outcome (not configured / synced + count / failed) so a caller — the
   /// "Sync library" action — can report "synced favorites" or "favorites could
   /// not be synced" instead of guessing.
-  Future<FavoritesSyncResult> refreshFromRemote();
+  ///
+  /// Pass [providerScheme] (e.g. `'jellyfin:'`) to refresh, and report on,
+  /// only that provider: a library sync for one server says what came from
+  /// that server, not what another signed-in server answered. Omit it to
+  /// refresh every connected provider.
+  Future<FavoritesSyncResult> refreshFromRemote({String? providerScheme});
 
   /// Drops server-sourced favourites, keeping on-device favourites. Called on
   /// sign-out so one account's hearts can't linger — or be re-pushed to a

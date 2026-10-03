@@ -1,11 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/models/playlist.dart';
 import '../../../core/repositories/jellyfin_auto_sync_store.dart';
 import '../../../core/repositories/remote_sync_result.dart';
 import '../../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../../core/sources/jellyfin/jellyfin_music_source.dart';
 import '../../../core/sources/jellyfin/jellyfin_sync_diagnostics.dart';
+import '../../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/jellyfin_auto_sync_store_provider.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
@@ -208,9 +210,14 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   /// Best-effort playlist refresh that never throws out of [sync]: a thrown
   /// error (rather than the repository's own friendly result) is mapped to a
   /// failed outcome so a single bad call can't abort a successful track sync.
+  ///
+  /// Jellyfin's playlists only: this card reports what came from Jellyfin,
+  /// and another signed-in server answering says nothing about it.
   Future<PlaylistSyncResult> _refreshPlaylists() async {
     try {
-      return await ref.read(playlistRepositoryProvider).refreshFromRemote();
+      return await ref
+          .read(playlistRepositoryProvider)
+          .refreshFromRemote(source: PlaylistSource.jellyfin);
     } catch (_) {
       return const PlaylistSyncResult.failed();
     }
@@ -219,7 +226,9 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   /// Best-effort favourites refresh, mirroring [_refreshPlaylists].
   Future<FavoritesSyncResult> _refreshFavorites() async {
     try {
-      return await ref.read(favoritesRepositoryProvider).refreshFromRemote();
+      return await ref
+          .read(favoritesRepositoryProvider)
+          .refreshFromRemote(providerScheme: JellyfinTrackMapper.uriScheme);
     } catch (_) {
       return const FavoritesSyncResult.failed();
     }

@@ -392,11 +392,11 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   }
 
   @override
-  Future<PlaylistSyncResult> refreshFromRemote() async {
+  Future<PlaylistSyncResult> refreshFromRemote({PlaylistSource? source}) async {
     await _ensureLoaded();
     final List<RemotePlaylistGateway> connected = <RemotePlaylistGateway>[
       for (final RemotePlaylistGateway g in _gateways)
-        if (g.isConnected) g,
+        if (g.isConnected && (source == null || g.source == source)) g,
     ];
     if (connected.isEmpty) {
       return const PlaylistSyncResult.notConfigured();
@@ -405,8 +405,8 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     // Startup, resume, opening the Playlists tab and the end of every library
     // sync all ask for a refresh, often at once. A caller joins the one in
     // flight rather than stacking another 1 + N round-trips per provider, but
-    // only when that one is asking exactly the providers connected now, under
-    // the same sign-in: one that started before a sign-in (or a sign-out)
+    // only when that one is asking exactly the providers this call would ask,
+    // under the same sign-in: one that started before a sign-in (or a sign-out)
     // would answer for the wrong set of accounts, and could still be waiting
     // on one that is gone.
     final Map<PlaylistSource, int> clears = <PlaylistSource, int>{

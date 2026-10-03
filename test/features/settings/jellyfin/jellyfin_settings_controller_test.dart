@@ -82,7 +82,8 @@ class _SpyFavoritesRepository implements FavoritesRepository {
   Future<void> setFavorite(Track track, bool favorite) async {}
 
   @override
-  Future<FavoritesSyncResult> refreshFromRemote() async =>
+  Future<FavoritesSyncResult> refreshFromRemote(
+          {String? providerScheme}) async =>
       const FavoritesSyncResult.notConfigured();
 }
 
@@ -109,7 +110,8 @@ class _SpyPlaylistRepository implements PlaylistRepository {
   Future<Playlist?> getPlaylistById(String id) async => null;
 
   @override
-  Future<PlaylistSyncResult> refreshFromRemote() async =>
+  Future<PlaylistSyncResult> refreshFromRemote(
+          {PlaylistSource? source}) async =>
       const PlaylistSyncResult.notConfigured();
 
   @override

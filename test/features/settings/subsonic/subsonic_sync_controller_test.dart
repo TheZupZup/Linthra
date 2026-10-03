@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
+import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/models/track.dart';
@@ -9,12 +10,15 @@ import 'package:linthra/core/repositories/favorites_repository.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/repositories/playlist_repository.dart';
 import 'package:linthra/core/repositories/remote_sync_gateway.dart';
+import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_api.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_exception.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_music_source.dart';
 import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_favorites_store.dart';
 import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
+import 'package:linthra/data/repositories/jellyfin_favorites_gateway.dart';
+import 'package:linthra/data/repositories/jellyfin_playlist_gateway.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/playlist_repository_provider.dart';
 import 'package:linthra/data/repositories/subsonic_favorites_gateway.dart';
@@ -25,6 +29,7 @@ import 'package:linthra/features/settings/subsonic/subsonic_settings_controller.
 import 'package:linthra/features/settings/subsonic/subsonic_sync_controller.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_sync_state.dart';
 
+import '../../../core/sources/jellyfin/fake_jellyfin_client.dart';
 import '../../../core/sources/subsonic/fake_subsonic_client.dart';
 
 const _session = SubsonicSession(
@@ -32,6 +37,13 @@ const _session = SubsonicSession(
   username: 'alice',
   salt: 'salt1',
   token: 'secret-token',
+);
+
+const _jellyfinSession = JellyfinSession(
+  baseUrl: 'https://jf.example.com',
+  userId: 'user-1',
+  accessToken: 'jellyfin-token',
+  deviceId: 'device-1',
 );
 
 class _RecordingRepository implements MusicLibraryRepository {
@@ -330,6 +342,71 @@ void main() {
       expect(state.trackCount, 1);
       expect(state.favoritesFailed, isTrue);
       expect(state.message, contains('could not be synced'));
+    });
+
+    // Signed in to Jellyfin too. The Navidrome card reports what came from
+    // Navidrome: the other server's playlists and hearts loading fine says
+    // nothing about Navidrome's, which could not be read.
+    test(
+        'a Jellyfin account signed in too does not answer for Navidrome '
+        'playlists and favourites', () async {
+      final navidrome = FakeSubsonicClient()
+        ..playlistError = SubsonicException.notReachable()
+        ..favoritesError = SubsonicException.notReachable();
+      final jellyfin = FakeJellyfinClient()
+        ..playlists = const <JellyfinPlaylistDto>[
+          JellyfinPlaylistDto(id: 'j-1', name: 'Gym'),
+          JellyfinPlaylistDto(id: 'j-2', name: 'Focus'),
+        ]
+        ..favoriteIds = <String>{'f1', 'f2', 'f3'};
+      final playlistRepo = SyncedPlaylistRepository(
+        store: InMemoryPlaylistStore(),
+        gateways: <RemotePlaylistGateway>[
+          JellyfinPlaylistGateway(
+            client: jellyfin,
+            session: () => _jellyfinSession,
+          ),
+          SubsonicPlaylistGateway(client: navidrome, session: () => _session),
+        ],
+      );
+      addTearDown(playlistRepo.dispose);
+      final favoritesRepo = SyncedFavoritesRepository(
+        store: InMemoryFavoritesStore(),
+        gateways: <RemoteFavoritesGateway>[
+          JellyfinFavoritesGateway(
+            client: jellyfin,
+            session: () => _jellyfinSession,
+          ),
+          SubsonicFavoritesGateway(client: navidrome, session: () => _session),
+        ],
+      );
+      addTearDown(favoritesRepo.dispose);
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _source(
+          albums: const <SubsonicAlbumDto>[
+            SubsonicAlbumDto(id: 'al', name: 'A')
+          ],
+          songsByAlbum: const <String, List<SubsonicSongDto>>{
+            'al': <SubsonicSongDto>[SubsonicSongDto(id: 's1', title: 'One')],
+          },
+        ),
+        playlists: playlistRepo,
+        favorites: favoritesRepo,
+      );
+
+      await container.read(subsonicSyncControllerProvider.notifier).sync();
+
+      final state = container.read(subsonicSyncControllerProvider);
+      expect(state.status, SubsonicSyncStatus.success);
+      expect(state.playlistsFailed, isTrue);
+      expect(state.favoritesFailed, isTrue);
+      expect(state.playlistCount, 0);
+      expect(state.favoriteCount, 0);
+      expect(state.message, contains('playlists could not be loaded'));
+      expect(state.message, contains('favorites could not be synced'));
+      expect(state.message, isNot(contains('2 playlists')));
+      expect(state.message, isNot(contains('3 favorites')));
     });
 
     test('surfaces a generic error when the repository upsert fails', () async {
