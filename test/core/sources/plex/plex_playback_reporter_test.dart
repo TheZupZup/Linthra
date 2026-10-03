@@ -255,6 +255,29 @@ void main() {
       expect(client.lastBaseUrl, 'https://other.example.com:32400');
     });
 
+    test(
+        'reports nothing about a play to another Plex Home profile connected '
+        'during it', () async {
+      // Disconnect, then Connect with Plex as another Home profile of the
+      // same server, leaves the song playing. Each profile has its own token,
+      // and what the server hears with it lands in that profile's history.
+      final reporter = build();
+      final Track track = _plexTrack('1');
+
+      await reporter.onPlaybackStarted(track, _position, _duration);
+      session = null;
+      session = _session.copyWith(token: 'kid-profile-token');
+      await reporter.onPlaybackProgress(track, _position, _duration);
+      await reporter.onPlaybackStopped(track, _position, _duration);
+      await reporter.onTrackChanged(track, null);
+      expect(client.timelineReports, hasLength(1));
+
+      // What the new profile plays next is its own.
+      await reporter.onPlaybackStarted(_plexTrack('2'), _position, _duration);
+      expect(client.timelineReports, hasLength(2));
+      expect(client.lastToken, 'kid-profile-token');
+    });
+
     group('reporting is best-effort and never throws', () {
       test('a typed Plex failure is swallowed', () async {
         client.timelineError = PlexException.notReachable();
