@@ -477,7 +477,7 @@ class CacheDownloadRepository
     // request for the same track (a double tap, or a second caller) bails out
     // here instead of starting a duplicate fetch.
     final _CacheOperation? running = _inFlight[key];
-    if (running != null) {
+    if (running != null && !_orphaned(running, track, preloaded: false)) {
       // A fresh, explicit request supersedes a pending cancellation of the
       // request still running (the user removed it and immediately asked
       // again): that request goes ahead, and its row shows where it really is
@@ -489,6 +489,11 @@ class CacheDownloadRepository
       }
       return DownloadRequestOutcome.started;
     }
+    // One still out was asked under an account that has signed out or been
+    // replaced (or on a server no longer connected): it saves nothing (see
+    // [_canceledOrOrphaned]), so it can't stand in for this request. It is
+    // dropped, and this one is fetched with the account asking now.
+    running?.canceled = true;
     final _CacheOperation operation = _CacheOperation(
       scope: _scopeOf(track),
       origin: _serverOf(_sourceTypeOf(track) ?? ''),
@@ -522,16 +527,21 @@ class CacheDownloadRepository
       // downloaded, unless its bytes were committed before the cancel landed.
       // Or unless a download of it is in use anyway: one of this server's
       // that came back while a request asked on the server just left was out.
+      // The row and the progress are left to the request that replaced this
+      // one, if one did (see above).
+      final bool current = identical(_inFlight[key], operation);
       final CachedTrack? committed = _downloads[key];
-      if (operation.canceled && _statuses.containsKey(key)) {
+      if (current && operation.canceled && _statuses.containsKey(key)) {
         if (committed == null || committed.preloaded) {
           _set(key, DownloadStatus.notDownloaded);
         } else if (_statuses[key] != DownloadStatus.downloaded) {
           _set(key, DownloadStatus.downloaded);
         }
       }
-      if (identical(_inFlight[key], operation)) _inFlight.remove(key);
-      _clearProgress(key);
+      if (current) {
+        _inFlight.remove(key);
+        _clearProgress(key);
+      }
       // Held back by the network policy: remember it, so it starts by itself
       // once the connection (or the policy) lets it. Done here, after the
       // in-flight slot is released, so the next ask isn't taken for a
@@ -711,8 +721,11 @@ class CacheDownloadRepository
       _setPhase(key, operation, DownloadStatus.downloading);
       final RemoteTrackData data = await _downloader.fetch(
         track,
-        onProgress: (int received, int? total) =>
-            _reportProgress(track, received, total),
+        onProgress: (int received, int? total) {
+          if (identical(_inFlight[key], operation)) {
+            _reportProgress(track, received, total);
+          }
+        },
       );
       // Commit serially so concurrent downloads can't jointly overshoot the
       // limit; the (slow) byte fetch above already ran in parallel.
@@ -1145,13 +1158,24 @@ class CacheDownloadRepository
     required bool preloaded,
   }) {
     if (operation.canceled) return true;
-    final String? scheme = _sourceTypeOf(track);
-    final bool serverMoved = _binds(scheme) &&
-        (operation.origin == null || _serverOf(scheme!) != operation.origin);
-    if (serverMoved || (!preloaded && _scopeOf(track) != operation.scope)) {
+    if (_orphaned(operation, track, preloaded: preloaded)) {
       operation.canceled = true;
     }
     return operation.canceled;
+  }
+
+  /// Whether [operation] was asked under an account that has signed out or
+  /// been replaced (a user download), or for a server that is no longer the
+  /// one connected (a bound copy of either kind).
+  bool _orphaned(
+    _CacheOperation operation,
+    Track track, {
+    required bool preloaded,
+  }) {
+    final String? scheme = _sourceTypeOf(track);
+    final bool serverMoved = _binds(scheme) &&
+        (operation.origin == null || _serverOf(scheme!) != operation.origin);
+    return serverMoved || (!preloaded && _scopeOf(track) != operation.scope);
   }
 
   /// The account [track]'s provider is signed in with right now. A check that
@@ -1219,7 +1243,9 @@ class CacheDownloadRepository
   /// the row back there.
   void _setPhase(String key, _CacheOperation operation, DownloadStatus status) {
     operation.phase = status;
-    _set(key, status);
+    // A request replaced by a newer one for this track no longer drives its
+    // row (see [requestDownload]).
+    if (identical(_inFlight[key], operation)) _set(key, status);
   }
 
   void _set(String key, DownloadStatus status) {

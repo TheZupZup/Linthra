@@ -254,6 +254,44 @@ class _PerCallDownloader implements RemoteTrackDownloader {
   }
 }
 
+/// A Jellyfin downloader whose every fetch is held until the test releases it,
+/// and which fetches with whichever account is signed in when the fetch
+/// starts, as the real downloaders do: the bytes say whose they are.
+class _AccountDownloader implements RemoteTrackDownloader {
+  _AccountDownloader(this._account);
+
+  final String? Function() _account;
+
+  /// Each fetch as `<track id>@<account>`, in the order they started.
+  final List<String> fetched = <String>[];
+  final List<Completer<void>> _held = <Completer<void>>[];
+
+  static List<int> bytesOf(String account) => account.codeUnits;
+
+  /// Lets every fetch started so far finish.
+  void releaseAll() {
+    for (final Completer<void> held in _held) {
+      if (!held.isCompleted) held.complete();
+    }
+  }
+
+  @override
+  bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
+
+  @override
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    final String account = _account() ?? 'nobody';
+    fetched.add('${track.id}@$account');
+    final Completer<void> held = Completer<void>();
+    _held.add(held);
+    await held.future;
+    return RemoteTrackData(bytes: bytesOf(account), fileExtension: 'mp3');
+  }
+}
+
 /// Holds the first [write] until [release] completes, after the bytes are on
 /// disk but before it returns: the moment a commit has written the file and
 /// not yet recorded it.
@@ -2201,6 +2239,58 @@ void main() {
           await StoreCachedTrackLocator(store, files)
               .cachedFilePath(_plex('101')),
           isNull,
+        );
+      });
+
+      test(
+          'songs asked for again once another account signed in are '
+          'downloaded for it', () async {
+        // Alice's downloads are still out (one fetching, one waiting for the
+        // slot) when Bob signs in to the same server and asks for the same
+        // songs, as "Download all" does. Hers will save nothing, so they must
+        // not stand in for his.
+        final _AccountDownloader fetches = _AccountDownloader(() => scope);
+        final repository = CacheDownloadRepository(
+          store: store,
+          files: files,
+          downloader: fetches,
+          connectivity: connectivity,
+          preferences: preferences,
+          scheduler: DownloadScheduler(maxConcurrent: 1),
+          networkChanges: changes.stream,
+          accountScopeOf: (Track _) => scope,
+        );
+        scope = 'jellyfin:alice';
+        final List<Future<DownloadRequestOutcome>> requests =
+            <Future<DownloadRequestOutcome>>[
+          repository.requestDownload(_jellyfin('j1')),
+          repository.requestDownload(_jellyfin('j2')),
+        ];
+        await _pumpUntil(() => fetches.fetched.isNotEmpty);
+
+        scope = 'jellyfin:bob';
+        requests
+          ..add(repository.requestDownload(_jellyfin('j1')))
+          ..add(repository.requestDownload(_jellyfin('j2')));
+        for (int round = 0; round < 4; round++) {
+          await _pumpUntil(() => false);
+          fetches.releaseAll();
+        }
+        await Future.wait(requests);
+
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded,
+            reason: 'fetched: ${fetches.fetched}');
+        expect(await repository.statusFor('j2'), DownloadStatus.downloaded,
+            reason: 'fetched: ${fetches.fetched}');
+        expect(
+          <List<int>?>[
+            for (final CachedTrack c in await store.loadDownloads())
+              files.bytesFor(c.fileName!),
+          ],
+          <List<int>>[
+            _AccountDownloader.bytesOf('jellyfin:bob'),
+            _AccountDownloader.bytesOf('jellyfin:bob'),
+          ],
         );
       });
 
