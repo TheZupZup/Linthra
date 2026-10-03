@@ -448,8 +448,12 @@ class LibraryController extends Notifier<LibraryState> {
         // would tell the user to reconnect a drive that is sitting right there.
       );
       ref.read(localScanReportProvider.notifier).record(report);
-      _loadGeneration++;
-      state = const LibraryState.error(_scanFailedMessage);
+      // The catalog write is one transaction, so a write that failed (a full
+      // disk, a database gone read-only) left the catalog exactly as it was.
+      // Show it, for the same reason a scan that could write nothing does:
+      // an error page in its place says the music is gone, and its advice to
+      // select the folder again would not help.
+      await _showCatalogOrError(_scanFailedMessage);
       return report;
     }
   }

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/album.dart';
+import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
@@ -74,6 +76,31 @@ class _DeferredAudioFileScanner implements AudioFileScanner {
   }) {
     _noteArrival(folder);
     return (requests[folder] ??= Completer<List<String>>()).future;
+  }
+}
+
+/// A catalog on a disk that can fill up: reads keep working, and while
+/// [failWrites] is set every write fails the way SQLite's does, leaving the
+/// stored catalog as it was.
+class _FailingWriteRepository extends InMemoryMusicLibraryRepository {
+  bool failWrites = false;
+
+  @override
+  Future<void> upsertCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+    required List<Album> albums,
+    required List<Artist> artists,
+  }) {
+    if (failWrites) {
+      throw StateError('SqliteException(13): database or disk is full');
+    }
+    return super.upsertCatalog(
+      sourceId: sourceId,
+      tracks: tracks,
+      albums: albums,
+      artists: artists,
+    );
   }
 }
 
@@ -281,6 +308,40 @@ void main() {
         container.read(libraryControllerProvider).tracks.map((t) => t.title),
         <String>['One', 'Two', 'Three'],
       );
+    });
+
+    test('a catalog write that fails leaves the library on screen', () async {
+      // The disk filled up (a download into the music folder is what set the
+      // folder watcher's rescan off in the first place), or the filesystem
+      // holding the database went read-only. The write is one transaction, so
+      // the catalog still holds exactly what it held: the library must not be
+      // replaced by a page telling the user to select their folder again,
+      // which hid every track, local and server alike, and would not help.
+      final _FailingWriteRepository repository = _FailingWriteRepository();
+      final container = _scanContainer(
+        repository: repository,
+        scanner: FakeAudioFileScanner(
+          files: <String>['/music/One.mp3', '/music/Two.mp3'],
+        ),
+      );
+      final controller = container.read(libraryControllerProvider.notifier);
+      await controller.scanFolder('/music');
+      final List<Track> indexed =
+          container.read(libraryControllerProvider).tracks;
+      expect(indexed, hasLength(2));
+
+      repository.failWrites = true;
+      final LocalScanReport? report =
+          await controller.scanFolderWithReport('/music');
+
+      final LibraryState state = container.read(libraryControllerProvider);
+      expect(state.status, LibraryStatus.loaded);
+      expect(state.tracks.map((Track t) => t.uri),
+          indexed.map((Track t) => t.uri));
+      // The failure is still reported, for the Local music card and the
+      // diagnostics line.
+      expect(report?.error, LocalScanError.unexpected);
+      expect(container.read(localScanReportProvider), same(report));
     });
 
     test('an unrelated catalog refresh does not cancel a local scan', () async {
