@@ -44,19 +44,33 @@ class AndroidConnectivityService implements ConnectivityService {
   late final Stream<NetworkStatus> _changes =
       _platformChanges().distinct().asBroadcastStream();
 
+  /// Completes once the platform has answered a status question, which is
+  /// when its change stream can be listened to. MainActivity registers both
+  /// channels when it attaches to the engine, and Android Auto, the system's
+  /// media controls or a headset button start the engine from the media
+  /// service, before any activity. A listen sent before then is refused and
+  /// never sent again, which would leave the stream silent for good.
+  final Completer<void> _answered = Completer<void>();
+
   @override
   Stream<NetworkStatus> get statusStream => _changes;
 
   @override
   Future<NetworkStatus> currentStatus() async {
     try {
-      return decodePlatformStatus(await _statusReader());
+      final Object? value = await _statusReader();
+      if (!_answered.isCompleted) _answered.complete();
+      return decodePlatformStatus(value);
     } catch (_) {
       return NetworkStatus.unknown;
     }
   }
 
   Stream<NetworkStatus> _platformChanges() async* {
+    // Asked now, so a running activity is listened to at once; otherwise the
+    // first question it answers (a download, a pre-cache) starts listening.
+    await currentStatus();
+    await _answered.future;
     try {
       await for (final Object? value in _statusEvents) {
         yield decodePlatformStatus(value);
