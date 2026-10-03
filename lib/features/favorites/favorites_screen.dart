@@ -21,6 +21,10 @@ class FavoritesScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Favorites')),
       body: favorites.when(
+        // Recomputed whenever a heart or the library changes: keep the list on
+        // screen until the new one is ready, rather than blanking it and
+        // bringing it back at the top.
+        skipLoadingOnReload: true,
         loading: () => const LoadingIndicator(label: 'Loading favourites'),
         error: (_, __) => const _FavoritesError(),
         data: (tracks) => tracks.isEmpty

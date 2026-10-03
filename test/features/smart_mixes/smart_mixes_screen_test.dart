@@ -5,10 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'package:linthra/app/routes.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/data/repositories/play_history_repository_provider.dart';
 import 'package:linthra/features/library/library_controller.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/smart_mixes/smart_mix_detail_screen.dart';
 import 'package:linthra/features/smart_mixes/smart_mixes_screen.dart';
+import 'package:linthra/shared/widgets/loading_indicator.dart';
 
 import '../library/fake_music_library_repository.dart';
 import '../player/fake_playback_controller.dart';
@@ -96,6 +98,28 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('New in your library · 2 songs'), findsOneWidget);
+    });
+
+    testWidgets('a song finishing keeps the mixes on screen', (tester) async {
+      await _pump(tester);
+      expect(find.text('Jump back in · 0 songs'), findsOneWidget);
+
+      // The player records each song that reaches its end.
+      final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(SmartMixesScreen)));
+      await container
+          .read(playHistoryRepositoryProvider)
+          .recordCompletion(_tracks.first);
+      await tester.pump();
+
+      expect(
+        find.byType(LoadingIndicator),
+        findsNothing,
+        reason: 'the counts being recomputed is no reason to take the mixes '
+            'off screen',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Jump back in · 1 song'), findsOneWidget);
     });
 
     testWidgets('tapping a mix opens its tracks', (tester) async {
