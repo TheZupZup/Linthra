@@ -143,6 +143,11 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
     required String username,
     required String password,
   }) async {
+    // What a test learned is only about the address it tested. The field can
+    // be edited between the test and this sign-in, and another server's name
+    // and version would then be saved with this session and shown as its own.
+    final JellyfinServerInfo? tested =
+        url == state.baseUrl ? _knownServerInfo() : null;
     state = JellyfinSettingsState(
       phase: JellyfinConnectionPhase.signingIn,
       baseUrl: url,
@@ -157,7 +162,7 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
                 rawUrl: url,
                 username: username,
                 password: password,
-                serverInfo: _knownServerInfo(),
+                serverInfo: tested,
               );
       try {
         await ref.read(jellyfinSessionStoreProvider).write(newSession);

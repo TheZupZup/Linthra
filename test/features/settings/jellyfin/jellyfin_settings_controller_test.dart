@@ -42,6 +42,24 @@ const _session = JellyfinSession(
 /// Lets the controller's async `build`/`_loadPersisted` settle.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
+/// Two Jellyfin servers behind one client: each base URL answers
+/// `/System/Info/Public` with its own name and version, the way two real
+/// servers do. Signing in goes through the real [JellyfinAuthenticator].
+class _TwoServerClient extends FakeJellyfinClient {
+  _TwoServerClient(this.servers);
+
+  /// What each server reports, by normalized base URL.
+  final Map<String, JellyfinServerInfo> servers;
+
+  @override
+  Future<JellyfinServerInfo> fetchServerInfo(String baseUrl) async {
+    lastBaseUrl = baseUrl;
+    final JellyfinServerInfo? info = servers[baseUrl];
+    if (info == null) throw JellyfinException.notReachable();
+    return info;
+  }
+}
+
 /// Records [clearRemote] calls so a sign-out test can prove the controller tears
 /// down this account's server-synced favourites.
 class _SpyFavoritesRepository implements FavoritesRepository {
@@ -349,6 +367,51 @@ void main() {
       // needn't re-read it and the session records the version.
       expect(auth.lastServerInfo?.serverName, 'My Server');
       expect(auth.lastServerInfo?.version, '10.9.0');
+    });
+
+    // The address can be edited between a test and the sign-in: a listener
+    // with two servers tests one, then types the other one's address. The
+    // signed-in card, the saved session and the diagnostics have to describe
+    // the server that was signed in to, not the one tested before it.
+    test('a sign-in to another address than the one tested records that server',
+        () async {
+      final _TwoServerClient client =
+          _TwoServerClient(<String, JellyfinServerInfo>{
+        'https://home.example.com':
+            const JellyfinServerInfo(serverName: 'Home', version: '10.8.13'),
+        'https://office.example.com':
+            const JellyfinServerInfo(serverName: 'Office', version: '10.10.3'),
+      });
+      final store = InMemoryJellyfinSessionStore();
+      final container = ProviderContainer(
+        overrides: <Override>[
+          jellyfinClientProvider.overrideWithValue(client),
+          jellyfinSessionStoreProvider.overrideWithValue(store),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifier =
+          container.read(jellyfinSettingsControllerProvider.notifier);
+      await _settle();
+
+      expect(await notifier.testConnection('home.example.com'), isTrue);
+      expect(
+        await notifier.signIn(
+          url: 'office.example.com',
+          username: 'alice',
+          password: 'pw',
+        ),
+        isTrue,
+      );
+
+      final state = container.read(jellyfinSettingsControllerProvider);
+      expect(state.baseUrl, 'https://office.example.com');
+      expect(state.serverName, 'Office');
+      expect(state.serverVersion, '10.10.3');
+      expect(state.statusMessage, 'Signed in as alice on Office.');
+      final JellyfinSession? saved = await store.read();
+      expect(saved?.serverName, 'Office');
+      expect(saved?.serverVersion, '10.10.3');
     });
 
     test('does not persist anything on failure', () async {
