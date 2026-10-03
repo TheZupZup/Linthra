@@ -285,6 +285,10 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     final int absolute = _lastQueueStart + index;
     // The queue can still have shrunk since that window was published.
     if (absolute < 0 || absolute >= total) return;
+    // The newest pick from here on, like a Queue row ([playFromMediaId]): a
+    // song picked earlier and still being looked up must not replace it when
+    // it lands.
+    _playedSelection = ++_selections;
     if (absolute < historyLength) {
       await _controller.playFromHistory(absolute);
     } else if (absolute > historyLength) {
@@ -348,12 +352,19 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     return page.map(_mediaItemForNode).toList();
   }
 
+  /// Numbers each [playFromMediaId] as it arrives, and the newest of them that
+  /// has reached the controller, so a selection that took longer to look up
+  /// than a later one can tell that one has already played.
+  int _selections = 0;
+  int _playedSelection = 0;
+
   @override
   Future<void> playFromMediaId(
     String mediaId, [
     Map<String, dynamic>? extras,
   ]) async {
     if (_detached) return;
+    final int selection = ++_selections;
     if (MediaId.isQueueItem(mediaId)) {
       // A Queue row is a place in the live queue, so picking one moves there,
       // like a row of the car's Up Next list ([skipToQueueItem]) or of the
@@ -364,6 +375,10 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
       // move in between.
       final int at = _tree.queuePositionOf(mediaId, _controller.state);
       _log('play: ${_categoryOf(mediaId)} resolved=${at >= 0}');
+      if (at < 0) return;
+      // The newest pick from here on: an earlier one still being looked up
+      // must not replace it when it lands.
+      _playedSelection = selection;
       // Row 0 is the current track: already where a move to it would land.
       if (at > 0) await _controller.playFromQueue(at - 1);
       return;
@@ -383,6 +398,11 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     // controller synchronously after its check; this is the one that awaits
     // first.
     if (_detached) return;
+    // Lookups take different times (a song from Songs may need the whole
+    // catalog read again, a Queue row needs nothing), so a later selection can
+    // be playing already. An earlier one landing afterwards must not undo it.
+    if (selection < _playedSelection) return;
+    _playedSelection = selection;
     // Delegates to the single PlaybackController, exactly like tapping a track
     // in the app. While a Cast session is active the controller has suspended
     // the local engine, so this updates the queue and mirrors onto the receiver

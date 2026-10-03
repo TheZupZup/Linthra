@@ -80,6 +80,22 @@ final List<Track> _library = <Track>[_track('a'), _track('b'), _track('c')];
 /// listener before assertions read the mirrored session state.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
+/// A catalog whose full read can be held open, the way reading a large
+/// library takes a while once the browse tree's short-lived snapshot of it
+/// has expired.
+class _SlowCatalog extends FakeMusicLibraryRepository {
+  _SlowCatalog({required super.tracks});
+
+  Completer<void>? read;
+
+  @override
+  Future<List<Track>> getAllTracks() async {
+    final Completer<void>? gate = read;
+    if (gate != null) await gate.future;
+    return super.getAllTracks();
+  }
+}
+
 void main() {
   group('LinthraAudioHandler', () {
     late FakePlaybackController controller;
@@ -964,6 +980,90 @@ void main() {
     });
 
     group('media browser', () {
+      test('the song picked last plays, whichever selection resolves first',
+          () async {
+        final FakePlaybackController picked = FakePlaybackController();
+        addTearDown(picked.dispose);
+        final _SlowCatalog catalog = _SlowCatalog(tracks: _library);
+        final LinthraAudioHandler car =
+            LinthraAudioHandler(picked, MediaBrowserTree(catalog));
+        addTearDown(car.dispose);
+        await picked.playTracks(_library);
+        await _settle();
+
+        // A song from Songs: the catalog has to be read again first.
+        catalog.read = Completer<void>();
+        final Future<void> first =
+            car.playFromMediaId(MediaId.libraryTrack('/c.mp3'));
+        await _settle();
+        // Then, while that read is still going, a row of the Queue folder,
+        // which resolves from the live queue at once.
+        await car.playFromMediaId(MediaId.queueItem(1));
+        await _settle();
+        expect(picked.state.currentTrack?.id, 'b');
+
+        catalog.read!.complete();
+        await first;
+        await _settle();
+
+        expect(picked.state.currentTrack?.id, 'b',
+            reason: 'the earlier pick, resolved last, replaced the later one');
+      });
+
+      test('an earlier pick still plays when the later one finds nothing',
+          () async {
+        final FakePlaybackController picked = FakePlaybackController();
+        addTearDown(picked.dispose);
+        final _SlowCatalog catalog = _SlowCatalog(tracks: _library);
+        final LinthraAudioHandler car =
+            LinthraAudioHandler(picked, MediaBrowserTree(catalog));
+        addTearDown(car.dispose);
+
+        catalog.read = Completer<void>();
+        final Future<void> first =
+            car.playFromMediaId(MediaId.libraryTrack('/c.mp3'));
+        await _settle();
+        // A stale row: nothing is queued, so it plays nothing.
+        await car.playFromMediaId(MediaId.queueItem(4));
+        catalog.read!.complete();
+        await first;
+        await _settle();
+
+        expect(picked.state.currentTrack?.id, 'c');
+      });
+
+      test(
+          'a song picked on the Up Next list keeps playing when an earlier '
+          'pick lands late', () async {
+        final FakePlaybackController picked = FakePlaybackController();
+        addTearDown(picked.dispose);
+        final _SlowCatalog catalog = _SlowCatalog(tracks: _library);
+        final LinthraAudioHandler car =
+            LinthraAudioHandler(picked, MediaBrowserTree(catalog));
+        addTearDown(car.dispose);
+        await picked.playTracks(_library);
+        await _settle();
+
+        // A song from Songs: the catalog has to be read again first.
+        catalog.read = Completer<void>();
+        final Future<void> first =
+            car.playFromMediaId(MediaId.libraryTrack('/c.mp3'));
+        await _settle();
+        // Then, while that read is still going, a row of the car's own Up
+        // Next list, which moves within the queue at once.
+        await car.skipToQueueItem(1);
+        await _settle();
+        expect(picked.state.currentTrack?.id, 'b');
+
+        catalog.read!.complete();
+        await first;
+        await _settle();
+
+        expect(picked.state.currentTrack?.id, 'b',
+            reason: 'the earlier pick, resolved last, replaced the song '
+                'picked on the Up Next list');
+      });
+
       test('root lists the library categories and Queue', () async {
         final children = await handler.getChildren(MediaId.root);
 
