@@ -94,6 +94,12 @@ class _SlowWritesSubsonicClient extends FakeSubsonicClient {
     ];
   }
 
+  /// Creates that reach the server at once but whose answers reach the app
+  /// only when the test lets them through: the server already lists the new
+  /// playlist while the app still waits to hear its id.
+  bool holdAnswers = false;
+  final List<Completer<void>> heldAnswers = <Completer<void>>[];
+
   @override
   Future<String> createPlaylist(
     SubsonicSession session, {
@@ -101,7 +107,14 @@ class _SlowWritesSubsonicClient extends FakeSubsonicClient {
     List<String> songIds = const <String>[],
   }) async {
     await _landWhenLetThrough();
-    return super.createPlaylist(session, name: name, songIds: songIds);
+    final String id =
+        await super.createPlaylist(session, name: name, songIds: songIds);
+    if (holdAnswers) {
+      final Completer<void> gate = Completer<void>();
+      heldAnswers.add(gate);
+      await gate.future;
+    }
+    return id;
   }
 }
 
@@ -2247,6 +2260,38 @@ void main() {
         expect(client.playlists, isEmpty);
         await repository.refreshFromRemote();
         expect(await repository.getAllPlaylists(), isEmpty);
+      });
+
+      // The server has made the playlist, and lists it, before the app hears
+      // its id back: a slow reply, or a resume or the end of a library sync
+      // refreshing in that moment. That listing names this very playlist.
+      test('a refresh that lists it before the create answers adds no copy',
+          () async {
+        client
+          ..holdWrites = false
+          ..holdAnswers = true;
+        final Future<Playlist> creating =
+            repository.createPlaylist('Road', source: PlaylistSource.subsonic);
+        await _pumpUntil(() => client.heldAnswers.isNotEmpty);
+        expect(client.playlists.single.id, 'pl-new');
+
+        await repository.refreshFromRemote();
+        client.heldAnswers.single.complete();
+        final Playlist created = await creating;
+
+        for (final List<Playlist> all in <List<Playlist>>[
+          await repository.getAllPlaylists(),
+          await store.load(),
+        ]) {
+          expect(
+            <(String, String?)>[
+              for (final Playlist p in all) (p.id, p.remoteId)
+            ],
+            <(String, String?)>[(created.id, 'pl-new')],
+          );
+        }
+        await repository.refreshFromRemote();
+        expect(await repository.getAllPlaylists(), hasLength(1));
       });
 
       test(

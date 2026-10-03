@@ -96,6 +96,11 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// until it has finished. See [_pushInOrder].
   final Map<String, Future<void>> _pushes = <String, Future<void>>{};
 
+  /// The creates still out, each as the provider it went to and that
+  /// provider's sign-out count when it left. See [_mergeRemote].
+  final List<({PlaylistSource source, int clears})> _createsOut =
+      <({PlaylistSource source, int clears})>[];
+
   static String Function() _defaultIdGenerator() {
     int counter = 0;
     return () {
@@ -173,10 +178,19 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       // screen and editable at once, but an edit has no server id to go to
       // until this lands, so it waits for it instead of being skipped.
       final Playlist pending = playlist;
-      playlist = await _pushInOrder(
-        pending.id,
-        () => _pushCreate(pending, gateway),
-      );
+      // Out until it has settled (bound to its server id, failed, or deleted
+      // on the server again); see [_mergeRemote].
+      final ({PlaylistSource source, int clears}) create =
+          (source: source, clears: _clearsOf(source));
+      _createsOut.add(create);
+      try {
+        playlist = await _pushInOrder(
+          pending.id,
+          () => _pushCreate(pending, gateway),
+        );
+      } finally {
+        _createsOut.remove(create);
+      }
     }
     return playlist;
   }
@@ -605,8 +619,16 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       next.add(adopted);
       merged.add(adopted);
     }
+    // A create still out may already be on the server, and in this answer,
+    // under an id nothing here has yet: imported now, it would be a second
+    // copy of that playlist, bound to the same server playlist. What is new
+    // on the server waits for the next refresh instead.
+    final bool creating = _createsOut.any(
+      (({PlaylistSource source, int clears}) c) =>
+          c.source == source && c.clears == _clearsOf(source),
+    );
     for (final RemotePlaylistData dto in remote) {
-      if (!known.add(dto.remoteId)) continue;
+      if (creating || !known.add(dto.remoteId)) continue;
       final Playlist imported = Playlist(
         id: _newId(),
         name: dto.name,
