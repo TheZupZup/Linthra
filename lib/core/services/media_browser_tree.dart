@@ -38,6 +38,10 @@ import '../repositories/playlist_repository.dart';
 ///    browsable, never playable (see [MediaBrowserTree] for why big sections are
 ///    served as pages).
 ///
+/// The album, artist, playlist, favourite and offline leaves are published to
+/// the media browser as `<leaf id>@<uriHash>`, with the track they list (see
+/// [MediaId.listing]).
+///
 /// The namespaces never collide: a bare category word (`albums`) never starts
 /// with the matching container prefix (`album/`), a container `album/<id>` has
 /// no trailing `/<index>`, and an album/artist id is a URL-safe base64url token
@@ -48,10 +52,10 @@ import '../repositories/playlist_repository.dart';
 /// Security invariant: every id is built only from non-secret, opaque ids — a
 /// derived album/artist grouping id, a local playlist id, a small integer index,
 /// a browse-page window (two integers), or an opaque hash of the track uri (the
-/// Songs and Queue leaves). No id ever carries a `jellyfin:`/`subsonic:` uri, a
-/// local file path, a Jellyfin/Subsonic access token, or an authenticated
-/// stream URL; the stream URL is minted lazily at play time by the resolver,
-/// never here.
+/// Songs and Queue leaves, and the `@<uriHash>` of a published leaf). No id
+/// ever carries a `jellyfin:`/`subsonic:` uri, a local file path, a
+/// Jellyfin/Subsonic access token, or an authenticated stream URL; the stream
+/// URL is minted lazily at play time by the resolver, never here.
 abstract final class MediaId {
   /// The root the platform requests first (audio_service's `browsableRootId`).
   static const String root = 'root';
@@ -234,6 +238,46 @@ abstract final class MediaId {
   /// The downloads position encoded in [id], or -1 when it isn't a number.
   static int offlineIndex(String id) =>
       int.tryParse(id.substring(_offlinePrefix.length)) ?? -1;
+
+  /// The id a playable row is published under: [id], and for a row that names
+  /// its track by position (an album, artist, playlist, favourite or offline
+  /// leaf) the opaque [libraryTrackHash] of [trackUri] after an `@`.
+  ///
+  /// The position alone goes stale: the car keeps showing the list it was
+  /// given, and a download finishing, a favourites or library sync landing, or
+  /// a playlist edit moves songs to other positions in it. With the hash,
+  /// [MediaBrowserTree.resolve] plays the song the row showed, or nothing.
+  /// Songs and Queue rows already carry their track and are returned as they
+  /// are.
+  static String listing(String id, String trackUri) => _namesTrackByPosition(id)
+      ? '$id$_listedTrackSeparator${libraryTrackHash(trackUri)}'
+      : id;
+
+  /// A published row [id] split back into the id it was made from and the
+  /// hash of the track it listed, or [id] itself with no hash when it carries
+  /// none (see [listing]).
+  static ({String id, String? trackHash}) listedTrackOf(String id) {
+    final int separator = id.lastIndexOf(_listedTrackSeparator);
+    if (separator < 0) return (id: id, trackHash: null);
+    final String plain = id.substring(0, separator);
+    final String hash = id.substring(separator + 1);
+    if (!_namesTrackByPosition(plain) || !_trackHashShape.hasMatch(hash)) {
+      return (id: id, trackHash: null);
+    }
+    return (id: plain, trackHash: hash);
+  }
+
+  static bool _namesTrackByPosition(String id) =>
+      isAlbumTrack(id) ||
+      isArtistTrack(id) ||
+      isPlaylistTrack(id) ||
+      isFavoriteItem(id) ||
+      isOfflineItem(id);
+
+  static const String _listedTrackSeparator = '@';
+
+  /// What [libraryTrackHash] produces: SHA-256 as lower-case hex.
+  static final RegExp _trackHashShape = RegExp(r'^[0-9a-f]{64}$');
 
   static bool _isContainer(String id, String prefix) =>
       id.startsWith(prefix) && !id.substring(prefix.length).contains('/');
@@ -571,12 +615,20 @@ class MediaBrowserTree {
     return '${title.substring(0, maxLength - 1).trimRight()}…';
   }
 
-  /// Resolves a selected leaf [mediaId] to what should play, or null when it
-  /// doesn't name a playable track (e.g. a stale id, or a category/container).
+  /// Resolves a selected leaf [publishedId] to what should play, or null when
+  /// it doesn't name a playable track (e.g. a stale id, or a
+  /// category/container).
+  ///
+  /// A row published with the track it listed ([MediaId.listing]) plays that
+  /// track wherever its list now has it, or nothing once it has left the list.
   Future<MediaPlaybackRequest?> resolve(
-    String mediaId,
+    String publishedId,
     PlaybackState playback,
   ) async {
+    final ({String id, String? trackHash}) row =
+        MediaId.listedTrackOf(publishedId);
+    final String mediaId = row.id;
+    final String? listed = row.trackHash;
     // A `page/` container is a browse-only node. It is checked first (and
     // explicitly) so a page row can never be played, even if a future leaf
     // namespace were to overlap it.
@@ -594,12 +646,12 @@ class MediaBrowserTree {
     if (MediaId.isAlbumTrack(mediaId)) {
       final List<Track> tracks = tracksForAlbum(
           await _allTracks(), MediaId.albumTrackAlbumId(mediaId));
-      return _requestAt(tracks, MediaId.albumTrackIndex(mediaId));
+      return _requestAt(tracks, MediaId.albumTrackIndex(mediaId), listed);
     }
     if (MediaId.isArtistTrack(mediaId)) {
       final List<Track> tracks = tracksForArtist(
           await _allTracks(), MediaId.artistTrackArtistId(mediaId));
-      return _requestAt(tracks, MediaId.artistTrackIndex(mediaId));
+      return _requestAt(tracks, MediaId.artistTrackIndex(mediaId), listed);
     }
     if (MediaId.isQueueItem(mediaId)) {
       final List<Track> tracks = _currentQueue(playback);
@@ -608,23 +660,32 @@ class MediaBrowserTree {
     if (MediaId.isPlaylistTrack(mediaId)) {
       final List<Track> tracks =
           await _playlistTracks(MediaId.playlistTrackPlaylistId(mediaId));
-      return _requestAt(tracks, MediaId.playlistTrackIndex(mediaId));
+      return _requestAt(tracks, MediaId.playlistTrackIndex(mediaId), listed);
     }
     if (MediaId.isFavoriteItem(mediaId)) {
       return _requestAt(
-          await _favoriteTracks(), MediaId.favoriteIndex(mediaId));
+          await _favoriteTracks(), MediaId.favoriteIndex(mediaId), listed);
     }
     if (MediaId.isOfflineItem(mediaId)) {
-      return _requestAt(await _offlineTracks(), MediaId.offlineIndex(mediaId));
+      return _requestAt(
+          await _offlineTracks(), MediaId.offlineIndex(mediaId), listed);
     }
     return null;
   }
 
   /// A request that starts [tracks] at [index], or null when the index is out of
-  /// range (a stale leaf id whose list has since shrunk).
-  MediaPlaybackRequest? _requestAt(List<Track> tracks, int index) {
-    if (index < 0 || index >= tracks.length) return null;
-    return MediaPlaybackRequest(tracks: tracks, startIndex: index);
+  /// range (a stale leaf id whose list has since shrunk). With [listed], the
+  /// hash of the track the row showed, it starts at that track instead,
+  /// wherever the list has it now, and is null once it has left the list.
+  MediaPlaybackRequest? _requestAt(
+    List<Track> tracks,
+    int index, [
+    String? listed,
+  ]) {
+    final int at =
+        listed == null ? index : _whereListedTrackIs(tracks, index, listed);
+    if (at < 0 || at >= tracks.length) return null;
+    return MediaPlaybackRequest(tracks: tracks, startIndex: at);
   }
 
   /// Where the Queue row [mediaId] points in the live queue of [playback]:
@@ -647,14 +708,14 @@ class MediaBrowserTree {
     return at >= 0 && at < tracks.length ? at : -1;
   }
 
-  /// Where the track a Queue row was listed for ([trackHash], at [listedAt])
-  /// is in the live queue [tracks] now, or -1 when it is not there any more
-  /// (it has played, or another queue replaced that one).
+  /// Where the track a row was listed for ([trackHash], at [listedAt]) is in
+  /// its list [tracks] now, or -1 when it is not there any more (it has played,
+  /// left the list, or another queue replaced that one).
   ///
   /// The row's own position is checked first, which is the answer whenever the
-  /// queue has not moved. Otherwise the nearest copy of the song wins, the
+  /// list has not changed. Otherwise the nearest copy of the song wins, the
   /// earlier one on a tie: a queue that moved on has moved the song towards the
-  /// top, and a song queued twice keeps each row on its own copy.
+  /// top, and a song listed twice keeps each row on its own copy.
   static int _whereListedTrackIs(
     List<Track> tracks,
     int listedAt,

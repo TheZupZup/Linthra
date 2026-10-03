@@ -168,17 +168,17 @@ Stable media IDs:
 | Song / library track | `library/<trackId>` |
 | Albums category | `albums` |
 | An album (container) | `album/<albumId>` |
-| Album track | `album/<albumId>/<index>` |
+| Album track | `album/<albumId>/<index>@<uriHash>` |
 | Artists category | `artists` |
 | An artist (container) | `artist/<artistId>` |
-| Artist track | `artist/<artistId>/<index>` |
+| Artist track | `artist/<artistId>/<index>@<uriHash>` |
 | Playlists category | `playlists` |
 | A playlist (container) | `playlist/<playlistId>` |
-| Playlist track | `playlist/<playlistId>/<index>` |
+| Playlist track | `playlist/<playlistId>/<index>@<uriHash>` |
 | Favorites category | `favorites` |
-| Favorite track | `favorite/<index>` |
+| Favorite track | `favorite/<index>@<uriHash>` |
 | Offline category | `offline` |
-| Offline track | `offline/<index>` |
+| Offline track | `offline/<index>@<uriHash>` |
 | Queue category | `queue` |
 | Queue item | `queue/<index>/<uriHash>` |
 | Empty-state placeholder | `empty` |

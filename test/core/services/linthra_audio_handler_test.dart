@@ -1206,6 +1206,121 @@ void main() {
         });
       });
 
+      // Favorites, Offline, albums, artists and playlists name a row by its
+      // position in a list that can change while the car shows it: a download
+      // finishing, a favourites sync landing, a library sync. A row picked
+      // after that must still play the song it showed.
+      group('a row picked after its list changed', () {
+        final List<Track> catalog = <Track>[
+          for (final String id in <String>['a', 'b', 'c', 'd']) _track(id),
+        ];
+
+        /// The car's view of [tree], playing through its own controller.
+        ({LinthraAudioHandler car, FakePlaybackController player}) carOver(
+          MediaBrowserTree tree,
+        ) {
+          final FakePlaybackController player = FakePlaybackController();
+          final LinthraAudioHandler car = LinthraAudioHandler(player, tree);
+          addTearDown(() async {
+            await car.dispose();
+            await player.dispose();
+          });
+          return (car: car, player: player);
+        }
+
+        String rowFor(List<audio.MediaItem> rows, String title) =>
+            rows.singleWhere((audio.MediaItem row) => row.title == title).id;
+
+        test('an Offline row after another download finished', () async {
+          final Set<String> downloaded = <String>{
+            CachedTrack.cacheKeyForTrack(catalog[1]),
+            CachedTrack.cacheKeyForTrack(catalog[3]),
+          };
+          final setup = carOver(MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: catalog),
+            downloads: FakeDownloadRepository(downloaded),
+          ));
+          final List<audio.MediaItem> rows =
+              await setup.car.getChildren(MediaId.offline);
+          // Song c finishes downloading while the car shows the list.
+          downloaded.add(CachedTrack.cacheKeyForTrack(catalog[2]));
+
+          await setup.car.playFromMediaId(rowFor(rows, 'Song d'));
+          await _settle();
+
+          expect(setup.player.state.currentTrack?.title, 'Song d',
+              reason: 'the listener tapped Song d');
+        });
+
+        test('a Favorites row after the favourites synced', () async {
+          final Set<String> favourites = <String>{'/a.mp3', '/c.mp3'};
+          final setup = carOver(MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: catalog),
+            favorites: FakeFavoritesRepository(favourites),
+          ));
+          final List<audio.MediaItem> rows =
+              await setup.car.getChildren(MediaId.favorites);
+          // A favourite added on another device arrives with the sync.
+          favourites.add('/b.mp3');
+
+          await setup.car.playFromMediaId(rowFor(rows, 'Song c'));
+          await _settle();
+
+          expect(setup.player.state.currentTrack?.title, 'Song c');
+        });
+
+        test('an album row after a library sync', () async {
+          Track albumTrack(int number) => Track(
+                id: 'x$number',
+                title: 'Song x$number',
+                uri: '/x$number.mp3',
+                artistName: 'Artist x',
+                albumName: 'Album x',
+                trackNumber: number,
+              );
+          final List<Track> library = <Track>[albumTrack(1), albumTrack(3)];
+          final setup = carOver(MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: library),
+            // No reuse of an earlier catalog read: the sync below is seen.
+            catalogSnapshotTtl: Duration.zero,
+          ));
+          final List<audio.MediaItem> albums =
+              await setup.car.getChildren(MediaId.albums);
+          final List<audio.MediaItem> rows =
+              await setup.car.getChildren(albums.single.id);
+          // A sync brings in the album's missing second track.
+          library.insert(1, albumTrack(2));
+
+          await setup.car.playFromMediaId(rowFor(rows, 'Song x3'));
+          await _settle();
+
+          expect(setup.player.state.currentTrack?.title, 'Song x3');
+        });
+
+        test('a row whose song left its list does nothing', () async {
+          final Set<String> downloaded = <String>{
+            CachedTrack.cacheKeyForTrack(catalog[1]),
+            CachedTrack.cacheKeyForTrack(catalog[3]),
+          };
+          final setup = carOver(MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: catalog),
+            downloads: FakeDownloadRepository(downloaded),
+          ));
+          final List<audio.MediaItem> rows =
+              await setup.car.getChildren(MediaId.offline);
+          // Song d's download is removed and Song c's finishes.
+          downloaded
+            ..remove(CachedTrack.cacheKeyForTrack(catalog[3]))
+            ..add(CachedTrack.cacheKeyForTrack(catalog[2]));
+
+          await setup.car.playFromMediaId(rowFor(rows, 'Song d'));
+          await _settle();
+
+          expect(setup.player.playedTracks, isEmpty,
+              reason: 'Song d is no longer offline; Song c was not tapped');
+        });
+      });
+
       test('an unknown media id is a no-op', () async {
         await handler.playFromMediaId('library/missing');
         await handler.playFromMediaId('bogus');

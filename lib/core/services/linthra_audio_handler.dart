@@ -664,7 +664,9 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   audio.MediaItem _mediaItemForNode(MediaNode node) {
     final track = node.track;
     if (node.playable && track != null) {
-      return _trackMediaItem(track, id: node.id);
+      // Published with the track it lists, so a row picked after its list
+      // changed under the car still plays that track ([MediaId.listing]).
+      return _trackMediaItem(track, id: MediaId.listing(node.id, track.uri));
     }
     // A browsable container (album/artist) may carry token-free cover art so the
     // car shows artwork on the row; categories and placeholders leave it null.
