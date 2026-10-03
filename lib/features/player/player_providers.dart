@@ -517,12 +517,20 @@ final remoteControlServiceProvider = Provider<RemoteControlService>((ref) {
 /// Keeping the socket to exactly this window (rather than the whole signed-in
 /// session) is what keeps remote control off the "no background keep-alives"
 /// budget.
+///
+/// A Jellyfin track on its way to sound (loading, re-buffering, reconnecting)
+/// is in the window too. Every track change opens with the next track
+/// loading, and a socket closed for that stretch dropped whatever the remote
+/// sent meanwhile (a Pause right after Next), since the server only delivers
+/// over an open socket; it also reconnected on every track.
 bool _isJellyfinControllable(PlaybackState state) {
   final track = state.currentTrack;
   if (track == null) return false;
   if (!track.uri.startsWith(JellyfinTrackMapper.uriScheme)) return false;
   final status = state.status;
-  return status == PlaybackStatus.playing || status == PlaybackStatus.paused;
+  return status == PlaybackStatus.playing ||
+      status == PlaybackStatus.paused ||
+      state.isBusy;
 }
 
 /// Connects the remote-control transport only while a controllable Jellyfin
