@@ -14,6 +14,7 @@ import '../../../core/sources/plex/plex_music_source.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../../data/repositories/plex_sync_cache_store_provider.dart';
 import '../../library/library_controller.dart';
+import 'plex_library_signature.dart';
 import 'plex_settings_controller.dart';
 import 'plex_sync_state.dart';
 
@@ -127,7 +128,8 @@ class PlexSyncController extends Notifier<PlexSyncState> {
   /// sync" with a future server's identical content.
   Future<void> removeSyncedCatalog() async {
     await _writeCatalogInBatches(const <Track>[]);
-    _lastSyncedSignature = _signatureFor(const <String>[], const <Track>[]);
+    _lastSyncedSignature =
+        plexLibrarySignature(const <String>[], const <Track>[]);
     // The durable signature described the rows just cleared; forget it (and
     // mark it loaded) so the next sync rebuilds rather than skipping against a
     // stale fingerprint. Best-effort and last, so a write failure above still
@@ -183,7 +185,7 @@ class PlexSyncController extends Notifier<PlexSyncState> {
       //    since ("Remove from Linthra", a catalog file that did not survive
       //    while the preferences did) leave it matching, and skipping then
       //    would keep them gone with the card saying "already up to date".
-      final String signature = _signatureFor(sectionKeys, tracks);
+      final String signature = plexLibrarySignature(sectionKeys, tracks);
       if (signature == _lastSyncedSignature &&
           await _catalogStillHolds(tracks.length)) {
         state = PlexSyncState.done(
@@ -356,40 +358,6 @@ class PlexSyncController extends Notifier<PlexSyncState> {
       batches.add(tracks.sublist(i, math.min(i + size, tracks.length)));
     }
     return batches;
-  }
-
-  /// A stable, credential-free fingerprint of a sync's outcome: the selected
-  /// sections plus the scanned tracks' identity and display fields. Two scans
-  /// with the same signature describe the same library, so the second can skip
-  /// the rebuild. Order-independent over tracks (a server reordering its listing
-  /// is not a real change); the selection and track count are folded in so a
-  /// changed selection or a different count always re-syncs.
-  ///
-  /// **Every field the catalog persists must be hashed here**, or a change
-  /// confined to an unhashed field would look like "nothing changed" and never
-  /// reach the database. `albumId`/`albumArtistName` are included for that
-  /// reason: they also mean a signature persisted by a build that predates
-  /// those fields can never match one computed now, so an existing Plex
-  /// catalog rebuilds exactly once after upgrading and actually fills its new
-  /// album-grouping columns instead of leaving them null until the library
-  /// happens to change.
-  String _signatureFor(List<String> sectionKeys, List<Track> tracks) {
-    final List<String> sortedSections = List<String>.of(sectionKeys)..sort();
-    final Iterable<int> trackHashes = tracks.map(
-      (Track t) => Object.hash(
-        t.id,
-        t.title,
-        t.artistName,
-        t.albumName,
-        t.albumId,
-        t.albumArtistName,
-        t.duration.inMilliseconds,
-        t.trackNumber,
-        t.artworkUri?.toString(),
-      ),
-    );
-    final int content = Object.hashAllUnordered(trackHashes);
-    return '${sortedSections.join(',')}|${tracks.length}|$content';
   }
 
   static const String _savingFailedMessage =
