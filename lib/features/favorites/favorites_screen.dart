@@ -31,7 +31,7 @@ class FavoritesScreen extends ConsumerWidget {
             ? const EmptyState(
                 icon: Icons.favorite_border,
                 title: 'No favorites yet',
-                message: 'Tap the heart on a track to add it here.',
+                message: 'Use the heart on a track to add it here.',
               )
             : AlphabetTrackList(tracks: tracks),
       ),

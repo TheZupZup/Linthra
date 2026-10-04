@@ -144,7 +144,7 @@ class PlexException implements Exception {
   /// never succeed — so the flow restarts from "Connect with Plex".
   factory PlexException.signInExpired() => const PlexException(
         'Your Plex sign-in expired before it finished. '
-        'Tap "Connect with Plex" to try again.',
+        'Choose "Connect with Plex" to try again.',
         kind: PlexErrorKind.unauthorized,
       );
 

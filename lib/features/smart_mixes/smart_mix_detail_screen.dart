@@ -129,7 +129,7 @@ class SmartMixDetailScreen extends ConsumerWidget {
       case SmartPlaylistKind.mostPlayed:
         return 'Your most-played tracks appear here as you listen.';
       case SmartPlaylistKind.favorites:
-        return 'Tap the heart on a track to add it here.';
+        return 'Use the heart on a track to add it here.';
       case SmartPlaylistKind.downloaded:
         return 'Download tracks for offline and they’ll appear here.';
       case SmartPlaylistKind.random:
