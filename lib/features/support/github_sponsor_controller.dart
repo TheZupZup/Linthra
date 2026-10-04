@@ -142,9 +142,12 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
       if (operation != _operationEpoch) {
         return _currentStatus;
       }
-      if (!await _tokenStillMatches(accessToken) ||
-          operation != _operationEpoch) {
+      final bool tokenMatches = await _tokenStillMatches(accessToken);
+      if (operation != _operationEpoch) {
         return _currentStatus;
+      }
+      if (!tokenMatches) {
+        return _finishTokenConfirmationFailure(operation);
       }
 
       state = AsyncData(status);
@@ -188,9 +191,12 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
       if (operation != _operationEpoch) {
         return _currentStatus;
       }
-      if (!await _tokenStillMatches(accessToken) ||
-          operation != _operationEpoch) {
+      final bool tokenMatches = await _tokenStillMatches(accessToken);
+      if (operation != _operationEpoch) {
         return _currentStatus;
+      }
+      if (!tokenMatches) {
+        return _finishTokenConfirmationFailure(operation);
       }
 
       state = AsyncData(status);
@@ -290,6 +296,24 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
     } on Object {
       return false;
     }
+  }
+
+  Future<GitHubSponsorStatus> _finishTokenConfirmationFailure(
+    int operation,
+  ) async {
+    final bool connected = await _hasStoredAuthorization();
+    if (operation != _operationEpoch) {
+      return _currentStatus;
+    }
+
+    final GitHubSponsorStatus status = GitHubSponsorStatus(
+      access: GitHubSponsorAccess.error,
+      message: 'GitHub authorization changed while checking. Try again.',
+      connected: connected,
+    );
+    state = AsyncData(status);
+    _cancelRevalidation();
+    return status;
   }
 
   GitHubSponsorStatus get _currentStatus =>
