@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import 'desktop_presentation.dart';
+
 /// How much horizontal room a surface actually has to lay itself out in.
 ///
 /// Linthra adapts on *width*, not on `Platform.isLinux`: a 700 px Linux window
@@ -24,8 +26,8 @@ enum WindowSizeClass {
   /// composition beside the navigation rail.
   expanded,
 
-  /// 1920 and beyond, including ultrawide. Content is capped and centred here
-  /// rather than stretched, so text lines stay readable.
+  /// 1920 and beyond, including ultrawide. Content is capped here rather than
+  /// stretched, so text lines stay readable.
   large;
 
   /// Whether this class is at least [other] wide, so callers can ask
@@ -47,8 +49,7 @@ const double largeWindowWidth = 1600;
 /// Widest a single column of text or list rows is allowed to get.
 ///
 /// Rows stretched across a 2560 px monitor put the title and the trailing
-/// action a screen apart and read badly; capping and centring keeps them
-/// scannable without leaving the desktop looking empty.
+/// action a screen apart and read badly; capping keeps them scannable.
 const double maxContentWidth = 1100;
 
 /// Widest a settings form or card stack is allowed to get. Narrower than
@@ -98,31 +99,35 @@ class AdaptiveLayoutBuilder extends StatelessWidget {
   }
 }
 
-/// Caps a single column of content at [maxWidth] and centres it.
+/// Caps a single column of content at [maxWidth].
 ///
 /// A no-op below the cap, so phones and narrow windows are untouched; it only
 /// engages once a window is wide enough that a full-bleed column would be hard
-/// to read.
+/// to read. Past the cap a desktop starts the column at the start edge, under
+/// the page title its app bar keeps there: centred, the column drifted further
+/// from its own title the wider the window got. A phone or tablet centres it.
 class AdaptiveContentWidth extends StatelessWidget {
   const AdaptiveContentWidth({
     required this.child,
     this.maxWidth = maxContentWidth,
-    this.alignment = Alignment.topCenter,
+    this.alignment,
     super.key,
   });
 
   final Widget child;
   final double maxWidth;
 
-  /// Where the capped column sits once the box is wider than [maxWidth].
-  /// Centred by default; a column under a start-aligned header aligns with it
-  /// instead.
-  final AlignmentGeometry alignment;
+  /// Where the capped column sits once the box is wider than [maxWidth], when
+  /// a page needs something other than the platform's default above.
+  final AlignmentGeometry? alignment;
 
   @override
   Widget build(BuildContext context) {
     return Align(
-      alignment: alignment,
+      alignment: alignment ??
+          (usesDesktopPresentation(context)
+              ? AlignmentDirectional.topStart
+              : Alignment.topCenter),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
         child: child,

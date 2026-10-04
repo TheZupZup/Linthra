@@ -22,7 +22,7 @@ class SettingsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       // A settings row is a label and a control; on a wide window the column
-      // stops growing and centres rather than pulling the two apart.
+      // stops growing rather than pulling the two apart.
       body: AdaptiveContentWidth(
         maxWidth: maxFormWidth,
         child: ListView(

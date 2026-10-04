@@ -589,12 +589,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     // Song rows are a single column of text: past [maxContentWidth] the title
     // and the trailing menu end up a screen apart, so the column stops growing
     // instead of stretching across a desktop monitor. On a desktop it stays
-    // under the title, tabs and search box above it, which all start at the
-    // same edge; centred, it drifted away from them as the window grew.
+    // under the title, tabs and search box above it.
     return AdaptiveContentWidth(
-      alignment: usesDesktopPresentation(context)
-          ? AlignmentDirectional.topStart
-          : Alignment.topCenter,
       child: AlphabetTrackList(
         tracks: tracks,
         selectable: true,

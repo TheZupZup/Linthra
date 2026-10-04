@@ -79,8 +79,8 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen> {
               icon: const Icon(Icons.add),
               label: const Text('New playlist'),
             ),
-      // Rows of one playlist each: capped and centred on a wide window rather
-      // than stretched edge to edge.
+      // Rows of one playlist each: capped on a wide window rather than
+      // stretched edge to edge.
       body: AdaptiveContentWidth(
         child: Column(
           children: <Widget>[

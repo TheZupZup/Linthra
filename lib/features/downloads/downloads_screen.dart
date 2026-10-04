@@ -32,8 +32,8 @@ class DownloadsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       appBar: AppBar(title: const Text('Downloads')),
-      // One download per row: capped and centred on a wide window rather than
-      // stretched edge to edge.
+      // One download per row: capped on a wide window rather than stretched
+      // edge to edge.
       body: const AdaptiveContentWidth(
         child: Column(
           children: [
