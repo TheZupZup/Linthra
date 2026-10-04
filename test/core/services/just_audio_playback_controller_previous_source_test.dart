@@ -38,6 +38,10 @@ class _Engine extends Fake implements AudioPlayer {
   /// While set, the next seek waits on it before it lands.
   Completer<void>? seekGate;
 
+  /// What a stop publishes as it lets go of the platform: just_audio's idle
+  /// player loads with the position the song stopped at and broadcasts it.
+  Duration? positionOnStop;
+
   /// The source last handed over, and whether a stop has let go of the
   /// platform since. just_audio keeps the source across a stop, and a play
   /// then opens it again by itself: loading, then ready, or back to idle
@@ -110,6 +114,8 @@ class _Engine extends Fake implements AudioPlayer {
   Future<void> stop() async {
     calls.add('stop');
     _stopped = true;
+    final Duration? at = positionOnStop;
+    if (at != null) emitPosition(at);
   }
 
   @override
@@ -803,6 +809,48 @@ void main() {
       expect(engine.calls, isNot(contains('seek:133000')),
           reason: 'nor does B start where A was');
       expect(controller.state.currentTrack, b);
+    });
+
+    test('a stop starts the song from the top on the next play', () async {
+      // MPRIS: Play after Stop starts the track from its beginning. As the
+      // engine stops it publishes where the song was, and that used to land
+      // a moment after the stop and put the position back.
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b]);
+      engine.emitState(true, ProcessingState.ready);
+      engine.emitPosition(const Duration(minutes: 2, seconds: 13));
+      await _settle();
+
+      engine.positionOnStop = const Duration(minutes: 2, seconds: 13);
+      await controller.stop();
+      engine.emitPosition(const Duration(minutes: 2, seconds: 13));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      expect(controller.state.status, PlaybackStatus.idle);
+      expect(controller.state.position, Duration.zero);
+
+      engine.calls.clear();
+      await controller.play();
+      await _settle();
+      expect(engine.calls, isNot(contains('seek:133000')));
+      expect(controller.state.currentTrack, a);
+    });
+
+    test('a seek while stopped is where the next play starts', () async {
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[a, b]);
+      engine.emitState(true, ProcessingState.ready);
+      await _settle();
+      await controller.stop();
+
+      await controller.seek(const Duration(seconds: 42));
+      expect(controller.state.position, const Duration(seconds: 42));
+
+      engine.calls.clear();
+      await controller.play();
+      await _settle();
+      expect(engine.calls, contains('seek:42000'));
+      expect(controller.state.currentTrack, a);
     });
 
     test('a source that no longer opens fails rather than loading for good',

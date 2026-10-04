@@ -3399,13 +3399,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // pending/queued focus action so it can't resurrect playback after stop.
     _armTransientResume(false);
     _supersedeFocusTransport();
-    // A load the stop cuts short before its source reaches the engine leaves
-    // the song before it there, as a failed load does. Mark it the same way,
-    // so the position just_audio publishes for it as it stops is not taken
-    // for the stopped track's (Play would start that track there).
-    if (_engineHoldsPreviousSource) {
-      _abandonedSourceGeneration = _engineSourceGeneration;
-    }
+    // Nothing the engine reports from here on is about the stopped track:
+    // as it stops, just_audio's idle player publishes the position the song
+    // stopped at, which landed a moment after the stopped state and put it
+    // back, so MPRIS read Stopped at 2:13 and Play resumed there rather than
+    // from the top. A load the stop cuts short leaves the song before it in
+    // the engine, the same way. Marked like a failed load's source, so all of
+    // it is ignored until the next load; Play reloads the track from idle.
+    _abandonedSourceGeneration = _engineSourceGeneration;
     // A stop is a playback action, so supersede any still-resolving load the
     // same way seek() does below. Stopping the engine says nothing to a
     // _playCurrent that has not reached it yet, and this is the counter every
@@ -3454,6 +3455,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // Any seek is the listener acting, like play(): what failed before it is
     // history, and the next failure gets a fresh bounded recovery.
     _failureStreak.clear();
+    // Stopped: the engine let go of its source, so there is nothing loaded to
+    // seek in and nothing it reports is heard. Play opens the track afresh,
+    // from the position held here, so that is where the seek goes (MPRIS
+    // SetPosition while stopped).
+    if (_state.status == PlaybackStatus.idle && _queue.current != null) {
+      _emit(_state.copyWith(position: position));
+      return;
+    }
     // The track is still resolving or opening, so the engine may still hold
     // the previous one: seeking it would move the wrong song, and abandoning
     // the load would leave that song playing under this one's title. The
