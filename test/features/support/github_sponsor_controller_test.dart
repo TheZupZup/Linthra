@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,22 +12,28 @@ import 'package:linthra/data/repositories/in_memory_github_sponsor_token_store.d
 import 'package:linthra/data/services/github_sponsor_client_provider.dart';
 import 'package:linthra/features/support/github_sponsor_controller.dart';
 import 'package:linthra/features/support/support_actions_provider.dart';
+import 'package:linthra/features/support/supporter_entitlement.dart';
 
 void main() {
   ProviderContainer createContainer({
     String? storedToken,
     bool active = false,
+    Duration revalidationInterval = const Duration(hours: 6),
+    _FakeGitHubSponsorClient? client,
   }) {
     final ProviderContainer container = ProviderContainer(
       overrides: <Override>[
         supportDistributionProvider.overrideWithValue(
           SupportDistribution.githubRelease,
         ),
+        githubSponsorRevalidationIntervalProvider.overrideWithValue(
+          revalidationInterval,
+        ),
         githubSponsorTokenStoreProvider.overrideWithValue(
           InMemoryGitHubSponsorTokenStore(storedToken),
         ),
         githubSponsorClientProvider.overrideWithValue(
-          _FakeGitHubSponsorClient(active: active),
+          client ?? _FakeGitHubSponsorClient(active: active),
         ),
       ],
     );
@@ -112,6 +119,169 @@ void main() {
 
     expect(status.access, GitHubSponsorAccess.inactive);
     expect(await store.read(), 'new-token');
+  });
+
+  test('active Sponsor access is periodically revalidated and relocked',
+      () async {
+    final _FakeGitHubSponsorClient client =
+        _FakeGitHubSponsorClient(active: true);
+    final ProviderContainer container = createContainer(
+      storedToken: 'saved-token',
+      client: client,
+      revalidationInterval: const Duration(milliseconds: 10),
+    );
+
+    await container.read(githubSponsorControllerProvider.future);
+    expect(
+      container.read(supporterEntitlementProvider),
+      SupporterEntitlement.unlocked,
+    );
+    expect(client.verificationCalls, 1);
+
+    client.active = false;
+    await _waitUntil(() => client.verificationCalls >= 2);
+    await _waitUntil(
+      () =>
+          container
+              .read(githubSponsorControllerProvider)
+              .valueOrNull
+              ?.access ==
+          GitHubSponsorAccess.inactive,
+    );
+
+    expect(
+      container.read(supporterEntitlementProvider),
+      SupporterEntitlement.locked,
+    );
+  });
+
+  test('failed stale revalidation fails closed instead of keeping access',
+      () async {
+    final _FakeGitHubSponsorClient client =
+        _FakeGitHubSponsorClient(active: true);
+    final ProviderContainer container = createContainer(
+      storedToken: 'saved-token',
+      client: client,
+    );
+
+    await container.read(githubSponsorControllerProvider.future);
+    expect(
+      container.read(supporterEntitlementProvider),
+      SupporterEntitlement.unlocked,
+    );
+
+    client.failVerification = true;
+    await container
+        .read(githubSponsorControllerProvider.notifier)
+        .revalidateIfStale(
+          now: DateTime.now().add(const Duration(hours: 7)),
+        );
+
+    expect(
+      container.read(githubSponsorControllerProvider).valueOrNull?.access,
+      GitHubSponsorAccess.error,
+    );
+    expect(
+      container.read(supporterEntitlementProvider),
+      SupporterEntitlement.locked,
+    );
+  });
+
+  test('disconnect wins over an older in-flight Sponsor verification',
+      () async {
+    final InMemoryGitHubSponsorTokenStore store =
+        InMemoryGitHubSponsorTokenStore('saved-token');
+    final _FakeGitHubSponsorClient client =
+        _FakeGitHubSponsorClient(active: true);
+    final ProviderContainer container = ProviderContainer(
+      overrides: <Override>[
+        supportDistributionProvider.overrideWithValue(
+          SupportDistribution.githubRelease,
+        ),
+        githubSponsorTokenStoreProvider.overrideWithValue(store),
+        githubSponsorClientProvider.overrideWithValue(client),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(githubSponsorControllerProvider.future);
+    final Completer<GitHubSponsorVerification> delayed =
+        Completer<GitHubSponsorVerification>();
+    client.nextVerification = delayed;
+
+    final Future<GitHubSponsorStatus> refresh = container
+        .read(githubSponsorControllerProvider.notifier)
+        .refresh();
+    await _waitUntil(() => client.verificationCalls >= 2);
+
+    await container.read(githubSponsorControllerProvider.notifier).disconnect();
+    delayed.complete(
+      const GitHubSponsorVerification(
+        login: 'music-fan',
+        hasActiveMonthlySponsorship: true,
+      ),
+    );
+    await refresh;
+
+    expect(await store.read(), isNull);
+    expect(
+      container.read(githubSponsorControllerProvider).valueOrNull?.access,
+      GitHubSponsorAccess.signedOut,
+    );
+    expect(
+      container.read(supporterEntitlementProvider),
+      SupporterEntitlement.locked,
+    );
+  });
+
+  test('cancelling device authorization restores the previous state',
+      () async {
+    final ProviderContainer container = createContainer();
+    await container.read(githubSponsorControllerProvider.future);
+
+    await container
+        .read(githubSponsorControllerProvider.notifier)
+        .beginAuthorization();
+    expect(
+      container.read(githubSponsorControllerProvider).valueOrNull?.access,
+      GitHubSponsorAccess.checking,
+    );
+
+    container
+        .read(githubSponsorControllerProvider.notifier)
+        .cancelAuthorization();
+
+    expect(
+      container.read(githubSponsorControllerProvider).valueOrNull?.access,
+      GitHubSponsorAccess.signedOut,
+    );
+  });
+
+  test('non-GitHub distributions never start Sponsor revalidation', () async {
+    final _FakeGitHubSponsorClient client =
+        _FakeGitHubSponsorClient(active: true);
+    final ProviderContainer container = ProviderContainer(
+      overrides: <Override>[
+        supportDistributionProvider.overrideWithValue(
+          SupportDistribution.fdroid,
+        ),
+        githubSponsorRevalidationIntervalProvider.overrideWithValue(
+          const Duration(milliseconds: 1),
+        ),
+        githubSponsorTokenStoreProvider.overrideWithValue(
+          InMemoryGitHubSponsorTokenStore('saved-token'),
+        ),
+        githubSponsorClientProvider.overrideWithValue(client),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final GitHubSponsorStatus status =
+        await container.read(githubSponsorControllerProvider.future);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(status.access, GitHubSponsorAccess.unavailable);
+    expect(client.verificationCalls, 0);
   });
 
   test('a failed launch-time check is an error status, not a provider error',
@@ -216,6 +386,14 @@ void main() {
   });
 }
 
+Future<void> _waitUntil(bool Function() condition) async {
+  for (int attempt = 0; attempt < 100; attempt++) {
+    if (condition()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+  }
+  fail('Condition was not reached before the test timeout.');
+}
+
 class _FakeGitHubSponsorClient implements GitHubSponsorClient {
   _FakeGitHubSponsorClient({
     required this.active,
@@ -223,9 +401,11 @@ class _FakeGitHubSponsorClient implements GitHubSponsorClient {
     this.failAuthorization = false,
   });
 
-  final bool active;
-  final bool failVerification;
+  bool active;
+  bool failVerification;
   final bool failAuthorization;
+  int verificationCalls = 0;
+  Completer<GitHubSponsorVerification>? nextVerification;
 
   @override
   bool get isConfigured => true;
@@ -255,6 +435,12 @@ class _FakeGitHubSponsorClient implements GitHubSponsorClient {
   Future<GitHubSponsorVerification> verifySponsorship(
     String accessToken,
   ) async {
+    verificationCalls++;
+    final Completer<GitHubSponsorVerification>? delayed = nextVerification;
+    if (delayed != null) {
+      nextVerification = null;
+      return delayed.future;
+    }
     if (failVerification) {
       throw const SocketException('offline');
     }
