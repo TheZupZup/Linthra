@@ -142,10 +142,7 @@ void main() {
     await _waitUntil(() => client.verificationCalls >= 2);
     await _waitUntil(
       () =>
-          container
-              .read(githubSponsorControllerProvider)
-              .valueOrNull
-              ?.access ==
+          container.read(githubSponsorControllerProvider).valueOrNull?.access ==
           GitHubSponsorAccess.inactive,
     );
 
@@ -174,8 +171,7 @@ void main() {
     await container
         .read(githubSponsorControllerProvider.notifier)
         .revalidateIfStale(
-          now: DateTime.now().add(const Duration(hours: 7)),
-        );
+            now: DateTime.now().add(const Duration(hours: 7)));
 
     expect(
       container.read(githubSponsorControllerProvider).valueOrNull?.access,
