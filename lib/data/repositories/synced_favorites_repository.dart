@@ -21,8 +21,9 @@ import '../../core/sources/music_provider.dart';
 ///
 /// Reliability of the heart: a push that fails (offline, a transient server
 /// error, or the provider not connected yet) is **not** dropped — the intended
-/// state is recorded in [_pendingWrites] and re-attempted on the next
-/// [refreshFromRemote], and until it lands the local heart is preserved even
+/// state is recorded in [_pendingWrites], saved with the favourites so it
+/// outlives a restart, and re-attempted on the next [refreshFromRemote], and
+/// until it lands the local heart is preserved even
 /// though the server's starred list doesn't yet contain it. That closes the
 /// "heart it, then a refresh silently un-hearts it because the server never got
 /// the star" gap: the repository never pretends a failed write succeeded, and it
@@ -90,7 +91,25 @@ class SyncedFavoritesRepository
   Future<void> _ensureLoaded() async {
     if (_loaded) return;
     _data = await _store.load();
+    _pendingWrites.addAll(_data.pendingWrites);
     _loaded = true;
+  }
+
+  /// Saves the favourites together with the writes still pending, so a heart
+  /// whose push never landed is retried after a restart rather than undone by
+  /// the first refresh.
+  Future<void> _save() => _store.save(
+        _data.copyWith(pendingWrites: Map<String, bool>.of(_pendingWrites)),
+      );
+
+  /// Saves only the pending writes' latest state after a push settled. Best
+  /// effort: a stale record on disk only means one write is pushed again.
+  Future<void> _savePendingQuietly() async {
+    try {
+      await _save();
+    } catch (_) {
+      // See above: never worth failing the heart over.
+    }
   }
 
   Set<String> get _all => <String>{..._data.localIds, ..._data.remoteIds};
@@ -143,7 +162,7 @@ class SyncedFavoritesRepository
       _data = _data.copyWith(localIds: ids);
     }
     _emit();
-    await _store.save(_data);
+    await _save();
 
     // Push to the owning provider's server best-effort. A failure (or the
     // provider not being connected yet) leaves the write pending, retried on
@@ -158,14 +177,16 @@ class SyncedFavoritesRepository
       } catch (_) {
         landed = false;
       }
-      _settlePush(
+      if (_settlePush(
         key,
         favorite,
         landed: landed,
         toggle: toggle,
         clearsBefore: clearsBefore,
         scheme: gateway.uriScheme,
-      );
+      )) {
+        await _savePendingQuietly();
+      }
     }
   }
 
@@ -180,20 +201,28 @@ class SyncedFavoritesRepository
   ///    newest intent stays pending and is sent again on the next refresh;
   ///  - a push from an account that signed out meanwhile settles nothing: its
   ///    writes were dropped with it, and must not be queued for the next one.
-  void _settlePush(
+  ///
+  /// Returns whether the pending writes changed, so the caller saves them.
+  bool _settlePush(
     String key,
     bool favorite, {
     required bool landed,
-    required int toggle,
+    required int? toggle,
     required int clearsBefore,
     required String scheme,
   }) {
-    if (_clearsOf(scheme) != clearsBefore) return;
+    if (_clearsOf(scheme) != clearsBefore) return false;
     if (_toggles[key] != toggle) {
-      _pendingWrites[key] = _data.remoteIds.contains(key);
-      return;
+      final bool intended = _data.remoteIds.contains(key);
+      if (_pendingWrites[key] == intended) return false;
+      _pendingWrites[key] = intended;
+      return true;
     }
-    if (landed && _pendingWrites[key] == favorite) _pendingWrites.remove(key);
+    if (landed && _pendingWrites[key] == favorite) {
+      _pendingWrites.remove(key);
+      return true;
+    }
+    return false;
   }
 
   @override
@@ -224,6 +253,7 @@ class SyncedFavoritesRepository
     };
     final Set<String> toggled = <String>{};
     _toggledDuringRefresh.add(toggled);
+    bool pendingChanged = false;
     try {
       final Map<RemoteFavoritesGateway, Set<String>> fetched =
           <RemoteFavoritesGateway, Set<String>>{};
@@ -243,7 +273,9 @@ class SyncedFavoritesRepository
           // toggle the way a tap's push does, rather than only clearing the
           // value it sent, which would leave the server on this older value
           // with nothing pending to put it right.
-          final int toggle = _toggles[uri] ?? 0;
+          // Null for a write loaded from disk and not toggled since: then
+          // nothing newer can have replaced it.
+          final int? toggle = _toggles[uri];
           final int clearsBefore = _clearsOf(gateway.uriScheme);
           bool landed;
           try {
@@ -253,14 +285,15 @@ class SyncedFavoritesRepository
             // Kept pending; tried again on the next refresh.
             landed = false;
           }
-          _settlePush(
-            uri,
-            favorite,
-            landed: landed,
-            toggle: toggle,
-            clearsBefore: clearsBefore,
-            scheme: gateway.uriScheme,
-          );
+          pendingChanged = _settlePush(
+                uri,
+                favorite,
+                landed: landed,
+                toggle: toggle,
+                clearsBefore: clearsBefore,
+                scheme: gateway.uriScheme,
+              ) ||
+              pendingChanged;
         }
 
         try {
@@ -316,7 +349,9 @@ class SyncedFavoritesRepository
       if (!unchanged) {
         _data = _data.copyWith(remoteIds: remoteIds);
         _emit();
-        await _store.save(_data);
+        await _save();
+      } else if (pendingChanged) {
+        await _savePendingQuietly();
       }
       if (applied == 0) {
         return failures > 0
@@ -351,20 +386,27 @@ class SyncedFavoritesRepository
     }
     await _ensureLoaded();
     // Drop this provider's queued writes too — its session is going away, so
-    // there is nothing left to reconcile them against.
+    // there is nothing left to reconcile them against, and whoever signs in
+    // next did not make them. Saved even when no heart changes, or they would
+    // come back from disk on the next launch.
+    final int pendingBefore = _pendingWrites.length;
     _pendingWrites.removeWhere((String uri, bool _) =>
         providerScheme == null || uri.startsWith(providerScheme));
-    if (_data.remoteIds.isEmpty) return;
+    final bool pendingDropped = _pendingWrites.length != pendingBefore;
     final Set<String> next = providerScheme == null
         ? const <String>{}
         : <String>{
             for (final String uri in _data.remoteIds)
               if (!uri.startsWith(providerScheme)) uri,
           };
-    if (next.length == _data.remoteIds.length) return; // nothing to drop
+    if (next.length == _data.remoteIds.length) {
+      // No heart to drop.
+      if (pendingDropped) await _save();
+      return;
+    }
     _data = _data.copyWith(remoteIds: next);
     _emit();
-    await _store.save(_data);
+    await _save();
   }
 
   /// Carries a moved local file's heart to its new path.
@@ -391,7 +433,7 @@ class SyncedFavoritesRepository
           ..add(toUri),
       );
       _emit();
-      await _store.save(_data);
+      await _save();
     } catch (_) {
       // A store that cannot be written right now leaves the heart where it is
       // rather than failing the scan that asked; the next scan tries again.

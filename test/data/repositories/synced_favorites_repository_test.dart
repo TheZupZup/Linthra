@@ -459,6 +459,56 @@ void main() {
       );
     });
 
+    test('a heart that never reached the server survives a restart', () async {
+      // Before, the pending write lived in memory only: after a restart the
+      // first refresh adopted a starred list that never had it, and the heart
+      // was gone for good.
+      gateway.pushFails = true;
+      await build().setFavorite(_subsonic('mf-1'), true);
+
+      gateway.pushFails = false;
+      final SyncedFavoritesRepository restarted = build();
+      await restarted.refreshFromRemote();
+
+      expect(restarted.isFavorite('subsonic:mf-1'), isTrue);
+      expect(gateway.serverUris, contains('subsonic:mf-1'));
+      expect(restarted.pendingRemoteWriteCount, 0);
+      expect((await store.load()).pendingWrites, isEmpty);
+    });
+
+    test('an un-heart that never reached the server survives a restart',
+        () async {
+      gateway.serverUris.add('subsonic:mf-1');
+      final SyncedFavoritesRepository first = build();
+      await first.refreshFromRemote();
+      expect(first.isFavorite('subsonic:mf-1'), isTrue);
+
+      gateway.pushFails = true;
+      await first.setFavorite(_subsonic('mf-1'), false);
+
+      gateway.pushFails = false;
+      final SyncedFavoritesRepository restarted = build();
+      await restarted.refreshFromRemote();
+
+      expect(restarted.isFavorite('subsonic:mf-1'), isFalse);
+      expect(gateway.serverUris, isNot(contains('subsonic:mf-1')));
+    });
+
+    test('signing out drops its pending writes for good', () async {
+      gateway.pushFails = true;
+      final SyncedFavoritesRepository first = build();
+      await first.setFavorite(_subsonic('mf-1'), true);
+      await first.clearRemote(providerScheme: 'subsonic:');
+
+      // Whoever signs in next did not make that heart.
+      gateway.pushFails = false;
+      final SyncedFavoritesRepository restarted = build();
+      await restarted.refreshFromRemote();
+
+      expect(restarted.pendingRemoteWriteCount, 0);
+      expect(gateway.serverUris, isEmpty);
+    });
+
     test('a queued heart made while disconnected pushes once connected',
         () async {
       gateway.connected = false;
