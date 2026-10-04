@@ -21,6 +21,7 @@ import '../player/now_playing_after_play.dart';
 import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
 import '../player/widgets/track_artwork.dart';
+import '../player/widgets/track_duration_label.dart';
 import 'playlist_add.dart';
 import 'playlist_drag.dart';
 import 'playlist_providers.dart';
@@ -342,6 +343,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
+          TrackDurationLabel(duration: track.duration),
           PopupMenuButton<_RowAction>(
             icon: const Icon(Icons.more_vert),
             tooltip: 'Track actions',

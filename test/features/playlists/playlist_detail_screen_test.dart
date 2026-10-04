@@ -208,6 +208,28 @@ void main() {
     expect(find.text('Song B'), findsOneWidget);
   });
 
+  testWidgets('shows how long each song runs on a desktop', (tester) async {
+    await _pump(
+      tester,
+      store: await _seededStore(),
+      controller: FakePlaybackController(),
+      tracks: const <Track>[
+        Track(
+          id: 'a',
+          title: 'Song A',
+          uri: 'file:///a.mp3',
+          duration: Duration(minutes: 4, seconds: 20),
+        ),
+        Track(id: 'b', title: 'Song B', uri: 'file:///b.mp3'),
+      ],
+      platform: TargetPlatform.linux,
+    );
+
+    expect(find.text('4:20'), findsOneWidget);
+    // Song B's length is unknown, so it shows none rather than a 0:00.
+    expect(find.text('0:00'), findsNothing);
+  });
+
   testWidgets('dragging a track to the end persists the new order',
       (tester) async {
     final InMemoryPlaylistStore store = await _seededStore(

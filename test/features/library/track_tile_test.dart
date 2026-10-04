@@ -16,6 +16,7 @@ Future<void> _pump(
   List<Track> tracks, {
   FakePlaybackController? controller,
   FakeMusicLibraryRepository? library,
+  TargetPlatform? platform,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -28,6 +29,7 @@ Future<void> _pump(
           musicLibraryRepositoryProvider.overrideWithValue(library),
       ],
       child: MaterialApp(
+        theme: platform == null ? null : ThemeData(platform: platform),
         home: Scaffold(
           body: ListView(
             children: [
@@ -59,6 +61,55 @@ void main() {
 
       expect(find.text('Song One'), findsOneWidget);
       expect(find.text('Artist A • Album X'), findsOneWidget);
+    });
+
+    testWidgets('shows how long each song runs on a desktop', (tester) async {
+      await _pump(
+        tester,
+        const <Track>[
+          Track(
+            id: '1',
+            title: 'Song One',
+            uri: 'file:///s1.mp3',
+            duration: Duration(minutes: 3, seconds: 7),
+          ),
+          Track(
+            id: '2',
+            title: 'Song Two',
+            uri: 'file:///s2.mp3',
+            duration: Duration(hours: 1, minutes: 2, seconds: 3),
+          ),
+        ],
+        platform: TargetPlatform.linux,
+      );
+
+      expect(find.text('3:07'), findsOneWidget);
+      expect(find.text('1:02:03'), findsOneWidget);
+    });
+
+    testWidgets('keeps the phone row free of the length', (tester) async {
+      await _pump(tester, const <Track>[
+        Track(
+          id: '1',
+          title: 'Song One',
+          uri: 'file:///s1.mp3',
+          duration: Duration(minutes: 3, seconds: 7),
+        ),
+      ]);
+
+      expect(find.text('3:07'), findsNothing);
+    });
+
+    testWidgets('says nothing about a length nobody reported', (tester) async {
+      await _pump(
+        tester,
+        const <Track>[
+          Track(id: '1', title: 'Song One', uri: 'file:///s1.mp3'),
+        ],
+        platform: TargetPlatform.linux,
+      );
+
+      expect(find.text('0:00'), findsNothing);
     });
 
     testWidgets('falls back to the uri when metadata is missing', (

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
+import '../../../shared/format/playback_time.dart';
 import '../../../shared/scroll/pointer_scroll_adjust.dart';
 import 'wavy_seek_bar.dart';
 
@@ -291,7 +292,7 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
               children: [
                 Text(_formatMs(barValue), style: labelStyle),
                 Text(
-                  hasDuration ? _format(widget.duration) : '--:--',
+                  hasDuration ? formatPlaybackTime(widget.duration) : '--:--',
                   style: labelStyle,
                 ),
               ],
@@ -313,19 +314,5 @@ class _PlaybackProgressBarState extends State<PlaybackProgressBar> {
   }
 
   static String _formatMs(double milliseconds) =>
-      _format(Duration(milliseconds: milliseconds.round()));
-
-  /// `m:ss`, widening to `h:mm:ss` past an hour.
-  static String _format(Duration d) {
-    final int totalSeconds = d.inSeconds;
-    final int hours = totalSeconds ~/ 3600;
-    final int minutes = (totalSeconds % 3600) ~/ 60;
-    final int seconds = totalSeconds % 60;
-    final String ss = seconds.toString().padLeft(2, '0');
-    if (hours > 0) {
-      final String mm = minutes.toString().padLeft(2, '0');
-      return '$hours:$mm:$ss';
-    }
-    return '$minutes:$ss';
-  }
+      formatPlaybackTime(Duration(milliseconds: milliseconds.round()));
 }

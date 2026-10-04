@@ -20,6 +20,7 @@ import '../../player/now_playing.dart';
 import '../../player/now_playing_after_play.dart';
 import '../../player/player_providers.dart';
 import '../../player/widgets/track_artwork.dart';
+import '../../player/widgets/track_duration_label.dart';
 import '../../playlists/playlist_drag.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../library_browse_providers.dart';
@@ -186,6 +187,7 @@ class TrackTile extends ConsumerWidget {
             : Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  TrackDurationLabel(duration: track.duration),
                   TrackStatusGlyph(
                     track: track,
                     isRemote: isRemote,
