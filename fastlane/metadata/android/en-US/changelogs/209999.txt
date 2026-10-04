@@ -1,0 +1,4 @@
+Linthra 0.2.9
+
+- Major stability and reliability improvements across playback, downloads, syncing, local libraries, Android, and Linux.
+- Fixed the demonstrated F-Droid reproducibility issue in the native FLAC fallback.
