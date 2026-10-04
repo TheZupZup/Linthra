@@ -46,9 +46,22 @@ const Track _unnumbered = Track(
   albumName: 'Discovery',
 );
 
+/// The first song of a second disc: numbered 1 again, with no disc number to
+/// tell it from [_opener].
+const Track _secondDiscOpener = Track(
+  id: '4',
+  title: 'Encore',
+  uri: 'jellyfin:4',
+  artistName: 'Daft Punk',
+  albumArtistName: 'Daft Punk',
+  albumName: 'Discovery',
+  trackNumber: 1,
+);
+
 Future<void> _openAlbum(
   WidgetTester tester, {
   required TargetPlatform platform,
+  List<Track> tracks = const <Track>[_opener, _guest, _unnumbered],
   NowPlaying nowPlaying = const NowPlaying(),
 }) async {
   tester.view.devicePixelRatio = 1.0;
@@ -59,9 +72,7 @@ Future<void> _openAlbum(
     ProviderScope(
       overrides: <Override>[
         musicLibraryRepositoryProvider.overrideWithValue(
-          FakeMusicLibraryRepository(
-            tracks: const <Track>[_opener, _guest, _unnumbered],
-          ),
+          FakeMusicLibraryRepository(tracks: tracks),
         ),
         playlistStoreProvider.overrideWithValue(InMemoryPlaylistStore()),
         playbackControllerProvider.overrideWithValue(FakePlaybackController()),
@@ -69,7 +80,7 @@ Future<void> _openAlbum(
       ],
       child: MaterialApp(
         theme: ThemeData(platform: platform),
-        home: AlbumDetailScreen(albumId: albumIdForTrack(_opener)),
+        home: AlbumDetailScreen(albumId: albumIdForTrack(tracks.first)),
       ),
     ),
   );
@@ -139,6 +150,33 @@ void main() {
       expect(_inRow('Digital Love', find.text('10')), findsNothing);
       expect(_inRow('One More Time', find.text('1')), findsOneWidget);
     });
+
+    testWidgets('a second disc keeps the covers rather than read 1, 1',
+        (tester) async {
+      await _openAlbum(
+        tester,
+        platform: TargetPlatform.linux,
+        tracks: const <Track>[_opener, _secondDiscOpener],
+      );
+
+      expect(find.byType(AlbumTrackNumber), findsNothing);
+      expect(
+        _inRow('One More Time', find.byType(TrackArtwork)),
+        findsOneWidget,
+      );
+      expect(_inRow('Encore', find.byType(TrackArtwork)), findsOneWidget);
+    });
+
+    testWidgets('an album with no numbers keeps its covers', (tester) async {
+      await _openAlbum(
+        tester,
+        platform: TargetPlatform.linux,
+        tracks: const <Track>[_unnumbered],
+      );
+
+      expect(find.byType(AlbumTrackNumber), findsNothing);
+      expect(_inRow('Hidden Track', find.byType(TrackArtwork)), findsOneWidget);
+    });
   });
 
   testWidgets('a phone keeps its artwork rows', (tester) async {
@@ -150,5 +188,26 @@ void main() {
       _inRow('One More Time', find.text('Daft Punk • Discovery')),
       findsOneWidget,
     );
+  });
+
+  group('canNumberAlbumRows', () {
+    test('numbers an album whose songs each have their own number', () {
+      expect(canNumberAlbumRows(const <Track>[_opener, _guest]), isTrue);
+    });
+
+    test('still numbers it when a song has no number', () {
+      expect(canNumberAlbumRows(const <Track>[_opener, _unnumbered]), isTrue);
+    });
+
+    test('not when a number comes up twice', () {
+      expect(
+        canNumberAlbumRows(const <Track>[_opener, _secondDiscOpener]),
+        isFalse,
+      );
+    });
+
+    test('not when no song has a number', () {
+      expect(canNumberAlbumRows(const <Track>[_unnumbered]), isFalse);
+    });
   });
 }

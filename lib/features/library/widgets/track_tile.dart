@@ -135,7 +135,8 @@ class TrackTile extends ConsumerWidget {
   /// Hosts without selection leave it null and a drag carries this row alone.
   final List<Track> Function()? dragSelection;
 
-  /// The album whose own page this row is on, or null anywhere else.
+  /// The album whose own page this row is on, when that page numbers its rows
+  /// (see [canNumberAlbumRows]), or null.
   final Album? albumPage;
 
   @override

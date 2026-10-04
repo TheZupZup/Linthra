@@ -20,6 +20,7 @@ import 'library_controller.dart';
 import 'library_state.dart';
 import 'track_selection.dart';
 import 'unified_library_providers.dart';
+import 'widgets/album_track_number.dart';
 import 'widgets/collection_menu.dart';
 import 'widgets/selection_escape_scope.dart';
 import 'widgets/track_tile.dart';
@@ -115,6 +116,8 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
     // album; a promoted local can't be captured by one.
     final Album resolved = album;
     final List<Track> selected = _selection.resolve(tracks);
+    // Once for the whole list, not once per row.
+    final bool numbered = canNumberAlbumRows(tracks);
     // "Download all" is offered only when something in this album actually
     // streams from a server: an all-local album is already on disk, and the
     // per-track menu hides offline actions for those rows for the same reason.
@@ -161,10 +164,10 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
           // top of a very tall list. Selection mode drops back to the single
           // column, where the whole width is the list being selected in.
           if (!_selecting && sizeClass.isAtLeast(WindowSizeClass.expanded)) {
-            return _twoPaneBody(resolved, tracks);
+            return _twoPaneBody(resolved, tracks, numbered: numbered);
           }
           return AdaptiveContentWidth(
-            child: _singleColumnBody(resolved, tracks),
+            child: _singleColumnBody(resolved, tracks, numbered: numbered),
           );
         },
       ),
@@ -188,7 +191,11 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
 
   /// Phones, and any window too narrow for a second pane: the header scrolls
   /// with the tracks, exactly as it always has.
-  Widget _singleColumnBody(Album album, List<Track> tracks) {
+  Widget _singleColumnBody(
+    Album album,
+    List<Track> tracks, {
+    required bool numbered,
+  }) {
     return CustomScrollView(
       slivers: <Widget>[
         if (!_selecting)
@@ -203,7 +210,7 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
         SliverList.builder(
           itemCount: tracks.length,
           itemBuilder: (BuildContext context, int index) =>
-              _trackTile(album, tracks, index),
+              _trackTile(album, tracks, index, numbered: numbered),
         ),
       ],
     );
@@ -212,7 +219,11 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
   /// Desktop-width composition: a persistent album pane beside the scrolling
   /// track list. Both read the same `tracks` list and the same selection set,
   /// so nothing here duplicates state — it is the single-column body, laid out.
-  Widget _twoPaneBody(Album album, List<Track> tracks) {
+  Widget _twoPaneBody(
+    Album album,
+    List<Track> tracks, {
+    required bool numbered,
+  }) {
     return SplitPanes(
       fixedWidth: sidePaneWidth,
       fixed: SingleChildScrollView(
@@ -229,17 +240,23 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
         itemCount: tracks.length,
         itemBuilder: (BuildContext context, int index) =>
-            _trackTile(album, tracks, index),
+            _trackTile(album, tracks, index, numbered: numbered),
       ),
     );
   }
 
-  Widget _trackTile(Album album, List<Track> tracks, int index) {
+  /// [numbered] is [canNumberAlbumRows] over [tracks].
+  Widget _trackTile(
+    Album album,
+    List<Track> tracks,
+    int index, {
+    required bool numbered,
+  }) {
     final Track track = tracks[index];
     return TrackTile(
       tracks: tracks,
       index: index,
-      albumPage: album,
+      albumPage: numbered ? album : null,
       selectable: true,
       selectionActive: _selecting,
       selected: _selection.contains(track.uri),
