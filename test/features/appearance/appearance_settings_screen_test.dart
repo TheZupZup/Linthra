@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/core/models/custom_theme_settings.dart';
 import 'package:linthra/core/models/github_device_authorization.dart';
 import 'package:linthra/core/models/github_sponsor_status.dart';
 import 'package:linthra/core/models/github_sponsor_verification.dart';
 import 'package:linthra/core/models/theme_mode_preference.dart';
+import 'package:linthra/core/services/external_link_launcher.dart';
 import 'package:linthra/core/services/github_sponsor_client.dart';
 import 'package:linthra/data/repositories/app_icon_variant_store_provider.dart';
 import 'package:linthra/data/repositories/custom_theme_store_provider.dart';
@@ -235,6 +237,61 @@ void main() {
       expect(button.onPressed, isNotNull);
     });
 
+    testWidgets(
+        'closing an inactive Sponsor result keeps the connected authorization',
+        (tester) async {
+      final InMemoryGitHubSponsorTokenStore tokenStore =
+          InMemoryGitHubSponsorTokenStore();
+      final ProviderContainer container = await pump(
+        tester,
+        entitlement: SupporterEntitlement.locked,
+        distribution: SupportDistribution.githubRelease,
+        extraOverrides: <Override>[
+          githubSponsorTokenStoreProvider.overrideWithValue(tokenStore),
+          githubSponsorClientProvider.overrideWithValue(
+            const _InactiveGitHubSponsorClient(),
+          ),
+          externalLinkLauncherProvider.overrideWithValue(
+            const _SuccessfulExternalLinkLauncher(),
+          ),
+        ],
+      );
+
+      final Finder connect =
+          find.byKey(const Key('custom-theme-connect-github'));
+      await tester.ensureVisible(connect);
+      await tester.tap(connect);
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('github-sponsor-open-and-verify')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(githubSponsorControllerProvider).valueOrNull?.access,
+        GitHubSponsorAccess.inactive,
+      );
+      expect(await tokenStore.read(), 'new-token');
+
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(githubSponsorControllerProvider).valueOrNull?.access,
+        GitHubSponsorAccess.inactive,
+      );
+      expect(await tokenStore.read(), 'new-token');
+      expect(
+        find.byKey(const Key('custom-theme-disconnect-github')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('custom-theme-refresh-sponsorship')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('offers System, Light, and Dark, starting on System',
         (tester) async {
       final ProviderContainer container = await pump(tester);
@@ -304,6 +361,13 @@ void main() {
       expect(mark.bars, AppIconVariants.neon.bars);
     });
   });
+}
+
+class _SuccessfulExternalLinkLauncher implements ExternalLinkLauncher {
+  const _SuccessfulExternalLinkLauncher();
+
+  @override
+  Future<bool> open(Uri url) async => true;
 }
 
 class _InactiveGitHubSponsorClient implements GitHubSponsorClient {
