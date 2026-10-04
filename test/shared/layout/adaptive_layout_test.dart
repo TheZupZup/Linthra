@@ -146,5 +146,40 @@ void main() {
       // Centred, so the column doesn't hug one edge of the monitor.
       expect(box.center.dx, closeTo(1280, 0.5));
     });
+
+    for (final TextDirection direction in TextDirection.values) {
+      testWidgets(
+          'a start-aligned column keeps to the leading edge ($direction)',
+          (WidgetTester tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(2560, 1440);
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Directionality(
+              textDirection: direction,
+              child: const Scaffold(
+                body: AdaptiveContentWidth(
+                  alignment: AlignmentDirectional.topStart,
+                  child: SizedBox.expand(
+                    key: Key('content'),
+                    child: ColoredBox(color: Colors.red),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        final Rect box = tester.getRect(find.byKey(const Key('content')));
+        expect(box.width, maxContentWidth);
+        if (direction == TextDirection.ltr) {
+          expect(box.left, 0);
+        } else {
+          expect(box.right, 2560);
+        }
+      });
+    }
   });
 }

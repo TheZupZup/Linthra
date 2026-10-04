@@ -107,16 +107,22 @@ class AdaptiveContentWidth extends StatelessWidget {
   const AdaptiveContentWidth({
     required this.child,
     this.maxWidth = maxContentWidth,
+    this.alignment = Alignment.topCenter,
     super.key,
   });
 
   final Widget child;
   final double maxWidth;
 
+  /// Where the capped column sits once the box is wider than [maxWidth].
+  /// Centred by default; a column under a start-aligned header aligns with it
+  /// instead.
+  final AlignmentGeometry alignment;
+
   @override
   Widget build(BuildContext context) {
     return Align(
-      alignment: Alignment.topCenter,
+      alignment: alignment,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
         child: child,

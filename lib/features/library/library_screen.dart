@@ -17,6 +17,7 @@ import '../../core/sources/local/local_root_fault.dart';
 import '../../data/repositories/host_platform_provider.dart';
 import '../../data/repositories/library_tab_store_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
+import '../../shared/layout/desktop_presentation.dart';
 import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/loading_indicator.dart';
@@ -312,9 +313,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   PreferredSizeWidget _tabBar() {
     final ThemeData theme = Theme.of(context);
+    // Three equal tabs spread across a monitor are the phone pattern. On a
+    // desktop they sit at their own width under the title, like any desktop
+    // view switcher.
+    final bool desktop = usesDesktopPresentation(context);
     return TabBar(
       key: const Key('library_tabs'),
       controller: _tabController,
+      isScrollable: desktop,
+      tabAlignment: desktop ? TabAlignment.start : null,
       // Tapping the tab you are already on is still you choosing a tab, but it
       // leaves the controller index untouched, so the listener never runs: it
       // would neither mark the choice nor store it. A restore still in flight
@@ -581,8 +588,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   Widget _songsList(List<Track> tracks) {
     // Song rows are a single column of text: past [maxContentWidth] the title
     // and the trailing menu end up a screen apart, so the column stops growing
-    // and centres instead of stretching across a desktop monitor.
+    // instead of stretching across a desktop monitor. On a desktop it stays
+    // under the title, tabs and search box above it, which all start at the
+    // same edge; centred, it drifted away from them as the window grew.
     return AdaptiveContentWidth(
+      alignment: usesDesktopPresentation(context)
+          ? AlignmentDirectional.topStart
+          : Alignment.topCenter,
       child: AlphabetTrackList(
         tracks: tracks,
         selectable: true,
