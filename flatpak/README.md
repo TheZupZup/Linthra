@@ -496,6 +496,16 @@ The submission itself is tracked in #456. The issues still open for it:
 * **Release plumbing**: version sync (#452), the upstream release process
   (#453), and the Flathub submission repository (#451).
 
+Two sandbox gaps found since. Neither blocks the submission, but both are
+worth knowing before relying on them:
+
+* **Saving a bug report or diagnostics** writes into Documents, which the
+  Flatpak can't see, so the saved file is lost (#748).
+* **Playing on with the window closed** depends on the desktop letting an app
+  with no windows keep running. Current GNOME and Plasma 6 allow it without
+  asking; Plasma 5.27 asks, and choosing Force quit there ends playback on
+  every later close (#754).
+
 Out of scope on purpose: video codecs, hardware decoding, and subtitle tuning
 beyond what libmpv/libass need to build. Linthra is audio-only, and the
 ffmpeg/mpv build stays scoped to the formats and HTTP(S) streaming it plays.
