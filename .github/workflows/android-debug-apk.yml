@@ -78,6 +78,14 @@ jobs:
           fi
           echo "Debug APK present: $apk (${bytes} bytes)."
 
+      # Reads back what the NDK actually linked into the FLAC fallback's
+      # libflacJNI.so, for all three ABIs: no GNU build ID, which F-Droid's
+      # byte-for-byte comparison cannot match across build machines (#703), and
+      # the hardening its CMakeLists.txt asks for. The source-level tests in
+      # test/tooling/media3_flac_fallback_build_test.dart cannot see either.
+      - name: Check libflacJNI.so (reproducible, hardened)
+        run: scripts/check_flac_jni_elf.sh build/app/outputs/flutter-apk/app-debug.apk
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
