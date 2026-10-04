@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/custom_theme_settings.dart';
 import 'package:linthra/core/models/github_device_authorization.dart';
+import 'package:linthra/core/models/github_sponsor_status.dart';
 import 'package:linthra/core/models/github_sponsor_verification.dart';
 import 'package:linthra/core/models/theme_mode_preference.dart';
 import 'package:linthra/core/services/github_sponsor_client.dart';
@@ -22,6 +23,7 @@ import 'package:linthra/features/appearance/custom_theme_controller.dart';
 import 'package:linthra/features/appearance/linthra_logo_mark.dart';
 import 'package:linthra/features/appearance/theme_mode_controller.dart';
 import 'package:linthra/features/settings/hub/about_screen.dart';
+import 'package:linthra/features/support/github_sponsor_controller.dart';
 import 'package:linthra/features/support/support_actions_provider.dart';
 import 'package:linthra/features/support/supporter_entitlement.dart';
 
@@ -192,6 +194,45 @@ void main() {
 
       expect(await tokenStore.read(), isNull);
       expect(disconnect, findsNothing);
+    });
+
+    testWidgets('cancelling GitHub connect does not stay stuck checking',
+        (tester) async {
+      final ProviderContainer container = await pump(
+        tester,
+        entitlement: SupporterEntitlement.locked,
+        distribution: SupportDistribution.githubRelease,
+        extraOverrides: <Override>[
+          githubSponsorTokenStoreProvider.overrideWithValue(
+            InMemoryGitHubSponsorTokenStore(),
+          ),
+          githubSponsorClientProvider.overrideWithValue(
+            const _InactiveGitHubSponsorClient(),
+          ),
+        ],
+      );
+
+      final Finder connect =
+          find.byKey(const Key('custom-theme-connect-github'));
+      await tester.ensureVisible(connect);
+      await tester.tap(connect);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Connect GitHub'), findsWidgets);
+      expect(
+        container.read(githubSponsorControllerProvider).valueOrNull?.access,
+        GitHubSponsorAccess.checking,
+      );
+
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(githubSponsorControllerProvider).valueOrNull?.access,
+        GitHubSponsorAccess.signedOut,
+      );
+      final FilledButton button = tester.widget<FilledButton>(connect);
+      expect(button.onPressed, isNotNull);
     });
 
     testWidgets('offers System, Light, and Dark, starting on System',
