@@ -48,7 +48,14 @@ jobs:
         run: flutter pub get --enforce-lockfile
 
       - name: Verify formatting
-        run: dart format --set-exit-if-changed .
+        run: |
+          set +e
+          dart format --set-exit-if-changed .
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            git diff -- test/features/support/github_sponsor_controller_test.dart
+          fi
+          exit "$status"
 
       - name: Analyze
         run: flutter analyze
