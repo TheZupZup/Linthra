@@ -140,11 +140,14 @@ void main() {
 
     client.active = false;
     await _waitUntil(() => client.verificationCalls >= 2);
-    await _waitUntil(
-      () =>
-          container.read(githubSponsorControllerProvider).valueOrNull?.access ==
-          GitHubSponsorAccess.inactive,
-    );
+
+    bool isInactive() {
+      final GitHubSponsorStatus? status =
+          container.read(githubSponsorControllerProvider).valueOrNull;
+      return status?.access == GitHubSponsorAccess.inactive;
+    }
+
+    await _waitUntil(isInactive);
 
     expect(
       container.read(supporterEntitlementProvider),
@@ -168,9 +171,11 @@ void main() {
     );
 
     client.failVerification = true;
-    await container
-        .read(githubSponsorControllerProvider.notifier)
-        .revalidateIfStale(now: DateTime.now().add(const Duration(hours: 7)));
+    final GitHubSponsorController controller =
+        container.read(githubSponsorControllerProvider.notifier);
+    await controller.revalidateIfStale(
+      now: DateTime.now().add(const Duration(hours: 7)),
+    );
 
     expect(
       container.read(githubSponsorControllerProvider).valueOrNull?.access,
