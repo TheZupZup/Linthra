@@ -203,7 +203,7 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
         SliverList.builder(
           itemCount: tracks.length,
           itemBuilder: (BuildContext context, int index) =>
-              _trackTile(tracks, index),
+              _trackTile(album, tracks, index),
         ),
       ],
     );
@@ -229,16 +229,17 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
         itemCount: tracks.length,
         itemBuilder: (BuildContext context, int index) =>
-            _trackTile(tracks, index),
+            _trackTile(album, tracks, index),
       ),
     );
   }
 
-  Widget _trackTile(List<Track> tracks, int index) {
+  Widget _trackTile(Album album, List<Track> tracks, int index) {
     final Track track = tracks[index];
     return TrackTile(
       tracks: tracks,
       index: index,
+      albumPage: album,
       selectable: true,
       selectionActive: _selecting,
       selected: _selection.contains(track.uri),
