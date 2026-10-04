@@ -294,9 +294,18 @@ class _GitHubSponsorLockedContent extends ConsumerWidget {
       );
       if (!context.mounted) return;
       if (unlocked != true) {
-        ref
-            .read(githubSponsorControllerProvider.notifier)
-            .cancelAuthorization();
+        // Cancel only the still-pending device flow. Once GitHub returned a
+        // token, completeAuthorization may have stored a connected inactive or
+        // error state so the user can Check again or Disconnect. Closing that
+        // result dialog must not hide the connected account while retaining
+        // its token.
+        final GitHubSponsorStatus? status =
+            ref.read(githubSponsorControllerProvider).valueOrNull;
+        if (status?.access == GitHubSponsorAccess.checking) {
+          ref
+              .read(githubSponsorControllerProvider.notifier)
+              .cancelAuthorization();
+        }
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
