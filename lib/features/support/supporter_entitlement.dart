@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/github_sponsor_status.dart';
 import 'github_sponsor_controller.dart';
 import 'github_sponsor_simulation.dart';
 import 'support_actions_provider.dart';
@@ -74,11 +75,15 @@ final supporterEntitlementProvider = Provider<SupporterEntitlement>((ref) {
     case GitHubSponsorSimulation.unlocked:
       return SupporterEntitlement.unlocked;
     case GitHubSponsorSimulation.real:
-      final bool active = ref
-              .watch(githubSponsorControllerProvider)
-              .valueOrNull
-              ?.hasActiveMonthlySponsorship ==
-          true;
+      // Only a settled verification unlocks. While the controller rebuilds,
+      // Riverpod keeps its previous value around, and keeps it after a
+      // rebuild that fails too. An old active result must not hold the
+      // palette open through either.
+      final AsyncValue<GitHubSponsorStatus> sponsor =
+          ref.watch(githubSponsorControllerProvider);
+      final bool active = !sponsor.isLoading &&
+          !sponsor.hasError &&
+          sponsor.valueOrNull?.hasActiveMonthlySponsorship == true;
       return active
           ? SupporterEntitlement.unlocked
           : SupporterEntitlement.locked;

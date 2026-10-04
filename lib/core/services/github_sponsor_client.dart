@@ -7,9 +7,13 @@ abstract interface class GitHubSponsorClient {
 
   Future<GitHubDeviceAuthorization> requestDeviceAuthorization();
 
+  /// Polls until the user approves the code, the code expires, or
+  /// [isCancelled] says nobody is waiting for the answer any more. A
+  /// cancelled poll stops before its next request and throws.
   Future<String> pollForAccessToken(
-    GitHubDeviceAuthorization authorization,
-  );
+    GitHubDeviceAuthorization authorization, {
+    bool Function()? isCancelled,
+  });
 
   Future<GitHubSponsorVerification> verifySponsorship(String accessToken);
 }

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:linthra/core/models/github_device_authorization.dart';
+import 'package:linthra/core/services/github_sponsor_client.dart';
 import 'package:linthra/data/services/http_github_sponsor_client.dart';
 import 'package:linthra/features/support/github_sponsor_config.dart';
 
@@ -74,6 +75,37 @@ void main() {
     );
 
     expect(await client.pollForAccessToken(authorization), 'token');
+    expect(requests, 2);
+  });
+
+  test('stops polling before its next request once cancelled', () async {
+    int requests = 0;
+    final MockClient httpClient = MockClient((http.Request request) async {
+      requests += 1;
+      return http.Response(
+        jsonEncode(<String, String>{'error': 'authorization_pending'}),
+        200,
+      );
+    });
+    final HttpGitHubSponsorClient client = HttpGitHubSponsorClient(
+      httpClient: httpClient,
+      config: config,
+    );
+    final GitHubDeviceAuthorization authorization = GitHubDeviceAuthorization(
+      deviceCode: 'device-code',
+      userCode: 'ABCD-EFGH',
+      verificationUri: Uri.parse('https://github.com/login/device'),
+      expiresAt: DateTime.now().add(const Duration(minutes: 1)),
+      pollInterval: Duration.zero,
+    );
+
+    await expectLater(
+      client.pollForAccessToken(
+        authorization,
+        isCancelled: () => requests >= 2,
+      ),
+      throwsA(isA<GitHubSponsorAuthenticationException>()),
+    );
     expect(requests, 2);
   });
 
