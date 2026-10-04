@@ -120,14 +120,16 @@ class PlaybackQueue {
   }
 
   /// Inserts [track] immediately after the current one ("play next"). With an
-  /// empty queue it becomes the current track. When shuffled, the track is also
-  /// appended to [originalOrder] so it survives a later unshuffle.
+  /// empty queue it becomes the current track. When shuffled, the track also
+  /// goes right after the current one in [originalOrder], so it is still next
+  /// once shuffle is turned off.
   PlaybackQueue enqueueNext(Track track) {
     if (current == null) return PlaybackQueue.single(track);
     final updated = List<Track>.of(tracks)..insert(currentIndex + 1, track);
     final updatedOriginal = originalOrder == null
         ? null
-        : (List<Track>.of(originalOrder!)..add(track));
+        : (List<Track>.of(originalOrder!)
+          ..insert(_nextInOriginalOrder(), track));
     return PlaybackQueue(
       tracks: updated,
       currentIndex: currentIndex,
@@ -169,7 +171,8 @@ class PlaybackQueue {
       ..insertAll(currentIndex + 1, tracks);
     final updatedOriginal = originalOrder == null
         ? null
-        : (List<Track>.of(originalOrder!)..addAll(tracks));
+        : (List<Track>.of(originalOrder!)
+          ..insertAll(_nextInOriginalOrder(), tracks));
     return PlaybackQueue(
       tracks: updated,
       currentIndex: currentIndex,
@@ -192,6 +195,18 @@ class PlaybackQueue {
       currentIndex: currentIndex,
       originalOrder: updatedOriginal,
     );
+  }
+
+  /// Where "play next" goes in [originalOrder]: right after the current
+  /// track's own place there, found by uri like [unshuffled] does. At the end
+  /// when the current track isn't in it.
+  int _nextInOriginalOrder() {
+    final Track? track = current;
+    final List<Track> original = originalOrder!;
+    final int at = track == null
+        ? -1
+        : original.indexWhere((Track t) => t.uri == track.uri);
+    return at < 0 ? original.length : at + 1;
   }
 
   /// Removes the upcoming track at [upNextIndex] (0-based into [upNext]),
