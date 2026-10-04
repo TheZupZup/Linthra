@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/dimens.dart';
 import '../../../core/models/playback_source.dart';
 import '../../../core/services/playback_source_label.dart';
+import '../../../shared/layout/desktop_presentation.dart';
 
 /// Title / artist / album block for the now-playing screen.
 ///
@@ -133,7 +134,11 @@ class PlaybackSourceChip extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
-        Icon(_iconFor(source), size: 15, color: color),
+        Icon(
+          _iconFor(source, desktop: usesDesktopPresentation(context)),
+          size: 15,
+          color: color,
+        ),
         const SizedBox(width: AppSpacing.xs + 2),
         Flexible(
           child: Text(
@@ -151,10 +156,11 @@ class PlaybackSourceChip extends StatelessWidget {
     );
   }
 
-  static IconData _iconFor(PlaybackSource source) {
+  static IconData _iconFor(PlaybackSource source, {required bool desktop}) {
     switch (source) {
       case PlaybackSource.localFile:
-        return Icons.smartphone_outlined;
+        // Music on this device: a phone, or on a desktop the computer.
+        return desktop ? Icons.computer_outlined : Icons.smartphone_outlined;
       case PlaybackSource.streamingDirect:
         return Icons.cloud_outlined;
       case PlaybackSource.offlineCache:
