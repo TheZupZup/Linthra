@@ -9,6 +9,7 @@ import '../../shared/widgets/loading_indicator.dart';
 import '../library/widgets/track_tile.dart';
 import '../player/now_playing_after_play.dart';
 import '../player/player_providers.dart';
+import '../player/shuffle_play.dart';
 import 'smart_mix_providers.dart';
 
 /// One smart mix's tracks, with Play / Shuffle and tap-to-play.
@@ -112,9 +113,7 @@ class SmartMixDetailScreen extends ConsumerWidget {
 
   void _shuffle(BuildContext context, WidgetRef ref, List<Track> tracks) {
     if (tracks.isEmpty) return;
-    final controller = ref.read(playbackControllerProvider);
-    controller.setShuffleEnabled(true);
-    controller.playTracks(tracks);
+    playShuffled(ref.read(playbackControllerProvider), tracks);
     showNowPlayingAfterPlay(context);
   }
 
