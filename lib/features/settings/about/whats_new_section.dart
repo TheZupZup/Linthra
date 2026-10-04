@@ -20,11 +20,11 @@ class WhatsNewSection extends StatelessWidget {
   /// handful of concise bullets and updated when cutting a new build; exposed so
   /// the widget test can assert each line renders without duplicating the copy.
   static const List<String> releaseNotes = <String>[
-    'Smart pre-cache now follows the queue you are actually playing, shuffle and repeat included, and never removes songs you downloaded yourself.',
-    'When a track won\'t play, Linthra retries network and server problems, then moves on to the next playable track, within limits, instead of stopping on an error.',
-    'Large Navidrome and Subsonic libraries now sync in batches, keep what they have already saved, and sync again on their own after an interruption.',
-    'Each artist now gets their own Unknown Album instead of one shared by the whole library.',
-    'On Android, FLAC plays on devices without a built-in FLAC decoder, and audio the device cannot decode is caught as unsupported instead of playing in silence.',
+    'Major stability and reliability improvements across playback, downloads, syncing, local libraries, Android, and Linux.',
+    'Playback is more predictable through loading, stopping, reconnecting, repeat, queue changes, and failed tracks, without an older song leaking into the one you picked.',
+    'Downloads and smart pre-cache now handle cancellation, network changes, and account or server switches more safely.',
+    'Playlist, favorites, and library refreshes are more resilient to overlapping edits, sign-outs, unavailable folders, and storage failures.',
+    'F-Droid reproducible builds are hardened for the native FLAC fallback introduced in 0.2.8.',
   ];
 
   @override
