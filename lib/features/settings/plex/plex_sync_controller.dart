@@ -8,6 +8,7 @@ import '../../../core/models/track.dart';
 import '../../../core/repositories/catalog_track_counter.dart';
 import '../../../core/repositories/incremental_catalog_writer.dart';
 import '../../../core/repositories/music_library_repository.dart';
+import '../../../core/repositories/reconciling_catalog_writer.dart';
 import '../../../core/repositories/source_catalog_reader.dart';
 import '../../../core/sources/plex/plex_exception.dart';
 import '../../../core/sources/plex/plex_music_source.dart';
@@ -30,9 +31,10 @@ import 'plex_sync_state.dart';
 ///    them was three full library walks of wasted work.
 ///  - **Writing is batched.** Results are stored through the
 ///    `MusicLibraryRepository` under the stable `plex` source id — the same
-///    catalog the Library screen reads — but in chunks of [_writeBatchSize] via
-///    [IncrementalCatalogWriter] when available, refreshing after the first
-///    chunk so the library fills progressively instead of after one big write.
+///    catalog the Library screen reads — but in chunks of [_writeBatchSize],
+///    upserted over the rows already there through [ReconcilingCatalogWriter]
+///    and pruned once every chunk has landed, so a sync cut off halfway never
+///    leaves the library shorter than it was.
 ///  - **Unchanged libraries are skipped — across restarts.** A content
 ///    signature of the last successful sync is kept, and persisted (see
 ///    [PlexSyncCacheStore]); a re-sync (a re-tapped *Sync* button, a same-server
@@ -92,6 +94,13 @@ class PlexSyncController extends Notifier<PlexSyncState> {
   /// the in-memory value the previous write left behind.
   bool _signatureLoaded = false;
 
+  /// Bumped whenever the synced rows are removed ([removeSyncedCatalog], on a
+  /// disconnect or a switch to another server). A sync that started before
+  /// then must not write: what it fetched belongs to a server that is gone,
+  /// and writing it would put back the rows the user was just told were
+  /// removed.
+  int _catalogGeneration = 0;
+
   /// How many tracks are written per batch. 100 keeps each main-isolate
   /// serialization step small while bounding the number of progress refreshes.
   static const int _writeBatchSize = 100;
@@ -127,6 +136,9 @@ class PlexSyncController extends Notifier<PlexSyncState> {
   /// rebuilds rather than mistaking the freshly-emptied slice for "already in
   /// sync" with a future server's identical content.
   Future<void> removeSyncedCatalog() async {
+    // Before anything is awaited, so a sync between two of its batches sees
+    // it before it writes again.
+    _catalogGeneration++;
     await _writeCatalogInBatches(const <Track>[]);
     _lastSyncedSignature =
         plexLibrarySignature(const <String>[], const <Track>[]);
@@ -161,6 +173,8 @@ class PlexSyncController extends Notifier<PlexSyncState> {
     }
 
     final List<String> sectionKeys = source.session.selectedSectionKeys;
+    final int generation = _catalogGeneration;
+    bool stillCurrent() => _isStillCurrent(generation, source);
     try {
       // 0. Seed the "nothing changed" signature from the durable cache once, so
       //    an unchanged library is recognised even on the first sync after a
@@ -178,6 +192,12 @@ class PlexSyncController extends Notifier<PlexSyncState> {
         state = const PlexSyncState.scanning();
         tracks = await source.fetchTracks();
       }
+      if (!stillCurrent()) {
+        // Disconnected, or switched to another server, while this was
+        // scanning. Its rows were removed; leave them removed.
+        state = const PlexSyncState();
+        return;
+      }
 
       // 2. Skip the whole rebuild when nothing changed since the last sync,
       //    as long as the catalog still holds what that sync wrote. The
@@ -188,6 +208,10 @@ class PlexSyncController extends Notifier<PlexSyncState> {
       final String signature = plexLibrarySignature(sectionKeys, tracks);
       if (signature == _lastSyncedSignature &&
           await _catalogStillHolds(tracks.length)) {
+        if (!stillCurrent()) {
+          state = const PlexSyncState();
+          return;
+        }
         state = PlexSyncState.done(
           trackCount: tracks.length,
           message: _doneMessage(sectionKeys, tracks.length, upToDate: true),
@@ -195,10 +219,14 @@ class PlexSyncController extends Notifier<PlexSyncState> {
         return;
       }
 
-      // 3. Write progressively so the library fills as the sync goes, instead
-      //    of staying blank until one monolithic write finishes.
+      // 3. Write in batches over the rows already there, so the library is
+      //    never blank and never cut short while the sync runs.
       state = PlexSyncState.syncing(trackCount: tracks.length);
-      await _writeCatalogInBatches(tracks);
+      if (!await _writeCatalogInBatches(tracks, stillCurrent: stillCurrent) ||
+          !stillCurrent()) {
+        state = const PlexSyncState();
+        return;
+      }
       _lastSyncedSignature = signature;
       // Remember this outcome so a re-sync of an unchanged library on the next
       // launch can skip the rebuild above. Best-effort: a cache write failure
@@ -289,16 +317,43 @@ class PlexSyncController extends Notifier<PlexSyncState> {
     return true;
   }
 
+  /// Whether a sync that started at [generation] for [source] may still write:
+  /// nothing removed the synced rows since, and the same server is still the
+  /// one connected.
+  bool _isStillCurrent(int generation, PlexMusicSource source) =>
+      generation == _catalogGeneration &&
+      ref.read(plexMusicSourceProvider)?.session.machineIdentifier ==
+          source.session.machineIdentifier;
+
   /// Replaces the Plex slice of the catalog with [tracks] in chunks, refreshing
   /// the Library screen after the first chunk so it isn't blank while the rest
-  /// streams in. Falls back to a single whole-slice write when the repository
-  /// has no [IncrementalCatalogWriter] capability (some test fakes). Other
-  /// sources' rows are untouched (the write is scoped by `sourceId`).
-  Future<void> _writeCatalogInBatches(List<Track> tracks) async {
+  /// streams in. Other sources' rows are untouched (the write is scoped by
+  /// `sourceId`).
+  ///
+  /// Asks [stillCurrent] before each write and stops, returning false, once it
+  /// says no. Returns true when the slice holds exactly [tracks].
+  ///
+  /// The app's repository reconciles ([_reconcileCatalog]). One that can only
+  /// replace in batches, or only replace whole (some test fakes), falls back
+  /// to that.
+  Future<bool> _writeCatalogInBatches(
+    List<Track> tracks, {
+    bool Function()? stillCurrent,
+  }) async {
+    final bool Function() mayWrite = stillCurrent ?? () => true;
     final MusicLibraryRepository repository =
         ref.read(musicLibraryRepositoryProvider);
 
+    if (repository is ReconcilingCatalogWriter) {
+      return _reconcileCatalog(
+        repository as ReconcilingCatalogWriter,
+        tracks,
+        mayWrite,
+      );
+    }
+
     if (repository is! IncrementalCatalogWriter) {
+      if (!mayWrite()) return false;
       await repository.upsertCatalog(
         sourceId: PlexMusicSource.sourceId,
         tracks: tracks,
@@ -306,7 +361,7 @@ class PlexSyncController extends Notifier<PlexSyncState> {
         artists: const <Artist>[],
       );
       await _refreshLibrary();
-      return;
+      return true;
     }
 
     final IncrementalCatalogWriter writer =
@@ -314,16 +369,18 @@ class PlexSyncController extends Notifier<PlexSyncState> {
     final List<List<Track>> batches = _chunk(tracks, _writeBatchSize);
 
     if (batches.isEmpty) {
+      if (!mayWrite()) return false;
       // No tracks — still clear the slice (deselected, or an empty library).
       await writer.beginCatalogReplacement(
         sourceId: PlexMusicSource.sourceId,
         tracks: const <Track>[],
       );
       await _refreshLibrary();
-      return;
+      return true;
     }
 
     for (int i = 0; i < batches.length; i++) {
+      if (!mayWrite()) return false;
       if (i == 0) {
         await writer.beginCatalogReplacement(
           sourceId: PlexMusicSource.sourceId,
@@ -344,6 +401,38 @@ class PlexSyncController extends Notifier<PlexSyncState> {
     if (batches.length > 1) {
       await _refreshLibrary();
     }
+    return true;
+  }
+
+  /// Brings the Plex slice to exactly [tracks] without emptying it first: each
+  /// batch is upserted over the rows already there, and the rows the server no
+  /// longer lists go only once every batch has landed. A sync cut off halfway
+  /// (the window closed, the process killed, a write that failed) leaves the
+  /// old library plus whatever new rows landed, never one cut down to its
+  /// first batch, and the next sync finishes the job. An empty [tracks] (no
+  /// sections selected) clears the slice, as it always has.
+  Future<bool> _reconcileCatalog(
+    ReconcilingCatalogWriter writer,
+    List<Track> tracks,
+    bool Function() mayWrite,
+  ) async {
+    final List<List<Track>> batches = _chunk(tracks, _writeBatchSize);
+    for (int i = 0; i < batches.length; i++) {
+      if (!mayWrite()) return false;
+      await writer.upsertTracks(
+        sourceId: PlexMusicSource.sourceId,
+        tracks: batches[i],
+      );
+      // The first batch is on screen at once, beside the rows still there.
+      if (i == 0) await _refreshLibrary();
+    }
+    if (!mayWrite()) return false;
+    await writer.removeTracksNotIn(
+      sourceId: PlexMusicSource.sourceId,
+      keepUris: <String>{for (final Track track in tracks) track.uri},
+    );
+    await _refreshLibrary();
+    return true;
   }
 
   Future<void> _refreshLibrary() =>
