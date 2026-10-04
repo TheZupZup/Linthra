@@ -17,6 +17,7 @@ import '../../../shared/widgets/context_menu_region.dart';
 import '../../downloads/download_providers.dart';
 import '../../player/favorites_providers.dart';
 import '../../player/now_playing.dart';
+import '../../player/now_playing_after_play.dart';
 import '../../player/player_providers.dart';
 import '../../player/widgets/track_artwork.dart';
 import '../../playlists/playlist_drag.dart';
@@ -221,7 +222,7 @@ class TrackTile extends ConsumerWidget {
           }
           final controller = ref.read(playbackControllerProvider);
           controller.playTracks(tracks, startIndex: index);
-          context.push(AppRoutes.player);
+          showNowPlayingAfterPlay(context);
         },
         onLongPress: (selectable && !selectionActive) ? onSelectStart : null,
       ),

@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/dimens.dart';
-import '../../app/routes.dart';
 import '../../core/models/smart_playlist.dart';
 import '../../core/models/track.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../library/widgets/track_tile.dart';
+import '../player/now_playing_after_play.dart';
 import '../player/player_providers.dart';
 import 'smart_mix_providers.dart';
 
@@ -108,7 +107,7 @@ class SmartMixDetailScreen extends ConsumerWidget {
   void _play(BuildContext context, WidgetRef ref, List<Track> tracks) {
     if (tracks.isEmpty) return;
     ref.read(playbackControllerProvider).playTracks(tracks);
-    context.push(AppRoutes.player);
+    showNowPlayingAfterPlay(context);
   }
 
   void _shuffle(BuildContext context, WidgetRef ref, List<Track> tracks) {
@@ -116,7 +115,7 @@ class SmartMixDetailScreen extends ConsumerWidget {
     final controller = ref.read(playbackControllerProvider);
     controller.setShuffleEnabled(true);
     controller.playTracks(tracks);
-    context.push(AppRoutes.player);
+    showNowPlayingAfterPlay(context);
   }
 
   /// A friendly, mix-specific hint for an empty mix, so the screen explains

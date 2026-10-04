@@ -13,6 +13,7 @@ import '../../shared/layout/pane_layout.dart';
 import '../../shared/widgets/artwork_image.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/loading_indicator.dart';
+import '../player/now_playing_after_play.dart';
 import '../player/player_providers.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
 import 'library_browse_providers.dart';
@@ -275,14 +276,14 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
 
   void _play(BuildContext context, List<Track> tracks) {
     ref.read(playbackControllerProvider).playTracks(tracks);
-    context.push(AppRoutes.player);
+    showNowPlayingAfterPlay(context);
   }
 
   void _shuffle(BuildContext context, List<Track> tracks) {
     final controller = ref.read(playbackControllerProvider);
     controller.setShuffleEnabled(true);
     controller.playTracks(tracks);
-    context.push(AppRoutes.player);
+    showNowPlayingAfterPlay(context);
   }
 }
 

@@ -2,10 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../../app/routes.dart';
 import '../../../core/models/track.dart';
+import '../../player/now_playing_after_play.dart';
 import '../../player/player_providers.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 
@@ -82,11 +81,11 @@ Future<void> runCollectionAction(
   switch (action) {
     case CollectionAction.play:
       unawaited(controller.playTracks(tracks));
-      unawaited(context.push(AppRoutes.player));
+      showNowPlayingAfterPlay(context);
     case CollectionAction.shuffle:
       controller.setShuffleEnabled(true);
       unawaited(controller.playTracks(tracks));
-      unawaited(context.push(AppRoutes.player));
+      showNowPlayingAfterPlay(context);
     case CollectionAction.playNext:
       // One insert for the whole set, in the order it was handed over: it lands
       // after the current track and keeps everything already upcoming behind

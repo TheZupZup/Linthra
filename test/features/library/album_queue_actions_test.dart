@@ -154,6 +154,7 @@ Future<FakePlaybackController> _pump(
   required List<Track> tracks,
   Set<String> unavailableSourceIds = const <String>{},
   String initialLocation = AppRoutes.library,
+  TargetPlatform? platform,
 }) async {
   final FakePlaybackController controller = FakePlaybackController();
   await tester.pumpWidget(
@@ -166,7 +167,10 @@ Future<FakePlaybackController> _pump(
         librarySourcePriorityProvider.overrideWith(_FixedPreference.new),
         unavailableSourceIdsProvider.overrideWithValue(unavailableSourceIds),
       ],
-      child: MaterialApp.router(routerConfig: _router(initialLocation)),
+      child: MaterialApp.router(
+        theme: platform == null ? null : ThemeData(platform: platform),
+        routerConfig: _router(initialLocation),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -219,6 +223,32 @@ void main() {
 
       expect(controller.state.currentTrack?.title, 'Alpha');
       expect(_titles(controller.state.upNext), <String>['Beta', 'Gamma']);
+    });
+
+    testWidgets('opens Now Playing on a phone', (tester) async {
+      await _pump(tester, tracks: _discovery);
+      await _openAlbum(tester, 'Discovery');
+
+      await tester.tap(find.text('Play'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PlayerScreen), findsOneWidget);
+    });
+
+    testWidgets('stays on the album on a desktop', (tester) async {
+      final FakePlaybackController controller = await _pump(
+        tester,
+        tracks: _discovery,
+        platform: TargetPlatform.linux,
+      );
+      await _openAlbum(tester, 'Discovery');
+
+      await tester.tap(find.text('Play'));
+      await tester.pumpAndSettle();
+
+      expect(controller.state.currentTrack?.title, 'Alpha');
+      expect(find.byType(PlayerScreen), findsNothing);
+      expect(find.byType(AlbumDetailScreen), findsOneWidget);
     });
 
     testWidgets('replaces whatever was queued before it', (tester) async {

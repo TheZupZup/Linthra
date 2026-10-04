@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/dimens.dart';
-import '../../app/routes.dart';
 import '../../core/models/playlist.dart';
 import '../../core/models/track.dart';
 import '../../core/services/bulk_track_actions.dart';
@@ -19,6 +17,7 @@ import '../downloads/collection_download_actions.dart';
 import '../library/song_actions.dart';
 import '../player/favorites_providers.dart';
 import '../player/now_playing.dart';
+import '../player/now_playing_after_play.dart';
 import '../player/player_providers.dart';
 import '../player/widgets/album_artwork.dart';
 import '../player/widgets/track_artwork.dart';
@@ -448,7 +447,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   void _play(List<Track> tracks) {
     if (tracks.isEmpty) return;
     ref.read(playbackControllerProvider).playTracks(tracks);
-    context.push(AppRoutes.player);
+    showNowPlayingAfterPlay(context);
   }
 
   void _shuffle(List<Track> tracks) {
@@ -456,12 +455,12 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     final controller = ref.read(playbackControllerProvider);
     controller.setShuffleEnabled(true);
     controller.playTracks(tracks);
-    context.push(AppRoutes.player);
+    showNowPlayingAfterPlay(context);
   }
 
   void _playFrom(List<Track> tracks, int index) {
     ref.read(playbackControllerProvider).playTracks(tracks, startIndex: index);
-    context.push(AppRoutes.player);
+    showNowPlayingAfterPlay(context);
   }
 
   // --- Selection --------------------------------------------------------

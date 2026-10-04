@@ -58,6 +58,39 @@ void main() {
     expect(find.byTooltip('Pause'), findsOneWidget);
   });
 
+  testWidgets('on a desktop, tapping a track plays it and stays in the list',
+      (tester) async {
+    // The bottom bar carries the track there; a window-sized player on every
+    // click would take the user out of the library they are browsing.
+    final controller = FakePlaybackController();
+    final repository = FakeMusicLibraryRepository(
+      tracks: const <Track>[
+        Track(id: '1', title: 'Song One', uri: '/music/song1.mp3'),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          musicLibraryRepositoryProvider.overrideWithValue(repository),
+          playbackControllerProvider.overrideWithValue(controller),
+        ],
+        child: MaterialApp.router(
+          theme: ThemeData(platform: TargetPlatform.linux),
+          routerConfig: _libraryRouter(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Song One'));
+    await tester.pumpAndSettle();
+
+    expect(controller.playedTracks.single.id, '1');
+    expect(find.byType(PlayerScreen), findsNothing);
+    expect(find.text('Song One'), findsOneWidget);
+  });
+
   testWidgets('tapping a track queues the rest of the list as up next', (
     tester,
   ) async {
