@@ -139,8 +139,11 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
       }
 
       final GitHubSponsorStatus status = await _verify(accessToken);
-      if (operation != _operationEpoch ||
-          !await _tokenStillMatches(accessToken)) {
+      if (operation != _operationEpoch) {
+        return _currentStatus;
+      }
+      if (!await _tokenStillMatches(accessToken) ||
+          operation != _operationEpoch) {
         return _currentStatus;
       }
 
@@ -182,8 +185,11 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
       }
 
       final GitHubSponsorStatus status = await _verify(accessToken);
-      if (operation != _operationEpoch ||
-          !await _tokenStillMatches(accessToken)) {
+      if (operation != _operationEpoch) {
+        return _currentStatus;
+      }
+      if (!await _tokenStillMatches(accessToken) ||
+          operation != _operationEpoch) {
         return _currentStatus;
       }
 
