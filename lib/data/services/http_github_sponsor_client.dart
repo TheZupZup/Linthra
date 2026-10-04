@@ -63,13 +63,21 @@ class HttpGitHubSponsorClient implements GitHubSponsorClient {
 
   @override
   Future<String> pollForAccessToken(
-    GitHubDeviceAuthorization authorization,
-  ) async {
+    GitHubDeviceAuthorization authorization, {
+    bool Function()? isCancelled,
+  }) async {
     _requireConfiguration();
     Duration interval = authorization.pollInterval;
 
     while (!authorization.isExpired) {
       await Future<void>.delayed(interval);
+      // A closed sign-in dialog would otherwise keep asking GitHub until the
+      // code expires, up to fifteen minutes per abandoned attempt.
+      if (isCancelled?.call() ?? false) {
+        throw const GitHubSponsorAuthenticationException(
+          'GitHub sign-in was cancelled.',
+        );
+      }
       final http.Response response = await _httpClient.post(
         _accessTokenUri,
         headers: const <String, String>{

@@ -748,6 +748,28 @@ void main() {
       expect(await store.read(), 'old-token');
     });
 
+    test('while waiting for GitHub stops the polling too', () async {
+      // Otherwise every abandoned attempt keeps asking GitHub until its code
+      // expires, and back-and-retry stacks those loops up.
+      final _FakeGitHubSponsorClient client =
+          _FakeGitHubSponsorClient(active: false);
+      final ProviderContainer container = createContainer(client: client);
+      await container.read(githubSponsorControllerProvider.future);
+      final GitHubSponsorController controller =
+          container.read(githubSponsorControllerProvider.notifier);
+
+      final GitHubDeviceAuthorization authorization =
+          await controller.beginAuthorization();
+      client.nextAccessToken = Completer<String>();
+      unawaited(controller.completeAuthorization(authorization));
+      await _waitUntil(() => client.pollCalls >= 1);
+      expect(client.pollCancelled?.call(), isFalse);
+
+      controller.cancelAuthorization();
+
+      expect(client.pollCancelled?.call(), isTrue);
+    });
+
     test('after a failed poll goes back to the earlier connection', () async {
       // Nothing changed: the old token is still the one stored.
       final _FakeGitHubSponsorClient client =
@@ -860,6 +882,36 @@ void main() {
       expect(await store.read(), isNull);
     });
 
+    test('cannot erase the token of a sign-in made while clearing', () async {
+      // Disconnect locks at once and offers Connect GitHub again before the
+      // keyring has finished removing the old token. A sign-in completed in
+      // that window must not have its new token erased by the older clear.
+      final _ControllableGitHubSponsorTokenStore store =
+          _ControllableGitHubSponsorTokenStore('old-token');
+      final ProviderContainer container = createContainer(
+        store: store,
+        client: _FakeGitHubSponsorClient(active: true),
+      );
+      await container.read(githubSponsorControllerProvider.future);
+      final GitHubSponsorController controller =
+          container.read(githubSponsorControllerProvider.notifier);
+
+      final Completer<void> clearing = Completer<void>();
+      store.clearGate = clearing;
+      final Future<void> disconnecting = controller.disconnect();
+      final Future<GitHubSponsorStatus> signingIn = controller
+          .completeAuthorization(await controller.beginAuthorization());
+      await _flushAsyncWork();
+
+      clearing.complete();
+      await disconnecting;
+      final GitHubSponsorStatus status = await signingIn;
+
+      expect(status.access, GitHubSponsorAccess.active);
+      expect(await store.read(), 'new-token');
+      expect(_entitlement(container), SupporterEntitlement.unlocked);
+    });
+
     test('that cannot clear secure storage stays locked and connected',
         () async {
       final _ControllableGitHubSponsorTokenStore store =
@@ -959,6 +1011,9 @@ class _FakeGitHubSponsorClient implements GitHubSponsorClient {
   int pollCalls = 0;
   Completer<String>? nextAccessToken;
 
+  /// What the controller handed the last poll to say it was cancelled.
+  bool Function()? pollCancelled;
+
   @override
   bool get isConfigured => true;
 
@@ -978,9 +1033,11 @@ class _FakeGitHubSponsorClient implements GitHubSponsorClient {
 
   @override
   Future<String> pollForAccessToken(
-    GitHubDeviceAuthorization authorization,
-  ) async {
+    GitHubDeviceAuthorization authorization, {
+    bool Function()? isCancelled,
+  }) async {
     pollCalls++;
+    pollCancelled = isCancelled;
     final Completer<String>? delayed = nextAccessToken;
     if (delayed != null) {
       nextAccessToken = null;

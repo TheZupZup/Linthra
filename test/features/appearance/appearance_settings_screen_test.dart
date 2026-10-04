@@ -510,8 +510,9 @@ class _InactiveGitHubSponsorClient implements GitHubSponsorClient {
 
   @override
   Future<String> pollForAccessToken(
-    GitHubDeviceAuthorization authorization,
-  ) async {
+    GitHubDeviceAuthorization authorization, {
+    bool Function()? isCancelled,
+  }) async {
     return 'new-token';
   }
 

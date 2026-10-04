@@ -36,6 +36,9 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
   /// no token from GitHub yet.
   _PendingAuthorization? _pendingAuthorization;
 
+  /// The last token write or clear, which the next one waits for.
+  Future<void> _storageChanges = Future<void>.value();
+
   @override
   Future<GitHubSponsorStatus> build() async {
     // Riverpod applies a build's result even after a newer operation set the
@@ -167,14 +170,21 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
     state = const AsyncData(GitHubSponsorStatus.checking);
     try {
       final GitHubSponsorClient client = ref.read(githubSponsorClientProvider);
-      final String accessToken = await client.pollForAccessToken(authorization);
+      final String accessToken = await client.pollForAccessToken(
+        authorization,
+        // Closing the dialog, or any newer operation, stops the polling too,
+        // not only the use of its answer.
+        isCancelled: () => operation != _operationEpoch,
+      );
       if (operation != _operationEpoch) {
         return _currentStatus;
       }
 
       // GitHub handed over a token: from here the flow finishes on its own.
       _pendingAuthorization = null;
-      await ref.read(githubSponsorTokenStoreProvider).write(accessToken);
+      await _changeStorage(
+        (GitHubSponsorTokenStore store) => store.write(accessToken),
+      );
       if (operation != _operationEpoch) {
         return _currentStatus;
       }
@@ -271,13 +281,15 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
   ///
   /// Locks before secure storage is cleared, so the palette never stays
   /// unlocked while the token is being removed, or after removing it failed.
+  /// Connect GitHub is offered again at once; a sign-in completed while the
+  /// clear is still running waits for it before storing its own token.
   Future<void> disconnect() async {
     final int operation = _startOperation();
     _pendingAuthorization = null;
     _lastActiveVerificationAt = null;
     state = const AsyncData(GitHubSponsorStatus.signedOut);
     try {
-      await ref.read(githubSponsorTokenStoreProvider).clear();
+      await _changeStorage((GitHubSponsorTokenStore store) => store.clear());
     } on Object {
       if (operation != _operationEpoch) {
         return;
@@ -299,6 +311,25 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
   int _startOperation() {
     _cancelRevalidation();
     return ++_operationEpoch;
+  }
+
+  /// Runs [change] after every write or clear asked for before it.
+  ///
+  /// The epoch drops late results, but it cannot take back a storage call
+  /// already on its way: an older clear landing after a newer sign-in's write
+  /// would erase the token that sign-in just verified.
+  Future<void> _changeStorage(
+    Future<void> Function(GitHubSponsorTokenStore store) change,
+  ) {
+    final GitHubSponsorTokenStore store =
+        ref.read(githubSponsorTokenStoreProvider);
+    final Future<void> result = _storageChanges.then((_) => change(store));
+    // The next change waits for this one whether it worked or not.
+    _storageChanges = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return result;
   }
 
   Future<GitHubSponsorStatus> _verify(String accessToken) async {
