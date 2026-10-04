@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -40,6 +42,7 @@ void main() {
       SupporterEntitlement entitlement = SupporterEntitlement.locked,
       SupportDistribution distribution = SupportDistribution.fdroid,
       List<Override> extraOverrides = const <Override>[],
+      bool settle = true,
     }) async {
       iconStore = InMemoryAppIconVariantStore(initialIcon);
       themeStore = InMemoryCustomThemeStore();
@@ -63,7 +66,11 @@ void main() {
           child: const MaterialApp(home: AppearanceSettingsScreen()),
         ),
       );
-      await tester.pumpAndSettle();
+      if (settle) {
+        await tester.pumpAndSettle();
+      } else {
+        await tester.pump();
+      }
       return container;
     }
 
@@ -218,21 +225,17 @@ void main() {
           find.byKey(const Key('custom-theme-connect-github'));
       await tester.ensureVisible(connect);
       await tester.tap(connect);
-      await tester.pumpAndSettle();
+      // While checking, the card spins an indeterminate progress indicator,
+      // so the screen never settles: wait for the dialog itself instead.
+      await _pumpUntil(tester, () => _userCode.evaluate().isNotEmpty);
 
       expect(find.text('Connect GitHub'), findsWidgets);
-      expect(
-        container.read(githubSponsorControllerProvider).valueOrNull?.access,
-        GitHubSponsorAccess.checking,
-      );
+      expect(_access(container), GitHubSponsorAccess.checking);
 
       await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
-      await tester.pumpAndSettle();
+      await _pumpUntil(tester, () => _userCode.evaluate().isEmpty);
 
-      expect(
-        container.read(githubSponsorControllerProvider).valueOrNull?.access,
-        GitHubSponsorAccess.signedOut,
-      );
+      expect(_access(container), GitHubSponsorAccess.signedOut);
       final FilledButton button = tester.widget<FilledButton>(connect);
       expect(button.onPressed, isNotNull);
     });
@@ -261,26 +264,23 @@ void main() {
           find.byKey(const Key('custom-theme-connect-github'));
       await tester.ensureVisible(connect);
       await tester.tap(connect);
-      await tester.pumpAndSettle();
+      await _pumpUntil(tester, () => _userCode.evaluate().isNotEmpty);
 
       await tester.tap(
         find.byKey(const Key('github-sponsor-open-and-verify')),
       );
-      await tester.pumpAndSettle();
+      // The dialog shows an indeterminate progress bar until GitHub answers.
+      final Finder result =
+          find.byKey(const Key('github-sponsor-dialog-message'));
+      await _pumpUntil(tester, () => result.evaluate().isNotEmpty);
 
-      expect(
-        container.read(githubSponsorControllerProvider).valueOrNull?.access,
-        GitHubSponsorAccess.inactive,
-      );
+      expect(_access(container), GitHubSponsorAccess.inactive);
       expect(await tokenStore.read(), 'new-token');
 
       await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
-      await tester.pumpAndSettle();
+      await _pumpUntil(tester, () => _userCode.evaluate().isEmpty);
 
-      expect(
-        container.read(githubSponsorControllerProvider).valueOrNull?.access,
-        GitHubSponsorAccess.inactive,
-      );
+      expect(_access(container), GitHubSponsorAccess.inactive);
       expect(await tokenStore.read(), 'new-token');
       expect(
         find.byKey(const Key('custom-theme-disconnect-github')),
@@ -288,6 +288,85 @@ void main() {
       );
       expect(
         find.byKey(const Key('custom-theme-refresh-sponsorship')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('leaving before GitHub sends a code does not stay checking',
+        (tester) async {
+      final _HeldGitHubSponsorClient client = _HeldGitHubSponsorClient();
+      final ProviderContainer container = await pump(
+        tester,
+        entitlement: SupporterEntitlement.locked,
+        distribution: SupportDistribution.githubRelease,
+        extraOverrides: <Override>[
+          githubSponsorTokenStoreProvider.overrideWithValue(
+            InMemoryGitHubSponsorTokenStore(),
+          ),
+          githubSponsorClientProvider.overrideWithValue(client),
+        ],
+      );
+
+      final Finder connect =
+          find.byKey(const Key('custom-theme-connect-github'));
+      await tester.ensureVisible(connect);
+      await tester.tap(connect);
+      await _pumpUntil(tester, () => client.deviceCodeRequests > 0);
+      expect(_access(container), GitHubSponsorAccess.checking);
+
+      // The user backs out of the screen while GitHub is still answering.
+      await tester.pumpWidget(const SizedBox());
+      client.deviceCode.complete();
+      await _pumpUntil(
+        tester,
+        () => _access(container) != GitHubSponsorAccess.checking,
+      );
+
+      expect(_access(container), GitHubSponsorAccess.signedOut);
+      expect(_userCode, findsNothing);
+    });
+
+    testWidgets('a saved account still being checked cannot connect again',
+        (tester) async {
+      // The launch check is a check too. Offering Connect GitHub while it
+      // runs would start a second sign-in beside it.
+      final _HeldGitHubSponsorClient client = _HeldGitHubSponsorClient();
+      final ProviderContainer container = await pump(
+        tester,
+        settle: false,
+        entitlement: SupporterEntitlement.locked,
+        distribution: SupportDistribution.githubRelease,
+        extraOverrides: <Override>[
+          githubSponsorTokenStoreProvider.overrideWithValue(
+            InMemoryGitHubSponsorTokenStore('saved-token'),
+          ),
+          githubSponsorClientProvider.overrideWithValue(client),
+        ],
+      );
+      await _pumpUntil(tester, () => client.verifications > 0);
+
+      final Finder connect =
+          find.byKey(const Key('custom-theme-connect-github'));
+      expect(container.read(githubSponsorControllerProvider).isLoading, isTrue);
+      expect(find.text('Checking GitHub…'), findsOneWidget);
+      expect(tester.widget<FilledButton>(connect).onPressed, isNull);
+
+      client.verification.complete(
+        const GitHubSponsorVerification(
+          login: 'music-fan',
+          hasActiveMonthlySponsorship: false,
+        ),
+      );
+      await _pumpUntil(
+        tester,
+        () => _access(container) == GitHubSponsorAccess.inactive,
+      );
+      await tester.pump();
+
+      expect(find.text('Connect GitHub'), findsOneWidget);
+      expect(tester.widget<FilledButton>(connect).onPressed, isNotNull);
+      expect(
+        find.byKey(const Key('custom-theme-disconnect-github')),
         findsOneWidget,
       );
     });
@@ -361,6 +440,48 @@ void main() {
       expect(mark.bars, AppIconVariants.neon.bars);
     });
   });
+}
+
+final Finder _userCode = find.byKey(const Key('github-sponsor-user-code'));
+
+GitHubSponsorAccess? _access(ProviderContainer container) =>
+    container.read(githubSponsorControllerProvider).valueOrNull?.access;
+
+/// Pumps frame by frame until [condition] holds.
+///
+/// For screens that never settle: the Sponsor card and the sign-in dialog
+/// show indeterminate progress indicators while GitHub is checked, and
+/// pumpAndSettle would wait on that animation until it times out.
+Future<void> _pumpUntil(WidgetTester tester, bool Function() condition) async {
+  for (int frame = 0; frame < 50 && !condition(); frame++) {
+    await tester.pump(const Duration(milliseconds: 20));
+  }
+  expect(condition(), isTrue, reason: 'Not reached within 50 frames.');
+}
+
+/// Holds GitHub's answers until the test gives them.
+class _HeldGitHubSponsorClient extends _InactiveGitHubSponsorClient {
+  _HeldGitHubSponsorClient();
+
+  final Completer<void> deviceCode = Completer<void>();
+  int deviceCodeRequests = 0;
+
+  final Completer<GitHubSponsorVerification> verification =
+      Completer<GitHubSponsorVerification>();
+  int verifications = 0;
+
+  @override
+  Future<GitHubDeviceAuthorization> requestDeviceAuthorization() async {
+    deviceCodeRequests++;
+    await deviceCode.future;
+    return super.requestDeviceAuthorization();
+  }
+
+  @override
+  Future<GitHubSponsorVerification> verifySponsorship(String accessToken) {
+    verifications++;
+    return verification.future;
+  }
 }
 
 class _SuccessfulExternalLinkLauncher implements ExternalLinkLauncher {
