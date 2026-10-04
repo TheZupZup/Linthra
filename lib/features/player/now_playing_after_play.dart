@@ -1,9 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/routes.dart';
+import '../../shared/layout/desktop_presentation.dart';
 
 /// Whether starting playback from a list should also open Now Playing.
 ///
@@ -14,21 +15,8 @@ import '../../app/routes.dart';
 /// player on every click took them out of the library and cost a click to get
 /// back, every time. Now Playing stays one click away there: the bottom bar
 /// opens it, and so does its keyboard shortcut.
-///
-/// Decided by the platform the app presents as, the same way the desktop shell
-/// and the playlist drag decide, so a test can ask for either behaviour.
-bool opensNowPlayingOnPlay(BuildContext context) {
-  switch (Theme.of(context).platform) {
-    case TargetPlatform.linux:
-    case TargetPlatform.macOS:
-    case TargetPlatform.windows:
-      return false;
-    case TargetPlatform.android:
-    case TargetPlatform.iOS:
-    case TargetPlatform.fuchsia:
-      return true;
-  }
-}
+bool opensNowPlayingOnPlay(BuildContext context) =>
+    !usesDesktopPresentation(context);
 
 /// Opens Now Playing after playback was started from a list, where the
 /// platform expects that. See [opensNowPlayingOnPlay].
