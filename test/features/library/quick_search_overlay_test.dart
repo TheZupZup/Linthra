@@ -143,6 +143,7 @@ Future<FakePlaybackController> _open(
   List<Track> tracks = _tracks,
   List<Playlist> playlists = const <Playlist>[],
   bool openOverlay = true,
+  TargetPlatform? platform,
 }) async {
   _visited = <String>[];
   final FakePlaybackController playback = FakePlaybackController();
@@ -157,7 +158,10 @@ Future<FakePlaybackController> _open(
         playlistStoreProvider.overrideWithValue(playlistStore),
         playbackControllerProvider.overrideWithValue(playback),
       ],
-      child: MaterialApp.router(routerConfig: _router()),
+      child: MaterialApp.router(
+        theme: platform == null ? null : ThemeData(platform: platform),
+        routerConfig: _router(),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -295,6 +299,20 @@ void main() {
       expect(find.byKey(const Key('quick_search_field')), findsNothing);
       expect(playback.playedTracks.first.title, 'Get Lucky');
       expect(_visited, contains('player'));
+    });
+
+    testWidgets('on a desktop, a song plays without leaving the screen',
+        (tester) async {
+      final FakePlaybackController playback =
+          await _open(tester, platform: TargetPlatform.linux);
+      await _type(tester, 'daft');
+
+      await _press(tester, LogicalKeyboardKey.enter);
+
+      expect(find.byKey(const Key('quick_search_field')), findsNothing);
+      expect(playback.playedTracks.first.title, 'Get Lucky');
+      expect(_visited, isNot(contains('player')));
+      expect(find.text('host screen'), findsOneWidget);
     });
 
     testWidgets('the highlight wraps around the ends of the list',

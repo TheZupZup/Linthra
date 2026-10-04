@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/dimens.dart';
 import '../../../app/routes.dart';
 import '../../../core/models/track.dart';
+import '../../player/now_playing_after_play.dart';
 import '../../player/player_providers.dart';
 import '../../player/widgets/album_artwork.dart';
 import '../quick_search.dart';
@@ -220,13 +221,15 @@ class _QuickSearchOverlayState extends ConsumerState<QuickSearchOverlay> {
   ///
   /// Every kind goes through the route or action the rest of the app already
   /// uses, so a result opens exactly what tapping the same item in the Library
-  /// would: songs play through the playback controller and open Now Playing;
-  /// albums, artists and playlists open their existing detail routes.
+  /// would: songs play through the playback controller (and open Now Playing
+  /// where tapping a Library row does); albums, artists and playlists open
+  /// their existing detail routes.
   void _activate(QuickSearchResult result, QuickSearchResults results) {
     // The router and the controller are read before the pop, because `context`
     // and `ref` belong to a widget that is about to be gone.
     final GoRouter router = GoRouter.of(context);
     final navigator = Navigator.of(context);
+    final bool openNowPlaying = opensNowPlayingOnPlay(context);
 
     switch (result) {
       case QuickSearchSong():
@@ -249,7 +252,7 @@ class _QuickSearchOverlayState extends ConsumerState<QuickSearchOverlay> {
         // it wants may already be the one showing. Pushing a second copy would
         // leave an identical screen behind it and cost the user an extra Back
         // to get home — and one more for every search they run from there.
-        if (router.state.uri.path != AppRoutes.player) {
+        if (openNowPlaying && router.state.uri.path != AppRoutes.player) {
           router.push(AppRoutes.player);
         }
       case QuickSearchAlbum():
