@@ -71,7 +71,7 @@ these paths need no host-filesystem permission.
 
 | Data | Linthra code | API | Flatpak behavior |
 | --- | --- | --- | --- |
-| SQLite catalog (`linthra.sqlite`) | `lib/data/database/linthra_database.dart` | `getApplicationDocumentsDirectory()` | resolves inside the app's private sandbox data tree |
+| SQLite catalog (`linthra.sqlite`) | `lib/data/database/catalog_database_file.dart` | `getApplicationSupportDirectory()` | private app support directory |
 | Remote provider cache (`remote_cache/`) | `lib/data/repositories/file_remote_cache_store.dart` | `getApplicationSupportDirectory()` | private app support directory |
 | Artwork cache (`artwork_cache/`) | `lib/core/services/artwork_disk_cache.dart` | `getApplicationSupportDirectory()` | private app support directory |
 | Offline audio (`offline_audio/`) | `lib/data/repositories/file_system_offline_file_store.dart` | `getApplicationSupportDirectory()` | private app support directory |
@@ -80,6 +80,15 @@ these paths need no host-filesystem permission.
 
 The application never needs to write its database, artwork cache, remote cache,
 offline audio, or credentials into a user's arbitrary host directory.
+
+The catalog used to open in `getApplicationDocumentsDirectory()`, which is not
+app data inside the sandbox. Without an `xdg-documents` grant Flatpak writes no
+`user-dirs.dirs` for the app, so `xdg-user-dir DOCUMENTS` answers `$HOME`, and
+everything in the sandbox's `$HOME` outside `~/.var/app/<app-id>/` is a
+temporary directory: the library was rebuilt from scratch on every launch.
+Outside Flatpak the same call is the user's own Documents folder, or an error
+without `xdg-user-dir`. Android still uses the documents directory, which is
+private to the app there.
 
 A user uninstall with `--delete-data` may remove the app-owned tree, which is
 expected. It must never remove the user's portal-selected music folder itself.
