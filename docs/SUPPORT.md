@@ -64,6 +64,9 @@ The GitHub APK uses GitHub's OAuth device flow:
 6. The palette unlocks only when the sponsorship exists,
    `isOneTimePayment` is `false`, and the selected tier reports
    `monthlyPriceInCents >= 300`.
+7. A successful unlock is revalidated every six hours while Linthra stays
+   running. Resuming the app also catches up when Android suspended that timer.
+   An expired recheck fails closed until GitHub confirms the sponsorship again.
 
 A one-time sponsorship or a recurring sponsorship below $3 USD per month does
 not unlock this benefit. After starting or upgrading a monthly sponsorship, the

@@ -185,9 +185,13 @@ class _GitHubSponsorLockedContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GitHubSponsorStatus? status =
-        ref.watch(githubSponsorControllerProvider).valueOrNull;
-    final bool checking = status?.access == GitHubSponsorAccess.checking;
+    final AsyncValue<GitHubSponsorStatus> sponsor =
+        ref.watch(githubSponsorControllerProvider);
+    final GitHubSponsorStatus? status = sponsor.valueOrNull;
+    // The launch check of a saved account is a check too: offering Connect
+    // GitHub while it runs would start a second sign-in beside it.
+    final bool checking =
+        sponsor.isLoading || status?.access == GitHubSponsorAccess.checking;
     final bool unavailable = status?.access == GitHubSponsorAccess.unavailable;
     final String? message = status?.message;
 
@@ -279,11 +283,19 @@ class _GitHubSponsorLockedContent extends ConsumerWidget {
   }
 
   Future<void> _connectGitHub(BuildContext context, WidgetRef ref) async {
+    // Read up front: the flow has to be cancelled even when this card is
+    // gone by the time GitHub answers, and ref cannot be used after that.
+    final GitHubSponsorController controller =
+        ref.read(githubSponsorControllerProvider.notifier);
     try {
-      final GitHubDeviceAuthorization authorization = await ref
-          .read(githubSponsorControllerProvider.notifier)
-          .beginAuthorization();
-      if (!context.mounted) return;
+      final GitHubDeviceAuthorization authorization =
+          await controller.beginAuthorization();
+      if (!context.mounted) {
+        // The user left before GitHub sent a code, so no dialog will show
+        // it. Without this the card would say Checking GitHub until restart.
+        controller.cancelAuthorization();
+        return;
+      }
 
       final bool? unlocked = await showDialog<bool>(
         context: context,
@@ -292,13 +304,21 @@ class _GitHubSponsorLockedContent extends ConsumerWidget {
           authorization: authorization,
         ),
       );
-      if (unlocked == true && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('GitHub Sponsor verified. Custom colors unlocked.'),
-          ),
-        );
+      if (unlocked != true) {
+        // The controller knows whether the device flow is still pending.
+        // Once GitHub returned a token it is not: the token is stored, and
+        // whatever its verification says (inactive, an error, or still
+        // running) stays, so the user can Check again or Disconnect.
+        // Closing the dialog must not hide a connected account.
+        controller.cancelAuthorization();
+        return;
       }
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('GitHub Sponsor verified. Custom colors unlocked.'),
+        ),
+      );
     } on Object {
       if (!context.mounted) return;
       final String message =

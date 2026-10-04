@@ -24,6 +24,7 @@ import '../features/player/player_providers.dart';
 import '../features/settings/desktop/desktop_window_providers.dart';
 import '../features/settings/jellyfin/jellyfin_availability_controller.dart';
 import '../features/settings/subsonic/subsonic_sync_controller.dart';
+import '../features/support/github_sponsor_controller.dart';
 import '../features/support/support_actions_provider.dart';
 import '../features/support/supporter_entitlement.dart';
 import '../shared/scroll/app_scroll_behavior.dart';
@@ -160,6 +161,19 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       // again. Requirement of #536 — the library restores itself, with no
       // reconnect and no rescan, because nothing was removed to begin with.
       unawaited(ref.read(jellyfinAvailabilityProvider.notifier).refresh());
+
+      // Sponsor access is a short-lived lease, not a forever cache. Android
+      // can suspend Dart timers while the app is backgrounded, so a GitHub
+      // Sponsor build catches up here if its last successful verification is
+      // older than the controller's revalidation interval.
+      if (ref.read(supportDistributionProvider) ==
+          SupportDistribution.githubRelease) {
+        unawaited(
+          ref
+              .read(githubSponsorControllerProvider.notifier)
+              .revalidateIfStale(),
+        );
+      }
     }
     if (state == AppLifecycleState.detached) {
       // Desktop only. On Android `detached` also fires when the Activity is
