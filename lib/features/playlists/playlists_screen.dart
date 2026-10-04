@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../core/models/playlist.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/playlist_repository.dart';
 import '../../data/repositories/playlist_repository_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
+import '../../shared/layout/desktop_presentation.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../../shared/widgets/context_menu_region.dart';
 import '../../shared/widgets/empty_state.dart';
@@ -51,14 +53,32 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen> {
     final AsyncValue<List<Playlist>> playlists = ref.watch(playlistsProvider);
     final bool serverConnected =
         ref.watch(playlistSyncTargetsProvider).isNotEmpty;
+    // A floating button over the list is where a thumb reaches on a phone. A
+    // desktop keeps a page's actions in its header, so New playlist goes there.
+    final bool desktop = usesDesktopPresentation(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Playlists')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _create(context, ref),
-        icon: const Icon(Icons.add),
-        label: const Text('New playlist'),
+      appBar: AppBar(
+        title: const Text('Playlists'),
+        actions: <Widget>[
+          if (desktop)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: AppSpacing.md),
+              child: FilledButton.tonalIcon(
+                onPressed: () => _create(context, ref),
+                icon: const Icon(Icons.add),
+                label: const Text('New playlist'),
+              ),
+            ),
+        ],
       ),
+      floatingActionButton: desktop
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _create(context, ref),
+              icon: const Icon(Icons.add),
+              label: const Text('New playlist'),
+            ),
       // Rows of one playlist each: capped and centred on a wide window rather
       // than stretched edge to edge.
       body: AdaptiveContentWidth(
@@ -94,7 +114,9 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen> {
                 data: (List<Playlist> items) => items.isEmpty
                     ? _PlaylistsEmpty(serverConnected: serverConnected)
                     : ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 88),
+                        // Room for the last row to scroll clear of the
+                        // floating button, where there is one.
+                        padding: EdgeInsets.only(bottom: desktop ? 0 : 88),
                         itemCount: items.length,
                         itemBuilder: (context, index) =>
                             _PlaylistTile(playlist: items[index]),
@@ -298,9 +320,9 @@ class _PlaylistsEmpty extends StatelessWidget {
       icon: Icons.queue_music_outlined,
       title: 'No playlists yet',
       message: serverConnected
-          ? 'Tap “New playlist” to create one. Your server playlists appear '
+          ? 'Create one with “New playlist”. Your server playlists appear '
               'here after you sync your library.'
-          : 'Tap “New playlist” to create one, or sign in to Jellyfin or '
+          : 'Create one with “New playlist”, or sign in to Jellyfin or '
               'Navidrome in Settings to import your server playlists.',
     );
   }
