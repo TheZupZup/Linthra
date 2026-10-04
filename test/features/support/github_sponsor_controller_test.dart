@@ -209,9 +209,8 @@ void main() {
         Completer<GitHubSponsorVerification>();
     client.nextVerification = delayed;
 
-    final Future<GitHubSponsorStatus> refresh = container
-        .read(githubSponsorControllerProvider.notifier)
-        .refresh();
+    final Future<GitHubSponsorStatus> refresh =
+        container.read(githubSponsorControllerProvider.notifier).refresh();
     await _waitUntil(() => client.verificationCalls >= 2);
 
     await container.read(githubSponsorControllerProvider.notifier).disconnect();
@@ -234,8 +233,7 @@ void main() {
     );
   });
 
-  test('cancelling device authorization restores the previous state',
-      () async {
+  test('cancelling device authorization restores the previous state', () async {
     final ProviderContainer container = createContainer();
     await container.read(githubSponsorControllerProvider.future);
 
