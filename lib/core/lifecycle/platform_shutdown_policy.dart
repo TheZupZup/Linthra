@@ -1,5 +1,11 @@
 import '../platform/host_platform.dart';
 
+/// How long ending a desktop app (closing the window, or an explicit quit)
+/// waits for the graceful shutdown before the process ends anyway. The
+/// shutdown normally takes well under a second; this is the bound for one that
+/// does not finish.
+const Duration exitShutdownDeadline = Duration(seconds: 5);
+
 /// Which platforms treat `AppLifecycleState.detached` as "the application is
 /// ending — run the graceful shutdown".
 ///

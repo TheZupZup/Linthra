@@ -43,11 +43,6 @@ final notificationPermissionProvider = Provider<NotificationPermission>((ref) {
   return const PermissionHandlerNotificationPermission();
 });
 
-/// How long closing the desktop window waits for the graceful shutdown before
-/// the app exits anyway. The shutdown normally takes well under a second; this
-/// is the bound for one that does not finish.
-const Duration exitShutdownDeadline = Duration(seconds: 5);
-
 /// Root widget. Linthra follows the device's light/dark setting by default; the
 /// user can pin Light or Dark in Settings → Appearance, and that choice is read
 /// from storage before the first frame (see `readStoredThemeMode`) so launching
