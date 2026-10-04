@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/github_device_authorization.dart';
 import 'package:linthra/core/models/github_sponsor_status.dart';
 import 'package:linthra/core/models/github_sponsor_verification.dart';
+import 'package:linthra/core/repositories/github_sponsor_token_store.dart';
 import 'package:linthra/core/services/github_sponsor_client.dart';
 import 'package:linthra/data/repositories/github_sponsor_token_store_provider.dart';
 import 'package:linthra/data/repositories/in_memory_github_sponsor_token_store.dart';
@@ -233,6 +234,100 @@ void main() {
     );
   });
 
+  test('refresh exits checking if the stored token changes mid-verification',
+      () async {
+    final InMemoryGitHubSponsorTokenStore store =
+        InMemoryGitHubSponsorTokenStore('saved-token');
+    final _FakeGitHubSponsorClient client =
+        _FakeGitHubSponsorClient(active: true);
+    final ProviderContainer container = ProviderContainer(
+      overrides: <Override>[
+        supportDistributionProvider.overrideWithValue(
+          SupportDistribution.githubRelease,
+        ),
+        githubSponsorTokenStoreProvider.overrideWithValue(store),
+        githubSponsorClientProvider.overrideWithValue(client),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(githubSponsorControllerProvider.future);
+    final Completer<GitHubSponsorVerification> delayed =
+        Completer<GitHubSponsorVerification>();
+    client.nextVerification = delayed;
+
+    final Future<GitHubSponsorStatus> refresh =
+        container.read(githubSponsorControllerProvider.notifier).refresh();
+    await _waitUntil(() => client.verificationCalls >= 2);
+
+    await store.write('replacement-token');
+    delayed.complete(
+      const GitHubSponsorVerification(
+        login: 'music-fan',
+        hasActiveMonthlySponsorship: true,
+      ),
+    );
+    final GitHubSponsorStatus status = await refresh;
+
+    expect(status.access, GitHubSponsorAccess.error);
+    expect(status.connected, isTrue);
+    expect(await store.read(), 'replacement-token');
+    expect(
+      container.read(githubSponsorControllerProvider).valueOrNull?.access,
+      GitHubSponsorAccess.error,
+    );
+    expect(
+      container.read(supporterEntitlementProvider),
+      SupporterEntitlement.locked,
+    );
+  });
+
+  test('refresh exits checking if secure storage fails during confirmation',
+      () async {
+    final _ControllableGitHubSponsorTokenStore store =
+        _ControllableGitHubSponsorTokenStore('saved-token');
+    final _FakeGitHubSponsorClient client =
+        _FakeGitHubSponsorClient(active: true);
+    final ProviderContainer container = ProviderContainer(
+      overrides: <Override>[
+        supportDistributionProvider.overrideWithValue(
+          SupportDistribution.githubRelease,
+        ),
+        githubSponsorTokenStoreProvider.overrideWithValue(store),
+        githubSponsorClientProvider.overrideWithValue(client),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(githubSponsorControllerProvider.future);
+    final Completer<GitHubSponsorVerification> delayed =
+        Completer<GitHubSponsorVerification>();
+    client.nextVerification = delayed;
+
+    final Future<GitHubSponsorStatus> refresh =
+        container.read(githubSponsorControllerProvider.notifier).refresh();
+    await _waitUntil(() => client.verificationCalls >= 2);
+
+    store.failReads = true;
+    delayed.complete(
+      const GitHubSponsorVerification(
+        login: 'music-fan',
+        hasActiveMonthlySponsorship: true,
+      ),
+    );
+    final GitHubSponsorStatus status = await refresh;
+
+    expect(status.access, GitHubSponsorAccess.error);
+    expect(status.connected, isFalse);
+    expect(
+      container.read(githubSponsorControllerProvider).valueOrNull?.access,
+      GitHubSponsorAccess.error,
+    );
+    expect(
+      container.read(supporterEntitlementProvider),
+      SupporterEntitlement.locked,
+    );
+  });
   test('cancelling device authorization restores the previous state', () async {
     final ProviderContainer container = createContainer();
     await container.read(githubSponsorControllerProvider.future);
@@ -392,6 +487,31 @@ Future<void> _waitUntil(bool Function() condition) async {
   fail('Condition was not reached before the test timeout.');
 }
 
+class _ControllableGitHubSponsorTokenStore
+    implements GitHubSponsorTokenStore {
+  _ControllableGitHubSponsorTokenStore(this._token);
+
+  String? _token;
+  bool failReads = false;
+
+  @override
+  Future<String?> read() async {
+    if (failReads) {
+      throw const FileSystemException('secure storage unavailable');
+    }
+    return _token;
+  }
+
+  @override
+  Future<void> write(String accessToken) async {
+    _token = accessToken;
+  }
+
+  @override
+  Future<void> clear() async {
+    _token = null;
+  }
+}
 class _FakeGitHubSponsorClient implements GitHubSponsorClient {
   _FakeGitHubSponsorClient({
     required this.active,
