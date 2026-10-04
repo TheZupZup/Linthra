@@ -292,13 +292,18 @@ class _GitHubSponsorLockedContent extends ConsumerWidget {
           authorization: authorization,
         ),
       );
-      if (unlocked == true && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('GitHub Sponsor verified. Custom colors unlocked.'),
-          ),
-        );
+      if (!context.mounted) return;
+      if (unlocked != true) {
+        ref
+            .read(githubSponsorControllerProvider.notifier)
+            .cancelAuthorization();
+        return;
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('GitHub Sponsor verified. Custom colors unlocked.'),
+        ),
+      );
     } on Object {
       if (!context.mounted) return;
       final String message =
