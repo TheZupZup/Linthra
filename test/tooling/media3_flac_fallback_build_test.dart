@@ -144,10 +144,56 @@ void main() {
         '-Wl,--no-undefined',
         '-Wl,--exclude-libs,ALL',
         '-Wl,-z,max-page-size=16384',
+        '-Wl,--build-id=none',
         'FLAC__NO_ASM',
         'FLAC__HAS_OGG=0',
       ]) {
         expect(cmake, contains(flag), reason: flag);
+      }
+    });
+
+    // #703: lld hashes the unstripped library into the GNU build ID, and its
+    // debug info records the NDK's install path and AGP's .cxx/<hash> build
+    // directory. AGP strips the debug info but not the ID, so F-Droid's rebuild
+    // got a different ID than the published APK from the same code.
+    test('links libflacJNI.so without a GNU build ID (F-Droid #703)', () {
+      final String code = cmake.replaceAll(RegExp(r'#.*'), '');
+      final RegExpMatch? link =
+          RegExp(r'target_link_options\(\s*flacJNI\s+PRIVATE([^)]*)\)')
+              .firstMatch(code);
+      expect(link, isNotNull);
+      final List<String> options = link!.group(1)!.trim().split(RegExp(r'\s+'));
+      expect(options, contains('-Wl,--build-id=none'));
+      // Scoped to this target: the NDK toolchain's own --build-id=sha1 comes
+      // first on the link line and this overrides it. Nothing global, and no
+      // second build-id setting anywhere that could win instead.
+      expect(code, isNot(contains('add_link_options')));
+      expect(code, isNot(contains(RegExp(r'CMAKE_\w*LINKER_FLAGS'))));
+      expect(RegExp(r'--build-id').allMatches(code), hasLength(1));
+    });
+
+    test('the built library is checked on every PR, for every ABI', () {
+      final String workflow = _read('.github/workflows/android-debug-apk.yml');
+      final int build = workflow.indexOf('run: flutter build apk --debug');
+      final int check = workflow.indexOf('run: scripts/check_flac_jni_elf.sh '
+          'build/app/outputs/flutter-apk/app-debug.apk');
+      expect(build, isNot(-1));
+      expect(check, greaterThan(build));
+      expect(workflow, contains('pull_request:'));
+
+      final String script = _read('scripts/check_flac_jni_elf.sh');
+      // Its default ABIs are exactly the module's abiFilters.
+      expect(script, contains('abis=(armeabi-v7a arm64-v8a x86_64)'));
+      for (final String property in <String>[
+        'NT_GNU_BUILD_ID',
+        'GNU_RELRO',
+        'BIND_NOW',
+        '16384',
+        'GNU_STACK',
+        'Java_',
+        '__stack_chk_fail',
+      ]) {
+        expect(script, contains(property), reason: property);
       }
     });
 

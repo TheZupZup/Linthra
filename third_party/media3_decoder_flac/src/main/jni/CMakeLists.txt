@@ -119,5 +119,13 @@ if(ANDROID)
     # 16 KB page alignment (required on Android 15+ devices with 16 KB pages).
     # NDK r28+ does this by default; stated explicitly so an older NDK cannot
     # quietly produce 4 KB-aligned segments.
-    -Wl,-z,max-page-size=16384)
+    -Wl,-z,max-page-size=16384
+    # No GNU build ID (#703). The linker hashes the whole unstripped library,
+    # debug info included, and that debug info records where the NDK is
+    # installed and AGP's .cxx/<hash> build directory. AGP then strips the debug
+    # info but the hash stays, so F-Droid's rebuild got a different ID than the
+    # published APK from the same code. Without the note, nothing AGP strips
+    # can change the bytes that ship. This comes after the NDK toolchain's own
+    # --build-id=sha1 on the link line, and the last one wins.
+    -Wl,--build-id=none)
 endif()

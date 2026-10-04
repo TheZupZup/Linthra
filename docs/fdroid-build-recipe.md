@@ -149,6 +149,18 @@ the schema at the tagged commit (§4).
    (`.flutter-version`, `.java-version`, `gradle-wrapper.properties`); keep any
    recipe-side pin in sync with those. A Flutter bump may also require
    reformatting (`dart format`) and regenerating Drift output.
+6. **Native code built from source has no GNU build ID.** `libflacJNI.so` is
+   compiled by the NDK on both sides, so the same source and NDK give the same
+   code, but by default the linker also stamps a build ID hashed over the
+   *unstripped* library. Its debug info records where the NDK is installed and
+   AGP's `.cxx/<hash>` build directory, which differ between GitHub's runner
+   and F-Droid's build server even though the recipe moves the checkout to the
+   same path. AGP strips the debug info and keeps the ID, so v0.2.8's
+   rebuild failed verification on that 20-byte note (#703).
+   `-ffile-prefix-map` covers the checkout path only; the library is linked
+   with `--build-id=none` (see its `CMakeLists.txt`), and
+   `scripts/check_flac_jni_elf.sh` checks the built APK on every PR. Any new
+   CMake/NDK target needs the same.
 
 ## 5. Release / tagging plan
 

@@ -79,9 +79,12 @@ Linthra's own files, listed in `local.files`:
 - `src/main/jni/CMakeLists.txt`: compiles the JNI glue and the vendored
   libFLAC decoder subset into `libflacJNI.so`, with hardening flags
   (`-fwrapv`, stack protector, hidden visibility, full RELRO,
-  `--no-undefined`, 16 KB page alignment) and `-ffile-prefix-map`, so no
-  checkout path ends up in the library (F-Droid's reproducible-build check
-  compares it byte for byte).
+  `--no-undefined`, 16 KB page alignment). F-Droid's reproducible-build check
+  compares the library byte for byte, so `-ffile-prefix-map` keeps the
+  checkout path out of it, and `--build-id=none` keeps out the GNU build ID,
+  a hash of the unstripped library whose debug info records where the NDK and
+  the build directory were (#703).
+  `scripts/check_flac_jni_elf.sh` checks all of this on a built APK.
 - `linthra-consumer-rules.pro`: keeps the classes Media3 finds by reflection,
   so R8 cannot remove the fallback.
 
