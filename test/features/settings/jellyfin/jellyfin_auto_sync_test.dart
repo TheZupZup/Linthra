@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/album.dart';
@@ -341,6 +343,52 @@ void main() {
         jellyfinAccountFingerprint(
           _sessionFor(baseUrl: 'https://other.example.com', userId: 'user-2'),
         ),
+      );
+    });
+
+    test('signing in to another account mid-sync still syncs it', () async {
+      // Before, the second account's auto-sync found the first one still
+      // running and returned; the first then dropped its stale result, and
+      // the new account never synced in that session.
+      final repo = _RecordingRepository();
+      final store = InMemoryJellyfinAutoSyncStore();
+      final auth = FakeJellyfinAuthenticator(session: _sessionFor());
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a'), _audio('b')],
+        },
+      )..itemsGate = Completer<void>();
+      final container = _container(
+        authenticator: auth,
+        repository: repo,
+        autoSyncStore: store,
+        client: client,
+      );
+      container.read(jellyfinSettingsControllerProvider);
+      await _settle();
+
+      // Alice's auto-sync parks on the library fetch.
+      await _signIn(container);
+      await _settle();
+      expect(container.read(jellyfinSyncControllerProvider).isSyncing, isTrue);
+
+      await container.read(jellyfinSettingsControllerProvider.notifier).clear();
+      final JellyfinSession bob = _sessionFor(
+        baseUrl: 'https://other.example.com',
+        userId: 'user-2',
+        userName: 'bob',
+      );
+      auth.session = bob;
+      await _signIn(container, url: 'other.example.com', username: 'bob');
+
+      client.itemsGate!.complete();
+      await _drainAutoSync();
+
+      expect(repo.upsertCount, 1, reason: "only Bob's library is written");
+      expect(await store.read(), jellyfinAccountFingerprint(bob));
+      expect(
+        container.read(jellyfinSyncControllerProvider).status,
+        JellyfinSyncStatus.success,
       );
     });
 

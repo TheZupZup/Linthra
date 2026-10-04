@@ -48,7 +48,21 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   /// Guards against overlapping syncs (an auto-sync racing a manual tap). Set
   /// synchronously before any await so a second concurrent call simply bails,
   /// satisfying "never run two syncs at once" without cancelling the first.
+  ///
+  /// Riverpod keeps this notifier instance across `ref.invalidate` (sign-out
+  /// does that), so the flag can outlive the account it was set for; see
+  /// [_rerunQueued].
   bool _syncing = false;
+
+  /// The account (fingerprint) the running sync belongs to.
+  String? _runningAccount;
+
+  /// Set when a sync is requested for a *different* account while one is still
+  /// running (sign out, then straight into another account). The old run drops
+  /// its result once its fetch returns; this makes the new account's sync run
+  /// right after it instead of being dropped with it.
+  bool _rerunQueued = false;
+  String? _rerunRecordFingerprint;
 
   @override
   JellyfinSyncState build() => const JellyfinSyncState();
@@ -104,8 +118,36 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   Future<void> _runSync({String? recordFingerprint}) async {
     if (_syncing) {
       // A sync is already in flight; never stack a second concurrent one.
+      _queueIfAnotherAccount(recordFingerprint);
       return;
     }
+    _syncing = true;
+    try {
+      String? record = recordFingerprint;
+      do {
+        _rerunQueued = false;
+        await _syncOnce(recordFingerprint: record);
+        record = _rerunRecordFingerprint;
+        _rerunRecordFingerprint = null;
+      } while (_rerunQueued);
+    } finally {
+      _syncing = false;
+      _runningAccount = null;
+    }
+  }
+
+  /// A request that lands while a sync runs is normally covered by that sync.
+  /// Only when the signed-in account is no longer the one being synced does it
+  /// queue a fresh run (the old one drops its result on its own).
+  void _queueIfAnotherAccount(String? recordFingerprint) {
+    final JellyfinMusicSource? source = ref.read(jellyfinMusicSourceProvider);
+    if (source == null) return;
+    if (jellyfinAccountFingerprint(source.session) == _runningAccount) return;
+    _rerunQueued = true;
+    _rerunRecordFingerprint = recordFingerprint;
+  }
+
+  Future<void> _syncOnce({String? recordFingerprint}) async {
     final JellyfinMusicSource? source = ref.read(jellyfinMusicSourceProvider);
     if (source == null) {
       state = const JellyfinSyncState.error(
@@ -114,7 +156,7 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       return;
     }
 
-    _syncing = true;
+    _runningAccount = jellyfinAccountFingerprint(source.session);
     state = const JellyfinSyncState.syncing();
     try {
       // One tolerant pull: tracks (the catalog that matters) plus best-effort
@@ -156,6 +198,13 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       final PlaylistSyncResult playlists = await _refreshPlaylists();
       final FavoritesSyncResult favorites = await _refreshFavorites();
 
+      // Switched account while those ran: this card is the new account's now,
+      // and its own sync (queued behind this one) reports for it.
+      if (!_isStillCurrent(source)) {
+        state = const JellyfinSyncState();
+        return;
+      }
+
       state = JellyfinSyncState.success(
         trackCount: library.tracks.length,
         skippedCount: library.skippedCount,
@@ -184,6 +233,12 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
         }
       }
     } on JellyfinException catch (error) {
+      if (!_isStillCurrent(source)) {
+        // The account this failed for is gone; say nothing on the new one's
+        // card.
+        state = const JellyfinSyncState();
+        return;
+      }
       // A typed failure. Classify it by *probing the live session*, so a
       // library-sync failure on a reachable server (a slow/large listing, a
       // transient error, a partial response) isn't mislabeled "couldn't reach
@@ -202,8 +257,6 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       state = const JellyfinSyncState.error(
         "Something went wrong saving your Jellyfin library. Please try again.",
       );
-    } finally {
-      _syncing = false;
     }
   }
 
